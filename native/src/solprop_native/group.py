@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Mapping, Sequence
+from contextlib import ExitStack
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -302,9 +303,9 @@ class NativeGroupSession:
     ----------
     members : collections.abc.Sequence of solprop_native.backend.NativeBackend
         One constructed backend per member, each built for its problem and holding no
-        state. Once the group is constructed it owns them, each through its member's
-        native session, and closes them with itself; a construction that fails closes
-        the sessions it started.
+        state. Once constructed, the group owns them and closes its member sessions
+        before closing their backends. Failed construction closes the sessions it
+        started and leaves backends and entrance fields with the caller.
     problems : collections.abc.Sequence of solprop.translate.problem.PropagationProblem
         Each member's independently translated problem.
     requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
@@ -341,32 +342,56 @@ class NativeGroupSession:
         ):
             msg = "the native group session takes native backends"
             raise BackendError(msg)
+        if len({id(member) for member in members}) != len(members):
+            raise SessionError("a native group requires distinct member owners")
         refused = refusal(problems, requests, starts)
         if refused is not None:
             msg = f"the native group session does not run {refused}"
             raise BackendError(msg)
+        for member, problem, request in zip(members, problems, requests, strict=True):
+            if member._problem is not problem:  # pyright: ignore[reportPrivateUsage] - preserve the owning session's admission before borrowing
+                raise BackendError(
+                    "the native group's backend was built for another problem"
+                )
+            # Validate request identity before any member is loaded. The temporary
+            # preparation borrows its owner and has no resources of its own.
+            member.prepare(problem, request)
         sessions: list[NativeSession] = []
         try:
             for member, problem, request, start in zip(
                 members, problems, requests, starts, strict=True
             ):
-                sessions.append(NativeSession(problem, request, start, backend=member))
+                # A failed later member leaves the caller's original entrance and
+                # backend available. The group adopts owners only after success.
+                sessions.append(
+                    NativeSession(
+                        problem,
+                        request,
+                        dataclasses.replace(start),
+                        backend=member,
+                        owns=False,
+                    )
+                )
+            self._sessions = tuple(sessions)
+            self._planes = int(np.asarray(requests[0].observation.save_planes).size)
+            self._stop = stop
+            self._ledger = SessionLedger()
+            self._launched = False
+            self._index = 0
+            count = len(self._sessions)
+            self._outcomes: list[Outcome | None] = [None] * count
+            # Each member's pending native batch, acknowledged at its next turn.
+            self._pending: list[Receipt | None] = [None] * count
+            # The member tickets the pending group batch's tickets stand for.
+            self._tickets: dict[int, ExportTicket] = {}
+            self._owners = tuple(members)
         except BaseException:
-            for session in sessions:
-                session.close()
+            with ExitStack() as cleanup:
+                for session in sessions:
+                    cleanup.callback(session.close)
             raise
-        self._sessions = tuple(sessions)
-        self._planes = int(np.asarray(requests[0].observation.save_planes).size)
-        self._stop = stop
-        self._ledger = SessionLedger()
-        self._launched = False
-        self._index = 0
-        count = len(self._sessions)
-        self._outcomes: list[Outcome | None] = [None] * count
-        # Each member's pending native batch, acknowledged at its next turn.
-        self._pending: list[Receipt | None] = [None] * count
-        # The member tickets the pending group batch's tickets stand for.
-        self._tickets: dict[int, ExportTicket] = {}
+        for start in starts:
+            start.take_field()
 
     # -- protocol -------------------------------------------------------------------
 
@@ -563,8 +588,11 @@ class NativeGroupSession:
         """Release every member's session and backend; idempotent."""
         if self._ledger.close():
             self._tickets = {}
-            for session in self._sessions:
-                session.close()
+            with ExitStack() as cleanup:
+                for owner in self._owners:
+                    cleanup.callback(owner.close)
+                for session in self._sessions:
+                    cleanup.callback(session.close)
 
     def __enter__(self) -> "NativeGroupSession":  # noqa: UP037 - runtime type hook
         """Return the group.

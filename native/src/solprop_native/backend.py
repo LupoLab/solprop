@@ -67,7 +67,14 @@ from solprop.backends.populations import (
     axis_row_matrix,
     axis_row_populations,
 )
-from solprop.backends.session import ExecutionOptions, PreparedExecution
+from solprop.backends.protocol import ExecutionBackend
+from solprop.backends.session import (
+    ExecutionOptions,
+    GroupSession,
+    PreparedExecution,
+    Start,
+    check_group,
+)
 from solprop.backends.spatial import (
     FarFieldTables,
     far_field_partials,
@@ -84,6 +91,7 @@ from solprop.exceptions import (
     HostMarchWarning,
 )
 from solprop.grid import RadialGrid, TimeGrid
+from solprop.log import StopFlag
 from solprop.modes.protocol import Mode
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
 from solprop.noise import NoiseRealisation
@@ -2257,6 +2265,62 @@ class NativeBackend(StepDriver[_core.State]):
         from .session import NativePrepared
 
         return NativePrepared(self, problem, request)
+
+    def start_group(
+        self,
+        members: Sequence[ExecutionBackend],
+        problems: Sequence[PropagationProblem],
+        requests: Sequence[RunRequest],
+        starts: Sequence[Start],
+        *,
+        stop: StopFlag | None = None,
+    ) -> GroupSession:
+        """Start the native group, or its explicitly retained transitional adapter.
+
+        Parameters
+        ----------
+        members : collections.abc.Sequence of ExecutionBackend
+            Native owners with this backend first; owned after successful construction.
+        problems : collections.abc.Sequence of PropagationProblem
+            Each member's translated problem.
+        requests : collections.abc.Sequence of RunRequest
+            Each member's fixed-schedule request.
+        starts : collections.abc.Sequence of Start
+            Fresh member entrances.
+        stop : solprop.log.StopFlag or None, optional
+            The cooperative group stop token.
+
+        Returns
+        -------
+        solprop.backends.session.GroupSession
+            The native group when admitted, otherwise native's transitional group.
+
+        Raises
+        ------
+        BackendError
+            If any member belongs to another backend.
+        """
+        from .group import NativeGroupSession, refusal
+
+        check_group(len(members), problems, requests, starts)
+        if members[0] is not self or any(
+            not isinstance(member, NativeBackend) for member in members
+        ):
+            raise BackendError("native group requires its own member owners")
+        refused = refusal(problems, requests, starts)
+        if refused is None:
+            return NativeGroupSession(
+                cast(Sequence[NativeBackend], members),
+                problems,
+                requests,
+                starts,
+                stop=stop,
+            )
+        logger.debug(
+            "the native group session does not run %s; the transitional group runs it",
+            refused,
+        )
+        return super().start_group(members, problems, requests, starts, stop=stop)
 
     def close(self) -> None:
         """Release native plans and views; repeated calls have no effect."""

@@ -27,13 +27,27 @@ stay distinct, and the registry finds the processor baseline out
 by running the package's own pure-Python check by path, without importing the package. This
 selection policy changes no kernel-contract member (ADR-029).
 
-The protocol is drawn at the level of operations on the state, because an `xp`-style abstraction over
+The production selection returns an `ExecutionBackend`: an owner of prepared resources,
+execution metadata and resource accounting. Single runs use
+`owner.prepare(problem, request).start(start, ...)`; groups use
+`owner.start_group(members, problems, requests, starts, ...)`. Each backend chooses its
+own session and group implementation. The shared dispatcher contains no backend-name
+branch and never invokes legacy numerical operations on a new session backend.
+
+`Backend` extends this ownership protocol with the legacy numerical operations used
+by the NumPy reference and transitional native adapters. A Julia execution owner does
+not implement placeholder `set_initial`, `propagate_to`, `observe` or `stats` methods.
+Its session owns the numerical state and returns the events the service loop handles.
+Native's group factory retains its existing native-session admission and transitional
+fallback; that choice belongs to native, alongside its single-session factory.
+
+The legacy protocol is drawn at the level of operations on the state, because an `xp`-style abstraction over
 `numpy`/`jax.numpy`/`cupy` would force every backend to keep the array compiler's structure
 (out-of-place transforms, separate scaling passes, materialised stages, one reduction per
 statistic), and that structure is precisely what a fast backend exists to change.
 
 ```python
-class Backend(Protocol):
+class Backend(ExecutionBackend, Protocol):
     name: str
     max_batch: int  # 1 for backends that step one problem
     reads_transverse_edge: bool  # whether a requested real-space collar can run on it

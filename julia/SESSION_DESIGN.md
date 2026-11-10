@@ -8,7 +8,10 @@ interfaces; implementing agents own only the files in `IMPLEMENTATION.md`.
 The Python boundary uses the existing C-contiguous `(n_modes, n_pol, n_omega)` state.
 Julia owns an equivalent column-major `(n_omega, n_pol * n_modes)` matrix, with
 polarisation varying before mode in the column index. Time/nodal buffers similarly
-use contiguous time rows and explicit component/node column metadata. Conversion
+use `A[t, component + n_components * (node - 1)]`, corresponding to Python's
+`A[node, component, t]`. Every fill of a buffer passed to full-chunk transforms or
+contractions zeros its inactive columns; every scratch cell subsequently read is
+overwritten, including recurrence padding and integration endpoints. Conversion
 happens once at preparation and explicitly at destination export; no kernel changes
 Fourier convention or amplitude normalisation.
 
@@ -21,8 +24,9 @@ The transform agent owns its implementation and these launcher entry points:
 - `oncpu(execution)`, `upload(execution, array)` and
   `dzeros(execution, element_type, dimensions...)` prepare owned storage.
 
-These retain the experiment's useful scalar-kernel shape. CPU execution is synchronous
-and obeys the requested thread budget. Kernels capture only concrete arrays/scalars;
+These retain the experiment's useful scalar-kernel shape. CPU execution is synchronous:
+every launched task finishes before return. The requested task budget is an upper bound
+across scalar loops, FFTs and BLAS scheduling. Kernels capture only concrete arrays/scalars;
 no mutable process-wide engine, arbitrary scratch dictionaries, FTZ or blanket fast
 math. Work buffers and transform plans are allocated at preparation. Reductions take
 explicit scratch owned by their caller. Vendor tuning is deferred to measurements.
@@ -54,7 +58,8 @@ Production callers use an execution-owner protocol: name/request, prepare, metad
 memory ledger, close/closed, timing probe, memory admission and history-export
 admission. The existing legacy operation protocol remains for its current adapters;
 Julia does not implement placeholder stepping/observation methods. Group construction
-is an explicit backend capability. Julia owns fixed-schedule member marching and
+uses the owner's `start_group(members, problems, requests, starts, stop=...)` capability.
+Julia owns fixed-schedule member marching and
 refuses incompatible effective precision, wide arithmetic, setup or layout before
 consuming starts. Shared dispatch has no Julia-name branch.
 

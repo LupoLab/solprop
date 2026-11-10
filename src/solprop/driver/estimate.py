@@ -18,7 +18,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
-from solprop.backends.protocol import Backend
+from solprop.backends.protocol import ExecutionBackend
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.driver.run import field_retention
@@ -102,7 +102,7 @@ class RunEstimate:
 
 
 def _timed_step(
-    backend: Backend, problem: PropagationProblem, request: RunRequest
+    backend: ExecutionBackend, problem: PropagationProblem, request: RunRequest
 ) -> tuple[Callable[[], object], int]:
     """Load a run's entrance and return the step to time, and its evaluations.
 
@@ -112,7 +112,7 @@ def _timed_step(
 
     Parameters
     ----------
-    backend : solprop.backends.protocol.Backend
+    backend : solprop.backends.protocol.ExecutionBackend
         The constructed backend, holding no state yet; closed by the caller.
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.

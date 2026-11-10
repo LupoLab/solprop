@@ -1069,7 +1069,7 @@ class BackendRecord:
         Parameters
         ----------
         metadata : collections.abc.Mapping
-            What :meth:`solprop.backends.protocol.Backend.metadata` returned.
+            What :meth:`solprop.backends.protocol.ExecutionBackend.metadata` returned.
             ``backend`` and ``propagator_mode`` are named fields here; everything else
             becomes `settings`.
 

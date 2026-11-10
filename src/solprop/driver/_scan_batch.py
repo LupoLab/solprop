@@ -24,7 +24,7 @@ from tempfile import TemporaryDirectory
 from solprop.backends import select
 from solprop.backends.events import GroupBatch, ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
-from solprop.backends.protocol import Backend
+from solprop.backends.protocol import ExecutionBackend
 from solprop.backends.session import GroupSession, Start
 from solprop.backends.sessions import start_group
 from solprop.driver._scan_run import (
@@ -60,7 +60,7 @@ _CONSUMER = ExportRecipe(power=True, optics=False)
 """The field a capture stores: output amplitudes in the internal FFT convention."""
 
 
-def _construct(simulation: Simulation, cleanup: ExitStack) -> Backend:
+def _construct(simulation: Simulation, cleanup: ExitStack) -> ExecutionBackend:
     """Construct a member's selected backend with its cleanup registered.
 
     Parameters
@@ -72,7 +72,7 @@ def _construct(simulation: Simulation, cleanup: ExitStack) -> Backend:
 
     Returns
     -------
-    solprop.backends.protocol.Backend
+    solprop.backends.protocol.ExecutionBackend
         The backend, holding the member's parameter tables and no state yet.
     """
     owner = select(

@@ -18,41 +18,37 @@ inherited driver (:class:`solprop.backends.driver_session.DriverSession`) for wh
 refuses by name, the reason logged at debug level; any other driver's opens the
 transitional one.
 
-:func:`start_group` is the door for a group of compatible members (SEP 47 section
-6.7): native CPU members run in the native group session
-(``solprop_native.group.NativeGroupSession``, one native session per member)
-whenever it admits the group; any other group runs in the transitional group over the
-lockstep runners
-(:class:`solprop.backends.driver_session.DriverGroupSession`), the reference's and the
-native groups the native group refuses by name (``solprop_native.group.refusal``).
+Groups use the same ownership boundary: :func:`start_group` validates the common
+inputs and delegates to the first member's group factory. Each backend selects its
+own implementation and refuses unsupported groups before consuming their starts.
 """
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
-from solprop.backends.driver_session import (
-    AttemptListener,
-    DriverGroupSession,
+from solprop.backends.driver_session import AttemptListener
+from solprop.backends.session import (
+    GroupSession,
+    RunSession,
+    SessionError,
+    Start,
+    check_group,
 )
-from solprop.backends.session import GroupSession, RunSession, Start, check_group
 from solprop.log import StopFlag
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 if TYPE_CHECKING:
     # The scripted drivers of the test suite stand in for a backend.
-    from solprop.backends.protocol import Backend
+    from solprop.backends.protocol import ExecutionBackend
 
 __all__ = ["start_group", "start_session"]
 
-logger = logging.getLogger(__name__)
-
 
 def start_session(  # noqa: PLR0913 - the session context
-    backend: Backend,
+    backend: ExecutionBackend,
     problem: PropagationProblem,
     request: RunRequest,
     start: Start,
@@ -66,7 +62,7 @@ def start_session(  # noqa: PLR0913 - the session context
 
     Parameters
     ----------
-    backend : solprop.backends.protocol.Backend
+    backend : solprop.backends.protocol.ExecutionBackend
         The backend, constructed for `problem`. A backend reused from an earlier
         run is loaded again from `start`, which restores everything a march reads.
     problem : solprop.translate.problem.PropagationProblem
@@ -101,7 +97,7 @@ def start_session(  # noqa: PLR0913 - the session context
 
 
 def start_group(
-    members: Sequence[Backend],
+    members: Sequence[ExecutionBackend],
     problems: Sequence[PropagationProblem],
     requests: Sequence[RunRequest],
     starts: Sequence[Start],
@@ -112,7 +108,7 @@ def start_group(
 
     Parameters
     ----------
-    members : collections.abc.Sequence of solprop.backends.protocol.Backend
+    members : collections.abc.Sequence of solprop.backends.protocol.ExecutionBackend
         One constructed backend per member, all of one backend; the group owns them
         once constructed.
     problems : collections.abc.Sequence of solprop.translate.problem.PropagationProblem
@@ -137,21 +133,8 @@ def start_group(
         entrance.
     """
     check_group(len(members), problems, requests, starts)
-    if members[0].name == "native":
-        # The native package has its own strict type gate.
-        from solprop_native.group import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-            NativeGroupSession,
-            refusal,
-        )
-
-        refused = refusal(problems, requests, starts)
-        if refused is None:
-            return cast(
-                GroupSession,
-                NativeGroupSession(members, problems, requests, starts, stop=stop),  # pyright: ignore[reportArgumentType] - native members, checked there
-            )
-        logger.debug(
-            "the native group session does not run %s; the transitional group runs it",
-            refused,
-        )
-    return DriverGroupSession(members, problems, requests, starts, stop=stop)
+    if len({id(member) for member in members}) != len(members):
+        raise SessionError("a session group requires distinct member owners")
+    if any(member.name != members[0].name for member in members):
+        raise SessionError("a session group refuses mixed backends")
+    return members[0].start_group(members, problems, requests, starts, stop=stop)

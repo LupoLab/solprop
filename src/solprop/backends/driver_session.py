@@ -1326,7 +1326,8 @@ class DriverPrepared:
         Returns
         -------
         collections.abc.Mapping
-            The driver's own (:meth:`solprop.backends.protocol.Backend.metadata`).
+            The driver's own
+            (:meth:`solprop.backends.protocol.ExecutionBackend.metadata`).
         """
         return self._driver.metadata()
 
@@ -1435,10 +1436,17 @@ class DriverGroupSession:
 
         count = len(members)
         check_group(count, problems, requests, starts)
+        if len({id(member) for member in members}) != count:
+            raise SessionError("a lockstep group requires distinct member owners")
+        for member, problem, request in zip(members, problems, requests, strict=True):
+            # Admission precedes every state load, just as for a single session.
+            member.prepare(problem, request)
         observation = requests[0].observation
         for member, start in zip(members, starts, strict=True):
+            # Loading owns its copy. Keep the caller's entrance available until the
+            # runner has admitted every schedule, tableau, layout and statistic.
             member.set_initial(
-                np.asarray(start.take_field()),
+                np.asarray(start.field),
                 start.noise,
                 z=float(start.z),
                 resume=start.resume,
@@ -1463,6 +1471,8 @@ class DriverGroupSession:
         self._broken = False
         # Each member's attempts drained since its previous event and not yet delivered.
         self._drained: dict[int, tuple[BackendHistory, StepStats]] = {}
+        for start in starts:
+            start.take_field()
 
     # -- protocol -------------------------------------------------------------------
 

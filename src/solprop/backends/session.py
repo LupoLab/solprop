@@ -326,8 +326,8 @@ def check_group(
     Raises
     ------
     SessionError
-        If the sequences differ in length or are empty, or if a start is not a fresh
-        entrance whose launch plane is owed.
+        If the sequences differ in length or are empty, entrances alias, or a start
+        has no field or is not a fresh entrance whose launch plane is owed.
     """
     if count == 0 or not count == len(problems) == len(requests) == len(starts):
         msg = (
@@ -336,7 +336,11 @@ def check_group(
             f"requests and {len(starts)} starts"
         )
         raise SessionError(msg)
+    if len({id(start) for start in starts}) != count:
+        raise SessionError("a group requires a distinct entrance for each member")
     for start in starts:
+        if start.field is None:
+            raise SessionError("a group cannot reuse an entrance whose field was taken")
         fresh = start.march is None and start.monitor is None
         if not fresh or start.plane_index or not start.plane_pending:
             msg = (
@@ -963,9 +967,9 @@ class PreparedExecution(Protocol):
 class SessionBackend(Protocol):
     """A backend that prepares executions (SEP 47 section 6.1).
 
-    Every :class:`~solprop.backends.protocol.Backend` is one: it is built for a problem
-    and a request (:func:`solprop.backends.registry.select`), and ``prepare`` binds the
-    problem and the request one run serves.
+    Every :class:`~solprop.backends.protocol.ExecutionBackend` is one: it is built for
+    a problem and a request (:func:`solprop.backends.registry.select`). Its ``prepare``
+    binds the problem and the request one run serves.
     """
 
     name: str

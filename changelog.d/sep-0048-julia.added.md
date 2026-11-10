@@ -6,3 +6,9 @@ qualification remain in progress on the implementation branch.
 Add owned `SimulationSettings.backend_options`, forwarded through execution options
 and spawned workers without changing scientific hashes. Backends refuse unsupported
 option keys before workspace construction.
+
+Backend selection now exposes session ownership independently of the legacy numerical
+operation surface. Single runs and fixed-schedule groups use their backend's own
+factories, so the optional Julia adapter can keep all numerical marching in Julia.
+Failed group construction preserves entrance fields and caller-owned backends for
+retry ([#623](https://github.com/LupoLab/solprop/issues/623)).

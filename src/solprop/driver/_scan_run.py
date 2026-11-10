@@ -22,7 +22,7 @@ import numpy as np
 
 from solprop.backends import select
 from solprop.backends.events import ObservationReady, Terminal
-from solprop.backends.protocol import Backend
+from solprop.backends.protocol import ExecutionBackend
 from solprop.backends.registry import _device_build
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -96,7 +96,7 @@ class _Job:
 
 
 def launch_statistics(
-    backend: Backend, problem: PropagationProblem
+    backend: ExecutionBackend, problem: PropagationProblem
 ) -> Mapping[str, np.ndarray]:
     """Load a probed backend at its problem's entrance and return the launch statistics.
 
@@ -108,7 +108,7 @@ def launch_statistics(
 
     Parameters
     ----------
-    backend : solprop.backends.protocol.Backend
+    backend : solprop.backends.protocol.ExecutionBackend
         The constructed backend.
     problem : solprop.translate.problem.PropagationProblem
         Its problem.

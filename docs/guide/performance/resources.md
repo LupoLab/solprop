@@ -33,7 +33,7 @@ error. Under Slurm, `sacct` reports such a job as `OUT_OF_MEMORY`.
 
 To see the size first, {py:meth}`~solprop.driver.simulation.Simulation.estimate` builds
 the backend and reports what it holds; a backend's
-{py:meth}`~solprop.backends.protocol.Backend.memory_ledger` names every buffer, so you
+{py:meth}`~solprop.backends.protocol.ExecutionBackend.memory_ledger` names every buffer, so you
 can see which one to shrink: fewer channels or nodes for the maps and the reference, a
 narrower frequency window for all of them. Nothing is ever approximated to fit.
 {py:meth}`~solprop.driver.simulation.Simulation.output_bytes` gives the output's size alone,

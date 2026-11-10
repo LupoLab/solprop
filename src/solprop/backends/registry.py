@@ -29,7 +29,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Final, cast
 
-from solprop.backends.protocol import Backend, BatchBackend
+from solprop.backends.protocol import Backend, BatchBackend, ExecutionBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
@@ -411,7 +411,7 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
     profiles: Mapping[str, ZProfile] | None = None,
     tdse_binding: TDSEBinding | None = None,
     options: ExecutionOptions | None = None,
-) -> Backend:
+) -> ExecutionBackend:
     """Construct the named backend for a validated problem and its run's request.
 
     The backend receives the request where it is built (SEP 47 section 5.2): it
@@ -446,7 +446,7 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
 
     Returns
     -------
-    Backend
+    ExecutionBackend
         The constructed backend.
 
     Raises
@@ -610,7 +610,7 @@ def _construct(  # noqa: PLR0913 - as select
     profiles: Mapping[str, ZProfile] | None,
     tdse_binding: TDSEBinding | None = None,
     options: ExecutionOptions | None = None,
-) -> Backend:
+) -> ExecutionBackend:
     """Import and build the named backend, whose requirements are already met.
 
     Parameters
@@ -634,7 +634,7 @@ def _construct(  # noqa: PLR0913 - as select
 
     Returns
     -------
-    Backend
+    ExecutionBackend
         The constructed backend.
 
     Raises
@@ -678,7 +678,7 @@ def _construct(  # noqa: PLR0913 - as select
         # The optional package has its own strict type gate; it is deliberately absent
         # from this repository's static-analysis source tree.
         return cast(
-            Backend,
+            ExecutionBackend,
             NativeBackend(
                 problem,
                 request,

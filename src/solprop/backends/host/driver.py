@@ -41,14 +41,22 @@ from solprop._interrupts import committing, poll
 from solprop.backends import rk_core
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.protocol import (
+    Backend,
     BackendHistory,
+    ExecutionBackend,
     Observation,
     StepStats,
     StepSummary,
     TimingProbe,
 )
 from solprop.backends.rk_core import rk_policy
-from solprop.backends.session import ExecutionOptions, PreparedExecution, Start
+from solprop.backends.session import (
+    ExecutionOptions,
+    GroupSession,
+    PreparedExecution,
+    Start,
+    check_group,
+)
 from solprop.exceptions import BackendError, BoundaryError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter, StopFlag
@@ -960,6 +968,56 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         )
 
         return DriverPrepared(self, problem, request, session=HostSession)
+
+    def start_group(
+        self,
+        members: Sequence[ExecutionBackend],
+        problems: Sequence[PropagationProblem],
+        requests: Sequence[RunRequest],
+        starts: Sequence[Start],
+        *,
+        stop: StopFlag | None = None,
+    ) -> GroupSession:
+        """Start compatible legacy owners through their lockstep group adapter.
+
+        Parameters
+        ----------
+        members : collections.abc.Sequence of ExecutionBackend
+            Owners with this backend first. The completed group takes ownership.
+        problems : collections.abc.Sequence of PropagationProblem
+            Each member's translated problem.
+        requests : collections.abc.Sequence of RunRequest
+            Each member's fixed-schedule request.
+        starts : collections.abc.Sequence of Start
+            Fresh entrance states, consumed by the constructed group.
+        stop : solprop.log.StopFlag or None, optional
+            The cooperative group stop token.
+
+        Returns
+        -------
+        solprop.backends.session.GroupSession
+            The lockstep group for these legacy owners.
+
+        Raises
+        ------
+        BackendError
+            If members do not belong to this legacy backend.
+        """
+        from solprop.backends.driver_session import (  # noqa: PLC0415 - cycle
+            DriverGroupSession,
+        )
+
+        check_group(len(members), problems, requests, starts)
+        if len({id(member) for member in members}) != len(members):
+            raise BackendError(f"{self.name} group requires distinct member owners")
+        if members[0] is not self or any(
+            not isinstance(member, HostDriver) or member.name != self.name
+            for member in members
+        ):
+            raise BackendError(f"{self.name} group requires its own member owners")
+        return DriverGroupSession(
+            cast(Sequence[Backend], members), problems, requests, starts, stop=stop
+        )
 
     @property
     def request(self) -> RunRequest:

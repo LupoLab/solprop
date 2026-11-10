@@ -5,8 +5,9 @@
 """Byte counts and sizes the backends share for their memory ledgers.
 
 A backend names every buffer it holds in
-:meth:`~solprop.backends.protocol.Backend.memory_ledger`. ``numpy_ref``'s ledger takes
-its rows from :func:`reference_base_memory` and :func:`adams_memory`. The native
+:meth:`~solprop.backends.protocol.ExecutionBackend.memory_ledger`.
+``numpy_ref``'s ledger takes its rows from :func:`reference_base_memory` and
+:func:`adams_memory`. The native
 adapter decides its low-storage registers and z-table slots here too.
 """
 

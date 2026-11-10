@@ -22,8 +22,9 @@ SEP 47's contract milestone is merged at `2e2490c2`. The completed Part B head,
 Its actual interfaces have been read: the descriptor/request split and generic
 `Backend.prepare(problem, request).start(...)` are present. `assemble` returns
 `Translation(problem, request)`, validation is `validate_run`, and preparation checks
-`foreign_request`. Group preparation and the fixed registry still need generic Julia
-integration; no new backend-name branch belongs in the service/session dispatcher.
+`foreign_request`. Group construction now dispatches through an execution owner's factory, independently
+of legacy numerical operations. The Julia owner and registry entry remain to be added;
+no new backend-name branch belongs in the service/session dispatcher.
 The current whole-package type check reports 93 errors in 23 files identical to that
 dependency head; no Julia file is among them. Track and integrate #607's CI corrections
 before qualification; do not suppress those errors or duplicate its agent's fixes.
@@ -43,7 +44,7 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Numerical transform agent | `julia/src/execution.jl`, `transforms.jl`, `operators.jl`, `tables.jl`; corresponding new Julia tests | CPU execution, transforms and represented operators; separate worktree |
+| Numerical transform agent | `julia/src/execution.jl`, `transforms.jl`, `operators.jl`, `tables.jl`; corresponding tests; dependency declarations/generated environments and module imports | CPU execution, transforms and represented operators; separate worktree |
 | Numerical response agent | `julia/src/responses.jl`, `raman.jl`, `plasma.jl`; corresponding new Julia tests | Kerr, Raman and plasma kernels; separate worktree |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
 | Independent reviewer | Read-only reviews and numerical probes | Reviews each implementation package and shared interfaces |
@@ -121,7 +122,8 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
 
 ## Next actions
 
-1. Integrate owned execution options and their recipe metadata after independent review.
+1. Owned execution options and recipe metadata are integrated at `d1feaa15`.
+   Integrate the independently reviewed execution-owner/group factory milestone.
 2. Implement and review CPU transforms/operators and response kernels in parallel;
    the shared boundaries are recorded in `SESSION_DESIGN.md`.
 3. Build the complete Julia-owned session against SEP 47 Part B and integrate its CI
@@ -251,3 +253,15 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   ruff, formatting, changed-file spelling and diff checks pass. SEP consistency passes
   349 tests with three expected process-SEP skips; the incremental Sphinx build passes.
   This does not clear the separately recorded whole-package dependency failures.
+
+- Owned backend options at `d1feaa15` passed independent review, 483 targeted tests,
+  targeted typing and formatting. Scientific hashes and recipe/spawn transport retain
+  their intended separation; unsupported option keys refuse before workspace allocation.
+- Execution-owner and transactional group construction passed independent review and
+  170 targeted session/group/preparation/frozen-interface tests at one native thread,
+  with no skips. Targeted Python and native adapter typing pass. Issue #623's regressions
+  preserve entrance fields and caller-owned backends on failed construction, including
+  a second native child allocation failure followed by a successful retry.
+- The historical Linux packaged runtime job at `a01efd1f` completed with 273 passed,
+  23 failed and zero skipped tests. Logs and XML are retained; remaining runtime
+  investigation is deferred as directed. No additional runtime job was submitted.

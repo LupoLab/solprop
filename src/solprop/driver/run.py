@@ -39,7 +39,12 @@ import numpy as np
 from solprop._host import RunClock, machine, usage
 from solprop._interrupts import committing, handled
 from solprop.backends.populations import axis_refusal
-from solprop.backends.protocol import Backend, BackendHistory, Observation
+from solprop.backends.protocol import (
+    Backend,
+    BackendHistory,
+    ExecutionBackend,
+    Observation,
+)
 from solprop.backends.registry import statistics_refusal
 from solprop.backends.session import RunSession, SessionState, Start
 from solprop.driver.summary import run_summary
@@ -319,7 +324,7 @@ class SessionFacts:
 @handled()  # SIGTERM and Ctrl-C stop a run between its commits
 def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     problem: PropagationProblem,
-    backend: Backend,
+    backend: ExecutionBackend,
     output: Output,
     *,
     start: Start,
@@ -360,11 +365,11 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
-    backend : solprop.backends.protocol.Backend
+    backend : solprop.backends.protocol.ExecutionBackend
         The backend stepping it, constructed for `problem` and its run's request
-        (:attr:`~solprop.backends.protocol.Backend.request`), whose save planes are
-        the itinerary; the run's own request is that one with this run's start,
-        retention, statistics, monitor and history
+        (:attr:`~solprop.backends.protocol.ExecutionBackend.request`), whose save
+        planes are the itinerary; the run's own request is that one with this run's
+        start, retention, statistics, monitor and history
         (:meth:`~solprop.translate.run_request.RunRequest.for_run`). The run loads
         `start` into it and leaves it open.
     output : solprop.output.schema.Output
@@ -967,7 +972,7 @@ def _earlier_execution(
 def _open_run(
     output: Output,
     metadata: RunMetadata,
-    backend: Backend | SessionFacts,
+    backend: ExecutionBackend | SessionFacts,
     binding: TDSEBinding | None,
 ) -> CheckpointOutput | None:
     """Attach actual runtime facts outside the scientific resume identity.
@@ -998,7 +1003,7 @@ def _open_run(
 def open_run_record(
     output: Output,
     metadata: RunMetadata,
-    backend: Backend | SessionFacts,
+    backend: ExecutionBackend | SessionFacts,
     binding: TDSEBinding | None,
 ) -> None:
     """Open an output with the run's record and execution facts, and save nothing.

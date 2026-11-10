@@ -960,6 +960,16 @@ DRIVER_SURFACE = {
         "request: solprop.translate.run_request.RunRequest) -> "
         "solprop.backends.session.PreparedExecution"
     ),
+    "start_group": (
+        "(self, members: collections.abc.Sequence["
+        "solprop.backends.protocol.ExecutionBackend], "
+        "problems: collections.abc.Sequence["
+        "solprop.translate.problem.PropagationProblem], "
+        "requests: collections.abc.Sequence[solprop.translate.run_request.RunRequest], "
+        "starts: collections.abc.Sequence[solprop.backends.session.Start], *, "
+        "stop: solprop.log.StopFlag | None = None) -> "
+        "solprop.backends.session.GroupSession"
+    ),
     "available_device_memory": "(self) -> int | None",
     # A subclass's and the shared marches' bookkeeping.
     "_axis_row_populations": (

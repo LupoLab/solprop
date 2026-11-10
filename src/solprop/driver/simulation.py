@@ -48,7 +48,7 @@ import solprop.driver.tdse as tdse_runtime
 from solprop._display import Displayed, engineering, line, summarise
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
-from solprop.backends.protocol import Backend, _all_finite
+from solprop.backends.protocol import ExecutionBackend, _all_finite
 from solprop.backends.registry import resolve_name, select
 from solprop.backends.session import ExecutionOptions, Start, positive_count
 from solprop.boundaries import (
@@ -3726,7 +3726,7 @@ class Simulation(Displayed):
         tdse_archive: TDSEArchive | None = None,
         snapshots: SnapshotController | None = None,
         stop: StopFlag | None = None,
-        kept: Backend | None = None,
+        kept: ExecutionBackend | None = None,
     ) -> Output:
         """Execute the run, on a new backend or on one a caller keeps between runs.
 
@@ -3746,7 +3746,7 @@ class Simulation(Displayed):
             As for :meth:`run`.
         stop : object or None, optional
             As for :meth:`run`.
-        kept : solprop.backends.protocol.Backend or None, optional
+        kept : solprop.backends.protocol.ExecutionBackend or None, optional
             A backend built for this problem but for its input, which is loaded and
             left open for the caller; ``None`` constructs one and closes it. It serves
             a fresh run only, with no TDSE response.
@@ -3808,7 +3808,7 @@ class Simulation(Displayed):
                     "snapshots require the archive referenced by "
                     "the resumed optical file"
                 )
-            backend: Backend | None = None
+            backend: ExecutionBackend | None = None
             binding: TDSEBinding | None = None
             archive: TDSEArchiveWriter | None = None
             failure: BaseException | None = None
@@ -4044,7 +4044,7 @@ class Simulation(Displayed):
         problem: PropagationProblem,
         handler: Output,
         metadata: RunMetadata,
-        backend: Backend,
+        backend: ExecutionBackend,
     ) -> None:
         """Check a haCC run's weak-field linear response before propagating.
 
@@ -4065,7 +4065,7 @@ class Simulation(Displayed):
             The run's output handler, not yet opened.
         metadata : RunMetadata
             The run's record.
-        backend : Backend
+        backend : ExecutionBackend
             The prepared optical backend.
         """
         descriptor = tdse_descriptor(problem.route)
@@ -4221,7 +4221,7 @@ class Simulation(Displayed):
 
     def _start(
         self,
-        backend: Backend,
+        backend: ExecutionBackend,
         problem: PropagationProblem,
         state: ResumeState | None,
         *,
@@ -4235,7 +4235,7 @@ class Simulation(Displayed):
 
         Parameters
         ----------
-        backend : solprop.backends.protocol.Backend
+        backend : solprop.backends.protocol.ExecutionBackend
             The backend about to step, asked only whether its march can carry a
             method history.
         problem : solprop.translate.problem.PropagationProblem
@@ -4302,7 +4302,7 @@ class Simulation(Displayed):
 
     def _continue_march(
         self,
-        backend: Backend,
+        backend: ExecutionBackend,
         state: ResumeState,
         *,
         adams: bool = True,
@@ -4320,7 +4320,7 @@ class Simulation(Displayed):
 
         Parameters
         ----------
-        backend : solprop.backends.protocol.Backend
+        backend : solprop.backends.protocol.ExecutionBackend
             The backend, asked whether its march can carry a history.
         state : solprop.output.hdf5.ResumeState
             What the file holds.
@@ -7545,12 +7545,12 @@ class SimulationRunner(Displayed):
         return self._closed
 
     @property
-    def backend(self) -> Backend:
+    def backend(self) -> ExecutionBackend:
         """Return the backend every run is stepped on.
 
         Returns
         -------
-        solprop.backends.protocol.Backend
+        solprop.backends.protocol.ExecutionBackend
             The one backend the runner constructed.
         """
         return self._backend
@@ -8875,7 +8875,7 @@ def _open_tdse_archive(
 
 
 def _close_run(
-    backend: Backend | None,
+    backend: ExecutionBackend | None,
     binding: TDSEBinding | None,
     archive: TDSEArchiveWriter | None,
     handler: Output,
@@ -8888,7 +8888,7 @@ def _close_run(
 
     Parameters
     ----------
-    backend : Backend or None
+    backend : ExecutionBackend or None
         The optical backend.
     binding : TDSEBinding or None
         The atomic binding.

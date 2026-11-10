@@ -14,9 +14,10 @@ statistic — and that structure is precisely what a fast backend exists to chan
 
 A backend is constructed from a validated
 :class:`solprop.translate.problem.PropagationProblem`, takes host arrays and returns
-host arrays; its buffers, layout and plans are private, and the state is never a
-parameter of :meth:`Backend.propagate_to` or :meth:`Backend.observe`. Selection by name
-and the availability rules are in :mod:`solprop.backends.registry`.
+host arrays. Its resources and prepared sessions are private. Production selection
+uses :class:`ExecutionBackend`; the legacy :class:`Backend` adds numerical operations
+for the reference and transitional adapters. Selection by name and the availability
+rules are in :mod:`solprop.backends.registry`.
 
 **Sign convention.** Every complex array crossing this seam, in either direction, is in
 the **FFT convention** of ``docs/dev/conventions.md`` section 2, with the phase origin
@@ -44,7 +45,7 @@ from solprop.stats import StatsSpec
 
 if TYPE_CHECKING:
     # The session module builds on this one's records, so its start is a forward name.
-    from solprop.backends.session import PreparedExecution, Start
+    from solprop.backends.session import GroupSession, PreparedExecution, Start
     from solprop.translate.problem import PropagationProblem
     from solprop.translate.run_request import RunRequest
 
@@ -52,6 +53,7 @@ __all__ = [
     "Backend",
     "BackendHistory",
     "BatchBackend",
+    "ExecutionBackend",
     "Observation",
     "StepStats",
     "StepSummary",
@@ -609,8 +611,8 @@ class StepSummary:
 class TimingProbe(Protocol):
     """Single trials of a loaded run, for an estimate or a calibration to time.
 
-    Returned by :meth:`Backend.timing_probe` (SEP 47 section 6.6). A trial is one
-    step's arithmetic from the loaded state, and commits nothing: the backend's
+    Returned by :meth:`ExecutionBackend.timing_probe` (SEP 47 section 6.6). A trial
+    is one step's arithmetic from the loaded state, and commits nothing: the backend's
     state, position and step history stay those of the load, though a work counter
     may count the trial's evaluations. It is a supported internal operation for
     :meth:`solprop.driver.simulation.Simulation.estimate` and the SEP 46 calibration,
@@ -657,8 +659,196 @@ class TimingProbe(Protocol):
 
 
 @runtime_checkable
-class Backend(Protocol):
-    """What every execution backend provides, and nothing more.
+class ExecutionBackend(Protocol):
+    """Own resources and prepare sessions without exposing numerical stepping.
+
+    Every selected backend provides this surface. Mutable propagation state belongs
+    to its :class:`~solprop.backends.session.RunSession`; the shared driver services
+    events and exports only. The legacy :class:`Backend` extends this protocol with
+    operations used by the reference and transitional native adapters.
+
+    Attributes
+    ----------
+    name : str
+        The registry name of the execution backend.
+    """
+
+    name: str
+
+    @property
+    def request(self) -> "RunRequest":  # noqa: UP037 - the request module imports this one's
+        """Return the run request the backend was built for.
+
+        Its method, error control, itinerary, planes and statistics; a run adapts it
+        with :meth:`~solprop.translate.run_request.RunRequest.for_run`.
+        """
+        ...
+
+    def prepare(
+        self,
+        problem: "PropagationProblem",  # noqa: UP037 - the translation imports this one
+        request: "RunRequest",  # noqa: UP037
+    ) -> "PreparedExecution":  # noqa: UP037 - the session module imports this one
+        """Prepare a run for one problem and request (SEP 47 section 5.2).
+
+        Parameters
+        ----------
+        problem : solprop.translate.problem.PropagationProblem
+            The problem the backend was built for, or one derived from it with
+            another input.
+        request : solprop.translate.run_request.RunRequest
+            The run's request: the backend's own, or one run's adaptation of it.
+
+        Returns
+        -------
+        solprop.backends.session.PreparedExecution
+            The prepared execution, whose ``start`` opens the backend's session.
+        """
+        ...
+
+    def metadata(self) -> dict[str, object]:
+        """Return what this execution is, for the run's record.
+
+        A saved run has to say what produced it, not only what was computed: the
+        thread configuration alone moved one step by a factor of nine
+        (``docs/dev/backends.md`` section 3.4), so a result whose execution is not
+        recorded is not reproducible. The driver writes this into
+        :attr:`solprop.output.schema.RunMetadata.backend`, which is outside the resume
+        key -- a run continued on the other backend is the same run.
+
+        Returns
+        -------
+        dict
+            JSON-serialisable scalars keyed by name. ``backend`` and
+            ``propagator_mode`` are always present; pools, plan flags and wisdom
+            digests are a backend's own.
+        """
+        ...
+
+    def march_export_refusal(self) -> str | None:
+        """Return why this backend's Adams march cannot carry its history, or ``None``.
+
+        Returns
+        -------
+        str or None
+            The reason, or ``None`` when it can or when the march keeps none.
+        """
+        ...
+
+    def edge_memory(self, space: object) -> int:
+        """Return what reading the transverse edge holds in the state's memory space.
+
+        Parameters
+        ----------
+        space : object
+            The run's transverse grid.
+
+        Returns
+        -------
+        int
+            The bytes, from the grid alone; zero for a read on the host.
+        """
+        ...
+
+    def timing_probe(
+        self,
+        start: "Start",  # noqa: UP037 - the session module imports this one
+    ) -> TimingProbe:
+        """Load a start and return single trials of this run's march from it.
+
+        The start's field, noise, position and resume flag are loaded as a session
+        loads them; its method history, ledgers and monitor continuation are not read.
+
+        Parameters
+        ----------
+        start : solprop.backends.session.Start
+            Where the trials start; its field is taken.
+
+        Returns
+        -------
+        TimingProbe
+            The probe (SEP 47 section 6.6).
+        """
+        ...
+
+    def available_device_memory(self) -> int | None:
+        """Return currently free device bytes, or None for a host backend.
+
+        Returns
+        -------
+        int or None
+            Free device memory excluding live allocations and allocator reserves.
+            Host memory is admitted independently by the controller.
+        """
+        ...
+
+    def memory_ledger(self) -> dict[str, int]:
+        """Return the size of every buffer the backend holds.
+
+        Returns
+        -------
+        dict
+            Buffer name to bytes, including transform work areas. Every buffer is named
+            even when it is empty.
+        """
+        ...
+
+    def close(self) -> None:
+        """Release the buffers and plans. Idempotent."""
+        ...
+
+    @property
+    def closed(self) -> bool:
+        """Return whether the backend has released its buffers, as a failure may.
+
+        Returns
+        -------
+        bool
+            ``True`` when it can run no other input.
+        """
+        ...
+
+    def start_group(
+        self,
+        members: "Sequence[ExecutionBackend]",  # noqa: UP037 - bound after the class body
+        problems: "Sequence[PropagationProblem]",  # noqa: UP037 - translation imports this module
+        requests: "Sequence[RunRequest]",  # noqa: UP037
+        starts: "Sequence[Start]",  # noqa: UP037 - session imports this module
+        *,
+        stop: StopFlag | None = None,
+    ) -> "GroupSession":  # noqa: UP037
+        """Start compatible members through the backend's own group implementation.
+
+        Parameters
+        ----------
+        members : collections.abc.Sequence of ExecutionBackend
+            Prepared owners, with this owner first. Ownership transfers only after
+            successful group construction.
+        problems : collections.abc.Sequence of PropagationProblem
+            Each member's translated problem.
+        requests : collections.abc.Sequence of RunRequest
+            Each member's request, with a common fixed schedule.
+        starts : collections.abc.Sequence of Start
+            Fresh entrances. Refuse incompatible inputs before consuming fields.
+        stop : solprop.log.StopFlag or None, optional
+            The group's cooperative stop token.
+
+        Returns
+        -------
+        solprop.backends.session.GroupSession
+            The backend-owned group, with each member's own outcome and cursor.
+
+        Raises
+        ------
+        BackendError
+            If this backend does not admit the group, naming the unsupported case.
+        """
+        ...
+
+
+@runtime_checkable
+class Backend(ExecutionBackend, Protocol):
+    """Extend execution ownership with the legacy numerical operation surface.
 
     ``docs/dev/backends.md`` section 1. A backend is constructed from a validated
     :class:`solprop.translate.problem.PropagationProblem` and the
@@ -692,43 +882,12 @@ class Backend(Protocol):
     >>> names[16:19]
     ['restore_march', 'set_initial', 'set_progress']
     >>> names[19:]
-    ['set_stop', 'stats', 'timing_probe']
+    ['set_stop', 'start_group', 'stats', 'timing_probe']
     """
 
     name: str
     max_batch: int
     reads_transverse_edge: bool
-
-    @property
-    def request(self) -> "RunRequest":  # noqa: UP037 - the request module imports this one's
-        """Return the run request the backend was built for.
-
-        Its method, error control, itinerary, planes and statistics; a run adapts it
-        with :meth:`~solprop.translate.run_request.RunRequest.for_run`.
-        """
-        ...
-
-    def prepare(
-        self,
-        problem: "PropagationProblem",  # noqa: UP037 - the translation imports this one
-        request: "RunRequest",  # noqa: UP037
-    ) -> "PreparedExecution":  # noqa: UP037 - the session module imports this one
-        """Prepare a run for one problem and request (SEP 47 section 5.2).
-
-        Parameters
-        ----------
-        problem : solprop.translate.problem.PropagationProblem
-            The problem the backend was built for, or one derived from it with
-            another input.
-        request : solprop.translate.run_request.RunRequest
-            The run's request: the backend's own, or one run's adaptation of it.
-
-        Returns
-        -------
-        solprop.backends.session.PreparedExecution
-            The prepared execution, whose ``start`` opens the backend's session.
-        """
-        ...
 
     def set_initial(
         self,
@@ -865,25 +1024,6 @@ class Backend(Protocol):
         """
         ...
 
-    def metadata(self) -> dict[str, object]:
-        """Return what this execution is, for the run's record.
-
-        A saved run has to say what produced it, not only what was computed: the
-        thread configuration alone moved one step by a factor of nine
-        (``docs/dev/backends.md`` section 3.4), so a result whose execution is not
-        recorded is not reproducible. The driver writes this into
-        :attr:`solprop.output.schema.RunMetadata.backend`, which is outside the resume
-        key -- a run continued on the other backend is the same run.
-
-        Returns
-        -------
-        dict
-            JSON-serialisable scalars keyed by name. ``backend`` and
-            ``propagator_mode`` are always present; pools, plan flags and wisdom
-            digests are a backend's own.
-        """
-        ...
-
     def restore_call_ledgers(
         self, logical: Mapping[str, object], atomic: Mapping[str, object] | None = None
     ) -> None:
@@ -923,16 +1063,6 @@ class Backend(Protocol):
         """
         ...
 
-    def march_export_refusal(self) -> str | None:
-        """Return why this backend's Adams march cannot carry its history, or ``None``.
-
-        Returns
-        -------
-        str or None
-            The reason, or ``None`` when it can or when the march keeps none.
-        """
-        ...
-
     def restore_march(self, snapshot: MarchSnapshot) -> str | None:
         """Continue the Adams march from a snapshot at the loaded position.
 
@@ -945,79 +1075,6 @@ class Backend(Protocol):
         -------
         str or None
             ``None`` when the history was continued, otherwise why it starts afresh.
-        """
-        ...
-
-    def edge_memory(self, space: object) -> int:
-        """Return what reading the transverse edge holds in the state's memory space.
-
-        Parameters
-        ----------
-        space : object
-            The run's transverse grid.
-
-        Returns
-        -------
-        int
-            The bytes, from the grid alone; zero for a read on the host.
-        """
-        ...
-
-    def timing_probe(
-        self,
-        start: "Start",  # noqa: UP037 - the session module imports this one
-    ) -> TimingProbe:
-        """Load a start and return single trials of this run's march from it.
-
-        The start's field, noise, position and resume flag are loaded as a session
-        loads them; its method history, ledgers and monitor continuation are not read.
-
-        Parameters
-        ----------
-        start : solprop.backends.session.Start
-            Where the trials start; its field is taken.
-
-        Returns
-        -------
-        TimingProbe
-            The probe (SEP 47 section 6.6).
-        """
-        ...
-
-    def available_device_memory(self) -> int | None:
-        """Return currently free device bytes, or None for a host backend.
-
-        Returns
-        -------
-        int or None
-            Free device memory excluding live allocations and allocator reserves.
-            Host memory is admitted independently by the controller.
-        """
-        ...
-
-    def memory_ledger(self) -> dict[str, int]:
-        """Return the size of every buffer the backend holds.
-
-        Returns
-        -------
-        dict
-            Buffer name to bytes, including transform work areas. Every buffer is named
-            even when it is empty.
-        """
-        ...
-
-    def close(self) -> None:
-        """Release the buffers and plans. Idempotent."""
-        ...
-
-    @property
-    def closed(self) -> bool:
-        """Return whether the backend has released its buffers, as a failure may.
-
-        Returns
-        -------
-        bool
-            ``True`` when it can run no other input.
         """
         ...
 
