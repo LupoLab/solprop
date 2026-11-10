@@ -11,11 +11,12 @@ session adapter, cancellation attachment and execution-owner lifecycle.
 """
 
 import ctypes
+import gc
 import signal
 from collections import deque
-from dataclasses import astuple, dataclass, replace
+from dataclasses import astuple, dataclass, fields, replace
 from types import SimpleNamespace
-from weakref import WeakSet
+from weakref import WeakSet, ref
 
 import numpy as np
 import pytest
@@ -94,7 +95,7 @@ def _frame(kind, *, z=0.0, plane=0, attempts=0, poisoned=False, code="StepFloorE
 
 
 def _transfer():
-    controller = PIController(rtol=1e-6, atol=0.0)
+    controller = PIController(rtol=1e-6, atol=0.0, weights=np.ones(2))
     control = ErrorControlSpec(controller, 1e-12, 1.0, 0.1, 1.0, False, False)
     return RunTransfer(
         control,
@@ -150,7 +151,6 @@ class _Engine:
             raise self.construct_error
         session = SimpleNamespace(
             preparation=preparation,
-            transfer=transfer,
             initial=np.array(field, copy=True),
             stop=stop,
             frames=deque(self.frames),
@@ -275,6 +275,8 @@ def boundary(monkeypatch, setup_record):
     owner._preparation = preparation
     owner._closed = False
     owner._sessions = WeakSet()
+    owner._prepared = WeakSet()
+    monkeypatch.setattr(owner, "_lowered", (), raising=False)
     owner._options = {}
     owner._wide = "binary64"
     owner._node_chunk = 1
@@ -306,6 +308,57 @@ def _launch(session):
     assert isinstance(event, ObservationReady)
     assert event.kind is ObservationKind.LAUNCH
     session.acknowledge(batch.receipt)
+
+
+def test_prepared_ledgers_count_each_owned_run_array_once(boundary, monkeypatch):
+    monkeypatch.setattr(_calls, "memory", lambda *args, **kwargs: {})
+    first = boundary.prepared
+    second = JuliaPrepared(
+        boundary.owner, boundary.runtime, boundary.preparation, _transfer(), SHAPE
+    )
+    expected = {}
+    for descriptor in fields(first._transfer):
+        one = getattr(first._transfer, descriptor.name)
+        two = getattr(second._transfer, descriptor.name)
+        if isinstance(one, np.ndarray):
+            assert not np.shares_memory(one, two)
+            expected[descriptor.name] = one.nbytes
+    ledger = first.memory_ledger()
+    for index in range(2):
+        assert {
+            name.removeprefix(f"run.{index}."): size
+            for name, size in ledger.items()
+            if name.startswith(f"run.{index}.")
+        } == expected
+    second_ref = ref(second)
+    del second
+    gc.collect()
+    assert second_ref() is None
+    assert sum(first.memory_ledger().values()) == sum(expected.values())
+
+
+def test_started_session_retains_execution_owner_without_run_transfer(boundary):
+    prepared = JuliaPrepared(
+        boundary.owner, boundary.runtime, boundary.preparation, _transfer(), SHAPE
+    )
+    prepared_ref = ref(prepared)
+    array_ref = ref(prepared._transfer.weights)
+    boundary.engine.frames.extend((_frame(0), _frame(5, z=1.0)))
+    session = prepared.start(
+        Start(np.ones(SHAPE, dtype=np.complex128), 0.0), owns=False
+    )
+    del prepared
+    gc.collect()
+    assert prepared_ref() is None and array_ref() is None
+    assert tuple(boundary.owner._prepared) == (boundary.prepared,)
+    assert not boundary.owner.closed
+    _launch(session)
+    terminal = session.advance()
+    assert terminal.terminal is not None
+    assert terminal.terminal.outcome is Outcome.COMPLETED
+    session.acknowledge(terminal.receipt)
+    session.close()
+    assert not boundary.owner._sessions
 
 
 def test_scripted_events_bind_receipts_and_export_generations(boundary):

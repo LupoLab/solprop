@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from functools import partial
 from weakref import WeakSet
 
 from solprop.backends.driver_session import foreign_request
@@ -115,6 +116,7 @@ class JuliaBackend:
         self._runtime: JuliaRuntime | None = None
         self._preparation: JuliaHandle | None = None
         self._sessions: WeakSet[JuliaSession] = WeakSet()
+        self._prepared: WeakSet[JuliaPrepared] = WeakSet()
         self._closed = False
 
     @property
@@ -303,6 +305,14 @@ class JuliaBackend:
                     self._runtime, self._preparation, preparation=True
                 ).items()
             )
+        for index, prepared in enumerate(self._prepared):
+            ledger.update(
+                (f"run.{index}.{name}", size)
+                for name, size in transfer_memory(prepared._transfer).items()
+                # Control is the shared immutable request; the run's owned arrays
+                # are separate fields, including its copied tolerance weights.
+                if not name.startswith("control.")
+            )
         for index, session in enumerate(self._sessions):
             ledger.update(
                 (f"session.{index}.{name}", size)
@@ -429,6 +439,7 @@ class JuliaPrepared:
         self._preparation = preparation
         self._transfer = transfer
         self._shape = shape
+        self._owner._prepared.add(self)
 
     @property
     def backend(self) -> str:
@@ -484,7 +495,7 @@ class JuliaPrepared:
             start,
             self._shape,
             record=self._owner.metadata(),
-            released=lambda one: self._owner.release(one, owns=owns),
+            released=partial(self._owner.release, owns=owns),
             stop=stop,
             listener=listener,
             started=started,
