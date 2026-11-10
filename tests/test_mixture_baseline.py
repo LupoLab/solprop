@@ -163,6 +163,11 @@ def historical_fields(value):
         }:
             continue
         child = getattr(value, name)
+        if name == "route":
+            # SEP 47 moved the transform into the problem's route: compare the route's
+            # fields at the problem's top level, where the record holds them.
+            yield from historical_fields(child)
+            continue
         if name in ("plasma_channels", "raman_terms", "ionisation_table"):
             # Schema 6 wraps the existing leaves in channel tuples. Compare their
             # contents at their schema-5 paths.
@@ -200,7 +205,7 @@ def test_m2_problem_keeps_every_recorded_array(ndarrays_regression):
     original = dataclasses.replace(
         problem,
         linear=dispersion,
-        initial=dataclasses.replace(problem.initial, field0=simulation._field0[None]),
+        initial=dataclasses.replace(problem.initial, field0=simulation._field0),
     )
     bounds = {"host": HOST_BOUND, "chebyshev": CHEBYSHEV_BOUND, "phi": PHI_BOUND}
     arrays, tolerances = {}, {}

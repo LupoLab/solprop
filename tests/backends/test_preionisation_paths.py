@@ -157,8 +157,8 @@ def test_field_plasma_paths_agree_with_the_oracle(paths, equivalence_backend_cla
     initial = np.array(
         [float(path(np.array([stop]))[0]) for path in FIELD_PATHS[paths]]
     )
-    # Shape (n_batch, n_species, n_nodes); one member, one node here.
-    final = oracle[3]["species_ionisation"][0, :, 0]
+    # Shape (n_species, n_nodes); one node here.
+    final = oracle[3]["species_ionisation"][:, 0]
     assert np.all(final >= initial * (1 - 1e-12))
 
 
@@ -292,7 +292,7 @@ def test_the_fraction_follows_the_path_where_the_pulse_cannot_ionise(backend_cla
         # The tables reproduce a linear piece to rounding and the smooth path to
         # the translation tolerance (1e-12 relative, DEFAULT_TOL's order).
         np.testing.assert_allclose(
-            stats["species_ionisation"][0, :, 0],
+            stats["species_ionisation"][:, 0],
             f0,
             rtol=1e-11,
         )

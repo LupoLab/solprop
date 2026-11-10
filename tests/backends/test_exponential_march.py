@@ -23,9 +23,11 @@ import pytest
 from bounds import assert_within, gamma, step_evaluations
 from legacy_geometry import LEGACY_GRID
 from solprop._helpers import PLAIN
-from solprop.backends.batch import LockstepRunner
 from solprop.backends.driver import StepDriver
 from solprop.backends.exponential import refuse_formulation
+from solprop.backends.host.adams import HostAdamsMarch
+from solprop.backends.host.driver import HostDriver
+from solprop.backends.host.group import HostGroup
 from solprop.backends.multistep import (
     AdamsMarch,
     compensation_tables,
@@ -100,7 +102,7 @@ def run(problem, grid, noise=None):
         backend.propagate_to(float(plane))
         observed = backend.observe()
         steps += list(observed.step_history.dz)
-        field = observed.require_field()[0, 0, 0]
+        field = observed.require_field()[0, 0]
     march = backend._adams
     backend.close()
     assert field is not None
@@ -152,7 +154,7 @@ def test_exponential_is_the_exact_linear_flow_without_a_source(
         integrator=EXPONENTIAL,
     )
     field, march, _ = run(problem, narrow_grid)
-    start = problem.initial.field0[0, 0, 0] * problem.grids.active_mask
+    start = problem.initial.field0[0, 0] * problem.grids.active_mask
     exact = np.exp(delta_phi(problem.linear, 0.0, length))[0, 0, 0] * start
     # A zero source leaves the flows' products: round-off per step.
     np.testing.assert_allclose(field, exact, rtol=0, atol=1e-12 * np.abs(start).max())
@@ -338,7 +340,7 @@ def test_exponential_dense_observation_matches_landing(narrow_grid, soliton_prob
         fields = []
         for plane in planes:
             backend.propagate_to(float(plane))
-            fields.append(backend.observe().require_field()[0, 0, 0])
+            fields.append(backend.observe().require_field()[0, 0])
         ledger = ledger_of(backend._adams)
         backend.close()
         return np.array(fields), ledger
@@ -366,9 +368,9 @@ def test_exponential_dense_observation_is_the_linear_flow_without_a_source(
     backend = NumpyRefBackend(problem, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(planes[0])
-    observed = backend.observe().require_field()[0, 0, 0]
+    observed = backend.observe().require_field()[0, 0]
     backend.close()
-    start = problem.initial.field0[0, 0, 0] * problem.grids.active_mask
+    start = problem.initial.field0[0, 0] * problem.grids.active_mask
     exact = np.exp(delta_phi(problem.linear, 0.0, planes[0]))[0, 0, 0] * start
     np.testing.assert_allclose(
         observed, exact, rtol=0, atol=1e-12 * np.abs(start).max()
@@ -476,14 +478,14 @@ def test_a_lockstep_batch_steps_each_member_with_its_own_history(
         member = NumpyRefBackend(problem_of(order), grid=narrow_grid)
         member.set_initial(problem_of(order).initial.field0, None)
         members.append(member)
-    runner = LockstepRunner(members)
+    runner = HostGroup(members)
     runner.propagate_to(length)
     observed = runner.observe_members()
     runner.close()
     # A member and its single run: one fixed-order method on one schedule.
     bound = replay_bound(problem_of(1), 11)
     for observation, single in zip(observed, singles, strict=True):
-        assert_within(observation.require_field()[0, 0, 0], single, bound)
+        assert_within(observation.require_field()[0, 0], single, bound)
 
 
 @pytest.mark.parametrize("method", FORMULATIONS, ids=["interaction", "exponential"])
@@ -589,7 +591,7 @@ def lockstep_of(problems, grid):
         member = NumpyRefBackend(problem, grid=grid)
         member.set_initial(problem.initial.field0, None)
         members.append(member)
-    return LockstepRunner(members)
+    return HostGroup(members)
 
 
 @pytest.mark.parametrize("method", FORMULATIONS, ids=["interaction", "exponential"])
@@ -662,20 +664,28 @@ def test_lockstep_members_must_share_the_integrator(narrow_grid, soliton_problem
         lockstep_of(problems, narrow_grid)
 
 
-def test_a_backend_without_the_lab_frame_source_refuses_the_formulation():
+DRIVERS = pytest.mark.parametrize(
+    "driver", [HostDriver, StepDriver], ids=["host", "bridge"]
+)
+"""The reference's driver and the native bridge's copy, whose default hooks agree."""
+
+
+@DRIVERS
+def test_a_backend_without_the_lab_frame_source_refuses_the_formulation(driver):
     # Every shipped backend implements the hook; an external one that does not is
     # told which formulation to use instead.
     stub = SimpleNamespace(name="external")
     lab = np.zeros((1, 1, 1, 4), dtype=complex)
     with pytest.raises(BackendError, match="external does not execute"):
-        StepDriver._adams_lab_source(stub, lab, 0.0, purpose="startup")  # type: ignore[arg-type]
+        driver._adams_lab_source(stub, lab, 0.0, purpose="startup")
 
 
-def test_a_backend_without_a_coupled_flow_hands_the_march_no_block():
+@DRIVERS
+def test_a_backend_without_a_coupled_flow_hands_the_march_no_block(driver):
     # The default hook: every shipped backend that steps a coupled flow returns its
     # block; an external one that holds none gives the march nothing to step.
     stub = SimpleNamespace(name="external")
-    assert StepDriver._adams_block(stub, 0.0, 1e-3) is None  # type: ignore[arg-type]
+    assert driver._adams_block(stub, 0.0, 1e-3) is None
 
 
 def test_the_formulation_refuses_a_cf4_section(narrow_grid, soliton_problem):
@@ -704,13 +714,19 @@ def test_the_formulation_refuses_a_cf4_section(narrow_grid, soliton_problem):
         refuse_formulation(coupled, "probe")
 
 
-def _chooser(method, collar_rate, *, quiet=False):
+@pytest.fixture(params=[HostAdamsMarch, AdamsMarch], ids=["host", "bridge"])
+def march_class(request):
+    """The reference's Adams march and the native bridge's copy, which decide alike."""
+    return request.param
+
+
+def _chooser(march_class, method, collar_rate, *, quiet=False):
     """Return a bare march holding only what the order choice reads.
 
     Its backend stands in for the one flag the march reads from it: whether the stages
     leave a quiet collar out.
     """
-    march = object.__new__(AdamsMarch)
+    march = object.__new__(march_class)
     march._method = method
     march._policy = march_policy(
         method,
@@ -731,7 +747,7 @@ def _chooser(method, collar_rate, *, quiet=False):
     return march
 
 
-def test_the_exponential_order_choice_weighs_the_in_stage_collar():
+def test_the_exponential_order_choice_weighs_the_in_stage_collar(march_class):
     # Order 5's defect allows the longer step (0.8 * 1e-3 ** (-1/6) = 2.53 against
     # order 4's 2.01), but a collar at which order 5 is stable only up to the step just
     # taken (PEC5/6's interval over h alpha / 2 = 1) leaves order 4 stable to 1.86 of
@@ -739,41 +755,49 @@ def test_the_exponential_order_choice_weighs_the_in_stage_collar():
     dz = 1e-4
     rate = PEC_REAL_INTERVAL[4] / dz
     scores = {5: 1e-3, 4: 1e-2}
-    assert _chooser(EXPONENTIAL, rate)._choose_order(5, scores, dz) == (4, 1e-2)
-    assert _chooser(EXPONENTIAL, 0.0)._choose_order(5, scores, dz) == (5, 1e-3)
-
-
-def test_a_resting_collar_no_longer_weighs_the_order_choice():
-    # While the stages leave a quiet collar out (an opted-in BoundaryCheck) there is no
-    # stiff term to weigh the orders by: the same scores keep order 5.
-    dz = 1e-4
-    rate = PEC_REAL_INTERVAL[4] / dz
-    scores = {5: 1e-3, 4: 1e-2}
-    assert _chooser(EXPONENTIAL, rate, quiet=True)._choose_order(5, scores, dz) == (
+    assert _chooser(march_class, EXPONENTIAL, rate)._choose_order(5, scores, dz) == (
+        4,
+        1e-2,
+    )
+    assert _chooser(march_class, EXPONENTIAL, 0.0)._choose_order(5, scores, dz) == (
         5,
         1e-3,
     )
 
 
-def test_the_step_after_a_collar_returns_is_held_to_its_stable_step():
+def test_a_resting_collar_no_longer_weighs_the_order_choice(march_class):
+    # While the stages leave a quiet collar out (an opted-in BoundaryCheck) there is no
+    # stiff term to weigh the orders by: the same scores keep order 5.
+    dz = 1e-4
+    rate = PEC_REAL_INTERVAL[4] / dz
+    scores = {5: 1e-3, 4: 1e-2}
+    assert _chooser(march_class, EXPONENTIAL, rate, quiet=True)._choose_order(
+        5, scores, dz
+    ) == (
+        5,
+        1e-3,
+    )
+
+
+def test_the_step_after_a_collar_returns_is_held_to_its_stable_step(march_class):
     # A long order-5 proposal made while the collar rested is held, on the first attempt
     # with the term back, to the step at which order 5 is stable for the collar; later
     # attempts and a march whose collar never rested pass the proposal through.
     rate = 1.0e3
     stable = PEC_REAL_INTERVAL[4] / rate
-    march = _chooser(EXPONENTIAL, rate, quiet=True)
+    march = _chooser(march_class, EXPONENTIAL, rate, quiet=True)
     assert march._collar_reentry(1.0) == 1.0
     march._backend._collar_quiet = False
     assert march._collar_reentry(1.0) == pytest.approx(stable)
     assert march._collar_reentry(1.0) == 1.0
-    assert _chooser(EXPONENTIAL, 0.0)._collar_reentry(1.0) == 1.0
+    assert _chooser(march_class, EXPONENTIAL, 0.0)._collar_reentry(1.0) == 1.0
 
 
-def test_a_new_run_clears_the_collar_flag_and_a_pending_floor():
+def test_a_new_run_clears_the_collar_flag_and_a_pending_floor(march_class):
     # A backend reused for another run starts it as a fresh one would (SEP 39 R9): the
     # collar flag of the last run's last attempt does not cap the new run's first
     # step after a collar returns.
-    march = _chooser(EXPONENTIAL, 1.0e3, quiet=True)
+    march = _chooser(march_class, EXPONENTIAL, 1.0e3, quiet=True)
     march._collar_was_quiet = True
     march._last_rejected = True
     march._floor = ConvergenceError("pending")
@@ -784,14 +808,14 @@ def test_a_new_run_clears_the_collar_flag_and_a_pending_floor():
     march._raise_floor()
 
 
-def test_a_resumed_collar_flag_caps_the_step_after_the_collar_returns():
+def test_a_resumed_collar_flag_caps_the_step_after_the_collar_returns(march_class):
     # The flag a snapshot restores decides the re-entry cap exactly as the
     # uninterrupted march's would: restored quiet, the first attempt with the term
     # back is held to the stable step; restored active, it is not.
     rate = 1.0e3
     stable = PEC_REAL_INTERVAL[4] / rate
     for restored, expected in ((True, stable), (False, 1.0)):
-        march = _chooser(EXPONENTIAL, rate, quiet=False)
+        march = _chooser(march_class, EXPONENTIAL, rate, quiet=False)
         march._collar_was_quiet = restored
         assert march._collar_reentry(1.0) == pytest.approx(expected)
 

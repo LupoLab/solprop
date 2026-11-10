@@ -20,12 +20,10 @@ from benchmarks.registry import Case
 from benchmarks.system import POOL_VARIABLES, widths
 
 __all__ = [
-    "MLX_BUILDERS",
     "ROOT",
     "estimate",
     "freeze_harness",
     "launch_worker",
-    "mlx_refusal",
     "plan_rows",
     "prepared_python",
     "receipt",
@@ -87,12 +85,13 @@ def plan_rows(  # noqa: PLR0913
             for stepper in steppers:
                 if stepper not in case.steppers:
                     skipped.append(
-                        f"{case.name} {stepper}: a fixed-step case runs its own "
-                        "schedule only"
+                        f"{case.name} {stepper}: "
+                        + (
+                            "a fixed-step case runs its own schedule only"
+                            if case.step is not None
+                            else "the case runs its own integrator only"
+                        )
                     )
-                    continue
-                if backend == "mlx" and (refusal := mlx_refusal(case, stepper)):
-                    skipped.append(f"{case.name} {stepper}: {refusal}")
                     continue
                 rows.append(
                     {
@@ -112,24 +111,6 @@ def plan_rows(  # noqa: PLR0913
                 )
     rows.sort(key=lambda row: row["configuration"]["threads"])
     return rows, skipped
-
-
-MLX_BUILDERS = ("capillary", "gnlse", "kerr", "spatial")
-"""The builders whose cases ``mlx`` can run: its fibre, radial and Cartesian routes."""
-
-
-def mlx_refusal(case: Case, stepper: str) -> str | None:
-    """Say why ``mlx`` cannot run a configuration, or ``None`` when it can.
-
-    ``mlx`` admits what single precision admits (``translate.precision``) -- no planar
-    or general modal route, no TDSE or coupled flow -- and runs the Adams integrator in
-    its exponential formulation only.
-    """
-    if case.builder not in MLX_BUILDERS or case.name == "planar":
-        return "mlx runs the fibre, radial and Cartesian routes only"
-    if stepper == "multistep-interaction":
-        return "mlx runs the Adams integrator's exponential formulation only"
-    return None
 
 
 def estimate(rows: list[Record], runs: int) -> float | None:

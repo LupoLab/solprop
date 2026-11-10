@@ -154,7 +154,7 @@ def test_the_resolution_stays_outside_the_resume_key():
 def _interior(simulation):
     """Return a launch half way along the run, of the run's own entrance spectrum."""
     return simulation.with_input(
-        np.asarray(simulation.translate().initial.field0[0]),
+        np.asarray(simulation.translate().initial.field0),
         initial_z=simulation.grid.length / 2,
     )
 
@@ -171,7 +171,7 @@ def test_an_explicit_input_draw_enters_an_interior_launch():
     base = _gnlse(noise=None)
     clean = _interior(base).run(progress="none")
     seeded = base.with_input(
-        np.asarray(base.translate().initial.field0[0]),
+        np.asarray(base.translate().initial.field0),
         initial_z=base.grid.length / 2,
         noise=_gnlse(noise="input", seed=7).noise,
     )

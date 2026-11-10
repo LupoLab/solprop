@@ -98,7 +98,12 @@ def geometry_case(envelope_mixture, geometry, n_pol):
         **kwargs,
     )
     if geometry != "modal":
-        problem = replace(problem, transform=replace(problem.transform, node_chunk=3))
+        problem = replace(
+            problem,
+            route=replace(
+                problem.route, transform=replace(problem.transform, node_chunk=3)
+            ),
+        )
         assert problem.transform.n_nodes % 3 != 0
     return problem, grid
 

@@ -21,7 +21,6 @@ from scipy.linalg import expm
 from scipy.special import gammainc, j0
 
 from legacy_geometry import LEGACY_GRID
-from solprop.backends.memory import _radial_absorber_bytes
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.spatial import collar_field_fraction
 from solprop.boundaries import Absorber, SpatialAbsorber
@@ -32,6 +31,7 @@ from solprop.nonlinear.responses import KerrResponse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import DOPRI5, FixedSchedule, PIController
 from solprop.translate.problem import assemble
+from solprop.translate.routes import transverse_of
 from spatial_records import record_metric
 
 EPS = np.finfo(float).eps
@@ -108,7 +108,7 @@ def absorber_case(request):
     responses = (
         [KerrResponse(chi3=0.0, thg=False)] if family == "field_analytic" else []
     )
-    design = assembled(grid, space, boundary, start, responses, 8).transverse
+    design = transverse_of(assembled(grid, space, boundary, start, responses, 8).route)
     assert design is not None and design.has_collar
     # Direct Fourier-Bessel forward and inverse formulas, independent of the
     # backend's composed matrix and with no temporal pad/crop factors.
@@ -185,9 +185,9 @@ def test_spatial_absorber_derivative_matches_independent_bessel_operator(
         if isinstance(backend, NumpyRefBackend):
             backend._hoist(0.0)
             measured = backend._nonlinear(
-                problem.initial.field0,
+                problem.initial.field0[None],
                 backend._stage_scalars(0.0, 0.0),
-                np.ones(problem.shape, complex),
+                np.ones((1, *problem.shape), complex),
             )[0]
         else:
             backend._trial_step(0.0, LENGTH / 8)
@@ -230,7 +230,7 @@ def test_spatial_absorber_step_refinement_matches_matrix_exponential(
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)
-            measured = backend.observe().require_field()[0, :, :, index]
+            measured = backend.observe().require_field()[:, :, index]
             error = float(np.max(np.abs(measured - reference))) / scale
             measured_errors.append(error)
             assert error <= bound, (count, error, bound)
@@ -258,7 +258,7 @@ def test_spatial_collar_diagnostic_reports_the_measured_fraction(
 ):
     grid, space, _, _, _, _, _, _ = absorber_case
     problem = problem_for(absorber_case, 8)
-    field = problem.initial.field0[0].copy()
+    field = problem.initial.field0.copy()
     if illumination == "extended":
         # A highest-order Bessel column fills the disk and deliberately lights
         # the collar; the original confined spectrum remains a negative control.
@@ -304,4 +304,3 @@ def test_the_ledger_counts_the_composed_absorber_matrix(absorber_case):
     finally:
         backend.close()
     assert matrix > 0
-    assert _radial_absorber_bytes(problem) == matrix

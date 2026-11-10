@@ -16,15 +16,35 @@ import numpy as np
 import pytest
 
 from backends import test_batch_lockstep as fixtures
-from backends.test_driver import ScriptedDriver
+from scripted_driver import HostScriptedDriver, ScriptedDriver
 from solprop.backends import Backend, select_batch
 from solprop.backends.batch import LockstepRunner
+from solprop.backends.host.group import HostGroup
 from solprop.backends.numpy_ref import passes
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stats import StatsSpec
-from solprop.stepper import FixedSchedule, RungeKutta
+from solprop.stepper import FixedSchedule, Multistep, RungeKutta
 from solprop.stepper.tableau import TSIT5
+
+RUNNERS = [
+    pytest.param(HostGroup, "numpy_ref", id="host"),
+    pytest.param(LockstepRunner, "native", id="bridge"),
+]
+"""The reference's group over its members, and the native bridge's lockstep runner
+over native members (SEP 47 phase 2): the same validation, in two copies."""
+
+
+def _members_of(name: str) -> None:
+    """Skip a native family where the native package is not installed.
+
+    Parameters
+    ----------
+    name : str
+        The members' backend.
+    """
+    if name == "native":
+        pytest.importorskip("solprop_native")
 
 
 def test_batch_registry_dispatches_optional_native_without_installation(monkeypatch):
@@ -50,12 +70,17 @@ def test_batch_registry_dispatches_optional_native_without_installation(monkeypa
         assert dispatched == [owner]
 
 
-@pytest.mark.parametrize("contract", ["tableau", "schedule", "planes", "statistics"])
-def test_batch_rejects_different_member_execution_contract(contract):
-    first = fixtures.simulation(0, "numpy_ref")
-    second = fixtures.simulation(1, "numpy_ref")
+@pytest.mark.parametrize(("runner", "name"), RUNNERS)
+@pytest.mark.parametrize(
+    "contract", ["tableau", "integrator", "schedule", "planes", "statistics"]
+)
+def test_batch_rejects_different_member_execution_contract(runner, name, contract):
+    _members_of(name)
+    first = fixtures.simulation(0, name)
+    second = fixtures.simulation(1, name)
     changes = {
         "tableau": {"integrator": RungeKutta(TSIT5)},
+        "integrator": {"integrator": Multistep()},
         "schedule": {"schedule": FixedSchedule.uniform(0.0, 0.001, 0.000125)},
         "planes": {"save_planes": [0.001]},
         "statistics": {"stats": StatsSpec(names=("energy",))},
@@ -63,17 +88,19 @@ def test_batch_rejects_different_member_execution_contract(contract):
     second.settings = dataclasses.replace(second.settings, **changes[contract])
     with ExitStack() as cleanup:
         members = [fixtures.loaded(one, cleanup) for one in (first, second)]
-        with pytest.raises(BackendError, match="same"):
-            LockstepRunner(members)
+        refused = "same integrator" if contract == "integrator" else "same"
+        with pytest.raises(BackendError, match=refused):
+            runner(members)
         assert all(member.observe().z == 0.0 for member in members)
 
 
+@pytest.mark.parametrize(("runner", "name"), RUNNERS)
 @pytest.mark.parametrize("changed", ["mask", "shape", "advanced"])
-def test_batch_rejects_incompatible_or_advanced_members(changed):
+def test_batch_rejects_incompatible_or_advanced_members(runner, name, changed):
+    _members_of(name)
     with ExitStack() as cleanup:
         first, second = [
-            fixtures.loaded(fixtures.simulation(i, "numpy_ref"), cleanup)
-            for i in range(2)
+            fixtures.loaded(fixtures.simulation(i, name), cleanup) for i in range(2)
         ]
         problem = second._problem
         if changed == "mask":
@@ -89,20 +116,23 @@ def test_batch_rejects_incompatible_or_advanced_members(changed):
                 initial=dataclasses.replace(
                     problem.initial, field0=np.repeat(problem.initial.field0, 2, axis=0)
                 ),
-            )
+            )  # two modes where the first member has one
         else:
             second.propagate_to(0.0005)
         with pytest.raises(BackendError, match=r"mask|shapes|entrance"):
-            LockstepRunner([first, second])
+            runner([first, second])
 
 
-def test_batch_refuses_reloading_a_shared_field_and_mismatched_statistics(monkeypatch):
+@pytest.mark.parametrize(("group", "name"), RUNNERS)
+def test_batch_refuses_reloading_a_shared_field_and_mismatched_statistics(
+    monkeypatch, group, name
+):
+    _members_of(name)
     with ExitStack() as cleanup:
         members = [
-            fixtures.loaded(fixtures.simulation(i, "numpy_ref"), cleanup)
-            for i in range(2)
+            fixtures.loaded(fixtures.simulation(i, name), cleanup) for i in range(2)
         ]
-        runner = LockstepRunner(members)
+        runner = group(members)
         cleanup.callback(runner.close)
         with pytest.raises(BackendError, match="independently loaded"):
             runner.set_initial(members[0]._problem.initial.field0, None)
@@ -130,7 +160,7 @@ def test_batch_names_the_member_behind_an_invalid_norm(monkeypatch, kind, norm):
                 monkeypatch.setattr(
                     one, "_trial_step", lambda z, dz, one=one: (norm, one._state)
                 )
-            runner = LockstepRunner([healthy, member])
+            runner = HostGroup([healthy, member])
         elif kind == "numpy":
             monkeypatch.setattr(passes, "error_norm", lambda *args: norm)
             runner = select_batch(cast(Sequence[Backend], [healthy, member]))
@@ -181,13 +211,20 @@ def test_registry_refuses_unknown_backend_without_taking_ownership(monkeypatch):
         assert owner.observe().z == 0.0
 
 
-def test_batch_requires_complete_backend_protocol():
+@pytest.mark.parametrize(
+    ("runner", "driver"),
+    [
+        pytest.param(HostGroup, HostScriptedDriver, id="host"),
+        pytest.param(LockstepRunner, ScriptedDriver, id="bridge"),
+    ],
+)
+def test_batch_requires_complete_backend_protocol(runner, driver):
     simulation = fixtures.simulation(0, "numpy_ref")
-    owner = ScriptedDriver(simulation.translate())
+    owner = driver(simulation.translate())
     try:
         owner.set_initial(simulation.translate().initial.field0, None)
         with pytest.raises(BackendError, match="backend protocol"):
-            LockstepRunner([owner])
+            runner([owner])
     finally:
         owner.close()
 
@@ -215,13 +252,16 @@ def test_the_native_batch_checks_family_without_the_session_type_hook():
     assert_family_refused(batch.NativeBatchBackend, "numpy_ref")
 
 
-def test_batch_close_releases_other_members_when_one_close_fails(monkeypatch):
+@pytest.mark.parametrize(("group", "name"), RUNNERS)
+def test_batch_close_releases_other_members_when_one_close_fails(
+    monkeypatch, group, name
+):
+    _members_of(name)
     with ExitStack() as cleanup:
         members = [
-            fixtures.loaded(fixtures.simulation(i, "numpy_ref"), cleanup)
-            for i in range(2)
+            fixtures.loaded(fixtures.simulation(i, name), cleanup) for i in range(2)
         ]
-        runner = LockstepRunner(members)
+        runner = group(members)
         close = cast(Backend, members[1]).close
 
         def failing_close():

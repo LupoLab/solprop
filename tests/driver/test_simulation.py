@@ -212,7 +212,7 @@ def test_a_built_spectrum_is_accepted_as_the_input(narrow_grid, soliton):
     )
     handler = simulation.run()
     assert handler.n_saved == 2
-    assert np.array_equal(simulation.translate().initial.field0[0], spectrum)
+    assert np.array_equal(simulation.translate().initial.field0, spectrum)
 
 
 def test_an_input_that_is_neither_a_pulse_nor_a_spectrum_is_refused(
@@ -329,7 +329,7 @@ def test_the_modes_the_profiles_and_the_grid_reach_the_backend():
     simulation = capillary(modes=2)
     with quiet():
         problem = simulation.translate()
-    assert problem.shape[1] == 2
+    assert problem.shape[0] == 2
     assert problem.transform.synthesis.shape[1] == 2
     assert set(simulation.profiles) == {"density", "pressure", "core_radius"}
     with quiet():

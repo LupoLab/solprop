@@ -86,14 +86,14 @@ def pinned_final():
     problem = simulation.translate()
     launch = np.array(REFERENCE["launch"])
     state = np.zeros_like(problem.initial.field0)
-    state[0, :, 0, index] = AMPLITUDE * launch
+    state[:, 0, index] = AMPLITUDE * launch
     problem = replace(
         problem, initial=replace(problem.initial, field0=state, noise0=None)
     )
     driver = NumpyRefBackend(problem, grid=grid)
     driver.set_initial(problem.initial.field0, None)
     driver.propagate_to(length)
-    final = np.conj(driver.observe().require_field()[0, :, 0, index]) / AMPLITUDE
+    final = np.conj(driver.observe().require_field()[:, 0, index]) / AMPLITUDE
     driver.close()
     flow = problem.linear.coupled_flow
     assert flow is not None

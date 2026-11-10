@@ -43,7 +43,8 @@ from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.coupled import metric_at
 from solprop.translate.linop import LinearOperator
 from solprop.translate.modal_tables import ModalTransformTables
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
+from solprop.translate.routes import flux_of
 from solprop.translate.spatial import axial_admittance
 
 __all__ = [
@@ -116,12 +117,12 @@ def _antiderivative(values: PiecewiseChebyshev) -> dict[str, object]:
     }
 
 
-def port_metric(problem: KernelProblem, grid: TimeGrid, z: float) -> PlaneMetric:
+def port_metric(problem: PropagationProblem, grid: TimeGrid, z: float) -> PlaneMetric:
     """Return the native metric of a translated problem's state at a plane.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     grid : solprop.grid.TimeGrid
         Its temporal grid.
@@ -137,10 +138,11 @@ def port_metric(problem: KernelProblem, grid: TimeGrid, z: float) -> PlaneMetric
     """
     geometry = problem.transform.geometry
     if geometry is not None:
-        if problem.flux is None:
+        flux = flux_of(problem.route)
+        if flux is None:
             msg = "a spatial problem carries its plane measure"
             raise TranslationError(msg)
-        admittance = axial_admittance(problem.flux.at(z), grid.omega, slice(None))
+        admittance = axial_admittance(flux.at(z), grid.omega, slice(None))
         return PlaneMetric(
             "admittance",
             admittance=admittance,
@@ -156,7 +158,7 @@ def port_metric(problem: KernelProblem, grid: TimeGrid, z: float) -> PlaneMetric
 
 
 def input_port(  # noqa: PLR0913 - the problem and each part of the entrance it does not hold
-    problem: KernelProblem,
+    problem: PropagationProblem,
     grid: TimeGrid,
     *,
     route: PlaneKind,
@@ -179,7 +181,7 @@ def input_port(  # noqa: PLR0913 - the problem and each part of the entrance it 
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem; its launch position is the entrance.
     grid : solprop.grid.TimeGrid
         Its temporal grid.
@@ -252,7 +254,7 @@ def input_port(  # noqa: PLR0913 - the problem and each part of the entrance it 
             models = ("same_basis", "scalar_paraxial")
             if profiles.family == "step_index":
                 contrast = _scalar_contrast(profiles, index)
-    shape = cast("tuple[int, int, int]", tuple(int(one) for one in problem.shape[1:]))
+    shape = cast("tuple[int, int, int]", tuple(int(one) for one in problem.shape))
     return InputPort(
         route,
         grid,

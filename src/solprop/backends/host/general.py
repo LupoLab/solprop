@@ -2,15 +2,18 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The general Adams path: the comparison variants SEP 13 did not select.
+"""The reference's general Adams path: the comparison variants SEP 13 did not select.
 
 PECE, explicit Adams-Bashforth and the matched predictor-corrector pairs controlled
 by Milne's estimate (:class:`~solprop.stepper.multistep.ComparisonMultistep`) combine
 a list of host arrays one product at a time rather than handing a store of history
-rows to an engine. :class:`~solprop.backends.multistep.AdamsMarch` hands their trials to
-:class:`GeneralPath`, which keeps their arithmetic and shares the march's controller,
-history, ledger and lifecycle (SEP 39 phase 0, Q7). The selected method and the
-one-order-higher PEC variants never reach it.
+rows to an engine. :class:`~solprop.backends.host.adams.HostAdamsMarch` hands their
+trials to :class:`HostGeneralPath`, which keeps their arithmetic and shares the march's
+controller, history, ledger and lifecycle (SEP 39 phase 0, Q7). The selected method and
+the one-order-higher PEC variants never reach it.
+
+Owned by the NumPy reference since SEP 47 phase 2, and the reference's alone since the
+native backend refuses the comparison variants' general path (SEP 47 section 6.3).
 """
 
 import math
@@ -23,9 +26,9 @@ import numpy as np
 from solprop._helpers import Helpers
 from solprop._interrupts import committing
 from solprop.backends import adams_core
-from solprop.backends.driver import StepDriver
+from solprop.backends.host.adams import HostAdamsMarch
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.multistep import (
-    AdamsMarch,
     _combine,
     _DenseStep,
     _Derivative,
@@ -33,7 +36,7 @@ from solprop.backends.multistep import (
 )
 from solprop.stepper.multistep import integrated_weights, milne_factor
 
-__all__ = ["GeneralPath"]
+__all__ = ["HostGeneralPath"]
 
 
 @dataclass
@@ -58,7 +61,7 @@ class _Trial:
         z: float,
         dz: float,
         state: _State,
-        backend: StepDriver,
+        backend: HostDriver,
     ) -> "_Trial":  # noqa: UP037 - a runtime hook evaluates it
         """Form the predictor of a step from the history, newest derivative first.
 
@@ -72,7 +75,7 @@ class _Trial:
             The anchor and the step, m.
         state : numpy.ndarray
             The accepted state at the anchor.
-        backend : solprop.backends.driver.StepDriver
+        backend : solprop.backends.host.driver.HostDriver
             The backend, for the step's propagator and norm.
 
         Returns
@@ -131,16 +134,16 @@ class _Trial:
         return self.scale(self.propagator * defect)
 
 
-class GeneralPath:
+class HostGeneralPath:
     """The trials of the general Adams path, on the march they belong to.
 
     Parameters
     ----------
-    march : solprop.backends.multistep.AdamsMarch
+    march : solprop.backends.host.adams.HostAdamsMarch
         The march whose history, order, ledger and controller the trials use.
     """
 
-    def __init__(self, march: AdamsMarch) -> None:
+    def __init__(self, march: HostAdamsMarch) -> None:
         """Hold the march."""
         self._march = march
 
@@ -404,7 +407,7 @@ def _defect_at(trial: _Trial, source: _State, order: int, helpers: Helpers) -> f
 
 
 def _norm_function(
-    backend: StepDriver,
+    backend: HostDriver,
     state: _State,
 ) -> Callable[[_State], float]:
     """Return the weak norm of a defect, scaled by the accepted state before the step.
@@ -418,7 +421,7 @@ def _norm_function(
 
     Parameters
     ----------
-    backend : solprop.backends.driver.StepDriver
+    backend : solprop.backends.host.driver.HostDriver
         The backend, for the controller and the in-band mask.
     state : numpy.ndarray
         The accepted state before the step.

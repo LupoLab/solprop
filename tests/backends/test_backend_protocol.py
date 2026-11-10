@@ -127,7 +127,7 @@ def test_a_step_of_no_length_is_refused():
 
 def test_an_observation_freezes_its_field_and_agrees_with_its_history():
     record = history(2, accepted=np.array([True, False]))
-    plane = Observation(0.2, np.zeros((1, 1, 1, 8), complex), None, record, 2, 1)
+    plane = Observation(0.2, np.zeros((1, 1, 8), complex), None, record, 2, 1)
     assert plane.z == 0.2
     assert not plane.require_field().flags.writeable
     assert plane.require_field().flags.c_contiguous
@@ -137,8 +137,8 @@ def test_an_observation_freezes_its_field_and_agrees_with_its_history():
 def test_a_noise_phase_is_carried_in_the_state_layout():
     plane = Observation(
         0.1,
-        np.zeros((2, 1, 1, 4), complex),
-        np.zeros((2, 1, 1, 4)),
+        np.zeros((2, 1, 4), complex),
+        np.zeros((2, 1, 4)),
         history(1),
         1,
         0,
@@ -149,8 +149,8 @@ def test_a_noise_phase_is_carried_in_the_state_layout():
 
 
 def test_a_diverged_field_is_refused_rather_than_observed():
-    spoiled = np.zeros((1, 1, 1, 4), complex)
-    spoiled[0, 0, 0, 2] = np.nan
+    spoiled = np.zeros((1, 1, 4), complex)
+    spoiled[0, 0, 2] = np.nan
     with pytest.raises(BackendError, match="a diverged run must raise"):
         Observation(0.1, spoiled, None, history(1), 1, 0)
 
@@ -167,15 +167,15 @@ def test_any_non_finite_entry_in_any_row_is_found(bad, threaded, monkeypatch):
         monkeypatch.setattr(
             _process, "thread_budget", lambda: SimpleNamespace(threads=3)
         )
-    spoiled = np.ones((1, 8, 1, 4), complex)
-    spoiled[0, 7, 0, 3] = bad
+    spoiled = np.ones((8, 1, 4), complex)
+    spoiled[7, 0, 3] = bad
     with pytest.raises(BackendError, match="1 of 32 entries"):
         Observation(0.1, spoiled, None, history(1), 1, 0)
 
 
 def test_finite_entries_too_large_to_add_are_still_finite():
     # Their sum overflows, which alone doesn't make an entry infinite.
-    huge = np.full((1, 2, 1, 4), 1e308 + 0j)
+    huge = np.full((2, 1, 4), 1e308 + 0j)
     plane = Observation(0.1, huge, None, history(1), 1, 0)
     assert plane.require_field().shape == huge.shape
 
@@ -184,8 +184,8 @@ def test_a_noise_phase_that_does_not_match_the_field_is_refused():
     with pytest.raises(BackendError, match="noise_phase has shape"):
         Observation(
             0.1,
-            np.zeros((1, 1, 1, 4), complex),
-            np.zeros((1, 1, 1, 8)),
+            np.zeros((1, 1, 4), complex),
+            np.zeros((1, 1, 8)),
             history(1),
             1,
             0,
@@ -201,7 +201,7 @@ def test_counts_that_disagree_with_the_history_are_refused(
 ):
     with pytest.raises(BackendError, match=message):
         Observation(
-            0.2, np.zeros((1, 1, 1, 4), complex), None, history(2), n_steps, n_rejected
+            0.2, np.zeros((1, 1, 4), complex), None, history(2), n_steps, n_rejected
         )
 
 
@@ -232,7 +232,7 @@ def test_an_empty_channel_is_what_a_run_without_a_periodic_subset_carries():
     assert channel.names == ()
     assert (
         Observation(
-            0.1, np.zeros((1, 1, 1, 4), complex), None, history(1), 1, 0
+            0.1, np.zeros((1, 1, 4), complex), None, history(1), 1, 0
         ).step_stats.n_rows
         == 0
     )
@@ -277,7 +277,7 @@ def test_a_row_that_indexes_past_the_history_it_is_flushed_with_is_refused():
     with pytest.raises(BackendError, match="indexes step 5 of a history with 2"):
         Observation(
             0.2,
-            np.zeros((1, 1, 1, 4), complex),
+            np.zeros((1, 1, 4), complex),
             None,
             history(2),
             2,
@@ -354,8 +354,8 @@ class Stub:
     def restore_march(self, snapshot):
         return None
 
-    def timed_step(self):
-        return lambda: None
+    def timing_probe(self, start):
+        raise NotImplementedError
 
     def propagate_to(self, z):
         return StepSummary(z, 1, 0, 0.5, 0.5, 0.0, True)
@@ -382,11 +382,11 @@ class Stub:
 def test_a_minimal_backend_satisfies_the_protocol():
     backend = Stub()
     assert isinstance(backend, Backend)
-    backend.set_initial(np.zeros((1, 1, 1, 4), complex), None)
+    backend.set_initial(np.zeros((1, 1, 4), complex), None)
     assert backend.restore_call_ledgers({}) is None
     backend.set_progress(NullReporter())
     assert backend.propagate_to(0.5).z == 0.5
-    assert backend.observe().require_field().shape == (1, 1, 1, 4)
+    assert backend.observe().require_field().shape == (1, 1, 4)
     assert backend.stats(StatsSpec(names=("energy",))) == {"energy": pytest.approx(0.0)}
     assert backend.memory_ledger() == {"state": 64}
     assert backend.available_device_memory() is None

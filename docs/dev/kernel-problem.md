@@ -3,7 +3,7 @@
 Before a run takes its first step, everything solprop knows about it — the grid, the
 modes, the gas, the frame, the responses, the pulse, the noise, the stepper settings — is
 translated once into a single frozen object of plain NumPy arrays, a
-{class}`~solprop.translate.problem.KernelProblem`. That object is the only thing a
+{class}`~solprop.translate.problem.PropagationProblem`. That object is the only thing a
 backend ever sees, so it is exactly what the run computes: every choice the physics pages
 describe has been made by the time it exists, and nothing a backend does can change them.
 
@@ -28,7 +28,7 @@ simulation = Simulation.from_gnlse(
     n_save=3,
 )
 problem = simulation.translate()
-problem.shape  # (1, 1, 1, 768): batch, modes, polarisation, frequency
+problem.shape  # (1, 1, 768): modes, polarisation, frequency
 problem.flags  # single_mode=True, constant_linop=True, ...
 problem.linear.phi_representation  # 'constant': how the linear operator was stored
 ```
@@ -45,22 +45,28 @@ away beforehand.
 
 ## What crosses
 
-{class}`solprop.translate.problem.KernelProblem` is built by
-{func}`solprop.translate.problem.assemble` and carries eight groups, one per section of the
-contract:
+{class}`solprop.translate.problem.PropagationProblem` is built by
+{func}`solprop.translate.problem.assemble`. It describes one trajectory: a group of them,
+as a batched scan runs, is a sequence of problems. It carries the groups every route
+shares, one per section of the contract, and a `route`:
 
 | group | holds |
 |---|---|
 | `flags` | static booleans and channel/response counts for kernel specialisation |
 | `grids` | the frequency axis, the two band masks, the windows, the crop index and the two oversampling scale factors |
 | `linear` | the cumulative operator $\Phi(\omega, z)$ as a Chebyshev expansion in the mode set's scalar paths, or as a table along z where that is not available, plus its hard kinks and the frame quantities |
-| `transform` | synthesis and projection between modal amplitudes and the field at quadrature nodes, and their rescaling along z |
 | `responses` | the compiled nonlinear term: the Kerr coefficients, the ionisation table, the plasma and Raman leaves, the density path, the prefactor, the temporal absorber |
-| `initial` | the initial state, the noise realisation and the per-member batch parameters |
+| `initial` | the initial state and the noise realisation of the one trajectory the problem describes |
 | `stepper` | the tableau, the controller, the step caps, the save planes and any fixed schedule |
 | `stats_spec` | which statistics to collect |
-| `flux` | a spatial run's plane measure: the axial admittance of the medium at any plane, from which every spatial statistic is weighted ([SEP 34](seps/archive/sep-0034-medium-flux.md), version 35) |
+| `route` | what differs between routes, as exactly one variant of a closed union ({mod}`solprop.translate.routes`): a {class}`~solprop.translate.routes.ModalRoute` (mode-averaged or resolved modes, with the TDSE response as its reference-only extension), a {class}`~solprop.translate.routes.GeneralRoute` (a general modal guide) or a {class}`~solprop.translate.routes.SpatialRoute` (radial, Cartesian, planar or line free space, with its plane measure and transverse boundary). Each carries the transform — synthesis and projection between modal amplitudes and the field at quadrature nodes, and their rescaling along z — which `problem.transform` reads |
 
+Each variant has exactly the fields its executor needs and checks them when it is built.
+A backend visits the variant explicitly and refuses one it does not execute by name,
+before it allocates anything: extending a route changes this typed contract and its
+tests, never a bag of optional fields
+([SEP 47](seps/sep-0047-run-ownership.md) §6.2; the contract's extension procedure,
+[kernel contract](kernel-contract.md) §10).
 Every array is `float64`, `complex128`, `bool` or `intp` (and `int32` at three named index
 leaves of the general modal route); C-contiguous; read-only; and in
 the **FFT convention** with the phase origin at the first time sample
@@ -140,7 +146,7 @@ the operator.
 
 ## The flags are derived, never declared
 
-The ten booleans of section 1 — `single_mode`, `has_raman`, `constant_linop` and the rest —
+The nine booleans of section 1 — `single_mode`, `has_raman`, `constant_linop` and the rest —
 are computed by {meth}`solprop.translate.problem.Flags.from_content` from the arrays that
 were actually built. A caller cannot set them, so a flag cannot disagree with what it
 describes, which is the failure mode a kernel specialising on them would find hardest to
@@ -148,7 +154,7 @@ debug.
 
 ## Validation is the backend's defence
 
-A backend calls {meth}`solprop.translate.problem.KernelProblem.validate` and refuses
+A backend calls {meth}`solprop.translate.problem.PropagationProblem.validate` and refuses
 anything inconsistent. Most of the contract's promises are kept by construction — each group
 freezes and checks its own arrays, so a writeable array or a mismatched interval count
 cannot be built in the first place — and what `validate` adds is everything that spans
@@ -259,9 +265,9 @@ kernel has to do: the operator does not propagate what is not there, and the pre
 not create it. Between the two, the assembled problem reports
 
 ```
-shape          (1, 1, 1, 4096)
+shape          (1, 1, 4096)
 grid_kind      'envelope'
-flags          single_mode, scalar_pol, single_batch, constant_linop, mode_averaged
+flags          single_mode, scalar_pol, constant_linop, mode_averaged
 Phi table      1 interval of degree 1, 128 kB
 save planes    [0.5, 1.0]
 ```

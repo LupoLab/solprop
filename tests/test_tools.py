@@ -917,7 +917,7 @@ def test_the_predicted_peak_intensity_is_the_statistic_a_run_reports_at_its_entr
     )
     backend.set_initial(problem.initial.field0, None)
     reported = float(
-        backend.stats(StatsSpec(names=("peak_intensity",)))["peak_intensity"][0]
+        backend.stats(StatsSpec(names=("peak_intensity",)))["peak_intensity"]
     )
     predicted = tools.capillary_params(
         125e-6, "He", 1.0, energy=energy, fwhm=fwhm, wavelength=PUMP, cladding=GLASS

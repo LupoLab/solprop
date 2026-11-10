@@ -50,7 +50,11 @@ def radial_blas_case(n_r, n_pol, chunk, duration):
         [KerrResponse(1e-22, thg=False)],
     )
     return grid, dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=chunk)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+        ),
     )
 
 

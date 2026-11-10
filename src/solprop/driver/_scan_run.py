@@ -21,7 +21,11 @@ from typing import cast
 import numpy as np
 
 from solprop.backends import select
+from solprop.backends.events import ObservationReady, Terminal
+from solprop.backends.protocol import Backend
 from solprop.backends.registry import _device_build
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.driver._scan_context import current_executor
 from solprop.driver._scan_model import Scan, ScanPoint, name_seed
 from solprop.driver.executors import Batch, Executor, Local
@@ -55,6 +59,9 @@ from solprop.output.schema import (
     field_retention_refusal,
 )
 from solprop.processing.scans import Reduction, ScanOutput, _Builtin, _provenance
+from solprop.translate.problem import PropagationProblem
+from solprop.translate.routes import tdse_of
+from solprop.translate.run_request import describe_run
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +94,49 @@ class _Job:
 
     point: ScanPoint
     cached_hash: str = ""
+
+
+def launch_statistics(
+    backend: Backend, problem: PropagationProblem
+) -> Mapping[str, np.ndarray]:
+    """Load a probed backend at its problem's entrance and return the launch statistics.
+
+    A probe for resource admission: the backend's session loads the entrance, as a
+    run's would, and reports the launch plane; the backend stays loaded and open for
+    the caller to measure and close. The realisation is the one the problem was
+    assembled with: the builders' own is in true sqrt(W), while ``initial.noise0``
+    is already divided by the entrance weight.
+
+    Parameters
+    ----------
+    backend : solprop.backends.protocol.Backend
+        The constructed backend.
+    problem : solprop.translate.problem.PropagationProblem
+        Its problem.
+
+    Returns
+    -------
+    collections.abc.Mapping
+        The launch plane's statistics, without a batch axis.
+
+    Raises
+    ------
+    BaseException
+        The launch's own failure, when its statistics could not be evaluated.
+    """
+    session = start_session(
+        backend, problem, describe_run(problem), Start.entrance(problem), owns=False
+    )
+    try:
+        launch = session.advance().events[-1]
+    finally:
+        session.close()
+    if isinstance(launch, Terminal) and launch.error is not None:
+        # The launch plane's statistics failed: the probe fails with that error.
+        raise launch.error
+    # A fresh session's first batch ends at its launch plane, or at the failure above.
+    assert isinstance(launch, ObservationReady)
+    return dict(launch.stats)
 
 
 def _plane_index(index: int, count: int) -> int:
@@ -164,7 +214,7 @@ class _Capture(MemoryOutput):
         self.options = options
         self.count = len(simulation.settings.save_planes) + 1
         problem = simulation.translate()
-        self._field_shape = tuple(problem.shape[1:])
+        self._field_shape = tuple(problem.shape)
         self.selected = (
             set(range(self.count))
             if options.fields == "all"
@@ -560,7 +610,7 @@ class _Work:
         """
         if (
             not self.keeps_backend
-            or simulation.translate().tdse is not None
+            or tdse_of(simulation.translate().route) is not None
             or not _device_build(simulation.settings.backend)
         ):
             self.close()
@@ -730,17 +780,12 @@ class _Work:
             profiles=simulation.profiles,
         )
         try:
-            # None, not `simulation.noise`: the realisation the builders return is in
-            # true sqrt(W), while `initial.noise0` has already been divided by the
-            # entrance weight, and StepDriver prefers a passed realisation over it.
-            backend.set_initial(simulation.translate().initial.field0, None)
+            statistics = launch_statistics(backend, simulation.translate())
             return {
                 "baseline_rss": baseline,
                 "rss": peak_rss(),
                 "ledger": sum(backend.memory_ledger().values()),
-                "output_bytes": self._output_bytes(
-                    simulation, backend.stats(simulation.translate().stats_spec)
-                ),
+                "output_bytes": self._output_bytes(simulation, statistics),
             }
         finally:
             backend.close()
@@ -791,7 +836,7 @@ class _Work:
                 {_plane_index(index, count) for index in self.options.field_planes}
             )
         )
-        field_bytes = math.prod(simulation.translate().shape[1:]) * 16 * selected
+        field_bytes = math.prod(simulation.translate().shape) * 16 * selected
         if simulation.noise is not None:
             field_bytes *= 2
         keep = self.options.stats
@@ -824,7 +869,7 @@ class _Work:
         metadata = dataclasses.replace(
             simulation.metadata(),
             configuration=dict(simulation.metadata().configuration)
-            | {"scan_field_shape": simulation.translate().shape[1:]},
+            | {"scan_field_shape": simulation.translate().shape},
         )
         reduced_bytes = sum(
             math.prod(reduction.shape(metadata)) * reduction.dtype.itemsize

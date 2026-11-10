@@ -139,7 +139,7 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
         Handler, HDF5 path, or None for an in-memory result.
     snapshots : solprop.output.SnapshotController or None, optional
         Immutable local checkpoints at committed accepted steps; requires HDF5,
-        ``step_planes=1``, all fields and non-interpolated observations.
+        all fields and non-interpolated observations.
     resume : bool or {'interpolated'}, optional
         Continue the file at `output` when its record and this run's have one
         configuration hash; otherwise it is refused, naming what changed. Only a
@@ -263,7 +263,7 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
         Handler, HDF5 path, or None for an in-memory result.
     snapshots : solprop.output.SnapshotController or None, optional
         Immutable local checkpoints at committed accepted steps; requires HDF5,
-        ``step_planes=1``, all fields and non-interpolated observations.
+        all fields and non-interpolated observations.
     resume : bool or {'interpolated'}, optional
         Continue the file at `output` when its record and this run's have one
         configuration hash; otherwise it is refused, naming what changed. Only a
@@ -377,7 +377,7 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
         Handler, HDF5 path, or None for an in-memory result.
     snapshots : solprop.output.SnapshotController or None, optional
         Immutable local checkpoints at committed accepted steps; requires HDF5,
-        ``step_planes=1``, all fields and non-interpolated observations.
+        all fields and non-interpolated observations.
     resume : bool or {'interpolated'}, optional
         Continue the file at `output` when its record and this run's have one
         configuration hash; otherwise it is refused, naming what changed. Only a
@@ -674,7 +674,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         a :class:`solprop.output.memory.MemoryOutput`.
     snapshots : solprop.output.SnapshotController or None, optional
         Immutable local checkpoints at committed accepted steps; requires HDF5,
-        ``step_planes=1``, all fields and non-interpolated observations.
+        all fields and non-interpolated observations.
     backend : str, optional
         Registry name, or ``"auto"`` (the default) for ``native``, which refuses if it
         isn't installed or this processor is below its baseline. There is no fallback,
@@ -688,9 +688,8 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, below which an explicit
         value is refused; its default integrator is ``RungeKutta()``; the default noise
         resolves to none, and the Adams method and an explicit noise model are refused.
-        ``backend="auto"`` then resolves to the experimental ``mlx`` where MLX and a
-        Metal GPU are present, and is refused otherwise; ``numpy_ref`` runs it as the
-        reference, and ``native`` refuses it.
+        ``numpy_ref`` runs it as the reference; ``native`` and ``backend="auto"``
+        refuse it.
     resume : bool or {'interpolated'}, optional
         Continue the file at `output` when its record and this run's have one
         configuration hash; otherwise it is refused, naming what changed. Only a
@@ -1175,9 +1174,8 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, below which an explicit
         value is refused; its default integrator is ``RungeKutta()``; the default noise
         resolves to none, and the Adams method and an explicit noise model are refused.
-        ``backend="auto"`` then resolves to the experimental ``mlx`` where MLX and a
-        Metal GPU are present, and is refused otherwise; ``numpy_ref`` runs it as the
-        reference, and ``native`` refuses it.
+        ``numpy_ref`` runs it as the reference; ``native`` and ``backend="auto"``
+        refuse it.
     polarisation : str, float or None, optional
         Refused; this path is scalar.
     output : solprop.output.schema.Output, pathlib.Path, str or None, optional
@@ -1185,7 +1183,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         :class:`~solprop.output.memory.MemoryOutput`.
     snapshots : solprop.output.SnapshotController or None, optional
         Immutable local checkpoints at committed accepted steps; requires HDF5,
-        ``step_planes=1``, all fields and non-interpolated observations.
+        all fields and non-interpolated observations.
     resume : bool or {'interpolated'}, optional
         Continue the file at `output` when its record and this run's have one
         configuration hash; otherwise it is refused, naming what changed. Only a
@@ -1694,9 +1692,8 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` below which an explicit
         value is refused; its default integrator is ``RungeKutta()``; the default noise
         resolves to none, and the Adams method and an explicit noise model are refused.
-        ``backend="auto"`` then resolves to the experimental ``mlx`` where MLX and a
-        Metal GPU are present, and is refused otherwise; ``numpy_ref`` runs it as the
-        reference, and ``native`` refuses it.
+        ``numpy_ref`` runs it as the reference; ``native`` and ``backend="auto"``
+        refuse it.
     polarisation : str, float or None, optional
         Refused; this path is scalar.
     taper_coupling : bool, optional
@@ -1708,7 +1705,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         :class:`~solprop.output.memory.MemoryOutput`.
     snapshots : solprop.output.SnapshotController or None, optional
         Immutable local checkpoints at committed accepted steps; requires HDF5,
-        ``step_planes=1``, all fields and non-interpolated observations.
+        all fields and non-interpolated observations.
     resume : bool or {'interpolated'}, optional
         Continue the file at `output` when its record and this run's have one
         configuration hash; otherwise it is refused, naming what changed. Only a

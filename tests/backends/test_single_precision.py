@@ -25,15 +25,8 @@ from scipy import signal
 from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, higham_gamma, prefix_bound
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop import fourier
-from solprop.backends import registry
-from solprop.backends.batch import LockstepRunner
-from solprop.backends.driver import StepDriver
-from solprop.backends.memory import (
-    MLX_GRAPH_BUDGET,
-    mlx_bounded,
-    mlx_graph_bytes,
-    mlx_stage_bytes,
-)
+from solprop.backends.host.driver import HostDriver
+from solprop.backends.host.group import HostGroup
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.numpy_ref.single import (
@@ -47,7 +40,6 @@ from solprop.backends.numpy_ref.single import (
 from solprop.backends.protocol import Backend, Observation
 from solprop.backends.registry import (
     available,
-    metal_available,
     select,
     select_batch,
 )
@@ -215,13 +207,9 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
             shape="sech", precision="single", noise=None,
         )  # fmt: skip
 
-    # "auto" is the GPU backend where MLX and a Metal device are present, and refused
-    # otherwise: never a binary64 backend, never the oracle (Q8).
-    if metal_available():
-        assert automatic().settings.backend == "mlx"
-    else:
-        with pytest.raises(DriverError, match="backend='auto'"):
-            automatic()
+    # "auto" is refused: never a binary64 backend, never the oracle (Q8, SEP 47).
+    with pytest.raises(DriverError, match="backend='auto'"):
+        automatic()
     with pytest.raises(DriverError, match="binary64 only"):
         dataclasses.replace(settings, backend="native")
     # The Adams integrator is admitted (#342); the default stays Runge-Kutta.
@@ -432,7 +420,7 @@ def test_the_state_is_binary32_at_the_launch_scale_and_observed_exactly():
         assert 1.0 <= peak < 2.0
         observed = backend.observe().field
         assert observed is not None and observed.dtype == np.complex128
-        assert np.array_equal(observed, state.astype(np.complex128) * 8.0)
+        assert np.array_equal(observed, state[0].astype(np.complex128) * 8.0)
         # A reload of the observed plane holds the same binary32 state: class P.
         backend.propagate_to(0.02)
         plane = backend.observe().field
@@ -950,7 +938,7 @@ def test_the_binary32_exponent_switch_rounds_the_exponent_first():
 def test_a_non_finite_state_after_a_step_is_refused():
     with ExitStack() as cleanup:
         backend = cast(NumpySingleBackend, loaded(gnlse("single"), cleanup))
-        state = np.full(backend._problem.shape, np.nan, dtype=np.complex64)
+        state = np.full((1, *backend._problem.shape), np.nan, dtype=np.complex64)
         with pytest.raises(ConvergenceError, match="not finite after a step"):
             backend._finish(state, 1e-3)
 
@@ -1094,7 +1082,7 @@ def test_a_single_precision_batch_takes_each_member_s_own_trial():
     members = tuple(loaded(gnlse("single")) for _ in range(2))
     runner = select_batch(cast(Sequence[Backend], members))
     try:
-        assert type(runner) is LockstepRunner
+        assert type(runner) is HostGroup
     finally:
         runner.close()
 
@@ -1107,7 +1095,7 @@ def test_a_batch_of_mixed_precisions_is_refused(order):
             select_batch(cast(Sequence[Backend], mixed))
         # The shared member validation, whichever runner is built.
         with pytest.raises(BackendError, match="mixed precisions"):
-            LockstepRunner(cast(Sequence[StepDriver[object]], mixed))
+            HostGroup(cast(Sequence[HostDriver[object]], mixed))
 
 
 def test_the_reference_s_binary64_batch_refuses_a_single_member():
@@ -1214,48 +1202,12 @@ def test_the_envelope_plasma_runs_in_binary32_on_the_oracle():
     assert_within(fields[0], fields[1], 1e-5)
 
 
-def test_without_mlx_single_precision_lists_the_oracle_only(monkeypatch):
-    real = registry._satisfied
-    monkeypatch.setattr(
-        registry,
-        "_satisfied",
-        lambda entry: entry is not registry.BACKENDS["mlx"] and real(entry),
-    )
+def test_single_precision_lists_the_oracle_only():
+    """SEP 47 retired mlx: the reference is the one single-precision backend."""
     assert available("single") == ("numpy_ref",)
-    assert not registry.metal_available()
-    assert registry.statistics_refusal("mlx", ["beam_spectrum"]) is None
-
-
-def test_auto_resolves_to_mlx_where_metal_is_present(monkeypatch):
-    monkeypatch.setattr(simulation_module, "metal_available", lambda: True)
-    assert simulation_module._single_backend("auto") == "mlx"
     assert simulation_module._single_backend("numpy_ref") == "numpy_ref"
-
-
-def test_a_step_graph_past_the_budget_is_evaluated_stage_by_stage():
-    assert mlx_bounded(7, MLX_GRAPH_BUDGET)
-    assert not mlx_bounded(7, 1)
-
-
-@pytest.mark.parametrize(
-    "build",
-    [
-        pytest.param(lambda: gnlse("single"), id="gnlse"),
-        pytest.param(lambda: capillary("single"), id="plasma"),
-        pytest.param(lambda: capillary("single", modes=4), id="multimode"),
-        pytest.param(
-            lambda: spatial_kerr("radial", "single", absorbed=True), id="radial"
-        ),
-        pytest.param(lambda: spatial_kerr("cartesian", "single"), id="cartesian"),
-        pytest.param(
-            lambda: capillary("single", envelope=True, plasma=True), id="envelope"
-        ),
-    ],
-)
-def test_the_mlx_graph_sizes_are_arithmetic(build):
-    """The sizes the device's limits are set from need no MLX installed."""
-    problem = build().translate()
-    assert mlx_graph_bytes(problem) > 0 and mlx_stage_bytes(problem) > 0
+    with pytest.raises(DriverError, match="backend='numpy_ref'"):
+        simulation_module._single_backend("auto")
 
 
 @pytest.mark.parametrize("n", [255, 256])

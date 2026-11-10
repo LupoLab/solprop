@@ -365,7 +365,7 @@ def problem():
 
 def test_a_plane_is_charged_what_the_memory_store_holds_for_it(problem):
     # One plane of the problem's shape, with every statistic it records.
-    entries = int(np.prod(problem.shape[1:]))
+    entries = int(np.prod(problem.shape))
     expected = 16 * entries + 8 * 3
     if problem.initial.noise_model != "none":
         expected += 8 * entries
@@ -373,9 +373,9 @@ def test_a_plane_is_charged_what_the_memory_store_holds_for_it(problem):
         expected += 8 * _catalogued_entries(
             CATALOGUE[name].shape,
             {
-                "n_modes": problem.shape[1],
-                "n_pol": problem.shape[2],
-                "n_omega": problem.shape[3],
+                "n_modes": problem.shape[0],
+                "n_pol": problem.shape[1],
+                "n_omega": problem.shape[2],
                 "n_windows": problem.stats_spec.n_windows,
                 "n_species": 0,
                 "n_nodes": 0,

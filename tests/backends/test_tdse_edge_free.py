@@ -630,7 +630,9 @@ def test_the_edge_assembly_refuses_a_foreign_or_nonfinite_result():
         atomic_edge_source(
             result(huge, case.descriptor.identity), case.problem, case.bundle
         )
-    bare = dataclasses.replace(case.problem, tdse=None, current_numerator=None)
+    bare = dataclasses.replace(
+        case.problem, route=dataclasses.replace(case.problem.route, tdse=None)
+    )
     with pytest.raises(BackendError, match="requires a TDSE descriptor"):
         atomic_edge_source(result(values, "x"), bare, case.bundle)
 

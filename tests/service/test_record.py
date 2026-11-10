@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from solprop.backends.session import StopToken
 from solprop.service import record
 from solprop.service.messages import Event, ServiceError
 from solprop.service.record import (
@@ -124,17 +125,32 @@ def test_the_job_record_round_trips_and_a_torn_one_reads_as_none(tmp_path):
     assert read_job(tmp_path) is None
 
 
+def _heard(token: StopToken) -> tuple[threading.Event, list[str]]:
+    """Attach a listener to `token`, as a session does; say when and where it fired."""
+    heard, threads = threading.Event(), []
+
+    def listener() -> None:
+        threads.append(threading.current_thread().name)
+        heard.set()
+
+    token.attach(listener)
+    return heard, threads
+
+
 def test_the_stop_file_asks_and_is_watched(tmp_path, monkeypatch):
     monkeypatch.setattr(record, "STOP_PERIOD", 0.01)
-    stop, done = threading.Event(), threading.Event()
+    stop, done = StopToken(), threading.Event()
+    heard, threads = _heard(stop)
     thread = watch_stop(tmp_path, stop, done)
     assert not stop_requested(tmp_path)
     request_stop(tmp_path)
-    assert stop.wait(5.0) and stop_requested(tmp_path)
+    # The watching thread sets the token, and a session's listener hears it there.
+    assert heard.wait(5.0) and stop.is_set() and stop_requested(tmp_path)
+    assert threads == [thread.name]
     thread.join(5.0)
     clear_stop(tmp_path)
     assert not stop_requested(tmp_path)
-    ended = threading.Event()
+    ended = StopToken()
     quiet = watch_stop(tmp_path, ended, done)
     done.set()
     quiet.join(5.0)
@@ -180,11 +196,12 @@ def test_a_run_tied_to_a_window_stops_when_the_window_goes(tmp_path, monkeypatch
     child = subprocess.Popen([sys.executable, "-c", "pass"])
     stamp = process_stamp(child.pid)
     child.wait()
-    stop, done = threading.Event(), threading.Event()
+    stop, done = StopToken(), threading.Event()
+    heard, _ = _heard(stop)
     watch_stop(tmp_path, stop, done, owner=(child.pid, stamp or "gone"))
-    assert stop.wait(5.0) and stop_requested(tmp_path)
+    assert heard.wait(5.0) and stop.is_set() and stop_requested(tmp_path)
     clear_stop(tmp_path)
-    alive_stop, alive_done = threading.Event(), threading.Event()
+    alive_stop, alive_done = StopToken(), threading.Event()
     me = (os.getpid(), process_stamp(os.getpid()))
     thread = watch_stop(tmp_path, alive_stop, alive_done, owner=me)
     time.sleep(0.2)

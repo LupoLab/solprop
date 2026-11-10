@@ -107,7 +107,7 @@ def planar_case(name, *, steps=None, node_chunk=None):
     space = PlanarGrid(modes, RADIUS_Y, n_y, collar_fraction=collar_fraction, n_x=n_r)
     profile = np.exp(-((space.y / (RADIUS_Y / 3)) ** 2))
     field0 = (
-        np.fft.fft(profile)[:, None, None, None] * modal.initial.field0[0][None]
+        np.fft.fft(profile)[:, None, None, None] * modal.initial.field0[None]
     ).reshape(space.n_columns, 1, grid.n_omega)
     settings = dataclasses.replace(
         simulation.settings,
@@ -138,11 +138,14 @@ def planar_case(name, *, steps=None, node_chunk=None):
     ).translate()
     if collar:
         problem = dataclasses.replace(
-            problem, initial=dataclasses.replace(problem.initial, field0=field0[None])
+            problem, initial=dataclasses.replace(problem.initial, field0=field0)
         )
     if node_chunk is not None:
         problem = dataclasses.replace(
             problem,
-            transform=dataclasses.replace(problem.transform, node_chunk=node_chunk),
+            route=dataclasses.replace(
+                problem.route,
+                transform=dataclasses.replace(problem.transform, node_chunk=node_chunk),
+            ),
         )
     return grid, space, problem

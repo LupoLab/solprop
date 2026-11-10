@@ -1494,7 +1494,7 @@ class ModalTransformTables(Displayed):
     Built from a :class:`DenseModalTable` by :func:`modal_transform_tables`, or along a
     moving guide by :mod:`solprop.translate.modal_path`. It is flat -- arrays, not a
     nest of samples -- because that is what a backend can be handed, and it is the
-    ``transform.modal_tables`` leaf of a ``KernelProblem``.
+    ``transform.modal_tables`` leaf of a ``PropagationProblem``.
 
     ``factors`` is always ``None``; the dense ``electric`` and ``magnetic``
     references, the ``coordinate_dual`` and the execution maps ``synthesis`` and
@@ -1510,7 +1510,7 @@ class ModalTransformTables(Displayed):
     ----------
     omega : numpy.ndarray
         Coarse angular frequencies in rad/s, shape (n_omega,), increasing and
-        non-negative. On a ``KernelProblem`` it is ``grids.omega`` itself, whose
+        non-negative. On a ``PropagationProblem`` it is ``grids.omega`` itself, whose
         first bin is zero on a field grid, with the inactive bins explicitly zero
         rather than evaluated.
     omega_fine : numpy.ndarray

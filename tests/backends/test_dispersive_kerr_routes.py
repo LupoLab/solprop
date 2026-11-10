@@ -148,7 +148,7 @@ def stage_derivative(problem, grid):
         return backend._nonlinear(
             backend._require_state(),
             backend._stage_scalars(0.0, 0.0),
-            np.ones(problem.shape, complex),
+            np.ones((1, *problem.shape), complex),
         )
     finally:
         backend.close()
@@ -587,10 +587,8 @@ def general_problem(guide: ModalGuide, policy: str, form: KerrForm, *, leaf=None
     )
     if leaf is not None:
         route = dataclasses.replace(route, dispersive=leaf)
-    state = np.zeros((1, 1, 1, grid.n_omega), complex)
-    state[0, 0, 0] = GaussianPulse(wavelength=835e-9, fwhm=40e-15, energy=2e-9).build(
-        grid
-    )
+    state = np.zeros((1, 1, grid.n_omega), complex)
+    state[0, 0] = GaussianPulse(wavelength=835e-9, fwhm=40e-15, energy=2e-9).build(grid)
     return route, assemble(
         grid,
         list(guide.mode_collection),
@@ -944,7 +942,7 @@ def test_the_general_source_refuses_densities_that_do_not_match_its_channels():
     grids = problem.grids
     with pytest.raises(BackendError, match="1 dispersive channel"):
         general_modal.general_source(
-            problem.initial.field0[0],
+            problem.initial.field0,
             maps,
             grids.crop_index,
             n_to=grids.n_to,

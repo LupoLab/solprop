@@ -30,12 +30,15 @@ def true_watt_slope(problem, grid):
     )
     backend = NumpyRefBackend(problem, grid=grid)
     try:
-        state = np.zeros(problem.shape, complex)
+        # The backend's private hook keeps the state's leading axis of one.
+        state = np.zeros((1, *problem.shape), complex)
         carrier = int(np.argmin(abs(grid.omega - grid.omega0)))
         state[..., carrier] = grid.n_t / (2 if grid.kind == "field" else 1)
         state /= np.sqrt(power_weight_at(problem, 0.0))
         derivative = backend._nonlinear(
-            state, stage.scalars(problem, 0.0, 0.0), np.ones(problem.shape, complex)
+            state,
+            stage.scalars(problem, 0.0, 0.0),
+            np.ones((1, *problem.shape), complex),
         )
         amplitude = fourier.inverse(state[0, 0, 0], kind=grid.kind)
         response = fourier.inverse(derivative[0, 0, 0], kind=grid.kind)

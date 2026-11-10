@@ -49,6 +49,14 @@ being implemented.
   exception; APIs may be freely broken for a cleaner design, with callers, tests and
   documentation updated together and a changelog listing.
 
+- [SEP 48 — A Julia backend](seps/sep-0048-julia-backend.md): an optional
+  `backend="julia"` at Tier 3, one Julia engine for CPUs and NVIDIA, AMD and Apple GPUs
+  in binary64 and binary32 (input noise in binary64 only), owning SEP 47's whole execution session. `pip install
+  solprop` is unchanged; the `julia` extra adds only `juliacall`, and `solprop julia
+  setup` installs a pinned Julia and environment, refused until run. The general modal
+  route, planar kind, coupled flows, TDSE, vector and tensor responses and dispersive
+  Kerr stay refused; a system image and a trimmed library are later work.
+
 ## Draft enhancement proposals
 
 SEPs under discussion; their scope may change and implementation has not been accepted.
@@ -99,10 +107,3 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
-- [SEP 48 — A Julia backend](seps/sep-0048-julia-backend.md): an optional
-  `backend="julia"` at Tier 3, one Julia engine for CPUs and NVIDIA, AMD and Apple GPUs
-  in binary64 and binary32, owning SEP 47's whole execution session. `pip install
-  solprop` is unchanged; the `julia` extra adds only `juliacall`, and `solprop julia
-  setup` installs a pinned Julia and environment, refused until run. The general modal
-  route, planar kind, coupled flows, TDSE, vector and tensor responses and dispersive
-  Kerr stay refused; a system image and a trimmed library are later work.

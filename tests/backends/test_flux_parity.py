@@ -33,6 +33,7 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import ApertureSet, StatsSpec
 from solprop.stepper import PIController, RungeKutta
+from solprop.translate.routes import flux_of
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning"),
@@ -162,8 +163,8 @@ def measured(request):
 
 def _budget(name, grid, problem):
     """The rounding budget of one statistic, relative to its largest value."""
-    n_columns = problem.shape[1]
-    n_pol = problem.shape[2]
+    n_columns = problem.shape[0]
+    n_pol = problem.shape[1]
     if name in ("energy", "beam_spectrum", "region_spectrum", "aperture_spectrum"):
         # A sum over n_pol * n_columns * n_omega products of a squared modulus,
         # the admittance's root and division and the weights, in any order.
@@ -221,7 +222,7 @@ def test_the_native_closure_buffers_are_in_the_ledger():
     grid, problem = _free(FreeGrid(3e-4, 24, 3e-4, 16))
     # One state's bytes beside the transverse scratch, sized for the problem's own
     # local statistics.
-    closure = 16 * int(np.prod(problem.shape[1:]))
+    closure = 16 * int(np.prod(problem.shape))
     owner = select("native", problem, grid=grid)
     try:
         ledger = owner.memory_ledger()
@@ -243,14 +244,14 @@ def test_the_native_closure_buffers_are_in_the_ledger():
     finally:
         owner.close()
     grid, radial = _radial(SpatialMedium("Ar", pressure=Linear(0.5, 3.0, 1e-3)))
-    flux = radial.flux
+    flux = flux_of(radial.route)
     assert flux is not None and flux.material is not None
     owner = select("native", radial, grid=grid)
     try:
         ledger = owner.memory_ledger()
         # The entrance squares (two complex rows of n_omega, two real of n_modes)
         # and the material table's coefficients and breakpoints.
-        n_omega, n_modes = radial.shape[3], radial.shape[1]
+        n_omega, n_modes = radial.shape[2], radial.shape[0]
         assert ledger["flux_coefficients"] == 32 * n_omega + 16 * n_modes
         assert ledger["flux_table"] == (
             flux.material.coefficients.size * 16 + flux.material.breakpoints.size * 8

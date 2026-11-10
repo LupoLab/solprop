@@ -770,14 +770,14 @@ def test_the_assembly_logs_its_summary_at_debug(case, caplog):
     with caplog.at_level(logging.DEBUG, logger="solprop.translate.problem"):
         problem_of(case)
     assert any(
-        "route general modal guide" in record.getMessage() for record in caplog.records
+        "route general modal" in record.getMessage() for record in caplog.records
     )
 
 
 def test_the_debug_summary_carries_the_certificates_nothing_else_reads(case):
     """The Gram defect and the profile error reach a log."""
     text = debug_summary(problem_of(case))
-    assert "route general modal guide" in text
+    assert "route general modal" in text
     assert f"defect {case.route.gram_defect:.3e}" in text
     assert "certificate sampled-gram" in text
     sampling = case.guide.sampling

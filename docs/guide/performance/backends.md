@@ -7,12 +7,11 @@ and tables of its linear operator, its nonlinear responses and its transforms �
 every backend executes that same problem. The backends differ in speed, in where they
 run and in the representations they support. Choose a backend that supports the full
 configuration; a faster backend does not select a different physical model. Use the
-native backend, which `"auto"` selects; `mlx` and `numpy_ref` are for the cases below.
+native backend, which `"auto"` selects; `numpy_ref` is for the cases below.
 
 | backend | what it is | use it for |
 |---|---|---|
 | `native` | the [native backend](native.md), the solprop-native distribution built from the repository's `native/` directory and a required dependency of solprop: OpenMP, FFTW and a vendor BLAS on a CPU, or CUDA/HIP on a GPU | **the one to use**: what `"auto"` selects |
-| `mlx` | the Apple-silicon GPU through Apple's MLX, in **single precision only** ([single precision](single-precision.md)); the `mlx` extra, macOS on Apple silicon; **experimental** in this release | `precision="single"` capillary and fibre runs on a Mac, where it is the `"auto"` choice; it refuses `precision="double"` |
 | `numpy_ref` | plain NumPy, the numerical **reference**: every other backend is tested against it. It is unthreaded, and roughly 6 to 40 times slower than threaded native | checking a result, and [the features native does not run](#features-that-run-on-the-reference-backend). Also problems a GPU build refuses or runs slowly, in a process that has only that build |
 
 ## Which backend a run uses
@@ -26,9 +25,8 @@ repeat the first:
 | double precision, `auto` | `native` | refuses, naming the missing features or the failed check | the load's own error, unchanged | refuses, saying how to install it |
 | `native` by name | `native` | as above | as above | as above |
 | TDSE response, `auto` | `numpy_ref`; native isn't consulted | the same | the same | the same |
-| single precision, `auto` | `mlx` with a Metal device, otherwise refuses; native isn't consulted | the same | the same | the same |
+| single precision, `auto` | refuses, naming `numpy_ref`; native isn't consulted | the same | the same | the same |
 | `numpy_ref` by name | runs; native isn't consulted | the same | the same | the same |
-| `mlx` by name | runs where MLX is installed; native isn't consulted | the same | the same | the same |
 
 `"auto"` has no fallback. These cases stay distinct, so an import failure is never reported
 as an unsupported platform, and a problem the chosen backend refuses is refused, naming what
@@ -51,7 +49,7 @@ what runs it: a CPU build of the native backend, in a second environment, or
 the default of some interfaces
 ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)), are available across
 the binary64 backends for their supported configurations; single precision admits
-`Multistep()` in its exponential formulation on `numpy_ref` and `mlx`. Beside a coupled flow, Adams requires its
+`Multistep()` in its exponential formulation on `numpy_ref`. Beside a coupled flow, Adams requires its
 exponential formulation; CF4 requires Runge–Kutta on the reference backend. Check the
 response and geometry chapters for further restrictions. The backend used is
 logged at INFO and recorded in the output.
@@ -91,7 +89,7 @@ supported on the supported platforms:
 |---|---|---|
 | the [TDSE response](../media/tdse.md) | `auto` or by name | |
 | `CoherentWall(method="cf4")`, and a coupled flow with a CF4 section, with `integrator=RungeKutta()` | by name | [#304](https://github.com/LupoLab/solprop/issues/304) |
-| [single precision](single-precision.md) away from Apple silicon | by name | [#342](https://github.com/LupoLab/solprop/issues/342) |
+| [single precision](single-precision.md) | by name | [#342](https://github.com/LupoLab/solprop/issues/342) |
 
 The TDSE row's `auto` is that of the entry points; `SimulationSettings` built by hand with
 `tdse_execution` [names the backend](../results/interior-launch.md). Running `numpy_ref` by
@@ -165,33 +163,3 @@ For memory, output storage and scan workers, continue to
 [execution resources](resources.md). Choose resolution for the physics before
 tuning thread counts; reducing modes or nodes to fit memory changes the model
 or its numerical accuracy.
-
-## The Apple-GPU backend
-
-`pip install solprop[mlx]` installs [MLX](https://ml-explore.github.io/mlx/) on macOS on
-Apple silicon, and with it the `mlx` backend
-([SEP 33](../../dev/seps/archive/sep-0033-single-precision-mlx.md)). Apple GPUs have no binary64
-arithmetic, so it runs `precision="single"` only, under the contract and with the
-accuracy record of [single precision](single-precision.md); it is validated against the
-reference backend's single-precision path. It runs the capillary and fibre routes
-(mode-averaged and multimode, field and envelope grids, Kerr, Raman, field-grid plasma,
-both absorber schemes, Runge–Kutta and the low-storage march, lockstep batches) and
-radial and Cartesian free space, including a line, with the safety ramp, and the
-envelope-grid plasma. It reads the transverse edge on the host, from its state widened
-to binary64 ([transverse boundaries](../free-space/model.md#transverse-boundaries)).
-
-The backend is **experimental** in this release. Its Metal kernels run in the macOS
-default lane of continuous integration, which requires a usable Metal device, but
-coverage and runtime type checks remain absent there
-([the remaining CI gaps](../../dev/testing.md#the-mlx-omission)). MLX's GPU transform
-runs 2-3-5-smooth sizes past 4096 six to twelve times slower than powers of two, so the
-keyword interfaces size a single-precision run's grid for it, and a grid of your own
-takes `transforms="mlx"` ([grid sizes on `mlx`](single-precision.md#grid-sizes-on-mlx)).
-
-MLX computes float32 matrix products in TF32 by default on Apple GPUs, which SEP 25's
-arithmetic rules forbid. solprop sets `MLX_ENABLE_TF32=0` when it imports the backend,
-but MLX reads the setting once, when it first initialises: in a process that used MLX
-before, set it in the shell (`export MLX_ENABLE_TF32=0`) or before any `import mlx`.
-The backend measures its matrix products when it is built and refuses to run if they
-are TF32.
-

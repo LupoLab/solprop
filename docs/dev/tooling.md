@@ -104,11 +104,11 @@ format refuses those properties under the suite's warnings-as-errors policy.
 
 ## coverage
 
-One configuration: `coverage-cpu.ini` (`source = solprop`, `branch = True`, the
-experimental `mlx` backend omitted: [testing](testing.md#the-mlx-omission)) for `poe cov`, one pass of the default lane; in CI, `poe cov-part` per shard and
+One configuration: `coverage-cpu.ini` (`source = solprop`, `branch = True`) for
+`poe cov`, one pass of the default lane; in CI, `poe cov-part` per shard and
 `poe cov-report`, which combines them.
 The `[tool.coverage]` tables in `pyproject.toml` are the shared defaults. The lane requires
-100 % of statements and branches of the whole package but `mlx_gpu`
+100 % of statements and branches of the whole package
 (`fail_under = 100`);
 `# pragma: no cover` requires a reason on the same line.
 

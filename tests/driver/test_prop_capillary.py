@@ -337,7 +337,7 @@ def test_a_set_that_is_not_orthonormal_is_refused():
 
 def test_the_input_enters_the_lowest_mode_alone():
     simulation = build(modes=3)
-    state = simulation.translate().initial.field0[0]
+    state = simulation.translate().initial.field0
     assert np.any(state[0] != 0.0)
     assert not np.any(state[1:] != 0.0)
 
@@ -805,9 +805,7 @@ def _peak_intensity(simulation):
         profiles=simulation.profiles,
     )
     backend.set_initial(problem.initial.field0, None)
-    return float(
-        backend.stats(StatsSpec(names=("peak_intensity",)))["peak_intensity"][0]
-    )
+    return float(backend.stats(StatsSpec(names=("peak_intensity",)))["peak_intensity"])
 
 
 def test_the_field_range_is_not_derived_without_a_plasma():
@@ -3750,7 +3748,7 @@ def test_a_periodic_row_at_a_plane_is_the_plane_s_own_statistic_on_the_m2_case(
     bound = STATISTIC_FACTOR * evaluation_rounding(
         watched.grids.n_to,
         int(watched.transform.n_nodes),
-        int(watched.shape[1]),
+        int(watched.shape[0]),
         plasma=True,
     )
     for name in PERIODIC_SUBSET:
@@ -3760,7 +3758,7 @@ def test_a_periodic_row_at_a_plane_is_the_plane_s_own_statistic_on_the_m2_case(
             continue
         assert_within(row, plane, bound, what=name)
     # And the plasma trace is a trace, not one number repeated.
-    assert float(np.ptp(rows.values["electron_density"][:, 0])) > 0.0
+    assert float(np.ptp(rows.values["electron_density"])) > 0.0
 
 
 # ============================================ milestone M3, the CPU backend

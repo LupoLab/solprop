@@ -414,8 +414,7 @@ def default_integrator(route: str | None, precision: str) -> Multistep | RungeKu
         ``Multistep()``.
     precision : {'double', 'single'}
         The run's precision. Both take the route's own integrator: binary32 Adams
-        agrees with binary64 Adams to the method's truncation (#342), and on ``mlx``
-        it is the faster on the four-mode capillary and the radial routes.
+        agrees with binary64 Adams to the method's truncation (#342).
 
     Returns
     -------

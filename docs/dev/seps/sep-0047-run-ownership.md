@@ -6,7 +6,7 @@
 | **Title** | Backend-owned execution sessions |
 | **Author** | John Travers |
 | **Drafting agent** | GPT-6 (2026-11-08); Opus 5.5 (acceptance revisions, 2026-11-09) |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | Opus 5.5 (AI); John Travers (human) |
 | **Type** | Change |
@@ -15,7 +15,7 @@
 | **Requires** | SEPs 21, 22, 24, 25, 29, 33, 39, 44, 45 and 46 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers. Milestones in delivery order: (1) phases 1–2, branch `feature/sep-0047-contract` ([#605](https://github.com/LupoLab/solprop/pull/605)); (2) phase 3, branch `feature/sep-0047-native-session` ([#607](https://github.com/LupoLab/solprop/pull/607)); started 2026-11-09 |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -1542,6 +1542,142 @@ another decision.
 
 ## Part II — Implementation record
 
+### Milestone 1 (phases 1–2) — in progress
+
+Branch `feature/sep-0047-contract` ([#605](https://github.com/LupoLab/solprop/pull/605)),
+started 2026-11-09 by Opus 5.5 (AI) as manager for John Travers. Work packages were
+developed on sub-branches by AI agents. Each was reviewed independently for
+correctness before merging, and every review finding was either fixed or is recorded
+below.
+
+**What landed.**
+
+- *Contract.*
+  - `backends/session.py`: `RunSession`, `PreparedExecution`, `Start`, `StopToken`,
+    `SessionLedger`, `ExecutionOptions` and `GroupSession`.
+  - `backends/events.py`: the closed event set, receipts, export tickets, `EventBatch`
+    and `GroupBatch`. Delivery is exactly-once and chunked: every event carries the
+    attempts and periodic rows since the previous event.
+  - `backends/export.py`: `ExportRecipe` and the fused true-power and optics
+    conversion, bitwise equal to the two-step path.
+  - `translate/run_request.py`: `RunRequest`, with the integration, error-control,
+    replay, observation, boundary and history policies, all resolved by Python before
+    preparation.
+- *Service loop.* `driver/service.py` serves any `RunSession`. It handles the output
+  transactions, lazy acknowledgment, one shared export per ticket, chunk assembly into
+  plane histories and checkpoints, warning barriers, snapshots and failure persistence.
+  - `run_problem` builds the request and a `Start`, then serves the session.
+  - Every caller now starts from a `Start`: simulation, runner, resume, scans, batched
+    scans (as a group service loop), estimate, calibration, benchmarks and the GUI
+    service.
+  - Progress is reported from the delivered chunks, never from inside a march.
+- *Independent reference.* `numpy_ref` (double and single precision) and its group run
+  on `HostSession` and the new `backends/host/` package (`HostDriver`,
+  `HostAdamsMarch`, `HostGeneralPath`, `HostLowStorageMarch`, `HostGroup`). They share
+  only the stateless numerical modules. A subprocess test proves the reference imports
+  none of `StepDriver`, `AdamsMarch`, `LowStorageMarch` or `LockstepRunner`.
+- *Restart and snapshots.*
+  - The restart record states retention, restoration and monitor continuation, each
+    with its reason.
+  - Running checkpoints carry the attempts and rows since the last plane without
+    consuming them. An abandoned low-storage step falls back to the latest one.
+  - Snapshots no longer require `step_planes=1`.
+- *Timing probe.* `Backend.timing_probe(start)` commits nothing. It replaces the
+  protected trial-step surface that `Simulation.estimate` and SEP 46 refinement used.
+  Refinement's native plan comparison used to compare the unchanged launch field, so it
+  could never fail; it now compares the trial's state.
+- *MLX retired.* `backends/mlx_gpu/` is deleted and `backend="mlx"` is refused by name.
+- *#346 early elisions.* An owned observation is converted in place. The native modal
+  plane makes two host arrays instead of three.
+- *Benchmarks.*
+  - The `sep47` case set: period-one statistics for Adams and Runge-Kutta; idle,
+    sparse and frequent snapshots; `with_input`; a local scan; a group batch; saved and
+    field-free radial and Cartesian planes; coupled-flow tapers at 4 and 17 channels.
+  - Native structural counters, which count returns by reason and cost nothing when
+    off.
+- *Lifecycle conformance suite.* `tests/sessions/` runs over the reference, native
+  bridge and scripted executors. It covers receipts, barriers, close, bounded buffers,
+  retained arrays, failing consumers, stop timing, snapshots between planes, field-free
+  export, warnings as errors, yield invariance and group semantics.
+
+**Production owner after this milestone.** `numpy_ref` runs on `HostSession`. Native
+runs use the transitional `DriverSession` over the inherited `StepDriver` bridge
+(`backends/driver_session.py`). Neither offers a user-selectable legacy path.
+
+**Remaining adapters and their removal.**
+
+- `DriverSession` and `DriverGroupSession` still run over `StepDriver`, `AdamsMarch`,
+  `LowStorageMarch` and `LockstepRunner`. Common native paths leave them in milestone 2
+  (phase 3); the rest are deleted in milestone 3 (phase 5).
+- Until the native session owns the schedule, native bounded yields happen at native
+  call boundaries: at most 256 attempts or 0.1 s, plus one step.
+
+**§7.4 readiness outcome: proceed.** The evidence comes from the test-only native
+session prototype (`native::session::Session`), measured against the bridge on an
+Intel Xeon Gold 6240 under shared load:
+
+- *Simpler ownership.* The prototype has one mutable owner of the march policy and
+  state, the cursors, the row cadence, the stop flag, the snapshot latch and the export
+  generation. The adapter rebuilds no bounds and replays no attempts. Its control trace
+  and every exported field equal the bridge's bitwise on one thread, for Adams and
+  Runge-Kutta, adaptive and replayed.
+- *Sound lifecycle.* The conformance suite above runs on every executor.
+- *Bounded traffic.*
+  - Periodic statistics cause zero returns to Python. On the period-one cases the
+    bridge makes 38 such returns for Runge-Kutta and 192 for Adams.
+  - Field-free planes export no bytes.
+  - No protocol-forced field copy was found.
+- *Known costs.* Wall-time ratios, native session over bridge:
+
+  | Case | 1 thread | 16 threads |
+  |---|---|---|
+  | Runge-Kutta, period-one statistics | 0.89 | 0.88 |
+  | Adams, period-one statistics | 0.76 | 0.68 |
+  | 384-node radial, saved planes | — | 0.996 |
+  | 384-node radial, field-free | — | 0.992 |
+
+  The radial ratios are inside the spread.
+- *Difficult cases.* Feasibility probes found that the contract expresses every case
+  without a second numerical owner:
+  - coupled flow wider than 16 channels, and off the eigenbasis;
+  - host-formed rows;
+  - the carrier z table (#255);
+  - device event and export lifetimes on an NVIDIA A40, where a device-side recipe plus
+    a pinned copy measured 7 to 9 times faster than today's host conversion.
+
+**Deviations from Part I.**
+
+- RK dense output (`interpolate_planes=True`) is a host-formed path missing from
+  §6.3's inventory. The maintainer decided on 2026-11-09 that it is ported natively in
+  phase 3, together with Adams dense output, after which the refusal of snapshots with
+  dense output is lifted. Until then that combination stays refused.
+- **Descriptor contract (§6.2): landed, with one part deferred.**
+  - *Landed:*
+    - `KernelProblem` is renamed `PropagationProblem`, with no alias.
+    - The route-wide optional-field bag is a closed union (`translate/routes.py`):
+      `ModalRoute` (with the reference-only `TDSESource` extension), `GeneralRoute`,
+      and `SpatialRoute` with the kinds radial, cartesian, planar and line. Each
+      validates itself, and both backends `match` it at admission, refusing by name
+      before allocation.
+    - Nominal `n_batch` is gone from the single-trajectory boundary: problem shape,
+      state import, observations, statistics and rows. Drivers keep a private leading
+      axis of one.
+    - `MarchSnapshot` files keep their schema: old files are read, and a size-one axis
+      is stripped.
+    - Results are bitwise identical on eleven representative cases on both CPU
+      backends.
+    - The route variant for general guides is named `GeneralRoute`, because
+      `GeneralModalRoute` is already a public input record.
+  - *Deferred:* `stepper` and `stats_spec` still live on the problem as well as in
+    `RunRequest`. Moving them out means `PropagationProblem.validate()` and every
+    backend constructor take the request, about fifty modules. That is its own window,
+    scheduled with milestone 2's preparation work (`Backend.prepare(problem,
+    request)`). The kernel contract §7 records them as run policy.
+- `ExecutionOptions` carries the node budget. The backends plan the node chunk itself
+  in milestone 2 (#361).
+
+**Issues filed:** #599, #600, #601 and #606, plus a comment on #78.
+
 ## Part III — History
 
 - 2026-11-08: Drafted following the analysis of current main, PRs #576, #585, #586,
@@ -1576,6 +1712,7 @@ another decision.
   and transition questions it raised; Part I revised for those decisions and for the
   clarifications listed in the record below. #584 is now delivered by PR #598.
 - 2026-11-09: Accepted by John Travers (human review) in #589.
+- 2026-11-09: Implementation started on `feature/sep-0047-contract` (phases 1–2).
 
 ### AI review — 2026-11-09 — Opus 5.5
 

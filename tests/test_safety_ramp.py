@@ -39,7 +39,7 @@ def resolved(space: FreeGrid, fraction: float = 0.1) -> SpatialAbsorberDesign:
     """The safety ramp a vacuum run on `space` resolves, ramp alone, no launch."""
     grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (700e-9, 950e-9), 200e-15)
     dispersion = SpatialDispersion(SpatialMedium(), grid, Frame.comoving(grid))
-    launch = np.zeros((1, space.n_columns, 1, grid.n_omega), complex)
+    launch = np.zeros((space.n_columns, 1, grid.n_omega), complex)
     specification = SpatialAbsorber(real_space=False, safety_fraction=fraction)
     return resolve_transverse(specification, space, dispersion, launch, grid.length)
 

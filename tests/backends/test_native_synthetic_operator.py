@@ -29,6 +29,7 @@ import pytest
 from backends.low_storage_cases import parity_bound
 from backends.test_low_storage import MARCH
 from bounds import assert_within, gamma, propagation_growth, step_evaluations
+from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.low_storage import LowStorageMarch
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
@@ -40,6 +41,7 @@ from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import assemble
+from solprop.translate.routes import flux_of
 from solprop.translate.spatial import separable_values
 
 pytestmark = [
@@ -199,15 +201,17 @@ def on_leaf(problem, leaf, *, seed=3):
     """Return `problem` on `leaf`, with an order-one random state on its active bins."""
     rng = np.random.default_rng(seed)
     shape = problem.shape
-    field = rng.standard_normal(shape[1:]) + 1j * rng.standard_normal(shape[1:])
+    field = rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
     field = field * np.asarray(leaf.active)
     return dataclasses.replace(
         problem,
         linear=dataclasses.replace(problem.linear, separable=leaf),
         responses=dataclasses.replace(problem.responses, separable=leaf),
         grids=dataclasses.replace(problem.grids, active_mask=leaf.active),
-        flux=dataclasses.replace(problem.flux, base=leaf),
-        initial=dataclasses.replace(problem.initial, field0=field[None]),
+        initial=dataclasses.replace(problem.initial, field0=field),
+        route=dataclasses.replace(
+            problem.route, flux=dataclasses.replace(_flux(problem), base=leaf)
+        ),
     )
 
 
@@ -230,7 +234,9 @@ def nonlinear_rate(problem, grid):
         reference._hoist(0.0)
         state = reference._require_state()
         stage = reference._nonlinear(
-            state, reference._stage_scalars(0.0, 0.0), np.ones(problem.shape, complex)
+            state,
+            reference._stage_scalars(0.0, 0.0),
+            np.ones((1, *problem.shape), complex),
         )[0]
         return 3.0 * float(np.max(np.abs(stage)) / np.max(np.abs(state)))
     finally:
@@ -332,7 +338,7 @@ def test_the_planar_stage_on_the_original_leaf_is_the_reference_s(material, abso
 
 def with_masked_bin(problem, leaf):
     """Return `problem` with its fullest active bin out of the norm, and the mask."""
-    power = np.sum(np.abs(problem.initial.field0) ** 2, axis=(0, 1, 2))
+    power = np.sum(np.abs(problem.initial.field0) ** 2, axis=(0, 1))
     power[~np.asarray(leaf.active)] = 0.0
     mask = np.array(problem.grids.norm_mask)
     mask[int(np.argmax(power))] = False
@@ -355,13 +361,14 @@ def test_the_march_s_norm_reads_a_mask_with_a_hard_zero(monkeypatch):
     leaf = free_leaf(problem.linear.separable)
     problem, mask = with_masked_bin(on_leaf(problem, leaf), leaf)
     seen = []
-    accept = LowStorageMarch._accept
+    # The reference's march and the native bridge's each accept for themselves.
+    for march in (HostLowStorageMarch, LowStorageMarch):
 
-    def capture(self, z, dz, squared):
-        seen.append(squared)
-        return accept(self, z, dz, squared)
+        def capture(self, z, dz, squared, accept=march._accept):
+            seen.append(squared)
+            return accept(self, z, dz, squared)
 
-    monkeypatch.setattr(LowStorageMarch, "_accept", capture)
+        monkeypatch.setattr(march, "_accept", capture)
     for implementation in (NumpyRefBackend, NativeBackend):
         seen.clear()
         state = run(implementation, problem, grid)
@@ -394,3 +401,10 @@ def test_a_diverged_march_is_refused_by_name(implementation):
     backend = {"numpy_ref": NumpyRefBackend, "native": NativeBackend}[implementation]
     with pytest.raises(ConvergenceError, match="diverged"):
         run(backend, problem, grid)
+
+
+def _flux(problem):
+    """Return a spatial problem's flux plan."""
+    flux = flux_of(problem.route)
+    assert flux is not None
+    return flux

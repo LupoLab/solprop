@@ -5,13 +5,13 @@
 | **SEP** | 48 |
 | **Title** | A Julia backend: one engine for CPUs and GPUs, in both precisions |
 | **Author** | John Travers |
-| **Drafting agent** | Opus 5.5 (2026-11-10) |
-| **Status** | Draft |
-| **Review status** | In review |
-| **Reviewers** | GPT-6 (AI) |
+| **Drafting agent** | Opus 5.5; GPT-6 (acceptance revisions, 2026-11-10) |
+| **Status** | Accepted |
+| **Review status** | Reviewed |
+| **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Feature |
 | **Created** | 2026-11-10 |
-| **Resolution** | — |
+| **Resolution** | Accepted by John Travers on 2026-11-10, including the implementation-plan revisions; acceptance and merge delegated in [PR #609](https://github.com/LupoLab/solprop/pull/609) |
 | **Requires** | SEPs 25, 33, 46 and 47 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
@@ -210,9 +210,9 @@ carrier frame, interpolated planes and binary64 on Metal.
 - **To resolve first:** #588 (SEP 47), whose dependencies differ by phase (§11):
   - phase 1 needs nothing from it;
   - phase 2 needs its session contract, descriptors and conformance suite, which merged
-    with #605;
-  - phases 2 and 4 are better begun once its native-session milestone, #607, has
-    merged.
+    with #605, followed by its completed descriptor/request split and generic
+    preparation entry point in #607;
+  - production adapter integration and phase 4 wait for those changes to merge.
 - **Fixed or closed by this SEP:**
   - #368, the prototype's record: closed when this SEP is Final.
   - PR #559, the experiment: closed in favour of this SEP's implementation PR.
@@ -329,10 +329,18 @@ $|x_\ell| \le \tfrac{1}{2}\,\mathrm{ulp}(x_h)$.
   - the propagator pair's complex error is within $8u\,|e^{\pm z}|$, for real parts in
     $[-20, 5]$ and phases up to $10^6$ rad.
 
-**The double-float phase domain.** The exponents are formed for a step. The largest phase
-a run can meet is therefore known at admission:
-$\theta_{\max} = \Delta z_{\max} \max |\operatorname{Im} L|$, taken over the operator's
-frequencies and its z table. Two things limit accuracy at a large phase $\theta$:
+**The double-float phase domain.** The bound covers every exponent argument the method
+forms, including transport of Adams history. Let $h_{\max}$ be the longest prescribed
+step for replay, or `dz_max` for an adaptive run. Replay is not assumed to obey
+`dz_max`. For a single-step method the transport span is at most $h_{\max}$. For
+Adams, a conservative fresh-run span is $(q_{\max}+1)h_{\max}$, where $q_{\max}$ is
+the maximum configured order. A resumed run adds the retained history age
+$z_{\mathrm{start}}-z_{\mathrm{oldest}}$; cap either span by the distance from the
+oldest represented point to the run's end. Call the resulting bound $H$.
+Then $\theta_{\max} = H\sup |\operatorname{Im} L|$. The supremum is bounded over
+the represented frequencies and z intervals, including interior extrema; a maximum
+of samples alone is insufficient. Admission checks the restored history as well as
+the request. Two things limit accuracy at a large phase $\theta$:
 
 - **The phase's own representation.** In any wide type, $\theta$ carries an absolute
   error of about $|\theta|$ times the wide type's unit roundoff, and $e^{i\theta}$
@@ -396,7 +404,8 @@ solprop julia status                # what is set up, where, and at which versio
   precompiles them, including the engine's compile workload. A device can be added by
   a later setup. `solprop.backends.julia.setup()` and `status()` are the same
   operations as Python functions, for scripts and notebooks; the commands are thin
-  wrappers over them (Q4).
+  wrappers over them (Q4). `setup()` returns the published setup identity and
+  `status()` lists the identities available for selection.
   - The packages go to a private depot below the calibration store directory
     (`solprop.calibration.store_directory`, so `SOLPROP_CACHE_DIR` moves it).
     `SOLPROP_JULIA_DEPOT` names another.
@@ -410,9 +419,11 @@ solprop julia status                # what is set up, where, and at which versio
     that the pinned CUDA.jl supports. Setup can then fetch the runtime on a node with no
     GPU or driver, which CUDA.jl otherwise cannot choose [14].
   - **Setup is complete or absent.** It fetches every artifact an environment can need,
-    lazy ones included, and verifies them before publishing. A run never downloads:
-    Julia runs with its package manager offline, and a missing artifact is a setup
-    refusal, not a download attempt.
+    lazy ones included, and publishes their platform- and preference-specific inventory
+    after verification. Filesystem-only checks verify that inventory before importing
+    JuliaCall and before loading another device extension. A missing artifact is a
+    setup refusal before a loader can download it. Julia's package manager also runs
+    offline, but that setting alone does not prevent lazy-artifact downloads.
   - Setup holds a lock on the depot. It builds each environment in a temporary
     directory and publishes it by one atomic rename, so an interrupted or concurrent
     setup never leaves a partial environment that availability would accept.
@@ -457,6 +468,14 @@ sim_single = Simulation(..., settings=SimulationSettings(backend="julia", precis
   `SINGLE_PRECISION_BACKENDS`. Metal is binary32 only, and binary64 refuses there by
   name. The wide type defaults to double-float on Metal and binary64 elsewhere, and is
   chosen by `ExecutionOptions.backend_options["wide"]` (`"binary64"` or `"df32"`).
+- **Execution options.** A new `SimulationSettings.backend_options` is an owned mapping,
+  empty by default, forwarded to `ExecutionOptions.backend_options` at preparation.
+  Julia accepts `wide` and `setup_id`, both strings; unsupported keys or values refuse
+  before runtime startup. Other backends refuse options they do not support. The
+  mapping and `device` travel with settings through runners, recipes and spawned scans.
+  They may change after translation, are recorded as execution metadata, and stay
+  outside the scientific configuration and resume hashes. This adds no separate
+  `run()`, runner or scan keyword and no second node-budget setting.
 - **Threads.** The runtime starts with the process's thread budget (ADR-052; SEP 46's
   calibration). A run's width is at most that budget, and Julia's tasks are its only
   pool. Host BLAS is held to one thread while an engine lives, as native does.
@@ -482,7 +501,7 @@ sim_single = Simulation(..., settings=SimulationSettings(backend="julia", precis
 | Temporal absorbers and collars, including the split collar (SEP 21); the transverse collar (SEP 40) | yes | yes | binary32 |
 | `Multistep` (exponential formulation), the embedded Runge–Kutta tableaux adaptive and replayed, RK4IP, the low-storage replay | yes | yes | binary32 |
 | Session services: planes, the periodic-capable statistics, the temporal monitor, the transverse edge, dense output, snapshots and resume (below), stop tokens | yes | yes | binary32 |
-| The input noise model (SEP 37's default) | yes | yes | binary32 |
+| The input noise model (SEP 37's default in binary64) | binary64 only | binary64 only | refused |
 | Fixed-schedule groups, as member sessions | yes | yes | binary32 |
 | `precision="single"` | yes, binary64 or double-float wide | yes, either | yes, double-float wide |
 
@@ -509,6 +528,8 @@ Refused by name at merge, each naming `native` or `numpy_ref`:
 - vector polarisation and tensor Raman;
 - the dispersive electronic response;
 - the modified noise model;
+- every noise model in binary32, including input noise on Metal; the existing
+  single-precision default remains no noise;
 - the interaction Adams formulation and the carrier frame;
 - operators that took the z table;
 - the far-field statistics (SEP 23);
@@ -526,6 +547,11 @@ SEP when that SEP says so.
   environment that setup installed, so a device's package can load later in the same
   process. It refuses if `juliacall` was already initialised by something else, which
   would hold another environment.
+  Initialization is serialized and must first occur on Python's main thread; an
+  initial preparation on another thread refuses before importing JuliaCall. The first
+  preparation fixes the runtime identity and installed environment stack. Subsequent
+  preparations with an incompatible identity or a newly installed device environment
+  require a fresh process, rather than changing the running environment.
 - **Loading a device.** The first run on a device loads its GPU package, which stays
   loaded for the life of the process. Loading it can invalidate some compiled CPU code,
   which then recompiles once; phase 4 measures the cost (§7.5).
@@ -533,15 +559,17 @@ SEP when that SEP says so.
   processes. Each spawned process starts its own runtime and pays its start-up once.
   `fork` after the runtime has started is unsupported, and refused where solprop
   controls it.
-- **Stopping.** A run's stop token is owned by the Python session object. It is a
-  one-byte flag in memory that both sides share. The Julia session reads it, without the
-  GIL, between attempts (SEP 47 §5.5), and any Python thread may set it. Julia never
-  calls back into Python while advancing.
+- **Stopping.** A run's stop token has a lifetime-owned atomic byte shared by both
+  sides. The Python session retains its Julia owner and attaches a precompiled,
+  non-blocking atomic setter to `StopToken`; it detaches before releasing the owner.
+  Julia reads the flag atomically, without the GIL, between attempts (SEP 47 §5.5),
+  and any Python thread may set it. Julia never calls back into Python while advancing.
 - **Signals.** Threaded Julia needs JuliaCall's signal handling on, for the
   safepoints of its garbage collector [6]. That installs Julia's signal handlers, which
   would take Ctrl-C and SIGTERM from Python.
-  - When the runtime has started, the bridge re-installs Python's own SIGINT and SIGTERM
-    handlers, so Julia keeps only the signals its runtime needs.
+  - Before startup, the bridge saves the application's actual SIGINT and SIGTERM
+    handlers, including ignored signals. It re-installs them after startup, so Julia
+    keeps only the signals its runtime needs.
   - An advance runs with the GIL released. A signal is recorded by Python's C handler,
     and solprop's handler (`solprop._interrupts`) runs at the advance's bounded return,
     a safe boundary, exactly as SEP 47 retains for Python signals.
@@ -593,6 +621,11 @@ The Python adapter only translates. It lowers the descriptors once, prepares, fo
 `advance`, `acknowledge` and `export`, and builds the closed event types from compact
 records. It keeps no numerical state and implements no host-over-Julia trial or
 statistics path: SEP 47's rule against a host executor holds for every compiled backend.
+It plugs in through the generic `Backend.prepare(...).start(...)` entry point after
+SEP 47's descriptor/request split merges. Method and statistics policy come only from
+`RunRequest`, never duplicated fields on `PropagationProblem`. The final merged
+signature is the source of truth; neither a Julia special case in the transitional
+dispatcher nor any dependency on `StepDriver` is introduced.
 
 **Independence.** The control logic may be transcribed from native's session, because its
 decisions are specified to be identical on recorded readings. The experiment's Adams
@@ -731,9 +764,12 @@ environment that created it, and must never be mistaken for another.
     source-digest check where sources can change. A mismatch is refused, naming the
     command that sets up the changed sources.
 - **Preferences.** A second setup with different preferences publishes a second
-  identity beside the first, rather than changing the first in place. A run uses the
-  setup whose preferences it asks for, or the only one that exists. The run's metadata
-  records the identity (§5.2).
+  identity beside the first, rather than changing the first in place. A run selects
+  `ExecutionOptions.backend_options["setup_id"]`, the exact identity returned by
+  setup and listed by status. Without that option, it uses the unique compatible
+  identity; ambiguity refuses with the available IDs and how to select one. It never
+  chooses the most recent setup implicitly. The run's metadata records the identity
+  (§5.2), fixed for the process as §5.4 specifies.
 - **Tests.** Phase 1 covers four cases:
   - a removed originating virtual environment;
   - two editable trees that differ;
@@ -821,7 +857,7 @@ native's device builds do.
 the Julia ecosystem's tools, and nothing more.
 
 - **Formatting.** Runic, with no configuration, checked in CI. Lines of at most 92
-  characters.
+  characters are an author and reviewer rule: Runic does not enforce line length.
 - **Tools.**
   - **Blocking:** Runic, Aqua, and JET's `test_package` error analysis.
   - **Advisory:** `JET.report_opt` on the hot code a change touches; a straightforward
@@ -973,6 +1009,10 @@ never leaves a half-committed state reported as valid. The suite runs on each GP
 - SIGINT and SIGTERM delivered during an advance stop the run at its next bounded
   return;
 - a stop token set from another Python thread is honoured;
+- first initialization on a worker thread refuses before importing JuliaCall,
+  concurrent initialization is serialized, and subsequent worker-thread calls are safe;
+- an already-set stop token, concurrent cancellation and close/detach retain the
+  atomic flag until no caller can access it;
 - none of these leaves a half-committed state.
 
 #### 7.3 Binary32
@@ -1004,7 +1044,12 @@ On the CPU, with both wide types, and on each GPU:
   - the propagator pair over real parts in the admitted range and phases up to
     $\theta_{\mathrm{df}}$, within $c_1u + c_2|\theta|u^2$;
   - exponents assembled with cancellation, against binary64 assembly;
-  - the admission refusal just above $\theta_{\mathrm{df}}$.
+  - the admission refusal just above $\theta_{\mathrm{df}}$;
+  - phase admission for replayed steps longer than `dz_max`, an interior extremum of
+    a varying expansion, and a resumed, incompletely filled Adams history retaining
+    older samples from larger steps.
+- **Noise refusals.** Both noise models refuse in every binary32 configuration,
+  including Metal; no single-precision noise default changes.
 - **The envelope-plasma quadrature** converges within its frozen refinement on Metal's
   and the CPU's functions alike.
 
@@ -1031,6 +1076,8 @@ Before merge, one qualification pass per vendor:
 - prepares its setup on a node with no GPU;
 - makes its first GPU run with networking disabled, which must download nothing;
 - checks that a missing artifact is refused by name.
+  The missing-artifact test also asserts zero attempted network requests, before
+  runtime startup or device-extension loading.
 
 No sanitizer lane is required at Tier 3.
 
@@ -1121,6 +1168,8 @@ merge (§7.6), but none is a gate: no ratio has to reach a threshold.
 - the `julia` registry name;
 - `SimulationSettings.device`, which native and `numpy_ref` check against what they
   run (§5.2);
+- `SimulationSettings.backend_options`, forwarded to the existing execution options
+  for explicit setup and wide-type selection, outside scientific identity (§5.2);
 - `julia` in `SINGLE_PRECISION_BACKENDS`;
 - `SOLPROP_REQUIRE_DEVICE=metal`;
 - the `solprop julia` commands;
@@ -1167,8 +1216,10 @@ What each phase needs from SEP 47:
 
 - **Phase 1** needs nothing, and starts as soon as this SEP is accepted.
 - **Phase 2** needs SEP 47's contract: `RunSession`, the events, `RunRequest`, the route
-  union and the conformance suite. They merged with #605.
-- **Phase 2 is better begun once #607 has merged.** #607 is SEP 47's native session,
+  union and the conformance suite. They merged with #605. Production adapter
+  integration also requires the completed descriptor/request split and generic
+  preparation entry point from #607; inspect the merged code, not a prospective report.
+- **Phase 2 integrates once #607's preparation changes have merged.** #607 is SEP 47's native session,
   the source from which the session's control logic is transcribed: the monitor, the
   transverse edge and the statistics plans. Until it merges, its branch can be read but
   not built on.
@@ -1198,6 +1249,10 @@ What each phase needs from SEP 47:
      - `pip install solprop` and `import solprop` unchanged;
      - refusal before setup, and on a mismatched bridge;
      - §6.5's four identity cases;
+     - ambiguous and explicit setup selection; an incompatible setup or a device
+       installed after runtime startup requires a fresh process;
+     - concurrent and interrupted publication, and a missing artifact refused with
+       zero network attempts before JuliaCall import or device-extension loading;
      - the signal and stop probes of §5.4, which gate everything after this phase;
      - a trivial engine call through the bridge.
 2. **The CPU session in binary64.**
@@ -1207,7 +1262,12 @@ What each phase needs from SEP 47:
      - the precompiled workload in place of the trace;
      - FFTW plans kept in the store;
      - the thread budget.
+     - `SimulationSettings.backend_options`, forwarded through central preparation,
+       runners, recipes and spawned workers, with effective execution metadata.
    - **Verify:** §§7.1–7.2 on the CPU, and the first CPU rows of §7.5.
+     Also verify copied option mappings, pickle/spawn round trips, unchanged science
+     and resume hashes, changed options after translation, and unsupported-option
+     refusals.
 3. **Binary32 on the CPU.**
    - **Deliverables:**
      - SEP 33's contract in both wide types;
@@ -1225,6 +1285,8 @@ What each phase needs from SEP 47:
      - `SimulationSettings.device`, and native's check of it against its build;
      - graphs and the other measured device choices.
    - **Verify:** §7.4 for each vendor, §7.3 on each GPU, and the device rows of §7.5.
+     Extend phase 2's settings propagation and identity tests to `device`, including
+     changed devices after translation and named refusals for device mismatches.
 5. **Records and Final.**
    - **Deliverables:**
      - the manual and design pages;
@@ -1677,3 +1739,55 @@ and summarised here; none needed a maintainer decision.
   chooses orders. §4 now reserves class M for a computation matched in method, orders,
   startup, restart history and save-plane handling. §7.1 places variable-order replay,
   and groups, repeat runs and resumes whose method chooses orders, in class A.
+
+
+### Implementation planning review and acceptance — 2026-11-10
+
+John Travers reviewed the proposal and accepted it, delegating its final acceptance
+revision and merge to GPT-6. GPT-6 then reviewed Part I with independent planning
+reviews against the session contract, the experiment and current Julia tooling.
+The maintainer approved the resulting implementation plan, including the changes
+below. These revisions precede the freeze of Part I.
+
+- **R11, binary32 noise, resolved by the maintainer.** The capability table promised
+  input noise on Metal while the inherited single-precision admission refuses every
+  noise model. The maintainer chose binary64-only input noise, rather than extending
+  the reference oracle. Sections 5.3 and 7.3 now state that restriction; no default changes.
+- **R12, double-float admission, accepted.** Fixed-schedule RK and Adams can use steps
+  larger than `dz_max`, and Adams transports samples from its retained history. A
+  resumed history can predate the current request's step limit. Sections 4 and 7.3
+  bound every exponent span, include restored history age, and require a conservative
+  bound between the samples of a varying representation. The new cases are explicit
+  regression requirements; the numerical constants remain phase 3's source-checked work.
+- **R13, execution choices, accepted.** Sections 5.2, 5.4 and 6.5 specify the owned
+  `backend_options` mapping, explicit `setup_id`, unique-selection rule and process
+  identity. These execution choices travel to spawned workers without entering the
+  scientific identity. They add no separate per-call interface or node-budget control.
+- **R14, offline artifacts, accepted.** Julia 1.13.3's artifact loader can attempt a
+  missing lazy artifact even with package-manager offline mode set. Section 5.1 now
+  requires a published inventory and filesystem checks before loading. Section 7.4
+  checks zero attempted network requests as well as the first disconnected GPU run.
+- **R15, initialization and stop ownership, accepted.** Python signal-handler
+  installation requires its main thread. Sections 5.4 and 7.2 require first
+  initialization there, serialized startup, preservation of the application's actual
+  handlers, and an atomic stop byte retained through concurrent use and detachment.
+  The agreed signal/GC probes remain a prerequisite for session implementation; a
+  failure requires a maintainer decision rather than a substituted signal policy.
+- **R16, the SEP 47 dependency, accepted.** Sections 3.3, 6.2 and 11 require the
+  completed descriptor/request split and generic preparation entry point before
+  production adapter integration. At the inspected #607 head `6a94b3cc`, those changes
+  are still pending in code. Julia consumes only the eventual request-based interface,
+  without inheriting the legacy driver or extending its transitional dispatcher.
+- **R17, formatting, accepted.** Section 6.7 distinguishes Runic's blocking format
+  check from the 92-character author/reviewer rule, which Runic does not enforce.
+
+**Acceptance.** Status is Accepted and review status Reviewed, with John Travers's
+human review recorded alongside the earlier GPT-6 review. Part I is now frozen.
+The implementation remains one branch and one draft pull request. Completion will
+leave that pull request ready for maintainer review, without an automatic merge.
+The proposal's merge does not close implementation tracking issue #608.
+
+**Evidence and limits.** The review inspected the current contracts, source and
+primary tool documentation. It ran no propagation, signal probe or GPU qualification.
+The full primary papers for the double-word arithmetic bounds remain to be checked
+in phase 3, as the earlier review already requires.

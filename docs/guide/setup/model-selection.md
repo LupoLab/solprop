@@ -216,7 +216,7 @@ repeatability tests pass on a data-centre NVIDIA GPU (CUDA) and an AMD Instinct 
 native package is missing or the processor is below its minimum, and a problem the native
 backend refuses is refused, by name, and you choose `numpy_ref` for it explicitly. Its two
 exceptions are the TDSE response, which it runs on `numpy_ref`, and single precision, which it
-runs on `mlx` ([which backend a run uses](../performance/backends.md#which-backend-a-run-uses)). Whether the native backend runs on the CPU or on a GPU
+refuses, for you to name `numpy_ref` ([which backend a run uses](../performance/backends.md#which-backend-a-run-uses)). Whether the native backend runs on the CPU or on a GPU
 is decided by how it was built. The [backends chapter](../performance/backends.md) compares the
 backends and budgets memory; [the native backend](../performance/native.md) says how to build it,
 locally or for a GPU; [performance](../performance/tuning.md) covers threads and tuning. Every

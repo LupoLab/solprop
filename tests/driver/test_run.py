@@ -22,6 +22,7 @@ from march_bounds import (
 from solprop import fourier
 from solprop.backends.protocol import Backend, BackendHistory, Observation, StepSummary
 from solprop.backends.registry import select
+from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings, metadata_for, run_problem
 from solprop.driver.run import plane_from_observation
 from solprop.exceptions import DriverError
@@ -131,7 +132,7 @@ class NullBackend:
     in_flight = None
     closed = False
 
-    def __init__(self, failure=None, *, shape=(1, 1, 1, 8)):
+    def __init__(self, failure=None, *, shape=(1, 1, 8)):
         self.failure = failure
         self.shape = shape
 
@@ -162,8 +163,8 @@ class NullBackend:
     def restore_march(self, snapshot):
         return None
 
-    def timed_step(self):
-        return lambda: None
+    def timing_probe(self, start):
+        raise NotImplementedError
 
     def propagate_to(self, z):
         if self.failure is not None:
@@ -194,35 +195,6 @@ class NullBackend:
 
     def close(self):
         pass
-
-
-@pytest.fixture
-def batched_problem(narrow_grid, soliton):
-    """A two-member batch, which a stored plane has no room for."""
-    gnlse = problem_from(
-        [0.0, 0.0, soliton.beta2],
-        omega_ref=narrow_grid.omega0,
-        gamma=soliton.gamma,
-        shock=False,
-    )
-    start = SechPulse(
-        wavelength=soliton.wavelength,
-        width=soliton.tau0,
-        peak_power=soliton.peak_power(1),
-    ).build(narrow_grid)
-    return assemble(
-        narrow_grid,
-        gnlse.mode,
-        [gnlse.kerr],
-        np.concatenate([start[np.newaxis], start[np.newaxis]]),
-        controller=PIController(rtol=1e-8, atol=1e-18),
-        save_planes=[0.01],
-        dz_max=0.01,
-        dz_init=1e-4,
-        density=1.0,
-        shock=False,
-        prefactor_index=1.0,
-    )
 
 
 def item(parent, *names) -> Any:
@@ -256,7 +228,7 @@ def test_the_stored_history_holds_start_positions_and_per_attempt_times():
         accepted=np.array([True, False, True]),
         wall_time=np.array([0.25, 0.75, 1.0]),
     )
-    observation = Observation(1.25, np.ones((1, 1, 1, 4), complex), None, history, 3, 1)
+    observation = Observation(1.25, np.ones((1, 1, 4), complex), None, history, 3, 1)
     stored = plane_from_observation(observation).step_history
     assert np.array_equal(stored.z, [0.0, 0.5, 1.0])
     assert np.array_equal(stored.h, history.dz)
@@ -268,7 +240,7 @@ def test_the_stored_history_holds_start_positions_and_per_attempt_times():
         np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0, dtype=bool), np.zeros(0)
     )
     assert plane_from_observation(
-        Observation(0.0, np.ones((1, 1, 1, 4), complex), None, empty, 0, 0)
+        Observation(0.0, np.ones((1, 1, 4), complex), None, empty, 0, 0)
     ).step_history.z.shape == (0,)
 
 
@@ -315,14 +287,12 @@ def test_the_stored_field_is_the_optics_spectrum_of_the_observation(build_simula
     backend.propagate_to(float(simulation.settings.save_planes[-1]))
     observation = backend.observe()
     backend.close()
-    expected = fourier.spectrum_to_optics(
-        observation.require_field()[0], kind="envelope"
-    )
+    expected = fourier.spectrum_to_optics(observation.require_field(), kind="envelope")
     # The same problem stepped the same way, a matched march; the storage boundary
     # is a conjugation and a sign flip, both exact in floating point (ADR-017).
     bound = simulation_bound(simulation)
     assert_matched(handler["field"][-1], expected, bound)
-    assert_matched(handler.fields("fft")[-1], observation.require_field()[0], bound)
+    assert_matched(handler.fields("fft")[-1], observation.require_field(), bound)
     # And on one stored array the two conventions are that exact map of each other.
     assert np.array_equal(
         handler["field"][-1],
@@ -448,18 +418,9 @@ def test_a_statistics_spec_that_disagrees_about_the_channel_is_refused(
             problem,
             NullBackend(),
             MemoryOutput(),
+            start=Start.entrance(problem),
             metadata=metadata_for(problem, narrow_grid),
             stats_spec=StatsSpec(names=("energy",)),
-        )
-
-
-def test_a_batch_axis_is_refused(batched_problem, narrow_grid):
-    with pytest.raises(DriverError, match="plane has no batch axis"):
-        run_problem(
-            batched_problem,
-            NullBackend(),
-            MemoryOutput(),
-            metadata=metadata_for(batched_problem, narrow_grid),
         )
 
 
@@ -471,8 +432,10 @@ def test_a_start_plane_outside_the_run_is_refused(build_simulation, narrow_grid)
             problem,
             NullBackend(),
             MemoryOutput(),
+            start=Start(
+                field=problem.initial.field0, z=problem.initial.z, plane_index=3
+            ),
             metadata=simulation.metadata(),
-            start_plane=3,
         )
 
 
@@ -485,6 +448,7 @@ def test_the_output_is_closed_when_the_run_fails(build_simulation, tmp_path):
             problem,
             NullBackend(RuntimeError("the card caught fire"), shape=problem.shape),
             handler,
+            start=Start.entrance(problem),
             metadata=simulation.metadata(),
         )
     # The plane at z = 0 was written before the failure and the file is readable, which
@@ -542,12 +506,12 @@ def test_the_loop_runs_without_a_simulation(narrow_grid, soliton):
         prefactor_index=1.0,
     )
     backend = select("numpy_ref", problem, grid=narrow_grid, modes=[gnlse.mode])
-    backend.set_initial(problem.initial.field0, None)
     handler = MemoryOutput()
     run_problem(
         problem,
         backend,
         handler,
+        start=Start.entrance(problem),
         metadata=metadata_for(problem, narrow_grid, modes=[gnlse.mode]),
     )
     backend.close()
@@ -668,6 +632,7 @@ def test_a_run_that_raises_tells_the_reporter_it_was_interrupted(build_simulatio
             problem,
             NullBackend(RuntimeError("the card caught fire"), shape=problem.shape),
             MemoryOutput(),
+            start=Start.entrance(problem),
             metadata=simulation.metadata(),
             progress=events,
         )
@@ -699,6 +664,7 @@ def test_a_reporter_without_interrupted_is_still_accepted(build_simulation):
             problem,
             NullBackend(RuntimeError("the card caught fire"), shape=problem.shape),
             MemoryOutput(),
+            start=Start.entrance(problem),
             metadata=simulation.metadata(),
             progress=FourCalls(),  # type: ignore[arg-type] - the older protocol on purpose
         )

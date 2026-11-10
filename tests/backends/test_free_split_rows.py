@@ -30,7 +30,7 @@ from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 native_backend = pytest.importorskip("solprop_native.backend")
 
@@ -86,7 +86,7 @@ ENVELOPE = EnvelopeGrid.from_limits(
 )
 
 
-def _blocked(simulation: Simulation, chunk: int | None) -> KernelProblem:
+def _blocked(simulation: Simulation, chunk: int | None) -> PropagationProblem:
     """Return the simulation's problem at a node chunk, or at its own.
 
     Parameters
@@ -98,7 +98,7 @@ def _blocked(simulation: Simulation, chunk: int | None) -> KernelProblem:
 
     Returns
     -------
-    solprop.translate.problem.KernelProblem
+    solprop.translate.problem.PropagationProblem
         The problem.
     """
     problem = simulation.translate()
@@ -106,12 +106,15 @@ def _blocked(simulation: Simulation, chunk: int | None) -> KernelProblem:
         return problem
     return dataclasses.replace(
         problem,
-        transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+        ),
     )
 
 
 def _marched(
-    simulation: Simulation, name: str, problem: KernelProblem
+    simulation: Simulation, name: str, problem: PropagationProblem
 ) -> tuple[np.ndarray, dict[str, Any], dict[str, int]]:
     """Return the state, the monitor's record and the ledger after the fixed march."""
     backend = watched(simulation, name, problem)

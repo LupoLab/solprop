@@ -6,8 +6,7 @@
 
 A backend names every buffer it holds in
 :meth:`~solprop.backends.protocol.Backend.memory_ledger`. ``numpy_ref``'s ledger takes
-its rows from :func:`reference_base_memory` and :func:`adams_memory`, and ``mlx`` sizes
-its compiled graphs from :func:`mlx_graph_bytes` and :func:`mlx_stage_bytes`. The native
+its rows from :func:`reference_base_memory` and :func:`adams_memory`. The native
 adapter decides its low-storage registers and z-table slots here too.
 """
 
@@ -17,274 +16,21 @@ import numpy as np
 
 from solprop.fourier import n_omega_for
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
+from solprop.translate.routes import tdse_descriptor
 
 __all__ = [
     "LOCAL_FLUX_STATISTICS",
-    "MLX_GRAPH_BUDGET",
     "adams_memory",
     "low_storage_flows",
     "low_storage_stage_register",
-    "mlx_bounded",
-    "mlx_graph_bytes",
-    "mlx_rows",
-    "mlx_stage_bytes",
     "reference_base_memory",
-    "single_precision_rows",
     "z_table_slots",
 ]
 
 
-# The reference's rows that stay binary64 on the single-precision path: the exponents
-# a step tabulates, the host evaluations (rates, envelope moments, statistics) and the
-# scalars (SEP 33 section 6.1).
-_BINARY64_ROWS = frozenset(
-    {
-        "propagators",
-        "statistics_power_weight",
-        "node_ionisation_rate",
-        "plasma_channel_scalars",
-        "envelope_source_streams",
-        "envelope_histories",
-        "envelope_current_scratch",
-    }
-)
-
-
-def single_precision_rows(
-    problem: KernelProblem, rows: dict[str, int]
-) -> dict[str, int]:
-    """Return the reference's base rows for a single-precision problem.
-
-    SEP 33 section 6.1: the element sizes follow the precision. Every buffer the
-    single-precision path holds in binary32 is half the reference's; the rows of
-    ``_BINARY64_ROWS`` stay as they are; the narrowed copies of the source tables
-    and the binary64 state the statistics widen are added.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        A single-precision problem.
-    rows : dict
-        The reference's rows, bytes.
-
-    Returns
-    -------
-    dict
-        The rows, bytes, with ``single_tables`` and ``single_widened_state`` added.
-    """
-    single = {
-        name: size if name in _BINARY64_ROWS else size // 2
-        for name, size in rows.items()
-    }
-    transform, grids = problem.transform, problem.grids
-    tables = transform.synthesis.size + transform.projection.size
-    if not np.array_equal(transform.projection, transform.projection_coarse):
-        tables += transform.projection_coarse.size
-    tables += 2 * grids.n_to + grids.omega_window.size
-    if problem.responses.temporal_absorber_fine is not None:
-        tables += grids.n_to
-    single["single_tables"] = 4 * tables
-    single["single_widened_state"] = 16 * math.prod(problem.shape)
-    return single
-
-
-# The single-precision rows a step's lazy graph holds once per stage on the device.
-_PER_STAGE_ROWS = frozenset(
-    {
-        "fine_spectrum",
-        "modal_time",
-        "projected",
-        "projected_coarse",
-        "node_field",
-        "node_polarisation",
-        "node_ionisation_rate",
-        "node_fraction",
-        "node_free_current",
-        "node_raman_drive",
-        "node_raman_spectrum",
-        "node_raman_convolved",
-        "held_current_streams",
-        "held_current_projected",
-        "held_current_embedded",
-        "held_current_spectra",
-        "transverse_scratch",
-        "spatial_absorber_time",
-    }
-)
-
-
-def mlx_rows(problem: KernelProblem, rows: dict[str, int]) -> dict[str, int]:
-    """Return the ``mlx`` backend's device rows beside the oracle's host rows.
-
-    SEP 33 section 6.3: the device copies of the narrowed tables, the operator's and
-    the prefactor's terms as double-float pairs, and the live graph. Where a step's
-    graph would exceed :data:`MLX_GRAPH_BUDGET` the backend evaluates each stage as it
-    is formed and each running integral as it is scanned, so at most one stage's
-    working rows (``_PER_STAGE_ROWS``, twice, for the graph's
-    temporaries), a scan's ``2 ceil(log2 n_to) + 4`` arrays over the node chunk, and the
-    stages and their propagators are live at once; below it, a whole step's seven
-    stages of rows are, the scans' levels released as they go. Measured against MLX's
-    own peak.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        A single-precision problem on a fibre, radial or Cartesian route.
-    rows : dict
-        Its single-precision reference rows.
-
-    Returns
-    -------
-    dict
-        ``mlx_tables``, ``mlx_terms`` and ``mlx_step_graph``, bytes.
-    """
-    transform, grids = problem.transform, problem.grids
-    tables = transform.synthesis.size + 2 * transform.projection.size
-    tables += 3 * grids.n_to + 3 * grids.omega_window.size
-    state = math.prod(problem.shape)
-    linear = problem.linear
-    phi_terms = 1 if linear.phi_expansion is None else linear.phi_expansion.n_terms
-    per_stage = _mlx_per_stage(problem, rows)
-    scan = _mlx_scan_bytes(problem)
-    stages = problem.stepper.tableau.n_stages
-    stage = 2 * per_stage + scan
-    whole = stages * (2 * per_stage + scan // 2)
-    graph = stage if mlx_bounded(stages, stage) else whole
-    return {
-        "mlx_tables": 4 * tables,
-        "mlx_terms": 16 * state * (phi_terms + 1),
-        "mlx_step_graph": graph + (2 * stages + 6) * 8 * state,
-    }
-
-
-MLX_GRAPH_BUDGET = 1 << 30
-"""Bytes a step's lazy graph may hold before ``mlx`` evaluates stages as it forms them.
-
-Below it the whole step is one graph, evaluated with its norm; above it each stage and
-each running integral is evaluated as it is formed, which bounds the live graph to one
-stage (SEP 33 section 6.3).
-"""
-
-
-def mlx_bounded(stages: int, stage: int) -> bool:
-    """Return whether ``mlx`` evaluates each stage as it is formed.
-
-    Parameters
-    ----------
-    stages : int
-        The tableau's stage count.
-    stage : int
-        One stage's live-graph bytes.
-
-    Returns
-    -------
-    bool
-        True when a whole step's graph would exceed :data:`MLX_GRAPH_BUDGET`.
-    """
-    return stages * stage > MLX_GRAPH_BUDGET
-
-
-def mlx_stage_bytes(problem: KernelProblem) -> int:
-    """Return one stage's live-graph bytes on the ``mlx`` backend.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        A single-precision problem on a fibre, radial or Cartesian route.
-
-    Returns
-    -------
-    int
-        Twice the per-stage working rows, with a scan's levels.
-    """
-    rows = single_precision_rows(problem, _reference_base(problem))
-    return 2 * _mlx_per_stage(problem, rows) + _mlx_scan_bytes(problem)
-
-
-# Fine-grid column arrays a stage's graph holds beyond the reference's rows on the
-# spatial routes: MLX's transverse transforms copy their axes to the last one and
-# back, and the reference's in-place passes are separate arrays on the device.
-# Measured against MLX's peak on radial and Cartesian beams; the radial count is nine
-# since SEP 40's safety ramp gave the radial operator a rate,
-# with which MLX's peak on the 32-node beam varied from 7.0 to 7.8 MB between runs
-# against six columns' 7.2 MB (nine give 8.6 MB).
-_MLX_TRANSIENT_COLUMNS = {"free": 18, "radial": 9}
-
-
-def _mlx_per_stage(problem: KernelProblem, rows: dict[str, int]) -> int:
-    """Return one stage's working bytes on ``mlx``, before the graph's doubling.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        A single-precision problem.
-    rows : dict
-        Its single-precision reference rows.
-
-    Returns
-    -------
-    int
-        The ``_PER_STAGE_ROWS`` and, on a spatial route, its transform transients.
-    """
-    per_stage = sum(size for name, size in rows.items() if name in _PER_STAGE_ROWS)
-    transform = problem.transform
-    geometry = transform.geometry
-    if geometry is not None:
-        columns = min(transform.node_chunk, transform.n_nodes) * transform.n_pol
-        fine = columns * problem.shape[2] * problem.grids.n_to * 8
-        per_stage += _MLX_TRANSIENT_COLUMNS.get(geometry.kind, 0) * fine
-    if problem.responses.envelope_plasma is not None:
-        # The device's envelope plasma per node sample and channel: the drive, the
-        # loss and the loss current, complex64, and the rate, exposure, fraction,
-        # survival, failure flag and scan scratch, four bytes each.
-        nodes = min(transform.node_chunk, transform.n_nodes)
-        samples = nodes * problem.grids.n_to
-        channels = len(problem.responses.envelope_plasma.channels)
-        per_stage += samples * (3 * 8 * transform.n_pol + channels * 6 * 4)
-    return per_stage
-
-
-def _mlx_scan_bytes(problem: KernelProblem) -> int:
-    """Return the bytes of one running integral's evaluation on ``mlx``.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        The problem.
-
-    Returns
-    -------
-    int
-        ``2 ceil(log2 n_to) + 4`` arrays over the node chunk, or 0 without plasma.
-    """
-    if not problem.flags.has_plasma:
-        return 0
-    transform, grids = problem.transform, problem.grids
-    chunk = min(transform.node_chunk, transform.n_nodes) * problem.shape[2]
-    levels = 2 * math.ceil(math.log2(grids.n_to)) + 4
-    return levels * chunk * transform.n_pol * grids.n_to * 4
-
-
-def mlx_graph_bytes(problem: KernelProblem) -> int:
-    """Return the ``mlx`` backend's live-graph row for a problem, bytes.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        A single-precision problem on a fibre, radial or Cartesian route.
-
-    Returns
-    -------
-    int
-        ``mlx_step_graph`` of :func:`mlx_rows`.
-    """
-    rows = single_precision_rows(problem, _reference_base(problem))
-    return mlx_rows(problem, rows)["mlx_step_graph"]
-
-
 def reference_base_memory(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     *,
     tabulating: bool,
     embedded: bool,
@@ -307,7 +53,7 @@ def reference_base_memory(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     tabulating : bool
         Whether the Runge-Kutta march's propagators are tabulated (six distinct
@@ -327,8 +73,8 @@ def reference_base_memory(
     dict
         Buffer name to bytes, every row named even when it is zero.
     """
-    n_batch, n_modes, n_pol, n_omega = problem.shape
-    field_bytes = n_batch * n_modes * n_pol * n_omega * 16
+    n_modes, n_pol, n_omega = problem.shape
+    field_bytes = n_modes * n_pol * n_omega * 16
     stepping = _stepping_rows(problem, field_bytes, tabulating=tabulating)
     transform = problem.transform
     n_to = problem.grids.n_to
@@ -352,22 +98,23 @@ def reference_base_memory(
     held = bool(problem.responses.plasma_channels)
     radial = transform.geometry is not None and transform.geometry.kind == "radial"
     held_columns = chunk_columns if free or radial else n_modes * n_pol
+    descriptor = tdse_descriptor(problem.route)
     return {
         # TDSE keeps the complete radial input while stable native chunks are
         # evaluated. Include subtraction operands and embedded P/J projection
         # transients in the same admission used by the constructed reference.
         "tdse_nodal_sources": 0
-        if problem.tdse is None
+        if descriptor is None
         else 8 * transform.n_nodes * n_to * 8,
         "tdse_projected_sources": 0
-        if problem.tdse is None
+        if descriptor is None
         else 6 * modal_time + 8 * field_bytes,
         # A gated source's edge term (SEP 26): the scaled g'S, its two absolute
         # rounding operands and the raw operand sum on the nodes; the projected edge
         # array and its two absolute projections, for the fine and embedded maps; and
         # the edge spectrum with 1/(i omega) and the diagnostic's band products.
         "tdse_edge_sources": 0
-        if problem.tdse is None or not problem.tdse.gated
+        if descriptor is None or not descriptor.gated
         else 4 * transform.n_nodes * n_to * 8 + 6 * modal_time + 8 * field_bytes,
         # SEP 27: total J and its two products coexist with the non-plasma
         # polarisation. Radial/free routes combine spectra on nodes; modal routes
@@ -388,7 +135,7 @@ def reference_base_memory(
         # A slab's physical nodes (n_x * n_y) are not its columns (n_p * n_y): the
         # reference holds the whole node volume of the synthesised field.
         "transverse_scratch": (
-            n_batch * transform.n_nodes * n_pol * n_omega * 16
+            transform.n_nodes * n_pol * n_omega * 16
             if transform.geometry is not None and transform.geometry.kind == "slab"
             else field_bytes
             if free
@@ -435,13 +182,13 @@ def reference_base_memory(
 
 
 def _stepping_rows(
-    problem: KernelProblem, field_bytes: int, *, tabulating: bool
+    problem: PropagationProblem, field_bytes: int, *, tabulating: bool
 ) -> dict[str, int]:
     """Return the march's own field-sized rows: stages, accumulators, registers, flows.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem, whose integrator decides the rows.
     field_bytes : int
         One state's bytes.
@@ -466,7 +213,7 @@ def _stepping_rows(
     }
 
 
-def _low_storage_rows(problem: KernelProblem, field_bytes: int) -> dict[str, int]:
+def _low_storage_rows(problem: PropagationProblem, field_bytes: int) -> dict[str, int]:
     """Return the low-storage march's field-sized rows: two registers and the flows.
 
     Every backend that runs the march holds these, the native engine to the byte
@@ -476,7 +223,7 @@ def _low_storage_rows(problem: KernelProblem, field_bytes: int) -> dict[str, int
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     field_bytes : int
         One state's bytes.
@@ -496,7 +243,7 @@ def _low_storage_rows(problem: KernelProblem, field_bytes: int) -> dict[str, int
     }
 
 
-def low_storage_flows(problem: KernelProblem, backend: str) -> int:
+def low_storage_flows(problem: PropagationProblem, backend: str) -> int:
     """Return how many flow volumes a compiled backend's low-storage march holds.
 
     The one predicate the engines share (SEP 24 section 4.3): with
@@ -510,7 +257,7 @@ def low_storage_flows(problem: KernelProblem, backend: str) -> int:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     backend : str
         A registry name; every backend that runs the march counts the same.
@@ -547,7 +294,7 @@ def low_storage_flows(problem: KernelProblem, backend: str) -> int:
     return 1 if constant else 2
 
 
-def low_storage_stage_register(problem: KernelProblem, backend: str) -> bool:
+def low_storage_stage_register(problem: PropagationProblem, backend: str) -> bool:
     """Return whether a backend's low-storage march holds the stage register ``C``.
 
     SEP 24 Q4: Kokkos, from phase 3, elides it
@@ -559,7 +306,7 @@ def low_storage_stage_register(problem: KernelProblem, backend: str) -> bool:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     backend : str
         A registry name.
@@ -604,35 +351,7 @@ def low_storage_stage_register(problem: KernelProblem, backend: str) -> bool:
     return in_stage or len(responses.response_order) <= 1
 
 
-def _tabulating(problem: KernelProblem, asked: str) -> bool:
-    """Return whether a problem's propagators are tabulated, ``"auto"`` resolved.
-
-    ``StepDriver._propagator_mode`` with the reference's default of ``"tabulate"``;
-    the low-storage march tabulates a constant operator and recomputes a varying one.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        The translated problem.
-    asked : str
-        The contract's propagator mode.
-
-    Returns
-    -------
-    bool
-        Whether the propagators are tabulated.
-    """
-    return asked == "tabulate" or (
-        asked == "auto"
-        and (
-            problem.flags.constant_linop
-            if isinstance(problem.stepper.integrator, LowStorageRungeKutta)
-            else problem.linear.separable is None
-        )
-    )
-
-
-def adams_memory(problem: KernelProblem) -> dict[str, int]:
+def adams_memory(problem: PropagationProblem) -> dict[str, int]:
     """Return the Adams march's history rows ``numpy_ref`` holds for a problem.
 
     Empty without an Adams integrator, and on the general path, whose history is a list
@@ -640,7 +359,7 @@ def adams_memory(problem: KernelProblem) -> dict[str, int]:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -710,7 +429,7 @@ LOCAL_FLUX_STATISTICS = frozenset(
 """The spatial statistics that synthesise the magnetic closure in time (SEP 34)."""
 
 
-def z_table_slots(problem: KernelProblem) -> int:
+def z_table_slots(problem: PropagationProblem) -> int:
     """Return the position slots the native CPU build holds for a z table.
 
     SEP 29 section 6.6: the native backend evaluates a z table at each native call's
@@ -722,7 +441,7 @@ def z_table_slots(problem: KernelProblem) -> int:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -756,12 +475,12 @@ def z_table_slots(problem: KernelProblem) -> int:
     return int(max(np.unique(fractions).size, low_storage, 2))
 
 
-def _distinct_fractions(problem: KernelProblem) -> int:
+def _distinct_fractions(problem: PropagationProblem) -> int:
     """Return the tableau's distinct stage fractions, the step's end included.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -770,59 +489,3 @@ def _distinct_fractions(problem: KernelProblem) -> int:
         The count, positive.
     """
     return int(np.unique(np.append(problem.stepper.tableau.nodes, 1.0)).size)
-
-
-def _reference_base(problem: KernelProblem) -> dict[str, int]:
-    """Return the reference's base rows as its construction would fix them.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        The translated problem.
-
-    Returns
-    -------
-    dict
-        Buffer name to bytes, :func:`reference_base_memory`'s rows.
-    """
-    transform = problem.transform
-    return reference_base_memory(
-        problem,
-        tabulating=_tabulating(problem, problem.stepper.propagator_mode),
-        embedded=not np.array_equal(transform.projection, transform.projection_coarse),
-        noise=False,
-        statistics_weight=8 * math.prod(problem.shape[1:])
-        if transform.geometry is None
-        else 0,
-        spatial_absorber=_radial_absorber_bytes(problem),
-    )
-
-
-def _radial_absorber_bytes(problem: KernelProblem) -> int:
-    """Return the bytes of the radial absorber matrix the reference composes.
-
-    :func:`solprop.backends.spatial.radial_absorber_matrix`'s shape and type, without
-    forming the product.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        The translated problem.
-
-    Returns
-    -------
-    int
-        Bytes, zero where the problem has no radial absorber.
-    """
-    transform = problem.transform
-    geometry = transform.geometry
-    if (
-        geometry is None
-        or geometry.kind != "radial"
-        or not np.any(geometry.absorber_rate)
-    ):
-        return 0
-    item = np.result_type(
-        transform.projection.dtype, transform.synthesis.dtype, np.float64
-    ).itemsize
-    return int(transform.projection.shape[0] * transform.synthesis.shape[-1] * item)

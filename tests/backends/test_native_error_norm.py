@@ -62,7 +62,7 @@ def _operands(backend, reference, problem, dz):
     """Return native's stages and state, and the reference's propagator, 4-D."""
     tableau = problem.stepper.tableau
     state = backend._native_state
-    shape = problem.shape
+    shape = (1, *problem.shape)
     stages = [
         np.asarray(state.stage_to_host(index)).reshape(shape)
         for index in range(len(tableau.nodes))
@@ -102,7 +102,7 @@ def test_the_rk_norm_is_the_reference_norm_of_native_s_operands(
         before = problem.initial.field0
         backend._finish(backend._native_state, dz)
         after = backend.observe().require_field()
-        wanted = reference._error_norm(carried, before, after)
+        wanted = reference._error_norm(carried, before[None], after[None])
         controller = problem.stepper.controller
         mask = problem.grids.norm_mask
         scale = float(

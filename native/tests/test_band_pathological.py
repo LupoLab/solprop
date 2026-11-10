@@ -49,7 +49,7 @@ from solprop.grid import FieldGrid
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, RungeKutta
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 from solprop_native import NativeBackend
 from legacy_geometry import LEGACY_GRID
@@ -112,7 +112,7 @@ def capillary(
     preionisation: float,
     steps: int = 1,
     rate: object = None,
-) -> tuple[FieldGrid, KernelProblem]:
+) -> tuple[FieldGrid, PropagationProblem]:
     """Return a mode-averaged argon capillary whose launch is one comb bin of `peak`."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
@@ -154,7 +154,7 @@ def capillary(
 
 
 def synthesised(
-    problem: KernelProblem, grid: FieldGrid, field: ComplexArray
+    problem: PropagationProblem, grid: FieldGrid, field: ComplexArray
 ) -> npt.NDArray[np.float64]:
     """Return the reference's node fields of `field`, ``(nodes, n_pol, n_to)``."""
     reference = NumpyRefBackend(problem, grid=grid)
@@ -170,7 +170,7 @@ def synthesised(
         reference.close()
 
 
-def source_of_reference(problem: KernelProblem, grid: FieldGrid) -> ComplexArray:
+def source_of_reference(problem: PropagationProblem, grid: FieldGrid) -> ComplexArray:
     """Return the reference's first stage on the launch, ``N(E, z = 0)``."""
     reference = NumpyRefBackend(problem, grid=grid)
     try:
@@ -179,13 +179,13 @@ def source_of_reference(problem: KernelProblem, grid: FieldGrid) -> ComplexArray
         return reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
             reference._require_state(),  # pyright: ignore[reportPrivateUsage]
             reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-            np.ones(problem.shape, complex),
+            np.ones((1, *problem.shape), complex),
         )[0]
     finally:
         reference.close()
 
 
-def source_of_native(problem: KernelProblem, grid: FieldGrid) -> ComplexArray:
+def source_of_native(problem: PropagationProblem, grid: FieldGrid) -> ComplexArray:
     """Return native's first stage on the launch, from a zero-length trial."""
     backend = NativeBackend(problem, grid=grid)
     try:
@@ -193,14 +193,14 @@ def source_of_native(problem: KernelProblem, grid: FieldGrid) -> ComplexArray:
         backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         return np.asarray(
             backend._native_state.stage_to_host(0)  # pyright: ignore[reportPrivateUsage]
-        ).reshape(problem.shape[1:])
+        ).reshape(problem.shape)
     finally:
         backend.close()
 
 
 def launch_statistics(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
-    problem: KernelProblem,
+    problem: PropagationProblem,
     grid: FieldGrid,
 ) -> dict[str, np.ndarray]:
     """Return the statistics of the launch, before any step."""
@@ -214,7 +214,7 @@ def launch_statistics(
 
 def march(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
-    problem: KernelProblem,
+    problem: PropagationProblem,
     grid: FieldGrid,
 ) -> tuple[ComplexArray, dict[str, np.ndarray]]:
     """Return the field and the statistics after the problem's fixed steps."""
@@ -249,7 +249,9 @@ def lossless_unit_bound(preionisation: float) -> float:
     return evaluation_bound(dataclasses.replace(problem, responses=responses), grid)
 
 
-def assert_source_agrees(problem: KernelProblem, grid: FieldGrid, bound: float) -> None:
+def assert_source_agrees(
+    problem: PropagationProblem, grid: FieldGrid, bound: float
+) -> None:
     """Native's first stage on the launch is finite and within `bound` of the oracle."""
     expected = source_of_reference(problem, grid)
     actual = source_of_native(problem, grid)
@@ -272,7 +274,9 @@ def require_exact_zeros(fields: npt.NDArray[np.float64]) -> None:
         )
 
 
-def assert_exact_zeros_in_a_live_row(problem: KernelProblem, grid: FieldGrid) -> None:
+def assert_exact_zeros_in_a_live_row(
+    problem: PropagationProblem, grid: FieldGrid
+) -> None:
     """The launch holds exact zeros, a quarter of the row, between live samples."""
     fields = synthesised(problem, grid, problem.initial.field0)
     require_exact_zeros(fields)
@@ -402,12 +406,12 @@ def test_the_launch_statistics_match_the_reference(
     expected = launch_statistics(NumpyRefBackend, problem, grid)
     actual = launch_statistics(NativeBackend, problem, grid)
     assert_statistics_agree(actual, expected, bound)
-    assert float(expected["peak_ionisation_rate"][0]) == pytest.approx(RATE, rel=1e-6)
+    assert float(expected["peak_ionisation_rate"]) == pytest.approx(RATE, rel=1e-6)
     if preionisation == 1.0:
         # All of it ionised already: no survivors for rounding to act on. Exact.
         neutral = float(problem.responses.density(0.0))
-        assert float(actual["electron_density"][0]) == neutral
-        assert float(expected["electron_density"][0]) == neutral
+        assert float(actual["electron_density"]) == neutral
+        assert float(expected["electron_density"]) == neutral
 
 
 @pytest.mark.parametrize(
@@ -450,8 +454,8 @@ def test_the_knot_index_is_clamped_at_both_ends_of_the_table(
     assert_source_agrees(problem, grid, evaluation_bound(problem, grid))
     expected = launch_statistics(NumpyRefBackend, problem, grid)
     actual = launch_statistics(NativeBackend, problem, grid)
-    assert float(expected["electron_density"][0]) > 0.0
-    assert float(expected["peak_ionisation_rate"][0]) > 1e10
+    assert float(expected["electron_density"]) > 0.0
+    assert float(expected["peak_ionisation_rate"]) > 1e10
     assert_statistics_agree(actual, expected, evaluation_bound(problem, grid))
 
 
@@ -461,7 +465,7 @@ def test_a_two_component_row_with_an_exactly_zero_component_matches_the_referenc
     launch = np.asarray(problem.initial.field0)
     field = np.zeros(problem.shape, complex)
     # The launch's radial shape, every radial node's row the same comb in time.
-    field[0, :, 0, grid.n_to // 8] = np.max(np.abs(launch[0, :, 0, :]), axis=-1)
+    field[:, 0, grid.n_to // 8] = np.max(np.abs(launch[:, 0, :]), axis=-1)
     field *= LIVE / np.max(np.abs(synthesised(problem, grid, field)))
     problem = dataclasses.replace(
         problem, initial=dataclasses.replace(problem.initial, field0=field)

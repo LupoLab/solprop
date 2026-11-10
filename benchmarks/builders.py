@@ -25,6 +25,7 @@ __all__ = [
     "gnlse",
     "integrator",
     "kerr",
+    "soliton",
     "spatial",
     "spatial_grids",
 ]
@@ -81,15 +82,13 @@ def integrator(stepper: str) -> Multistep | RungeKutta | None:
 def variant(configuration: Record) -> Record:
     """Return the keywords that turn a case into its backend, precision, noise and grid.
 
-    ``precision`` is ``"single"`` on ``mlx`` and ``"double"`` elsewhere unless the
-    configuration names it. A single-precision run, or one asked for ``noise="none"``,
+    ``precision`` is ``"double"`` unless the configuration names it. A single-precision
+    run, or one asked for ``noise="none"``,
     is noiseless: no seed and no noise model, so that a cross-backend A/B compares
     one workload. ``fft_size="pow2"`` rebuilds the case's time grid at the next power
     of two; the transverse grids are kept, as their sizes set the physics.
     """
-    precision = configuration.get("precision") or (
-        "single" if configuration["backend"] == "mlx" else "double"
-    )
+    precision = configuration.get("precision") or "double"
     noiseless = precision == "single" or configuration.get("noise") == "none"
     fft_size = configuration.get("fft_size") or "case"
     if fft_size not in ("case", "pow2"):
@@ -258,6 +257,42 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
     raise SuiteError(f"capillary builder not implemented for {name}")
 
 
+SOLITON_BETA2, SOLITON_GAMMA, SOLITON_WIDTH = -11.83e-27, 0.11, 100e-15
+"""``gnlse_soliton``'s dispersion (s^2/m), nonlinearity (1/W/m) and sech width (s)."""
+SOLITON_PEAK = 3**2 * abs(SOLITON_BETA2) / (SOLITON_GAMMA * SOLITON_WIDTH**2)
+"""The N = 3 soliton's peak power, W."""
+
+
+def soliton(length: float, options: Record, **keywords: Any) -> Simulation:
+    """Build ``gnlse_soliton``'s noiseless fibre and launch over `length` metres.
+
+    `keywords` go to ``Simulation.from_gnlse`` beside the case's own (the SEP 47
+    windows' statistics, step planes or schedule, ``benchmarks.sessions``); the time
+    grid is the case's whatever the length.
+    """
+    from solprop.driver import Simulation  # noqa: PLC0415
+
+    return Simulation.from_gnlse(
+        SOLITON_GAMMA,
+        length,
+        [0.0, 0.0, SOLITON_BETA2],
+        wavelength=835e-9,
+        width=SOLITON_WIDTH,
+        peak_power=SOLITON_PEAK,
+        shape="sech",
+        raman=False,
+        shock=False,
+        # The one noiseless case: a soliton-recurrence study runs without noise,
+        # and a seed would make it a different workload (SEP 37 measured 65 times
+        # the steps with one).
+        noise=None,
+        precision=options["precision"],
+        backend=options["backend"],
+        **_limits(options, length, 835e-9, (500e-9, 2e-6), 4e-12, envelope=True),
+        **keywords,
+    )
+
+
 def gnlse(name: str, options: Record | None = None) -> Simulation:
     """Extract the ideal soliton and the SEP 13 Raman/shock envelope inputs.
 
@@ -272,32 +307,7 @@ def gnlse(name: str, options: Record | None = None) -> Simulation:
 
     options = options or variant({"backend": "native"})
     if name == "gnlse_soliton":
-        beta2, gamma, width = -11.83e-27, 0.11, 100e-15
-        return Simulation.from_gnlse(
-            gamma,
-            math.pi / 2 * width**2 / abs(beta2),
-            [0.0, 0.0, beta2],
-            wavelength=835e-9,
-            width=width,
-            peak_power=3**2 * abs(beta2) / (gamma * width**2),
-            shape="sech",
-            raman=False,
-            shock=False,
-            # The one noiseless case: a soliton-recurrence study runs without noise,
-            # and a seed would make it a different workload (SEP 37 measured 65 times
-            # the steps with one).
-            noise=None,
-            precision=options["precision"],
-            backend=options["backend"],
-            **_limits(
-                options,
-                math.pi / 2 * width**2 / abs(beta2),
-                835e-9,
-                (500e-9, 2e-6),
-                4e-12,
-                envelope=True,
-            ),
-        )
+        return soliton(math.pi / 2 * SOLITON_WIDTH**2 / abs(SOLITON_BETA2), options)
     if name == "gnlse_raman_shock":
         return Simulation.from_gnlse(
             0.11,
@@ -331,7 +341,7 @@ def gnlse(name: str, options: Record | None = None) -> Simulation:
 
 
 def spatial_grids(
-    name: str, fft_size: str = "case", precision: str = "double"
+    name: str, fft_size: str = "case"
 ) -> tuple[EnvelopeGrid | FieldGrid, FreeGrid | LineGrid | RadialGrid]:
     """Return a free-space case's time and transverse grids, without its launch.
 
@@ -373,8 +383,6 @@ def spatial_grids(
         (350e-9, 2e-6) if plasma else (500e-9, 1.6e-6),
         250e-15,
         fft_size="pow2" if fft_size == "pow2" else "auto",
-        # As the keyword interfaces choose for a run on mlx (single precision).
-        transforms="mlx" if precision == "single" else "fftw",
     )
     if name == "spatial_absorber":
         # SEP 40: the aperture of three waists with 2.6 radii of room outside it, for
@@ -451,7 +459,7 @@ def spatial(
     options = options or variant({"backend": "native"})
     if name == "planar":
         return _planar(settings)
-    grid, space = spatial_grids(name, options["fft_size"], options["precision"])
+    grid, space = spatial_grids(name, options["fft_size"])
     plasma = "filament" in name
     medium = SpatialMedium("Ar", 1.0)
     chi3 = gamma3("Ar", wavelength=800e-9)
@@ -535,6 +543,24 @@ def smoke() -> Simulation:
     )
 
 
+def _fibre_or_capillary(
+    name: str, stop: float, itinerary: list[float], options: Record
+) -> Simulation:
+    """Build a capillary, fibre, session or smoke case before its observations."""
+    builder = CASES[name].builder
+    if builder == "capillary":
+        return capillary(name, options)
+    if builder == "gnlse":
+        return gnlse(name, options)
+    if builder == "session":
+        from benchmarks.sessions import fibre  # noqa: PLC0415
+
+        return fibre(name, stop, itinerary, options)
+    if builder == "smoke":
+        return smoke()
+    raise SuiteError(f"unknown builder {builder}")
+
+
 def build(configuration: Record) -> Simulation:
     """Build a case for the configured backend, stepper and observations.
 
@@ -558,6 +584,9 @@ def build(configuration: Record) -> Simulation:
         "fields": fields,
         "field_planes": (len(itinerary),) if fields == "planes" else (),
     }
+    if case.workload in ("scan", "group"):
+        # A scan keeps the fields run_scan asks for; its points keep the default.
+        del observed["fields"], observed["field_planes"]
     chosen = integrator(configuration["stepper"])
     options = variant(configuration)
     if case.builder in ("kerr", "spatial"):
@@ -606,14 +635,8 @@ def build(configuration: Record) -> Simulation:
                 field_planes=observed["field_planes"],
             )
             return simulation
-    elif case.builder == "capillary":
-        simulation = capillary(case.name, options)
-    elif case.builder == "gnlse":
-        simulation = gnlse(case.name, options)
-    elif case.builder == "smoke":
-        simulation = smoke()
     else:
-        raise SuiteError(f"unknown builder {case.builder}")
+        simulation = _fibre_or_capillary(case.name, stop, itinerary, options)
     if chosen is not None:
         observed["integrator"] = chosen
     observed["node_budget"] = _node_budget()  # None: the translation's default

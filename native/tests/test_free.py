@@ -20,7 +20,7 @@ from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 
 from solprop_native import NativeBackend, _core
 from solprop_native.backend import (
@@ -45,7 +45,11 @@ def free_payload(phase_a_case: PhaseACase) -> dict[str, object]:
         dz_init=1e-4,
     )
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=5)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=5),
+        ),
     )
     backend = NativeBackend(problem, grid=grid)
     try:
@@ -261,7 +265,11 @@ def test_a_line_of_one_y_row_matches_the_reference(collar: float) -> None:
         schedule=FixedSchedule.uniform(0.0, length, length / 10),
     )
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=7),
+        ),
     )
     geometry = problem.transform.geometry
     assert geometry is not None
@@ -304,7 +312,7 @@ def test_a_line_of_one_y_row_matches_the_reference(collar: float) -> None:
 
 def _planar_problem(
     grid: EnvelopeGrid, controller: PIController, *, collar: float = 0.0
-) -> tuple[PlanarGrid, KernelProblem]:
+) -> tuple[PlanarGrid, PropagationProblem]:
     """Return a small Kerr slab problem: three orders, 5 y rows, two rows per chunk."""
     # A constant plate index: the fixture's band reaches beyond silica's fit.
     modes = [SlabMode(63.5e-6, order=p, cladding=1.45) for p in (1, 2, 3)]
@@ -331,7 +339,11 @@ def _planar_problem(
     )
     chunk = 2 * space.x.size
     return space, dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=chunk)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+        ),
     )
 
 

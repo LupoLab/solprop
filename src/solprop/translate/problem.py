@@ -4,7 +4,7 @@
 
 """The kernel contract: the one object that crosses into a backend.
 
-:class:`KernelProblem` is a frozen dataclass of plain NumPy arrays and scalars,
+:class:`PropagationProblem` is a frozen dataclass of plain NumPy arrays and scalars,
 validated, versioned and documented field by field in
 ``docs/dev/kernel-contract.md``. A backend may assume everything stated there and
 nothing else; the translation layer promises everything stated there and nothing else.
@@ -163,6 +163,16 @@ from solprop.translate.responses import (
     response_kinks,
     unlanded_kinks,
 )
+from solprop.translate.routes import (
+    GeneralRoute,
+    ModalRoute,
+    Route,
+    SpatialRoute,
+    TDSESource,
+    route_name,
+    spatial_kind,
+    tdse_of,
+)
 from solprop.translate.spatial import (
     FluxPlan,
     RateBounds,
@@ -193,8 +203,8 @@ __all__ = [
     "TAPER_FLOW_CERTIFICATE",
     "Flags",
     "Initial",
-    "KernelProblem",
     "NoiseModel",
+    "PropagationProblem",
     "PropagatorMode",
     "StepperSettings",
     "TranslationReuse",
@@ -330,8 +340,6 @@ class Flags:
         One mode: ``n_modes == 1``.
     scalar_pol : bool
         One polarisation component: ``n_pol == 1``.
-    single_batch : bool
-        One batch member: ``n_batch == 1``.
     has_plasma : bool
         A plasma response is compiled.
     has_raman : bool
@@ -354,14 +362,13 @@ class Flags:
     Examples
     --------
     >>> from solprop.translate.problem import Flags
-    >>> flags = Flags(True, True, True, False, False, False, False, False, True, True)
+    >>> flags = Flags(True, True, False, False, False, False, False, True, True)
     >>> flags.constant_linop, flags.has_raman
     (True, False)
     """
 
     single_mode: bool
     scalar_pol: bool
-    single_batch: bool
     has_plasma: bool
     has_raman: bool
     has_spectral_responses: bool
@@ -375,7 +382,7 @@ class Flags:
     @classmethod
     def from_content(
         cls,
-        shape: tuple[int, int, int, int],
+        shape: tuple[int, int, int],
         linear: LinearOperator,
         transform: Transform,
         responses: CompiledResponses,
@@ -386,7 +393,7 @@ class Flags:
         Parameters
         ----------
         shape : tuple of int
-            The canonical state shape ``(n_batch, n_modes, n_pol, n_omega)``.
+            The canonical state shape ``(n_modes, n_pol, n_omega)``.
         linear : solprop.translate.linop.LinearOperator
             The cumulative operator.
         transform : solprop.translate.modal.Transform
@@ -424,9 +431,8 @@ class Flags:
         (True, True)
         """
         return cls(
-            single_mode=shape[1] == 1,
-            scalar_pol=shape[2] == 1,
-            single_batch=shape[0] == 1,
+            single_mode=shape[0] == 1,
+            scalar_pol=shape[1] == 1,
             has_plasma=bool(responses.population_channels),
             has_raman=bool(responses.raman_terms),
             has_spectral_responses=bool(responses.spectral_responses),
@@ -441,7 +447,7 @@ class Flags:
 
 @dataclass(frozen=True, eq=False)
 class Initial:
-    """The initial state, the noise realisation and the batch parameters.
+    """The initial state and the noise realisation of one trajectory.
 
     Section 6 of the kernel contract. Both arrays are in the lab frame and the FFT
     convention and read-only; the noise is C-contiguous, and so is the state unless it
@@ -450,8 +456,7 @@ class Initial:
     Every array is the problem's own, so that nothing the caller does to an array it
     passed, afterwards, changes the problem, and the caller's array is never frozen:
 
-    - the state, the noise and the batch parameters are copied, complex128 (float64
-      for the parameters), C-contiguous and read-only;
+    - the state and the noise are copied, complex128, C-contiguous and read-only;
     - a broadcast state (zero strides, as from :func:`numpy.broadcast_to`) copies only
       the block it repeats, converted first, and broadcasts that copy, so it costs the
       block's bytes rather than one state's;
@@ -462,19 +467,16 @@ class Initial:
     Attributes
     ----------
     field0 : numpy.ndarray
-        Initial state, complex128, shape ``(n_batch, n_modes, n_pol, n_omega)``, in the
-        square root of watts; possibly a read-only broadcast view, never written.
+        Initial state, complex128, shape ``(n_modes, n_pol, n_omega)``, in the square
+        root of watts; possibly a read-only broadcast view, never written. A group of
+        trajectories is a sequence of problems, one per member (SEP 47 section 6.7),
+        never a leading axis here.
     noise0 : numpy.ndarray or None
         The shot-noise realisation in the same layout, or ``None``. It is carried along
         z by the unitary part of the linear flow and added at every stage; the
         propagating field never contains it.
     noise_model : {'none', 'input', 'modified'}
         Which model the realisation belongs to.
-    batch_params : mapping
-        Per-member scalars recorded in the output, each a read-only ``(n_batch,)``
-        float64 array. Empty unless a batch runner filled it (work package 16). The
-        annotation gives the length its own axis name so that ``__post_init__`` is what
-        checks it against the state, which keeps the check reachable in production.
     z : float, optional
         Absolute launch position in m, finite and non-negative. Input power
         normalisation uses the effective index at this position.
@@ -489,22 +491,21 @@ class Initial:
     --------
     >>> import numpy as np
     >>> from solprop.translate.problem import Initial
-    >>> state = np.zeros((1, 1, 1, 8), dtype=complex)
-    >>> Initial(state, None, "none", {}).noise_model
+    >>> state = np.zeros((1, 1, 8), dtype=complex)
+    >>> Initial(state, None, "none").noise_model
     'none'
 
     A broadcast input stays a broadcast, over a copy of the row it repeats:
 
-    >>> row = np.ones((1, 1, 1, 8), dtype=complex)
-    >>> held = Initial(np.broadcast_to(row, (4, 1, 1, 8)), None, "none", {}).field0
+    >>> row = np.ones((1, 1, 8), dtype=complex)
+    >>> held = Initial(np.broadcast_to(row, (4, 1, 8)), None, "none").field0
     >>> held.shape, held.strides[0], np.shares_memory(held, row)
-    ((4, 1, 1, 8), 0, False)
+    ((4, 1, 8), 0, False)
     """
 
-    field0: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
-    noise0: Complex[np.ndarray, "n_batch_n n_modes_n n_pol_n n_omega_n"] | None
+    field0: Complex[np.ndarray, "n_modes n_pol n_omega"]
+    noise0: Complex[np.ndarray, "n_modes_n n_pol_n n_omega_n"] | None
     noise_model: NoiseModel
-    batch_params: Mapping[str, Float[np.ndarray, " n_params"]]
     z: float = 0.0
 
     def __post_init__(self) -> None:
@@ -534,20 +535,6 @@ class Initial:
                 f"{'absent' if self.noise0 is None else 'present'}"
             )
             raise TranslationError(msg)
-        parameters = {}
-        for name, values in self.batch_params.items():
-            entry = _held_copy(
-                values if _is_held(values) else np.asarray(values).reshape(-1),
-                np.float64,
-            )
-            if entry.size != state.shape[0]:
-                msg = (
-                    f"batch_params[{name!r}] has {entry.size} entries, expected "
-                    f"{state.shape[0]}, one per batch member"
-                )
-                raise TranslationError(msg)
-            parameters[name] = entry
-        object.__setattr__(self, "batch_params", MappingProxyType(parameters))
 
 
 _ADAMS_CONTROL = frozenset({"rtol", "atol", "weights", "region"})
@@ -917,7 +904,7 @@ def _held_state(field0: Num[np.ndarray, "*shape"]) -> Complex[np.ndarray, "*shap
 
 
 @dataclass(frozen=True, eq=False)
-class KernelProblem:
+class PropagationProblem:
     """Everything a backend needs, and nothing it does not.
 
     The seam of ``docs/dev/architecture.md`` section 3. Construct it with
@@ -929,38 +916,28 @@ class KernelProblem:
     grid_kind : {'field', 'envelope'}
         Selects r2c/c2r against c2c transforms and the response formulas.
     shape : tuple of int
-        The canonical state shape ``(n_batch, n_modes, n_pol, n_omega)``.
+        The canonical single-trajectory state shape ``(n_modes, n_pol, n_omega)``.
     flags : Flags
         Static booleans, derived from the content (section 1).
     grids : solprop.translate.masks.Grids
         Frequency axis, masks and oversampling data (section 2).
     linear : solprop.translate.linop.LinearOperator
         The cumulative linear operator (section 3).
-    transform : solprop.translate.modal.Transform
-        Synthesis and projection (section 4).
     responses : solprop.translate.responses.CompiledResponses
         The compiled nonlinear term (section 5).
     initial : Initial
-        Initial state, noise and batch parameters (section 6).
+        Initial state and noise (section 6).
     stepper : StepperSettings
         Tableau, controller, caps and schedule (section 7).
     stats_spec : solprop.stats.StatsSpec
         Which statistics to collect (section 8).
-    tdse : solprop.translate.tdse.TDSEDescriptor or None, optional
-        Immutable atomic and response-lattice scientific identity. Execution plans
-        remain owned by the driver and cross the seam as an explicit binding.
-    current_numerator : numpy.ndarray or None, optional
-        Independent current source numerator, ``-crop_scale/(2 epsilon_0 c)``,
-        shape ``(n_modes, n_pol, n_omega)``. Zero outside the retained band.
-        Divide by the stage's real effective index without dividing by frequency.
-    flux : solprop.translate.spatial.FluxPlan or None, optional
-        A spatial run's plane-measure coefficients (version 35); required with
-        spatial geometry and absent otherwise.
+    route : solprop.translate.routes.ModalRoute, GeneralRoute or SpatialRoute
+        What differs between routes, in exactly one variant of a closed union, each
+        with the fields its executor needs (SEP 47 section 6.2): the transform
+        (section 4) and the route's own leaves (:mod:`solprop.translate.routes`).
     precision : solprop.translate.precision.Precision, optional
         The arithmetic the run is held in (version 36): binary64 by default, or
         binary32 under SEP 33's contract. Tables are binary64 here either way.
-    transverse : solprop.spatial_absorber.SpatialAbsorberDesign or None, optional
-        A free-space run's resolved transverse boundary (version 41).
     split_crossing : solprop.boundaries.SplitCrossing or None, optional
         The split temporal collar's crossing limit (version 43): each bin's walk-off
         bucket, the collar's width and the launch's limit, which the boundary
@@ -984,25 +961,32 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind
-    ((1, 1, 1, 3072), 'envelope')
+    ((1, 1, 3072), 'envelope')
     """
 
     grid_kind: GridKind
-    shape: tuple[int, int, int, int]
+    shape: tuple[int, int, int]
     flags: Flags
     grids: Grids
     linear: LinearOperator
-    transform: Transform
     responses: CompiledResponses
     initial: Initial
     stepper: StepperSettings
     stats_spec: StatsSpec
-    tdse: TDSEDescriptor | None = None
-    current_numerator: Float[np.ndarray, "n_modes n_pol n_omega"] | None = None
-    flux: FluxPlan | None = None
+    route: Route
     precision: Precision = DOUBLE
-    transverse: SpatialAbsorberDesign | None = None
     split_crossing: SplitCrossing | None = None
+
+    @property
+    def transform(self) -> Transform:
+        """Return the route's transform, which every route variant carries.
+
+        Returns
+        -------
+        solprop.translate.modal.Transform
+            Synthesis and projection (section 4).
+        """
+        return self.route.transform
 
     @property
     def device_ready(self) -> bool:
@@ -1093,33 +1077,9 @@ class KernelProblem:
         >>> problem.validate() is None
         True
         """
-        if (self.tdse is None) != (self.current_numerator is None):
-            raise TranslationError("TDSE descriptor and current numerator must coexist")
         self._check_integrator()
         self._check_precision()
-        if self.tdse is not None:
-            self._check_tdse()
-            unavailable = TDSE_UNAVAILABLE_STATISTICS.intersection(
-                (*self.stats_spec.names, *self.stats_spec.periodic)
-            )
-            if unavailable:
-                raise TranslationError(
-                    f"TDSE does not define legacy statistics {sorted(unavailable)}; "
-                    "request explicitly labelled atomic diagnostics"
-                )
-        if self.current_numerator is not None:
-            values = self.current_numerator
-            if (
-                values.shape != self.shape[1:]
-                or values.dtype != np.float64
-                or values.flags.writeable
-                or not values.flags.c_contiguous
-                or not np.all(np.isfinite(values))
-                or np.any(values > 0.0)
-            ):
-                raise TranslationError(
-                    "current numerator must be a frozen finite source row"
-                )
+        self._check_route()
         if not self.initial.z < self.stepper.save_planes[0]:
             raise TranslationError("save planes must follow the initial position")
         self._check_arrays()
@@ -1164,6 +1124,43 @@ class KernelProblem:
         if self.stepper.schedule is not None:
             self._check_schedule()
 
+    def _check_route(self) -> None:
+        """Visit the route variant and check what it shares with the other groups.
+
+        Each variant checks its own fields (``validate``, also run on construction);
+        what spans groups is checked here, one variant at a time (SEP 47 section 6.2).
+
+        Raises
+        ------
+        TranslationError
+            Naming the route and what disagrees.
+        """
+        # Again here, as every group's own checks are: a problem may hold a route
+        # that was changed after it was built.
+        self.route.validate()
+        match self.route:
+            case ModalRoute(tdse=TDSESource() as source):
+                self._check_tdse(source)
+                unavailable = TDSE_UNAVAILABLE_STATISTICS.intersection(
+                    (*self.stats_spec.names, *self.stats_spec.periodic)
+                )
+                if unavailable:
+                    msg = (
+                        "TDSE does not define legacy statistics "
+                        f"{sorted(unavailable)}; request explicitly labelled atomic "
+                        "diagnostics"
+                    )
+                    raise TranslationError(msg)
+            case ModalRoute() | GeneralRoute():
+                pass
+            case SpatialRoute(flux=flux):
+                if not np.array_equal(flux.base.active, self.grids.active_mask):
+                    msg = "the plane measure's active mask must match the temporal grid"
+                    raise TranslationError(msg)
+            case _:  # pragma: no cover - the union is closed and every variant is above
+                msg = f"a problem carries a route of type {type(self.route).__name__}"
+                raise TranslationError(msg)
+
     def _check_integrator(self) -> None:
         """Refuse what the low-storage march does not step, by name (SEP 24 section 5).
 
@@ -1187,7 +1184,7 @@ class KernelProblem:
                 "RungeKutta() or Multistep(formulation='exponential')"
             )
             raise TranslationError(msg)
-        if self.tdse is not None:
+        if tdse_of(self.route) is not None:
             msg = (
                 f"the {method.name} march does not step the TDSE response, which "
                 "runs on the Adams route alone; use Multistep()"
@@ -1221,7 +1218,7 @@ class KernelProblem:
                 "the hybrid planar kind",
             ),
             (self.linear.coupled_flow is not None, "a coupled flow"),
-            (self.tdse is not None, "a TDSE response"),
+            (tdse_of(self.route) is not None, "a TDSE response"),
             (
                 self.responses.dispersive_kerr is not None,
                 "the dispersive electronic response",
@@ -1343,16 +1340,24 @@ class KernelProblem:
             stacklevel=4,
         )
 
-    def _check_tdse(self) -> None:
-        """Refuse a manually constructed atomic seam outside the admitted route."""
-        descriptor = self.tdse
-        assert descriptor is not None
+    def _check_tdse(self, source: TDSESource) -> None:
+        """Refuse a manually constructed atomic seam outside the admitted route.
+
+        Parameters
+        ----------
+        source : solprop.translate.routes.TDSESource
+            The modal route's TDSE extension.
+
+        Raises
+        ------
+        TranslationError
+            Naming what departs from the scalar resolved modal Adams route.
+        """
+        descriptor = source.descriptor
         method = self.stepper.integrator
         if (
             self.grid_kind != "field"
-            or self.shape[:3] != (1, 1, 1)
-            or self.transform.geometry is not None
-            or self.transform.modal_tables is not None
+            or self.shape[:2] != (1, 1)
             or self.transform.n_pol != 1
             or self.flags.mode_averaged
             # The input draw is part of the launch and drives the atom with it; the
@@ -1402,8 +1407,8 @@ class KernelProblem:
         expected = np.where(
             self.grids.active_mask, -self.grids.crop_scale / (2 * EPS0 * C), 0.0
         )
-        if self.current_numerator is None or not np.array_equal(
-            self.current_numerator, expected[None, None, :]
+        if source.current_numerator.shape != self.shape or not np.array_equal(
+            source.current_numerator, expected[None, None, :]
         ):
             raise TranslationError(
                 "TDSE current numerator differs from the physical coefficient"
@@ -1473,7 +1478,7 @@ class KernelProblem:
         TranslationError
             Naming the field that failed.
         """
-        n_batch, n_modes, n_pol, n_omega = self.shape
+        n_modes, n_pol, n_omega = self.shape
         if self.initial.field0.shape != self.shape:
             msg = (
                 f"initial.field0 has shape {self.initial.field0.shape}, expected "
@@ -1486,12 +1491,13 @@ class KernelProblem:
                 "match the state"
             )
             raise TranslationError(msg)
+        # The operator's values keep a leading broadcast axis of one, the layout the
+        # native build reads; the state has none (SEP 47 section 6.2).
         value = self.linear.value_shape
-        allowed = ((1, n_modes, n_pol, n_omega), (n_batch, n_modes, n_pol, n_omega))
-        if value not in allowed:
+        if value != (1, n_modes, n_pol, n_omega):
             msg = (
                 f"linear carries values of shape {value}, expected "
-                f"{allowed[0]} or {allowed[1]}"
+                f"{(1, n_modes, n_pol, n_omega)}"
             )
             raise TranslationError(msg)
         value = self.responses.prefactor_value_shape
@@ -1547,11 +1553,8 @@ class KernelProblem:
             raise TranslationError(msg)
         value = expansion if expansion is not None else table
         assert value is not None
-        if value.value_shape != self.shape[1:]:
-            msg = (
-                f"power_weight shape {value.value_shape} "
-                f"does not match {self.shape[1:]}"
-            )
+        if value.value_shape != self.shape:
+            msg = f"power_weight shape {value.value_shape} does not match {self.shape}"
             raise TranslationError(msg)
         for z in value.z_span:
             if np.any(value(z) <= 0):
@@ -1560,24 +1563,10 @@ class KernelProblem:
         if constant is not None and (
             table is None
             or table.degrees.tolist() != [0]
-            or constant.shape != self.shape[1:]
+            or constant.shape != self.shape
             or not np.array_equal(table(0.0), constant)
         ):
             msg = "power_weight_constant must match its degree-zero table"
-            raise TranslationError(msg)
-
-    def _check_flux(self) -> None:
-        """Check a spatial problem carries its plane measure on the run's band."""
-        if (self.transform.geometry is None) != (self.flux is None):
-            msg = (
-                "a spatial problem requires its plane measure (flux), and a problem "
-                "without spatial geometry carries none"
-            )
-            raise TranslationError(msg)
-        if self.flux is not None and not np.array_equal(
-            self.flux.base.active, self.grids.active_mask
-        ):
-            msg = "the plane measure's active mask must match the temporal grid"
             raise TranslationError(msg)
 
     def _check_spatial(self) -> None:
@@ -1587,7 +1576,6 @@ class KernelProblem:
         if self.responses.separable is not separable:
             msg = "linear and responses must share the same separable coefficients"
             raise TranslationError(msg)
-        self._check_flux()
         if separable is not None:
             if geometry is None or geometry.kind not in ("free", "slab"):
                 msg = "a separable spatial operator requires free or slab geometry"
@@ -1933,7 +1921,8 @@ class KernelProblem:
         TranslationError
             Naming the bound and the longest step.
         """
-        design = self.transverse
+        route = self.route
+        design = route.transverse if isinstance(route, SpatialRoute) else None
         schedule = self.stepper.schedule
         if design is None or not design.has_collar or schedule is None:
             return
@@ -2040,7 +2029,7 @@ class KernelProblem:
         terms = self.responses.raman_terms
         if not terms:
             return
-        if self.transform.n_pol * self.shape[2] > 1 and not all(
+        if self.transform.n_pol * self.shape[1] > 1 and not all(
             term.tensor_capable for term in terms
         ):
             raise TranslationError(
@@ -2167,7 +2156,7 @@ class KernelProblem:
         TranslationError
             Naming the leaf that disagrees with the state.
         """
-        _, n_modes, n_pol, _ = self.shape
+        n_modes, n_pol, _ = self.shape
         tables = self.transform.modal_tables
         metric = self.linear.modal_metric
         flow = self.linear.coupled_flow
@@ -2584,7 +2573,7 @@ class _Assembly:
     taper_coupling: bool = True
     evanescent_rate: float | None = None
     spatial_absorber: SpatialAbsorber | None = None
-    launch: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None
+    launch: Complex[np.ndarray, "n_modes n_pol n_omega"] | None = None
     adiabatic_accuracy: AdiabaticAccuracy | None = None
     noise_model: NoiseModel = "none"
 
@@ -2866,7 +2855,7 @@ def _split_crossing(
     compiled: CompiledResponses,
     linear: LinearOperator,
     grid: TimeGrid,
-    launch: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+    launch: Complex[np.ndarray, "n_modes n_pol n_omega"],
     columns: Float[np.ndarray, " n_modes"] | None,
 ) -> SplitCrossing | None:
     """Return the split temporal collar's crossing limit, or ``None`` without one.
@@ -2892,7 +2881,7 @@ def _split_crossing(
     grid : solprop.grid.TimeGrid
         The grid, with the collar and the active band.
     launch : numpy.ndarray
-        The launched state, canonical layout.
+        The launched state, shape ``(n_modes, n_pol, n_omega)``.
     columns : numpy.ndarray or None
         The modes' quadrature weights, as the boundary monitor weighs them, or
         ``None`` for unit weights.
@@ -2909,7 +2898,8 @@ def _split_crossing(
     buckets, fastest = walk_off_buckets(linear, grid.omega, grid.active_mask)
     crossing = SplitCrossing(buckets, width, fastest=fastest)
     return replace(
-        crossing, launch_limit=crossing.limit(crossing.occupancy(launch, columns))
+        crossing,
+        launch_limit=crossing.limit(crossing.occupancy(launch[np.newaxis], columns)),
     )
 
 
@@ -4749,17 +4739,17 @@ def _check_wall_total_varying(
             raise TranslationError(msg)
 
 
-def _validated(problem: "KernelProblem") -> "KernelProblem":  # noqa: UP037
+def _validated(problem: "PropagationProblem") -> "PropagationProblem":  # noqa: UP037
     """Validate an assembled problem and run every diagnostic that only warns.
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The assembled contract.
 
     Returns
     -------
-    KernelProblem
+    PropagationProblem
         The same problem.
     """
     problem.validate()
@@ -4811,7 +4801,7 @@ def _normalisation_rate(
     return rate
 
 
-def validate_coupled_flow(problem: "KernelProblem") -> None:  # noqa: UP037
+def validate_coupled_flow(problem: "PropagationProblem") -> None:  # noqa: UP037
     """Warn when a run's declared steps exceed its coupled flow's advisory limit.
 
     A ``validate`` diagnostic in the manner of the in-stage absorber's
@@ -4836,7 +4826,7 @@ def validate_coupled_flow(problem: "KernelProblem") -> None:  # noqa: UP037
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The assembled contract. A problem carrying no coupled flow, or one whose
         residual is identically zero, has nothing to warn about and is returned from
         in silence.
@@ -5301,12 +5291,12 @@ def _check_scalar_domain(
             raise TranslationError(f"{name} must lie in [0, {upper}]")
 
 
-def _walk_arrays(problem: KernelProblem) -> list[tuple[str, np.ndarray]]:
+def _walk_arrays(problem: PropagationProblem) -> list[tuple[str, np.ndarray]]:
     """Collect every NumPy array in the problem tree, with its dotted name.
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The problem to walk.
 
     Returns
@@ -5339,6 +5329,11 @@ def _walk_arrays(problem: KernelProblem) -> list[tuple[str, np.ndarray]]:
                 visit(f"{prefix}[{index}]", value)
         elif is_dataclass(node) and not isinstance(node, type):
             for entry in fields(node):
+                if node is problem and entry.name == "route":
+                    # The route's leaves keep the names they have always had:
+                    # ``transform.synthesis``, ``flux.base.kperp_sq``.
+                    visit(prefix, getattr(node, entry.name))
+                    continue
                 name = f"{prefix}.{entry.name}" if prefix else entry.name
                 visit(name, getattr(node, entry.name))
 
@@ -5346,12 +5341,12 @@ def _walk_arrays(problem: KernelProblem) -> list[tuple[str, np.ndarray]]:
     return found
 
 
-def _walk_tables(problem: KernelProblem) -> list[tuple[str, PiecewiseChebyshev]]:
+def _walk_tables(problem: PropagationProblem) -> list[tuple[str, PiecewiseChebyshev]]:
     """Collect every Chebyshev table along z, with its dotted name.
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The problem to walk.
 
     Returns
@@ -5805,46 +5800,40 @@ def _dispersive_chunk(
 def _state(
     field0: Complex[np.ndarray, "*shape"],
     n_omega: int,
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
-    """Bring an initial field to the canonical layout, adding the batch axis.
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+    """Bring an initial field to the canonical single-trajectory layout.
 
     Parameters
     ----------
     field0 : numpy.ndarray
-        A ``Pulse.build`` result of shape ``(n_modes, n_pol, n_omega)``, or a stack of
-        them with a leading batch axis. The shape is checked here rather than by an
-        annotation, so that a wrong rank is reported by name in production too.
+        A ``Pulse.build`` result of shape ``(n_modes, n_pol, n_omega)``. The shape is
+        checked here rather than by an annotation, so that a wrong rank is reported by
+        name in production too. A group of trajectories is a sequence of problems
+        (SEP 47 section 6.7), never a stacked field.
     n_omega : int
         Required number of spectral bins from the grid.
 
     Returns
     -------
     numpy.ndarray
-        The state with four axes, complex128, the problem's own: copied once here as
-        :class:`Initial` holds it, so that it is not copied again there.
+        The state, complex128, the problem's own: copied once here as :class:`Initial`
+        holds it, so that it is not copied again there, and taken as it is when the
+        problem already holds it.
 
     Raises
     ------
     TranslationError
-        If the array has neither three nor four axes or the grid extent differs.
+        If the array does not have three axes or the grid extent differs.
     """
     values = np.asarray(field0)
-    if values.ndim in (3, 4) and values.shape[-1] != n_omega:
+    if values.ndim != 3:
+        msg = f"field0 must have shape (n_modes, n_pol, n_omega), got {values.shape}"
+        raise TranslationError(msg)
+    if values.shape[-1] != n_omega:
         raise TranslationError(
             f"field0 has {values.shape[-1]} spectral bins, expected {n_omega} "
             "to match the grid"
         )
-    if values.ndim == 3:
-        expanded = values[np.newaxis]
-        # The batch axis on a held state is a view of the problem's own array.
-        held = _is_held(values) and values.dtype == np.complex128
-        return _hold(expanded) if held else _held_state(expanded)
-    if values.ndim != 4:
-        msg = (
-            "field0 must have shape (n_modes, n_pol, n_omega) or (n_batch, n_modes, "
-            f"n_pol, n_omega), got {values.shape}"
-        )
-        raise TranslationError(msg)
     return _held_state(values)
 
 
@@ -5967,7 +5956,7 @@ def _check_tdse_assembly_route(
         )
 
 
-def _admit_dense(problem: "KernelProblem") -> None:  # noqa: UP037 - defined below
+def _admit_dense(problem: "PropagationProblem") -> None:  # noqa: UP037 - defined below
     """Refuse dense observation where its interpolant is not the run's field.
 
     SEP 14 section 5's admission matrix, for the Runge-Kutta extension and for SEP 13's
@@ -5977,7 +5966,7 @@ def _admit_dense(problem: "KernelProblem") -> None:  # noqa: UP037 - defined bel
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The assembled problem.
 
     Raises
@@ -6212,7 +6201,6 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     step_planes: int = 0,
     propagator_mode: PropagatorMode = "auto",
     stats_spec: StatsSpec | None = None,
-    batch_params: Mapping[str, Sequence[float] | np.ndarray] | None = None,
     shock: bool = True,
     prefactor_index: float | None = None,
     ionisation_field_range: tuple[float, float] | None = None,
@@ -6231,7 +6219,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     spatial_absorber: SpatialAbsorber | None = None,
     adiabatic_accuracy: AdiabaticAccuracy | None = None,
     precision: Precision = DOUBLE,
-) -> KernelProblem:
+) -> PropagationProblem:
     """Turn the physics objects of a run into a validated kernel problem.
 
     This is the whole of the translation layer's public entry point: it builds the
@@ -6331,8 +6319,6 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         Whether the backend tabulates the stage propagators.
     stats_spec : solprop.stats.StatsSpec or None, optional
         Which statistics to collect. ``None`` collects none.
-    batch_params : mapping or None, optional
-        Per-member scalars to record, each of length ``n_batch``.
     shock : bool, optional
         Keep the ``omega`` dependence of the prefactor's numerator, which is the optical
         shock term. Default ``True``.
@@ -6408,8 +6394,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         The transverse boundary (SEP 40): resolved against the grid, the medium and
         the noise-free `field0` into the safety ramp, folded into the operator as
         ``SeparableOperator.kperp_rate``, and a real-space collar on request, as the
-        geometry's ``absorber_rate``; its design is :attr:`KernelProblem.transverse`.
-        ``None``, the default here, carries neither. Refused without a spatial grid.
+        geometry's ``absorber_rate``; its design is the spatial route's
+        ``transverse`` (:class:`~solprop.translate.routes.SpatialRoute`). ``None``,
+        the default here, carries neither. Refused without a spatial grid.
     adiabatic_accuracy : solprop.adiabatic.AdiabaticAccuracy or None, optional
         The budgets a radial medium varying along z must meet for its forward
         amplitude transport (SEP 34 section 4.5); None, the default, is
@@ -6421,7 +6408,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
 
     Returns
     -------
-    KernelProblem
+    PropagationProblem
         Validated, versioned and ready for a backend.
 
     Raises
@@ -6429,7 +6416,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     TranslationError
         If a response cannot be compiled, an argument is out of range, a frame that
         removes ``beta_0`` is given beside a third-harmonic term on an envelope grid,
-        or the assembled problem fails :meth:`KernelProblem.validate`.
+        or the assembled problem fails :meth:`PropagationProblem.validate`.
 
     Examples
     --------
@@ -6463,7 +6450,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         taper_coupling=taper_coupling,
     )
     state = _state(field0, grid.n_omega)
-    n_batch, n_modes, n_pol, n_omega = state.shape
+    n_modes, n_pol, n_omega = state.shape
     mode_set = (
         ()
         if modes is None
@@ -6653,7 +6640,6 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
             field0=state,
             noise0=None if noise is None else noise_spectrum(noise, state.shape),
             noise_model="none" if noise is None else noise.model,
-            batch_params=_batch_params(batch_params, n_batch),
             z=initial_z,
         ),
         linear,
@@ -6691,11 +6677,11 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         interpolate_planes=interpolate_planes,
         step_planes=step_planes,
     )
-    problem = KernelProblem(
+    problem = PropagationProblem(
         grid_kind=grid.kind,
-        shape=(n_batch, n_modes, n_pol, n_omega),
+        shape=(n_modes, n_pol, n_omega),
         flags=Flags.from_content(
-            (n_batch, n_modes, n_pol, n_omega), linear, transform, compiled, initial
+            (n_modes, n_pol, n_omega), linear, transform, compiled, initial
         ),
         grids=build_masks(
             grid,
@@ -6704,16 +6690,19 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
             harmonic_carrier=compiled.harmonic_carrier,
         ),
         linear=linear,
-        transform=transform,
         responses=compiled,
         initial=initial,
         stepper=settings,
         stats_spec=StatsSpec() if stats_spec is None else stats_spec,
-        tdse=tdse,
-        current_numerator=None if tdse is None else current_numerator(grid),
-        flux=flux,
+        route=_route(
+            transform,
+            tdse=None
+            if tdse is None
+            else TDSESource(descriptor=tdse, current_numerator=current_numerator(grid)),
+            flux=flux,
+            transverse=design,
+        ),
         precision=precision,
-        transverse=design,
         split_crossing=crossing,
     )
     _validated(problem)
@@ -6735,7 +6724,64 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     return problem
 
 
-def debug_summary(problem: KernelProblem) -> str:
+def _route(
+    transform: Transform,
+    *,
+    tdse: TDSESource | None,
+    flux: FluxPlan | None,
+    transverse: SpatialAbsorberDesign | None,
+) -> Route:
+    """Return the route variant an assembled transform and its leaves describe.
+
+    Parameters
+    ----------
+    transform : solprop.translate.modal.Transform
+        The assembled transform: a spatial geometry makes a spatial route, general
+        modal tables a general one, and anything else a modal one.
+    tdse : solprop.translate.routes.TDSESource or None
+        The TDSE extension, admitted on the modal route alone.
+    flux : solprop.translate.spatial.FluxPlan or None
+        The plane measure, which a spatial route requires and no other carries.
+    transverse : solprop.spatial_absorber.SpatialAbsorberDesign or None
+        The transverse boundary, a spatial route's alone.
+
+    Returns
+    -------
+    solprop.translate.routes.Route
+        The variant.
+
+    Raises
+    ------
+    TranslationError
+        If a leaf is given to a route that does not carry it.
+    """
+    geometry = transform.geometry
+    if (geometry is None) != (flux is None):
+        msg = (
+            "a spatial problem requires its plane measure (flux), and a problem "
+            "without spatial geometry carries none"
+        )
+        raise TranslationError(msg)
+    if tdse is not None and (
+        geometry is not None or transform.modal_tables is not None
+    ):
+        raise TranslationError("TDSE requires the scalar resolved modal Adams route")
+    if geometry is not None:
+        assert flux is not None
+        return SpatialRoute(
+            kind=spatial_kind(geometry),
+            transform=transform,
+            flux=flux,
+            transverse=transverse,
+        )
+    if transverse is not None:
+        raise TranslationError("a transverse boundary belongs to a spatial route")
+    if transform.modal_tables is not None:
+        return GeneralRoute(transform=transform)
+    return ModalRoute(transform=transform, tdse=tdse)
+
+
+def debug_summary(problem: PropagationProblem) -> str:
     """Return a short array-free description of an assembled problem, for a log.
 
     The translation summary ``AGENTS.md`` asks the translation layer to log: what
@@ -6751,7 +6797,7 @@ def debug_summary(problem: KernelProblem) -> str:
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         A problem, assembled and validated.
 
     Returns
@@ -6773,16 +6819,9 @@ def debug_summary(problem: KernelProblem) -> str:
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric
-    route = (
-        "general modal guide"
-        if tables is not None
-        else "spatial"
-        if transform.geometry is not None
-        else "modal"
-    )
     rows = [
-        f"kernel problem: {problem.grid_kind} grid, route {route}",
-        f"  shape:         {problem.shape} (batch, modes, pol, omega)",
+        f"kernel problem: {problem.grid_kind} grid, route {route_name(problem.route)}",
+        f"  shape:         {problem.shape} (modes, pol, omega)",
         f"  flow:          phi {linear.phi_representation}, "
         f"{linear.n_intervals} interval(s), {linear.nbytes / 2**20:.3f} MB",
         f"  power weight:  {linear.power_weight_representation}",
@@ -6885,43 +6924,6 @@ def _power_initial(
     ):
         return reused
     return initial
-
-
-def _batch_params(
-    batch_params: Mapping[str, Sequence[float] | np.ndarray] | None, n_batch: int
-) -> Mapping[str, Float[np.ndarray, " n_batch"]]:
-    """Bring the per-member scalars to float64 arrays of the batch length.
-
-    Parameters
-    ----------
-    batch_params : mapping or None
-        The caller's per-member scalars, or ``None``.
-    n_batch : int
-        Batch members the state carries.
-
-    Returns
-    -------
-    mapping
-        Name to a ``(n_batch,)`` float64 array; empty when nothing was given.
-
-    Raises
-    ------
-    TranslationError
-        If an entry is not one value per member.
-    """
-    if batch_params is None:
-        return {}
-    entries: dict[str, np.ndarray] = {}
-    for name, values in batch_params.items():
-        entry = np.asarray(values, dtype=np.float64).reshape(-1)
-        if entry.size != n_batch:
-            msg = (
-                f"batch_params[{name!r}] has {entry.size} entries, expected {n_batch}, "
-                "one per batch member"
-            )
-            raise TranslationError(msg)
-        entries[name] = entry
-    return entries
 
 
 def _density(

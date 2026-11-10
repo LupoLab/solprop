@@ -20,7 +20,7 @@ from solprop.grid import EnvelopeGrid
 from solprop.nonlinear.gnlse import problem_from
 from solprop.pulses import SechPulse
 from solprop.stepper import PIController
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 
 # A machine calibration (solprop SEP 46) neither runs nor applies in the suite unless a
 # test asks for one, so that a developer's store cannot change what a test measures.
@@ -29,8 +29,8 @@ os.environ.setdefault("SOLPROP_CALIBRATION", "off")
 # Trigger the documented macOS runtime ordering without adding an unused binding.
 __import__("solprop_native")
 
-type PhaseACase = tuple[KernelProblem, EnvelopeGrid]
-type RamanCase = tuple[KernelProblem, EnvelopeGrid]
+type PhaseACase = tuple[PropagationProblem, EnvelopeGrid]
+type RamanCase = tuple[PropagationProblem, EnvelopeGrid]
 type ComplexArray = npt.NDArray[np.complex128]
 
 

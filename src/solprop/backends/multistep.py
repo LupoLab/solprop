@@ -19,7 +19,7 @@ its state, so no table is queried backwards. Every derivative keeps its position
 the identity of the field it was evaluated at -- the accepted field, or the predicted
 one PEC stores in its place.
 
-The march is shared: a backend supplies two hooks of the step driver,
+The march is shared by its two copies: a backend supplies two hooks of the step driver,
 ``_adams_source`` (one source evaluation at a lab-frame field, returned in the step's
 anchor frame) and ``_adams_propagator``, and the driver's own state, landing and
 recording do the rest. ``numpy_ref`` evaluates through its reference passes (SEP 14
@@ -38,6 +38,15 @@ section 6.1):
 - a hard kink is landed on and the history restarted on its far side; a save plane is
   a pure observation and keeps the history;
 - a load or a resume starts afresh, at order one, and its startup calls are counted.
+
+**The march is the native bridge's temporary copy.** Since SEP 47 phase 2,
+:class:`AdamsMarch` serves only the native backend's inherited driver, as the bridge
+that keeps its execution working until its own session replaces it; the NumPy reference
+marches with its own copy (:class:`solprop.backends.host.adams.HostAdamsMarch`). The
+rest of this module -- the kernels, the host engine :class:`HostHistory`, the tables and
+the call ledger -- is stateless numerical code both share. :class:`AdamsMarch` is
+removed with SEP 47's native session: the native backend leaves it in phase 3 and
+phase 5 deletes it.
 """
 
 import logging
@@ -53,12 +62,12 @@ from scipy.linalg import expm
 from solprop._helpers import PLAIN, Helpers
 from solprop._interrupts import committing
 from solprop.backends import adams_core
-from solprop.backends.driver import StepDriver
 from solprop.backends.exponential import (
     CarrierReference,
     carrier_reference,
     phi_functions,
 )
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import passes
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.output.schema import MarchSnapshot
@@ -75,10 +84,10 @@ from solprop.stepper.schedule import (
     landing,
 )
 from solprop.translate.linop import phi_rate
-from solprop.translate.tdse import TDSEPurpose
+from solprop.translate.routes import tdse_descriptor
 
 if TYPE_CHECKING:
-    from solprop.backends.multistep_general import GeneralPath
+    from solprop.backends.driver import StepDriver
 
 __all__ = [
     "AdamsEngine",
@@ -1751,7 +1760,7 @@ def source_absent(problem: Any) -> bool:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
 
     Returns
@@ -1768,7 +1777,7 @@ def source_absent(problem: Any) -> bool:
     return (
         len(responses.response_order) == 1
         and not in_stage
-        and problem.tdse is None
+        and tdse_descriptor(problem.route) is None
         and problem.transform.modal_tables is None
         and problem.linear.separable is None
     )
@@ -2019,8 +2028,10 @@ class HostHistory:
 
     Parameters
     ----------
-    backend : solprop.backends.driver.StepDriver
-        The backend whose state, source evaluation and propagators are used.
+    backend : StepDriver or HostDriver
+        The backend whose state, source evaluation and propagators are used: the native
+        bridge's inherited driver (:class:`solprop.backends.driver.StepDriver`) or the
+        reference's own (:class:`solprop.backends.host.driver.HostDriver`, SEP 47).
     method : solprop.stepper.multistep.Multistep
         The method.
     kernels : AdamsKernels
@@ -2033,7 +2044,7 @@ class HostHistory:
 
     def __init__(
         self,
-        backend: StepDriver,
+        backend: "StepDriver | HostDriver",  # noqa: UP037 - lazy bridge type
         method: Multistep,
         kernels: AdamsKernels,
         exponential: ExponentialKernels | None,
@@ -2901,15 +2912,18 @@ def _rows_read(
     return [factor * store[slot] for factor, slot in zip(factors, slots, strict=False)]
 
 
-def _divisor(backend: StepDriver, state: _State) -> np.ndarray:
+def _divisor(
+    backend: "StepDriver | HostDriver",  # noqa: UP037 - lazy bridge type
+    state: _State,
+) -> np.ndarray:
     """Return the defect norm's scale per bin, the accepted state's before the step.
 
-    See :func:`solprop.backends.multistep_general._norm_function` for why the state
+    See :func:`solprop.backends.host.general._norm_function` for why the state
     before the step is the scale.
 
     Parameters
     ----------
-    backend : solprop.backends.driver.StepDriver
+    backend : StepDriver or HostDriver
         The backend, for the controller and the in-band mask.
     state : numpy.ndarray
         The accepted state before the step.
@@ -2954,7 +2968,7 @@ class AdamsMarch:
 
     def __init__(
         self,
-        backend: StepDriver,
+        backend: "StepDriver",  # noqa: UP037 - lazy bridge type
         method: Multistep,
         kernels: AdamsKernels | None = None,
         exponential: ExponentialKernels | None = None,
@@ -2990,26 +3004,18 @@ class AdamsMarch:
                 for order in range(1, method.order + 1)
             )
         )
+        # The comparison variants' general path is the reference's alone (SEP 47
+        # section 6.3): the native backend refuses it at admission, before this march
+        # is built, so every march here takes the fused or the exponential path.
+        assert self._fused or self._exponential is not None
         # Every state-sized operation goes to an engine (SEP 16 phase 3b): the host
-        # one here, or one the backend keeps resident for the fused and exponential
-        # paths. The general path's arithmetic stays in this class.
-        resident = (
-            backend._adams_engine(method, compensation)
-            if self._fused or self._exponential is not None
-            else None
-        )
+        # one here, or one the backend keeps resident.
+        resident = backend._adams_engine(method, compensation)
         self._engine: AdamsEngine = (
             HostHistory(backend, method, self._kernels, self._exponential, compensation)
             if resident is None
             else cast("AdamsEngine", resident)
         )
-        # The comparison variants' general path keeps its arithmetic in a class of its
-        # own (SEP 39 Q7); the selected method's paths never reach it.
-        self._general: GeneralPath | None = None
-        if not (self._fused or self._exponential is not None):
-            from solprop.backends import multistep_general  # noqa: PLC0415 - cycle
-
-            self._general = multistep_general.GeneralPath(self)
         self._history: list[_Derivative] = []
         self._rejections = 0
         self._last_rejected = False
@@ -3082,20 +3088,17 @@ class AdamsMarch:
         -------
         solprop.output.schema.MarchSnapshot or None
             The snapshot, or ``None`` where there is nothing a resume could continue:
-            no history yet, the march ahead of an interpolated observation, or a march
-            that cannot carry its history (:meth:`export_refusal`).
+            no history yet, or the march ahead of an interpolated observation.
         """
-        if (
-            self.export_refusal() is not None
-            or not self._history
-            or self._ahead is not None
-        ):
+        if not self._history or self._ahead is not None:
             return None
         export = self._engine.snapshot_rows
         backend = self._backend
         return MarchSnapshot(
             z=float(backend._z),
-            state=np.array(backend._adams_state(), dtype=np.complex128, copy=True),
+            # The snapshot's state is the trajectory's own; the march holds it with a
+            # leading axis of one.
+            state=np.array(backend._adams_state()[0], dtype=np.complex128, copy=True),
             proposal=float(backend._proposal),
             method=repr(self._method),
             order=int(self._order),
@@ -3118,36 +3121,12 @@ class AdamsMarch:
             The state and every engine row, or ``None`` where :meth:`snapshot` returns
             ``None``.
         """
-        if (
-            self.export_refusal() is not None
-            or not self._history
-            or self._ahead is not None
-        ):
+        if not self._history or self._ahead is not None:
             return None
         state = (
             math.prod(self._backend._problem.shape) * np.dtype(np.complex128).itemsize
         )
         return state + self._engine.snapshot_nbytes()
-
-    def export_refusal(self) -> str | None:
-        """Return why this march cannot carry its history across a resume, or ``None``.
-
-        The fused and exponential paths keep their history in an engine, and every
-        engine exports and installs its rows (:class:`AdamsEngine`, SEP 29 section
-        6.6). The general path combines a list of host arrays one product at a time
-        and keeps no store a snapshot could hold.
-
-        Returns
-        -------
-        str or None
-            The reason, or ``None`` when the march exports and installs its history.
-        """
-        if not (self._fused or self._exponential is not None):
-            return (
-                "the general Adams path keeps its history as host arrays a resume "
-                "does not carry"
-            )
-        return None
 
     def load(self, snapshot: MarchSnapshot) -> str | None:
         """Continue from a snapshot taken where the backend's state now stands.
@@ -3172,12 +3151,14 @@ class AdamsMarch:
         if reason is not None:
             return reason
         load_rows = self._engine.load_rows
-        shape = tuple(backend._problem.shape)
+        # The engine's rows keep the march's layout, a leading axis of one beside
+        # their own (the snapshot's disk format, SEP 47 section 6.7).
+        shape = (1, *backend._problem.shape)
         try:
             load_rows(snapshot.rows, shape)
         except BackendError as error:
             return str(error)
-        backend._adams_restore(snapshot.z, np.array(snapshot.state, copy=True))
+        backend._adams_restore(snapshot.z, np.array(snapshot.state, copy=True)[None])
         self._history = [
             _Derivative(float(z), self._engine.value(int(slot)), identity, int(slot))
             for z, identity, slot in zip(
@@ -3206,9 +3187,6 @@ class AdamsMarch:
             The reason, or ``None`` when the snapshot fits.
         """
         backend = self._backend
-        refusal = self.export_refusal()
-        if refusal is not None:
-            return refusal
         checks = (
             (
                 # Starting afresh is always safe.
@@ -3248,32 +3226,6 @@ class AdamsMarch:
         return next((reason for failed, reason in checks if failed), None)
 
     # --- evaluation -------------------------------------------------------------------
-
-    def _source(
-        self,
-        lab: _State,
-        anchor: float,
-        position: float,
-        *,
-        purpose: TDSEPurpose = "predictor",
-    ) -> tuple[_State, _State]:
-        """Return the source at a lab-frame field, in the anchor's frame, and U.
-
-        Parameters
-        ----------
-        lab : numpy.ndarray
-            The lab-frame field at `position`.
-        anchor, position : float
-            The frame's anchor and the evaluation position, m.
-        purpose : str, optional
-            Atomic evaluation label, distinguishing startup and predictor work.
-
-        Returns
-        -------
-        tuple
-            ``U(anchor, position) N(lab, position)`` and ``U(position, anchor)``.
-        """
-        return self._backend._adams_source(lab, anchor, position, purpose=purpose)
 
     # --- the march --------------------------------------------------------------------
 
@@ -3499,7 +3451,7 @@ class AdamsMarch:
             "the run stops at its last accepted step, unfinished"
         )
         return ResponseBudgetError(
-            msg, z=backend._z, field=backend._adams_state().copy(), calls=spent
+            msg, z=backend._z, field=backend._adams_state()[0].copy(), calls=spent
         )
 
     def _start(self) -> None:
@@ -3590,10 +3542,7 @@ class AdamsMarch:
         """
         if self._exponential is not None:
             return self._attempt_exponential(dz, fixed=fixed, landing=landing)
-        if self._fused:
-            return self._attempt_fused(dz, fixed=fixed, landing=landing)
-        assert self._general is not None
-        return self._general.attempt(dz, fixed=fixed, landing=landing)
+        return self._attempt_fused(dz, fixed=fixed, landing=landing)
 
     def _attempt_fused(
         self,

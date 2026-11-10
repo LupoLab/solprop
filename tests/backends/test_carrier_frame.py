@@ -43,8 +43,8 @@ from solprop.backends.exponential import (
     phi_functions,
     refuse_carrier_frame,
 )
+from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.multistep import (
-    AdamsMarch,
     CoupledBlock,
     ExponentialKernels,
     HostHistory,
@@ -830,7 +830,7 @@ def launched(roll: int, mode: int):
     def prepare(problem):
         start = problem.initial.field0
         moved = np.zeros_like(start)
-        moved[:, mode] = np.roll(start[:, 0], roll, axis=-1)
+        moved[mode] = np.roll(start[0], roll, axis=-1)
         moved = moved * problem.grids.active_mask
         initial = dataclasses.replace(problem.initial, field0=moved)
         return dataclasses.replace(problem, initial=initial)
@@ -932,7 +932,7 @@ def gradient_run(
     problem = simulation.translate()
     backend = NumpyRefBackend(problem, grid=simulation.grid, modes=simulation.modes)
     try:
-        backend._adams = AdamsMarch(backend, method, compensation=compensation)
+        backend._adams = HostAdamsMarch(backend, method, compensation=compensation)
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(float(problem.stepper.save_planes[-1]))
         return backend.observe().require_field(), backend._adams

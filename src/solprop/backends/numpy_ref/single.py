@@ -8,8 +8,8 @@
 :class:`~solprop.backends.numpy_ref.backend.NumpyRefBackend` with the propagated state,
 the stage values, every transform and the responses held in IEEE binary32, under the
 contract of ``docs/dev/seps/archive/sep-0033-single-precision-mlx.md`` section
-4.2. It is the target the ``mlx`` backend is compared against, so it keeps the
-reference's one-function-per-pass shape and states every order it sums in.
+4.2. It is that contract's oracle, so it keeps the reference's one-function-per-pass
+shape and states every order it sums in.
 
 What is binary32 and what is not:
 
@@ -46,6 +46,7 @@ What is binary32 and what is not:
 import dataclasses
 import math
 from collections.abc import Mapping, Sequence
+from typing import ClassVar
 
 import numpy as np
 from jaxtyping import Complex, Float, Inexact, Num
@@ -71,7 +72,7 @@ from solprop.translate.precision import (
     scaled_square_sum,
     state_scale,
 )
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.responses import (
     CompiledResponses,
     KerrCoefficients,
@@ -119,7 +120,7 @@ class NumpySingleBackend(NumpyRefBackend):
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         A validated problem with ``precision.single``.
     grid : solprop.grid.TimeGrid, optional
         The grid the state lives on, needed only by :meth:`stats`.
@@ -139,9 +140,12 @@ class NumpySingleBackend(NumpyRefBackend):
         a table cannot be narrowed without losing range that its pass does not carry.
     """
 
+    # The observed field is the state widened into a new array (`_observed_field`).
+    observes_fresh_field: ClassVar[bool] = True
+
     def __init__(
         self,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         *,
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
@@ -209,7 +213,7 @@ class NumpySingleBackend(NumpyRefBackend):
         self._raman_exponent = 0
         # The lab-frame source's unit propagator, in the state's precision.
         self._lab_frame = np.broadcast_to(
-            np.ones((), dtype=self._complex), problem.shape
+            np.ones((), dtype=self._complex), (1, *problem.shape)
         )
         controller = problem.stepper.controller
         self._controller = dataclasses.replace(
@@ -307,7 +311,7 @@ class NumpySingleBackend(NumpyRefBackend):
 
     def set_initial(
         self,
-        field: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
         noise: object,
         *,
         z: float = 0.0,
@@ -318,7 +322,7 @@ class NumpySingleBackend(NumpyRefBackend):
         Parameters
         ----------
         field : numpy.ndarray
-            The state in the canonical layout, physical units.
+            The state, shape ``(n_modes, n_pol, n_omega)``, physical units.
         noise : object
             Must be ``None``; noise models are refused under single precision.
         z : float, optional
@@ -346,7 +350,9 @@ class NumpySingleBackend(NumpyRefBackend):
         numpy.ndarray
             An owned complex128 array.
         """
-        return state.astype(np.complex128) * self._scale
+        widened = state.astype(np.complex128)
+        # Scaled where it is: the same product as `widened * scale`, one array fewer.
+        return np.multiply(widened, self._scale, out=widened)
 
     def stats(self, spec: StatsSpec) -> dict[str, np.ndarray]:
         """Collect statistics from the physical state widened to binary64.
