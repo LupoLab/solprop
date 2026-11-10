@@ -485,6 +485,11 @@ class DriverSession:
         if self._index >= self._planes.size:
             return self._complete()
         target = float(self._planes[self._index])
+        if self._snapshot_pending is not None and self._holding_plane():
+            # The march restores the endpoint ahead of the plane it holds, and halts
+            # there if the target lies beyond: planes closer than the steps would
+            # otherwise put off the snapshot with every step (SEP 47 section 5.5).
+            _hook(self._driver, "halt_ahead")
         started = time.perf_counter()
         limit = self._listened + max(int(work_limit), 1)
 
@@ -957,17 +962,26 @@ class DriverSession:
         Returns
         -------
         bool
-            False while a dense observation holds the state between endpoints: the
-            driver's own (a Runge-Kutta march's) or its Adams march's.
+            False while a dense observation holds the state between endpoints.
         """
         # The starting position is no accepted endpoint of this session: an Adams
         # march holds no history there to snapshot.
+        return self._stepped and not self._holding_plane()
+
+    def _holding_plane(self) -> bool:
+        """Return whether a dense observation holds the driver's state.
+
+        Returns
+        -------
+        bool
+            True while the driver's own (a Runge-Kutta march's) or its Adams march's
+            observation holds an interpolated plane, the march ahead of it.
+        """
         driver = self._driver
         adams = getattr(driver, "_adams", None)
         return (
-            self._stepped
-            and getattr(driver, "_dense_ahead", None) is None
-            and getattr(adams, "_ahead", None) is None
+            getattr(driver, "_dense_ahead", None) is not None
+            or getattr(adams, "_ahead", None) is not None
         )
 
     def _driver_halted(self) -> bool:

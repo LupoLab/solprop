@@ -134,6 +134,7 @@ def soliton(
     period: int = 2,
     interpolate: bool = False,
     integrator: Multistep | None = None,
+    planes: Collection[float] = PLANES,
 ) -> KernelProblem:
     """Return the fundamental soliton over :data:`PLANES`.
 
@@ -147,6 +148,8 @@ def soliton(
         Interpolate the save planes inside the steps that cross them (dense output).
     integrator : solprop.stepper.multistep.Multistep or None, optional
         The Adams method; the default Runge-Kutta tableau by default.
+    planes : collection of float, optional
+        The save planes, m, increasing and ending at :data:`LENGTH`.
 
     Returns
     -------
@@ -160,7 +163,7 @@ def soliton(
         fibre().mode,
         [fibre().kerr],
         SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=peak).build(grid),
-        save_planes=list(PLANES),
+        save_planes=list(planes),
         controller=PIController(rtol=1e-4, atol=1e-16),
         dz_max=LENGTH,
         dz_init=1e-3,

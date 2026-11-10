@@ -135,6 +135,8 @@ RungeKuttaDense::RungeKuttaDense(GeneralState& state, const stage::Tables& table
   state_.rk_dense_allocate(weights);
 }
 
+RungeKuttaDense::~RungeKuttaDense() { state_.rk_dense_release(); }
+
 void RungeKuttaDense::hold(const double z, const double dz) {
   // `_dense_record`, before the step's state is adopted.
   state_.rk_dense_hold(dz);

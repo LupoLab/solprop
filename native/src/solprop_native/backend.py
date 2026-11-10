@@ -2120,7 +2120,8 @@ class NativeBackend(StepDriver[_core.State]):
         """Return every persistent native allocation's byte count by role.
 
         The host engine's copy of the accepted state, which the Adams march keeps on the
-        host when its history is not resident, is listed beside them.
+        host when its history is not resident, is listed beside them, and a
+        Runge-Kutta run's dense-output storage before a session allocates it.
         """
         ledger = {
             str(name): int(value)
@@ -2128,6 +2129,18 @@ class NativeBackend(StepDriver[_core.State]):
         }
         held = self._host_state
         ledger["adams_host_state"] = 0 if held is None else held.nbytes
+        stepper = self._problem.stepper
+        if (
+            stepper.interpolate_planes
+            and not isinstance(stepper.integrator, Multistep)
+            and not ledger.get("rk_dense")
+        ):
+            # A Runge-Kutta run's dense output, before a native session allocates it
+            # (SEP 47): the extension's five coefficients and the committed state held
+            # across an observation, six fields, and a byte a bin marking the stiff
+            # ones, so that an estimate made before the run counts them.
+            field = int(ledger.get("state", 0))
+            ledger["rk_dense"] = 6 * field + field // 16
         return ledger
 
     def close(self) -> None:

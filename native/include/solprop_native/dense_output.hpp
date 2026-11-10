@@ -92,6 +92,12 @@ public:
       (`solprop.stepper.tableau.continuous_extension`). */
   RungeKuttaDense(GeneralState& state, const stage::Tables& tables,
                   stage::Anchor& anchor, const std::vector<double>& weights);
+  RungeKuttaDense(const RungeKuttaDense&) = delete;
+  RungeKuttaDense& operator=(const RungeKuttaDense&) = delete;
+  RungeKuttaDense(RungeKuttaDense&&) = delete;
+  RungeKuttaDense& operator=(RungeKuttaDense&&) = delete;
+  /** Release the extension's storage, with the session that closes. */
+  ~RungeKuttaDense() override;
   /** Contract the accepted, unfinished step from `z` over `dz` into its extension. */
   void hold(double z, double dz);
   void stepped(const march::Result& result) override;

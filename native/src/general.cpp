@@ -2243,6 +2243,7 @@ public:
   void rk_dense_hold(double dz);
   void rk_dense_observe(double theta, const TrialScalars& carry);
   void rk_dense_restore();
+  void rk_dense_release() noexcept;
   std::vector<std::string> adams_row_names() const;
   std::array<std::size_t, 3> adams_row_extents(const std::string& name) const;
   std::vector<Complex> adams_rows_to_host(const std::string& name) const;
@@ -9401,6 +9402,14 @@ void GeneralWorkspace::rk_dense_restore() {
   graph::deep_copy(execution_space_, current_, rk_dense_held_);
   stash_is_current_ = false;
   execution_space_.fence("solprop_native Runge-Kutta restore boundary");
+}
+
+void GeneralWorkspace::rk_dense_release() noexcept {
+  rk_dense_coefficients_ = {};
+  rk_dense_stiff_ = {};
+  rk_dense_held_ = {};
+  rk_dense_weights_ = {};
+  rk_dense_ready_ = false;
 }
 
 std::vector<double> GeneralWorkspace::collect_trial() {
@@ -17467,6 +17476,10 @@ void GeneralState::rk_dense_observe(const double theta, const TrialScalars& carr
 void GeneralState::rk_dense_restore() {
   const CpuTeamScope team(workspace_->cpu_team());
   workspace_->rk_dense_restore();
+}
+void GeneralState::rk_dense_release() noexcept {
+  if (workspace_)
+    workspace_->rk_dense_release();
 }
 void GeneralState::adams_exponential_observe(const double xi, const double dz,
                                              const ExponentialWeights& weights) {

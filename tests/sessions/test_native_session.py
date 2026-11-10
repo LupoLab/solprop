@@ -767,3 +767,38 @@ def test_a_dense_plane_crosses_to_the_host_only_as_its_export(case):
     assert status.exports == len(run.observations)
     assert after[0] - before[0] == status.export_bytes
     assert after[1] == before[1]
+
+
+def test_the_ledger_counts_runge_kutta_dense_output_before_and_during_a_session():
+    """SEP 47 section 5.3: a retained dense-output object appears in the memory ledger.
+
+    A Runge-Kutta run's dense-output storage -- five extension coefficients and the
+    held committed state, six fields, and a byte a bin -- is reported by a backend
+    built for it before any session allocates it, as an estimate reads it, and is
+    then what the session allocated, until it closes; an Adams run's lives in its
+    history's views.
+    """
+    problem = _case(interpolate=True, step_planes=0)
+    backend = select("native", problem, grid=window(), modes=[fibre().mode])
+    try:
+        ledger = backend.memory_ledger()
+    finally:
+        backend.close()
+    field = ledger["state"]
+    assert ledger["rk_dense"] == 6 * field + field // 16 > 0
+    session = _make_native(problem, describe_run(problem))
+    live = session._backend  # pyright: ignore[reportPrivateUsage]
+    assert live is not None
+    assert live.memory_ledger()["rk_dense"] == ledger["rk_dense"]
+    state = live._native_state  # pyright: ignore[reportPrivateUsage]
+    assert state.memory_ledger()["rk_dense"] == ledger["rk_dense"]
+    # Closing the native session releases it, before its backend closes.
+    session.native.close()
+    assert state.memory_ledger()["rk_dense"] == 0
+    session.close()
+    landed = _case(step_planes=0)
+    backend = select("native", landed, grid=window(), modes=[fibre().mode])
+    try:
+        assert backend.memory_ledger()["rk_dense"] == 0
+    finally:
+        backend.close()

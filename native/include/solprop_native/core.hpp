@@ -872,12 +872,13 @@ public:
    * `rk_dense_observe` holds the committed state aside and makes the state the
    * extension at the fraction `theta`, carried from the anchor by the flow of `carry`
    * (a trial's arrays from the anchor to the plane) and masked; `rk_dense_restore`
-   * makes the held state current again.
+   * makes the held state current again; `rk_dense_release` frees the views.
    */
   void rk_dense_allocate(const std::vector<double>& weights);
   void rk_dense_hold(double dz);
   void rk_dense_observe(double theta, const TrialScalars& carry);
   void rk_dense_restore();
+  void rk_dense_release() noexcept;
   /**
    * The resident Adams history's persistent rows, for a resume (solprop SEP 29 G2):
    * `"store"`, and `"states"`, `"rates"` and `"applied"` where allocated, each

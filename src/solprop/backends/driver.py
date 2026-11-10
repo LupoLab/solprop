@@ -422,6 +422,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # whether a step that crossed a densely observed plane ends on a step to save.
         self._natural_count = 0
         self._natural_due = False
+        self._halt_ahead = False
         self._halt_requested = False
         self._halt_check: Callable[[], bool] | None = None
         self._halted = False
@@ -1305,6 +1306,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._history = []
         self._natural_count = 0
         self._natural_due = False
+        self._halt_ahead = False
         self._halt_requested = False
         self._halt_check = None
         self._clock = time.perf_counter()
@@ -1439,6 +1441,15 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             self._replay_to(schedule, target)
         else:
             self._march_to(target)
+        if (
+            self._natural_due
+            and reached(self._z, target)
+            and self._dense_ahead is None
+            and (self._adams is None or self._adams._ahead is None)
+        ):
+            # The step owed as a step plane ends on the target itself, whose plane
+            # observes it: it is not observed a second time there (`_natural_stop`).
+            self._natural_due = False
         taken = self._history[first:]
         record = ControlRecord.from_norms(
             self._problem.stepper.controller,
@@ -1885,6 +1896,18 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """Withdraw a halt requested with :meth:`request_halt`, once it is serviced."""
         self._halt_requested = False
 
+    def halt_ahead(self) -> None:
+        """Halt the next march at the endpoint a dense observation held, if short.
+
+        The execution session's snapshot latch beside interpolated planes (SEP 47
+        section 5.5): the march stands ahead of the plane it observed, at the end of
+        the step that crossed it. When the next march restores that endpoint and the
+        latch is set, it returns there at once, unless a step plane is owed there
+        first or the target is another plane the step crossed, so that the snapshot is
+        taken at that endpoint rather than wait for a step that crosses no plane.
+        """
+        self._halt_ahead = True
+
     def set_halt_check(self, check: Callable[[], bool] | None) -> None:
         """Ask `check` at every accepted endpoint whether to halt there.
 
@@ -1932,7 +1955,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         Called at the start of a march, once a dense observation's march state is
         restored: a step that crossed the last observed plane and was the ``k``-th is
-        saved now, unless `target` is another plane it also crossed.
+        saved now, unless `target` is another plane it also crossed; otherwise a halt
+        asked for there (:meth:`halt_ahead`) stops the march there.
 
         Parameters
         ----------
@@ -1944,8 +1968,14 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         bool
             Whether to return at once, at the step's end.
         """
+        ahead, self._halt_ahead = self._halt_ahead, False
         if self._natural_due and not reached(self._z, target):
             self._natural_due = False
+            return True
+        if ahead and self._halt_requested and not reached(self._z, target):
+            # The restored endpoint of :meth:`halt_ahead`, every plane its step
+            # crossed observed.
+            self._halted = True
             return True
         return False
 

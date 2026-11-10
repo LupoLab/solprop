@@ -563,9 +563,16 @@ the measurements behind them.
   `_dense_stages`), and the plane is evaluated and carried there by the exact flow while
   the march's own state is held ahead. A session keeps the two positions apart: a
   snapshot latched while a plane's field is held waits for the next accepted endpoint,
-  every plane its step crossed observed first, so a checkpoint never needs the
-  extension to reconstruct a plane ([SEP 47](seps/sep-0047-run-ownership.md) section
-  5.5).
+  every plane its step crossed observed first -- the end of that step itself when the
+  next plane lies beyond it, since with planes closer than the steps every later step
+  crosses another plane -- so a checkpoint never needs the extension to reconstruct a
+  plane ([SEP 47](seps/sep-0047-run-ownership.md) section 5.5). The native session's
+  Runge-Kutta march keeps the committed state and its recycled last stage (FSAL) across
+  an observation, where the native bridge reloads the committed state from its host
+  copy, which drops that stage, and evaluates the next step's first stage afresh. Their
+  norms, and so in general their trajectories, differ at rounding level: on the
+  qualification cases the decisions are the same, the norms agree to 1e-8 relative and
+  the planes to 9.2e-17 of the peak, each within the reference's budgets.
 - **Floor**: a proposal below `dz_min` raises `ConvergenceError` at once (algorithms.md §3,
   traps). The default is `default_dz_min`, 1e-9 of the run length: a run that wants steps
   that small needs over a billion of them and would never finish, and the finest legitimate

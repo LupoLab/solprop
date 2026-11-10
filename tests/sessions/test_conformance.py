@@ -1109,6 +1109,66 @@ def test_a_snapshot_waits_for_the_planes_its_step_crossed(start, executor, metho
         assert_same_run(run, baseline)
 
 
+MANY_PLANES = tuple(float(z) for z in np.linspace(LENGTH / 64, LENGTH, 64))
+"""Planes closer than the soliton's steps: several fall inside each step."""
+
+
+@pytest.mark.parametrize("method", sorted(DENSE_METHODS))
+def test_a_snapshot_among_close_planes_is_taken_at_the_crossing_step_s_end(
+    start, executor, method
+):
+    """SEP 47 section 5.5: with several planes inside each step, a snapshot requested
+    while a plane is held is taken at the end of the step that crossed it, once every
+    plane that step crossed is observed -- not put off by every later step, each of
+    which crosses another plane -- and the planes are the run's without it.
+    """
+    executor.require(DENSE)
+    problem = soliton(
+        interpolate=True, integrator=DENSE_METHODS[method], planes=MANY_PLANES
+    )
+    baseline = drive(start(problem), export=IDENTITY)
+    requested: list[int] = []
+
+    def between(session: RunSession, batch: EventBatch) -> None:
+        if requested or batch.terminal is not None:
+            return
+        for event in batch.events:
+            if (
+                isinstance(event, ObservationReady)
+                and event.kind is ObservationKind.PLANE
+            ):
+                requested.append(event.plane_index)
+                session.request_snapshot()
+
+    run = drive(start(problem), export=IDENTITY, between=between)
+    (snapshot,) = [event for event in run.events if isinstance(event, ServiceRequired)]
+    index = run.events.index(snapshot)
+    ends = _delivered_ends(run)
+    (first,) = [
+        position
+        for position, event in enumerate(run.events)
+        if isinstance(event, ObservationReady)
+        and event.plane_index == requested[0]
+        and event.kind is ObservationKind.PLANE
+    ]
+    # The end of the step that crossed the plane it was requested at, which no other
+    # step was delivered before.
+    assert snapshot.z == ends[first][-1] == ends[index][-1]
+    assert snapshot.z < LENGTH
+    planes = [
+        event.z
+        for event in run.events[:index]
+        if isinstance(event, ObservationReady) and event.kind is ObservationKind.PLANE
+    ]
+    assert planes == [plane for plane in MANY_PLANES if plane <= snapshot.z]
+    assert len(planes) > requested[0] + 1, "the step crossed one plane only"
+    assert [event.z for event in run.observations] == [
+        event.z for event in baseline.observations
+    ]
+    if executor.deterministic:
+        assert_same_run(run, baseline)
+
+
 # ------------------------------------------------------------------- invariance
 
 

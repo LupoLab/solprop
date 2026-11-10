@@ -431,8 +431,8 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
         from the end.
     snapshots : solprop.output.SnapshotController or None, optional
         Requests immutable disk copies at committed accepted steps, each serviced at
-        the next accepted endpoint. Requires HDF5, all fields and non-interpolated
-        observations.
+        the next accepted endpoint, after every interpolated plane its step crossed.
+        Requires HDF5 and all fields.
     tdse_archive : solprop.output.tdse_archive.TDSEArchiveWriter or None, optional
         Live archive to suspend and copy beside the optical writer.
     boundary_monitor : solprop.monitor.BoundaryMonitor or None, optional

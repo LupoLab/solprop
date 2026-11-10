@@ -734,8 +734,8 @@ class PlaneRequests(NullReporter):
             self.remaining -= 1
 
 
-def dense(backend="numpy_ref", integrator=None, **keywords):
-    """Return a short soliton whose six planes are interpolated inside its steps."""
+def dense(backend="numpy_ref", integrator=None, n_save=6, **keywords):
+    """Return a short soliton whose planes are interpolated inside its steps."""
     return Simulation.from_gnlse(
         0.11,
         0.001,
@@ -748,7 +748,7 @@ def dense(backend="numpy_ref", integrator=None, **keywords):
         shape="sech",
         backend=backend,
         integrator=RungeKutta() if integrator is None else integrator,
-        n_save=6,
+        n_save=n_save,
         interpolate_planes=True,
         dz_init=2e-5,
         dz_max=2e-5,
@@ -756,34 +756,37 @@ def dense(backend="numpy_ref", integrator=None, **keywords):
     )
 
 
+@pytest.mark.parametrize("n_save", [6, 151], ids=["sparse", "close"])
 @pytest.mark.parametrize(
     "integrator", [None, Multistep()], ids=["runge-kutta", "adams"]
 )
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_dense_snapshots_resume_without_losing_or_repeating_a_plane(
-    backend, integrator, tmp_path
+    backend, integrator, n_save, tmp_path
 ):
     # SEP 47 section 5.5: with interpolated planes, a snapshot requested while a plane's
     # field is the state waits for the next accepted endpoint, every plane its step
     # crossed saved first; its running checkpoint is a landed state, which resume=True
-    # continues without resume="interpolated", saving each later plane once.
+    # continues without resume="interpolated", saving each later plane once. With
+    # planes closer than the steps ("close": 150 over 1 mm, 50 steps), each snapshot is
+    # the end of the step that crossed the plane it was requested at.
     if backend == "native":
         pytest.importorskip("solprop_native")
     length = 0.001
-    baseline = _run(dense(backend, integrator))
+    baseline = _run(dense(backend, integrator, n_save))
     planes = np.asarray(baseline["z"]).tolist()
-    assert len(planes) == 6
+    assert len(planes) == n_save
     # Interpolated: a plane between saved steps' ends, not one of them.
     ends = np.asarray(baseline["step_history/z"]) + np.asarray(
         baseline["step_history/h"]
     )
     assert not np.isclose(ends, planes[1], rtol=1e-12, atol=0.0).any()
     rtol = cast("PIController", dense().settings.controller).rtol
-    tighter = _run(dense(backend, integrator, rtol=rtol / TIGHTER))
+    tighter = _run(dense(backend, integrator, n_save, rtol=rtol / TIGHTER))
     controller = SnapshotController(tmp_path / "snapshots")
     working = tmp_path / "working.h5"
     _run(
-        dense(backend, integrator),
+        dense(backend, integrator, n_save),
         working,
         snapshots=controller,
         progress=PlaneRequests(controller),
@@ -819,9 +822,12 @@ def test_dense_snapshots_resume_without_losing_or_repeating_a_plane(
         saved = planes[: state.n_saved]
         assert saved == [plane for plane in planes if plane <= state.plane.z]
         assert state.plane.z not in planes
+        # The end of the step that crossed the last plane saved before it.
+        assert np.isclose(reached, state.plane.z, rtol=1e-12, atol=0.0).sum() == 1
+        assert (reached[reached < state.plane.z] < saved[-1]).all()
         if isinstance(integrator, Multistep):
             assert state.march is not None and state.march.z == state.plane.z
-        final = _run(dense(backend, integrator), files.output, resume=True)
+        final = _run(dense(backend, integrator, n_save), files.output, resume=True)
         assert isinstance(final, HDF5Output)
         assert final.terminal_checkpoint is None
         assert_contiguous(files.output, length)

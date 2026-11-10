@@ -691,7 +691,8 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
       }
     }
     const double target = plan_.planes[next_plane_];
-    if (observed_) {
+    const bool restored = observed_;
+    if (restored) {
       // The march is ahead of the last interpolated plane: resume it there.
       dense_->restore();
       observed_ = false;
@@ -704,6 +705,14 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
       observe_plane(batch, Observation::step, static_cast<std::int64_t>(next_plane_),
                     false);
       return ready();
+    }
+    if (restored && snapshot_latched() && at_endpoint() &&
+        !march::reached(position(), target, landing_ulps_)) {
+      // A snapshot latched while a plane was held is taken at the endpoint ahead of
+      // it, every plane its step crossed observed (`halt_ahead`): with planes closer
+      // than the steps, a later endpoint would only be reached past another plane.
+      snapshot(batch);
+      return issue(std::move(batch));
     }
     const double slack = plan_.replay
                              ? replay_tolerance(plan_.replay_steps, plan_.replay_length,
@@ -814,6 +823,9 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
       return issue(std::move(batch), Outcome::failed);
     }
     if (plan_.replay || plane_reached(z, target)) {
+      // A step owed as a step plane that ends on the target is observed by its plane,
+      // once.
+      natural_due_ = false;
       observe_plane(batch, Observation::plane, static_cast<std::int64_t>(next_plane_),
                     true);
       return ready();
