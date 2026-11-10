@@ -29,6 +29,7 @@ branch belongs in the service/session dispatcher.
 The subsequent Part B CI corrections at `f6921fae` are integrated at `10be2eff`.
 The additional CI corrections at `55fdc423` are also integrated: they restore
 request-owned arrays to the mixture baseline and remove nonportable hash literals.
+The final documentation/skip corrections at `21b5808c` are integrated as well.
 The legacy callers of this branch's new execution-owner protocol are corrected;
 whole-package basedpyright reports zero errors and three existing native-stub warnings.
 Explicit legacy selections retain their stronger type; general selection keeps the
@@ -49,15 +50,14 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Numerical transform/Adams agent | `julia/src/execution.jl`, `transforms.jl`, `operators.jl`, `tables.jl`, `phi_functions.jl`, `adams.jl`, `adams_control.jl`, `low_storage.jl`, `composition.jl`; corresponding tests; dependency declarations/generated environments | General source reviewed and integrated; pure Adams control qualification |
-| Numerical services agent | `julia/src/responses.jl`, `raman.jl`, `plasma.jl`, `statistics.jl`, `monitor.jl`, `power_weights.jl`, `observations.jl`; corresponding Julia tests | Shared power-weight evaluator, then modal observation composition |
+| Numerical transform/Adams agent | `julia/src/adams_session.jl` and its test | Landed Adams session composition; earlier numerical leaves reviewed and integrated |
+| Numerical services agent | `julia/src/observation_session.jl` and its test, after interface freeze | Planning bounded rows, monitor barriers and continuation; observation leaves reviewed and integrated |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
-| Independent reviewer | Production code read-only | Modal lowering/bridge approved; Adams control and observation composition in review |
+| Independent reviewer | Production code read-only | Adams policy and observation composition approved; reviewing shared integration, then Adams session |
 
-Temporary CI correction ownership: the numerical agent also owns the narrow
-`restore_control!` correction in `control.jl` and its directly affected tests. The
-master leaves that code untouched until review and integration. The services agent
-owns the `TransverseState` constructor correction in its existing monitor files.
+The temporary CI assignments for `restore_control!`, CPU allocation and source/monitor
+constructors are complete and integrated after independent review. Their files return
+to master ownership; further leaf changes require an explicit assignment.
 
 The foundation is committed at `540794bd`. Setup commits `6c569742`, `fadae531` and
 `52269788` were independently reviewed and integrated as `9fe74c26`, `5cec895c` and
@@ -133,6 +133,10 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   the periodic-capable catalogue, support exactly the existing spatial plane defaults
   `beam_radius`, `fwhm_r` and `on_axis_spectrum`, preserving their plane-only eligibility.
   This small scope clarification avoids refusing ordinary admitted spatial defaults.
+- Every completed trial records its actual attempt before a proposal-floor failure,
+  including an Adams rejection. The existing reference/native omission is tracked in
+  [#651](https://github.com/LupoLab/solprop/issues/651); controller decisions, charged
+  calls and accepted state remain unchanged. Preserve the historical trace corpus.
 - Binary64 Adams coefficients and transported compensation are generated in Julia.
   History retains actual predictor samples and their represented operator rates. Rate
   evaluation differentiates the same cumulative operator with explicit knot-side choice.
@@ -381,3 +385,49 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   fixture collection; the narrow runtime selection collects all 31 tests. Owned JET
   corrections are in progress and remain blocking. The earlier local Aqua/JET pass
   does not qualify the failing Linux lane.
+- The modal bridge milestone is committed at `4dfa7ab2`. Pure Adams policy is
+  integrated at `71289bf2` and `b4df31bf`: 3,754 bounds-enabled checks and 33,003
+  exact assertions on captured reference decisions passed independent review. The
+  shortened-run admission retains later operator kinks without forcing later steps
+  (#644). The session composition, rather than the policy leaf, remains pending.
+- Reviewed CI corrections at `1047779a` and `0903c874` constrain CPU allocation and
+  parallel dimensions, preserve overlapping controller-history restoration, and bind
+  transverse-state construction to prepared face metadata (#645). Their focused
+  four-thread and two-thread selections pass 585 and 195 assertions respectively.
+  Remaining package-wide JET findings are still being corrected. Quality runners
+  must import JET before the engine so definition tracking is active; the direct
+  runner now follows the same order as CI.
+- Prepared factories now report their owned run-transfer arrays once and sessions
+  retain only the execution owner after copying policy into Julia (#646). Independent
+  review and the 43-test boundary/lowering selection cover multiple factories,
+  dropped factories and nonempty shared controller weights.
+- Shared CI integration corrections (#648) preserve lightweight parser/calibration
+  imports, validate legacy choices in native measurement scripts, reflect inherited
+  methods and Julia modules in structure diagrams, and register exact justified skip
+  reasons. The 76-test CLI/calibration/collection selection and 364-test figure
+  selection pass. Native script types and focused Python types report zero errors;
+  Sphinx passes. Windows subprocess confirmation remains a GitHub CI check.
+- The shared internal landed-session lifecycle is frozen in `SESSION_DESIGN.md`.
+  Independent review approved the `_MarchSession` dispatch and unchanged launch
+  validation extraction; 309 source/march/transfer assertions pass with bounds and
+  zero warmed advancement allocation. The numerical agent owns the next independent
+  Adams session composition; the master retains shared lifecycle and Python integration.
+- Modal observation composition is integrated at `cdc657bb` and `a6a357e9` after
+  independent review: 1,269 focused assertions include actual NumPy comparisons and
+  warmed allocation checks. Population scans use only rates and preionisation,
+  independently of current/loss algebra (#647), and reject raw nonfinite exposure
+  before flooring (#649). Periodic rows and monitor event transport remain the next
+  session integration, not a completed public capability.
+- The combined package, including observations and Adams policy, passes all 16 blocking
+  Aqua/JET checks on macOS arm64. JET analyses all 864 definitions. The quality runner
+  now imports JET before the engine and rejects empty definition tracking explicitly;
+  earlier local passes without this evidence do not substitute for this check. Runic
+  passes on the changed integration files. Linux confirmation remains in GitHub CI.
+- Latest dependency skip/documentation integration passes 37 targeted tests with three
+  expected skips. Whole-package basedpyright reports zero errors and three existing
+  native-stub warnings; the final structure/session-boundary selection passes 391
+  tests. The full CI rerun awaits the next batch push.
+- After publishing a fresh immutable setup containing the combined package, all
+  nineteen real bridge tests pass again in 51.05 seconds on macOS arm64 with two
+  Julia threads. This rechecks actual source construction, advance and export after
+  the JET corrections and shared lifecycle integration.

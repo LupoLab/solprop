@@ -11,5 +11,24 @@ import JET
 @testset "Blocking package quality" begin
     @test JET.JET_AVAILABLE
     Aqua.test_all(SolpropJulia)
-    JET.test_package(SolpropJulia)
+    analysis_log = IOBuffer()
+    JET.test_package(SolpropJulia; toplevel_logger = analysis_log)
+    transcript = String(take!(analysis_log))
+    print(transcript)
+    # The pinned JET version exposes progress through this supported logger, not
+    # structured signature counts. Fail closed if its summary changes or definition
+    # tracking silently analyses nothing (for example, from the wrong import order).
+    summary = match(
+        Regex(
+            raw"Analyzed all top-level definitions \(all: (\d+) " *
+                raw"\| analyzed: (\d+) \| cached: (\d+)",
+        ),
+        transcript,
+    )
+    @test summary !== nothing
+    if summary !== nothing
+        total, analysed, cached = parse.(Int, summary.captures)
+        @test total > 0
+        @test analysed + cached > 0
+    end
 end

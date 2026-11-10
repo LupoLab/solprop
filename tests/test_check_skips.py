@@ -81,7 +81,7 @@ def test_platform_and_unsupported_session_cases_have_exact_reasons(tmp_path):
     reasons = (
         "creating symlinks needs Windows privileges",
         "CI change detection runs in Linux Bash",
-        "this executor replays every problem by the low-storage march",
+        "the native-session-low-storage executor does not run a multistep march",
         "the translation refuses dense output beside the modified noise",
     )
     path = junit(

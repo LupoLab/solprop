@@ -56,7 +56,6 @@ EXPECTED: tuple[str, ...] = (
     # A session conformance executor asked for what it does not run
     # (tests/sessions/executors.py): the scripted drivers run no Adams march.
     r"a scripted driver runs no Adams march",
-    r"this executor replays every problem by the low-storage march",
     r"the [a-z-]+ executor does not run an? [a-z -]+",
     # The parametrization reaches a case its subject excludes.
     r"the interaction formulation is refused beside a coupled flow",

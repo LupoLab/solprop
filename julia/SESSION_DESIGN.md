@@ -112,6 +112,18 @@ Master integration owns Python lowering, ledger translation, dense observation h
 restart records and the observation-service attachment. No partial method is advertised
 as publicly qualified before these integrations and conformance checks pass.
 
+Service numerical hooks are `_session_quiet(services, session)::Bool`,
+`_session_cap(services, session, proposal)::Float64` (transverse then split caps, after
+the quiet cap), and `_session_finish_candidate!(services, session, candidate, dz)`.
+The last hook sees an active-masked candidate, captures split removal, then applies
+split damping; commit applies the final hard mask. A trial records its completed
+attempt before reporting a proposal-floor failure, including rejection. This preserves
+actual-work accounting even when no further trial is possible.
+The existing reference/native Adams omission is tracked in
+[#651](https://github.com/LupoLab/solprop/issues/651). Preserve the historical trace
+corpus and compare controller decisions and charged calls separately from this
+deliberate diagnostic correction.
+
 ## Delivery order
 
 1. Parallel reviewed CPU execution/transforms/operators and response kernels.

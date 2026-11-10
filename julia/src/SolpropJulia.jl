@@ -43,6 +43,7 @@ include("statistics.jl")
 include("monitor.jl")
 include("source.jl")
 include("composition.jl")
+include("observations.jl")
 include("march.jl")
 include("transfer.jl")
 
