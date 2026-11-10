@@ -784,9 +784,9 @@ def test_a_snapshot_between_planes_carries_the_attempts_since_the_last_plane(sta
     reached = [z for z, _, _ in heard].index(end) + 1
     before = run.events[: run.events.index(snapshot)]
     delivered = sum(
-        event.history.n_steps
+        history.n_steps
         for event in before
-        if getattr(event, "history", None) is not None
+        if (history := getattr(event, "history", None)) is not None
     )
     assert snapshot.history.n_steps == reached - delivered
     rows = snapshot.step_stats
@@ -802,11 +802,15 @@ def test_a_snapshot_between_planes_carries_the_attempts_since_the_last_plane(sta
         """Attempts and rows every event up to and including `event` delivered."""
         upto = run.events[: run.events.index(event) + 1]
         return (
-            sum(e.history.n_steps for e in upto if getattr(e, "history", None)),
             sum(
-                e.step_stats.n_rows
+                history.n_steps
                 for e in upto
-                if getattr(e, "step_stats", None) is not None
+                if (history := getattr(e, "history", None)) is not None
+            ),
+            sum(
+                rows.n_rows
+                for e in upto
+                if (rows := getattr(e, "step_stats", None)) is not None
             ),
         )
 

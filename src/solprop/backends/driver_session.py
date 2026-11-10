@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
-from solprop.backends.driver import StepDriver
 from solprop.backends.events import (
     Eligibility,
     Event,
@@ -73,6 +72,7 @@ if TYPE_CHECKING:
     # destination's shape before the session refuses it.
     from jaxtyping import Complex
 
+    from solprop.backends.driver import StepDriver
     from solprop.backends.protocol import Backend
 
 __all__ = ["AttemptListener", "DriverSession"]
@@ -252,6 +252,46 @@ _EMPTY_SUMMARY = StepSummary(
     wall_time=0.0,
     met_tolerance=True,
 )
+
+
+class _YieldDue:
+    """Says whether a bounded advance has reached its attempt bound or its deadline.
+
+    A class rather than a closure in :meth:`DriverSession.advance`, so that no function
+    object is made per call (each one costs the coverage lane's import hook a compile).
+
+    Parameters
+    ----------
+    session : DriverSession
+        The session whose attempts are counted.
+    limit : int
+        The attempt count at which the march halts.
+    started : float
+        The advance's start, in :func:`time.perf_counter` seconds.
+    deadline : float
+        The seconds after `started` at which the march halts.
+    """
+
+    def __init__(
+        self, session: DriverSession, limit: int, started: float, deadline: float
+    ) -> None:
+        self._session = session
+        self._limit = limit
+        self._started = started
+        self._deadline = deadline
+
+    def __call__(self) -> bool:
+        """Return whether the attempt bound or the deadline has been reached.
+
+        Returns
+        -------
+        bool
+            True once the march should halt at its next accepted endpoint.
+        """
+        return (
+            self._session._listened >= self._limit
+            or time.perf_counter() - self._started >= self._deadline
+        )
 
 
 class DriverSession:
@@ -448,15 +488,7 @@ class DriverSession:
         started = time.perf_counter()
         limit = self._listened + max(int(work_limit), 1)
 
-        def due() -> bool:
-            """Return whether the attempt bound or the deadline has been reached.
-
-            Returns
-            -------
-            bool
-                True once the march should halt at its next accepted endpoint.
-            """
-            return self._listened >= limit or time.perf_counter() - started >= deadline
+        due = _YieldDue(self, limit, started, deadline)
 
         _hook(self._driver, "set_halt_check", due)
         try:
