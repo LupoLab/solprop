@@ -1740,8 +1740,12 @@ merging.
   through its own preparation, `backend.prepare(problem, request).start(...)`;
   `start_session` only dispatches through it. A preparation refuses a request that is
   not one run of the backend's own (`foreign_request`). Configuration hashes and
-  resume identity are unchanged: eleven pinned example hashes and two stopped files
-  written before the change are checked in the test suite.
+  resume identity are unchanged: before and after the change, 13 of 14 examples hashed
+  identically on an Intel Xeon Gold 6240 (the 14th draws an unseeded noise seed on
+  every build), and five stopped files written before it resumed to the bit. These
+  are not pinned in the test suite: a configuration hash covers tables evaluated
+  through the platform's libm (an absorber's spectral rate), so it is fixed per
+  machine, not across CI's runners.
 - *Destination export (#346).* A kept plane is written once, straight into its store's
   room, by one native pass.
 - *Backend-owned node chunk (#361).*
