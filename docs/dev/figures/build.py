@@ -722,6 +722,7 @@ MODULES = {
                 "session",
                 "events",
                 "export",
+                "session_core",
                 "driver_session",
                 "sessions",
             ),
@@ -735,6 +736,7 @@ MODULES = {
                 "low_storage",
                 "group",
                 "session",
+                "group_session",
             ),
         ),
         Module(

@@ -220,7 +220,7 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `translate/` | Validated `PropagationProblem` and its route union (`translate/routes.py`); parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); response tables, masks and stage bundles | T |
 | `backends/` | Registry and protocols, shared step and batch drivers, scalar bodies, spatial and population statistics | B |
 | `backends/numpy_ref/` | Reference execution | B |
-| `backends/host/` | The reference's own step driver, Adams and low-storage marches, fixed-schedule group and run session ([SEP 47](seps/sep-0047-run-ownership.md) phase 2); the inherited drivers in `backends/` remain the native bridge's until its session replaces them | B |
+| `backends/host/` | The reference's own step driver, Adams and low-storage marches, fixed-schedule group, run session and group session ([SEP 47](seps/sep-0047-run-ownership.md) phase 2); the inherited drivers in `backends/` and their transitional sessions (`driver_session.py`) remain the native bridge's until its session replaces them, and the parts both kinds of Python session compose are in `backends/session_core.py` | B |
 | `stepper/`, `log.py`, `stats.py` | Tableaux, controllers, schedules, progress reporters and statistics specifications | D |
 | `driver/`, `driver/executors/`, `scan.py` | Simulation and convenience interfaces, scan/batch orchestration, Local/Pool/Queue/Slurm execution and scan CLI | D |
 | `calibration/` | The native backend's machine calibration ([SEP 46](seps/archive/sep-0046-machine-calibration.md)): reading, showing, exporting, importing and clearing profiles in the per-user store, through solprop-native's standard-library modules loaded by path so that the native runtime never starts (`calibration/_native.py`), the measuring controller, its child processes, the synthetic problems they time, the operation-grain candidates and the selection rule (`calibration/controller.py`, `child.py`, `problems.py`, `grain.py`, `selection.py`), the refinement of one simulation (`calibration/refine.py`, stage 2, which `Simulation.calibrate` runs), and the `solprop calibrate` command (`calibration/command.py`) | D |
@@ -678,7 +678,7 @@ one common window (save plane) at a time, each member reporting its own events. 
 batched scan's loop (`driver/_scan_batch.py`) is the group's service loop. A backend
 chooses its own group: `start_group` asks the first member to prepare it,
 `members[0].prepare_group(members, problems, requests)`, and starts the returned
-`PreparedGroup`, naming no backend. Two groups serve it:
+`PreparedGroup`, naming no backend. Three groups serve it:
 
 - **The native group session** (`solprop_native.group.NativeGroupSession`) serves
   native CPU members whenever it admits the group. It owns one native execution session
@@ -696,15 +696,21 @@ chooses its own group: `start_group` asks the first member to prepare it,
   build, a run the native session refuses, an adaptive member, step or interpolated
   planes, or members that do not share the schedule, save planes, method, field shape
   and statistics request.
+- **The reference's group** (`solprop.backends.host.group_session.HostGroupSession`,
+  prepared by `HostPreparedGroup`) serves every `numpy_ref` group, in both precisions.
+  It runs over the reference's group runner (`HostGroup`, or `NumpyBatchBackend`'s
+  member-axis stage arithmetic in binary64, which `select_batch` builds from the
+  registry row), which adopts the loaded member backends, each with its own tables,
+  state and noise, and advances them through each common step in turn. It keeps that
+  runner rather than composing one `HostSession` per member, because the runner's
+  arithmetic, failure positions and precision rule are what a reference group means:
+  the module docstring gives the reasons.
 - **The transitional group** (`solprop.backends.driver_session.DriverGroupSession`,
-  prepared by `DriverPreparedGroup`) serves every other group: the reference's, and
-  native groups the native group refuses (`solprop_native.group.NativePreparedGroup`
-  falls back to it). It runs over the lockstep runners (`BatchBackend`, `select_batch`,
-  which builds the runner its registry row names), which
-  adopt the loaded member backends, each with its own tables, state and noise. On the
-  native backend the accepted update is fused (`NativeBatchBackend`), while response
-  and transform work remains member-owned. `observe_members` preserves each member's
-  history and statistics.
+  prepared by `DriverPreparedGroup`) serves the native groups the native group refuses
+  (`solprop_native.group.NativePreparedGroup` falls back to it), over the native
+  bridge's lockstep runner (`NativeBatchBackend`), whose accepted update is fused while
+  response and transform work remains member-owned. `observe_members` preserves each
+  member's history and statistics. SEP 47 phase 5 deletes it with the bridge.
 
 Admission uses memory ledgers and a free-device-memory query with headroom.
 
@@ -716,13 +722,13 @@ raised as an error) fails its member alone. A group-level failure (a non-finite 
 a step floor, a trial exception, an in-flight failure) fails every member of that
 group, each reporting its own committed position and checkpoint eligibility. Members
 take their steps in turn, so those ahead of the failing one have already taken the
-failed step: the transitional group's members are then in flight and poisoned, having
-stepped without recording; a native group's have committed and recorded their whole
+failed step: the reference group's and the transitional group's members are then in
+flight and poisoned, having stepped without recording; a native group's have committed and recorded their whole
 turn and stay eligible. Recovering the surviving members is an open question
 ([#171](https://github.com/LupoLab/solprop/issues/171)). A native member commits its
 launch plane before its monitor judges the launch, as a lone run does (SEP 47 section
-5.3), so a refused launch ends it in the window after the launch's; the transitional
-group attaches the monitors first.
+5.3), so a refused launch ends it in the window after the launch's; the reference
+group and the transitional group attach the monitors first.
 
 Independent simulations use spawned processes, normally one scientific thread per
 worker, rather than threads, because thread pools, FFTW plans and the OpenMP runtime are
