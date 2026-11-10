@@ -81,7 +81,7 @@ def ab_options(parser: argparse.ArgumentParser) -> None:
         choices=BACKENDS,
         help="the candidate arm's backend; default: --backend",
     )
-    calibration_option(parser)
+    calibration_option(parser, default="standard")
     for arm in ARMS:
         parser.add_argument(
             f"--{arm}-env",

@@ -1,0 +1,1 @@
+`python -m benchmarks ab` now calibrates each build at the `standard` level by default instead of `thorough`, so a development A/B no longer spends several minutes per arm calibrating; pass `--calibrate thorough` for release benchmarks. `track` keeps `thorough`.

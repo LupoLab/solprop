@@ -243,7 +243,9 @@ uv run python -m benchmarks ab --case rdw --case argon_blueshift --threads 1 \
 ```
 
 Each build is calibrated before the rounds, once per interpreter and with its arm's
-variables, as two releases would be for a user (`--calibrate`, as for `track`).
+variables (`--calibrate`). A development A/B defaults to the `standard` level, which takes
+a few seconds; `thorough`, `track`'s default, is for release benchmarks and for comparing
+what a heavy user's calibration would give.
 `--baseline-env` and `--candidate-env NAME=VALUE` set an arm's own variables over the
 threading preset, and an empty value unsets one. A worker otherwise runs at the row's
 width, which keeps a profile's team width out, and with it any setting fitted at
