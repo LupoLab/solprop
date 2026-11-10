@@ -319,8 +319,11 @@ $|x_\ell| \le \tfrac{1}{2}\,\mathrm{ulp}(x_h)$.
     $u$ by design;
   - the exponential's series.
 
-  Errors are relative to the exact value, with an absolute floor at binary32's smallest
-  normal where the value may vanish.
+  Each bound is measured against the exact mathematical function on its stated domain
+  and includes input representation, arithmetic and conditioning. Near a zero, use an
+  absolute or mixed bound derived from the evaluated expression; binary32's smallest
+  normal is a separate range floor, not a bound on cancellation error. Bounds for the
+  resulting field increments also include their signed-sum conditioning (SEPs 25 and 33).
 - **The experiment's witnesses**, which are evidence on their sampled domain and not
   proofs:
   - the $\varphi_k$ (orders 1, 3, 6 and 9) agree with binary64's within
@@ -371,8 +374,10 @@ recorded in the run's metadata. Within the domain above, it changes only the rou
 within SEP 33's bounds; beyond the domain, the run is refused rather than degraded.
 
 **Transcendentals on GPUs.** A device's library `sin`, `cos`, `exp` and `log` may be
-less accurate than the CPU's: Metal's `sin` and `cos` are 2 to 3 ulp. Wherever an
-iteration's convergence depends on such a function, the engine uses functions of stated
+less accurate than the CPU's: Apple's Metal Shading Language 4.1 specification [16]
+allows 4 ulp for precise single-precision `sin` and `cos`; smaller observed errors are
+measurements, not a portable guarantee. Wherever an iteration's convergence depends
+on such a function, the engine uses functions of stated
 accuracy, as the experiment's quadrant-reduced polynomial `sincos` (about 1 ulp) does for
 the envelope plasma's cycle quadrature. A function's accuracy is stated beside it.
 
@@ -561,8 +566,11 @@ SEP when that SEP says so.
   `fork` after the runtime has started is unsupported, and refused where solprop
   controls it.
 - **Stopping.** A run's stop token has a lifetime-owned atomic byte shared by both
-  sides. The Python session retains its Julia owner and attaches a precompiled,
-  non-blocking atomic setter to `StopToken`; it detaches before releasing the owner.
+  sides. The Python session retains the byte's allocation and attaches a precompiled,
+  non-blocking atomic setter to `StopToken`. The listener retains only owners whose
+  destruction cannot enter Julia; the process runtime retains the setter's code.
+  Close detaches the listener after engine reads end, and captured listener invocations
+  keep the byte alive even if they finish after detachment.
   Julia reads the flag atomically, without the GIL, between attempts (SEP 47 §5.5),
   and any Python thread may set it. Julia never calls back into Python while advancing.
 - **Signals.** Threaded Julia needs JuliaCall's signal handling on, for the
@@ -1059,7 +1067,8 @@ On the CPU, with both wide types, and on each GPU:
     that nothing was reassociated, contracted or flushed;
   - the $\varphi_k$ against `BigFloat` over the orders and the argument domain the Adams
     march admits, including the branch boundary between series and recurrence and large
-    imaginary parts, within the derived relative bound and its absolute floor;
+    imaginary parts, within the derived conditioning-aware relative, absolute or mixed
+    bound, including neighborhoods of zeros and the separate binary32 range floor;
   - the propagator pair over real parts in the admitted range and phases up to
     $\theta_{\mathrm{df}}$, within $c_1u + c_2|\theta|u^2$;
   - exponents assembled with cancellation, against binary64 assembly;
@@ -1376,6 +1385,9 @@ records each decision where it applies:
     ADR-068 and ADR-076; PR #559 and its
     [status page](https://github.com/LupoLab/solprop/blob/b84d3ab81df863669e57aeca6c0ac3abaf6820ac/julia/STATUS.md);
     PRs #605 and #607; issues #333, #368, #556, #557, #560, #561, #588, #590 and #596.
+16. Apple, *Metal Shading Language Specification*, version 4.1 (2026-06-04),
+    sections 8.1–8.4 and Table 8.1,
+    <https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf>.
 
 ## Part II — Implementation record
 
@@ -1845,5 +1857,21 @@ Independent review found no blocking issue in this amendment. Its documentation
 checks passed: spelling, whitespace, 349 SEP consistency tests (three expected skips),
 the Sphinx build with warnings as errors, and GitHub CI. The separate documentation
 preview was cancelled and is being rebuilt before merge, as the repository requires.
+
+### Final implementation-boundary clarifications before merge — 2026-11-10
+
+Independent runtime review tightened the stop-byte lifetime: the listener retains only
+owners whose destruction cannot enter Julia, and the byte outlives both engine reads
+and captured setter callbacks. Section 5.4 states this without requiring a Julia-owned
+allocation; the standalone engine can still own its own flag.
+
+Numerical planning identified zeros of the $\varphi_k$ where a relative bound needs
+conditioning factors, and where a smallest-normal floor alone cannot bound cancellation
+error. Sections 4 and 7.3 now require a derived relative, absolute or mixed bound near
+those zeros, including the conditioning of the resulting field increments. The primary
+Metal specification also corrects the portable `sin`/`cos` allowance to 4 ulp. The
+experiment's smaller errors remain witnesses, not qualification tolerances. Phase 3
+still has to derive its algorithms, constants and admitted domain; none is accepted
+merely because its sampled values agree.
 
 [#610]: https://github.com/LupoLab/solprop/issues/610
