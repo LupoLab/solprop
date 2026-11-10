@@ -63,7 +63,7 @@ if TYPE_CHECKING:
     from solprop.driver import Simulation
     from solprop.monitor import BoundaryMonitor
     from solprop.output.schema import FieldRetention, Output
-    from solprop.translate.problem import KernelProblem
+    from solprop.translate.problem import PropagationProblem
 
 
 def emit(kind: str, **values: object) -> None:
@@ -234,7 +234,7 @@ class _Loaded:
 
 def timed_run(  # noqa: PLR0913 - the run and how it is observed
     simulation: Simulation,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     engine: Backend,
     retention: FieldRetention,
     monitor: BoundaryMonitor | None = None,
@@ -369,7 +369,7 @@ def _device_free(configuration: Record) -> int | None:
 def _repetition(
     configuration: Record,
     simulation: Simulation,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     engine: Backend | None,
     retention: FieldRetention | None,
     scratch: Path,
@@ -411,7 +411,7 @@ def _repetition(
 def _counted(
     configuration: Record,
     simulation: Simulation,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     engine: Backend | None,
     retention: FieldRetention | None,
     root: Path,
@@ -430,7 +430,7 @@ def _counted(
 def _warm(
     configuration: Record,
     simulation: Simulation,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     engine: Backend | None,
     retention: FieldRetention | None,
     root: Path,
@@ -448,7 +448,7 @@ def _warm(
     return time.perf_counter() - started
 
 
-def warm_up(engine: Backend, problem: KernelProblem, until: float) -> None:
+def warm_up(engine: Backend, problem: PropagationProblem, until: float) -> None:
     """Warm a backend up, untimed, through a session from the problem's launch.
 
     The session observes the launch plane, with its statistics and its field, so that

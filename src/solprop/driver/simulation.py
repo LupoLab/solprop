@@ -6,8 +6,8 @@
 
 A :class:`Simulation` holds what a run is made of -- the grid, the modes, the responses,
 the input, the noise and the numerical settings -- translates it **once** into a
-:class:`solprop.translate.problem.KernelProblem`, and can then be run as often as one
-likes, into memory or into a file. It owns three things the loop of
+:class:`solprop.translate.problem.PropagationProblem`, and can then be run as often as
+one likes, into memory or into a file. It owns three things the loop of
 :mod:`solprop.driver.run` does not: the translation and its cache, the
 :class:`solprop.output.schema.RunMetadata` that says what produced a file, and the
 resume decision.
@@ -336,7 +336,7 @@ from solprop.translate.precision import (
 )
 from solprop.translate.problem import (
     DEFAULT_COMPONENTS,
-    KernelProblem,
+    PropagationProblem,
     PropagatorMode,
     StepperSettings,
     TranslationReuse,
@@ -1408,7 +1408,7 @@ def _admit_integrator(integrator: Multistep, backend: str) -> None:
 
 
 def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
-    problem: KernelProblem,
+    problem: PropagationProblem,
     grid: TimeGrid,
     *,
     modes: Sequence[Mode] = (),
@@ -1432,7 +1432,7 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem the run will step.
     grid : solprop.grid.TimeGrid
         The grid the state lives on.
@@ -1650,7 +1650,7 @@ def _frame_follows_the_electronic_rule(
 
 
 def _plane_reference_record(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     grid: TimeGrid,
     configuration: Mapping[str, object],
     frame: Frame | None,
@@ -1661,7 +1661,7 @@ def _plane_reference_record(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem, whose frame tables are integrated.
     grid : solprop.grid.TimeGrid
         Its temporal grid.
@@ -1704,7 +1704,7 @@ def _plane_reference_record(
 
 
 def _plane_bases(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     grid: TimeGrid,
     configuration: Mapping[str, object],
     modes: Sequence[Mode],
@@ -1719,7 +1719,7 @@ def _plane_bases(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem: its launch position and save planes.
     grid : solprop.grid.TimeGrid
         Its temporal grid.
@@ -2164,7 +2164,7 @@ class Simulation(Displayed):
         self.responses = declared
         self.initial = initial
         self.initial_z = initial_z
-        self._problem: KernelProblem | None = None
+        self._problem: PropagationProblem | None = None
         # The transverse edge's smallest band wavenumber by run length, fixed with the
         # medium and grids: a planar run's costs a slab-mode evaluation per mode, which
         # every run repeated (``_transverse_edge``).
@@ -2415,7 +2415,7 @@ class Simulation(Displayed):
         )
         return f"Simulation: {self._kind()}", rows
 
-    def translate(self) -> KernelProblem:
+    def translate(self) -> PropagationProblem:
         """Assemble the kernel problem, once, and return it.
 
         Everything expensive about a run that does not depend on the state happens here
@@ -2425,7 +2425,7 @@ class Simulation(Displayed):
 
         Returns
         -------
-        solprop.translate.problem.KernelProblem
+        solprop.translate.problem.PropagationProblem
             Validated, versioned and ready for a backend.
 
         Examples
@@ -3826,7 +3826,7 @@ class Simulation(Displayed):
 
     def _prepare_atomic(
         self,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         context: _AtomicContext,
         tdse_archive: TDSEArchive | None,
     ) -> tuple[TDSEBinding, TDSEArchiveWriter | None]:
@@ -3834,7 +3834,7 @@ class Simulation(Displayed):
 
         Parameters
         ----------
-        problem : KernelProblem
+        problem : PropagationProblem
             The translated problem, with its TDSE descriptor.
         context : _AtomicContext
             The optical output, resume state and record.
@@ -3881,7 +3881,7 @@ class Simulation(Displayed):
     def _consistency_gate(
         self,
         binding: TDSEBinding | None,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         handler: Output,
         metadata: RunMetadata,
         backend: Backend,
@@ -3899,7 +3899,7 @@ class Simulation(Displayed):
         ----------
         binding : TDSEBinding or None
             The run's open atomic binding; None for a run without one.
-        problem : KernelProblem
+        problem : PropagationProblem
             The translated problem.
         handler : Output
             The run's output handler, not yet opened.
@@ -4062,7 +4062,7 @@ class Simulation(Displayed):
     def _start(
         self,
         backend: Backend,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         state: ResumeState | None,
         *,
         kept: bool = False,
@@ -4078,7 +4078,7 @@ class Simulation(Displayed):
         backend : solprop.backends.protocol.Backend
             The backend about to step, asked only whether its march can carry a
             method history.
-        problem : solprop.translate.problem.KernelProblem
+        problem : solprop.translate.problem.PropagationProblem
             The translated problem, which carries the initial state.
         state : solprop.output.hdf5.ResumeState or None
             What a file the run is continuing holds, or ``None`` to start at the
@@ -7206,7 +7206,7 @@ class _LoadedRun:
 
     Attributes
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The derived problem, without its input (:func:`_without_input`).
     start : solprop.backends.session.Start
         The input's start. The run's session takes its field, so that nothing holds
@@ -7223,7 +7223,7 @@ class _LoadedRun:
         The derived run's material log, which the march goes on with.
     """
 
-    problem: KernelProblem
+    problem: PropagationProblem
     start: Start
     handler: Output
     metadata: RunMetadata
@@ -7677,7 +7677,7 @@ def _borrowed_input(
     return initial
 
 
-def _without_input(problem: KernelProblem) -> KernelProblem:
+def _without_input(problem: PropagationProblem) -> PropagationProblem:
     """Return a loaded problem without its input, for the march that follows the load.
 
     The save-plane loop reads the launch position and never the launch, so the state
@@ -7686,12 +7686,12 @@ def _without_input(problem: KernelProblem) -> KernelProblem:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The derived problem, whose input is already in the backend.
 
     Returns
     -------
-    solprop.translate.problem.KernelProblem
+    solprop.translate.problem.PropagationProblem
         The problem, sharing every leaf but ``initial.field0``.
     """
     placeholder = np.broadcast_to(
@@ -7702,12 +7702,12 @@ def _without_input(problem: KernelProblem) -> KernelProblem:
     )
 
 
-def _realisation(problem: KernelProblem) -> NoiseRealisation | None:
+def _realisation(problem: PropagationProblem) -> NoiseRealisation | None:
     """Return a derived problem's noise as the backend loads it, or ``None``.
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The derived problem, whose ``initial.noise0`` is already in the backend's
         amplitude units.
 
@@ -7736,7 +7736,9 @@ _SHARED_LEAVES = (
 """The leaves :meth:`Simulation.with_input` shares with the translated problem."""
 
 
-def check_derived_problem(constructed: KernelProblem, derived: KernelProblem) -> None:
+def check_derived_problem(
+    constructed: PropagationProblem, derived: PropagationProblem
+) -> None:
     """Refuse a derived problem that is not the constructed one but for its input.
 
     What a :class:`SimulationRunner` checks before loading an input into the backend
@@ -7747,9 +7749,9 @@ def check_derived_problem(constructed: KernelProblem, derived: KernelProblem) ->
 
     Parameters
     ----------
-    constructed : solprop.translate.problem.KernelProblem
+    constructed : solprop.translate.problem.PropagationProblem
         The problem the backend was built for.
-    derived : solprop.translate.problem.KernelProblem
+    derived : solprop.translate.problem.PropagationProblem
         The problem of one input.
 
     Raises
@@ -8033,7 +8035,7 @@ def _mixture_reuse(
     updated: Simulation,
     old: Mixture,
     new: Mixture,
-    problem: KernelProblem,
+    problem: PropagationProblem,
 ) -> TranslationReuse:
     """Collect eligible immutable translation data after a material-path update.
 
@@ -8043,7 +8045,7 @@ def _mixture_reuse(
         Geometry-preserving simulations with identical grids and noise.
     old, new : Mixture
         Species-equivalent material declarations.
-    problem : KernelProblem
+    problem : PropagationProblem
         Source translation whose immutable arrays may be shared.
 
     Returns
@@ -8444,13 +8446,13 @@ def _check_initial_position(
 
 
 def _validate_resume(
-    problem: KernelProblem, state: ResumeState, execution: TDSEExecution | None
+    problem: PropagationProblem, state: ResumeState, execution: TDSEExecution | None
 ) -> int:
     """Validate restart position and budgets before preparing atomic resources.
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         Translated scientific problem and absolute save positions in m.
     state : ResumeState
         Saved field, accepted position and cumulative accounting.
@@ -8511,7 +8513,7 @@ def _validate_resume(
 
 
 def _check_tdse_archive(
-    archive: object, problem: KernelProblem, handler: Output
+    archive: object, problem: PropagationProblem, handler: Output
 ) -> None:
     """Refuse an archive request this run cannot honour, before any work.
 
@@ -8519,7 +8521,7 @@ def _check_tdse_archive(
     ----------
     archive : object
         The request, checked here to be a ``TDSEArchive`` or None.
-    problem : KernelProblem
+    problem : PropagationProblem
         The translated problem.
     handler : Output
         The optical output, not yet opened.
@@ -8603,7 +8605,7 @@ def _recorded_archive_uuid(state: ResumeState) -> str | None:
 
 def _open_tdse_archive(
     archive: TDSEArchive | None,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     handler: Output,
     state: ResumeState | None,
     metadata: RunMetadata,
@@ -8615,7 +8617,7 @@ def _open_tdse_archive(
     ----------
     archive : TDSEArchive or None
         The request, already checked by :func:`_check_tdse_archive`.
-    problem : KernelProblem
+    problem : PropagationProblem
         The translated problem, with its TDSE descriptor.
     handler : Output
         The optical output.
@@ -8871,7 +8873,7 @@ def _refined_tdse_collar(
 
 
 def _replaced_launch(
-    original: KernelProblem,
+    original: PropagationProblem,
     field0: Complex[np.ndarray, "n_modes n_pol n_omega"],
     launch_z: float,
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
@@ -8883,7 +8885,7 @@ def _replaced_launch(
 
     Parameters
     ----------
-    original : KernelProblem
+    original : PropagationProblem
         The problem the input replaces the launch of.
     field0 : numpy.ndarray
         The replacement input, in true sqrt(W) on a modal route.
@@ -9172,12 +9174,14 @@ def _check_resume_choice(resume: object) -> None:
     raise ValueError(msg)
 
 
-def _work_left(problem: KernelProblem, state: ResumeState, next_plane: int) -> bool:
+def _work_left(
+    problem: PropagationProblem, state: ResumeState, next_plane: int
+) -> bool:
     """Return whether a file has anything left to compute, by position.
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The translated problem, for its save planes.
     state : ResumeState
         What the file holds.
@@ -9227,7 +9231,7 @@ def _refuse_interpolated(path: Path, state: ResumeState, resume: _ResumeChoice) 
 
 def _continues(
     path: Path,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     state: ResumeState,
     next_plane: int,
     resume: _ResumeChoice,
@@ -9238,7 +9242,7 @@ def _continues(
     ----------
     path : pathlib.Path
         The file.
-    problem : KernelProblem
+    problem : PropagationProblem
         The translated problem.
     state : ResumeState
         What the file holds.
@@ -9837,7 +9841,7 @@ def _watched(
 
 
 def _rechecked(
-    simulation: Simulation, original: KernelProblem, derived: KernelProblem
+    simulation: Simulation, original: PropagationProblem, derived: PropagationProblem
 ) -> SpatialAbsorberDesign | None:
     """Return a derived run's transverse design, its check rerun on the new launch.
 
@@ -9851,9 +9855,9 @@ def _rechecked(
     ----------
     simulation : Simulation
         The parent, for its grids and medium.
-    original : solprop.translate.problem.KernelProblem
+    original : solprop.translate.problem.PropagationProblem
         The parent's translated problem.
-    derived : solprop.translate.problem.KernelProblem
+    derived : solprop.translate.problem.PropagationProblem
         The derived problem, with the new launch.
 
     Returns
@@ -9946,7 +9950,7 @@ def _launch_band(
         return None
 
 
-def _refuse_pending_check(problem: KernelProblem) -> None:
+def _refuse_pending_check(problem: PropagationProblem) -> None:
     """Refuse to start a run whose collar's design check never saw a launch.
 
     A coupled child is translated before its launch exists; its check runs when
@@ -9954,7 +9958,7 @@ def _refuse_pending_check(problem: KernelProblem) -> None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The run's problem.
 
     Raises
@@ -10143,8 +10147,8 @@ def _spatial_draw(
 
 
 def _with_noise(
-    problem: KernelProblem, noise: NoiseRealisation | None
-) -> KernelProblem:
+    problem: PropagationProblem, noise: NoiseRealisation | None
+) -> PropagationProblem:
     """Return `problem` carrying `noise`, every other leaf shared by identity.
 
     A realisation reaches a translation only through the initial record and the
@@ -10153,14 +10157,14 @@ def _with_noise(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     noise : solprop.noise.NoiseRealisation or None
         The realisation in true sqrt(W) on a modal route, or ``None`` for no noise.
 
     Returns
     -------
-    solprop.translate.problem.KernelProblem
+    solprop.translate.problem.PropagationProblem
         The problem with the realisation in its internal, vacuum-normalised amplitude.
     """
     noise0 = None if noise is None else noise_spectrum(noise, problem.shape)
@@ -12062,7 +12066,7 @@ def _ionisation_inputs(
 
 
 def _peak_field_reports(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     output: Output,
     responses: Sequence[object],
 ) -> tuple[PeakFieldReport, ...]:
@@ -12075,7 +12079,7 @@ def _peak_field_reports(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem, whose populations name the statistics' rows.
     output : solprop.output.schema.Output
         The handler the run wrote; a closed file is reopened for reading.

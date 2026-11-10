@@ -94,7 +94,7 @@ def test_certificate_refuses_zero_gate_and_nonpositive_active_frequency(
     active = masks.active_mask.copy()
     active[0] = True
     # The standalone certificate validates the contract even when called before
-    # KernelProblem's general mask checks.
+    # PropagationProblem's general mask checks.
     broken = dataclasses.replace(masks, active_mask=active)
     with pytest.raises(TranslationError, match="positive active frequencies"):
         plasma_source_record(broken)

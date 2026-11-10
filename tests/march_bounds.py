@@ -115,7 +115,7 @@ def march_bound(
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The translated problem; its grid, transform and integrator set the counts.
     steps : int, optional
         Steps taken; the prescribed schedule's by default.

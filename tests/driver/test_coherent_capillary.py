@@ -936,7 +936,7 @@ def test_the_reference_refuses_a_problem_the_flow_cannot_sit_beside():
     # The block is scalar and its action contracts the channel axis alone, so a
     # second polarisation would be mixed by it as though it described both. The
     # refusal is taken on the check itself, because a state whose polarisation axis
-    # disagrees with the rest of the problem is refused by `KernelProblem.validate`
+    # disagrees with the rest of the problem is refused by `PropagationProblem.validate`
     # before any backend sees it -- which is exactly why this one is defence in
     # depth rather than the only door.
     channels, _, bins = problem.shape
@@ -1524,8 +1524,8 @@ SMOOTH_STAGES = (0.0, 6e-5, 1.4e-4, 2e-4)
 """Where a taper of this qualification case starts and stops varying, m.
 
 The stages land on multiples of `LENGTH / STEPS`, so the fixed schedule can contain
-every hard kink of the radius, which `KernelProblem.validate` requires of any schedule
-(`_check_schedule`).
+every hard kink of the radius, which `PropagationProblem.validate` requires of any
+schedule (`_check_schedule`).
 """
 
 NARROW = 40e-6

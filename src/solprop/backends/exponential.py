@@ -59,7 +59,7 @@ from solprop.stepper.multistep import (
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.expansion import ParameterExpansion
 from solprop.translate.linop import LinearOperator
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 __all__ = [
     "COUPLED_SECTIONS",
@@ -296,7 +296,7 @@ def exponential_weights(
     return np.tensordot(coefficients, moments, axes=(1, 0))
 
 
-def refuse_formulation(problem: KernelProblem, backend: str) -> None:
+def refuse_formulation(problem: PropagationProblem, backend: str) -> None:
     """Refuse the exponential formulation where it is not yet delivered (SEP 16).
 
     The exponential formulation steps constant, separable and varying diagonal
@@ -306,7 +306,7 @@ def refuse_formulation(problem: KernelProblem, backend: str) -> None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     backend : str
         The backend's name, for the message.
@@ -555,7 +555,7 @@ class CarrierReference:
 
 
 def carrier_reference(
-    problem: KernelProblem, method: Multistep
+    problem: PropagationProblem, method: Multistep
 ) -> CarrierReference | None:
     """Return where a run's carrier frame takes its shift, or ``None`` when off.
 
@@ -569,7 +569,7 @@ def carrier_reference(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     method : solprop.stepper.multistep.Multistep
         The method.
@@ -678,7 +678,7 @@ def _carrier_refusal(
 
 
 def refuse_carrier_frame(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     backend: str,
     *,
     delivered: frozenset[str] = frozenset(),
@@ -687,7 +687,7 @@ def refuse_carrier_frame(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     backend : str
         The backend's name, for the message.

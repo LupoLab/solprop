@@ -266,7 +266,7 @@ def _candidates(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem, for its shape.
     sizing : Mapping[str, object]
         Its workspace's ``execution_sizing`` under the base record.

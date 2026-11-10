@@ -5,7 +5,7 @@
 """The block a run shows before its first step: what is about to be computed, and how.
 
 Every route reaches :func:`solprop.driver.run.run_problem`, which builds this summary
-from the translated :class:`~solprop.translate.problem.KernelProblem`, the run's
+from the translated :class:`~solprop.translate.problem.PropagationProblem`, the run's
 :class:`~solprop.output.schema.RunMetadata` (whose ``configuration`` holds the physics
 objects the problem was built from: the responses, the medium, the profiles), the
 backend's own execution record and the output. It hands the text to the progress
@@ -32,7 +32,7 @@ from solprop.log import format_duration
 from solprop.monitor import BoundaryCheck
 from solprop.output.schema import Output, RunMetadata
 from solprop.stepper.multistep import Multistep
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.transverse_monitor import READS
 
 __all__ = [
@@ -107,7 +107,7 @@ class RunSummary(Displayed):
 
 
 def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
-    problem: KernelProblem,
+    problem: PropagationProblem,
     metadata: RunMetadata,
     *,
     backend: str,
@@ -121,7 +121,7 @@ def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     metadata : solprop.output.schema.RunMetadata
         The run's record; its ``configuration`` supplies what the problem holds only as
@@ -372,12 +372,12 @@ def _threads(backend: str, execution: Mapping[str, object]) -> str:
     return limit
 
 
-def _precision(problem: KernelProblem) -> str:
+def _precision(problem: PropagationProblem) -> str:
     """Describe the floating-point precision of the run.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -417,12 +417,12 @@ def _grid(metadata: RunMetadata) -> str:
     )
 
 
-def _representation(problem: KernelProblem, metadata: RunMetadata) -> str:
+def _representation(problem: PropagationProblem, metadata: RunMetadata) -> str:
     """Describe the transverse representation and the polarisation.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     metadata : solprop.output.schema.RunMetadata
         The run's record.
@@ -543,12 +543,12 @@ def _mixture(record: Mapping[str, object]) -> str:
     return " + ".join(names) + kelvin
 
 
-def _responses(problem: KernelProblem, configuration: Mapping[str, object]) -> str:
+def _responses(problem: PropagationProblem, configuration: Mapping[str, object]) -> str:
     """Describe the nonlinear responses, one line each, with Raman always named.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem, which says what was compiled when the configuration
         does not hold the response objects.
     configuration : collections.abc.Mapping
@@ -700,12 +700,12 @@ def _noise(metadata: RunMetadata) -> str:
     return f"{noise.model} model{marker}, seed {seed}"
 
 
-def _integrator(problem: KernelProblem) -> str:
+def _integrator(problem: PropagationProblem) -> str:
     """Describe the march and its formulation.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -756,12 +756,12 @@ def _defaulted(text: str, metadata: RunMetadata, choice: str) -> str:
     return f"{text} ({defaults.route} default)"
 
 
-def _tolerances(problem: KernelProblem, metadata: RunMetadata) -> str:
+def _tolerances(problem: PropagationProblem, metadata: RunMetadata) -> str:
     """Describe the step control: tolerances and step bound, or a replayed schedule.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     metadata : solprop.output.schema.RunMetadata
         The run's record, which says whether the tolerance is the route's default.
@@ -782,12 +782,12 @@ def _tolerances(problem: KernelProblem, metadata: RunMetadata) -> str:
     return text
 
 
-def _absorber(problem: KernelProblem, check: BoundaryCheck | None) -> str:
+def _absorber(problem: PropagationProblem, check: BoundaryCheck | None) -> str:
     """Describe the temporal absorber and the watch on the window's edges.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     check : solprop.monitor.BoundaryCheck or None
         The edge thresholds, or ``None`` when the edges are not watched.
@@ -811,7 +811,7 @@ def _absorber(problem: KernelProblem, check: BoundaryCheck | None) -> str:
 
 
 def _transverse(
-    problem: KernelProblem, check: BoundaryCheck | None, backend: str
+    problem: PropagationProblem, check: BoundaryCheck | None, backend: str
 ) -> str:
     """Describe a free-space run's transverse boundary and what its edge can report.
 
@@ -820,7 +820,7 @@ def _transverse(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     check : solprop.monitor.BoundaryCheck or None
         The edge thresholds, or ``None`` when nothing is watched.
@@ -857,12 +857,12 @@ def _transverse(
     return f"{boundary}; watched (budget {check.edge_budget:.0e})"
 
 
-def _planes(problem: KernelProblem, planes: np.ndarray) -> str:
+def _planes(problem: PropagationProblem, planes: np.ndarray) -> str:
     """Describe the save planes.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     planes : numpy.ndarray
         The save planes, m.

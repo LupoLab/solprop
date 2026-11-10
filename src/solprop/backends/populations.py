@@ -13,7 +13,7 @@ from solprop.backends.numpy_ref import passes
 from solprop.backends.numpy_ref.envelope_plasma import envelope_populations
 from solprop.exceptions import BackendError
 from solprop.stats import ON_AXIS_PLASMA_STATISTICS, species_statistics
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 __all__ = [
     "axis_node",
@@ -27,7 +27,7 @@ __all__ = [
 
 
 def population_statistics(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     z: float,
     channel_fractions: Float[np.ndarray, "n_channels n_nodes"],
     channel_peaks: Float[np.ndarray, "n_peak_channels n_peak_nodes"],
@@ -36,7 +36,7 @@ def population_statistics(
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         Species labels, density tables, potentials and transverse measure.
     z : float
         Plane position in m.
@@ -98,7 +98,7 @@ def population_statistics(
 
 
 def axis_statistics(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     z: float,
     channel_fractions: Float[np.ndarray, " n_channels"],
     channel_peaks: Float[np.ndarray, " n_peak_channels"],
@@ -107,7 +107,7 @@ def axis_statistics(
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         Species labels, density tables and channels.
     z : float
         Plane position in m.
@@ -165,12 +165,12 @@ def axis_statistics(
     }
 
 
-def axis_refusal(problem: KernelProblem, names: Iterable[str]) -> str | None:
+def axis_refusal(problem: PropagationProblem, names: Iterable[str]) -> str | None:
     """Return why this problem cannot give the requested on-axis statistics.
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The translated problem.
     names : iterable of str
         The requested statistic names.
@@ -203,7 +203,7 @@ def axis_refusal(problem: KernelProblem, names: Iterable[str]) -> str | None:
 
 
 def axis_populations(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
     z: float,
     axis: Float[np.ndarray, "2 n_modes"],
@@ -221,7 +221,7 @@ def axis_populations(
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The translated problem.
     field : numpy.ndarray
         One batch member's state, shape (n_modes, n_pol, n_omega).
@@ -248,7 +248,7 @@ def axis_populations(
 
 
 def axis_row_matrix(
-    problem: KernelProblem, axis: Float[np.ndarray, "2 n_modes"]
+    problem: PropagationProblem, axis: Float[np.ndarray, "2 n_modes"]
 ) -> Float[np.ndarray, "n_rows n_modes"]:
     """Return the matrix that synthesises the axis row from the modal state.
 
@@ -257,7 +257,7 @@ def axis_row_matrix(
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The translated problem.
     axis : numpy.ndarray
         The mode set's synthesis on the axis at this position, taper included, rows x
@@ -276,7 +276,7 @@ def axis_row_matrix(
 
 
 def axis_row_populations(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     spectrum: Complex[np.ndarray, "1 n_components n_omega"],
     z: float,
 ) -> tuple[Float[np.ndarray, " n_channels"], Float[np.ndarray, " n_channels"]]:
@@ -288,7 +288,7 @@ def axis_row_populations(
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The translated problem.
     spectrum : numpy.ndarray
         The :func:`axis_row_matrix` rows contracted with the modal state, one column for
@@ -308,7 +308,7 @@ def axis_row_populations(
 
 
 def _scan_axis_row(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     row: Inexact[np.ndarray, "1 n_components n_to"],
     z: float,
 ) -> tuple[Float[np.ndarray, " n_channels"], Float[np.ndarray, " n_channels"]]:
@@ -316,7 +316,7 @@ def _scan_axis_row(
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The translated problem.
     row : numpy.ndarray
         The field on the axis on the fine time grid in V/m.
@@ -348,7 +348,7 @@ def _scan_axis_row(
 
 
 def axis_node(
-    problem: KernelProblem, axis: Float[np.ndarray, "2 n_modes"]
+    problem: PropagationProblem, axis: Float[np.ndarray, "2 n_modes"]
 ) -> int | None:
     """Return the quadrature node on the axis, or ``None`` when there is none.
 
@@ -358,7 +358,7 @@ def axis_node(
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The translated problem.
     axis : numpy.ndarray
         The on-axis synthesis at the reference position, rows x and y.

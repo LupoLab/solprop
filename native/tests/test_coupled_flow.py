@@ -40,7 +40,7 @@ from solprop.grid import FieldGrid
 from solprop.modes import CoherentWall
 from solprop.profiles import PiecewiseLinear
 from solprop.stepper import FixedSchedule
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 from solprop_native import NativeBackend, NativeBatchBackend
 from solprop_native.backend import (
@@ -120,7 +120,7 @@ CASES = {
 
 def run(
     backend: type[NumpyRefBackend] | type[NativeBackend],
-    problem: KernelProblem,
+    problem: PropagationProblem,
     grid: FieldGrid,
     field0: ComplexArray | None = None,
 ) -> ComplexArray:
@@ -134,7 +134,7 @@ def run(
         driver.close()
 
 
-def _formation_bound(problem: KernelProblem, dz: float) -> float:
+def _formation_bound(problem: PropagationProblem, dz: float) -> float:
     """Return the actions' formation bound, relative to each action; before any run.
 
     solprop's derivation (``tests/flow_parity.py``), restated: each
@@ -208,7 +208,7 @@ def _formation_bound(problem: KernelProblem, dz: float) -> float:
 
 
 def _parity_bound(
-    problem: KernelProblem, expected: ComplexArray, linear: ComplexArray
+    problem: PropagationProblem, expected: ComplexArray, linear: ComplexArray
 ) -> float:
     """Return the ten-step bound relative to the launch; fixed before the first run.
 

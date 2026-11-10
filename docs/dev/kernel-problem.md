@@ -3,7 +3,7 @@
 Before a run takes its first step, everything solprop knows about it — the grid, the
 modes, the gas, the frame, the responses, the pulse, the noise, the stepper settings — is
 translated once into a single frozen object of plain NumPy arrays, a
-{class}`~solprop.translate.problem.KernelProblem`. That object is the only thing a
+{class}`~solprop.translate.problem.PropagationProblem`. That object is the only thing a
 backend ever sees, so it is exactly what the run computes: every choice the physics pages
 describe has been made by the time it exists, and nothing a backend does can change them.
 
@@ -45,7 +45,7 @@ away beforehand.
 
 ## What crosses
 
-{class}`solprop.translate.problem.KernelProblem` is built by
+{class}`solprop.translate.problem.PropagationProblem` is built by
 {func}`solprop.translate.problem.assemble` and carries eight groups, one per section of the
 contract:
 
@@ -148,7 +148,7 @@ debug.
 
 ## Validation is the backend's defence
 
-A backend calls {meth}`solprop.translate.problem.KernelProblem.validate` and refuses
+A backend calls {meth}`solprop.translate.problem.PropagationProblem.validate` and refuses
 anything inconsistent. Most of the contract's promises are kept by construction — each group
 freezes and checks its own arrays, so a writeable array or a mismatched interval count
 cannot be built in the first place — and what `validate` adds is everything that spans

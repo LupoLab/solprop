@@ -4,7 +4,7 @@
 
 """The kernel contract: the one object that crosses into a backend.
 
-:class:`KernelProblem` is a frozen dataclass of plain NumPy arrays and scalars,
+:class:`PropagationProblem` is a frozen dataclass of plain NumPy arrays and scalars,
 validated, versioned and documented field by field in
 ``docs/dev/kernel-contract.md``. A backend may assume everything stated there and
 nothing else; the translation layer promises everything stated there and nothing else.
@@ -193,8 +193,8 @@ __all__ = [
     "TAPER_FLOW_CERTIFICATE",
     "Flags",
     "Initial",
-    "KernelProblem",
     "NoiseModel",
+    "PropagationProblem",
     "PropagatorMode",
     "StepperSettings",
     "TranslationReuse",
@@ -894,7 +894,7 @@ def _held_state(field0: Num[np.ndarray, "*shape"]) -> Complex[np.ndarray, "*shap
 
 
 @dataclass(frozen=True, eq=False)
-class KernelProblem:
+class PropagationProblem:
     """Everything a backend needs, and nothing it does not.
 
     The seam of ``docs/dev/architecture.md`` section 3. Construct it with
@@ -4725,17 +4725,17 @@ def _check_wall_total_varying(
             raise TranslationError(msg)
 
 
-def _validated(problem: "KernelProblem") -> "KernelProblem":  # noqa: UP037
+def _validated(problem: "PropagationProblem") -> "PropagationProblem":  # noqa: UP037
     """Validate an assembled problem and run every diagnostic that only warns.
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The assembled contract.
 
     Returns
     -------
-    KernelProblem
+    PropagationProblem
         The same problem.
     """
     problem.validate()
@@ -4787,7 +4787,7 @@ def _normalisation_rate(
     return rate
 
 
-def validate_coupled_flow(problem: "KernelProblem") -> None:  # noqa: UP037
+def validate_coupled_flow(problem: "PropagationProblem") -> None:  # noqa: UP037
     """Warn when a run's declared steps exceed its coupled flow's advisory limit.
 
     A ``validate`` diagnostic in the manner of the in-stage absorber's
@@ -4812,7 +4812,7 @@ def validate_coupled_flow(problem: "KernelProblem") -> None:  # noqa: UP037
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The assembled contract. A problem carrying no coupled flow, or one whose
         residual is identically zero, has nothing to warn about and is returned from
         in silence.
@@ -5277,12 +5277,12 @@ def _check_scalar_domain(
             raise TranslationError(f"{name} must lie in [0, {upper}]")
 
 
-def _walk_arrays(problem: KernelProblem) -> list[tuple[str, np.ndarray]]:
+def _walk_arrays(problem: PropagationProblem) -> list[tuple[str, np.ndarray]]:
     """Collect every NumPy array in the problem tree, with its dotted name.
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The problem to walk.
 
     Returns
@@ -5322,12 +5322,12 @@ def _walk_arrays(problem: KernelProblem) -> list[tuple[str, np.ndarray]]:
     return found
 
 
-def _walk_tables(problem: KernelProblem) -> list[tuple[str, PiecewiseChebyshev]]:
+def _walk_tables(problem: PropagationProblem) -> list[tuple[str, PiecewiseChebyshev]]:
     """Collect every Chebyshev table along z, with its dotted name.
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The problem to walk.
 
     Returns
@@ -5937,7 +5937,7 @@ def _check_tdse_assembly_route(
         )
 
 
-def _admit_dense(problem: "KernelProblem") -> None:  # noqa: UP037 - defined below
+def _admit_dense(problem: "PropagationProblem") -> None:  # noqa: UP037 - defined below
     """Refuse dense observation where its interpolant is not the run's field.
 
     SEP 14 section 5's admission matrix, for the Runge-Kutta extension and for SEP 13's
@@ -5947,7 +5947,7 @@ def _admit_dense(problem: "KernelProblem") -> None:  # noqa: UP037 - defined bel
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The assembled problem.
 
     Raises
@@ -6200,7 +6200,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     spatial_absorber: SpatialAbsorber | None = None,
     adiabatic_accuracy: AdiabaticAccuracy | None = None,
     precision: Precision = DOUBLE,
-) -> KernelProblem:
+) -> PropagationProblem:
     """Turn the physics objects of a run into a validated kernel problem.
 
     This is the whole of the translation layer's public entry point: it builds the
@@ -6375,20 +6375,20 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         The transverse boundary (SEP 40): resolved against the grid, the medium and
         the noise-free `field0` into the safety ramp, folded into the operator as
         ``SeparableOperator.kperp_rate``, and a real-space collar on request, as the
-        geometry's ``absorber_rate``; its design is :attr:`KernelProblem.transverse`.
-        ``None``, the default here, carries neither. Refused without a spatial grid.
-    adiabatic_accuracy : solprop.adiabatic.AdiabaticAccuracy or None, optional
-        The budgets a radial medium varying along z must meet for its forward
-        amplitude transport (SEP 34 section 4.5); None, the default, is
-        ``AdiabaticAccuracy()``. A path exceeding them is refused.
-    precision : solprop.translate.precision.Precision, optional
+        geometry's ``absorber_rate``; its design is
+        :attr:`PropagationProblem.transverse`. ``None``, the default here, carries
+    neither. Refused without a spatial grid. adiabatic_accuracy :
+        solprop.adiabatic.AdiabaticAccuracy or None, optional The budgets a radial
+        medium varying along z must meet for its forward amplitude transport (SEP 34
+        section 4.5); None, the default, is ``AdiabaticAccuracy()``. A path exceeding
+    them is refused. precision : solprop.translate.precision.Precision, optional
         The arithmetic the run is held in (SEP 33): :data:`~.precision.DOUBLE`, the
         default, or :data:`~.precision.SINGLE`. The tables are built in binary64
         either way; what single precision refuses is refused here.
 
     Returns
     -------
-    KernelProblem
+    PropagationProblem
         Validated, versioned and ready for a backend.
 
     Raises
@@ -6396,7 +6396,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     TranslationError
         If a response cannot be compiled, an argument is out of range, a frame that
         removes ``beta_0`` is given beside a third-harmonic term on an envelope grid,
-        or the assembled problem fails :meth:`KernelProblem.validate`.
+        or the assembled problem fails :meth:`PropagationProblem.validate`.
 
     Examples
     --------
@@ -6657,7 +6657,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         interpolate_planes=interpolate_planes,
         step_planes=step_planes,
     )
-    problem = KernelProblem(
+    problem = PropagationProblem(
         grid_kind=grid.kind,
         shape=(n_modes, n_pol, n_omega),
         flags=Flags.from_content(
@@ -6701,7 +6701,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     return problem
 
 
-def debug_summary(problem: KernelProblem) -> str:
+def debug_summary(problem: PropagationProblem) -> str:
     """Return a short array-free description of an assembled problem, for a log.
 
     The translation summary ``AGENTS.md`` asks the translation layer to log: what
@@ -6717,7 +6717,7 @@ def debug_summary(problem: KernelProblem) -> str:
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         A problem, assembled and validated.
 
     Returns

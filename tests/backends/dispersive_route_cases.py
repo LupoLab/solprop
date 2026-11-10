@@ -43,7 +43,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
 from solprop.translate.general import general_modal_route
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 from solprop.translate.responses import KerrForm
 
 EPS = np.finfo(float).eps
@@ -83,7 +83,7 @@ def free_problem(
     line: bool = False,
     medium: SpatialMedium | None = None,
     adams: bool = True,
-) -> KernelProblem:
+) -> PropagationProblem:
     """Return a Cartesian (or line) free-space problem of ten fixed steps.
 
     Vacuum optics and argon's density, or a gas mixture's own medium.
@@ -123,7 +123,7 @@ def planar_problem(
     integrator: Multistep | RungeKutta | None = None,
     steps: int = STEPS,
     absorbed: bool = False,
-) -> tuple[KernelProblem, TimeGrid]:
+) -> tuple[PropagationProblem, TimeGrid]:
     """Return a hybrid planar run: TE1 and TE3 of a lossless argon gap, four k_y.
 
     `absorbed` adds a temporal collar in the in-stage scheme, whose term reads the
@@ -180,7 +180,9 @@ def raman(thg: bool) -> object:
 # --- the measurements ------------------------------------------------------------
 
 
-def source(backend_class: type, problem: KernelProblem, grid: TimeGrid) -> np.ndarray:
+def source(
+    backend_class: type, problem: PropagationProblem, grid: TimeGrid
+) -> np.ndarray:
     """Return one evaluation of the source at the launch, in the lab frame."""
     backend = backend_class(problem, grid=grid)
     try:
@@ -191,7 +193,7 @@ def source(backend_class: type, problem: KernelProblem, grid: TimeGrid) -> np.nd
 
 
 def run(
-    backend_class: type, problem: KernelProblem, grid: TimeGrid, **options: object
+    backend_class: type, problem: PropagationProblem, grid: TimeGrid, **options: object
 ) -> tuple[np.ndarray, Any]:
     """Propagate to the last save plane and return the field and the summary."""
     backend = backend_class(problem, grid=grid, **options)
@@ -211,7 +213,7 @@ def disagreement(ours: np.ndarray, theirs: np.ndarray) -> float:
     return float(np.linalg.norm(ours - theirs) / scale)
 
 
-def evaluation_bound(problem: KernelProblem) -> float:
+def evaluation_bound(problem: PropagationProblem) -> float:
     """Bound one evaluation's rounding on a spatial or general route (the docstring)."""
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None
@@ -277,7 +279,7 @@ ARGON_FILL = Mixture.fill({"Ar": 1.0}, 2.0)
 
 def general_problem(
     guide: ModalGuide, evaluator: str, form: KerrForm, *, adams: bool = True
-) -> tuple[KernelProblem, TimeGrid]:
+) -> tuple[PropagationProblem, TimeGrid]:
     """Return a general modal problem launching 2 nJ into HE11, ten fixed steps."""
     grid = general_grid()
     route = general_modal_route(

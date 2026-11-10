@@ -59,7 +59,7 @@ from solprop.nonlinear.gnlse import GnlseProblem, problem_from
 from solprop.pulses import SechPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 from solprop.translate.run_request import RunRequest
 
 BETA2 = -11.83e-27  # s^2/m, as tests/backends/conftest.py
@@ -119,7 +119,7 @@ def fibre() -> GnlseProblem:
     )
 
 
-def soliton(*, step_planes: int = 0, period: int = 2) -> KernelProblem:
+def soliton(*, step_planes: int = 0, period: int = 2) -> PropagationProblem:
     """Return the fundamental soliton over :data:`PLANES`.
 
     Parameters
@@ -131,7 +131,7 @@ def soliton(*, step_planes: int = 0, period: int = 2) -> KernelProblem:
 
     Returns
     -------
-    solprop.translate.problem.KernelProblem
+    solprop.translate.problem.PropagationProblem
         The translated problem.
     """
     grid = window()
@@ -155,12 +155,12 @@ def soliton(*, step_planes: int = 0, period: int = 2) -> KernelProblem:
     )
 
 
-def entrance(problem: KernelProblem) -> Start:
+def entrance(problem: PropagationProblem) -> Start:
     """Return the fresh start of a problem, its launch plane owed.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
 
     Returns
@@ -186,7 +186,7 @@ class _Outcomes:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     reject_at : collection of int, optional
         Trials that score :data:`REJECTED`.
@@ -204,7 +204,7 @@ class _Outcomes:
 
     def __init__(
         self,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         *,
         reject_at: Collection[int] = (),
         fail_at: int | None = None,
@@ -275,7 +275,7 @@ class Factory(Protocol):
 
     def __call__(
         self,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         request: RunRequest,
         start: Start,
         *,
@@ -341,18 +341,18 @@ def _selected(name: str) -> Callable[..., Any]:
         The constructor; it takes no script.
     """
 
-    def make(problem: KernelProblem) -> Any:
+    def make(problem: PropagationProblem) -> Any:
         return select(name, problem, grid=window(), modes=[fibre().mode])
 
     return make
 
 
-def _host_scripted(problem: KernelProblem, **script: Any) -> HostSessionScript:
+def _host_scripted(problem: PropagationProblem, **script: Any) -> HostSessionScript:
     """Return a scripted driver on the reference's own driver for a problem.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     **script
         The outcomes, as :class:`SessionScript` takes them.
@@ -365,12 +365,12 @@ def _host_scripted(problem: KernelProblem, **script: Any) -> HostSessionScript:
     return HostSessionScript(problem, grid=window(), **script)
 
 
-def _scripted(problem: KernelProblem, **script: Any) -> SessionScript:
+def _scripted(problem: PropagationProblem, **script: Any) -> SessionScript:
     """Return a scripted driver for a problem.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     **script
         The outcomes, as :class:`SessionScript` takes them.

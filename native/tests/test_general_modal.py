@@ -55,7 +55,7 @@ from solprop.stats import StatsSpec
 from solprop.stepper import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.modal import DEFAULT_NODE_BUDGET
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from thread_sizing import Sizing, assert_threaded
 
 from solprop_native import NativeBackend, NativeBatchBackend, build_info
@@ -168,7 +168,7 @@ class Case:
     """One general modal problem, its launch and the context both backends need."""
 
     simulation: Simulation
-    problem: KernelProblem
+    problem: PropagationProblem
     state: ComplexArray
 
 
@@ -211,7 +211,9 @@ def _case(
     return Case(simulation, problem, state)
 
 
-def _prescribed(problem: KernelProblem, schedule: FixedSchedule) -> KernelProblem:
+def _prescribed(
+    problem: PropagationProblem, schedule: FixedSchedule
+) -> PropagationProblem:
     """Return `problem` on `schedule` with its method's order held fixed.
 
     A prescribed schedule alone does not fix the discrete computation: a
@@ -408,11 +410,11 @@ def test_the_general_statistics_are_the_references() -> None:
 
 
 def _replaced(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     *,
     linear: dict[str, object] | None = None,
     responses: dict[str, object] | None = None,
-) -> KernelProblem:
+) -> PropagationProblem:
     """Return the problem with some rows of its linear and response groups replaced."""
     return dataclasses.replace(
         problem,
@@ -579,7 +581,7 @@ def test_a_batch_of_general_members_agrees_with_its_members_alone() -> None:
             member.close()
 
 
-def _moving_grin() -> tuple[Simulation, KernelProblem]:
+def _moving_grin() -> tuple[Simulation, PropagationProblem]:
     """Build solprop's graded-index sector on a 10 % taper over the millimetre.
 
     Solprop's moving solid guide: the core radius follows
@@ -633,7 +635,7 @@ def _moving_grin() -> tuple[Simulation, KernelProblem]:
 def _moving_run(
     backend_class: type[NumpyRefBackend] | type[NativeBackend],
     simulation: Simulation,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     field0: ComplexArray | None = None,
 ) -> tuple[ComplexArray, dict[str, int]]:
     backend = backend_class(problem, grid=simulation.grid)
@@ -648,7 +650,7 @@ def _moving_run(
 
 
 def _moving_bound(
-    problem: KernelProblem, expected: ComplexArray, linear: ComplexArray
+    problem: PropagationProblem, expected: ComplexArray, linear: ComplexArray
 ) -> float:
     """Return the ten-step bound relative to the launch; fixed before the first run.
 

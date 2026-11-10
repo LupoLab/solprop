@@ -43,7 +43,7 @@ from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, RungeKutta
 from solprop.translate.plasma_integration import design_running_integral
 from solprop.translate.ionisation import RateTable
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 from solprop_native import NativeBackend
 from bounds import UNIT_ROUNDOFF
@@ -91,7 +91,7 @@ def launch(amplitude: float) -> npt.NDArray[np.float64]:
     return amplitude * np.exp(-((t / 4e-15) ** 2)) * np.cos(2.35e15 * t)
 
 
-def problem_for(amplitude: float, rule: RunningIntegral) -> KernelProblem:
+def problem_for(amplitude: float, rule: RunningIntegral) -> PropagationProblem:
     """Return a one-node argon problem whose launch synthesises to :func:`launch`."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
@@ -130,7 +130,9 @@ def problem_for(amplitude: float, rule: RunningIntegral) -> KernelProblem:
     )
 
 
-def fields_of(problem: KernelProblem, field: npt.NDArray[np.complex128]) -> np.ndarray:
+def fields_of(
+    problem: PropagationProblem, field: npt.NDArray[np.complex128]
+) -> np.ndarray:
     """Return the reference's node fields for the state `field`."""
     reference = NumpyRefBackend(problem, grid=GRID)
     try:
@@ -147,7 +149,7 @@ def fields_of(problem: KernelProblem, field: npt.NDArray[np.complex128]) -> np.n
 
 def statistics(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
-    problem: KernelProblem,
+    problem: PropagationProblem,
 ) -> dict[str, np.ndarray]:
     """Return the launch's statistics."""
     backend = implementation(problem, grid=GRID)
@@ -159,7 +161,7 @@ def statistics(
 
 
 def node_fields_and_error(
-    problem: KernelProblem, grid: FieldGrid
+    problem: PropagationProblem, grid: FieldGrid
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return the reference's launch node fields and their error between syntheses."""
     reference = NumpyRefBackend(problem, grid=grid)

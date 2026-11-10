@@ -180,8 +180,8 @@ term with the distance as its weight for a constant, ``n_terms`` for an expansio
 a backend holds the arrays and never the representation
 (:mod:`solprop.translate.stage`). The z table is a Clenshaw pass over an array of the
 state's size times the degree and is evaluated on the host;
-:attr:`solprop.translate.problem.KernelProblem.device_ready` is the predicate, and a
-device-resident backend refuses what fails it.
+:attr:`solprop.translate.problem.PropagationProblem.device_ready` is the predicate, and
+a device-resident backend refuses what fails it.
 """
 
 RepresentationChoice = Literal["auto", "expansion", "table"]
@@ -220,7 +220,7 @@ class LinearOperator:
         `phi_coefficients`; ``"table"`` carries `phi_coefficients` alone. The evaluation
         functions take all three, so nothing downstream branches on this to *evaluate*;
         what does branch on it is whether the problem is in the device form
-        (:attr:`solprop.translate.problem.KernelProblem.device_ready`).
+        (:attr:`solprop.translate.problem.PropagationProblem.device_ready`).
     phi_breakpoints : numpy.ndarray
         Interval edges in z, m, shape ``(n_intervals + 1,)``, strictly increasing. For
         an expansion these are the edges of its scalar tables, so the local step cap and
@@ -1524,7 +1524,7 @@ def with_power_weight(
 # `power_weight_at` fail to import under the hook.
 @runtime_checkable
 class _PowerWeightedProblem(Protocol):
-    """Expose the linear group without a circular import of KernelProblem."""
+    """Expose the linear group without a circular import of PropagationProblem."""
 
     @property
     def linear(self) -> LinearOperator:
@@ -1545,7 +1545,7 @@ def power_weight_at(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         Validated modal problem carrying the weight row.
     z : float
         Position in m inside the translated range.
@@ -1619,7 +1619,7 @@ def power_weight_factors(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         Validated modal problem carrying the weight row.
     positions : numpy.ndarray
         Positions in m inside the translated range, shape ``(n_z,)``.

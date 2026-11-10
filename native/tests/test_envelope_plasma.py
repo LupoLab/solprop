@@ -29,7 +29,7 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 from solprop.translate.stage import terms
 from thread_sizing import Sizing, assert_threaded
 
@@ -56,7 +56,7 @@ NAMES = (
 )
 
 
-def native_bound(problem: KernelProblem, grid: EnvelopeGrid) -> float:
+def native_bound(problem: PropagationProblem, grid: EnvelopeGrid) -> float:
     """Bound two Kokkos runs of one case's eight prescribed steps against each other.
 
     The reference comparison's rounding term without its 2e-10 for the reference's
@@ -204,7 +204,7 @@ def test_envelope_current_streams_use_large_radial_projection() -> None:
 
 def envelope_case(
     route: str, n_pol: int, *, mixture: bool = True
-) -> tuple[KernelProblem, EnvelopeGrid]:
+) -> tuple[PropagationProblem, EnvelopeGrid]:
     fill = Mixture.fill({"Ar": 0.5, "He": 0.5} if mixture else {"Ar": 1.0}, 0.5)
     fill = replace(
         fill,

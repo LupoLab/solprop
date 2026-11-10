@@ -816,7 +816,7 @@ FIELD = "jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega']"
 
 DRIVER_SURFACE = {
     "__init__": (
-        "(self, problem: solprop.translate.problem.KernelProblem, *, "
+        "(self, problem: solprop.translate.problem.PropagationProblem, *, "
         "grid: solprop.grid.TimeGrid | None = None, "
         "modes: collections.abc.Sequence[solprop.modes.protocol.Mode] | None = None, "
         "profiles: collections.abc.Mapping[str, solprop.profiles.ZProfile] | None = "

@@ -356,7 +356,7 @@ The long form is [`backends.md`](docs/dev/backends.md).
   arrays. Between `StepDriver` and its subclass the state is an opaque handle (a native
   state), and the shared code reads it only through `_observed_field`,
   which copies it to the host.
-- **The seam has no version number** (ADR-068). A change to the `KernelProblem` fields,
+- **The seam has no version number** (ADR-068). A change to the `PropagationProblem` fields,
   the protected `StepDriver` surface or the stage bundles of `translate/stage.py` rewrites
   the frozen tables in `tests/backends/test_driver.py` in the same commit and adds a
   release-note fragment. solprop and solprop-native are released together and pinned to

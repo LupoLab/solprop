@@ -39,7 +39,7 @@ from solprop.output.schema import PlaneStore, SavedPlane, _adopted
 from solprop.stepper import Multistep, RungeKutta
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.translate.linop import power_weight_at
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import describe_run
 
 # These cases run coarse grids for speed; their windows are not what is tested here.
@@ -278,7 +278,7 @@ def test_a_stored_field_has_the_bits_of_the_conversion_in_two_steps(
 
 def _observed_at_its_first_plane(
     name: str, simulation: Simulation
-) -> tuple[KernelProblem, Backend, Observation]:
+) -> tuple[PropagationProblem, Backend, Observation]:
     """Return a loaded backend stepped to the first save plane, and its observation."""
     problem = simulation.translate()
     backend = select(name, problem, grid=simulation.grid)

@@ -93,7 +93,7 @@ them (`benchmarks.builders.build`, then `Simulation.translate`):
 | | after | 4.10 | 4.04 |
 
 The translated problems are bitwise unchanged: a SHA-256 over every array of the
-`KernelProblem`, the general route's modal tables and the launch field included, is the
+`PropagationProblem`, the general route's modal tables and the launch field included, is the
 same before and after. Not measured: the production width, where the launch's passes
 already run in threads and the saving is smaller.
 

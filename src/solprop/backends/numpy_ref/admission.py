@@ -16,8 +16,8 @@ What a backend has not built is said with `flow_methods`: the section methods of
 before anything is allocated. Everything else -- a backend's own kernels' limits --
 stays with the backend that has the limit.
 
-The list runs **before** :meth:`solprop.translate.problem.KernelProblem.validate` and
-before any buffer is allocated, and repeats checks the translation layer also makes,
+The list runs **before** :meth:`solprop.translate.problem.PropagationProblem.validate`
+and before any buffer is allocated, and repeats checks the translation layer also makes,
 because a problem can be assembled by something other than
 :func:`solprop.translate.problem.assemble` and a backend does not rely on a caller
 having been careful.
@@ -38,7 +38,7 @@ from solprop.translate.coupled import (
 from solprop.translate.general import MAX_DENSE_METRIC_DEPARTURE, metric_departure
 from solprop.translate.linop import LinearOperator
 from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL, ModalTransformTables
-from solprop.translate.problem import MAX_N_COMPONENTS, KernelProblem
+from solprop.translate.problem import MAX_N_COMPONENTS, PropagationProblem
 
 __all__ = ["FLOW_METHODS", "refuse_coupled_flow", "refuse_general_route"]
 
@@ -57,7 +57,7 @@ implemented on the native backend.
 
 
 def refuse_general_route(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     *,
     backend: str = "numpy_ref",
     flow_methods: Collection[SectionMethod] = FLOW_METHODS,
@@ -77,7 +77,7 @@ def refuse_general_route(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem to check.
     backend : str, optional
         The registry name each refusal names.
@@ -120,7 +120,7 @@ def refuse_general_route(
 
 
 def refuse_coupled_flow(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     *,
     backend: str = "numpy_ref",
     flow_methods: Collection[SectionMethod] = FLOW_METHODS,
@@ -142,7 +142,7 @@ def refuse_coupled_flow(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem to check.
     backend : str, optional
         The registry name each refusal names.
@@ -244,7 +244,7 @@ def _refuse_flow_representation(
         raise BackendError(msg)
 
 
-def _refuse_flow_problem(problem: KernelProblem, *, backend: str) -> None:
+def _refuse_flow_problem(problem: PropagationProblem, *, backend: str) -> None:
     """Refuse a problem whose surroundings the coupled flow cannot be executed in.
 
     The four that are this route's to make. The cumulative diagonal ``Phi``
@@ -270,7 +270,7 @@ def _refuse_flow_problem(problem: KernelProblem, *, backend: str) -> None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem, whose coupled flow is not ``None``.
     backend : str
         The registry name each refusal names.
@@ -458,7 +458,7 @@ def _refuse_general_metric(
 
 
 def _refuse_modal_route(
-    problem: KernelProblem, *, backend: str, moving_maps: bool = False
+    problem: PropagationProblem, *, backend: str, moving_maps: bool = False
 ) -> None:
     """Refuse every general modal problem the calling backend does not execute.
 
@@ -472,8 +472,8 @@ def _refuse_modal_route(
 
     Two of these are also checked in the translation layer, where the record is
     built: the state's ``n_pol`` and the metric's declared defect. They are checked
-    again here because this list runs *before* ``KernelProblem.validate`` and because
-    a problem can be assembled by something other than
+    again here because this list runs *before* ``PropagationProblem.validate`` and
+    because a problem can be assembled by something other than
     :func:`solprop.translate.problem.assemble`; a backend does not rely on a caller
     having been careful. Every refusal is raised before the route's maps, tensors or
     driver buffers are allocated.
@@ -486,7 +486,7 @@ def _refuse_modal_route(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem to check.
     backend : str
         The registry name each refusal names.
@@ -584,7 +584,7 @@ def _refuse_modal_route(
 
 
 def _refuse_moving_maps(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     tables: ModalTransformTables,
     *,
     backend: str,
@@ -604,7 +604,7 @@ def _refuse_moving_maps(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem, whose maps carry more than one coefficient along z.
     tables : solprop.translate.modal_tables.ModalTransformTables
         Its modal tables.
@@ -651,12 +651,12 @@ def _refuse_moving_maps(
         raise BackendError(msg)
 
 
-def _refuse_legacy_responses(problem: KernelProblem, *, backend: str) -> None:
+def _refuse_legacy_responses(problem: PropagationProblem, *, backend: str) -> None:
     """Refuse a legacy response a general modal guide would carry and not propagate.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         A problem carrying ``transform.modal_tables``.
     backend : str
         The registry name the refusal names.

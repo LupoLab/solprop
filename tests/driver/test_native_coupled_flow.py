@@ -69,7 +69,7 @@ from solprop.grid import TimeGrid
 from solprop.modes.capillary import CoherentWall
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import MaterialKerr
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 pytestmark = [
     pytest.mark.skipif("native" not in available(), reason="native is not installed"),
@@ -100,7 +100,7 @@ what makes the source carried back through the flow a measurable part of the ste
 class Case:
     """One coupled-flow problem, its grid and the length it is run to."""
 
-    problem: KernelProblem
+    problem: PropagationProblem
     grid: TimeGrid
     length: float
 

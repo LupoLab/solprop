@@ -74,7 +74,7 @@ from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 from test_band_stress import launch_statistics
 
 import solprop_native
@@ -149,8 +149,8 @@ def stress(name: str, n_pol: int) -> Real:
 
 
 def launched(
-    problem: KernelProblem, real: Real, integral: RunningIntegral
-) -> KernelProblem:
+    problem: PropagationProblem, real: Real, integral: RunningIntegral
+) -> PropagationProblem:
     """Return `problem` launching `real`, band-limited, under `integral`, no collar."""
     grids = problem.grids
     # The state's spectrum is doubled on its way to the real field.
@@ -179,7 +179,7 @@ def assembled(
     n_pol: int,
     medium: SpatialMedium,
     density: float | None = None,
-) -> KernelProblem:
+) -> PropagationProblem:
     """Return a one-step radial problem of three nodes, launching nothing yet."""
     return assemble(
         GRID,
@@ -199,7 +199,7 @@ def assembled(
 
 def argon(
     name: str, initial: float, n_pol: int, integral: RunningIntegral
-) -> KernelProblem:
+) -> PropagationProblem:
     """Return a stress case: argon's real rate, its own pre-ionisation."""
     table = build_rate_table(OptmatRate("Ar", 800e-9), (1e8, 3e11))
     problem = assembled(
@@ -211,7 +211,7 @@ def argon(
     return launched(problem, stress(name, n_pol), integral)
 
 
-def stages(problem: KernelProblem) -> tuple[Complex, Complex]:
+def stages(problem: PropagationProblem) -> tuple[Complex, Complex]:
     """Return native's and the reference's first stage on the launch."""
     reference = NumpyRefBackend(problem, grid=GRID)
     try:
@@ -238,7 +238,7 @@ def stages(problem: KernelProblem) -> tuple[Complex, Complex]:
 
 
 def assert_stage_within_bound(
-    problem: KernelProblem, record: Callable[[str, float], None]
+    problem: PropagationProblem, record: Callable[[str, float], None]
 ) -> None:
     bound = fft_bound(GRID.n_to) + plasma_stage_bound(
         problem, GRID, INFO.runtime_threads
@@ -254,7 +254,7 @@ def assert_stage_within_bound(
     assert measured <= bound * scale
 
 
-def launch_fraction_bound(problem: KernelProblem) -> float:
+def launch_fraction_bound(problem: PropagationProblem) -> float:
     """Return the final fraction's absolute bound at the launch (``plasma_bounds``)."""
     responses = problem.responses
     integral = responses.plasma_integral

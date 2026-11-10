@@ -240,7 +240,7 @@ class GeneralModalRoute(Displayed):
         is carried here because the route is the last object that sees the guide --
         :func:`solprop.translate.problem.assemble` takes the leaves apart and the
         guide never reaches a
-        :class:`~solprop.translate.problem.KernelProblem` -- and the run record
+        :class:`~solprop.translate.problem.PropagationProblem` -- and the run record
         persists it inside :attr:`solprop.output.schema.RunMetadata.modal`.
         ``None`` for a record built by hand, which :func:`modal_identity` then
         refuses by name rather than writing a file that cannot say what produced it.

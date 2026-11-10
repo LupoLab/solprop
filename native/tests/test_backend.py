@@ -36,7 +36,7 @@ from solprop.stepper.multistep import Multistep
 from solprop.translate import masks
 from solprop.translate.coupled import CoupledFlowTables
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 from solprop.translate.stage import terms
 
 import solprop_native
@@ -526,7 +526,7 @@ def test_every_schema_14_general_modal_leaf_is_refused_by_name(
         NativeBackend(spoiled, grid=grid)
 
 
-def _leaf_value(problem: KernelProblem, leaf: str) -> object:
+def _leaf_value(problem: PropagationProblem, leaf: str) -> object:
     """Return a leaf the shared admission list refuses on this problem."""
     if leaf != "coupled_flow":
         return object()

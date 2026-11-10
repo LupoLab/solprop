@@ -136,7 +136,7 @@ from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_source import (
     _BENCHMARK_GATED,  # pyright: ignore[reportPrivateUsage] - refuse the private NumPy benchmark hook
 )
-from solprop.translate.problem import KernelProblem, PropagatorMode
+from solprop.translate.problem import PropagationProblem, PropagatorMode
 from solprop.translate.responses import CompiledResponses, ResponseStage
 from solprop.translate.stage import (
     StageScalars,
@@ -332,7 +332,7 @@ class NativeBackend(StepDriver[_core.State]):
 
     def __init__(
         self,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         *,
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
@@ -2732,7 +2732,7 @@ prefactor (``stage::Terms``)."""
 
 
 def _section_tables(
-    problem: KernelProblem, *, moving: bool, residual: bool
+    problem: PropagationProblem, *, moving: bool, residual: bool
 ) -> dict[str, object]:
     """Return a coupled flow's and a moving guide's sections as the stage tables take
     them: their edges, degrees and the edges' slack (`flow_edge_slack`,
@@ -2791,7 +2791,9 @@ def _on_device() -> bool:
     return _build_facts().info["device_backend"] != "none"
 
 
-def _low_storage_payload(problem: KernelProblem, *, device: bool) -> dict[str, object]:
+def _low_storage_payload(
+    problem: PropagationProblem, *, device: bool
+) -> dict[str, object]:
     """Return the native problem's low-storage rows (solprop kernel schema 32).
 
     The march's own allocation: its registers in place of the Runge-Kutta views, the
@@ -3997,7 +3999,7 @@ class _ZTables:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         A problem that took the z table for ``Phi``, the prefactor or both.
 
     Attributes
@@ -4010,7 +4012,7 @@ class _ZTables:
         The ``Phi`` term that holds the rate, or ``None`` when no march reads it.
     """
 
-    def __init__(self, problem: KernelProblem) -> None:
+    def __init__(self, problem: PropagationProblem) -> None:
         """Size the slots from the problem; nothing crosses until :meth:`upload`."""
         self._problem = problem
         self.phi = problem.linear.phi_representation == "table"
@@ -4159,7 +4161,7 @@ class ControllerLike(Protocol):
         ...
 
 
-def _refuse_adams(problem: KernelProblem) -> None:
+def _refuse_adams(problem: PropagationProblem) -> None:
     integrator = problem.stepper.integrator
     # The low-storage march (solprop SEP 24 phase 3) runs on every route the
     # translation admits it on: no coupled flow and no TDSE response.
@@ -4221,7 +4223,7 @@ def _refuse_omitted_stages(responses: CompiledResponses) -> None:
         )
 
 
-def _refuse_unsupported(problem: KernelProblem) -> None:
+def _refuse_unsupported(problem: PropagationProblem) -> None:
     _refuse_omitted_stages(problem.responses)
     if problem.precision.single:
         raise BackendError(
@@ -4293,7 +4295,7 @@ refuses it here by name.
 """
 
 
-def _refuse_native_route(problem: KernelProblem) -> None:
+def _refuse_native_route(problem: PropagationProblem) -> None:
     """Refuse what solprop's shared list admits and this backend has not built.
 
     The general modal route and the coupled flow are admitted by solprop's one list,
@@ -4367,7 +4369,7 @@ def _host_residual(
     return drive
 
 
-def _host_flow(problem: KernelProblem) -> _HostFlow | None:
+def _host_flow(problem: PropagationProblem) -> _HostFlow | None:
     """Decompose an admitted coupled flow once, or return ``None`` without one."""
     flow: CoupledFlowTables | None = problem.linear.coupled_flow
     if flow is None:
@@ -4564,7 +4566,7 @@ def _aperture_payload(
 
 
 def _refined_record(
-    problem: KernelProblem, state: _core.State
+    problem: PropagationProblem, state: _core.State
 ) -> tuple[ExecutionRecord, str] | None:
     """Return a stored stage-2 refinement of this execution, or ``None``.
 
@@ -4630,7 +4632,7 @@ def _planning_record(state: _core.State) -> dict[str, object]:
 
 
 def _native_problem(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     fixed: StageTerms,
     flow: _HostFlow | None = None,
     tables: _ZTables | None = None,
@@ -4896,7 +4898,7 @@ def _native_problem(
     }
 
 
-def _dispersive_payload(problem: KernelProblem) -> dict[str, object]:
+def _dispersive_payload(problem: PropagationProblem) -> dict[str, object]:
     """Lay out solprop SEP 6's dispersive response for the native engine.
 
     The structure the native response takes on every route: the channels grouped as the
@@ -5018,7 +5020,7 @@ def _dispersive_payload(problem: KernelProblem) -> dict[str, object]:
     }
 
 
-def _flux_payload(problem: KernelProblem) -> dict[str, object]:
+def _flux_payload(problem: PropagationProblem) -> dict[str, object]:
     """Pack the plane measure of solprop SEP 34 (kernel schema 35).
 
     A separable run (Cartesian, line, planar) is measured by its own operator's root,
@@ -5052,7 +5054,7 @@ def _flux_payload(problem: KernelProblem) -> dict[str, object]:
     }
 
 
-def _upload_flux_table(native: _core.State, problem: KernelProblem) -> None:
+def _upload_flux_table(native: _core.State, problem: PropagationProblem) -> None:
     """Make a radial plane measure's material z table resident, once (SEP 34)."""
     flux = problem.flux
     if flux is None or flux.material is None:
@@ -5072,7 +5074,7 @@ def _upload_flux_table(native: _core.State, problem: KernelProblem) -> None:
     )
 
 
-def _slab_payload(problem: KernelProblem) -> dict[str, object]:
+def _slab_payload(problem: PropagationProblem) -> dict[str, object]:
     """Pack the hybrid planar kind's channels, wall terms and per-column collar rate.
 
     Schema 15's ``SeparableOperator.kappa_sq`` is ``(n_channels, n_omega)``, column
@@ -5096,7 +5098,7 @@ def _slab_payload(problem: KernelProblem) -> dict[str, object]:
     }
 
 
-def _general_payload(problem: KernelProblem) -> dict[str, object]:
+def _general_payload(problem: PropagationProblem) -> dict[str, object]:
     """Pack the general modal route's maps, derived as ``numpy_ref`` derives them.
 
     The per-node tensor, the form and the delayed maps come from solprop's own
@@ -5161,7 +5163,7 @@ def _general_payload(problem: KernelProblem) -> dict[str, object]:
     }
 
 
-def _envelope_payload(problem: KernelProblem) -> dict[str, object]:
+def _envelope_payload(problem: PropagationProblem) -> dict[str, object]:
     """Pack the accepted cycle rules and already masked spectral factors."""
     assembly = problem.responses.envelope_plasma
     if assembly is None:
@@ -5181,7 +5183,7 @@ def _envelope_payload(problem: KernelProblem) -> dict[str, object]:
     }
 
 
-def _channel_payload(problem: KernelProblem) -> dict[str, object]:
+def _channel_payload(problem: PropagationProblem) -> dict[str, object]:
     """Pack independent rate tables without resampling their coefficients."""
     parameters: list[list[float]] = []
     coefficients: list[np.ndarray] = []

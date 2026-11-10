@@ -31,7 +31,7 @@ from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.monitor import BoundaryMonitor
 from solprop.stats import StatsSpec
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 __all__ = ["LockstepRunner"]
 
@@ -596,12 +596,12 @@ def _refuse_mixed_precisions(members: tuple[StepDriver[object], ...]) -> None:
         raise BackendError("lockstep execution refuses mixed precisions")
 
 
-def _general_leaves(problem: KernelProblem) -> object:
+def _general_leaves(problem: PropagationProblem) -> object:
     """Return what general modal guide a problem carries, comparably.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         A member's problem.
 
     Returns
@@ -629,7 +629,9 @@ def _general_leaves(problem: KernelProblem) -> object:
     )
 
 
-def _refuse_mixed_guides(problem: KernelProblem, reference: KernelProblem) -> None:
+def _refuse_mixed_guides(
+    problem: PropagationProblem, reference: PropagationProblem
+) -> None:
     """Refuse a lockstep group whose members are not one general modal guide.
 
     The narrow admission rule for a batch of general modal guides, applied at the
@@ -643,9 +645,9 @@ def _refuse_mixed_guides(problem: KernelProblem, reference: KernelProblem) -> No
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The member being admitted.
-    reference : solprop.translate.problem.KernelProblem
+    reference : solprop.translate.problem.PropagationProblem
         Member zero's problem, whose guide the group is.
 
     Raises

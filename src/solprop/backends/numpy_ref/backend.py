@@ -107,7 +107,7 @@ from solprop.translate.coupled import (
 from solprop.translate.linop import power_weight_at
 from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_source import _BENCHMARK_GATED
-from solprop.translate.problem import MAX_N_POL, KernelProblem
+from solprop.translate.problem import MAX_N_POL, PropagationProblem
 from solprop.translate.spatial import separable_values
 from solprop.translate.stage import StageScalars, combine
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding, TDSEPurpose
@@ -162,9 +162,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
-        The validated kernel problem. :meth:`~.KernelProblem.validate` is called again
-        here: validation is the backend's defence, not the caller's courtesy.
+    problem : solprop.translate.problem.PropagationProblem
+        The validated kernel problem. :meth:`~.PropagationProblem.validate` is called
+        again here: validation is the backend's defence, not the caller's courtesy.
     grid : solprop.grid.TimeGrid, optional
         The grid the state lives on, needed only by :meth:`stats`.
     modes : collections.abc.Sequence, optional
@@ -220,7 +220,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     def __init__(
         self,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         *,
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
@@ -2847,12 +2847,12 @@ class SourceTables:
     temporal_rate: Float[np.ndarray, " n_to"] | None
 
     @classmethod
-    def of(cls, problem: KernelProblem) -> "SourceTables":  # noqa: UP037 - the runtime type hook resolves this while the class body runs
+    def of(cls, problem: PropagationProblem) -> "SourceTables":  # noqa: UP037 - the runtime type hook resolves this while the class body runs
         """Return the problem's own tables.
 
         Parameters
         ----------
-        problem : solprop.translate.problem.KernelProblem
+        problem : solprop.translate.problem.PropagationProblem
             The problem.
 
         Returns
@@ -2871,7 +2871,7 @@ class SourceTables:
         )
 
 
-def _refuse_adams(problem: KernelProblem) -> None:
+def _refuse_adams(problem: PropagationProblem) -> None:
     """Refuse what the Adams march does not execute (SEP 13 sections 2 and 6.2).
 
     Its history is of source samples along a diagonal flow, so a coupled flow is
@@ -2889,7 +2889,7 @@ def _refuse_adams(problem: KernelProblem) -> None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem to check.
 
     Raises
@@ -2917,12 +2917,12 @@ def _refuse_adams(problem: KernelProblem) -> None:
     refuse_carrier_frame(problem, "numpy_ref", delivered=frozenset({"scalar"}))
 
 
-def _refuse_unsupported(problem: KernelProblem) -> None:
+def _refuse_unsupported(problem: PropagationProblem) -> None:
     """Refuse, by name, every problem this backend does not execute.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem to check.
 
     Raises
@@ -2999,7 +2999,7 @@ general modal guide reports these as zero rather than omitting them
 """
 
 
-def _refuse_inadmissible(problem: KernelProblem, spec: StatsSpec) -> None:
+def _refuse_inadmissible(problem: PropagationProblem, spec: StatsSpec) -> None:
     """Refuse a statistic this problem's basis does not define, by name.
 
     The second door of the accessor whitelist (:mod:`solprop.output.capability`),
@@ -3010,7 +3010,7 @@ def _refuse_inadmissible(problem: KernelProblem, spec: StatsSpec) -> None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem this backend was built from.
     spec : solprop.stats.StatsSpec
         The statistics asked for.
@@ -3038,7 +3038,7 @@ def _refuse_inadmissible(problem: KernelProblem, spec: StatsSpec) -> None:
         raise BackendError(refusal)
 
 
-def _general_maps(problem: KernelProblem) -> GeneralMaps | None:
+def _general_maps(problem: PropagationProblem) -> GeneralMaps | None:
     """Derive the general modal route's maps, or return ``None`` for another route.
 
     The maps are read out of the leaves once, here, because the route propagates
@@ -3049,7 +3049,7 @@ def _general_maps(problem: KernelProblem) -> GeneralMaps | None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         A validated problem this backend has already admitted.
 
     Returns
@@ -3711,12 +3711,12 @@ def _refuse_flow_conditioning(
         raise BackendError(msg)
 
 
-def _coupled_flow_maps(problem: KernelProblem) -> _CoupledFlow | None:
+def _coupled_flow_maps(problem: PropagationProblem) -> _CoupledFlow | None:
     """Decompose the coupled flow this backend will execute, once.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem, already admitted by
         :func:`solprop.backends.numpy_ref.admission.refuse_coupled_flow`.
 
@@ -3777,7 +3777,7 @@ def _coupled_flow_maps(problem: KernelProblem) -> _CoupledFlow | None:
     return held
 
 
-def _source_record(problem: KernelProblem) -> dict[str, object]:
+def _source_record(problem: PropagationProblem) -> dict[str, object]:
     """Record a TDSE run's source filter and, for the gated one, its certificate.
 
     The steady-current certificate (SEP 26 section 4.4) is refused above its limit at
@@ -3785,7 +3785,7 @@ def _source_record(problem: KernelProblem) -> dict[str, object]:
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         A TDSE problem.
 
     Returns
@@ -3809,7 +3809,7 @@ def _source_record(problem: KernelProblem) -> dict[str, object]:
 
 
 def _harmonic_carrier(
-    problem: KernelProblem,
+    problem: PropagationProblem,
 ) -> Complex[np.ndarray, " n_to"] | None:
     """Return ``exp(2 i omega_0 t)`` on the fine grid when the harmonic is radiated.
 
@@ -3822,7 +3822,7 @@ def _harmonic_carrier(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem, whose compiled Kerr term says whether the harmonic is wanted.
 
     Returns
@@ -3849,7 +3849,7 @@ def _harmonic_carrier(
 
 
 def _embedded_projection(
-    problem: KernelProblem,
+    problem: PropagationProblem,
 ) -> Float[np.ndarray, "n_modes n_columns"] | None:
     """Return the embedded coarse-rule projection, when the quadrature has one.
 
@@ -3861,7 +3861,7 @@ def _embedded_projection(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem, whose transform carries both projections.
 
     Returns

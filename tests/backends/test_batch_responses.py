@@ -5,7 +5,7 @@
 """Check batch isolation for the tiny modal, Raman and plasma response problems.
 
 The three problem builders below are backend-agnostic
-:class:`~solprop.translate.problem.KernelProblem` constructions, small enough
+:class:`~solprop.translate.problem.PropagationProblem` constructions, small enough
 (``n_to <= 64``, eight fixed steps) that a batch and its members can be compared
 directly on every backend the batch runner supports, within a rounding budget.
 """

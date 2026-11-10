@@ -59,7 +59,7 @@ from solprop.output.schema import (
     field_retention_refusal,
 )
 from solprop.processing.scans import Reduction, ScanOutput, _Builtin, _provenance
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import describe_run
 
 logger = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ class _Job:
 
 
 def launch_statistics(
-    backend: Backend, problem: KernelProblem
+    backend: Backend, problem: PropagationProblem
 ) -> Mapping[str, np.ndarray]:
     """Load a probed backend at its problem's entrance and return the launch statistics.
 
@@ -110,7 +110,7 @@ def launch_statistics(
     ----------
     backend : solprop.backends.protocol.Backend
         The constructed backend.
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         Its problem.
 
     Returns

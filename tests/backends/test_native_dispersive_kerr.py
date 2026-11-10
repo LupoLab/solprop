@@ -57,7 +57,7 @@ from solprop.physdata import MaterialSelection, Mixture
 from solprop.profiles import Linear
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, RungeKutta
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.stage import scalars
 
 solprop_native = pytest.importorskip("solprop_native")
@@ -70,12 +70,12 @@ host_only = pytest.mark.skipif(
 )
 
 
-def evaluation_bound(problem: KernelProblem) -> float:
+def evaluation_bound(problem: PropagationProblem) -> float:
     """The CPU bound, or on a device build the predeclared device envelope."""
     return dispersive_device_bound(cpu_evaluation_bound(problem), problem)
 
 
-def steps_bound(problem: KernelProblem) -> float:
+def steps_bound(problem: PropagationProblem) -> float:
     """Bound a replayed window of fixed steps: every evaluation's rounding, added."""
     return STEPS * step_evaluations(problem) * evaluation_bound(problem)
 
@@ -97,7 +97,7 @@ DISPERSIVE_ROWS = (
 # --- the measurements ------------------------------------------------------------
 
 
-def embedded(problem: KernelProblem) -> bool:
+def embedded(problem: PropagationProblem) -> bool:
     """Return whether the quadrature has an embedded rule of its own, as packed."""
     transform = problem.transform
     return transform.n_nodes > 1 and not np.array_equal(
@@ -105,7 +105,7 @@ def embedded(problem: KernelProblem) -> bool:
     )
 
 
-def native_evaluation(problem: KernelProblem, grid: Any) -> Evaluation:
+def native_evaluation(problem: PropagationProblem, grid: Any) -> Evaluation:
     """Evaluate the source once at the launch and return the native projected spectra.
 
     The engine keeps both rules' projected polarisation spectra of its last
@@ -133,7 +133,7 @@ def assert_close(ours: Evaluation, theirs: Evaluation, bound: float) -> None:
         assert disagreement(ours.coarse, theirs.coarse) < bound
 
 
-def assert_one_evaluation(problem: KernelProblem, grid: Any) -> None:
+def assert_one_evaluation(problem: PropagationProblem, grid: Any) -> None:
     """One evaluation, both rules, against the reference."""
     ours = native_evaluation(problem, grid)
     bound = evaluation_bound(problem)
@@ -141,7 +141,7 @@ def assert_one_evaluation(problem: KernelProblem, grid: Any) -> None:
     assert_close(ours, reference_evaluation(problem, grid), bound)
 
 
-def source(backend_class: type, problem: KernelProblem, grid: Any) -> np.ndarray:
+def source(backend_class: type, problem: PropagationProblem, grid: Any) -> np.ndarray:
     """Return one evaluation's whole stage source at the launch."""
     backend = backend_class(problem, grid=grid)
     try:
@@ -151,7 +151,7 @@ def source(backend_class: type, problem: KernelProblem, grid: Any) -> np.ndarray
         backend.close()
 
 
-def assert_steps(problem: KernelProblem, grid: Any) -> None:
+def assert_steps(problem: PropagationProblem, grid: Any) -> None:
     """A replayed window of fixed steps, the same steps, against the reference."""
     ours, summary = run(NativeBackend, problem, grid)
     bound = steps_bound(problem)
@@ -161,7 +161,7 @@ def assert_steps(problem: KernelProblem, grid: Any) -> None:
     assert disagreement(ours, theirs) < bound
 
 
-def path_of(problem: KernelProblem, grid: Any) -> dict[str, bool] | None:
+def path_of(problem: PropagationProblem, grid: Any) -> dict[str, bool] | None:
     """Return how the native response runs: alone, in place, borrowed."""
     backend = NativeBackend(problem, grid=grid)
     try:
@@ -554,7 +554,7 @@ def test_one_thread_and_four_agree(tmp_path):
 # --- the memory ledger -------------------------------------------------------------
 
 
-def ledger_of(problem: KernelProblem, grid: Any) -> dict[str, int]:
+def ledger_of(problem: PropagationProblem, grid: Any) -> dict[str, int]:
     """Return the backend's ledger and check its rows are released on close."""
     backend = NativeBackend(problem, grid=grid)
     try:

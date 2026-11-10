@@ -69,7 +69,9 @@ class Backend(Protocol):
     def march_snapshot_nbytes(self, z: float) -> int | None: ...  # copying nothing
     def march_export_refusal(self) -> str | None: ...
     def restore_march(self, snapshot: MarchSnapshot) -> str | None: ...
-    def timing_probe(self, start: Start) -> TimingProbe: ...  # trials, committing nothing
+    def timing_probe(
+        self, start: Start
+    ) -> TimingProbe: ...  # trials, committing nothing
     @property
     def closed(self) -> bool: ...  # a failure can close a backend
 ```
@@ -77,7 +79,7 @@ class Backend(Protocol):
 The listing is abbreviated; `solprop/backends/protocol.py` holds the exact signatures and
 docstrings, in the order of [architecture.md §9](architecture.md#9-backends-in-one-page).
 
-Rules: a backend is constructed from a validated `KernelProblem`
+Rules: a backend is constructed from a validated `PropagationProblem`
 ([kernel-contract.md](kernel-contract.md)) and host arrays and returns host arrays; its
 buffers, layout and plans are private; the state is never a parameter of `propagate_to` or
 `observe`; the numbers are the contract — a backend is correct when it reproduces the
@@ -150,7 +152,7 @@ small bundle of host scalars (`translate.stage.scalars`) against a fixed set of 
 uploaded once (`translate.stage.terms`); `ΔΦ` is one linear combination of the terms over
 the bundle's floats and nothing about the representation reaches the backend
 ([kernel-contract.md §3](kernel-contract.md)). The contract's z-table fallback has no such
-split, so `KernelProblem.device_ready` is false for it. NumPy evaluates the general
+split, so `PropagationProblem.device_ready` is false for it. NumPy evaluates the general
 representation directly. The native CPU build gives the table the split itself (SEP 29 section 6.6): its coefficients
 are uploaded once (`table_upload`, `include/solprop_native/z_table.hpp`), and before each
 native call the adapter (`_ZTables`) has the table evaluated at that call's distinct
@@ -1253,7 +1255,7 @@ backend runs on the CPU (OpenMP) or a device. How to build it is
 [Building the native backend](../guide/performance/building-native.md); the native rules are in
 `native/AGENTS.md`.
 
-The backend depends on solprop's seam: the `KernelProblem`, the protected surface of `StepDriver`
+The backend depends on solprop's seam: the `PropagationProblem`, the protected surface of `StepDriver`
 and the stage bundles, all frozen by `tests/backends/test_driver.py`. A change to any of them
 rewrites those tables in the same commit and adds a release-note fragment. The two packages are
 released together, and solprop's metadata pins this one to its own version. `check_build` looks

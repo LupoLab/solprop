@@ -19,7 +19,7 @@ from jaxtyping import Bool, Complex, Float
 from solprop.backends.numpy_ref import passes
 from solprop.exceptions import BackendError
 from solprop.translate.linop import power_weight_at
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.stage import StageScalars
 from solprop.translate.tdse import TDSEResult, lattice_times, waveform_identity
 from solprop.translate.tdse_source import steady_current_certificate
@@ -48,7 +48,7 @@ is flagged in the diagnostic as unqualified. doi:10.1137/1.9780898718027
 def atomic_sources(
     fields: Float[np.ndarray, "n_nodes n_to"],
     result: TDSEResult,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     bundle: StageScalars,
 ) -> tuple[
     Float[np.ndarray, "n_nodes 1 n_to"],
@@ -62,7 +62,7 @@ def atomic_sources(
         Chronological real physical fields in V/m, shape ``(n_nodes, n_to)``.
     result : TDSEResult
         Owning microscopic SI histories for these exact inputs.
-    problem : KernelProblem
+    problem : PropagationProblem
         Compiled optical and atomic scientific specification.
     bundle : StageScalars
         Density and other scalars at this evaluation's absolute position.
@@ -132,7 +132,7 @@ def atomic_sources(
 
 
 def atomic_edge_source(
-    result: TDSEResult, problem: KernelProblem, bundle: StageScalars
+    result: TDSEResult, problem: PropagationProblem, bundle: StageScalars
 ) -> Float[np.ndarray, "n_nodes 1 n_to"] | None:
     """Form a gated source's edge array ``g' S``, scaled exactly as its current.
 
@@ -145,7 +145,7 @@ def atomic_edge_source(
     ----------
     result : TDSEResult
         Owning microscopic SI histories, already matched to this configuration.
-    problem : KernelProblem
+    problem : PropagationProblem
         Compiled optical and atomic scientific specification.
     bundle : StageScalars
         Density and other scalars at this evaluation's absolute position.
@@ -183,12 +183,12 @@ def atomic_edge_source(
     return edge
 
 
-def _source_gate(problem: KernelProblem) -> Float[np.ndarray, " n_to"]:
+def _source_gate(problem: PropagationProblem) -> Float[np.ndarray, " n_to"]:
     """Return the temporal gate of a gated source.
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         Problem whose descriptor may carry an atomic window.
 
     Returns
@@ -205,7 +205,7 @@ def _source_gate(problem: KernelProblem) -> Float[np.ndarray, " n_to"]:
 def _project_spectrum(
     values: Float[np.ndarray, "n_nodes 1 n_to"],
     projection: Float[np.ndarray, "n_modes n_nodes"],
-    problem: KernelProblem,
+    problem: PropagationProblem,
     bundle: StageScalars,
 ) -> Complex[np.ndarray, "n_modes 1 n_omega"]:
     """Apply the same modal projection and unscaled crop to either source.
@@ -216,7 +216,7 @@ def _project_spectrum(
         Nodal P or J source, shape ``(n_nodes, 1, n_to)``, in C/m² or A/m².
     projection : numpy.ndarray
         Modal weights, shape ``(n_modes, n_nodes)``.
-    problem : KernelProblem
+    problem : PropagationProblem
         Crop indices of the field grid.
     bundle : StageScalars
         Stage taper scale.
@@ -235,7 +235,7 @@ def _roundoff_floor(
     projection: Float[np.ndarray, "n_modes n_nodes"],
     factor: Complex[np.ndarray, "n_modes 1 n_omega"]
     | Float[np.ndarray, "n_modes 1 n_omega"],
-    problem: KernelProblem,
+    problem: PropagationProblem,
     bundle: StageScalars,
 ) -> float:
     """Bound operand cancellation through absolute projection and Fourier sums.
@@ -250,7 +250,7 @@ def _roundoff_floor(
     factor : numpy.ndarray
         P or J spectral factor including crop scale, shape
         ``(n_modes, 1, n_omega)``.
-    problem : KernelProblem
+    problem : PropagationProblem
         Spectral collar and transform size.
     bundle : StageScalars
         Stage taper scale.
@@ -271,7 +271,7 @@ def _roundoff_terms(
     projection: Float[np.ndarray, "n_modes n_nodes"],
     factor: Complex[np.ndarray, "n_modes 1 n_omega"]
     | Float[np.ndarray, "n_modes 1 n_omega"],
-    problem: KernelProblem,
+    problem: PropagationProblem,
     bundle: StageScalars,
 ) -> tuple[Float[np.ndarray, "n_modes 1 n_omega"], float]:
     """Return the per-bin operand bound and the accumulation of :func:`_roundoff_floor`.
@@ -284,7 +284,7 @@ def _roundoff_terms(
         Modal weights, shape ``(n_modes, n_nodes)``.
     factor : numpy.ndarray
         Spectral factor, shape ``(n_modes, 1, n_omega)``.
-    problem : KernelProblem
+    problem : PropagationProblem
         Spectral collar and transform size.
     bundle : StageScalars
         Stage taper scale.
@@ -314,12 +314,12 @@ def _roundoff_terms(
     return scaled, float(operations * np.finfo(float).eps)
 
 
-def _inverse_i_omega(problem: KernelProblem) -> Complex[np.ndarray, " n_omega"]:
+def _inverse_i_omega(problem: PropagationProblem) -> Complex[np.ndarray, " n_omega"]:
     """Return ``1 / (i omega)`` on the active bins and zero elsewhere.
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         Coarse frequencies in rad/s and the active mask; every active bin is above
         ``omega_min / 2 > 0``, so no division by zero occurs.
 
@@ -400,7 +400,7 @@ class _CurrentPart:
 def _current_part(
     operands: _CurrentOperands,
     projection: Float[np.ndarray, "n_modes n_nodes"],
-    problem: KernelProblem,
+    problem: PropagationProblem,
     bundle: StageScalars,
 ) -> _CurrentPart:
     """Project, transform and crop the current, and its edge term, under one map.
@@ -411,7 +411,7 @@ def _current_part(
         The evaluation's nodal arrays and factors.
     projection : numpy.ndarray
         Modal weights, shape ``(n_modes, n_nodes)``: the fine or the embedded map.
-    problem : KernelProblem
+    problem : PropagationProblem
         Crop, masks, collar and transform size.
     bundle : StageScalars
         Stage taper scale.
@@ -460,7 +460,7 @@ def _edge_rounding(
         Complex[np.ndarray, "n_modes 1 n_omega"],
         Complex[np.ndarray, "n_modes 1 n_omega"],
     ],
-    problem: KernelProblem,
+    problem: PropagationProblem,
     bundle: StageScalars,
 ) -> tuple[
     Float[np.ndarray, "n_modes 1 n_omega"], Float[np.ndarray, "n_modes 1 n_omega"]
@@ -498,7 +498,7 @@ def _edge_rounding(
     spectra : tuple of numpy.ndarray
         ``X``, the projected raw spectrum of the gated current, and ``E / (i
         omega)``, of the edge array, each ``(n_modes, 1, n_omega)``.
-    problem : KernelProblem
+    problem : PropagationProblem
         Coarse frequencies, masks, collar and transform size.
     bundle : StageScalars
         Stage taper scale.
@@ -670,7 +670,7 @@ def _projection_comparison(
 
 def _leading_taper(
     result: TDSEResult,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     bundle: StageScalars,
     band_weights: dict[str, Float[np.ndarray, "n_modes 1 n_omega"]],
 ) -> dict[str, object]:
@@ -688,7 +688,7 @@ def _leading_taper(
     ----------
     result : TDSEResult
         Unscaled microscopic histories.
-    problem : KernelProblem
+    problem : PropagationProblem
         Gate breakpoints, lattice and projection.
     bundle : StageScalars
         Density and taper scale.
@@ -750,7 +750,7 @@ def _edge_diagnostic(
     ],
     factor: Float[np.ndarray, "n_modes 1 n_omega"],
     result: TDSEResult,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     bundle: StageScalars,
 ) -> dict[str, object]:
     """Describe the last evaluation's edge term on the active and in-band bins.
@@ -767,7 +767,7 @@ def _edge_diagnostic(
         Current factor ``current_numerator / Re n_eff``.
     result : TDSEResult
         Unscaled microscopic histories, for ``rho_-``.
-    problem : KernelProblem
+    problem : PropagationProblem
         Masks, collar, lattice and descriptor.
     bundle : StageScalars
         Density and taper scale.
@@ -824,7 +824,7 @@ def project_atomic_sources(  # noqa: PLR0913 - the existing seam plus the edge a
     polarisation: Float[np.ndarray, "n_nodes_p 1 n_to_p"],
     current: Float[np.ndarray, "n_nodes_j 1 n_to_j"],
     result: TDSEResult,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     bundle: StageScalars,
     prefactor: Complex[np.ndarray, "n_modes 1 n_omega"],
     *,
@@ -847,7 +847,7 @@ def project_atomic_sources(  # noqa: PLR0913 - the existing seam plus the edge a
         Already scaled macroscopic remainder current in A/m², same shape.
     result : TDSEResult
         Unscaled microscopic operands used to derive an absolute cancellation floor.
-    problem : KernelProblem
+    problem : PropagationProblem
         Resolved modal maps, crop, spectral collar and independent current numerator.
     bundle : StageScalars
         Stage position in m, density in m⁻³ and modal taper scale.
@@ -960,7 +960,7 @@ def _current_operands(
     current: Float[np.ndarray, "n_nodes 1 n_to"],
     edge: Float[np.ndarray, "n_nodes_e 1 n_to_e"] | None,
     result: TDSEResult,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     bundle: StageScalars,
 ) -> _CurrentOperands:
     """Gather one evaluation's current operands and check the edge array.
@@ -973,7 +973,7 @@ def _current_operands(
         Scaled ``g' S``: required for a gated source, refused for an ungated one.
     result : TDSEResult
         Unscaled microscopic operands.
-    problem : KernelProblem
+    problem : PropagationProblem
         Descriptor, transform and current numerator.
     bundle : StageScalars
         Density, scale, position and taper scale.

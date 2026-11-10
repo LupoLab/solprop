@@ -47,7 +47,7 @@ from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController, RungeKutta
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 
 from solprop_native import NativeBackend
 from legacy_geometry import LEGACY_GRID
@@ -92,7 +92,7 @@ CASES = (
 
 def capillary(
     kind: str, steps: int, energy: float = 10e-6
-) -> tuple[FieldGrid, KernelProblem]:
+) -> tuple[FieldGrid, PropagationProblem]:
     """Return a mode-averaged argon (or helium-argon) capillary under the band rule.
 
     One node and ``n_to = 4096``: four threads give it a team of two, which splits
@@ -149,7 +149,7 @@ def capillary(
     return grid, dataclasses.replace(problem, stats_spec=StatsSpec(names=STATISTICS))
 
 
-def vector(steps: int) -> tuple[FieldGrid, KernelProblem]:
+def vector(steps: int) -> tuple[FieldGrid, PropagationProblem]:
     """Return two-component argon on the radial route, its pulse at the window's end."""
     length = 1e-4
     # Resolve the analytic collar derivative without moving the pulse or the
@@ -187,7 +187,7 @@ def vector(steps: int) -> tuple[FieldGrid, KernelProblem]:
     return grid, dataclasses.replace(problem, stats_spec=StatsSpec(names=STATISTICS))
 
 
-def node_fields(problem: KernelProblem, grid: FieldGrid) -> np.ndarray:
+def node_fields(problem: PropagationProblem, grid: FieldGrid) -> np.ndarray:
     """Return the reference's node fields at the launch plane, (nodes, n_pol, n_to)."""
     reference = NumpyRefBackend(problem, grid=grid)
     try:
@@ -200,7 +200,7 @@ def node_fields(problem: KernelProblem, grid: FieldGrid) -> np.ndarray:
         reference.close()
 
 
-def case(kind: str, steps: int) -> tuple[FieldGrid, KernelProblem]:
+def case(kind: str, steps: int) -> tuple[FieldGrid, PropagationProblem]:
     """Return the stress case `kind` marching `steps` fixed steps."""
     if kind == "vector_edge":
         return vector(steps)
@@ -218,7 +218,7 @@ def case(kind: str, steps: int) -> tuple[FieldGrid, KernelProblem]:
 
 def march(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
-    problem: KernelProblem,
+    problem: PropagationProblem,
     grid: FieldGrid,
 ) -> tuple[ComplexArray, dict[str, np.ndarray]]:
     """Return the field and the statistics after the problem's fixed steps."""
@@ -235,7 +235,7 @@ def march(
 
 def launch_statistics(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
-    problem: KernelProblem,
+    problem: PropagationProblem,
     grid: FieldGrid,
 ) -> dict[str, np.ndarray]:
     """Return the statistics of the launch field, before any step."""
@@ -247,7 +247,9 @@ def launch_statistics(
         backend.close()
 
 
-def assert_is_stressing(kind: str, problem: KernelProblem, grid: FieldGrid) -> None:
+def assert_is_stressing(
+    kind: str, problem: PropagationProblem, grid: FieldGrid
+) -> None:
     """The case exercises what it is named for, so a pass is not vacuous."""
     fields = node_fields(problem, grid)
     peak = float(np.max(np.abs(fields)))

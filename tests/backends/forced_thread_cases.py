@@ -33,7 +33,7 @@ from solprop.spatial import SpatialFlux, SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.stepper.multistep import Multistep
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 
 CAPILLARY_ROW_NAMES = ("energy", "peak_power", "fwhm_t")
 """The statistics the capillary's rows carry, as the retired rows test read them."""
@@ -73,7 +73,7 @@ def route_adams_problem(route: str, formulation: str):
     return simulation, simulation.translate()
 
 
-def ten_steps(problem: KernelProblem) -> KernelProblem:
+def ten_steps(problem: PropagationProblem) -> PropagationProblem:
     """Return `problem` on ten equal prescribed steps over its length."""
     end = float(problem.stepper.save_planes[-1])
     return dataclasses.replace(
@@ -128,7 +128,7 @@ def field_grid() -> FieldGrid:
     return FieldGrid.from_limits(0.2, 800e-9, (200e-9, 4e-6), 100e-15)
 
 
-def replayed_capillary(names=None) -> KernelProblem:
+def replayed_capillary(names=None) -> PropagationProblem:
     """Return the gradient capillary rung on its fixed 0.5 mm schedule.
 
     The fixture ``capillary_problem`` of ``tests/backends/conftest.py`` and the retired
@@ -215,7 +215,7 @@ def dispersive(option: str):
     return {"field": fields[0], "again": fields[1]}, sizing  # pyright: ignore[reportPossiblyUnboundVariable]
 
 
-def with_adams(problem: KernelProblem) -> KernelProblem:
+def with_adams(problem: PropagationProblem) -> PropagationProblem:
     """Return a separable problem under the default Adams method."""
     return dataclasses.replace(
         problem,

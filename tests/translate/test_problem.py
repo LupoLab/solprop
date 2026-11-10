@@ -40,7 +40,7 @@ from solprop.translate.problem import (
     DEFAULT_COMPONENTS,
     Flags,
     Initial,
-    KernelProblem,
+    PropagationProblem,
     StepperSettings,
     _held_state,
     _walk_arrays,
@@ -1007,7 +1007,7 @@ def test_the_stats_request_is_the_catalogue_object(envelope_grid, gnlse, soliton
 
 def test_a_kernel_problem_can_be_built_by_hand_from_its_groups(soliton):
     """The contract is a dataclass, so a backend test can substitute one group."""
-    rebuilt = KernelProblem(
+    rebuilt = PropagationProblem(
         grid_kind=soliton.grid_kind,
         shape=soliton.shape,
         flags=soliton.flags,

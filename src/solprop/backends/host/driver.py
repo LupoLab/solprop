@@ -65,7 +65,7 @@ from solprop.stepper.tableau import extension_coefficients, extension_value
 from solprop.translate.linop import delta_phi, unitary_phase
 from solprop.translate.masks import noise_spectrum
 from solprop.translate.plasma_source import plasma_source_record
-from solprop.translate.problem import KernelProblem, PropagatorMode
+from solprop.translate.problem import PropagationProblem, PropagatorMode
 from solprop.translate.responses import prefactor_at
 from solprop.translate.stage import (
     StageScalars,
@@ -127,8 +127,8 @@ def replay_tolerance(schedule: FixedSchedule, position: float) -> float:
     is therefore :data:`~solprop.stepper.schedule.LANDING_ULPS` or the step count,
     whichever is larger, in ulps of the larger of the position and the schedule's
     length -- still far inside the ``1e-9`` of the length that
-    :meth:`~solprop.translate.problem.KernelProblem.validate` allows an edge to miss a
-    save plane by, so no step is ever skipped.
+    :meth:`~solprop.translate.problem.PropagationProblem.validate` allows an edge to
+    miss a save plane by, so no step is ever skipped.
 
     Parameters
     ----------
@@ -384,7 +384,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The validated problem to step. The subclass refuses what it cannot execute
         before calling this constructor.
     grid : solprop.grid.TimeGrid, optional
@@ -426,7 +426,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     def __init__(
         self,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         *,
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
@@ -1805,8 +1805,8 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         too coarse for its tolerance is reported rather than silent
         (``docs/dev/stepper.md`` section 8). The position is read off the schedule's
         edges rather than accumulated, so every save plane is hit exactly -- which
-        :meth:`~solprop.translate.problem.KernelProblem.validate` has already checked
-        the schedule can do.
+        :meth:`~solprop.translate.problem.PropagationProblem.validate` has already
+        checked the schedule can do.
 
         Parameters
         ----------
@@ -2911,8 +2911,8 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         BackendError
             If a schedule is being replayed and `z` is not one of its edges. Every save
             plane is an edge, which
-            :meth:`~solprop.translate.problem.KernelProblem.validate` has checked, so
-            this fires only for a position the run never stopped at -- from which a
+            :meth:`~solprop.translate.problem.PropagationProblem.validate` has checked,
+            so this fires only for a position the run never stopped at -- from which a
             replay could not continue in step.
         """
         schedule = self._problem.stepper.schedule
@@ -2960,7 +2960,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
 
 def refuse_general_leaves(
-    problem: KernelProblem, backend: str, *, admits: Sequence[str] = ()
+    problem: PropagationProblem, backend: str, *, admits: Sequence[str] = ()
 ) -> None:
     """Refuse, by name, each schema-12 general-modal leaf a backend cannot execute.
 
@@ -2980,7 +2980,7 @@ def refuse_general_leaves(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem to check.
     backend : str
         The backend's registry name, used in the refusal.
@@ -3039,12 +3039,12 @@ def _clean_launch_columns(
     return np.sum(inside, axis=(1, 2)) + np.sum(outside, axis=(1, 2))
 
 
-def _declared_discard(problem: KernelProblem) -> bool:
+def _declared_discard(problem: PropagationProblem) -> bool:
     """Return whether a run declared content above ``discard_above`` (SEP 40 5.3).
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The run's problem.
 
     Returns

@@ -68,7 +68,7 @@ from solprop.log import NullReporter, PlaneSummary, StopFlag
 from solprop.monitor import BoundaryMonitor
 from solprop.output.schema import MarchSnapshot
 from solprop.translate.linop import power_weight_at
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 if TYPE_CHECKING:
@@ -274,7 +274,7 @@ class DriverSession:
         The driver, constructed for `problem`. A driver reused from an earlier run is
         loaded again from `start`, which restores everything its march reads. The
         session closes it with itself when `owns` is set.
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.
@@ -296,7 +296,7 @@ class DriverSession:
     def __init__(  # noqa: PLR0913 - the session context
         self,
         driver: Backend,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         request: RunRequest,
         start: Start,
         *,
@@ -1217,7 +1217,7 @@ class DriverGroupSession:
         One constructed backend per member, all of one backend. Once the group is
         constructed it owns them and closes them with itself; a construction that
         fails leaves them to the caller.
-    problems : collections.abc.Sequence of solprop.translate.problem.KernelProblem
+    problems : collections.abc.Sequence of solprop.translate.problem.PropagationProblem
         Each member's independently translated problem.
     requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
         Each member's run request, with its own fresh boundary monitor; their save
@@ -1241,7 +1241,7 @@ class DriverGroupSession:
     def __init__(
         self,
         members: Sequence[Backend],
-        problems: Sequence[KernelProblem],
+        problems: Sequence[PropagationProblem],
         requests: Sequence[RunRequest],
         starts: Sequence[Start],
         *,

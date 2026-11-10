@@ -8,7 +8,7 @@ Physics objects become validated kernel-ready arrays and the kernel contract
 (``docs/dev/kernel-contract.md``). :func:`solprop.translate.problem.assemble` is the
 entry point: it builds the cumulative linear operator, the masks, the modal transform
 and the compiled responses, and returns the single
-:class:`~solprop.translate.problem.KernelProblem` that crosses into a backend.
+:class:`~solprop.translate.problem.PropagationProblem` that crosses into a backend.
 """
 
 from solprop.translate.chebyshev import (
@@ -51,7 +51,7 @@ from solprop.translate.modal import (
 from solprop.translate.problem import (
     Flags,
     Initial,
-    KernelProblem,
+    PropagationProblem,
     StepperSettings,
     assemble,
 )
@@ -99,13 +99,13 @@ __all__ = [
     "Flags",
     "Grids",
     "Initial",
-    "KernelProblem",
     "KerrCoefficients",
     "LinearOperator",
     "ParameterExpansion",
     "PhiRepresentation",
     "PiecewiseChebyshev",
     "PlasmaCoefficients",
+    "PropagationProblem",
     "RamanCoefficients",
     "RamanKernels",
     "RateTable",

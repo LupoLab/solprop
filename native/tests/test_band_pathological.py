@@ -49,7 +49,7 @@ from solprop.grid import FieldGrid
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, RungeKutta
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 from solprop_native import NativeBackend
 from legacy_geometry import LEGACY_GRID
@@ -112,7 +112,7 @@ def capillary(
     preionisation: float,
     steps: int = 1,
     rate: object = None,
-) -> tuple[FieldGrid, KernelProblem]:
+) -> tuple[FieldGrid, PropagationProblem]:
     """Return a mode-averaged argon capillary whose launch is one comb bin of `peak`."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
@@ -154,7 +154,7 @@ def capillary(
 
 
 def synthesised(
-    problem: KernelProblem, grid: FieldGrid, field: ComplexArray
+    problem: PropagationProblem, grid: FieldGrid, field: ComplexArray
 ) -> npt.NDArray[np.float64]:
     """Return the reference's node fields of `field`, ``(nodes, n_pol, n_to)``."""
     reference = NumpyRefBackend(problem, grid=grid)
@@ -170,7 +170,7 @@ def synthesised(
         reference.close()
 
 
-def source_of_reference(problem: KernelProblem, grid: FieldGrid) -> ComplexArray:
+def source_of_reference(problem: PropagationProblem, grid: FieldGrid) -> ComplexArray:
     """Return the reference's first stage on the launch, ``N(E, z = 0)``."""
     reference = NumpyRefBackend(problem, grid=grid)
     try:
@@ -185,7 +185,7 @@ def source_of_reference(problem: KernelProblem, grid: FieldGrid) -> ComplexArray
         reference.close()
 
 
-def source_of_native(problem: KernelProblem, grid: FieldGrid) -> ComplexArray:
+def source_of_native(problem: PropagationProblem, grid: FieldGrid) -> ComplexArray:
     """Return native's first stage on the launch, from a zero-length trial."""
     backend = NativeBackend(problem, grid=grid)
     try:
@@ -200,7 +200,7 @@ def source_of_native(problem: KernelProblem, grid: FieldGrid) -> ComplexArray:
 
 def launch_statistics(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
-    problem: KernelProblem,
+    problem: PropagationProblem,
     grid: FieldGrid,
 ) -> dict[str, np.ndarray]:
     """Return the statistics of the launch, before any step."""
@@ -214,7 +214,7 @@ def launch_statistics(
 
 def march(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
-    problem: KernelProblem,
+    problem: PropagationProblem,
     grid: FieldGrid,
 ) -> tuple[ComplexArray, dict[str, np.ndarray]]:
     """Return the field and the statistics after the problem's fixed steps."""
@@ -249,7 +249,9 @@ def lossless_unit_bound(preionisation: float) -> float:
     return evaluation_bound(dataclasses.replace(problem, responses=responses), grid)
 
 
-def assert_source_agrees(problem: KernelProblem, grid: FieldGrid, bound: float) -> None:
+def assert_source_agrees(
+    problem: PropagationProblem, grid: FieldGrid, bound: float
+) -> None:
     """Native's first stage on the launch is finite and within `bound` of the oracle."""
     expected = source_of_reference(problem, grid)
     actual = source_of_native(problem, grid)
@@ -272,7 +274,9 @@ def require_exact_zeros(fields: npt.NDArray[np.float64]) -> None:
         )
 
 
-def assert_exact_zeros_in_a_live_row(problem: KernelProblem, grid: FieldGrid) -> None:
+def assert_exact_zeros_in_a_live_row(
+    problem: PropagationProblem, grid: FieldGrid
+) -> None:
     """The launch holds exact zeros, a quarter of the row, between live samples."""
     fields = synthesised(problem, grid, problem.initial.field0)
     require_exact_zeros(fields)

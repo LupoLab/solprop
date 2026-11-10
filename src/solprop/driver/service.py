@@ -88,7 +88,7 @@ from solprop.output.schema import (
 from solprop.output.snapshots import SnapshotController
 from solprop.output.tdse_archive import TDSEArchiveWriter
 from solprop.stepper.multistep import Multistep
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 from solprop.translate.tdse import TDSEBinding
 
@@ -108,7 +108,7 @@ class ServiceContext:
 
     Attributes
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.
@@ -138,7 +138,7 @@ class ServiceContext:
         execution record; ``None`` for a fresh run or a caller that says nothing.
     """
 
-    problem: KernelProblem
+    problem: PropagationProblem
     request: RunRequest
     metadata: RunMetadata
     reporter: ProgressReporter

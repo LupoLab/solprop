@@ -375,14 +375,14 @@ def simulation():
 def test_translation_and_coupling_hold_and_restore_the_pool(
     monkeypatch, pools, simulation
 ):
-    original_validate = translation.KernelProblem.validate
+    original_validate = translation.PropagationProblem.validate
     observed = []
 
     def held_validate(problem):
         observed.append(widths(pools))
         return original_validate(problem)
 
-    monkeypatch.setattr(translation.KernelProblem, "validate", held_validate)
+    monkeypatch.setattr(translation.PropagationProblem, "validate", held_validate)
     simulation.translate()
     assert observed and all(value == [1, 1] for value in observed)
     assert widths(pools) == [32, 32]

@@ -16,7 +16,7 @@ from solprop.physdata import Mixture
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 
 from solprop_native import NativeBackend, _core
 from solprop_native.backend import (
@@ -25,7 +25,7 @@ from solprop_native.backend import (
 
 
 @pytest.fixture
-def mixture_case() -> tuple[KernelProblem, FieldGrid]:
+def mixture_case() -> tuple[PropagationProblem, FieldGrid]:
     """Declare nitrogen and oxygen channels with optmat's molecular rates."""
     mixture = Mixture.air(1.0)
     grid = FieldGrid.from_limits(1e-4, 800e-9, (400e-9, 2e-6), 400e-15, ffac=4.0)
@@ -53,7 +53,7 @@ def mixture_case() -> tuple[KernelProblem, FieldGrid]:
 
 
 def test_species_statistics_preserve_an_inert_component_and_close(
-    mixture_case: tuple[KernelProblem, FieldGrid],
+    mixture_case: tuple[PropagationProblem, FieldGrid],
 ) -> None:
     problem, grid = mixture_case
     backend = NativeBackend(problem, grid=grid)
@@ -88,7 +88,7 @@ def test_species_statistics_preserve_an_inert_component_and_close(
     ],
 )
 def test_native_channel_payload_refusals(
-    mixture_case: tuple[KernelProblem, FieldGrid], damage: str
+    mixture_case: tuple[PropagationProblem, FieldGrid], damage: str
 ) -> None:
     problem, grid = mixture_case
     backend = NativeBackend(problem, grid=grid)
@@ -118,7 +118,7 @@ def test_native_channel_payload_refusals(
 
 
 def test_native_statistics_refuse_channel_preionisation_shape(
-    mixture_case: tuple[KernelProblem, FieldGrid],
+    mixture_case: tuple[PropagationProblem, FieldGrid],
 ) -> None:
     problem, grid = mixture_case
     backend = NativeBackend(problem, grid=grid)

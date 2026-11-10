@@ -27,7 +27,7 @@ from solprop.grid import FreeGrid, RadialGrid
 from solprop.modes.slab import PlanarGrid
 from solprop.stats import CATALOGUE
 from solprop.stepper import LowStorageRungeKutta, Multistep
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
@@ -101,7 +101,7 @@ class RunEstimate:
 
 
 def _timed_step(
-    backend: Backend, problem: KernelProblem
+    backend: Backend, problem: PropagationProblem
 ) -> tuple[Callable[[], object], int]:
     """Load a run's entrance and return the step to time, and its evaluations.
 
@@ -113,7 +113,7 @@ def _timed_step(
     ----------
     backend : solprop.backends.protocol.Backend
         The constructed backend, holding no state yet; closed by the caller.
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -254,7 +254,7 @@ def output_bytes(simulation: "Simulation") -> int:  # noqa: UP037 - checked at r
     return n_planes * plane_bytes(problem) - (n_planes - kept) * field_bytes(problem)
 
 
-def plane_bytes(problem: KernelProblem) -> int:
+def plane_bytes(problem: PropagationProblem) -> int:
     """Return the bytes one saved plane occupies in an in-memory store.
 
     The field (complex128), the noise phase (float64) when the run carries a noise
@@ -264,7 +264,7 @@ def plane_bytes(problem: KernelProblem) -> int:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -305,14 +305,14 @@ def plane_bytes(problem: KernelProblem) -> int:
     return total
 
 
-def field_bytes(problem: KernelProblem) -> int:
+def field_bytes(problem: PropagationProblem) -> int:
     """Return the bytes of one plane's field, and its noise phase, in a memory store.
 
     The part of :func:`plane_bytes` a plane that keeps no field does not hold (SEP 22).
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns

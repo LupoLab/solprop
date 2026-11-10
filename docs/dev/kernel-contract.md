@@ -1,6 +1,6 @@
 # The kernel contract
 
-`solprop.translate.problem.KernelProblem` is the only object that crosses from the physics and
+`solprop.translate.problem.PropagationProblem` is the only object that crosses from the physics and
 translation layers into a backend. It is a frozen dataclass of plain NumPy arrays and scalars,
 validated, and documented here field by field. A backend may assume everything
 stated here and nothing else; the translation layer promises everything stated here and
@@ -58,7 +58,7 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | `precision` | `translate.precision.Precision` | the arithmetic the run is held in ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md), ADR-054): `state` and `source`, each `"double"` or `"single"` and equal (a mixed record is refused). Every table here is binary64 either way; a backend that admits single precision narrows its tables on upload, each with its own power-of-two exponent, and holds the state at the launch's exact power-of-two scale. Under `"single"`, `validate` refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses, the dispersive electronic response, the far-field statistics and noise models; `native` refuses a single-precision problem by name. Default `DOUBLE`. Added in version 36 |
 | `transverse` | `SpatialAbsorberDesign` or `None` | a free-space run's resolved transverse boundary ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md), `spatial_absorber.SpatialAbsorberDesign`), host-side: the safety ramp's rate per column, which the separable operator carries as `kperp_rate` (the dense operator radially), and a requested collar's rate on the nodes, which the geometry carries as `absorber_rate`, with its band, strength, crossing step and design check. A backend meets it only through those fields and the stepper's `dz_max`, held to the collar's crossing limit and to the ramp's exponent budget. `None` for no transverse boundary and on modal routes. Added in version 41 |
 | `split_crossing` | `SplitCrossing` or `None` | the split temporal collar's crossing limit (`boundaries.SplitCrossing`): `buckets`, each `(mode, frequency)` bin's walk-off bucket as `(n_modes,n_omega) uint8` (the fastest of its polarisations and positions, a coupled flow's channels with the generator's diagonal added to the shared carrier; `boundaries.split_rate_buckets`), the fastest rate a bin reaches `fastest` (the open first bucket's rate), the collar's `width` and the launch's limit `launch_limit`, which holds an adaptive `dz_max` and a fixed schedule at translation. A backend that reads the boundary monitor under the `"split_step"` scheme returns the state's energy per bucket with every reading (`BoundaryEnergies.occupancy`; native: `bind_occupancy`, then `monitor_reading`'s ten numbers followed by the 128 buckets); the monitor turns it into a cap on the steps until the next check (`StepDriver._split_capped`, the native Adams march's required `step_cap` bound), and a fixed schedule whose steps before the next check exceed it, at a check or when a resumed state is watched, stops with a `BoundaryError`. `None` under the in-stage scheme or without a temporal collar. Added in version 43 |
-`KernelProblem` also carries one **property**, which is not a field and so not a row
+`PropagationProblem` also carries one **property**, which is not a field and so not a row
 above: `device_ready` is true when Φ (§3) and the prefactor (§5) are each a weighted sum
 of a fixed set of arrays, and false when either took the z table.
 
@@ -219,7 +219,7 @@ derivations the adapter calls (`node_kerr_tensor`, `node_delayed_maps`, `metric_
 for that reason `ModalMetricTables` has no tuple, the adapter handing the leaf to
 `metric_at` whole.
 
-The dataclass tree is exactly `KernelProblem` and the six array groups `grids`,
+The dataclass tree is exactly `PropagationProblem` and the six array groups `grids`,
 `linear`, `transform`, `responses`, `initial` and `stepper`; every other value a field
 holds — a `Flags`, a `StatsSpec`, a `Tableau`, a `PIController`, a `RateTable`, a
 `ZProfile` table — is a leaf whose own fields are not rows of this document. Fields whose
@@ -400,7 +400,7 @@ alone), then subtract `spectral_rate/2` from `D`. Propagating material gain reta
 The exact cumulative increment is `D*(z2-z1)`; modified noise takes only its
 imaginary part. Compiled backends evaluate these formulas per element.
 
-`KernelProblem.validate` holds a step the run cannot shrink -- a replayed schedule's
+`PropagationProblem.validate` holds a step the run cannot shrink -- a replayed schedule's
 longest step, or the floor `dz_min` -- to the propagator's exponent budget
 ([SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md) §4.5): with `λ₋` and `λ₊` bounds on `max(-Re D)` and `max(Re D)` from
 `translate.spatial.rate_bounds` (a sorted search over the columns, `O(n_omega log
@@ -723,7 +723,7 @@ No population history crosses the seam or survives an RHS evaluation.
 - `EnvelopeSourceFactors(active, drude, loss, carrier_policy, omega0)` owns
   read-only contiguous arrays on the coarse absolute-frequency axis. The
   multipliers are `-1/omega**2` and `-1j/omega` inside the positive active mask,
-  zero elsewhere. `KernelProblem.validate()` binds these values to its grid.
+  zero elsewhere. `PropagationProblem.validate()` binds these values to its grid.
   `shock=False` freezes their denominators and the explicit UPPE numerator at
   `omega0`, retaining mode-index dispersion and masks.
 

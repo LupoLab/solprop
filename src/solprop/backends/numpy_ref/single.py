@@ -72,7 +72,7 @@ from solprop.translate.precision import (
     scaled_square_sum,
     state_scale,
 )
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.responses import (
     CompiledResponses,
     KerrCoefficients,
@@ -120,7 +120,7 @@ class NumpySingleBackend(NumpyRefBackend):
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         A validated problem with ``precision.single``.
     grid : solprop.grid.TimeGrid, optional
         The grid the state lives on, needed only by :meth:`stats`.
@@ -145,7 +145,7 @@ class NumpySingleBackend(NumpyRefBackend):
 
     def __init__(
         self,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         *,
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,

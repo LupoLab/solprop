@@ -44,7 +44,7 @@ from monitor_cases import (
 from solprop.backends.registry import available, select
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 COMPILED = ("native",)
 
@@ -72,7 +72,7 @@ def _checkreading(
     backend: str,
     route: str,
     scheme: str,
-    problem: Callable[[Simulation], KernelProblem] | None = None,
+    problem: Callable[[Simulation], PropagationProblem] | None = None,
 ) -> None:
     """Compare a backend's reading of the edge-reaching launch with the reference's."""
     simulation = probe(route, scheme)
@@ -214,7 +214,7 @@ def test_a_monitor_for_another_grid_is_refused(backend: str) -> None:
         made.close()
 
 
-def _chunked(simulation: Simulation) -> KernelProblem:
+def _chunked(simulation: Simulation) -> PropagationProblem:
     """Return the Cartesian case's problem with node chunks that leave a partial one."""
     problem = simulation.translate()
     return dataclasses.replace(
@@ -222,7 +222,7 @@ def _chunked(simulation: Simulation) -> KernelProblem:
     )
 
 
-def _bare(simulation: Simulation) -> KernelProblem:
+def _bare(simulation: Simulation) -> PropagationProblem:
     """Return a route's problem without its temporal collar."""
     simulation.settings = dataclasses.replace(
         simulation.settings, absorber=bare_absorber(simulation.grid)
@@ -237,7 +237,7 @@ def _bare(simulation: Simulation) -> KernelProblem:
 )
 @pytest.mark.parametrize("backend", COMPILED)
 def test_a_check_reads_the_reference_s_numbers_at_the_edges(
-    backend: str, route: str, problem: Callable[[Simulation], KernelProblem]
+    backend: str, route: str, problem: Callable[[Simulation], PropagationProblem]
 ) -> None:
     # A last chunk shorter than the rest, and a run with no collar, for which the
     # backends plan their own coarse transform at the first attach.

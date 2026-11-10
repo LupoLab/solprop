@@ -19,7 +19,7 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.protocol import StepSummary
 from solprop.grid import EnvelopeGrid
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 from solprop_native import NativeBackend, build_info
 
@@ -64,18 +64,20 @@ def test_phase_d_roundoff_formulas_are_fixed_before_device_measurement() -> None
 
 @overload
 def _loaded(
-    backend_class: type[NumpyRefBackend], problem: KernelProblem, grid: EnvelopeGrid
+    backend_class: type[NumpyRefBackend],
+    problem: PropagationProblem,
+    grid: EnvelopeGrid,
 ) -> NumpyRefBackend: ...
 
 
 @overload
 def _loaded(
-    backend_class: type[NativeBackend], problem: KernelProblem, grid: EnvelopeGrid
+    backend_class: type[NativeBackend], problem: PropagationProblem, grid: EnvelopeGrid
 ) -> NativeBackend: ...
 
 
 def _loaded(
-    backend_class: PhaseBackendClass, problem: KernelProblem, grid: EnvelopeGrid
+    backend_class: PhaseBackendClass, problem: PropagationProblem, grid: EnvelopeGrid
 ) -> PhaseBackend:
     backend = backend_class(problem, grid=grid)
     backend.set_initial(problem.initial.field0, None)
@@ -129,7 +131,7 @@ def test_eight_fixed_steps_match_within_128_epsilon(
     np.testing.assert_allclose(fields[1], fields[0], rtol=0.0, atol=bound)
 
 
-def _tight_reference(problem: KernelProblem, grid: EnvelopeGrid) -> ComplexArray:
+def _tight_reference(problem: PropagationProblem, grid: EnvelopeGrid) -> ComplexArray:
     """Return the case's field at 1 mm from ``numpy_ref`` at a much tighter tolerance.
 
     ``rtol`` 1e-12 against the cases' 1e-8, and steps of at most 10 um against the
@@ -152,7 +154,7 @@ def _tight_reference(problem: KernelProblem, grid: EnvelopeGrid) -> ComplexArray
 
 
 def _run_adaptively(
-    backend_class: PhaseBackendClass, problem: KernelProblem, grid: EnvelopeGrid
+    backend_class: PhaseBackendClass, problem: PropagationProblem, grid: EnvelopeGrid
 ) -> tuple[StepSummary, ComplexArray]:
     backend = _loaded(backend_class, problem, grid)  # pyright: ignore[reportArgumentType]
     try:

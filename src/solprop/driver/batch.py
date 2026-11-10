@@ -14,7 +14,7 @@ import numpy as np
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError
 from solprop.output.scan import _json
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 __all__ = [
     "BatchMember",
@@ -103,12 +103,12 @@ def _signature(member: BatchMember) -> str:
     return hashlib.sha256(_json(descriptor).encode()).hexdigest()
 
 
-def _modal_identity(problem: KernelProblem) -> Mapping[str, object] | None:
+def _modal_identity(problem: PropagationProblem) -> Mapping[str, object] | None:
     """Describe which general modal guide a problem carries, or ``None`` for none.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         A translated member.
 
     Returns
@@ -147,7 +147,7 @@ def _modal_identity(problem: KernelProblem) -> Mapping[str, object] | None:
     }
 
 
-def refuse_mixed_guides(problems: Sequence[KernelProblem]) -> None:
+def refuse_mixed_guides(problems: Sequence[PropagationProblem]) -> None:
     """Refuse a formed group whose members are not the same general modal guide.
 
     The defence the descriptor cannot give. ``_signature`` separates two guides
@@ -296,12 +296,12 @@ def _checked(current: Sequence[BatchMember]) -> tuple[BatchMember, ...]:
     return tuple(current)
 
 
-def shared_table_bytes(problems: Iterable[KernelProblem]) -> int:
+def shared_table_bytes(problems: Iterable[PropagationProblem]) -> int:
     """Count host array storage once across shared translated member records.
 
     Parameters
     ----------
-    problems : iterable of KernelProblem
+    problems : iterable of PropagationProblem
         Translations whose resident host allocations are being admitted.
 
     Returns

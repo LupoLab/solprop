@@ -40,7 +40,7 @@ from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 
 from solprop_native import NativeBackend
 from bounds import fft_bound
@@ -59,7 +59,7 @@ WIDE_RADIUS = 1.1e-2
 """A core radius, m, whose mode's weight makes one quantum a node field of 1e-320."""
 
 
-def host_case(radius: float = 125e-6) -> tuple[KernelProblem, EnvelopeGrid]:
+def host_case(radius: float = 125e-6) -> tuple[PropagationProblem, EnvelopeGrid]:
     """Return the original's case: argon, two components, 10 % preionised."""
     grid = EnvelopeGrid.from_limits(0.001, 800e-9, (500e-9, 1.2e-6), 80e-15)
     mode = MarcatiliMode(radius, "Ar", 1.0, loss=False)
@@ -82,8 +82,8 @@ def host_case(radius: float = 125e-6) -> tuple[KernelProblem, EnvelopeGrid]:
 
 
 def constant_launch(
-    problem: KernelProblem, value: float
-) -> tuple[KernelProblem, npt.NDArray[np.complex128]]:
+    problem: PropagationProblem, value: float
+) -> tuple[PropagationProblem, npt.NDArray[np.complex128]]:
     """Return `problem` launching one bin of `value` in both components, a constant."""
     field = np.zeros(problem.shape, complex)
     field[..., 0] = value
@@ -97,7 +97,7 @@ def constant_launch(
 
 def evaluate(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
-    problem: KernelProblem,
+    problem: PropagationProblem,
     grid: EnvelopeGrid,
 ) -> tuple[npt.NDArray[np.complex128], dict[str, np.ndarray]]:
     """Return the first stage on the launch and the launch's statistics."""
@@ -123,7 +123,7 @@ def evaluate(
         backend.close()
 
 
-def node_magnitude(problem: KernelProblem, grid: EnvelopeGrid) -> float:
+def node_magnitude(problem: PropagationProblem, grid: EnvelopeGrid) -> float:
     """Return the largest node field the reference synthesises, V/m."""
     reference = NumpyRefBackend(problem, grid=grid)
     try:

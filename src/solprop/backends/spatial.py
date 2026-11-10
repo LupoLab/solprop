@@ -29,7 +29,7 @@ from solprop.spatial import (
 )
 from solprop.stats import PROFILE_STATISTICS, StatsSpec, analytic_field, profile_value
 from solprop.translate.modal import Transform
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.spatial import (
     FluxPlan,
     SeparableOperator,
@@ -63,7 +63,7 @@ __all__ = [
 
 
 def collar_field_fraction(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
 ) -> float:
     """Measure the fraction of the beam's field norm in the declared spatial collar.
@@ -75,7 +75,7 @@ def collar_field_fraction(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         Plain geometry, temporal scaling and scalar synthesis data.
     field : numpy.ndarray
         One internal spatial spectrum, with the problem's state dimensions.
@@ -124,7 +124,7 @@ def collar_field_fraction(
     return collar / total if total > 0 else 0.0
 
 
-def collar_block(problem: KernelProblem) -> int:
+def collar_block(problem: PropagationProblem) -> int:
     """Return how many frequency bins the collar diagnostic reconstructs at a time.
 
     A block of the physical field on every node holds at most as many complex samples,
@@ -135,7 +135,7 @@ def collar_block(problem: KernelProblem) -> int:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         A Cartesian or planar problem.
 
     Returns
@@ -151,7 +151,7 @@ def collar_block(problem: KernelProblem) -> int:
 
 
 def _blockwise_fluence(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
     dt: float,
 ) -> Float[np.ndarray, " n_nodes"]:
@@ -159,7 +159,7 @@ def _blockwise_fluence(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         A Cartesian or planar problem.
     field : numpy.ndarray
         One internal spatial spectrum.
@@ -390,7 +390,7 @@ def far_field_bands(n_x: int, n_y: int, n_slots: int, n_omega: int) -> np.ndarra
     return np.minimum(units * unit, n_columns)
 
 
-def far_field_partials(problem: KernelProblem) -> tuple[int, int]:
+def far_field_partials(problem: PropagationProblem) -> tuple[int, int]:
     """Return the slots and bands a compiled far-field pass holds for a problem.
 
     Sized from the problem's own request at construction: its names, tables and
@@ -399,7 +399,7 @@ def far_field_partials(problem: KernelProblem) -> tuple[int, int]:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -439,7 +439,7 @@ class FarFieldTables:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem the backend executes.
 
     Raises
@@ -449,7 +449,7 @@ class FarFieldTables:
         admit (:func:`solprop.translate.spatial.aperture_tables`).
     """
 
-    def __init__(self, problem: KernelProblem) -> None:
+    def __init__(self, problem: PropagationProblem) -> None:
         """Form the problem's own tables once."""
         self._problem = problem
         self._spec = problem.stats_spec

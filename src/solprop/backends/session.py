@@ -5,8 +5,8 @@
 """The execution-session contract between solprop and a backend (SEP 47 section 5).
 
 Python constructs and validates the scientific problem
-(:class:`solprop.translate.problem.KernelProblem`) and resolves every run policy into
-an immutable :class:`solprop.translate.run_request.RunRequest`. A backend prepares
+(:class:`solprop.translate.problem.PropagationProblem`) and resolves every run policy
+into an immutable :class:`solprop.translate.run_request.RunRequest`. A backend prepares
 them once (:meth:`SessionBackend.prepare`), and the prepared execution starts one
 :class:`RunSession` per trajectory. The session is the only owner of that trajectory's
 mutable numerical state: the field, the method's history, the controller and monitor,
@@ -71,7 +71,7 @@ from solprop.backends.export import ExportRecipe
 from solprop.exceptions import BackendError
 from solprop.noise import NoiseRealisation
 from solprop.output.schema import MarchSnapshot
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 __all__ = [
@@ -260,13 +260,13 @@ class Start:
 
     @classmethod
     def entrance(
-        cls, problem: KernelProblem, *, noise: NoiseRealisation | None = None
+        cls, problem: PropagationProblem, *, noise: NoiseRealisation | None = None
     ) -> "Start":  # noqa: UP037 - runtime type hook
         """Return the fresh start of a problem: its launch state, its launch plane owed.
 
         Parameters
         ----------
-        problem : solprop.translate.problem.KernelProblem
+        problem : solprop.translate.problem.PropagationProblem
             The translated problem.
         noise : solprop.noise.NoiseRealisation or None, optional
             A realisation to carry instead of the one the problem was assembled with.
@@ -633,7 +633,7 @@ class SessionBackend(Protocol):
 
     def prepare(
         self,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         request: RunRequest,
         options: ExecutionOptions,
     ) -> PreparedExecution:
@@ -641,7 +641,7 @@ class SessionBackend(Protocol):
 
         Parameters
         ----------
-        problem : solprop.translate.problem.KernelProblem
+        problem : solprop.translate.problem.PropagationProblem
             The translated problem.
         request : solprop.translate.run_request.RunRequest
             What the run asks of the backend.

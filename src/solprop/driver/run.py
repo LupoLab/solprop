@@ -92,7 +92,7 @@ from solprop.stats import StatsSpec
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate.linop import power_weight_at
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.tdse import TDSEBinding
 
 __all__ = [
@@ -221,12 +221,14 @@ def plane_from_observation(
     )
 
 
-def _power_observation(problem: KernelProblem, observation: Observation) -> Observation:
+def _power_observation(
+    problem: PropagationProblem, observation: Observation
+) -> Observation:
     """Convert modal output units once, before the handler changes Fourier sign.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         Translated problem supplying modal weights or spatial geometry.
     observation : solprop.backends.protocol.Observation
         Internal state and diagnostics at a saved plane.
@@ -248,7 +250,7 @@ def _power_observation(problem: KernelProblem, observation: Observation) -> Obse
 
 @handled()  # SIGTERM and Ctrl-C stop a run between its commits
 def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
-    problem: KernelProblem,
+    problem: PropagationProblem,
     backend: Backend,
     output: Output,
     *,
@@ -288,7 +290,7 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem, whose ``stepper.save_planes`` is the itinerary.
     backend : solprop.backends.protocol.Backend
         The backend stepping it, constructed for `problem`. The run loads `start` into
@@ -536,7 +538,7 @@ def _restored(
 
 
 def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
-    problem: KernelProblem,
+    problem: PropagationProblem,
     metadata: RunMetadata,
     backend: Backend,
     output: Output,
@@ -549,7 +551,7 @@ def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     metadata : solprop.output.schema.RunMetadata
         The run's record.
@@ -590,7 +592,7 @@ def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
 
 
 def check_snapshot_request(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     output: Output,
     snapshots: SnapshotController | None,
     resume_history: bool | None,
@@ -604,7 +606,7 @@ def check_snapshot_request(
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         Translated run and observation policy.
     output : Output
         Requested optical writer.
@@ -642,7 +644,7 @@ def check_snapshot_request(
 
 
 def field_retention(
-    problem: KernelProblem, fields: object, field_planes: Sequence[int]
+    problem: PropagationProblem, fields: object, field_planes: Sequence[int]
 ) -> FieldRetention:
     """Return a run's field retention, resolved against its saved planes.
 
@@ -652,7 +654,7 @@ def field_retention(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem: its save planes, and the entrance, are the planes.
     fields : object
         ``"all"``, ``"planes"`` or ``"none"``.
@@ -748,7 +750,9 @@ def _check_retainable(output: Output, retention: FieldRetention) -> None:
 
 
 def _resume_position(
-    output: Output, checkpoint_output: CheckpointOutput | None, problem: KernelProblem
+    output: Output,
+    checkpoint_output: CheckpointOutput | None,
+    problem: PropagationProblem,
 ) -> tuple[float, bool]:
     """Resolve the actual checkpoint position and any scheduled observation owed.
 
@@ -758,7 +762,7 @@ def _resume_position(
         Open handler containing the regular saved observations.
     checkpoint_output : CheckpointOutput or None
         Checkpoint-capable handler, if available, holding any terminal state.
-    problem : KernelProblem
+    problem : PropagationProblem
         Translated problem with absolute launch and scheduled save positions, m.
 
     Returns
@@ -782,7 +786,7 @@ def _resume_position(
     return reached, missing_current_save
 
 
-def _refuse_unread_collar(problem: KernelProblem, backend: Backend) -> None:
+def _refuse_unread_collar(problem: PropagationProblem, backend: Backend) -> None:
     """Refuse a requested collar on a backend that does not read its return (SEP 40).
 
     A requested real-space collar is judged by what it returns, which the monitor's
@@ -792,7 +796,7 @@ def _refuse_unread_collar(problem: KernelProblem, backend: Backend) -> None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The run's problem.
     backend : solprop.backends.protocol.Backend
         The selected backend.
@@ -960,12 +964,14 @@ unknown, never as a reason (``retention_at``).
 """
 
 
-def _method_history(problem: KernelProblem) -> Literal["adams", "rk", "low_storage"]:
+def _method_history(
+    problem: PropagationProblem,
+) -> Literal["adams", "rk", "low_storage"]:
     """Return which kind of method history a problem's march keeps.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -1377,7 +1383,7 @@ def _record_execution(  # noqa: PLR0913 - the record's parts
     )
 
 
-def _replayed_steps(problem: KernelProblem, start_plane: int) -> int | None:
+def _replayed_steps(problem: PropagationProblem, start_plane: int) -> int | None:
     """Return the step count a replayed schedule will take, when it is knowable.
 
     A fixed schedule knows how many steps are left, which is a better ETA than any rate
@@ -1389,7 +1395,7 @@ def _replayed_steps(problem: KernelProblem, start_plane: int) -> int | None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem, whose ``stepper.schedule`` is the schedule if there is
         one.
     start_plane : int
@@ -1407,7 +1413,7 @@ def _replayed_steps(problem: KernelProblem, start_plane: int) -> int | None:
 
 
 def _refuse_a_record_that_misnames_the_basis(
-    problem: KernelProblem, metadata: RunMetadata
+    problem: PropagationProblem, metadata: RunMetadata
 ) -> None:
     """Refuse a run whose record and problem disagree about the basis, by name.
 
@@ -1430,7 +1436,7 @@ def _refuse_a_record_that_misnames_the_basis(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem about to be run.
     metadata : solprop.output.schema.RunMetadata
         The record about to be written.
@@ -1462,7 +1468,7 @@ def _refuse_a_record_that_misnames_the_basis(
 
 
 def _refuse_unrunnable(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     spec: StatsSpec,
     start_plane: int,
     n_planes: int,
@@ -1473,7 +1479,7 @@ def _refuse_unrunnable(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem about to be run.
     spec : solprop.stats.StatsSpec
         The statistics asked for. A ``periodic`` subset is accepted -- the seam carries

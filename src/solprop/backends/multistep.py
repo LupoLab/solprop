@@ -1761,7 +1761,7 @@ def source_absent(problem: Any) -> bool:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
 
     Returns

@@ -124,7 +124,7 @@ from solprop.modes.material import MaterialKerr
 from solprop.profiles import PiecewiseLinear
 from solprop.stepper import FixedSchedule
 from solprop.translate.coupled import schur_eigenbasis
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.stage import scalars
 
 RADIUS = 50e-6
@@ -443,7 +443,7 @@ def section_formation_bounds(vectors, triangular, lengths, certificate, route=No
     return np.array(bounds)
 
 
-def formation_bound(problem: KernelProblem, dz: float) -> float:
+def formation_bound(problem: PropagationProblem, dz: float) -> float:
     """Return ``eps_form`` of a flow at steps up to ``dz``, the largest over everything.
 
     Every section, active bin, distinct stage fraction and direction
@@ -504,7 +504,7 @@ def ten_step_bound(scales: FlowScales) -> float:
     )
 
 
-def flow_scales(problem: KernelProblem, grid, reference) -> FlowScales:
+def flow_scales(problem: PropagationProblem, grid, reference) -> FlowScales:
     """Read the bound's scales off a problem and its reference run's final state."""
     flow = problem.linear.coupled_flow
     assert flow is not None and flow.generator is not None
@@ -566,7 +566,7 @@ def flow_scales(problem: KernelProblem, grid, reference) -> FlowScales:
     )
 
 
-def stage_weights(problem: KernelProblem):
+def stage_weights(problem: PropagationProblem):
     """Return the ``transform_weights`` of every stage of a fixed schedule's run."""
     schedule = problem.stepper.schedule
     assert schedule is not None

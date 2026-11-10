@@ -36,7 +36,7 @@ from solprop.profiles import Constant
 from solprop.pulses import GaussianPulse
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.linop import profile_table
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 from solprop.translate.responses import dispersive_terms
 
 from solprop_native import NativeBackend
@@ -52,7 +52,7 @@ POLICIES = {"symmetric": "symmetric-kerr", "polynomial": "gas-polynomial"}
 
 def capillary(
     policy: str, gas: str | dict[str, float] = "Ar", *, envelope: bool, thg: bool
-) -> KernelProblem:
+) -> PropagationProblem:
     """Return a short three-mode capillary under a dispersive policy, translated."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
@@ -79,7 +79,7 @@ def capillary(
         return simulation.translate()
 
 
-def averaged(evaluator: str, *, thg: bool) -> tuple[KernelProblem, FieldGrid]:
+def averaged(evaluator: str, *, thg: bool) -> tuple[PropagationProblem, FieldGrid]:
     """Return a mode-averaged argon problem on a field grid, one node."""
     grid = FieldGrid.from_limits(LENGTH, 800e-9, (150e-9, 4e-6), 150e-15)
     pulse = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=2e-6).build(grid)
@@ -243,7 +243,9 @@ def test_the_general_route_lays_out_its_regions(evaluator: str) -> None:
         ),
         grid_kind="field",
     )
-    payload = cast(dict[str, Any], _dispersive_payload(cast(KernelProblem, problem)))
+    payload = cast(
+        dict[str, Any], _dispersive_payload(cast(PropagationProblem, problem))
+    )
     np.testing.assert_array_equal(payload["dispersive_node_region"], region_index)
     assert payload["dispersive_form"] == 1
     if evaluator == "symmetric":

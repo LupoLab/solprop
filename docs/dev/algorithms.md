@@ -294,7 +294,7 @@ norm so the two are comparable.
 scalars (the expansion, and the constant as its one-term case) or one Clenshaw pass over an
 array of the state's size times the degree (the $z$ table). Memory is why the expansion
 exists: $n_{\rm terms}\times$ state against $n_{\rm intervals}n_{\rm deg}\times$ state.
-{py:attr}`solprop.translate.problem.KernelProblem.device_ready` is the predicate
+{py:attr}`solprop.translate.problem.PropagationProblem.device_ready` is the predicate
 that a problem is in the first form; a GPU build refuses what fails it, and the native
 CPU build evaluates the table at a trial's positions into terms of its own (SEP 29
 section 6.6).

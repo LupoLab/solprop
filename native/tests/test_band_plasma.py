@@ -49,7 +49,7 @@ from solprop.stats import PLASMA_INTEGRATION_STATISTICS, StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 
 from legacy_geometry import LEGACY_GRID
 from bounds import fft_bound
@@ -110,7 +110,7 @@ class QuadraticRate:
         )
 
 
-def evaluation_bound(problem: KernelProblem, grid: FieldGrid) -> float:
+def evaluation_bound(problem: PropagationProblem, grid: FieldGrid) -> float:
     """Bound one evaluation relative to its largest value, fixed before it runs.
 
     The transforms, the Kerr term and the pointwise products take the predeclared
@@ -123,7 +123,7 @@ def evaluation_bound(problem: KernelProblem, grid: FieldGrid) -> float:
     )
 
 
-def march_bound(problem: KernelProblem, grid: FieldGrid, steps: int) -> float:
+def march_bound(problem: PropagationProblem, grid: FieldGrid, steps: int) -> float:
     """Bound `steps` fixed steps of a seven-stage explicit pair.
 
     Each stage's departure is at most :func:`evaluation_bound` of its value; the cases'
@@ -134,7 +134,7 @@ def march_bound(problem: KernelProblem, grid: FieldGrid, steps: int) -> float:
     return max(1, 7 * steps) * evaluation_bound(problem, grid)
 
 
-def banded(problem: KernelProblem, rule: RunningIntegral) -> KernelProblem:
+def banded(problem: PropagationProblem, rule: RunningIntegral) -> PropagationProblem:
     """Return `problem` with its plasma integrated by `rule`."""
     responses = dataclasses.replace(problem.responses, plasma_integral=rule)
     return dataclasses.replace(problem, responses=responses)
@@ -142,7 +142,7 @@ def banded(problem: KernelProblem, rule: RunningIntegral) -> KernelProblem:
 
 def modal(
     kind: str, integration: IntegrationPolicy = "band", *, averaged: bool = False
-) -> tuple[FieldGrid, KernelProblem]:
+) -> tuple[FieldGrid, PropagationProblem]:
     """Return a cheap capillary over two fixed steps: argon, or a helium-argon mix.
 
     `averaged` drops the radial quadrature and the vector components: one node and one
@@ -193,7 +193,7 @@ def modal(
     return grid, problem
 
 
-def spatial(kind: str, steps: int = STEPS) -> tuple[FieldGrid, KernelProblem]:
+def spatial(kind: str, steps: int = STEPS) -> tuple[FieldGrid, PropagationProblem]:
     """Return argon on a radial or Cartesian route, two components, the band rule."""
     grid = FieldGrid.from_limits(
         LENGTH, 800e-9, (600e-9, 1.2e-6), 200e-15, **LEGACY_GRID
@@ -233,7 +233,7 @@ def spatial(kind: str, steps: int = STEPS) -> tuple[FieldGrid, KernelProblem]:
 CASES = ("mode_averaged", "analytic", "multimode", "mixture", "radial", "free")
 
 
-def case(name: str) -> tuple[FieldGrid, KernelProblem]:
+def case(name: str) -> tuple[FieldGrid, PropagationProblem]:
     """Return the banded ``(grid, problem)`` of one case, asking every statistic."""
     grid, problem = spatial(name) if name in {"radial", "free"} else modal(name, "band")
     return grid, dataclasses.replace(problem, stats_spec=StatsSpec(names=STATISTICS))
@@ -241,7 +241,7 @@ def case(name: str) -> tuple[FieldGrid, KernelProblem]:
 
 def march(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
-    problem: KernelProblem,
+    problem: PropagationProblem,
     grid: FieldGrid,
 ) -> tuple[ComplexArray, dict[str, np.ndarray]]:
     """Return the field and the statistics after the problem's fixed steps."""
@@ -606,7 +606,7 @@ TILED = INFO.band_column == "tiled"
 
 
 def band_slots(
-    problem: KernelProblem, backend: NativeBackend, band: bool = True
+    problem: PropagationProblem, backend: NativeBackend, band: bool = True
 ) -> int:
     """Return the band column's scratch slots: a device's chunk, the host's teams.
 

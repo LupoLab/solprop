@@ -137,7 +137,7 @@ kernel layout carries the transverse columns in its mode axis (see §12).
 | layer | contents | may import | performance rules |
 |---|---|---|---|
 | **P** physics / convenience | grids, materials, modes, profiles, pulses, noise, linear-operator assembly, response *definitions*, ionisation and Raman models, boundaries, normalisation, tools | numpy, scipy, standard library, other P modules | none: clarity first; never in a hot loop |
-| **T** translation | turns P objects into validated kernel-ready arrays and the `KernelProblem` contract | P, numpy, scipy | may be expensive once per problem; results cached and validated |
+| **T** translation | turns P objects into validated kernel-ready arrays and the `PropagationProblem` contract | P, numpy, scipy | may be expensive once per problem; results cached and validated |
 | **B** backends | state buffers, transform plans, kernels, the inner z-loop, statistics kernels | numpy; the native package in `native/` (Kokkos, Kokkos-FFT and nanobind); from P only the types and constants the seam names — never a physics object | all hot-path rules of [backends.md](backends.md); in-place and `out=` allowed here only |
 | **D** driver | `Simulation`, run loop over save planes, batch runners, `prop_capillary`/`prop_gnlse`, output handlers, statistics specs | P, T, B (through the seam only), h5py | none |
 | **X** processing / plotting | analysis of outputs, standard plots, design tools | numpy, scipy, matplotlib, D (outputs), T (reference tables and their identities, for `processing.modal`; the recorded plane measure, for `processing.mixtures` and `processing.planes`) — never B | none; may call backend statistics kernels through the D layer when a computation belongs on the device |
@@ -172,7 +172,7 @@ the table identity, the guide identity -- and not the reference's tens of megaby
 so the reference is rebuilt in **T** by `general_modal_route` and read in **X**, which
 checks it against the stored identity, path by path, before it synthesises anything.
 **X** takes the record type and the identity functions, never an execution map, never a
-`KernelProblem` and never a backend. Two further modules read what a file records the
+`PropagationProblem` and never a backend. Two further modules read what a file records the
 same way. `processing.mixtures` and `processing.planes` rebuild a spatial plane's
 measure from the record with `translate.flux.flux_from_record` and
 `translate.spatial.axial_admittance` (SEP 34), and `processing.planes` reuses
@@ -217,7 +217,7 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `physdata/` | Species, mixtures, equations of state, transport properties (viscosity, sound speed, mean free path), optical material data, metals, nonlinear and Raman data | P |
 | `modes/` | Mode protocols and derived quantities; capillary, antiresonant, tabulated, step-index, rectangular and planar (slab, uniform in y, per unit width) modes, with `PlanarGrid` for the planar guide resolved in y; shared gas fill, quadrature and collections; full-vector modal records, material laws and regions, bound step-index and radial graded-index providers, and the guide that pairs a provider with a mode collection, and the connection of a basis that moves along z | P |
 | `linear.py`, `boundaries.py`, `nonlinear/` | Linear assembly, absorbing rates, response definitions, ionisation, Raman, normalisation and the GNLSE mapping | P |
-| `translate/` | Validated `KernelProblem`; parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); response tables, masks and stage bundles | T |
+| `translate/` | Validated `PropagationProblem`; parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); response tables, masks and stage bundles | T |
 | `backends/` | Registry and protocols, shared step and batch drivers, scalar bodies, spatial and population statistics | B |
 | `backends/numpy_ref/` | Reference execution | B |
 | `backends/host/` | The reference's own step driver, Adams and low-storage marches, fixed-schedule group and run session ([SEP 47](seps/sep-0047-run-ownership.md) phase 2); the inherited drivers in `backends/` remain the native bridge's until its session replaces them | B |
@@ -261,7 +261,7 @@ user script / prop_capillary(...)                                  (D)
    │  Boundaries, StepperSettings, Output
    ▼
 Simulation(...)                                                    (D)
-   │  .translate() → KernelProblem  (validated arrays)                   (T)
+   │  .translate() → PropagationProblem  (validated arrays)                   (T)
    │  .backend = backends.select(name, problem)                     (B)
    ▼
 run loop over save planes and stats periods                        (D)
@@ -299,10 +299,10 @@ driver does not do is as much a part of the design as what it does:
   `solprop.output`; the driver is the wiring.
 
 A general modal guide adds a chain of host-side records in front of the
-`KernelProblem` ([vector fields and projection](../guide/waveguides/modal-projection.md)):
+`PropagationProblem` ([vector fields and projection](../guide/waveguides/modal-projection.md)):
 
 ```text
-ModalProvider  ->  DenseModalTable  ->  ModalTransformTables  ->  KernelProblem
+ModalProvider  ->  DenseModalTable  ->  ModalTransformTables  ->  PropagationProblem
  E, H, beta at      tracked knots in     S and Q on the run's      the three
  nodes, one         frequency, gated     coarse grid, the dense    general-modal
  (omega, z)         on its sampled       E/H and the node rule     leaves and the
@@ -460,7 +460,7 @@ circular limits. Circular launch still uses the existing real modal basis.
 
 ## 7. The translation layer (`translate/`)
 
-The translation layer produces the `KernelProblem` ([kernel-contract.md](kernel-contract.md)):
+The translation layer produces the `PropagationProblem` ([kernel-contract.md](kernel-contract.md)):
 plain arrays with fixed dtypes, shapes and axis names, validated (finite, contiguous, sizes
 consistent) and immutable, with no version number (ADR-068). What it computes, once per problem:
 

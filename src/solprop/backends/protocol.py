@@ -13,10 +13,10 @@ out-of-place transforms, separate scaling passes, materialised stages, one reduc
 statistic — and that structure is precisely what a fast backend exists to change.
 
 A backend is constructed from a validated
-:class:`solprop.translate.problem.KernelProblem`, takes host arrays and returns host
-arrays; its buffers, layout and plans are private, and the state is never a parameter of
-:meth:`Backend.propagate_to` or :meth:`Backend.observe`. Selection by name and the
-availability rules are in :mod:`solprop.backends.registry`.
+:class:`solprop.translate.problem.PropagationProblem`, takes host arrays and returns
+host arrays; its buffers, layout and plans are private, and the state is never a
+parameter of :meth:`Backend.propagate_to` or :meth:`Backend.observe`. Selection by name
+and the availability rules are in :mod:`solprop.backends.registry`.
 
 **Sign convention.** Every complex array crossing this seam, in either direction, is in
 the **FFT convention** of ``docs/dev/conventions.md`` section 2, with the phase origin
@@ -659,8 +659,8 @@ class Backend(Protocol):
     """What every execution backend provides, and nothing more.
 
     ``docs/dev/backends.md`` section 1. A backend is constructed from a validated
-    :class:`solprop.translate.problem.KernelProblem`; the numbers are the contract, and
-    a backend is correct when it reproduces the ``numpy_ref`` oracle to the stated
+    :class:`solprop.translate.problem.PropagationProblem`; the numbers are the contract,
+    and a backend is correct when it reproduces the ``numpy_ref`` oracle to the stated
     bound.
 
     Attributes

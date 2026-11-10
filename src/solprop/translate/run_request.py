@@ -4,11 +4,11 @@
 
 """The immutable run request a backend prepares beside its problem (SEP 47 section 6.3).
 
-The translated problem (:class:`solprop.translate.problem.KernelProblem`) says *what*
-is propagated. A :class:`RunRequest` says *how it is run*: which integration method,
-how errors are controlled, which fixed itinerary is replayed, what is observed and
-kept, what the boundary watches and which method history is retained. Python resolves
-every default before preparation, so a backend never invents a policy, and the
+The translated problem (:class:`solprop.translate.problem.PropagationProblem`) says
+*what* is propagated. A :class:`RunRequest` says *how it is run*: which integration
+method, how errors are controlled, which fixed itinerary is replayed, what is observed
+and kept, what the boundary watches and which method history is retained. Python
+resolves every default before preparation, so a backend never invents a policy, and the
 request never changes during a run: stop and snapshot requests travel separately
 (:mod:`solprop.backends.session`).
 
@@ -45,7 +45,7 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import Tableau
-from solprop.translate.problem import KernelProblem, PropagatorMode
+from solprop.translate.problem import PropagationProblem, PropagatorMode
 
 __all__ = [
     "MARCH_SNAPSHOT_AUTO_BYTES",
@@ -287,7 +287,7 @@ class RunRequest:
 
 
 def describe_run(  # noqa: PLR0913 - one resolved choice per keyword
-    problem: KernelProblem,
+    problem: PropagationProblem,
     *,
     stats: StatsSpec | None = None,
     retention: FieldRetention | None = None,
@@ -300,7 +300,7 @@ def describe_run(  # noqa: PLR0913 - one resolved choice per keyword
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem; its stepper settings supply the method, error control,
         itinerary and planes.
     stats : solprop.stats.StatsSpec or None, optional
