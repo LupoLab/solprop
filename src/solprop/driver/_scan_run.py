@@ -836,7 +836,7 @@ class _Work:
                 {_plane_index(index, count) for index in self.options.field_planes}
             )
         )
-        field_bytes = math.prod(simulation.translate().shape[1:]) * 16 * selected
+        field_bytes = math.prod(simulation.translate().shape) * 16 * selected
         if simulation.noise is not None:
             field_bytes *= 2
         keep = self.options.stats
@@ -869,7 +869,7 @@ class _Work:
         metadata = dataclasses.replace(
             simulation.metadata(),
             configuration=dict(simulation.metadata().configuration)
-            | {"scan_field_shape": simulation.translate().shape[1:]},
+            | {"scan_field_shape": simulation.translate().shape},
         )
         reduced_bytes = sum(
             math.prod(reduction.shape(metadata)) * reduction.dtype.itemsize

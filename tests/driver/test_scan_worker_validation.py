@@ -6,6 +6,7 @@
 
 import dataclasses
 import inspect
+import math
 from typing import cast
 from unittest.mock import Mock
 
@@ -223,3 +224,25 @@ def test_execution_provenance_handles_uninspectable_builder(tmp_path, monkeypatc
     absent = tmp_path / "absent.h5"
     _scan_run._finish_execution(_scan_run.Local(), build, None, absent)
     assert not absent.exists()
+
+
+def test_admission_counts_every_mode_of_a_retained_and_reduced_field():
+    """The bytes a point holds cover all ``n_modes`` columns of its field.
+
+    Admission sizes a retained plane and a field reduction at the problem's whole
+    ``(n_modes, n_pol, n_omega)``; dropping the first axis (the batch axis a slice
+    once removed) would undercount a multimode or spatial point by ``n_modes``.
+    """
+    from driver.test_prop_capillary import build as capillary  # noqa: PLC0415
+
+    simulation = capillary(modes=3, length=2e-3)
+    shape = simulation.translate().shape
+    assert shape[0] == 3
+    count = len(simulation.settings.save_planes) + 1
+    plane = math.prod(shape) * 16
+    retained = _Work(build, _Options((), "all", (), "none"), "worker")
+    assert retained._output_bytes(simulation, {}) == count * plane + count * 8
+    reduced = _Work(
+        build, _Options((scans.field_at_plane(),), "none", (), "none"), "worker"
+    )
+    assert reduced._output_bytes(simulation, {}) == plane + count * 8
