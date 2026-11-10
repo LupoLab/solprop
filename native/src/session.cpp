@@ -85,34 +85,62 @@ std::uint64_t steps_to_next(const std::uint64_t period, const std::uint64_t coun
   return period - count % period;
 }
 
+namespace {
+
+// One row of `n_omega` bins of `apply_recipe`, its two choices fixed so that the loop
+// carries no branch and no division: `(-1)^k` alternates along the row.
+template <bool Scale, bool Optics>
+void recipe_row(const double* state, const std::size_t n_omega, const double* weight,
+                double* out) {
+  for (std::size_t bin = 0; bin < n_omega; ++bin) {
+    double re = state[2 * bin];
+    double im = state[2 * bin + 1];
+    if constexpr (Scale) {
+      const double root = std::sqrt(weight[bin]);
+      const double real_part = re * root - im * 0.0;
+      const double imaginary_part = re * 0.0 + im * root;
+      re = real_part;
+      im = imaginary_part;
+    }
+    if constexpr (Optics) {
+      const double conjugate = -im;
+      const double sign = bin % 2 == 0 ? 1.0 : -1.0;
+      const double real_part = sign * re - 0.0 * conjugate;
+      const double imaginary_part = sign * conjugate + 0.0 * re;
+      re = real_part;
+      im = imaginary_part;
+    }
+    out[2 * bin] = re;
+    out[2 * bin + 1] = im;
+  }
+}
+
+template <bool Scale, bool Optics>
+void recipe_rows(const double* state, const std::size_t n, const std::size_t n_omega,
+                 const double* weight, double* out) {
+  for (std::size_t start = 0; start < n; start += n_omega)
+    recipe_row<Scale, Optics>(state + 2 * start, n_omega,
+                              Scale ? weight + start : nullptr, out + 2 * start);
+}
+
+} // namespace
+
 void apply_recipe(const double* state, const std::size_t n, const std::size_t n_omega,
                   const double* weight, const bool scale, const bool optics,
                   double* out) {
   // `np.multiply(state, np.sqrt(weight))` multiplies by the complex `sqrt(w) + 0j`, and
   // `np.multiply(shift, np.conj(out))` by the complex `(-1)^k + 0j`: each product is
   // NumPy's complex one, `(a c - b d, a d + b c)`, its zero terms kept so that signed
-  // zeros and non-finite values come out as NumPy's.
-  for (std::size_t index = 0; index < n; ++index) {
-    double re = state[2 * index];
-    double im = state[2 * index + 1];
-    if (scale) {
-      const double root = std::sqrt(weight[index]);
-      const double real_part = re * root - im * 0.0;
-      const double imaginary_part = re * 0.0 + im * root;
-      re = real_part;
-      im = imaginary_part;
-    }
-    if (optics) {
-      const double conjugate = -im;
-      const double sign = (index % n_omega) % 2 == 0 ? 1.0 : -1.0;
-      const double real_part = sign * re - 0.0 * conjugate;
-      const double imaginary_part = sign * conjugate + 0.0 * re;
-      re = real_part;
-      im = imaginary_part;
-    }
-    out[2 * index] = re;
-    out[2 * index + 1] = im;
-  }
+  // zeros and non-finite values come out as NumPy's. The field is whole rows of
+  // `n_omega` bins.
+  if (scale && optics)
+    recipe_rows<true, true>(state, n, n_omega, weight, out);
+  else if (scale)
+    recipe_rows<true, false>(state, n, n_omega, weight, out);
+  else if (optics)
+    recipe_rows<false, true>(state, n, n_omega, weight, out);
+  else
+    recipe_rows<false, false>(state, n, n_omega, weight, out);
 }
 
 double strict_probe(const double a, const double b, const double c) {
