@@ -246,7 +246,8 @@ function _temporal_power!(power, samples, weights, execution)
     all(isfinite, samples) || throw(ArgumentError("temporal monitor samples are nonfinite"))
     (
         Base.mightalias(power, samples) || Base.mightalias(power, weights.regions) ||
-            Base.mightalias(power, weights.columns)
+            Base.mightalias(power, weights.columns) ||
+            (weights.buckets !== nothing && Base.mightalias(power, weights.buckets))
     ) &&
         throw(ArgumentError("temporal monitor scratch aliases its input"))
     columns = weights.columns

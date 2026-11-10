@@ -294,4 +294,11 @@ end
         ones(4, 1), one_column, scratch, execution; spectrum
     )
     @test scratch == fill(7.0, 4)
+    # Splits preserve the prepared crossing map even though they do not read it (#634).
+    retained_buckets = copy(one_column.buckets)
+    aliased_power = reinterpret(Float64, vec(one_column.buckets))
+    @test_throws ArgumentError SolpropJulia.split_reading!(
+        bucket_reading, ones(4, 1), 0.125, one_column, aliased_power, execution
+    )
+    @test one_column.buckets == retained_buckets
 end
