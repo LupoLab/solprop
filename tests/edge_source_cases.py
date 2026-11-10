@@ -98,8 +98,9 @@ class EdgeCase:
     @property
     def descriptor(self) -> TDSEDescriptor:
         """Return the descriptor."""
-        assert tdse_descriptor(self.problem.route) is not None
-        return tdse_descriptor(self.problem.route)
+        descriptor = tdse_descriptor(self.problem.route)
+        assert descriptor is not None
+        return descriptor
 
     def to_source(self, raw: np.ndarray) -> np.ndarray:
         """Map a raw coarse spectrum of ``S`` to the source's modal units.

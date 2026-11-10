@@ -303,6 +303,7 @@ def test_call_budget_stops_before_overspending(narrow_grid, soliton_problem):
     # PECE needs two calls a trial: the stop leaves at most one unspent.
     assert budget - ledger.total < 2
     assert 0.0 < caught.value.z < SOLITON_PERIOD
+    assert backend._state is not None
     np.testing.assert_array_equal(caught.value.field, backend._state[0])
     backend.close()
 

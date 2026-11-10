@@ -210,7 +210,7 @@ def on_leaf(problem, leaf, *, seed=3):
         grids=dataclasses.replace(problem.grids, active_mask=leaf.active),
         initial=dataclasses.replace(problem.initial, field0=field),
         route=dataclasses.replace(
-            problem.route, flux=dataclasses.replace(flux_of(problem.route), base=leaf)
+            problem.route, flux=dataclasses.replace(_flux(problem), base=leaf)
         ),
     )
 
@@ -401,3 +401,10 @@ def test_a_diverged_march_is_refused_by_name(implementation):
     backend = {"numpy_ref": NumpyRefBackend, "native": NativeBackend}[implementation]
     with pytest.raises(ConvergenceError, match="diverged"):
         run(backend, problem, grid)
+
+
+def _flux(problem):
+    """Return a spatial problem's flux plan."""
+    flux = flux_of(problem.route)
+    assert flux is not None
+    return flux

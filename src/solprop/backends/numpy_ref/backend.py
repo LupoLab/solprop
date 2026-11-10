@@ -466,8 +466,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         """Collect the requested statistics at the current position.
 
         The trajectory's statistics, without the leading axis of one the march holds
-        its state with (SEP 47 section 6.2): :meth:`_stacked_statistics` evaluates
-        them.
+        its state with (SEP 47 section 6.2), which ``_stacked_statistics`` evaluates.
 
         Parameters
         ----------
