@@ -20,6 +20,7 @@ from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_matched, simulation_bound
 from selected_backend import selected_backend
 from solprop import fourier
+from solprop.backends.protocol import Backend
 from solprop.backends.registry import select
 from solprop.constants import C
 from solprop.driver import Simulation, prop_gnlse
@@ -166,6 +167,7 @@ def interface_and_backend(simulation):
         profiles=simulation.profiles,
     )
     try:
+        assert isinstance(backend, Backend)
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(float(run_request.stepper.save_planes[-1]))
         direct = backend.observe().require_field().copy()

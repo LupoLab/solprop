@@ -40,6 +40,7 @@ except ImportError:
 import numpy as np
 
 import solprop
+from solprop.backends.protocol import Backend
 from solprop.backends.registry import select
 from solprop.grid import FieldGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
@@ -97,6 +98,7 @@ def main():
     owner = select(arguments.backend, problem, run_request, grid=grid, modes=modes)
     assert run_request.stepper.schedule is not None
     try:
+        assert isinstance(owner, Backend)
         owner.set_initial(problem.initial.field0, None)
         history = [owner.observe().require_field().copy()]
         for position in run_request.stepper.schedule.edges[1 : STEPS + 1]:

@@ -2,13 +2,24 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The backend the driver tests and direct ladders select: ``SOLPROP_TEST_BACKEND``."""
+"""Select execution backends or the legacy drivers required by particular tests."""
 
 import os
+from typing import Literal
 
-from solprop.backends.registry import resolve_name
+from solprop.backends.registry import available, resolve_name
 
-__all__ = ["selected_backend"]
+__all__ = ["legacy_backends", "selected_backend"]
+
+
+def legacy_backends() -> tuple[Literal["numpy_ref", "native"], ...]:
+    """Return installed backends whose legacy numerical methods a test exercises.
+
+    Session-level conformance uses the registry's general ``available()`` instead.
+    """
+    names: tuple[Literal["numpy_ref", "native"], ...] = ("numpy_ref", "native")
+    installed = available()
+    return tuple(name for name in names if name in installed)
 
 
 def selected_backend() -> str:

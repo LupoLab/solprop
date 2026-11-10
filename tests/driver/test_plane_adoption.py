@@ -22,6 +22,7 @@ import pytest
 
 from driver.test_field_free_planes import cartesian, low_storage
 from driver.test_runner import capillary
+from selected_backend import legacy_backends
 from solprop import fourier
 from solprop.backends.driver import StepDriver
 from solprop.backends.events import ObservationReady
@@ -143,7 +144,7 @@ def test_a_kept_plane_survives_the_field_free_planes_after_it(backend):
         assert np.array_equal(held, as_it_arrived)
 
 
-@pytest.mark.parametrize("backend", available())
+@pytest.mark.parametrize("backend", legacy_backends())
 def test_a_run_hands_over_the_observation_itself(backend, monkeypatch):
     """No copy on the way to the handler, on a route with no conversion of units."""
     simulation = cartesian(backend)
@@ -157,6 +158,7 @@ def test_a_run_hands_over_the_observation_itself(backend, monkeypatch):
             super().save(plane)
 
     with simulation.runner() as runner:
+        assert isinstance(runner.backend, Backend)
         observe = runner.backend.observe
 
         def watched(*, field: bool = True) -> Observation:
@@ -262,7 +264,11 @@ def _copied_observations(monkeypatch: pytest.MonkeyPatch) -> list[np.ndarray]:
 @pytest.mark.parametrize(
     ("backend", "case", "precision"),
     [
-        *((backend, case, "double") for backend in available() for case in STORED),
+        *(
+            (backend, case, "double")
+            for backend in legacy_backends()
+            for case in STORED
+        ),
         *(("numpy_ref", case, "single") for case in STORED),
     ],
 )
@@ -302,12 +308,13 @@ def _observed_at_its_first_plane(
     problem = simulation.translate()
     run_request = simulation._run_request()
     backend = select(name, problem, run_request, grid=simulation.grid)
+    assert isinstance(backend, Backend)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(float(run_request.stepper.save_planes[0]))
     return problem, backend, backend.observe()
 
 
-@pytest.mark.parametrize("backend", available())
+@pytest.mark.parametrize("backend", legacy_backends())
 @pytest.mark.parametrize("case", ["modal", "single-mode"])
 def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(
     backend, case, monkeypatch

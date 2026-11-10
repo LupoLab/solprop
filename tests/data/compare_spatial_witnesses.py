@@ -30,6 +30,7 @@ import numpy as np
 from scipy.interpolate import CubicSpline
 
 from solprop import fourier
+from solprop.backends.protocol import Backend
 from solprop.backends.registry import select
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation, SimulationSettings
@@ -494,6 +495,7 @@ def run_one(path, media_path, backend_name, rtol, destination, prefactor_index=N
                     modes=simulation.modes,
                 )
                 result["memory_ledger"] = backend.memory_ledger()
+                assert isinstance(backend, Backend)
                 backend.set_initial(problem.initial.field0, None)
                 result["setup_seconds"] = time.perf_counter() - started
                 advance(

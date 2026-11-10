@@ -16,6 +16,7 @@ here before the comparison (SEP 25).
 """
 
 import importlib.util
+from typing import Literal
 
 import numpy as np
 import pytest
@@ -42,9 +43,9 @@ pytestmark = [
     ),
 ]
 
-BACKENDS = ["numpy_ref"] + (
-    ["native"] if importlib.util.find_spec("solprop_native") is not None else []
-)
+BACKENDS: list[Literal["numpy_ref", "native"]] = ["numpy_ref"]
+if importlib.util.find_spec("solprop_native") is not None:
+    BACKENDS.append("native")
 
 LOCAL = (
     "energy",

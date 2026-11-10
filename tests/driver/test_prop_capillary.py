@@ -60,6 +60,7 @@ from rate_oracles import HISTORICAL_ATOMS, AdkOracle, PptOracle, adk_oracle, ppt
 from selected_backend import selected_backend
 from solprop import tools
 from solprop.backends.numpy_ref import QUADRATURE_ALARM, NumpyRefBackend, passes
+from solprop.backends.protocol import Backend
 from solprop.backends.registry import select
 from solprop.boundaries import absorber
 from solprop.constants import AU_EFIELD, AU_ENERGY, EPS0, C
@@ -3691,6 +3692,7 @@ def statistics_channel_measurement(reduced_m2_channel, selection):
             profiles=simulation.profiles,
         )
         try:
+            assert isinstance(backend, Backend)
             backend.set_initial(problem.initial.field0, None)
             cpu_started = time.process_time()
             started = time.perf_counter()
@@ -3744,6 +3746,7 @@ def test_a_periodic_row_at_a_plane_is_the_plane_s_own_statistic_on_the_m2_case(
         profiles=simulation.profiles,
     )
     try:
+        assert isinstance(backend, Backend)
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(0.06)
         observed = backend.observe()

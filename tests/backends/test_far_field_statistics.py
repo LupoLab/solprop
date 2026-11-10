@@ -14,6 +14,7 @@ import dataclasses
 import importlib.util
 import math
 from contextlib import ExitStack
+from typing import Literal
 
 import numpy as np
 import pytest
@@ -115,7 +116,9 @@ def free_simulation(grid, space, launch, *, medium=None, spec=None, **settings):
     )
 
 
-def entrance(simulation, backend="numpy_ref", spec=None):
+def entrance(
+    simulation, backend: Literal["numpy_ref", "native"] = "numpy_ref", spec=None
+):
     """The statistics of the launch on a backend, and the problem they belong to."""
     problem = simulation.translate()
     run_request = simulation._run_request()

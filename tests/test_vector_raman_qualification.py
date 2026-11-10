@@ -10,6 +10,7 @@ from numpy.testing import assert_allclose
 from scipy.linalg import expm
 
 from envelope_oracle_angular import order_record
+from solprop.backends.protocol import Backend
 from solprop.backends.registry import select
 from solprop.constants import EPS0, C
 from solprop.grid import EnvelopeGrid
@@ -247,6 +248,7 @@ def gain_experiment(state, backend_name="numpy_ref", *, steps=8, ffac=16):
     expected = expm(length * generator) @ np.concatenate([seed * stokes, np.zeros(2)])
     owner = select(backend_name, problem, run_request, grid=grid)
     try:
+        assert isinstance(owner, Backend)
         owner.set_initial(problem.initial.field0, None)
         owner.propagate_to(length)
         final = np.fft.ifft(owner.observe().require_field()[0], axis=-1)

@@ -74,9 +74,9 @@ def loaded(simulation, cleanup):
         profiles=simulation.profiles,
     )
     cleanup.callback(owner.close)
-    owner.set_initial(problem.initial.field0, simulation.noise)
     # The reference's own driver, or the native bridge's inherited one (SEP 47).
     assert isinstance(owner, (StepDriver, HostDriver))
+    owner.set_initial(problem.initial.field0, simulation.noise)
     return cast("Any", owner)
 
 

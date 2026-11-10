@@ -33,6 +33,7 @@ import numpy as np
 
 import solprop
 from power_identity import constant_fill_m2
+from solprop.backends.protocol import Backend
 from solprop.backends.registry import select
 from solprop.exceptions import MaterialRangeWarning
 
@@ -58,6 +59,7 @@ def main():
     assert problem.initial.noise0 is not None
     assert problem.linear.phi_coefficients is not None
     try:
+        assert isinstance(owner, Backend)
         owner.set_initial(problem.initial.field0, None)
         history = [owner.observe().require_field().copy()]
         for position in run_request.stepper.schedule.edges[1:11]:

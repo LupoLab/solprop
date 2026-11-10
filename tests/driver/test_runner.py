@@ -26,6 +26,7 @@ import pytest
 from bounds import assert_within, fft_bound, step_evaluations
 from driver.test_field_free_planes import cartesian, low_storage, replay_bound
 from runtime_types import unchecked
+from selected_backend import legacy_backends
 from solprop.backends import sessions
 from solprop.backends.driver import StepDriver
 from solprop.backends.host.driver import HostDriver
@@ -224,7 +225,7 @@ def test_a_runner_counts_each_run_s_low_storage_evaluations_alone():
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", available())
+@pytest.mark.parametrize("backend", legacy_backends())
 @pytest.mark.parametrize("dense", [True, False], ids=["dense", "replayed Adams"])
 def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(
     backend, dense, monkeypatch
@@ -271,6 +272,7 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(
             profiles=simulation.profiles,
         )
         try:
+            assert isinstance(fresh, (StepDriver, HostDriver))
             fresh.set_initial(problem.initial.field0, None, z=problem.initial.z)
             # Restored state is exact: the same flags, alarm and integer ledger.
             assert restored(left, problem, run_request) == restored(
@@ -506,7 +508,7 @@ def _spied_load(backend, monkeypatch) -> list[weakref.ref[np.ndarray]]:
     return loads
 
 
-@pytest.mark.parametrize("backend", available())
+@pytest.mark.parametrize("backend", legacy_backends())
 @pytest.mark.parametrize("route", ["modal", "spatial"])
 @pytest.mark.parametrize("digested", [True, False], ids=["digest", "inline"])
 @pytest.mark.usefixtures("no_collector")
@@ -540,7 +542,7 @@ def test_a_runner_holds_no_input_through_the_march(
         assert loads[0]() is None
 
 
-@pytest.mark.parametrize("backend", available())
+@pytest.mark.parametrize("backend", legacy_backends())
 def test_a_runner_reads_a_digested_input_without_a_copy(backend, monkeypatch):
     """The derived simulation views the caller's array, which it leaves as it was."""
     simulation = cartesian(backend)
@@ -548,6 +550,7 @@ def test_a_runner_reads_a_digested_input_without_a_copy(backend, monkeypatch):
     field = 0.9 * simulation._field0
     before = field.copy()
     with simulation.runner() as runner:
+        assert isinstance(runner.backend, (StepDriver, HostDriver))
         load = runner.backend.set_initial
         shared: list[bool] = []
 

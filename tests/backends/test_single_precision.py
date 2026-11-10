@@ -16,7 +16,7 @@ import math
 import warnings
 from collections.abc import Sequence
 from contextlib import ExitStack
-from typing import cast
+from typing import Literal, cast
 
 import numpy as np
 import pytest
@@ -325,7 +325,9 @@ def overflowing_beam(precision: str) -> Simulation:
     )
 
 
-def run_to_end(simulation: Simulation, backend: str) -> Observation:
+def run_to_end(
+    simulation: Simulation, backend: Literal["numpy_ref", "native"]
+) -> Observation:
     """Propagate on `backend` to the last save plane and return its observation."""
     problem = simulation.translate()
     run_request = simulation._run_request()

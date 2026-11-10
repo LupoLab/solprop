@@ -54,6 +54,7 @@ from bounds import rate_log_sensitivity
 from optmat_parity_cases import Case, build_case
 from solprop import stats
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.protocol import Backend
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.responses import PlasmaResponse
@@ -194,6 +195,7 @@ def _complete_run(backend_name: str, case: Case):
             backend_name, problem, run_request, grid=case.grid, modes=case.modes
         )
         try:
+            assert isinstance(backend, Backend)
             backend.set_initial(problem.initial.field0, None)
             planes, statistics, steps = [], {}, 0
             for plane in run_request.stepper.save_planes:

@@ -16,6 +16,7 @@ beam in a corner, and two beams that cancel on the axis.
 
 import importlib.util
 import math
+from typing import Literal
 
 import numpy as np
 import pytest
@@ -131,7 +132,9 @@ def _state(problem, grid, name):
     return field * (1e3 / np.max(np.abs(field)))
 
 
-def _measure(name, grid, problem, run_request, field, spec):
+def _measure(
+    name: Literal["numpy_ref", "native"], grid, problem, run_request, field, spec
+):
     backend = select(name, problem, run_request, grid=grid)
     try:
         backend.set_initial(field, None, z=0.0)

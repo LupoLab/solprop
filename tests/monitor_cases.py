@@ -21,7 +21,7 @@ import numpy as np
 from capability_routes import LENGTH, ROUTES
 from solprop.backends.driver import StepDriver
 from solprop.backends.host.driver import HostDriver
-from solprop.backends.protocol import Backend
+from solprop.backends.protocol import Backend, ExecutionBackend
 from solprop.backends.registry import select
 from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
@@ -101,8 +101,8 @@ def with_copy(field: np.ndarray, n_t: int) -> np.ndarray:
     return field * (1.0 + COPY_SHARE * phase)
 
 
-def as_driver(backend: Backend) -> StepDriver[Any] | HostDriver[Any]:
-    """Return a backend as the step driver every registered backend is.
+def as_driver(backend: ExecutionBackend) -> StepDriver[Any] | HostDriver[Any]:
+    """Return an execution owner after checking that it has a legacy driver.
 
     The reference's own (:class:`~solprop.backends.host.driver.HostDriver`) or the
     native bridge's inherited one (SEP 47 phase 2).
@@ -135,14 +135,15 @@ def watched(
         options=simulation.settings.execution_options() if options is None else options,
     )
     driver = as_driver(backend)
+    assert isinstance(driver, Backend)
     driver.set_initial(with_copy(problem.initial.field0, simulation.grid.n_t), None)
     monitor = simulation._boundary_monitor()
     assert monitor is not None
     driver.attach_monitor(monitor)
-    return backend
+    return driver
 
 
-def reading(backend: Backend) -> BoundaryEnergies:
+def reading(backend: ExecutionBackend) -> BoundaryEnergies:
     """Return a backend's reading of its current state."""
     driver = as_driver(backend)
     return driver._boundary_energies(driver._require_state())

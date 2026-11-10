@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+import selected_backend
 from solprop import _process
 from solprop.backends import (
     Backend,
@@ -337,6 +338,9 @@ class Stub:
     def prepare(self, problem, request):
         return DriverPrepared(self, problem, request)
 
+    def start_group(self, members, problems, requests, starts, *, stop=None):
+        raise BackendError("the stub backend does not support groups")
+
     def restore_call_ledgers(self, logical, atomic=None):
         return None
 
@@ -392,6 +396,8 @@ class Stub:
 def test_a_minimal_backend_satisfies_the_protocol():
     backend = Stub()
     assert isinstance(backend, Backend)
+    with pytest.raises(BackendError, match="stub backend does not support groups"):
+        backend.start_group([], [], [], [])
     backend.set_initial(np.zeros((1, 1, 4), complex), None)
     assert backend.restore_call_ledgers({}) is None
     backend.set_progress(NullReporter())
@@ -402,6 +408,21 @@ def test_a_minimal_backend_satisfies_the_protocol():
     assert backend.available_device_memory() is None
     assert backend.metadata()["backend"] == "stub"
     assert backend.close() is None
+
+
+@pytest.mark.parametrize(
+    ("installed", "expected"),
+    [
+        (("numpy_ref", "native", "julia"), ("numpy_ref", "native")),
+        (("numpy_ref", "julia"), ("numpy_ref",)),
+        (("julia",), ()),
+    ],
+)
+def test_legacy_test_selection_excludes_execution_only_backends(
+    monkeypatch, installed, expected
+):
+    monkeypatch.setattr(selected_backend, "available", lambda: installed)
+    assert selected_backend.legacy_backends() == expected
 
 
 def test_an_object_missing_a_method_is_not_a_backend():

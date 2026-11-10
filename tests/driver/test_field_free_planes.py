@@ -22,6 +22,7 @@ import pytest
 
 from bounds import AccuracyEnvelope, assert_within, fft_bound, gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
+from selected_backend import legacy_backends
 from solprop.backends.driver import StepDriver
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -437,7 +438,7 @@ def test_an_output_that_cannot_store_field_free_planes_is_refused():
 # --- the seam: observe(field=False) (SEP 22 phase 2) --------------------------------
 
 
-@pytest.mark.parametrize("backend", available())
+@pytest.mark.parametrize("backend", legacy_backends())
 def test_a_field_free_observation_crosses_no_field(backend, monkeypatch):
     simulation = cartesian(backend, noise=True)
     problem = simulation.translate()
@@ -445,6 +446,7 @@ def test_a_field_free_observation_crosses_no_field(backend, monkeypatch):
     observations = []
     for field in (True, False):
         owner = select(backend, problem, run_request, grid=simulation.grid)
+        assert isinstance(owner, (StepDriver, HostDriver))
         copies = []
         original = cast("type[StepDriver | HostDriver]", type(owner))._observed_field
 

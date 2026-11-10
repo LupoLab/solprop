@@ -43,7 +43,7 @@ from modal_provider_cases import (
     GRIN_RADIUS,
     make_provider,
 )
-from solprop.backends import select
+from solprop.backends import Backend, select
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import EPS0
 from solprop.grid import FieldGrid
@@ -208,6 +208,7 @@ def run_fixed(case, state, steps, backend="numpy_ref"):
     )
     owner = select(backend, problem, run_request, grid=case.grid)
     try:
+        assert isinstance(owner, Backend)
         owner.set_initial(problem.initial.field0, None)
         owner.propagate_to(FWM_LENGTH)
         return np.array(owner.observe().require_field()[:, 0, :])

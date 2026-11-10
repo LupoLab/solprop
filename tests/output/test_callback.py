@@ -28,8 +28,9 @@ from driver.test_field_free_planes import cartesian, keeping, replay_bound
 from driver.test_plane_adoption import CASES
 from driver.test_runner import bound, capillary, inputs
 from runtime_types import unchecked
+from selected_backend import legacy_backends
 from solprop import capabilities, sol
-from solprop.backends.protocol import Observation
+from solprop.backends.protocol import Backend, Observation
 from solprop.backends.registry import available
 from solprop.backends.session import Start
 from solprop.driver import Simulation
@@ -277,11 +278,12 @@ def test_a_periodic_subset_reaches_the_callable(backend, fields):
     assert handler.step_stat_names == ()
 
 
-@pytest.mark.parametrize("backend", available())
+@pytest.mark.parametrize("backend", legacy_backends())
 def test_a_field_free_scan_takes_no_field_from_the_backend(backend, monkeypatch):
     simulation = keeping(cartesian(backend), "none")
     asked: list[bool] = []
     with simulation.runner() as runner:
+        assert isinstance(runner.backend, Backend)
         observe = runner.backend.observe
 
         def watched(*, field: bool = True) -> Observation:
@@ -443,7 +445,7 @@ def test_a_reducing_run_keeps_no_more_alive_as_it_goes(backend, monkeypatch):
     assert copying[-1] - copying[1] > 0.9 * (planes - 2) * volume
 
 
-@pytest.mark.parametrize("backend", available())
+@pytest.mark.parametrize("backend", legacy_backends())
 def test_the_callable_holds_the_observation_itself(backend, monkeypatch):
     """No copy on the way to the callable, on a route with no conversion of units."""
     simulation = cartesian(backend)
@@ -455,6 +457,7 @@ def test_the_callable_holds_the_observation_itself(backend, monkeypatch):
         shared.append(np.shares_memory(plane.field, observed[-1].field))
 
     with simulation.runner() as runner:
+        assert isinstance(runner.backend, Backend)
         observe = runner.backend.observe
 
         def watched(*, field: bool = True) -> Observation:

@@ -222,6 +222,7 @@ def loaded(simulation, cleanup):
         profiles=simulation.profiles,
     )
     cleanup.callback(owner.close)
+    assert isinstance(owner, Backend)
     owner.set_initial(problem.initial.field0, simulation.noise)
     return owner
 

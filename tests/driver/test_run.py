@@ -26,7 +26,7 @@ from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings, metadata_for, run_problem
 from solprop.driver.run import plane_from_observation
-from solprop.exceptions import DriverError
+from solprop.exceptions import BackendError, DriverError
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
 from solprop.nonlinear.gnlse import problem_from
@@ -156,6 +156,9 @@ class NullBackend:
     def prepare(self, problem, request):
         # The transitional session over this driver, as any driver prepares one.
         return DriverPrepared(self, problem, request)
+
+    def start_group(self, members, problems, requests, starts, *, stop=None):
+        raise BackendError("the null backend does not support groups")
 
     def set_initial(self, field, noise, *, z=0.0, resume=False):
         pass
@@ -306,6 +309,7 @@ def test_the_stored_field_is_the_optics_spectrum_of_the_observation(build_simula
         grid=simulation.grid,
         modes=simulation.modes,
     )
+    assert isinstance(backend, Backend)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(float(simulation.settings.save_planes[-1]))
     observation = backend.observe()
@@ -571,6 +575,8 @@ def test_the_settings_refuse_a_plane_at_the_entrance():
 def test_a_null_backend_satisfies_the_protocol():
     """The stub above is only a valid stand-in while it implements the protocol."""
     assert isinstance(NullBackend(), Backend)
+    with pytest.raises(BackendError, match="null backend does not support groups"):
+        NullBackend().start_group([], [], [], [])
 
 
 # ------------------------------------------- the statistics channel between planes
