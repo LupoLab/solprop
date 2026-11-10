@@ -5,6 +5,20 @@ The package and explicit setup commands are available on its implementation bran
 Numerical sessions and device qualification remain in progress; installing a device
 environment does not establish that its propagation kernels are qualified.
 
+The current integration exercises constant scalar modal envelopes in binary64 with
+Kerr response and Runge–Kutta stepping, including adaptive and fixed replay schedules.
+Julia owns the stepping loop, error control, bounded attempt history and event barriers.
+Snapshots, cooperative stops and field exports use the same session contract as other
+backends. An acknowledged event invalidates its export ticket; arrays already returned
+to Python remain valid. Failed output consumers can recover an undelivered history chunk
+once, without repeating numerical work.
+
+This first composition is being extended to the remaining accepted responses,
+integrators, statistics and monitors before public backend selection is enabled.
+Unsupported combinations currently refuse by name at preparation. The standalone
+Adams, low-storage, statistics and temporal-monitor components have separate tests;
+their presence alone does not establish complete session support.
+
 ## Install and inspect
 
 The extra installs the Python bridge, JuliaCall. Julia and its packages are installed

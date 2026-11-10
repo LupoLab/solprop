@@ -80,16 +80,18 @@ class BackendHistory:
         Length of each step, m, float64, shape ``(n_steps,)``, positive.
     error_norm : numpy.ndarray
         The scaled embedded error norm of each step, float64, shape ``(n_steps,)``.
-        For a clipped or stretched step this is the equivalent norm of the controller's
-        proposal, which is what the controller's state is
+        A clipped or stretched step records its executed norm. The controller retains
+        its proposal's equivalent norm separately
         (:meth:`solprop.stepper.controller.PIController.equivalent_norm`). A rejected
         trial that diverged, whose norm overflowed or was NaN, is recorded as
         infinity; every other entry is finite.
     accepted : numpy.ndarray
         Whether each step was accepted, Boolean, shape ``(n_steps,)``.
     wall_time : numpy.ndarray
-        Seconds elapsed at the end of each step, measured from the previous observation,
-        float64, shape ``(n_steps,)``, non-decreasing.
+        Seconds elapsed at the end of each step, measured from this chunk's start,
+        float64, shape ``(n_steps,)``, non-decreasing. Session events deliver one chunk
+        since the previous event; :func:`solprop.backends.events.join_attempts`
+        offsets these times when assembling a plane's complete history.
 
     Raises
     ------

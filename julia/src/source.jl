@@ -9,7 +9,8 @@ public NonfiniteSourceError, EnvelopeKerrData, EnvelopeKerrSource, LinearFlow
 Report a nonfinite numerical source value at one owned matrix location.
 
 `stage` identifies the operation; `row` and `column` are one-based indices. Source
-failures occur outside leaf kernels and leave the integrator's accepted state intact.
+failures occur outside leaf kernels. A separate trial leaves the accepted state intact;
+an in-place integrator must poison a state it already overwrote before this failure.
 """
 struct NonfiniteSourceError <: Exception
     stage::Symbol
@@ -199,7 +200,8 @@ Prepare a callable linear flow with its own exponent and finiteness scratch.
 the binary64 `(n_omega,n_columns)` shape. Expansion operators need their caller-owned
 weight work. Calling `flow(out,input,z0,z1)` applies the represented flow and returns
 `nothing`, checking numerical failures outside leaf kernels. Input and output must be
-disjoint. The CPU implementation allocates nothing after warmup.
+disjoint or the exact same array; partial overlap refuses. The CPU implementation
+allocates nothing after warmup.
 """
 struct LinearFlow{E, O, A, W}
     execution::E
@@ -220,8 +222,8 @@ function LinearFlow(
 end
 
 function (flow::LinearFlow)(output, input, origin::Float64, destination::Float64)
-    Base.mightalias(output, input) &&
-        throw(ArgumentError("the linear flow requires disjoint input and output"))
+    output !== input && Base.mightalias(output, input) &&
+        throw(ArgumentError("the linear flow refuses partial input/output overlap"))
     size(output) == size(input) == size(flow.exponent) ||
         throw(DimensionMismatch("linear flow buffers do not match their preparation"))
     operator_exponent!(

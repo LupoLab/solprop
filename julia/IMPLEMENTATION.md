@@ -11,7 +11,7 @@ The completed implementation is left ready for maintainer review, not auto-merge
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
 | 1: package and runtime | Setup/package integrated; remaining runtime qualification deferred | Maintainer directs core implementation to proceed; failures remain tracked |
-| 2: CPU binary64 session | In progress | SEP 47 Part B integrated; disjoint numerical packages and shared owner integration |
+| 2: CPU binary64 session | First complete route passes; broader composition in progress | Nine real bridge tests pass for constant scalar Kerr/RK; remaining response/service integration below |
 | 3: CPU binary32 | Pending | Phase 2 and source-checked DF32 bounds |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
@@ -23,11 +23,14 @@ Its actual interfaces have been read: the descriptor/request split and generic
 `Backend.prepare(problem, request).start(...)` are present. `assemble` returns
 `Translation(problem, request)`, validation is `validate_run`, and preparation checks
 `foreign_request`. Group construction now dispatches through an execution owner's factory, independently
-of legacy numerical operations. The Julia owner and registry entry remain to be added;
-no new backend-name branch belongs in the service/session dispatcher.
-The current whole-package type check reports 93 errors in 23 files identical to that
-dependency head; no Julia file is among them. Track and integrate #607's CI corrections
-before qualification; do not suppress those errors or duplicate its agent's fixes.
+of legacy numerical operations. The Julia owner now uses that contract directly;
+public registry selection awaits the broader CPU composition. No new backend-name
+branch belongs in the service/session dispatcher.
+The subsequent Part B CI corrections at `f6921fae` are integrated at `10be2eff`.
+The legacy callers of this branch's new execution-owner protocol are corrected;
+whole-package basedpyright reports zero errors and three existing native-stub warnings.
+Explicit legacy selections retain their stronger type; general selection keeps the
+session-only owner contract. No legacy Julia methods were added.
 
 ## Ownership
 
@@ -44,10 +47,10 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Numerical transform/Adams agent | `julia/src/execution.jl`, `transforms.jl`, `operators.jl`, `tables.jl`, `phi_functions.jl`, `adams.jl`; corresponding tests; dependency declarations/generated environments and module imports | Reviewed transforms; binary64 exponential Adams and represented operator rates next |
-| Numerical services agent | `julia/src/responses.jl`, `raman.jl`, `plasma.jl`, `statistics.jl`, `monitor.jl`; corresponding Julia tests | Reviewed responses integrated; statistics and monitors next |
+| Numerical transform/Adams agent | `julia/src/execution.jl`, `transforms.jl`, `operators.jl`, `tables.jl`, `phi_functions.jl`, `adams.jl`, `adams_control.jl`, `low_storage.jl`, `composition.jl`; corresponding tests; dependency declarations/generated environments | Reviewed Adams/low-storage integrated; general source in review; pure Adams control next |
+| Numerical services agent | `julia/src/responses.jl`, `raman.jl`, `plasma.jl`, `statistics.jl`, `monitor.jl`; corresponding Julia tests | Statistics and temporal monitor integrated; transverse monitor under independent review |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
-| Independent reviewer | Read-only reviews and numerical probes | Reviews each implementation package and shared interfaces |
+| Independent reviewer | Production code read-only | Legacy test integration reviewed and merged; complete CPU bridge and transverse monitor review next |
 
 The foundation is committed at `540794bd`. Setup commits `6c569742`, `fadae531` and
 `52269788` were independently reviewed and integrated as `9fe74c26`, `5cec895c` and
@@ -136,10 +139,10 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
 
 1. Owned execution options and recipe metadata are integrated at `d1feaa15`; execution
    ownership and transactional groups are integrated at `a6f30aba`.
-2. Integrate reviewed transforms, responses and Runge–Kutta leaves. Implement binary64
-   Adams and statistics/monitors in parallel, using `SESSION_DESIGN.md`.
-3. Build the complete Julia-owned session against SEP 47 Part B and integrate its CI
-   corrections. Reuse reviewed experimental kernels without its Python march adapter.
+2. Connect the general modal source, Adams/low-storage methods, statistics and monitors
+   to the tested Julia-owned session, using `SESSION_DESIGN.md`.
+3. Complete dense output, restart histories, binary64 input noise and member groups;
+   then CPU conformance and preparation-inclusive short-window measurements.
 4. Revisit deferred runtime issues after core implementation; preserve all failed
    evidence and complete the accepted supervisor qualification before claiming it passed.
 
@@ -300,3 +303,34 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
 - Integrated package Aqua/JET passes 13 checks using the prepared shared dependency
   cache. Earlier attempts with an incomplete isolated cache failed to load matching
   dependency/stdlib images; these were tooling failures, not suppressed quality findings.
+- The first complete binary64 scalar Kerr/RK composition passes nine managed-runtime
+  integration tests on macOS arm64 at two Julia threads. Fixed replay uses an
+  operation-derived rounding budget; adaptive output meets a fixed global accuracy
+  envelope against a refined NumPy reference. The 128/256-step reference difference
+  is 9.04e-13 relative over two centimetres; a separate 256/512 refinement gives
+  1.35e-14. Each reference window finishes in seconds. Shared output service tests
+  cover both retained and field-free output, without legacy Julia methods.
+- Session-boundary and lowering tests pass 36 cases, including receipt/generation
+  refusal, exact-once undelivered chunks, retained exports, recursive callbacks,
+  interrupted acknowledgment and cleanup failures. The standalone march/transfer
+  tests pass 181 assertions. Export conversion passes 16 independent exact NumPy
+  recipe witnesses, including signed-zero preservation (#633).
+- Adams and low-storage leaves pass independent actual-NumPy witnesses: 144 Adams
+  assertions over orders one through six, and 32 low-storage assertions over one/eight
+  steps and task budgets one/two. Focused allocation tests pass 278 Adams and 69
+  low-storage assertions. Temporal monitoring passes 94 component assertions and
+  1,552 identical recorded-reading assertions. Review corrected immutable bucket
+  aliasing (#634); integrated precompilation corrected a helper-name collision (#636).
+- The execution-owner type integration passed 928 affected typed tests and 13 helper
+  cases; final legacy-selector deltas passed 129 and 44 cases. Independent review
+  found that the session's started notification follows launch delivery and therefore
+  cannot replace the benchmark's earlier load timestamp. The established benchmark
+  window is preserved; execution-only backend timing remains an explicit pending
+  capability tracked in [#638](https://github.com/LupoLab/solprop/issues/638).
+  The directly affected CI/benchmark selection passes 74 tests. Public and
+  internal adapter docstrings, scoped types, formatting and spelling pass. The refreshed
+  Sphinx build passes with warnings as errors. Independent review approved this first
+  CPU slice; the restored legacy benchmark tests pass 34 cases and both shared output
+  modes pass again. Complete integrated package quality has 12 passes and a persistent-
+  task child precompile error from incompatible dependency-cache images; cache
+  preparation is being corrected, and that required check remains unresolved.

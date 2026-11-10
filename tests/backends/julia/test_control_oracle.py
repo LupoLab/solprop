@@ -4,7 +4,6 @@
 
 """Compare Julia scalar decisions with Python on identical recorded readings."""
 
-import dataclasses
 import math
 import os
 import struct
@@ -36,6 +35,16 @@ def _canonical(value):
     return struct.pack(">d", value).hex()
 
 
+def _reference_call(kind, policy, norm, history):
+    if kind == "propose":
+        return propose(policy, 0.001, history)
+    if kind == "start":
+        return start_up(policy, 0.001, norm)
+    if kind == "reject":
+        return reject(policy, 0.001, norm)
+    return decide(policy, norm, 0.0007, 0.001)
+
+
 def _reference_cases():
     cases = []
     readings = (0.0, 0.2, 1.0, 2.0, 1e-200, 1e200, math.inf, math.nan, 0.99, 1.01)
@@ -62,15 +71,15 @@ def _reference_cases():
         }
         for index, norm in enumerate(readings):
             history = [0.8] * (index % 6) + [norm]
-            for kind, function, arguments in (
-                ("propose", propose, (0.001, history)),
-                ("start", start_up, (0.001, norm)),
-                ("reject", reject, (0.001, norm)),
-                ("decide", decide, (norm, 0.0007, 0.001)),
+            for kind, arguments in (
+                ("propose", (0.001, history)),
+                ("start", (0.001, norm)),
+                ("reject", (0.001, norm)),
+                ("decide", (norm, 0.0007, 0.001)),
             ):
                 expected, error = [], ""
                 try:
-                    result = function(policy, *arguments)
+                    result = _reference_call(kind, policy, norm, history)
                     results = result if isinstance(result, tuple) else (result,)
                     expected = [_canonical(value) for value in results]
                 except ConvergenceError:
@@ -96,7 +105,7 @@ def _reference_cases():
             policy = dict(case["policy"], reject_free=True)
             norm, taken, proposal = case["arguments"]
             reference = RungeKuttaPolicy(
-                dataclasses.replace(controller, reject_free=True), 1e-9, 0.1, True
+                PIController(rtol=1e-8, atol=0.0, reject_free=True), 1e-9, 0.1, True
             )
             results = decide(reference, norm, taken, proposal)
             cases.append(

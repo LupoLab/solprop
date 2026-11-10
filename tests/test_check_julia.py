@@ -236,9 +236,17 @@ def test_python_phase_runs_the_whole_adapter_directory(pinned_tree, monkeypatch)
     def run(root, command):
         calls.append(command)
         Path(command[-1].removeprefix("--junitxml=")).write_text(
-            "<testsuite><testcase "
-            'classname="tests.backends.julia.test_runtime_subprocess" '
-            'name="test_cpu_runtime"/></testsuite>',
+            "<testsuite>"
+            + "".join(
+                f'<testcase classname="tests.backends.julia.{module}" '
+                'name="test_real_engine"/>'
+                for module in (
+                    "test_runtime_subprocess",
+                    "test_control_oracle",
+                    "test_cpu_session",
+                )
+            )
+            + "</testsuite>",
             encoding="utf-8",
         )
 

@@ -31,7 +31,7 @@ import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from benchmarks.records import (
     Record,
@@ -59,7 +59,7 @@ __all__ = [
 if TYPE_CHECKING:
     import numpy as np
 
-    from solprop.backends.protocol import Backend
+    from solprop.backends.protocol import Backend, ExecutionBackend
     from solprop.driver import Simulation
     from solprop.monitor import BoundaryMonitor
     from solprop.output.schema import FieldRetention, Output
@@ -162,7 +162,7 @@ class Diagnostics(logging.Handler):
         ]
 
 
-def source_calls(engine: Backend) -> int | None:
+def source_calls(engine: ExecutionBackend) -> int | None:
     """Read the backend's source-evaluation ledger, or ``None`` if it has none."""
     metadata = engine.metadata()
     value = metadata.get("source_evaluations")
@@ -211,7 +211,14 @@ class _Loaded:
         The backend's source evaluations just after the load (:func:`source_calls`).
     """
 
-    def __init__(self, engine: Backend) -> None:
+    def __init__(self, engine: ExecutionBackend) -> None:
+        from solprop.backends.protocol import Backend  # noqa: PLC0415
+
+        if not isinstance(engine, Backend):
+            raise SuiteError(
+                "the legacy benchmark window needs a driver load boundary; "
+                "execution-only backend timing is not yet supported"
+            )
         self._engine = engine
         self.ended = 0
         self.calls: int | None = None
@@ -235,7 +242,7 @@ class _Loaded:
 def timed_run(  # noqa: PLR0913 - the run and how it is observed
     simulation: Simulation,
     problem: PropagationProblem,
-    engine: Backend,
+    engine: ExecutionBackend,
     retention: FieldRetention,
     monitor: BoundaryMonitor | None = None,
     *,
@@ -288,7 +295,9 @@ def timed_run(  # noqa: PLR0913 - the run and how it is observed
     if Start is None:
         # A build from before SEP 47's sessions: run_problem takes a loaded backend,
         # so the load comes first and the window starts after it, as it did then.
-        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        cast("Backend", engine).set_initial(
+            problem.initial.field0, None, z=problem.initial.z
+        )
         before = source_calls(engine)
         loaded_at = time.perf_counter_ns()
         run_problem(problem, engine, handler, **observed)
@@ -439,7 +448,7 @@ def _repetition(
     configuration: Record,
     simulation: Simulation,
     problem: PropagationProblem,
-    engine: Backend | None,
+    engine: ExecutionBackend | None,
     retention: FieldRetention | None,
     scratch: Path,
 ) -> tuple[Record, np.ndarray | None]:
@@ -481,7 +490,7 @@ def _counted(
     configuration: Record,
     simulation: Simulation,
     problem: PropagationProblem,
-    engine: Backend | None,
+    engine: ExecutionBackend | None,
     retention: FieldRetention | None,
     root: Path,
 ) -> Record:
@@ -500,7 +509,7 @@ def _warm(
     configuration: Record,
     simulation: Simulation,
     problem: PropagationProblem,
-    engine: Backend | None,
+    engine: ExecutionBackend | None,
     retention: FieldRetention | None,
     root: Path,
 ) -> float:
@@ -517,7 +526,9 @@ def _warm(
     return time.perf_counter() - started
 
 
-def warm_up(engine: Backend, problem: PropagationProblem, until: float) -> None:
+def warm_up(
+    engine: ExecutionBackend, problem: PropagationProblem, until: float
+) -> None:
     """Warm a backend up, untimed, through a session from the problem's launch.
 
     The session observes the launch plane, with its statistics and its field, so that
@@ -529,11 +540,12 @@ def warm_up(engine: Backend, problem: PropagationProblem, until: float) -> None:
     Start = _session_start()  # noqa: N806 - the class, or None before SEP 47
     if Start is None:
         # Before SEP 47: load, march and observe the backend directly.
-        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        driver = cast("Backend", engine)
+        driver.set_initial(problem.initial.field0, None, z=problem.initial.z)
         if until > problem.initial.z:
-            engine.propagate_to(until)
-        engine.observe(field=True)
-        engine.stats(_before_request(problem).stats_spec)
+            driver.propagate_to(until)
+        driver.observe(field=True)
+        driver.stats(_before_request(problem).stats_spec)
         return
     from solprop.backends.events import ObservationReady  # noqa: PLC0415
     from solprop.backends.export import ExportRecipe  # noqa: PLC0415

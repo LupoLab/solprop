@@ -26,15 +26,22 @@ public StopFlag, stop_address, stop_requested, stop_setter_address
 
 include("cancellation.jl")
 include("execution.jl")
+include("phi_functions.jl")
 include("transforms.jl")
 include("tables.jl")
 include("operators.jl")
 include("runge_kutta.jl")
+include("adams.jl")
+include("low_storage.jl")
 include("control.jl")
 include("responses.jl")
 include("raman.jl")
 include("plasma.jl")
+include("statistics.jl")
+include("monitor.jl")
 include("source.jl")
+include("march.jl")
+include("transfer.jl")
 
 """
     copy_preparation(values::AbstractArray)

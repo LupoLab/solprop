@@ -12,3 +12,8 @@ operation surface. Single runs and fixed-schedule groups use their backend's own
 factories, so the optional Julia adapter can keep all numerical marching in Julia.
 Failed group construction preserves entrance fields and caller-owned backends for
 retry ([#623](https://github.com/LupoLab/solprop/issues/623)).
+
+The first binary64 Julia session runs constant scalar Kerr envelopes through the
+shared event and output services, with adaptive or fixed Runge–Kutta stepping,
+bounded attempt delivery, cooperative stops, snapshots and validated destination
+exports. Broader response, method and device support remains under implementation.

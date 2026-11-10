@@ -26,7 +26,11 @@ _RUNTIME_TESTS = (
     "tests/backends/julia/test_runtime_subprocess.py",
     "tests/backends/julia/runtime_probe.py",
     "tests/backends/julia/test_control_oracle.py",
+    "tests/backends/julia/test_cpu_session.py",
+    "tests/backends/julia/test_session_boundary.py",
     "julia/test/control_oracle.jl",
+    "julia/test/march.jl",
+    "julia/test/transfer.jl",
 )
 
 
@@ -221,8 +225,8 @@ def _python(root: Path) -> None:
             "the Julia lane requires a published SOLPROP_TEST_JULIA_SETUP_ID"
         )
     # The directory includes each future conformance module without maintaining a
-    # second list. Fresh-runtime tests create their own child processes and never
-    # initialize Julia in the pytest process, which also runs isolated adapter mocks.
+    # second list. Runtime probes use subprocesses; CPU session tests initialize the
+    # managed runtime on main. Isolated adapter mocks restore their state afterwards.
     with tempfile.TemporaryDirectory(prefix="solprop-julia-ci-") as directory:
         report = Path(directory) / "results.xml"
         _run(
@@ -239,23 +243,27 @@ def _python(root: Path) -> None:
 
 
 def _verify_runtime_report(report: Path) -> None:
-    cases = [
-        case
-        for case in ElementTree.parse(report).iter("testcase")
-        if "test_runtime_subprocess" in case.get("classname", "").split(".")
-    ]
-    if not cases:
-        raise ValueError(
-            "the mandatory runtime subprocess suite produced no test results"
-        )
-    for case in cases:
-        if any(
-            case.find(outcome) is not None
-            for outcome in ("skipped", "failure", "error")
-        ):
+    results = tuple(ElementTree.parse(report).iter("testcase"))
+    for module in (
+        "test_runtime_subprocess",
+        "test_control_oracle",
+        "test_cpu_session",
+    ):
+        cases = [
+            case for case in results if module in case.get("classname", "").split(".")
+        ]
+        if not cases:
             raise ValueError(
-                f"mandatory runtime subprocess test did not pass: {case.get('name')}"
+                f"the mandatory Julia suite {module} produced no test results"
             )
+        for case in cases:
+            if any(
+                case.find(outcome) is not None
+                for outcome in ("skipped", "failure", "error")
+            ):
+                raise ValueError(
+                    f"mandatory Julia test did not pass: {case.get('name')}"
+                )
 
 
 def main(argv: Sequence[str] | None = None) -> None:

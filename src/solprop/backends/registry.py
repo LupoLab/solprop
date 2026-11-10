@@ -27,7 +27,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final, Literal, cast, overload
 
 from solprop.backends.protocol import Backend, BatchBackend, ExecutionBackend
 from solprop.backends.session import ExecutionOptions
@@ -399,6 +399,34 @@ def _baseline_probe(source: Path) -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@overload
+def select(
+    name: Literal["auto", "native", "numpy_ref"],
+    problem: PropagationProblem,
+    request: RunRequest,
+    *,
+    grid: TimeGrid | None = None,
+    modes: Sequence[Mode] | None = None,
+    profiles: Mapping[str, ZProfile] | None = None,
+    tdse_binding: TDSEBinding | None = None,
+    options: ExecutionOptions | None = None,
+) -> Backend: ...
+
+
+@overload
+def select(
+    name: str,
+    problem: PropagationProblem,
+    request: RunRequest,
+    *,
+    grid: TimeGrid | None = None,
+    modes: Sequence[Mode] | None = None,
+    profiles: Mapping[str, ZProfile] | None = None,
+    tdse_binding: TDSEBinding | None = None,
+    options: ExecutionOptions | None = None,
+) -> ExecutionBackend: ...
 
 
 def select(  # noqa: PLR0913 - the problem, its host context and its execution
