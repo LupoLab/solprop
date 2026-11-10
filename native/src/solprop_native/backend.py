@@ -225,12 +225,12 @@ class _envelope_errors:
 
 
 ADAMS_MAX_CHANNELS = 16
-"""The most channels of a coupled block the resident Adams engine steps on a device.
+"""The most channels of a coupled block whose channel vectors a CPU build's resident
+Adams engine holds on the stack.
 
-The native ``adams_max_channels``: a device build's resident engine is qualified up to
-it, and a larger block takes solprop's host engine there. A CPU build steps any width:
-its per-bin passes hold a block's channel vectors on the stack up to it and in a row
-per bin beyond (solprop SEP 47 phase 4).
+The native ``adams_max_channels``. Either build steps any width (solprop SEP 47 phase
+4): a CPU build's per-bin passes hold a wider block's channel vectors in a row per bin,
+and a device build's passes take a thread per (bin, channel) and hold none.
 """
 
 _SPATIAL_STAT_FLAGS = {
@@ -2995,7 +2995,7 @@ def native_march_refusal(
     decided from the problem alone (solprop SEP 47 section 5.2): the host marches the
     backend's test interface asks for; for Adams, a coupled flow the host engine steps
     (:func:`_flow_on_host`: beside the interaction formulation, and on a device build
-    off the eigenbasis route or wider than :data:`ADAMS_MAX_CHANNELS`), and a carrier
+    off the eigenbasis route), and a carrier
     frame with no chord. A controller overriding a decision is refused by its caller.
     What the backend refuses at admission is not asked here: a comparison variant
     without a resident engine (``_refuse_adams``) and stage rows the native tables do
@@ -3021,11 +3021,10 @@ def _flow_on_host(problem: PropagationProblem, exponential: bool) -> str | None:
     """Return why solprop's host engine steps an Adams run beside a coupled flow.
 
     The resident engine steps the exponential formulation beside a coupled flow
-    (solprop SEP 16 phase 6) on a CPU build at any width and whichever route each bin
-    takes, the eigenbasis or the augmented exponential (SEP 47 phase 4); a device
-    build keeps the 16 channels (:data:`ADAMS_MAX_CHANNELS`) and the eigenbasis route
-    on every bin of every section it is qualified for. ``None`` without a coupled flow
-    or where the resident engine steps it.
+    (solprop SEP 16 phase 6) at any width (SEP 47 phase 4), on a CPU build whichever
+    route each bin takes, the eigenbasis or the augmented exponential; a device build
+    keeps the eigenbasis route on every bin of every section. ``None`` without a
+    coupled flow or where the resident engine steps it.
     """
     if problem.linear.coupled_flow is None:
         return None
@@ -3033,11 +3032,6 @@ def _flow_on_host(problem: PropagationProblem, exponential: bool) -> str | None:
         return "the host engine, which steps the interaction formulation beside a flow"
     if not _on_device():
         return None
-    if problem.shape[0] > ADAMS_MAX_CHANNELS:
-        return (
-            "the host engine, which steps a coupled flow wider than 16 channels on a "
-            "device build"
-        )
     flow = _host_flow(problem)
     assert flow is not None
     if not bool(np.all(flow.route)):

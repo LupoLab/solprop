@@ -1077,8 +1077,9 @@ point, and so is a flow beside a Cartesian free-space problem, which no translat
   than 30 squarings, or whose exponent there is not finite, is refused by name before it moves
   the state. Past 16 channels the per-bin host
   passes hold a bin's channel vectors in a row of their own (`adams_channels_`) rather than on
-  the stack. A device build keeps the 16 channels and the eigenbasis route on every bin, and
-  steps anything else on solprop's host engine, as before. The bounds are
+  the stack; a device build's passes take a thread per (bin, channel), hold no channel
+  vectors and step any width too. A device build keeps the eigenbasis route on every bin, and
+  steps a bin off it on solprop's host engine, as before. The bounds are
   `flow_parity.adams_formation_bound` (a logarithmic-norm growth and a weighted augmented basis,
   which cancels most of the moments' factorial) and `tests/driver/test_native_flow_session.py`,
   which also holds each trial's assembled flow and moments to `multistep.coupled_moments` at
@@ -1940,7 +1941,7 @@ that execution space.
 | coupled flow: constant-Schur and frozen-residual sections | yes | yes | qualified |
 | coupled flow: `"cf4"` sections | yes | refused | refused |
 | the dispersive electronic response (`responses.dispersive_kerr`) | every route | every route | qualified on one AMD Instinct device (HIP) and one NVIDIA Hopper device (CUDA) |
-| the low-call Adams integrator (`StepperSettings.integrator`), both formulations | yes | every route, the history resident; beside a coupled flow the exponential formulation alone, on constant-Schur and frozen-residual sections, the history resident at any width and on either route of each bin (the eigenbasis or the augmented exponential), in the native session | beside a coupled flow the history resident when every bin takes the flow's eigenbasis and it has at most 16 channels, and otherwise solprop's march with a `HostMarchWarning`; qualified |
+| the low-call Adams integrator (`StepperSettings.integrator`), both formulations | yes | every route, the history resident; beside a coupled flow the exponential formulation alone, on constant-Schur and frozen-residual sections, the history resident at any width and on either route of each bin (the eigenbasis or the augmented exponential), in the native session | beside a coupled flow the history resident at any width, in the native session, when every bin takes the flow's eigenbasis (past 16 channels run on an NVIDIA A40, not yet qualified), and otherwise solprop's march with a `HostMarchWarning`; qualified |
 | the Adams carrier frame (`Multistep(carrier_frame="scalar")`, SEP 35) | every guided route; free space refused | CPU builds, resident, on every representation of the operator (a z table's chord carried as its own scalar table, #255); device builds refused | refused by name |
 | the low-storage RK4IP march (`LowStorageRungeKutta`), replay-only | every diagonal-flow route | every diagonal-flow route, a resident engine whose step is one native call | flows recomputed per element; qualified under HIP, not under CUDA |
 | moving solid guide (moving maps beside a frozen-residual flow) | yes | yes | qualified |

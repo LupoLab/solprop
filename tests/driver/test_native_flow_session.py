@@ -5,11 +5,11 @@
 """The coupled flow's exponential Adams march, resident wherever a CPU build runs it.
 
 solprop SEP 47 phase 4 (section 6.3, the coupled-flow row): a coupled block wider than
-16 channels, and a block with bins off its flow's eigenbasis route, step on the
-resident Adams engine of a CPU build, and the native session serves them, where
+16 channels steps on the resident Adams engine of any build, and a block with bins off
+its flow's eigenbasis route on a CPU build's, and the native session serves them, where
 solprop's host engine stepped them over the backend's hooks before and the session left
-them to the transitional bridge. A device build keeps today's admission: the host
-engine and the bridge.
+them to the transitional bridge. A device build keeps today's admission off the route:
+the host engine and the bridge.
 
 The wide cases are lossless helium tapers with taper coupling and every bin on the
 route, over ten fixed steps short enough that the formation bound of
@@ -85,7 +85,7 @@ NativeBackend = pytest.importorskip("solprop_native").NativeBackend
 
 DEVICE = pytest.importorskip("solprop_native").build_info().device_backend != "none"
 """Whether the installed build executes on an accelerator, which keeps the host
-engine for a wide block."""
+engine for a bin off the route."""
 
 WIDE_LENGTH = 2e-5
 """Length of the wide cases, m: ten steps of 2 um.
@@ -178,25 +178,24 @@ def _scale(case: Case) -> float:
 
 @pytest.mark.parametrize("modes", WIDE)
 def test_a_wide_flow_takes_the_resident_engine_and_the_session(cases, modes):
-    """Past 16 channels a CPU build's backend and session step the flow natively."""
+    """Past 16 channels the backend and the session step the flow natively, on a CPU
+    or a device build."""
     case = cases(modes)
     problem, request = case.problem, case.run_request
     held = backend_module._host_flow(problem)
     assert held is not None and bool(np.all(held.route))
     assert problem.shape[0] == modes > backend_module.ADAMS_MAX_CHANNELS
-    refused = native_session.refusal(problem, request)
-    if DEVICE:
-        assert refused is not None and "host engine" in refused
-        return
-    assert refused is None
+    assert native_session.refusal(problem, request) is None
     backend = NativeBackend(problem, request, grid=case.grid)
     try:
         assert type(backend._adams._engine).__name__ == "_ResidentAdams"
         assert backend._adams.native
         assert native_session.backend_refusal(backend) is None
-        # The host passes' channel rows: one per bin, nine samples of every channel.
-        rows = backend.memory_ledger()["adams_history"]
-        assert rows >= problem.grids.n_omega * 9 * modes * 16
+        # A CPU build's host passes' channel rows: one per bin, nine samples of every
+        # channel; a device's passes hold none.
+        if not DEVICE:
+            rows = backend.memory_ledger()["adams_history"]
+            assert rows >= problem.grids.n_omega * 9 * modes * 16
     finally:
         backend.close()
 
@@ -222,8 +221,6 @@ def test_ten_wide_steps_are_the_reference_s_and_the_host_engine_s(
     the same backend's hooks, so it differs from the resident engine by no more than
     either differs from ``numpy_ref``: the same bound holds both.
     """
-    if DEVICE:
-        pytest.skip("a device build steps a wide block on the host engine")
     case = cases(modes)
     expected = propagate(case, NumpyRefBackend)
     linear = 1e3 * propagate(case, NumpyRefBackend, case.problem.initial.field0 * 1e-3)
@@ -299,8 +296,6 @@ def test_the_session_runs_a_wide_flow_as_the_bridges_do(cases, modes, monkeypatc
     is bitwise the same on one thread; where it stepped on the host engine, the
     session is held to ``parity_bound``, its ``rho`` measured on the native runs.
     """
-    if DEVICE:
-        pytest.skip("a device build steps a wide block on the host engine")
     case = cases(modes)
     session, status = session_run(case, monkeypatch, "session")
     bridge, bridged = session_run(case, monkeypatch, "bridge")
@@ -824,7 +819,7 @@ def test_a_carrier_frame_off_the_route(parity_cases, monkeypatch):
 def test_a_wide_flow_off_the_route(cases, monkeypatch):
     """17 channels, every other bin off the route: wide rows and augmented bins."""
     if DEVICE:
-        pytest.skip("a device build steps a wide block on the host engine")
+        pytest.skip("a device build steps a bin off the route on the host engine")
     case = cases(17)
     problem, request = case.problem, case.run_request
     on = propagate(case, NativeBackend)
@@ -894,8 +889,8 @@ def test_a_snapshot_off_the_route_or_wide_resumes_to_the_bit(
     The engine's rows round-trip losslessly, so a resumed run takes the uninterrupted
     one's steps on the same arithmetic: the same state to the bit in one process.
     """
-    if DEVICE:
-        pytest.skip("a device build steps these flows on the host engine")
+    if DEVICE and kind == "off route":
+        pytest.skip("a device build steps a bin off the route on the host engine")
     if kind == "wide":
         case = cases(17)
         simulation = wide_simulation(17)

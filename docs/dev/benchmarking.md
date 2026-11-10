@@ -299,7 +299,7 @@ uv run python -m benchmarks ab --set sep47 --threads 1 --counters \
 | `group_batch` | the same four points on `Batch(4)`, replaying ten 1.6 mm steps with the split-step collar | ten common steps of four members |
 | `radial_filament_256_{saved,free}_{memory,hdf5}` | the radial filament's first 3 mm, four planes, every field kept or none, to memory or to HDF5 | four planes, transverse-edge reads and collar checks |
 | `cartesian_filament_128_{saved,free}_{memory,hdf5}` | the Cartesian filament's first 1 mm, likewise | the same on a 128² grid |
-| `taper_flow_4`, `taper_flow_17` | 40 µm of a He capillary tapering from 50 to 48 µm with taper coupling, 4 or 17 modes | a coupled flow on the native Adams march, and one wider than 16 channels, whose host passes hold each bin's channel vectors in a row of their own (solprop's host march, with `HostMarchWarning`, on a device build) |
+| `taper_flow_4`, `taper_flow_17` | 40 µm of a He capillary tapering from 50 to 48 µm with taper coupling, 4 or 17 modes | a coupled flow on the native Adams march, and one wider than 16 channels, whose host passes hold each bin's channel vectors in a row of their own (a device build's passes hold none) |
 
 Today a snapshot controller needs `step_planes=1` and HDF5 output, so the snapshot cases
 save a plane at every step; their variant without step planes becomes possible with SEP

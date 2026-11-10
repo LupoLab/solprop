@@ -8,12 +8,12 @@ SEP 47 phase 4 (section 6.3): on a CUDA or HIP build the native session serves w
 device build runs today -- Adams and the embedded Runge-Kutta tableaux, adaptive and
 replayed, the low-storage replay, dense output, the radial, Cartesian, line and planar
 spatial routes with their fluence widths, a free-space run's transverse edge and a
-collar's current, the input and modified noise models, and fixed-schedule groups
-(the native group session, one native session per member) -- instead of leaving them
-to the transitional bridge
+collar's current, the input and modified noise models, a coupled flow wider than 16
+channels, and fixed-schedule groups (the native group session, one native session per
+member) -- instead of leaving them to the transitional bridge
 (:class:`~solprop.backends.driver_session.DriverSession` over the backend's own
-march), which phase 5 deletes. A coupled flow the device steps on solprop's host
-engine is still the bridge's.
+march), which phase 5 deletes. A coupled flow with bins off its eigenbasis route,
+which the device steps on solprop's host engine, is still the bridge's.
 
 Each feature runs on the same device in the native session and on the bridge, most
 through the production door (:func:`solprop.backends.sessions.start_session`) with
@@ -43,6 +43,7 @@ from sessions.executors import (
     Run,
     Started,
     assert_same_run,
+    coupled_flow,
     drive,
     entrance,
     fibre,
@@ -315,6 +316,22 @@ def test_a_noisy_run_is_the_bridges_on_the_device(noise, march, monkeypatch):
     for got, expected in zip(phases[False], phases[True], strict=True):
         assert got.tobytes() == expected.tobytes()
     assert_same_run(runs[False], runs[True])
+
+
+@pytest.mark.filterwarnings("ignore:the temporal absorber attenuates")
+def test_a_wide_coupled_flow_is_the_bridges_on_the_device(monkeypatch):
+    """A 17-channel coupled block, ten fixed exponential Adams steps on the resident
+    engine of the device, whose passes take a thread per (bin, channel) at any width:
+    the session's run is the bridge's over the same engine, bitwise. Its agreement
+    with ``numpy_ref`` and solprop's host engine within the ten-step bound is
+    ``tests/driver/test_native_flow_session.py``'s."""
+    problem, request, context = coupled_flow("wide")
+    assert problem.shape[0] == 17
+    assert native_session.refusal(problem, request) is None
+    run = _door(problem, request, context, monkeypatch, bridge=False)
+    baseline = _door(problem, request, context, monkeypatch, bridge=True)
+    assert run.status.attempts == baseline.status.attempts == 10
+    assert_same_run(run, baseline)
 
 
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")

@@ -41,8 +41,6 @@ def _available(name: str) -> Executor:
         pytest.importorskip(
             chosen.requires, reason=f"{chosen.requires} is not installed"
         )
-    if not chosen.available:
-        pytest.skip(f"the native session refuses the {name} executor on a device build")
     return chosen
 
 

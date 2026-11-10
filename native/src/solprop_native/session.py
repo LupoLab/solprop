@@ -31,10 +31,10 @@ It admits a subset and refuses every other feature by name before allocating any
 - on a device build (CUDA or HIP), the same (SEP 47 phase 4, :func:`device_refusal`):
   the session's own code is host code over the resident state wherever it lives, its
   decisions made on the host from the device's reductions, and an export crosses the
-  field to the destination once and converts it there; a coupled flow the device
-  steps on solprop's host engine is refused (wider than 16 channels or off its
-  eigenbasis route), and the backend refuses a carrier frame and a z table that is not
-  device-ready by name;
+  field to the destination once and converts it there; a coupled flow with bins off
+  its eigenbasis route, which the device steps on solprop's host engine, is refused,
+  and the backend refuses a carrier frame and a z table that is not device-ready by
+  name;
 - the low-storage replay (``LowStorageRungeKutta``, SEP 47 section 6.3) on the
   diagonal-flow routes whose stage rows the native state reads from its tables: every
   step one in-place native step, its scalars formed natively, the replay loop the

@@ -462,7 +462,7 @@ reading through the monitor at its own step. The Python march is the reference -
 `HostAdamsMarch` for `numpy_ref` -- and its bridge copy `AdamsMarch` steps every
 configuration the native march does not cover (the comparison
 methods' general path, a coupled flow on the host engine (beside the interaction
-formulation, and on a device build off the eigenbasis route or wider than 16 channels)
+formulation, and on a device build off the eigenbasis route)
 and a norm scale other than `PIController`'s), with a `HostMarchWarning` naming the
 reason. A z table's carrier frame steps natively: the stage tables carry the imaginary
 part of the table's reference element as a scalar table, read by the Clenshaw helper

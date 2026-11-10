@@ -724,12 +724,6 @@ def _one_thread() -> bool:
     }
 
 
-DEVICE_REFUSED = frozenset({COUPLED})
-"""What the native session refuses on a device build: a coupled flow the device steps
-on solprop's host engine (``solprop_native.backend._flow_on_host``). Everything else
-the suite asks runs in the native session on a device too (SEP 47 phase 4)."""
-
-
 @functools.cache
 def device_build() -> bool:
     """Return whether the installed native backend is a device (CUDA or HIP) build.
@@ -797,10 +791,6 @@ class Executor:
         request's solprop monitor stays fresh and the session's
         :meth:`~solprop.backends.session.RunSession.monitor_record` alone shows what
         it did (SEP 47 section 6.4).
-    device : frozenset of str or None
-        What it can be asked to run on a device build, where the native session
-        refuses :data:`DEVICE_REFUSED`; ``None`` where it does not run there at all.
-        Unused on a CPU build.
     """
 
     name: str
@@ -809,18 +799,6 @@ class Executor:
     scripted: bool = False
     capabilities: frozenset[str] = CAPABILITIES
     native_monitor: bool = False
-    device: frozenset[str] | None = CAPABILITIES
-
-    @property
-    def available(self) -> bool:
-        """Return whether this executor runs on the installed build.
-
-        Returns
-        -------
-        bool
-            False for an executor the native session refuses on a device build.
-        """
-        return self.device is not None or not device_build()
 
     def require(self, capability: str) -> None:
         """Skip the calling test when this executor lacks a capability.
@@ -832,10 +810,7 @@ class Executor:
         """
         import pytest  # noqa: PLC0415 - only a test calls it
 
-        capabilities = self.capabilities
-        if device_build() and self.device is not None:
-            capabilities &= self.device
-        if capability not in capabilities:
+        if capability not in self.capabilities:
             pytest.skip(f"the {self.name} executor does not run a {capability}")
 
     @property
@@ -874,7 +849,6 @@ EXECUTORS: dict[str, Executor] = {
         _native_session,
         requires="solprop_native",
         native_monitor=True,
-        device=CAPABILITIES - DEVICE_REFUSED,
     ),
     "native-session-low-storage": Executor(
         "native-session-low-storage",
