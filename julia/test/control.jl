@@ -47,6 +47,29 @@ end
     )
 end
 
+@testset "Restored control snapshots copy vector views before mutation" begin
+    history = SolpropJulia.NormHistory(test_control())
+    original = [0.5, -1.0, 0.25, -2.0, 0.125]
+    SolpropJulia.restore_control!(history, view(original, 1:2:5), 11)
+    @test history.count == 11
+    @test SolpropJulia.control_history(history) == [0.5, 0.25, 0.125]
+    original[1] = 7.0
+    @test SolpropJulia.control_history(history)[1] == 0.5
+
+    # A caller may restore directly from a reordered view of the retained ring.
+    # Copying all values before clearing the destination preserves this overlap.
+    SolpropJulia.restore_control!(history, view(history.readings, 3:-1:1), 8)
+    @test history.count == 8
+    @test SolpropJulia.control_history(history) == [0.125, 0.25, 0.5]
+    SolpropJulia.record_norm!(history, 0.0625)
+    @test SolpropJulia.control_history(history) == [0.25, 0.5, 0.0625]
+    before = copy(history.readings)
+    @test_throws ArgumentError SolpropJulia.restore_control!(
+        history, view(history.readings, 1:2), 8
+    )
+    @test history.readings == before && history.count == 9
+end
+
 @testset "PI decisions use the executed norm and retain the original proposal" begin
     control = test_control(estimator_order = 1, safety = 1.0, max_factor = 2.0)
     # The clipped step's error is below tolerance, though the rescaled error is not.

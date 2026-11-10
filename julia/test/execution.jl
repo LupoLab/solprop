@@ -110,6 +110,14 @@ end
     @test !Base.mightalias(original, owned)
     @test SolpropJulia.dzeros(serial, ComplexF64, 7, 3) == zeros(ComplexF64, 7, 3)
     @test size(SolpropJulia.dzeros(serial, Float64, 0, 4)) == (0, 4)
+    mask = SolpropJulia.dzeros(serial, Bool, Int32(3), Int16(4))
+    @test mask isa Matrix{Bool}
+    @test mask == fill(false, 3, 4)
+    independent = SolpropJulia.dzeros(serial, Bool, 3, 4)
+    mask[1, 1] = true
+    @test !independent[1, 1] && !Base.mightalias(mask, independent)
+    scalar = SolpropJulia.dzeros(serial, Float64)
+    @test scalar isa Array{Float64, 0} && scalar[] == 0.0
     @test_throws ArgumentError SolpropJulia.dzeros(serial, Float64, -1, 4)
     @test_throws ArgumentError SolpropJulia.upload(serial, Any[1, 2])
     @test_throws ArgumentError SolpropJulia.dzeros(serial, Any, 2)

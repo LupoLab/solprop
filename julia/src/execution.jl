@@ -61,7 +61,10 @@ Dimensions are nonnegative integers and the element type is fixed-size numerical
 function dzeros(execution::KernelExecution, ::Type{T}, dimensions::Integer...) where {T}
     isbitstype(T) || throw(ArgumentError("kernel arrays require fixed-size elements"))
     all(>=(0), dimensions) || throw(ArgumentError("array dimensions must be nonnegative"))
-    output = KernelAbstractions.zeros(execution.backend, T, map(Int, dimensions))
+    # Allocate through the backend, then fill through its array interface. The pinned
+    # CPU backend's zeros helper may launch POCL for larger arrays.
+    output = KernelAbstractions.allocate(execution.backend, T, map(Int, dimensions))
+    fill!(output, zero(T))
     KernelAbstractions.synchronize(execution.backend)
     return output
 end
@@ -208,7 +211,9 @@ end
     return nothing
 end
 
-@inline function _parallel_each!(body::F, n_rows, n_columns, n_tasks) where {F}
+@inline function _parallel_each!(
+        body::F, n_rows::Int, n_columns::Int, n_tasks::Int,
+    ) where {F}
     if n_columns >= n_tasks
         Polyester.@batch per = thread for task_index in 1:n_tasks
             first_column, last_column = _partition_bounds(n_columns, task_index, n_tasks)
@@ -270,7 +275,7 @@ end
     return nothing
 end
 
-@inline function _parallel_columns!(body::F, n_columns, n_tasks) where {F}
+@inline function _parallel_columns!(body::F, n_columns::Int, n_tasks::Int) where {F}
     Polyester.@batch per = thread for task_index in 1:n_tasks
         first_column, last_column = _partition_bounds(n_columns, task_index, n_tasks)
         for column_index in first_column:last_column

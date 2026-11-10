@@ -174,7 +174,10 @@ function restore_control!(
     )
     total >= 0 && length(readings) == min(total, length(history.readings)) ||
         throw(ArgumentError("retained control readings disagree with the total count"))
-    owned = collect(readings)
+    owned = Vector{Float64}(undef, length(readings))
+    for (destination, index) in enumerate(axes(readings, 1))
+        owned[destination] = readings[index]
+    end
     fill!(history.readings, 0.0)
     copyto!(history.readings, 1, owned, 1, length(owned))
     history.next = mod1(length(owned) + 1, length(history.readings))
