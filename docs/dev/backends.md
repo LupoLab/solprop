@@ -1042,12 +1042,17 @@ point, and so is a flow beside a Cartesian free-space problem, which no translat
   rounding-level difference (SEP 25), with the shift's exponential kept apart in the carry of a
   history sample. Every block row past the first is a scaled shift, so the passes form the first
   row and one scalar per diagonal of the rest, upper triangular, which is the full augmented
-  algorithm's arithmetic to the sign of a zero. A trial whose exponent would need more than 30
-  squarings is refused by name before it moves the state. Past 16 channels the per-bin host
+  algorithm's arithmetic to the sign of a zero, in one scratch row per active bin (a trial reads
+  one section). A trial whose moments' exponent, or a history sample's carry, would need more
+  than 30 squarings, or whose exponent there is not finite, is refused by name before it moves
+  the state. Past 16 channels the per-bin host
   passes hold a bin's channel vectors in a row of their own (`adams_channels_`) rather than on
   the stack. A device build keeps the 16 channels and the eigenbasis route on every bin, and
   steps anything else on solprop's host engine, as before. The bounds are
-  `flow_parity.adams_formation_bound` and `tests/driver/test_native_flow_session.py`.
+  `flow_parity.adams_formation_bound` (a logarithmic-norm growth and a weighted augmented basis,
+  which cancels most of the moments' factorial) and `tests/driver/test_native_flow_session.py`,
+  which also holds each trial's assembled flow and moments to `multistep.coupled_moments` at
+  1e-12 (`adams_block_to_host`, a test observation).
 - **Parity** is a rounding statement with the bound stated first: `tests/flow_parity.py` for the
   actions and the steps, and `parity_bound` in `tests/driver/test_native_coupled_flow.py` for ten
   fixed steps on each case.

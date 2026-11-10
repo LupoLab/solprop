@@ -603,8 +603,72 @@ DENSE = "dense output"
 phase 3); a scripted driver's trials hold no stages to interpolate, and a replay lands
 on its planes."""
 
-CAPABILITIES = frozenset({MONITOR, STATISTICS, TRANSVERSE, DENSE})
+COUPLED = "coupled flow"
+"""The capability of stepping a coupled flow on the exponential Adams march, wider than
+16 channels or with bins off its eigenbasis route (SEP 47 section 6.3, phase 4:
+:func:`coupled_flow`); a scripted driver has no flow, and the low-storage replay
+none beside one."""
+
+CAPABILITIES = frozenset({MONITOR, STATISTICS, TRANSVERSE, DENSE, COUPLED})
 """Every capability a test may need of an executor."""
+
+
+COUPLED_KINDS = ("wide", "off route")
+"""The coupled flows :func:`coupled_flow` builds."""
+
+
+def coupled_flow(
+    kind: str,
+) -> tuple[PropagationProblem, RunRequest, dict[str, Any]]:
+    """Return a coupled flow's ten fixed Adams steps, with its context.
+
+    ``"wide"`` is the 17-channel lossless taper of
+    ``tests/driver/test_native_flow_session.py``; ``"off route"`` the coherent-wall
+    taper of ``tests/flow_parity.py`` with every bin off the eigenbasis route, which
+    the native backend reads from its decomposition, formed here under an eigenbasis
+    limit of zero and kept with the problem (``solprop_native.backend._HOST_FLOWS``);
+    the reference takes the augmented exponential on every bin either way.
+
+    Parameters
+    ----------
+    kind : str
+        One of :data:`COUPLED_KINDS`.
+
+    Returns
+    -------
+    tuple
+        The problem, its request without statistics, and the grid, modes and
+        profiles an executor starts it with.
+    """
+    from unittest import mock  # noqa: PLC0415
+
+    from driver.test_native_flow_session import wide_simulation  # noqa: PLC0415
+    from flow_parity import QUIET, build  # noqa: PLC0415
+
+    with warnings.catch_warnings():
+        for category in QUIET:
+            warnings.simplefilter("ignore", category)
+        simulation = wide_simulation(17) if kind == "wide" else build("taper")
+        problem = simulation.translate()
+    if kind != "wide":
+        try:
+            from solprop_native import (  # noqa: PLC0415 - optional  # pyright: ignore[reportMissingImports]
+                backend,
+            )
+        except ImportError:
+            pass
+        else:
+            with mock.patch(
+                "solprop.translate.coupled.eigenbasis_limit", lambda n_modes: 0.0
+            ):
+                backend._HOST_FLOWS[problem] = backend._decomposed_flow(problem)
+    request = simulation._run_request().for_run(stats=StatsSpec())
+    context = {
+        "grid": simulation.grid,
+        "modes": simulation.modes,
+        "profiles": simulation.profiles,
+    }
+    return problem, request, context
 
 
 def edged(
@@ -656,10 +720,11 @@ def _one_thread() -> bool:
     }
 
 
-DEVICE_REFUSED = frozenset({TRANSVERSE, DENSE})
+DEVICE_REFUSED = frozenset({TRANSVERSE, DENSE, COUPLED})
 """What the native session refuses on a device build (SEP 47 phase 3's representative
-device path, ``solprop_native.session.device_refusal``); the suite's problem is modal
-and noiseless, so nothing else it asks is refused there."""
+device path, ``solprop_native.session.device_refusal``, and a coupled flow the device
+steps on solprop's host engine, ``solprop_native.backend._flow_on_host``); the suite's
+problem is modal and noiseless, so nothing else it asks is refused there."""
 
 
 @functools.cache
@@ -815,7 +880,7 @@ EXECUTORS: dict[str, Executor] = {
         "native-session-low-storage",
         _native_low_storage,
         requires="solprop_native",
-        capabilities=CAPABILITIES - {DENSE},
+        capabilities=CAPABILITIES - {DENSE, COUPLED},
         native_monitor=True,
         device=None,
     ),

@@ -42,6 +42,8 @@ from driver.test_native_coupled_flow import (
 )
 from flow_parity import (
     CASES,
+    LENGTH,
+    UNIT,
     adams_formation_bound,
     build,
     departure,
@@ -50,6 +52,9 @@ from flow_parity import (
     ten_step_bound,
 )
 from sessions.executors import IDENTITY, Started, drive, entrance
+from solprop.backends.events import Outcome
+from solprop.backends.exponential import carrier_reference
+from solprop.backends.multistep import CoupledBlock, coupled_moments, trial_tables
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
 from solprop.driver import Simulation
@@ -418,12 +423,15 @@ def test_bins_off_the_route_are_the_reference_s_and_the_host_engine_s(
     record_property("bound", bound)
     for key, value in measured.items():
         record_property(key, value)
-    # The augmented exponential's share dominates the bound, loose by its factorial
-    # ((order + 1)! of a block's absolute rounding): it stays below 1e-5 on every case,
-    # far under the departure of a wrong moment, which is of the order of the step's
-    # nonlinear increment.
-    assert 0.0 < bound < 1e-5
+    assert 0.0 < bound < 1e-8
     assert max(measured.values()) <= bound
+    # The a priori bound is three to five orders above what two evaluations of the
+    # same functions differ by; the route's own run is the sharper witness. The
+    # off-route run is held to a small multiple of the on-route run's departure from
+    # the reference, which the two formations' rounding both sit in.
+    on_route = max(departure(on, expected), 32 * UNIT)
+    record_property("on_route", on_route)
+    assert measured["eigenbasis"] <= 8 * on_route
 
 
 @pytest.mark.medium
@@ -484,3 +492,421 @@ def test_a_bin_off_the_route_past_thirty_squarings_is_refused_by_name(
     )
     with pytest.raises(BackendError, match="would need more than 30 squarings"):
         run(NativeBackend, fast, simulation._run_request(), simulation.grid)
+
+
+# --- The assembled block functions, one trial at a time -----------------------------
+
+
+class _Trials:
+    """Each exponential trial's inputs and the engine's block functions after it.
+
+    Installed in place of ``_ResidentAdams.exponential_trial`` on solprop's host
+    march over the resident engine (the private ``_ADAMS_MARCH`` switch), which calls
+    it once per trial.
+    """
+
+    def __init__(self, original, backend_of):
+        self.original = original
+        self.backend_of = backend_of
+        self.records: list[dict[str, Any]] = []
+
+    def __call__(self, engine, *arguments):
+        z, dz, nodes, _, order, orders = arguments
+        norms = self.original(engine, *arguments)
+        width = trial_tables(
+            nodes, order, orders, compensated=engine.compensated, helpers=engine.helpers
+        )[1].shape[0]
+        carrier = engine._trial_carrier
+        self.records.append(
+            {
+                "dz": float(dz),
+                "count": int(width),
+                "section": self.backend_of()._stage_scalars(z, z + dz).flow_section,
+                "shift": float(carrier[0]) if carrier.size else None,
+                "block": engine.native.adams_block_to_host(),
+                "exponent": engine.native.adams_exponent_to_host(),
+            }
+        )
+        return norms
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("carrier", [False, True], ids=["plain", "carrier"])
+def test_the_off_route_block_functions_are_the_reference_s(
+    parity_cases, carrier, monkeypatch
+):
+    """Every trial's assembled flow and moments off the route, against the reference.
+
+    ``Z R_k Z^H`` with the ``(k - 1)!`` scale and, under a carrier frame, the
+    ``exp(i sigma)`` on the flow, as the engine leaves them in its block after each
+    trial of forty fixed steps (counts up to seven), against
+    ``multistep.coupled_moments`` on the engine's own exponent: within 1e-12 of each
+    matrix's 2-norm (at least one), which is ``adams_formation_bound``'s share at the
+    case's step, about 1e-11 for both evaluations together, with the margin of its
+    norm-wise slack.
+    """
+    if DEVICE:
+        pytest.skip("a device build steps a bin off the route on the host engine")
+    step = LENGTH / 40
+    simulation = build(
+        "te_tm",
+        schedule=FixedSchedule(np.full(40, step)),
+        dz_max=step,
+        dz_init=step,
+    )
+    problem = simulation.translate()
+    request = simulation._run_request()
+    # A fixed sixth order, so that the trials reach seven moments.
+    method = Multistep(
+        order=6, variable_order=False, carrier_frame="scalar" if carrier else "off"
+    )
+    request = request.with_stepper(
+        dataclasses.replace(request.stepper, integrator=method)
+    )
+    off_route(monkeypatch, "off")
+    _assert_routed(problem, "off")
+    monkeypatch.setattr(backend_module, "_ADAMS_MARCH", "host")
+    holder: list[Any] = []
+    spy = _Trials(backend_module._ResidentAdams.exponential_trial, lambda: holder[0])
+    monkeypatch.setattr(backend_module._ResidentAdams, "exponential_trial", _bound(spy))
+    backend = NativeBackend(problem, request, grid=simulation.grid)
+    holder.append(backend)
+    try:
+        assert type(backend._adams._engine).__name__ == "_ResidentAdams"
+        backend.set_initial(problem.initial.field0, None)
+        backend.propagate_to(LENGTH)
+    finally:
+        backend.close()
+    held = backend_module._host_flow(problem)
+    assert held is not None
+    modes, active = problem.shape[0], int(np.count_nonzero(held.active))
+    counts = {record["count"] for record in spy.records}
+    assert max(counts) == 7
+    assert all((record["shift"] is not None) == carrier for record in spy.records)
+    worst = 0.0
+    for record in spy.records:
+        count, section = record["count"], record["section"]
+        exponent = record["exponent"].reshape(1, *problem.shape)
+        block = CoupledBlock(
+            active=held.active,
+            vectors=held.vectors[section],
+            triangular=held.triangular[section],
+            section=section,
+        )
+        shift = (
+            None
+            if record["shift"] is None
+            else np.full((1, 1, 1, 1), 1j * record["shift"])
+        )
+        expected = coupled_moments(exponent, count, block, record["dz"], carrier=shift)
+        native = record["block"].reshape(-1, active, modes, modes)
+        pairs = [(native[0], expected.flow_matrix)] + [
+            (native[k + 1], expected.matrices[k]) for k in range(count)
+        ]
+        for got, want in pairs:
+            error = np.linalg.norm(got - want, ord=2, axis=(-2, -1))
+            scale = np.maximum(np.linalg.norm(want, ord=2, axis=(-2, -1)), 1.0)
+            worst = max(worst, float(np.max(error / scale)))
+    assert worst <= 1e-12
+
+
+def _bound(spy):
+    """Return `spy` as a method: called with the engine first."""
+
+    def method(engine, *arguments):
+        return spy(engine, *arguments)
+
+    return method
+
+
+# --- Refusals: the moments, a carry, a non-finite exponent --------------------------
+
+
+def _carry_past_thirty(original):
+    """Return ``_decomposed_flow`` with each factor a nilpotent ``3e8 / dz`` corner.
+
+    A strictly upper-triangular ``T`` keeps every exponential a finite polynomial,
+    however long the step: the moments' row-sum norm, ``|x| + 3e8 + 1``, needs 30
+    squarings and passes, and a history sample's carry over two steps, ``6e8``, needs
+    31 and is refused.
+    """
+
+    def decomposed(problem):
+        flow = original(problem)
+        schedule = 2e-4 / 10
+        corner = np.zeros_like(flow.triangular)
+        corner[..., 0, -1] = 3e8 / schedule
+        return dataclasses.replace(flow, triangular=corner)
+
+    return decomposed
+
+
+class _Kept:
+    """``_ResidentAdams.exponential_trial`` that keeps the state each trial met."""
+
+    def __init__(self, original):
+        self.original = original
+        self.refused: list[tuple[np.ndarray, np.ndarray]] = []
+
+    def __call__(self, engine, *arguments):
+        before = engine.native.field_to_host().copy()
+        try:
+            return self.original(engine, *arguments)
+        except BackendError:
+            self.refused.append((before, engine.native.field_to_host().copy()))
+            raise
+
+
+def test_a_carry_past_thirty_squarings_is_refused_and_keeps_the_state(
+    parity_cases, monkeypatch
+):
+    """A compensated trial's carry is counted too, refused by name before the state
+    moves, and the backend and the session both stay usable at the committed state."""
+    if DEVICE:
+        pytest.skip("a device build steps a bin off the route on the host engine")
+    simulation, problem = parity_cases("taper")
+    request, grid = simulation._run_request(), simulation.grid
+    off_route(monkeypatch, "off")
+    monkeypatch.setattr(
+        backend_module,
+        "_decomposed_flow",
+        _carry_past_thirty(backend_module._decomposed_flow),
+    )
+    context = {"profiles": simulation.profiles, "modes": simulation.modes}
+    steps = request.stepper.schedule.steps
+    # The native session: a failed terminal at the first step's end, by name.
+    backend = NativeBackend(problem, request, grid=grid, **context)
+    prepared = backend.prepare(problem, request)
+    session = prepared.start(entrance(problem))
+    try:
+        assert prepared.refused is None
+        result = drive(Started(session), export=IDENTITY)
+        terminal = result.terminal
+        assert terminal.outcome is Outcome.FAILED
+        assert isinstance(terminal.error, BackendError)
+        assert "a history sample's carry" in str(terminal.error)
+        assert "would need more than 30 squarings" in str(terminal.error)
+        assert terminal.z == float(steps[0])
+        status = session.status()
+        assert status.z == terminal.z and status.attempts == 1
+        assert all(np.all(np.isfinite(field)) for field in result.fields)
+    finally:
+        session.close()
+    # solprop's march over the same engine: the refused trial left the state as it
+    # met it, and the backend observes it and closes.
+    monkeypatch.setattr(backend_module, "_ADAMS_MARCH", "host")
+    kept = _Kept(backend_module._ResidentAdams.exponential_trial)
+    monkeypatch.setattr(
+        backend_module._ResidentAdams, "exponential_trial", _bound(kept)
+    )
+    backend = NativeBackend(problem, request, grid=grid, **context)
+    try:
+        backend.set_initial(problem.initial.field0, None)
+        with pytest.raises(BackendError, match="a history sample's carry"):
+            backend.propagate_to(float(np.sum(steps)))
+        ((before, after),) = kept.refused
+        np.testing.assert_array_equal(after, before)
+        observed = backend.observe().require_field()
+        assert np.all(np.isfinite(observed))
+    finally:
+        backend.close()
+
+
+# --- More shapes of a flow off the route ---------------------------------------------
+
+
+class _Sections:
+    """``schur_eigenbasis`` with every even section off the route, odd ones on it."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def __call__(self, vectors, triangular):
+        left, right, eigenvalues, route = schur_eigenbasis(vectors, triangular)
+        if self.calls % 2 == 0:
+            route = np.zeros_like(route)
+            left = np.zeros_like(left)
+            right = np.zeros_like(right)
+        self.calls += 1
+        return left, right, eigenvalues, route
+
+
+def _held_to_the_bound(setup, runs, carrier=0.0):
+    """Assert a run off the route against the reference, the host engine and the route.
+
+    `setup` is the problem, request and grid; `runs` the final states by name.
+    ``flow_parity.ten_step_bound`` at ``adams_formation_bound``, and the eigenbasis
+    route's run within eight times its own departure from the reference.
+    """
+    problem, request, grid = setup
+    expected, routed = runs["expected"], runs["routed"]
+    on, host = runs["on"], runs["host"]
+    scales = flow_scales(problem, request, grid, expected)
+    formation = max(
+        scales.formation, adams_formation_bound(problem, request, grid, carrier)
+    )
+    bound = ten_step_bound(dataclasses.replace(scales, formation=formation))
+    assert 0.0 < bound < 1e-8
+    assert departure(routed, expected) <= bound
+    assert departure(routed, host) <= bound
+    assert departure(routed, on) <= 8 * max(departure(on, expected), 32 * UNIT)
+
+
+@pytest.mark.medium
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
+@pytest.mark.parametrize("name", ["taper", "lossless", "gradient"])
+def test_sections_on_and_off_the_route_in_one_run(parity_cases, name, monkeypatch):
+    """A flow whose sections alternate: every bin off the route, then every bin on."""
+    if DEVICE:
+        pytest.skip("a device build steps a bin off the route on the host engine")
+    simulation, problem = parity_cases(name)
+    request, grid = on_adams(simulation._run_request()), simulation.grid
+    on = run(NativeBackend, problem, request, grid)
+    expected = run(NumpyRefBackend, problem, request, grid)
+    monkeypatch.setattr(
+        "solprop_native.backend._HOST_FLOWS", weakref.WeakKeyDictionary()
+    )
+    monkeypatch.setattr(backend_module, "schur_eigenbasis", _Sections())
+    held = backend_module._host_flow(problem)
+    assert held is not None and held.route.shape[0] > 1
+    per_section = np.all(held.route, axis=1)
+    assert np.any(per_section) and not np.all(per_section)
+    assert np.array_equal(per_section, ~np.any(~held.route, axis=1))
+    routed = run(NativeBackend, problem, request, grid)
+    with monkeypatch.context() as patched:
+        on_host_engine(patched)
+        host = run(NativeBackend, problem, request, grid)
+    _held_to_the_bound(
+        (problem, request, grid),
+        {"expected": expected, "routed": routed, "on": on, "host": host},
+    )
+
+
+@pytest.mark.medium
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
+def test_a_carrier_frame_off_the_route(parity_cases, monkeypatch):
+    """The carrier frame's shifted moments and ``exp(sigma)`` flow off the route."""
+    if DEVICE:
+        pytest.skip("device builds refuse the carrier frame by name")
+    simulation, problem = parity_cases("te_tm")
+    grid = simulation.grid
+    method = Multistep(carrier_frame="scalar")
+    request = simulation._run_request()
+    request = request.with_stepper(
+        dataclasses.replace(request.stepper, integrator=method)
+    )
+    reference = carrier_reference(problem, method)
+    assert reference is not None and reference.active and reference.chord is not None
+    steps = request.stepper.schedule.steps
+    anchors = np.concatenate(([0.0], np.cumsum(steps)[:-1]))
+    carrier = max(
+        float(np.max(np.abs(np.imag(reference.chord.exponent(z, z + dz)))))
+        for z, dz in zip(anchors, steps, strict=True)
+    )
+    assert carrier > 0.0
+    on = run(NativeBackend, problem, request, grid)
+    expected = run(NumpyRefBackend, problem, request, grid)
+    off_route(monkeypatch, "off")
+    _assert_routed(problem, "off")
+    routed = run(NativeBackend, problem, request, grid)
+    with monkeypatch.context() as patched:
+        on_host_engine(patched)
+        host = run(NativeBackend, problem, request, grid)
+    _held_to_the_bound(
+        (problem, request, grid),
+        {"expected": expected, "routed": routed, "on": on, "host": host},
+        carrier,
+    )
+
+
+@pytest.mark.medium
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
+def test_a_wide_flow_off_the_route(cases, monkeypatch):
+    """17 channels, every other bin off the route: wide rows and augmented bins."""
+    if DEVICE:
+        pytest.skip("a device build steps a wide block on the host engine")
+    case = cases(17)
+    problem, request = case.problem, case.run_request
+    on = propagate(case, NativeBackend)
+    with monkeypatch.context() as patched:
+        on_host_engine(patched)
+        host_on = propagate(case, NativeBackend)
+    off_route(monkeypatch, "mixed")
+    _assert_routed(problem, "mixed")
+    routed = propagate(case, NativeBackend)
+    with monkeypatch.context() as patched:
+        on_host_engine(patched)
+        host = propagate(case, NativeBackend)
+    linear = 1e3 * propagate(case, NativeBackend, problem.initial.field0 * 1e-3)
+    formation = adams_formation_bound(problem, request, case.grid)
+    bound = parity_bound(case, host, linear, formation=formation)
+    scale = _scale(case)
+    assert 0.0 < bound < 1e-6 * scale
+    assert float(np.max(np.abs(routed - host))) <= bound
+    assert float(np.max(np.abs(routed - on))) <= bound
+    floor = max(float(np.max(np.abs(on - host_on))), 32 * UNIT * scale)
+    assert float(np.max(np.abs(routed - on))) <= 8 * floor
+
+
+def _round_trip(simulation, problem, middle, end):
+    """Return a run's state at `end`, and the same run snapshotted at `middle`,
+    restored into a fresh backend and continued to `end`."""
+    request = simulation._run_request()
+    context = {
+        "grid": simulation.grid,
+        "modes": simulation.modes,
+        "profiles": simulation.profiles,
+    }
+    whole = NativeBackend(problem, request, **context)
+    try:
+        whole.set_initial(problem.initial.field0, None)
+        whole.propagate_to(end)
+        uninterrupted = whole.observe().require_field().copy()
+    finally:
+        whole.close()
+    first = NativeBackend(problem, request, **context)
+    try:
+        assert type(first._adams._engine).__name__ == "_ResidentAdams"
+        first.set_initial(problem.initial.field0, None)
+        first.propagate_to(middle)
+        stored = first.march_snapshot()
+    finally:
+        first.close()
+    assert stored is not None and len(stored.identities) >= 2
+    second = NativeBackend(problem, request, **context)
+    try:
+        second.set_initial(problem.initial.field0, None, z=stored.z)
+        assert second.restore_march(stored) is None
+        second.propagate_to(end)
+        resumed = second.observe().require_field().copy()
+    finally:
+        second.close()
+    return uninterrupted, resumed
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("kind", ["off route", "wide"])
+def test_a_snapshot_off_the_route_or_wide_resumes_to_the_bit(
+    parity_cases, cases, kind, monkeypatch
+):
+    """The resident history of a wide or off-route flow, snapshotted and restored.
+
+    The engine's rows round-trip losslessly, so a resumed run takes the uninterrupted
+    one's steps on the same arithmetic: the same state to the bit in one process.
+    """
+    if DEVICE:
+        pytest.skip("a device build steps these flows on the host engine")
+    if kind == "wide":
+        case = cases(17)
+        simulation = wide_simulation(17)
+        problem = case.problem
+        steps = case.run_request.stepper.schedule.steps
+        middle, end = float(np.sum(steps[:5])), float(np.sum(steps))
+    else:
+        simulation, problem = parity_cases("gradient")
+        off_route(monkeypatch, "off")
+        _assert_routed(problem, "off")
+        steps = simulation._run_request().stepper.schedule.steps
+        middle, end = float(np.sum(steps[:5])), float(np.sum(steps))
+    uninterrupted, resumed = _round_trip(simulation, problem, middle, end)
+    np.testing.assert_array_equal(resumed, uninterrupted)
