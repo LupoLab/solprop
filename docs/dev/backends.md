@@ -539,7 +539,7 @@ measured on a check set against the root search itself and recorded under `stati
 refused by name, as is a mode whose band holds a root over part of the run only. Not rounding level,
 because the reference is not: its root scatters by a few times 1e-8 between neighbouring positions
 on a gas capillary (`beta_2` is a finite difference), and a pressure gradient over a decade is
-resolved to about 5e-7 within the fit's budget. Native refuses by name, before anything is allocated, the metric
+resolved to about 5e-7 within the fit's budget. Where the session's request fixes every position the statistic is taken at -- its start and save planes, with no step or interpolated plane -- and there are no more than `_ZDW_PLANE_LIMIT` (34), a z-varying mode's root is instead searched once at exactly those positions before the run and held in a table constant about each (`source: "save planes"`, error zero): the reference's own roots, at planes times modes searches. Native refuses by name, before anything is allocated, the metric
 statistics of a general modal basis whose metric varies inside an interval
 (`_statistics.metric_refusal`): the plan's metric root is exact only on a metric constant on each
 interval. The native session's own statistics refusal then names only the on-axis plasma

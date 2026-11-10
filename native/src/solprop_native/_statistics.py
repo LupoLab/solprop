@@ -925,18 +925,35 @@ _ZDW_CHECK_POINTS = 17
 midpoints: each is a root search, 0.2 to 0.6 s on a gas capillary, so far fewer than
 a profile's."""
 
+_ZDW_PLANE_LIMIT = 2 * _ZDW_CHECK_POINTS
+"""The most positions a ``zdw`` is searched at exactly, in place of its fitted table:
+the fewest searches a fit costs, its check set and one interval of degree 16."""
+
 _ZDW_TABLES: weakref.WeakKeyDictionary[
     PropagationProblem,
-    dict[float, tuple[tuple[int, ...], list[PiecewiseChebyshev], dict[str, object]]],
+    dict[
+        tuple[float, tuple[float, ...] | None],
+        tuple[tuple[int, ...], list[PiecewiseChebyshev], dict[str, object]],
+    ],
 ] = weakref.WeakKeyDictionary()
-"""Each problem's ``zdw`` tables and their record, by last plane, with the modes' ids
-they were lowered for, while the problem lives."""
+"""Each problem's ``zdw`` tables and their record, by last plane and exact positions,
+with the modes' ids they were lowered for, while the problem lives."""
 
 
 def _zdw_tables(
-    problem: PropagationProblem, modes: Sequence[Mode], grid: TimeGrid, z_end: float
+    problem: PropagationProblem,
+    modes: Sequence[Mode],
+    grid: TimeGrid,
+    z_end: float,
+    planes: Sequence[float] | None = None,
 ) -> tuple[list[PiecewiseChebyshev], dict[str, object]]:
     """Return each mode's ``zdw`` table and their record, lowered once per problem.
+
+    Where every position the statistic is taken at is known (`planes`) and there are
+    no more than :data:`_ZDW_PLANE_LIMIT`, a z-varying mode's root is searched at
+    exactly those positions, as the reference searches it there, and held in a table
+    constant around each (:func:`_plane_tables`); otherwise it is fitted
+    (:func:`_lowered_zdw_tables`).
 
     Parameters
     ----------
@@ -948,6 +965,9 @@ def _zdw_tables(
         The time grid, whose band the roots are searched in.
     z_end : float
         The run's last plane, m.
+    planes : sequence of float or None, optional
+        Every position the statistic will be taken at, or ``None`` when they are not
+        all known before the run (step planes, interpolated planes, a caller's own).
 
     Returns
     -------
@@ -956,11 +976,94 @@ def _zdw_tables(
     """
     held = _ZDW_TABLES.setdefault(problem, {})
     identity = tuple(id(mode) for mode in modes)
-    cached = held.get(z_end)
+    exact = None
+    if planes is not None:
+        positions = tuple(sorted({float(z) for z in planes}))
+        if positions and len(positions) <= _ZDW_PLANE_LIMIT:
+            exact = positions
+    key = (z_end, exact)
+    cached = held.get(key)
     if cached is None or cached[0] != identity:
-        tables, record = _lowered_zdw_tables(problem, modes, grid, z_end)
-        cached = held[z_end] = (identity, tables, record)
+        if exact is not None and not all(mode.z_constant for mode in modes):
+            tables, record = _plane_tables(modes, grid, exact, z_end)
+        else:
+            tables, record = _lowered_zdw_tables(problem, modes, grid, z_end)
+        cached = held[key] = (identity, tables, record)
     return cached[1], dict(cached[2])
+
+
+def _plane_tables(
+    modes: Sequence[Mode], grid: TimeGrid, positions: Sequence[float], z_end: float
+) -> tuple[list[PiecewiseChebyshev], dict[str, object]]:
+    """Return each mode's ``zdw`` searched at exactly the positions it is taken at.
+
+    Each table is constant on an interval about each position, its edges halfway
+    between neighbours, so that it holds the reference's own root at each, to the
+    bit: the run's searches, made once before it rather than at each plane.
+
+    Parameters
+    ----------
+    modes : sequence of Mode
+        The propagated modes.
+    grid : solprop.grid.TimeGrid
+        The time grid.
+    positions : sequence of float
+        The positions, increasing and distinct, m.
+    z_end : float
+        The run's last plane, m.
+
+    Returns
+    -------
+    tuple
+        The tables, one per mode, and their record (error zero).
+    """
+    import warnings
+
+    from solprop.exceptions import NoZeroDispersionError, SolpropWarning
+    from solprop.modes.base import zdw
+    from solprop.translate.linop import DEFAULT_MARGIN
+
+    window = inband_wavelengths(grid)
+    points = np.asarray(positions, dtype=np.float64)
+    end = max(float(z_end), float(points[-1]))
+    lower = min(float(points[0]), 0.0)
+    upper = max(end, end + abs(end) * DEFAULT_MARGIN)
+    edges = np.concatenate(([lower], 0.5 * (points[1:] + points[:-1]), [upper]))
+    tables: list[PiecewiseChebyshev] = []
+    missing: list[int] = []
+    for index, mode in enumerate(modes):
+        values = np.empty(points.size)
+        for slot, z in enumerate(points):
+            try:
+                values[slot] = float(zdw(mode, float(z), wavelength_limits=window))
+            except NoZeroDispersionError:
+                values[slot] = math.nan
+        if np.any(np.isnan(values)):
+            missing.append(index)
+        tables.append(
+            PiecewiseChebyshev(
+                values[:, None],
+                edges,
+                np.zeros(points.size, dtype=np.int64),
+                np.empty(0),
+            )
+        )
+    if missing:
+        warnings.warn(
+            f"the 'zdw' statistic records nan for modes {missing}: beta_2 has one "
+            f"sign at both ends of the grid's {window[0] * 1e9:.4g}-"
+            f"{window[1] * 1e9:.4g} nm band at a plane",
+            SolpropWarning,
+            stacklevel=4,
+        )
+    record: dict[str, object] = {
+        "source": "save planes",
+        "max_error": 0.0,
+        "relative_error": 0.0,
+        "check_points": int(points.size),
+        "tolerance": ZDW_TOLERANCE,
+    }
+    return tables, record
 
 
 def _constant_table(value: float, lower: float, upper: float) -> PiecewiseChebyshev:
@@ -1189,6 +1292,7 @@ def lower(
     apertures: tuple[np.ndarray, np.ndarray, int] | None = None,
     on_axis: np.ndarray | None = None,
     z_end: float,
+    planes: Sequence[float] | None = None,
 ) -> StatisticsLowering:
     """Lower statistics for native evaluation, once.
 
@@ -1215,6 +1319,10 @@ def lower(
     on_axis : numpy.ndarray or None, optional
         The mode set's synthesis on the axis at the reference position, when the
         caller already built it (``StepDriver._on_axis``); built here otherwise.
+    planes : sequence of float or None, optional
+        Every position the plane statistics will be taken at, when the run fixes
+        them all before it starts; ``zdw`` is then searched exactly there
+        (:func:`_zdw_tables`).
 
     Returns
     -------
@@ -1302,7 +1410,7 @@ def lower(
         if modes is None or grid is None:
             msg = "the zdw statistic needs the mode set and the time grid"
             raise BackendError(msg)
-        zdw_tables, tables["zdw"] = _zdw_tables(problem, modes, grid, z_end)
+        zdw_tables, tables["zdw"] = _zdw_tables(problem, modes, grid, z_end, planes)
         plan["zdw"] = [_table(table) for table in zdw_tables]
     if asked & {"fwhm_t", "fwhm_t_outer"}:
         if grid is None:

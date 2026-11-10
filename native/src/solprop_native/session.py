@@ -606,6 +606,14 @@ class NativeSession:
             FarFieldTables(problem, spec) if backend is None else backend._far_field  # pyright: ignore[reportPrivateUsage] - the tables it was built with
         )
         self._owns = owned or owns
+        # Every position a plane statistic is taken at, where the request fixes them
+        # all: its start and its save planes, with no step or interpolated plane.
+        observation = request.observation
+        self._planes: tuple[float, ...] | None = (
+            None
+            if observation.dense or observation.step_planes
+            else (float(start.z), *(float(z) for z in observation.save_planes))
+        )
         lowering = self._lower(union, grid, modes, profiles)
         self._statistics_tables = lowering.tables
         self._plane_lowering = lowering.subset(spec.names)
@@ -699,6 +707,7 @@ class NativeSession:
                 profiles=profiles,
                 apertures=apertures,
                 z_end=self._stepper.z_end,
+                planes=self._planes,
             )
         except BackendError as error:
             msg = f"the native session does not run {error}"

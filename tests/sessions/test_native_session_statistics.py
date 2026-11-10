@@ -1111,3 +1111,57 @@ def test_a_pressure_gradient_s_zdw_is_a_table_within_its_recorded_tolerance():
         _within(
             record_.stats["zdw"], want["zdw"], tolerance * scale, f"zdw {record_.z}"
         )
+
+
+@pytest.mark.medium
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+def test_a_few_planes_zdw_is_searched_there_and_is_the_reference_s_to_the_bit(
+    monkeypatch,
+):
+    """A z-varying mode with only save planes: its root searched once at each of the
+    run's positions before it starts, planes times modes searches and no fit, and the
+    reference's at every plane, bit for bit."""
+    import solprop.modes.base as modes_base  # noqa: PLC0415
+    from solprop.profiles import PressureGradient  # noqa: PLC0415
+
+    grid, problem, run_request, modes = _zdw_capillary(
+        PressureGradient.two_point(0.2, 0.3, 0.6)
+    )
+    spec = StatsSpec(names=("energy", "zdw"))
+    request = run_request.for_run(stats=spec)
+    assert not request.observation.step_planes and not request.observation.dense
+    searches = []
+    search = modes_base.zdw
+
+    def counted(*arguments, **keywords):
+        searches.append(arguments[1])
+        return search(*arguments, **keywords)
+
+    monkeypatch.setattr(modes_base, "zdw", counted)
+    session = native_session.NativeSession(
+        problem, request, entrance(problem), grid=grid, modes=modes
+    )
+    seen: list[Seen] = []
+    try:
+        record = session._plane_lowering.tables["zdw"]  # pyright: ignore[reportPrivateUsage]
+        while not session.finished:
+            batch = session.advance()
+            for event in batch.events:
+                if isinstance(event, ObservationReady):
+                    field = np.array(session.export(event.ticket, RAW))
+                    seen.append(Seen(event.z, dict(event.stats), None, field))
+                elif isinstance(event, Terminal):
+                    assert event.error is None, event.error
+            session.acknowledge(batch.receipt)
+    finally:
+        session.close()
+    monkeypatch.undo()
+    planes = 1 + len(run_request.stepper.save_planes)
+    assert record["source"] == "save planes"
+    assert record["max_error"] == 0.0
+    assert len(seen) == planes
+    assert sorted(searches) == sorted(record_.z for record_ in seen) * len(modes)
+    reference = _reference(problem, run_request, spec, seen, grid=grid, modes=modes)
+    for record_, want in zip(seen, reference, strict=True):
+        assert np.isfinite(want["zdw"]).all()
+        np.testing.assert_array_equal(record_.stats["zdw"], want["zdw"])
