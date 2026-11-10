@@ -447,8 +447,10 @@ class NativeSession:
     Raises
     ------
     solprop.exceptions.BackendError
-        Naming the feature the prototype refuses, before anything is allocated; or
-        if `backend` was built for another problem, or with context given beside it.
+        Naming the feature the prototype refuses, before anything is allocated, or
+        the built backend refuses (:func:`backend_refusal`), before the start's field
+        is taken; or if `backend` was built for another problem, or with context given
+        beside it.
     """
 
     def __init__(
@@ -475,7 +477,11 @@ class NativeSession:
         owned = backend is None
         if backend is not None:
             adopted = self._driver(backend)
-            if adopted._problem is not problem:
+            # A runner's backend, reused (not owned), was built for the problem this
+            # one was derived from, which the runner checked compatible
+            # (`check_derived_problem`); a backend handed over to own was built for
+            # this very problem.
+            if owns and adopted._problem is not problem:
                 msg = "the native session's backend was built for another problem"
                 raise BackendError(msg)
             if not (grid is modes is profiles is options is None):
@@ -501,9 +507,10 @@ class NativeSession:
         self._stop = stop
         self._detach: Callable[[], None] | None = None
         self._exports: dict[tuple[int, int, object], np.ndarray] = {}
-        # The last batch's chunk until the batch is returned: a signal raised as its
-        # advance ends leaves it to `undelivered`, for the failure's checkpoint.
-        self._held: tuple[int, BackendHistory, StepStats] | None = None
+        # The last native batch until its events are returned: a signal or an error
+        # as its advance ends leaves its chunk to `undelivered`, for the failure's
+        # checkpoint.
+        self._held: tuple[int, _core.SessionBatch] | None = None
         # The Adams march's call ledger as the record states it: the restored counts
         # and orders, then the native march's (`_sync_calls`).
         self._calls: CallLedger | None = None
@@ -548,6 +555,12 @@ class NativeSession:
             )
         self._backend: NativeBackend | None = backend
         try:
+            # The built backend's own admission, before the start's field is taken: a
+            # march it would step on the host, a noise phase its leased state holds.
+            refused = backend_refusal(backend)
+            if refused is not None:
+                msg = f"the native session does not run {refused}"
+                raise BackendError(msg)
             kind, state = self._prepare(backend, start)
             self._native = backend._native_state.start_session(  # pyright: ignore[reportPrivateUsage]
                 kind, state, self._plan(start), float(start.z)
@@ -697,12 +710,13 @@ class NativeSession:
                 )
             )
         if isinstance(integrator, Multistep):
-            ledger = march.ledger
+            adams = driver._adams
+            ledger = adams.ledger
             self._calls = dataclasses.replace(ledger, orders=list(ledger.orders))
-            self._method = march._method
-            self._max_calls = march._policy.max_calls
+            self._method = adams._method
+            self._max_calls = adams._policy.max_calls
             # The history's persistent rows, sized while the state is not leased.
-            self._rows_nbytes = int(march._engine.snapshot_nbytes())
+            self._rows_nbytes = int(adams._engine.snapshot_nbytes())
         return kind, march._state(False)
 
     @staticmethod
@@ -939,24 +953,34 @@ class NativeSession:
             self._native.request_stop()
         limit = 1 if self._listener is not None else max(int(work_limit), 1)
         # A signal arriving during the native call is raised as this block ends, with
-        # the batch pending and its chunk held (SEP 47 section 5.5): the failure's
-        # checkpoint exports the batch's state and includes the chunk, once.
-        with committing():
-            try:
-                batch = self._native.advance(limit, float(deadline))
-            except _core.SessionLifecycleError as error:
-                raise SessionError(str(error)) from None
-            receipt = Receipt(self._id, batch.sequence)
-            self._sequence = batch.sequence
-            # Each batch is one event and the chunk since the previous one, delivered
-            # once.
-            chunk = self._history(batch.attempts)
-            rows = self._chunk_rows(batch)
-            self._held = (batch.sequence, chunk, rows)
-            if not self._declared_logged:
-                edge = self._native.edge_record()
-                self._declared_logged = edge is None or _transverse.log_declared(edge)
-            event = self._event(batch, receipt, chunk, rows)
+        # the batch pending and held (SEP 47 section 5.5): the failure's checkpoint
+        # exports the batch's state and includes its chunk, once. The batch is held
+        # before it is translated, so an error translating it loses no attempt; and
+        # that error is kept as the cause of a signal that arrived meanwhile, which
+        # the commit would otherwise drop beside it.
+        failure: BaseException | None = None
+        translated: tuple[BackendHistory, Event] | None = None
+        try:
+            with committing():
+                try:
+                    batch = self._native.advance(limit, float(deadline))
+                except _core.SessionLifecycleError as error:
+                    raise SessionError(str(error)) from None
+                receipt = Receipt(self._id, batch.sequence)
+                self._sequence = batch.sequence
+                self._held = (batch.sequence, batch)
+                try:
+                    translated = self._translate(batch, receipt)
+                except BaseException as error:
+                    failure = error
+        except BaseException as signalled:
+            if failure is not None and signalled is not failure:
+                raise signalled from failure
+            raise
+        if failure is not None:
+            raise failure
+        assert translated is not None
+        chunk, event = translated
         if self._listener is not None:
             for end, dz, accepted in zip(
                 chunk.z.tolist(),
@@ -967,6 +991,31 @@ class NativeSession:
                 self._listener(end, dz, bool(accepted))
         self._held = None
         return EventBatch(receipt, (event,))
+
+    def _translate(
+        self, batch: _core.SessionBatch, receipt: Receipt
+    ) -> tuple[BackendHistory, Event]:
+        """Return a native batch's chunk of attempts and its one event.
+
+        Parameters
+        ----------
+        batch : solprop_native._core.SessionBatch
+            The batch, pending.
+        receipt : solprop.backends.events.Receipt
+            Its receipt.
+
+        Returns
+        -------
+        tuple
+            The attempts since the previous event, and the event carrying them.
+        """
+        # Each batch is one event and the chunk since the previous one, delivered once.
+        chunk = self._history(batch.attempts)
+        rows = self._chunk_rows(batch)
+        if not self._declared_logged:
+            edge = self._native.edge_record()
+            self._declared_logged = edge is None or _transverse.log_declared(edge)
+        return chunk, self._event(batch, receipt, chunk, rows)
 
     def _announce(self) -> None:
         """Announce the propagation once, before the first advance that may step."""
@@ -1219,6 +1268,10 @@ class NativeSession:
         state = self._native.march_state(_NO_ORDERS)
         if state is None or not state["history"]:
             return None
+        ticket = self.pending_ticket()
+        if ticket is not None and float(state["z"]) != ticket.z:
+            # A dense plane's: the march stands ahead of it (`march_snapshot`).
+            return None
         return math.prod(self._problem.shape) * 16 + self._rows_nbytes
 
     def march_export_refusal(self) -> str | None:
@@ -1381,7 +1434,7 @@ class NativeSession:
             raise SessionError(msg)
         held, self._held = self._held, None
         if held is not None and held[0] == ticket.receipt.sequence:
-            return held[1], held[2]
+            return self._history(held[1].attempts), self._chunk_rows(held[1])
         return self._history(np.empty((0, 5))), self._no_rows()
 
     def pending_ticket(self) -> ExportTicket | None:
@@ -1422,8 +1475,12 @@ class NativeSession:
         """
         if self.closed or self._poisoned or self._sequence == 0:
             return None
-        if _STATES[self._native.status().state] is SessionState.READY:
-            self._sequence = self._native.fail_outside()
+        failed = self._native.fail_outside()
+        if failed is not None:
+            # Its chunk, empty unless an aborted advance left attempts behind, is
+            # delivered once, through `undelivered`.
+            self._sequence = failed.sequence
+            self._held = (failed.sequence, failed)
         return self.pending_ticket()
 
     @property

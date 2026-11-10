@@ -293,7 +293,13 @@ class _Chunks:
         self._chunks: list[_Chunk] = []
         self._step = step
 
-    def add(self, history: BackendHistory | None, rows: BackendRows | None) -> None:
+    def add(
+        self,
+        history: BackendHistory | None,
+        rows: BackendRows | None,
+        *,
+        report: bool = True,
+    ) -> None:
         """Hold one event's chunk, and report its attempts.
 
         Every attempt arrives exactly once, so the reporter hears each once, in order,
@@ -305,9 +311,13 @@ class _Chunks:
             Its attempts.
         rows : solprop.backends.protocol.StepStats or None
             Its periodic rows, without a batch axis.
+        report : bool, optional
+            Whether the reporter hears the attempts; ``False`` for the attempts no
+            event delivered, which a failure's checkpoint holds and no reporter call
+            may lose.
         """
         self._chunks.append((history, rows))
-        if history is not None:
+        if report and history is not None:
             for z, dz, accepted in zip(
                 history.z.tolist(),
                 history.dz.tolist(),
@@ -841,8 +851,10 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
             history, step_rows = rows
             if history is None and step_rows is None:
                 # A failure outside the session: the chunks since the last plane, a
-                # running checkpoint's included, and what no event delivered.
-                chunks.add(*session.undelivered(ticket))
+                # running checkpoint's included, and what no event delivered, which
+                # the run's reporter does not hear: it is ending, and a reporter that
+                # raised here would lose the checkpoint.
+                chunks.add(*session.undelivered(ticket), report=False)
                 history, step_rows = chunks.joined()
             pending = SavedPlane(
                 z=ticket.z,

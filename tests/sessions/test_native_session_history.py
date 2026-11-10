@@ -32,8 +32,14 @@ from solprop.backends.events import ObservationReady, Outcome
 from solprop.backends.registry import select
 from solprop.backends.session import SessionError, Start
 from solprop.backends.sessions import start_session
-from solprop.exceptions import BoundaryWarning, ResponseBudgetError, RunTerminated
+from solprop.exceptions import (
+    BackendError,
+    BoundaryWarning,
+    ResponseBudgetError,
+    RunTerminated,
+)
 from solprop.output.schema import MarchSnapshot
+from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.run_request import describe_run
@@ -52,6 +58,9 @@ ADAMS = {
     },
 }
 """Both formulations of the native Adams march, adaptive and replayed."""
+
+SNAPSHOTTED = {**ADAMS, "adams-dense": {"integrator": Multistep(), "interpolate": True}}
+"""The Adams cases, and dense output, whose interpolated planes hold no history."""
 
 needs_default_sigterm = pytest.mark.skipif(
     signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL,
@@ -161,7 +170,7 @@ def _assert_same_snapshot(got: MarchSnapshot, expected: MarchSnapshot) -> None:
         assert row.tobytes() == expected.rows[name].tobytes(), name
 
 
-@pytest.mark.parametrize("case", sorted(ADAMS))
+@pytest.mark.parametrize("case", sorted(SNAPSHOTTED))
 def test_the_session_exports_the_drivers_method_history(case):
     """SEP 47 section 5.4: at every plane the native session's snapshot is the one the
     backend's own march gives over the driver session, bitwise on one thread: the
@@ -170,7 +179,7 @@ def test_the_session_exports_the_drivers_method_history(case):
     """
     if not _one_thread():
         pytest.skip("bitwise agreement is claimed on one thread (SOLPROP_THREADS=1)")
-    problem = _case(**ADAMS[case])
+    problem = _case(**SNAPSHOTTED[case])
     request = describe_run(problem)
     expected = _snapshots(_driver_session(problem, request))
     got = _snapshots(Started(_native(problem, request, _entrance(problem))))
@@ -180,6 +189,10 @@ def test_the_session_exports_the_drivers_method_history(case):
     for (snapshot, nbytes), (reference, size) in zip(
         got[1:], expected[1:], strict=True
     ):
+        if case.endswith("dense") and reference is None:
+            # A dense plane: the march stands ahead of it and keeps no history there.
+            assert (snapshot, nbytes, size) == (None, None, None)
+            continue
         assert snapshot is not None and reference is not None
         _assert_same_snapshot(snapshot, reference)
         assert nbytes == size == snapshot.nbytes
@@ -484,34 +497,51 @@ def test_a_backend_that_steps_on_the_host_is_served_by_the_driver(monkeypatch):
             session.close()
 
 
-def _noisy(noise: str, *, check: bool) -> Any:
-    """Return a short soliton with a noise model, its boundary monitor on or off."""
+def _noisy(noise: Any, *, check: bool, march: str = "adams") -> Any:
+    """Return a short soliton with a noise model, its boundary monitor on or off, on
+    the adaptive Adams march, densely observed, or replayed by the low-storage march.
+    """
     from solprop.driver import Simulation  # noqa: PLC0415 - beside its one use
     from solprop.monitor import BoundaryCheck  # noqa: PLC0415 - beside its one use
     from solprop.pulses import SechPulse  # noqa: PLC0415 - beside its one use
+    from solprop.stepper import LowStorageRungeKutta  # noqa: PLC0415
 
     grid = window()
+    method: dict[str, Any] = {"integrator": Multistep()}
+    if march == "low-storage":
+        method = {
+            "integrator": LowStorageRungeKutta(),
+            "schedule": FixedSchedule.uniform(
+                0.0, LENGTH, LENGTH / 80, save_planes=list(PLANES)
+            ),
+        }
     simulation = Simulation.from_gnlse(
         0.11, LENGTH, [0.0, 0.0, -1.183e-26], wavelength=835e-9, grid=grid,
         pulses=[SechPulse(wavelength=835e-9, width=50e-15, peak_power=1e3)],
         noise=noise, seed=7, raman=False, shock=False, n_save=len(PLANES) + 1,
-        backend="native", integrator=Multistep(),
+        backend="native", **method,
     )  # fmt: skip
     simulation.settings = dataclasses.replace(
-        simulation.settings, boundary_check=BoundaryCheck() if check else None
+        simulation.settings,
+        boundary_check=BoundaryCheck() if check else None,
+        interpolate_planes=march == "dense",
     )
     return simulation
 
 
+@pytest.mark.parametrize("march", ["adams", "dense", "low-storage"])
 @pytest.mark.parametrize("check", [True, False], ids=["monitored", "unmonitored"])
 @pytest.mark.parametrize("noise", ["input", "modified"])
-def test_a_noisy_run_is_the_drivers(noise, check):
+def test_a_noisy_run_is_the_drivers(noise, check, march):
     """The input and modified noise models run on the native session as on the
-    backend's own march: the same noise phase at every plane, and on one thread the
-    same trace, fields and boundary-monitor record, the input draw's vacuum floor
-    read by the native monitor as solprop's monitor reads it.
+    backend's own march, adaptive Adams, densely observed or low-storage: the same
+    noise phase at every plane, and on one thread the same trace, fields and
+    boundary-monitor record, the input draw's vacuum floor read by the native monitor
+    as solprop's monitor reads it.
     """
-    simulation = _noisy(noise, check=check)
+    if march == "dense" and noise == "modified":
+        pytest.skip("the translation refuses dense output beside the modified noise")
+    simulation = _noisy(noise, check=check, march=march)
     problem = simulation.translate()
     assert problem.initial.noise_model == noise
     request = describe_run(problem, monitor=simulation._boundary_monitor())
@@ -549,3 +579,173 @@ def test_a_noisy_run_is_the_drivers(noise, check):
 
         assert_same_run(runs["native"], runs["driver"])
         assert records["native"] == records["driver"]
+
+
+def test_a_noisy_run_on_a_z_table_is_refused_once_the_backend_is_built():
+    """The noise phase at a plane reads a z table's propagator phase, which the leased
+    state holds: the native session refuses the built backend by name, directly as
+    through the door, before the start's field is taken and leaving the backend open
+    to the transitional session, which serves the run.
+    """
+    from driver.test_specified_paths import (  # noqa: PLC0415 - beside its one use
+        GRID,
+        PULSE,
+        linear_walkoff,
+    )
+    from driver.test_specified_paths import (  # noqa: PLC0415
+        LENGTH as WALKOFF_LENGTH,
+    )
+    from solprop.driver import Simulation  # noqa: PLC0415 - beside its one use
+    from solprop.grid import EnvelopeGrid  # noqa: PLC0415 - beside its one use
+
+    grid = EnvelopeGrid.from_limits(WALKOFF_LENGTH, 835e-9, (600e-9, 1300e-9), 2e-12)
+    simulation = Simulation.from_gnlse(
+        0.1, WALKOFF_LENGTH, fibre=linear_walkoff(grid), shock=False, n_save=4,
+        noise="input", seed=3, backend="native", integrator=Multistep(),
+        **GRID, **PULSE,
+    )  # fmt: skip
+    problem = simulation.translate()
+    request = describe_run(problem)
+    assert native_session.refusal(problem, request) is None
+    context = {"grid": simulation.grid, "modes": simulation.modes}
+    backend = select("native", problem, **context)
+    try:
+        start = Start(field=problem.initial.field0[0], z=float(problem.initial.z))
+        with pytest.raises(BackendError, match="'input' noise model on a z table"):
+            native_session.NativeSession(problem, request, start, backend=backend)
+        assert start.field is not None
+        session = start_session(backend, problem, request, start, owns=False)
+        try:
+            assert isinstance(session, DriverSession)
+            session.acknowledge(session.advance().receipt)
+        finally:
+            session.close()
+    finally:
+        backend.close()
+
+
+class _TranslationError(RuntimeError):
+    """An error translating a native batch, standing in for any such bug."""
+
+
+def _untranslatable(monkeypatch) -> None:
+    """Make the next batch the session translates raise :class:`_TranslationError`."""
+    event = native_session.NativeSession._event
+    calls: list[int] = []
+
+    def failing(self, *args, **kwargs):
+        if len(calls) == 1:
+            calls.append(1)
+            raise _TranslationError("the batch could not be translated")
+        calls.append(1)
+        return event(self, *args, **kwargs)
+
+    monkeypatch.setattr(native_session.NativeSession, "_event", failing)
+
+
+def test_an_error_translating_a_batch_leaves_its_chunk_to_the_checkpoint(monkeypatch):
+    """SEP 47 section 5.3: the batch is held before it is translated, so an error in
+    the translation leaves its attempts to the failure's checkpoint, delivered once.
+    """
+    problem = _case(integrator=Multistep(), step_planes=0)
+    _untranslatable(monkeypatch)
+    session = _native(problem, describe_run(problem), _entrance(problem))
+    try:
+        session.acknowledge(session.advance().receipt)
+        with pytest.raises(_TranslationError):
+            session.advance()
+        status = session.status()
+        assert status.attempts > 0
+        ticket = session.failure_ticket()
+        assert ticket is not None and ticket.z == status.z
+        history, _ = session.undelivered(ticket)
+        assert history.n_steps == status.attempts
+        assert session.undelivered(ticket)[0].n_steps == 0
+    finally:
+        session.close()
+
+
+@needs_default_sigterm
+def test_a_signal_beside_an_error_translating_its_batch_is_raised_with_its_cause(
+    monkeypatch,
+):
+    """A signal that arrived during the native call is not dropped beside an error in
+    the batch's translation: it is raised, the error its cause.
+    """
+    problem = _case(
+        integrator=Multistep(),
+        step_planes=0,
+        dz_init=LENGTH / 400,
+        dz_max=LENGTH / 400,
+    )
+    _armed(monkeypatch, "trial", 5, "sigterm")
+    _untranslatable(monkeypatch)
+    session = _native(problem, describe_run(problem), _entrance(problem))
+    try:
+        session.acknowledge(session.advance().receipt)
+        with handled(), pytest.raises(RunTerminated) as raised:
+            session.advance(work_limit=50, deadline=1e9)
+        assert isinstance(raised.value.__cause__, _TranslationError)
+        ticket = session.failure_ticket()
+        assert ticket is not None
+        assert session.undelivered(ticket)[0].n_steps == 50
+    finally:
+        session.close()
+
+
+RESTARTED = {
+    "low-storage": {
+        "integrator": LowStorageRungeKutta(),
+        "schedule": FixedSchedule(np.full(40, LENGTH / 40)),
+    },
+    "adams-dense": {"integrator": Multistep(), "interpolate": True},
+}
+"""Runs the native session now serves that keep no history a resume carries."""
+
+
+@pytest.mark.parametrize("case", sorted(RESTARTED))
+def test_production_selects_the_session_and_a_field_restart_continues_as_the_driver(
+    case,
+):
+    """Production selects the native session for low-storage and dense runs, and a
+    field restart from a saved plane (no history: the low-storage march keeps none,
+    and a dense plane's march stands ahead of it) continues as the backend's own march
+    continues it, bitwise on one thread.
+    """
+    problem = _case(step_planes=0, **RESTARTED[case])
+    request = describe_run(problem)
+    backend = select("native", problem, grid=window(), modes=[fibre().mode])
+    session = start_session(backend, problem, request, _entrance(problem))
+    assert isinstance(session, native_session.NativeSession)
+    field = None
+    z, index = 0.0, 0
+    try:
+        planes = 0
+        while field is None:
+            batch = session.advance()
+            for event in batch.events:
+                if isinstance(event, ObservationReady) and event.plane_index >= 0:
+                    planes += 1
+                    if planes == 2:
+                        field = np.array(session.export(event.ticket, IDENTITY))
+                        z, index = event.z, event.plane_index + 1
+                        assert session.march_snapshot(event.ticket) is None
+            session.acknowledge(batch.receipt)
+    finally:
+        session.close()
+
+    def resumed() -> Start:
+        return Start(
+            field=field.copy(), z=z, plane_index=index, plane_pending=False, resume=True
+        )
+
+    driver = select("native", problem, grid=window(), modes=[fibre().mode])
+    baseline = drive(
+        Started(DriverSession(driver, problem, request, resumed())), export=IDENTITY
+    )
+    run = drive(Started(_native(problem, request, resumed())), export=IDENTITY)
+    assert len(run.observations) == len(baseline.observations) == len(PLANES) - 2
+    if _one_thread():
+        from sessions.executors import assert_same_run  # noqa: PLC0415
+
+        assert_same_run(run, baseline)

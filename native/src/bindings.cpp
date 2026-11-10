@@ -2583,7 +2583,16 @@ public:
                           held);
   }
   // Issue a failed terminal batch for a failure outside the session; takes its lock.
-  std::uint64_t fail_outside() { return session_->fail_outside(); }
+  std::optional<BatchRecord> fail_outside() {
+    std::optional<native::session::Batch> batch;
+    {
+      const nb::gil_scoped_release release;
+      batch = session_->fail_outside();
+    }
+    if (!batch)
+      return std::nullopt;
+    return BatchRecord(std::move(*batch));
+  }
   // Takes the session's lock (waiting for an advance in hand): bound with the
   // interpreter lock released. The lease is released only once the session closed.
   void close() noexcept {
@@ -4405,8 +4414,7 @@ NB_MODULE(_core, module_) {
       .def("march_state", &BoundSession::march_state, "since"_a)
       .def("march_snapshot", &BoundSession::march_snapshot, "sequence"_a,
            "generation"_a)
-      .def("fail_outside", &BoundSession::fail_outside,
-           nb::call_guard<nb::gil_scoped_release>())
+      .def("fail_outside", &BoundSession::fail_outside)
       .def("close", &BoundSession::close, nb::call_guard<nb::gil_scoped_release>());
   // solprop SEP 47 section 6.4: the owning boundary monitor alone, for solprop's tests
   // to feed recorded readings through it and its own monitor alike.

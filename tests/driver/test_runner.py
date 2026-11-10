@@ -231,8 +231,9 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(
             runner.run(inputs(simulation)[0], progress=_Stop())
         left = cast("StepDriver | HostDriver", runner.backend)
         if dense:
-            # The failed run held the march ahead of its interpolated plane.
-            assert left._dense_ahead is not None
+            # The failed run held the march ahead of its interpolated plane; the
+            # native session holds that look-ahead itself, and the backend's is unused.
+            assert left._dense_ahead is not None or served == ["NativeSession"]
         else:
             assert left._adams is not None
             # The native session keeps the march's ledger itself and leaves the

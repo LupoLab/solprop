@@ -383,9 +383,12 @@ public:
             const std::function<void(const Method&, Resident&)>& reader);
   /** Issue a failed terminal batch at the committed state when none is pending, so
       that a failure outside the session can still checkpoint that state
-      (`DriverSession.pending_ticket`); return the pending batch's sequence, or zero
-      once the session has ended or closed. Takes the session's lock. */
-  std::uint64_t fail_outside();
+      (`DriverSession.pending_ticket`), and return it. It carries whatever the chunk
+      buffers still hold (empty after any issued batch; attempts an advance made
+      before an escaped exception otherwise), delivered there exactly once. None when
+      a batch is already pending, or once the session has ended or closed. Takes the
+      session's lock. */
+  std::optional<Batch> fail_outside();
   /** Release the engine, the leased state and every buffer; idempotent. Returns
       whether the session is closed: false only when its lock could not be taken, and
       then nothing was released. Waits for an advance in hand. */

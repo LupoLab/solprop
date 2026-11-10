@@ -922,23 +922,21 @@ void Session::read(const std::uint64_t sequence, const std::uint64_t generation,
   reader(method_, *resident_);
 }
 
-std::uint64_t Session::fail_outside() {
+std::optional<Batch> Session::fail_outside() {
   const std::scoped_lock lock(mutex_);
-  if (closed() || state_.load() == State::finished)
-    return 0;
-  if (!pending_) {
-    // Nothing advanced since the last acknowledgment: the chunk is empty, and the
-    // committed state is the last batch's, eligible.
-    Failure failure;
-    failure.reason = march::Reason::error;
-    failure.category = march::Category::backend;
-    failure.message = "the run failed outside its session";
-    failure.cursor = cursor();
-    Batch batch;
-    terminal(batch, Outcome::failed, std::move(failure));
-    static_cast<void>(issue(std::move(batch), Outcome::failed));
-  }
-  return sequence_;
+  if (closed() || pending_ || state_.load() == State::finished)
+    return std::nullopt;
+  // The committed state is the last commit's, eligible. The chunk buffers are drained
+  // into this batch, so an attempt an aborted advance left there is delivered once,
+  // with the failure's checkpoint, never dropped or delivered twice.
+  Failure failure;
+  failure.reason = march::Reason::error;
+  failure.category = march::Category::backend;
+  failure.message = "the run failed outside its session";
+  failure.cursor = cursor();
+  Batch batch;
+  terminal(batch, Outcome::failed, std::move(failure));
+  return issue(std::move(batch), Outcome::failed);
 }
 
 std::optional<watch::Record> Session::monitor_record() const {

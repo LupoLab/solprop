@@ -2,15 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Which run session serves a loaded backend (SEP 47 phase 2).
+"""Which run session serves a loaded backend (SEP 47 phases 2 and 3).
 
 The NumPy reference runs in its own session
 (:class:`solprop.backends.host.session.HostSession`, over
-:class:`solprop.backends.host.driver.HostDriver`); every other backend -- the native
-bridge, until its own session replaces it in phase 3 -- runs in the transitional
-session over the inherited driver
-(:class:`solprop.backends.driver_session.DriverSession`). :func:`start_session` chooses
-by the driver's type, so the run layer has one door. :func:`start_group` is the door
+:class:`solprop.backends.host.driver.HostDriver`); a native CPU backend runs in the
+native execution session (:class:`solprop_native.session.NativeSession`) whenever it
+admits the run, before the start is loaded; what it refuses by name, and every other
+backend, runs in the transitional session over the inherited driver
+(:class:`solprop.backends.driver_session.DriverSession`). :func:`start_session` chooses,
+so the run layer has one door. :func:`start_group` is the door
 for a group of compatible members (SEP 47 section 6.7): native CPU members run in the
 native group session (:class:`solprop_native.group.NativeGroupSession`, one native
 session per member) whenever it admits the group; any other group runs in the

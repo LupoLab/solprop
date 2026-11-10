@@ -20,6 +20,7 @@ method history.
 
 import dataclasses
 import signal
+import sys
 import threading
 from typing import Any, cast
 
@@ -33,6 +34,7 @@ from solprop.backends import available, sessions
 from solprop.backends.session import DEFAULT_WORK_LIMIT
 from solprop.cli import main
 from solprop.exceptions import ConvergenceError, ResponseBudgetError, RunTerminated
+from solprop.log import NullReporter
 from solprop.output.hdf5 import open_file, resume
 from solprop.recipe import Recipe
 from solprop.stepper.multistep import Multistep
@@ -512,3 +514,41 @@ def test_a_signal_too_late_to_stop_the_run_says_so(tmp_path, monkeypatch, capsys
     with open_file(output) as stored:
         assert stored.outcome is not None
         assert stored.outcome.status == "complete"
+
+
+class FailingInTheCheckpoint(NullReporter):
+    """A reporter that counts what it hears, and raises if it is called while the run
+    handles its failure, as a checkpoint is written."""
+
+    def __init__(self) -> None:
+        self.heard = 0
+
+    def step(self, z, dz, accepted) -> None:
+        if isinstance(sys.exc_info()[1], RunTerminated):
+            raise CrashError("the reporter failed as the checkpoint was written")
+        self.heard += 1
+
+
+@pytest.mark.medium
+@needs_default_sigterm
+def test_a_reporter_cannot_lose_the_failure_s_checkpoint(
+    build_simulation, tmp_path, monkeypatch
+):
+    # The signal is raised as its advance returns, before the batch reached the
+    # service loop: its attempts go into the checkpoint without the reporter hearing
+    # them, so a reporter that would raise there costs nothing.
+    build = soliton(build_simulation, "native")
+    with_fault(monkeypatch, "trial", 40, "sigterm")
+    reporter = FailingInTheCheckpoint()
+    part = tmp_path / "part.h5"
+    with pytest.raises(RunTerminated) as stopped:
+        build().run(part, progress=reporter)
+    assert not getattr(stopped.value, "__notes__", None)
+    assert_consistent_stop(part)
+    state = resume(part)
+    assert state.checkpoint is not None
+    history = state.checkpoint.plane.step_history
+    assert history.n_steps > 0
+    ledger = ledger_of(part)
+    # Every attempt is stored; the held batch's alone were not reported.
+    assert reporter.heard < ledger["accepted_steps"] + ledger["rejected_steps"]
