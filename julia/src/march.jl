@@ -218,7 +218,11 @@ _session_observe!(::_NoSessionServices, session, kind, plane) = nothing
 _session_finish!(::_NoSessionServices, session) = nothing
 _session_quiet(::_NoSessionServices, session) = false
 _session_cap(::_NoSessionServices, session, proposal::Float64) = proposal
-_session_finish_candidate!(::_NoSessionServices, session, candidate, dz) = nothing
+_session_finish_candidate!(::_NoSessionServices, session, candidate, dz, destination) = nothing
+_session_quiet_interval(::_NoSessionServices, session) = nothing
+_session_barrier(::_NoSessionServices, session) = :none
+_session_continue!(::_NoSessionServices, session) = :none
+_session_acknowledge!(::_NoSessionServices, session, generation) = nothing
 
 # Concrete methods own numerical trials; this internal common surface owns event
 # barriers, bounded delivery, cancellation, acknowledgment and failure persistence.

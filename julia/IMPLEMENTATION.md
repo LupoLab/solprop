@@ -51,7 +51,7 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 | Assignment | Exclusive files | State |
 |---|---|---|
 | Numerical transform/Adams agent | `julia/src/adams_session.jl` and its test | Landed Adams session composition; earlier numerical leaves reviewed and integrated |
-| Numerical services agent | `julia/src/observation_session.jl` and its test, after interface freeze | Planning bounded rows, monitor barriers and continuation; observation leaves reviewed and integrated |
+| Numerical services agent | `julia/src/observation_session.jl` and its test | Frozen interface in `SESSION_DESIGN.md`; implementing bounded rows, monitor barriers, continuation and split finishing |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
 | Independent reviewer | Production code read-only | Adams policy and observation composition approved; reviewing shared integration, then Adams session |
 

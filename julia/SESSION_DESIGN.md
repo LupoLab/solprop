@@ -114,15 +114,45 @@ as publicly qualified before these integrations and conformance checks pass.
 
 Service numerical hooks are `_session_quiet(services, session)::Bool`,
 `_session_cap(services, session, proposal)::Float64` (transverse then split caps, after
-the quiet cap), and `_session_finish_candidate!(services, session, candidate, dz)`.
+the quiet cap), and
+`_session_finish_candidate!(services, session, candidate, dz, destination)`.
 The last hook sees an active-masked candidate, captures split removal, then applies
-split damping; commit applies the final hard mask. A trial records its completed
+split damping; `destination` is the actual planned endpoint, including any landing
+snap, and commit applies the final hard mask. A trial records its completed
 attempt before reporting a proposal-floor failure, including rejection. This preserves
 actual-work accounting even when no further trial is possible.
 The existing reference/native Adams omission is tracked in
 [#651](https://github.com/LupoLab/solprop/issues/651). Preserve the historical trace
 corpus and compare controller decisions and charged calls separately from this
 deliberate diagnostic correction.
+
+The frozen modal service composition owns `SessionObservationPolicy` and
+`ObservationServices` in `observation_session.jl`. Policy retains immutable observation
+preparation, positive periodic cadence, explicit collar-rest eligibility and an optional
+owned coarse power-loss rate. Each session owns observation/split workspaces, compact
+periodic values with capacity `attempt_capacity + 1`, one packed plane, two temporal
+plane rows, one immediate notice and an explicit numerical continuation tag. No service
+owns a second receipt or export generation. Accessors `observation_status`,
+`observation_rows`, `observation_planes` and `observation_notices` never drain data.
+
+Shared hooks `_session_barrier` and `_session_continue!` return symbols. Barriers are
+`:none`, `:warning` or `:boundary_stop`; continuation tags are `:none`, `:launch_rest`,
+`:accepted_rest`, `:plane_rest` and `:finish_rest`. A warning interrupts before the
+endpoint's periodic statistics or plane preparation. After acknowledgment the numerical
+remainder executes once, and the common scheduler services any already reached plane
+before another trial. A continued periodic row uses `attempts.count - 1`, including
+`-1` when its attempt was delivered by the preceding warning chunk; this is the existing
+SEP 47 rebasing convention. The additional capacity covers that one deferred row.
+
+`_session_acknowledge!` resets only published service counts/plane validity after
+common generation validation. It preserves continuation, quiet/cap decisions, period
+phase and monitor state. `_session_quiet_interval` supplies the resolved quiet cap to
+RK; Adams already retains it in its policy. New split-crossing readings check upcoming
+fixed steps before further trials and refuse instead of shortening the itinerary.
+The exact endpoint's field remains eligible for that diagnostic. The master owns the
+common scheduler and generation-checked bridge; the service agent owns only the new
+service source and its focused tests. Dense planes remain a separate later integration
+and must never rewind the committed monitor.
 
 ## Delivery order
 
