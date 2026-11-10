@@ -59,7 +59,7 @@ from enum import Enum
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _package_version
 from pathlib import Path
-from typing import Any, Literal, Protocol, cast, runtime_checkable
+from typing import Any, ClassVar, Literal, Protocol, cast, runtime_checkable
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
@@ -117,6 +117,7 @@ __all__ = [
     "StepLimits",
     "StepStats",
     "StepperRecord",
+    "StoredField",
     "TerminalCheckpoint",
     "field_retention_refusal",
     "package_versions",
@@ -2289,6 +2290,76 @@ class SavedPlane(Displayed):
             ``(n_modes, n_pol, n_omega)``.
         """
         return None if self.field is None else self.field.shape
+
+
+@dataclass(frozen=True, eq=False)
+class StoredField:
+    """A kept plane's field, exported straight into a plane store's stored form.
+
+    What a run's service hands :meth:`PlaneStore.save_exported` beside a plane that
+    carries no field of its own (SEP 47 section 5.4): the field as the store keeps it,
+    and the noise phase that a plane with its field would carry.
+
+    Attributes
+    ----------
+    values : numpy.ndarray
+        The field in the stored form, ``(n_modes, n_pol, n_omega)``: true-power
+        amplitudes (or a spatial route's field measure), sqrt(W), in the optics
+        convention, as :meth:`PlaneStore.save` writes a plane's field.
+    noise_phase : numpy.ndarray or None
+        The noise field's accumulated phase at the plane, rad, internal convention, the
+        shape of `values`; ``None`` without a noise model.
+
+    Raises
+    ------
+    OutputError
+        If `noise_phase` does not have the shape of `values`.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.output.schema import StoredField
+    >>> StoredField(np.ones((1, 1, 4), complex)).values.shape
+    (1, 1, 4)
+    """
+
+    values: Complex[np.ndarray, "n_modes n_pol n_omega"]
+    noise_phase: Float[np.ndarray, "n_modes_phase n_pol_phase n_omega_phase"] | None = (
+        None
+    )
+
+    def __post_init__(self) -> None:
+        """Check that a noise phase has the field's shape."""
+        if self.noise_phase is not None and self.noise_phase.shape != self.values.shape:
+            msg = (
+                f"noise_phase has shape {self.noise_phase.shape}, expected the field's "
+                f"{self.values.shape}"
+            )
+            raise OutputError(msg)
+
+
+def _with_phase(plane: SavedPlane, phase: np.ndarray) -> SavedPlane:
+    """Return a field-free plane carrying an exported field's noise phase.
+
+    The store's own view of a plane whose field it holds apart, in the stored form
+    (:class:`StoredField`); it never leaves the store, whose hooks read the noise
+    phase from the plane as from one that carries its field.
+
+    Parameters
+    ----------
+    plane : SavedPlane
+        The plane, without a field.
+    phase : numpy.ndarray
+        The field's noise phase.
+
+    Returns
+    -------
+    SavedPlane
+        A copy of `plane` with the phase.
+    """
+    held = dataclasses.replace(plane)
+    object.__setattr__(held, "noise_phase", _plane_array(phase, np.float64))
+    return held
 
 
 @dataclass(frozen=True)
@@ -4511,6 +4582,12 @@ class PlaneStore(Displayed, ABC):
     :meth:`reserve`, and each store sizes its first allocation for them; a run that
     saves more grows past it, so the number is a hint, never a limit.
 
+    A run's session exports a kept field straight into the stored form (SEP 47
+    section 5.4): :meth:`field_destination` gives the room to fill, a store's own
+    (`MemoryOutput`) or none, for a new array (`HDF5Output`), and
+    :meth:`save_exported` takes the plane, so that the field is converted once and,
+    in memory, written once, where it is kept.
+
     Examples
     --------
     >>> from solprop.output import MemoryOutput
@@ -4519,6 +4596,23 @@ class PlaneStore(Displayed, ABC):
     >>> isinstance(handler, PlaneStore), isinstance(handler, Output)
     (True, True)
     """
+
+    _takes_exports: ClassVar[bool] = True
+    """Whether a run stores kept fields through :meth:`save_exported`."""
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Keep a subclass that overrides ``save`` on it, unless it says otherwise.
+
+        Parameters
+        ----------
+        **kwargs : object
+            Passed on to the next class.
+        """
+        super().__init_subclass__(**kwargs)
+        if "save" in vars(cls) and "_takes_exports" not in vars(cls):
+            # A subclass that takes its planes through its own save() is given every
+            # field there, in the internal convention, as SavedPlane promises.
+            cls._takes_exports = False
 
     def __init__(self) -> None:
         """Start with nothing stored and nothing opened."""
@@ -4963,16 +5057,153 @@ class PlaneStore(Displayed, ABC):
             the run's layout: a field where the run keeps none, none where it keeps
             one (:meth:`retain`), another shape or other statistics.
         """
+        self._store(plane, None)
+
+    @property
+    def takes_exports(self) -> bool:
+        """Return whether a run hands this store its kept fields already stored.
+
+        A store that takes them is given each kept plane through
+        :meth:`save_exported`, its field exported by the run's session straight into
+        the stored form, and into :meth:`field_destination` (SEP 47 section 5.4). A
+        subclass that overrides :meth:`save` does not, unless it says so with a class
+        attribute ``_takes_exports = True``: it sees every plane, and its field, through
+        its own ``save``, as before.
+
+        Returns
+        -------
+        bool
+            Whether :meth:`save_exported` is how the run stores kept fields here.
+
+        Examples
+        --------
+        >>> from solprop.output import MemoryOutput
+        >>> MemoryOutput().takes_exports
+        True
+        """
+        return self._takes_exports
+
+    def field_destination(
+        self, plane: SavedPlane, shape: tuple[int, ...]
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"] | None:
+        """Return where the next plane's field is to be exported, or ``None``.
+
+        The run's service asks before it exports a kept field (SEP 47 section 5.4). A
+        store with room of its own for the field returns that room, a writeable,
+        C-contiguous complex128 array of `shape`, and the export fills it once in the
+        stored form, the true-power amplitude (or a spatial route's field measure) in
+        the optics convention; :meth:`save_exported` then takes the plane. The room is
+        the store's: no other plane is given it and nothing writes to it again once the
+        plane is stored. A store without such room returns ``None`` and is handed a new
+        array, which it takes as its own.
+
+        Parameters
+        ----------
+        plane : SavedPlane
+            The plane about to be stored, without its field: its statistics fix the
+            layout of a store's first allocation.
+        shape : tuple of int
+            ``(n_modes, n_pol, n_omega)`` of the field.
+
+        Returns
+        -------
+        numpy.ndarray or None
+            The room, or ``None`` for a new array. This base class has none.
+
+        Raises
+        ------
+        OutputError
+            If the handler is closed or was never opened, or the run keeps no field at
+            this plane (:meth:`retain`).
+        """
+        del shape
+        self._check_destination(plane)
+        return None
+
+    def save_exported(self, plane: SavedPlane, stored: StoredField) -> None:
+        """Store one saved plane whose field was exported already in its stored form.
+
+        The run's service calls it instead of :meth:`save` when the store
+        :attr:`takes_exports`; what is stored is what :meth:`save` stores for the same
+        field, since the export's conversion is the one :meth:`save` makes.
+
+        Parameters
+        ----------
+        plane : SavedPlane
+            The position, statistics and step history to store, with no field of its
+            own.
+        stored : StoredField
+            Its field in the stored form, in the room :meth:`field_destination`
+            returned or in any other array, which is copied in where the store keeps
+            fields in its own room; and its noise phase.
+
+        Raises
+        ------
+        OutputError
+            If `plane` carries a field, or for any reason :meth:`save` refuses a
+            plane.
+        """
+        if plane.field is not None:
+            msg = (
+                "a plane whose field was exported is stored without a field of its "
+                "own; save() takes a plane with its field"
+            )
+            raise OutputError(msg)
+        self._store(plane, stored)
+
+    def _check_destination(self, plane: SavedPlane) -> None:
+        """Refuse to give room for a plane that cannot be stored with a field.
+
+        Parameters
+        ----------
+        plane : SavedPlane
+            The plane about to be stored.
+
+        Raises
+        ------
+        OutputError
+            If the handler is closed or was never opened, the plane carries a field
+            already, or the run keeps no field at the next plane.
+        """
+        self._check_usable()
+        self._require_metadata()
+        if plane.field is not None:
+            msg = "a plane exported into a store's room carries no field of its own"
+            raise OutputError(msg)
+        index = self._n_saved
+        if not self._retention.keeps(index):
+            msg = (
+                f"plane {index} keeps no field: the run was saved with "
+                f"{self._retention.describe()}"
+            )
+            raise OutputError(msg)
+
+    def _store(self, plane: SavedPlane, exported: StoredField | None) -> None:
+        """Store one plane, its field taken from the plane or already exported.
+
+        Parameters
+        ----------
+        plane : SavedPlane
+            The plane.
+        exported : StoredField or None
+            Its field in the stored form (:meth:`save_exported`), or ``None`` to
+            convert the plane's own field.
+        """
         self._check_usable()
         metadata = self._require_metadata()
         if self._carried is not None:
             plane = _prepend_checkpoint_history(self._carried, plane)
-        self._check_layout(plane, plane.field)
-        stored = (
-            None
-            if plane.field is None
-            else self._stored_field(plane, metadata.grid.kind)
-        )
+        if exported is not None and exported.noise_phase is not None:
+            plane = _with_phase(plane, exported.noise_phase)
+        self._check_layout(plane, plane.field if exported is None else exported.values)
+        if exported is not None:
+            stored = self._take_exported(plane, exported.values)
+        else:
+            stored = (
+                None
+                if plane.field is None
+                else self._stored_field(plane, metadata.grid.kind)
+            )
         self._append(plane, stored)
         self._n_saved += 1
         self._carried = None
@@ -4981,6 +5212,31 @@ class PlaneStore(Displayed, ABC):
             # (SEP 47 section 5.5): a resume never goes back to it.
             self._write_outcome(self._outcome, None)
             self._terminal_checkpoint = None
+
+    def _take_exported(
+        self,
+        plane: SavedPlane,
+        exported: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Return an exported field as the store holds it; this base class takes it.
+
+        A store that keeps fields in a room of its own copies a field exported
+        elsewhere into it (`MemoryOutput`).
+
+        Parameters
+        ----------
+        plane : SavedPlane
+            The plane, without a field.
+        exported : numpy.ndarray
+            Its field in the stored form.
+
+        Returns
+        -------
+        numpy.ndarray
+            The field to append.
+        """
+        del plane
+        return exported
 
     def reserve(self, n_planes: int) -> None:
         """Expect a run of `n_planes` saved planes in all, before the first is saved.
