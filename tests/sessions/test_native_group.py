@@ -26,7 +26,7 @@ import numpy as np
 import pytest
 
 from march_bounds import FIXED_ORDER
-from sessions.executors import DEVICE_GROUP, Started, device_build
+from sessions.executors import Started
 from sessions.executors import drive as drive_session
 from sessions.test_group import (
     IDENTITY,
@@ -55,8 +55,6 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import FixedSchedule
 
 group_module = pytest.importorskip("solprop_native.group")
-
-pytestmark = pytest.mark.skipif(device_build(), reason=DEVICE_GROUP)
 
 INTEGRATORS = {
     "runge_kutta": None,

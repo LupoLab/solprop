@@ -747,12 +747,12 @@ def device_build() -> bool:
 
 
 def skip_device_refused(problem: PropagationProblem, request: RunRequest) -> None:
-    """Skip the calling test where the native session refuses its run on a device.
+    """Skip the calling test where a device build refuses its run.
 
-    On a device build the native session admits SEP 47 phase 3's representative path
-    and refuses the rest by name (``solprop_native.session.device_refusal``), which
-    phase 4 ports; a test of a refused feature skips, naming it. Nothing on a CPU
-    build.
+    The native backend refuses by name a z table that is not device-ready on a device
+    build, before the session is asked; the native session itself refuses what
+    ``solprop_native.session.device_refusal`` names. A test of a refused run skips,
+    naming it. Nothing on a CPU build.
 
     Parameters
     ----------
@@ -768,14 +768,11 @@ def skip_device_refused(problem: PropagationProblem, request: RunRequest) -> Non
         device_refusal,
     )
 
+    if not problem.device_ready:
+        pytest.skip("device builds refuse a z table by name")
     refused = device_refusal(problem, request)
     if refused is not None:
         pytest.skip(f"the native session refuses {refused} (SEP 47 phase 4)")
-
-
-DEVICE_GROUP = "the native group session refuses a device build (SEP 47 phase 4)"
-"""Why the native group's tests skip on a device build: a group there runs in the
-transitional group, as before."""
 
 
 @dataclass(frozen=True)

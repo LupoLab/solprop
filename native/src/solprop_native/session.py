@@ -28,14 +28,13 @@ It admits a subset and refuses every other feature by name before allocating any
 - the native CPU build; Adams (``Multistep``) and the embedded Runge-Kutta tableaux,
   adaptive or replayed, on the routes the resident engines march without a host
   fallback;
-- on a device build (CUDA or HIP), SEP 47 phase 3's representative device path
-  (:func:`device_refusal`): the same marches on a modal route, with planes, periodic
-  rows, the temporal monitor, the Adams history and host export. The session's own
-  code is host code over the resident state wherever it lives: its decisions are made
-  on the host from the device's reductions, and an export crosses the field to the
-  destination once and converts it there. A spatial route, the low-storage replay,
-  dense output, a transverse edge and a noise model are refused by name on a device
-  until phase 4 ports them;
+- on a device build (CUDA or HIP), the same (SEP 47 phase 4, :func:`device_refusal`):
+  the session's own code is host code over the resident state wherever it lives, its
+  decisions made on the host from the device's reductions, and an export crosses the
+  field to the destination once and converts it there; a coupled flow the device
+  steps on solprop's host engine is refused (wider than 16 channels or off its
+  eigenbasis route), and the backend refuses a carrier frame and a z table that is not
+  device-ready by name;
 - the low-storage replay (``LowStorageRungeKutta``, SEP 47 section 6.3) on the
   diagonal-flow routes whose stage rows the native state reads from its tables: every
   step one in-place native step, its scalars formed natively, the replay loop the
@@ -290,15 +289,20 @@ def refusal(
 
 
 def device_refusal(problem: PropagationProblem, request: RunRequest) -> str | None:
-    """Return why the session refuses a run on a device build, naming it, or ``None``.
+    """Return why the session refuses a run for being on a device build, or ``None``.
 
-    SEP 47 phase 3's representative device path: Adams and the embedded Runge-Kutta
-    tableaux on a modal route, with planes, periodic statistics rows, the temporal
-    boundary monitor, the Adams history and host export. The device matrix's other
-    features are refused by name until phase 4 ports and qualifies them; the session
-    then leaves them to the backend's own march, which runs them on the device today.
-    :func:`refusal` asks it first on a device build; its own refusals apply on every
-    build.
+    SEP 47 phase 4 (section 6.3): a device build's session serves the device matrix
+    a CPU build's serves -- Adams and the embedded Runge-Kutta tableaux, adaptive or
+    replayed, the low-storage replay, dense output, the modal, general and spatial
+    routes (radial, Cartesian, line and planar) with their statistics, the temporal
+    monitor and a free-space run's transverse edge, the noise models, the Adams
+    history and host export -- over the same resident engines, whose kernels run where
+    the state lives, so nothing is refused here for being on a device. What a device
+    build cannot run is refused where it is decided: the backend refuses a carrier
+    frame and a z table that is not device-ready by name, and a coupled flow the
+    device steps on solprop's host engine is :func:`refusal`'s, through
+    :func:`~solprop_native.backend.native_march_refusal`. :func:`refusal` asks this
+    first on a device build, the one place a device-only refusal goes.
 
     Parameters
     ----------
@@ -312,10 +316,7 @@ def device_refusal(problem: PropagationProblem, request: RunRequest) -> str | No
     str or None
         The reason, or ``None`` when the device path admits the run.
     """
-    refused: tuple[tuple[bool, str], ...] = ()
-    for failed, name in refused:
-        if failed:
-            return f"{name} on a device build"
+    del problem, request
     return None
 
 

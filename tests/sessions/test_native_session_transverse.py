@@ -33,7 +33,7 @@ import numpy as np
 import pytest
 
 from backends.test_transverse_backends import radial_collar
-from sessions.executors import trace
+from sessions.executors import device_build, trace
 from sessions.test_native_session_monitor import IDENTITY, Served, _identity, _serve
 from solprop.backends.driver_session import DriverSession
 from solprop.backends.events import ObservationReady, Outcome, ServiceRequired
@@ -288,7 +288,10 @@ def test_the_input_noise_beside_a_collar_is_judged_as_the_driver_judges_it(march
     """The input draw's readings -- its allowance, its columns in the reach and the
     ramp, a collar's strip floor -- are formed on the host once, as solprop's edge
     forms them at its launch, and carried by the native launch: the run is the
-    driver's, its record too but for the ramp's sums (above).
+    driver's, its record too but for the ramp's sums (above). On a device build the
+    split floor's share (:data:`SPLIT_FLOOR`) is held to its bound too: the native
+    monitor sums it in order and solprop pairwise, which a device's readings round
+    apart in the last bit where a CPU build's happen to agree.
     """
 
     def simulation() -> Simulation:
@@ -298,7 +301,8 @@ def test_the_input_noise_beside_a_collar_is_judged_as_the_driver_judges_it(march
     assert problem.initial.noise_model == "input"
     assert native_session.refusal(problem, request) is None
     driver, native = _both(simulation)
-    _compare(driver, native, 48)
+    samples = _samples(simulation()) if device_build() else None
+    _compare(driver, native, 48, samples=samples)
     assert native.record is not None
     edge = native.record["transverse"]
     assert edge["noise_allowance"] > 0.0

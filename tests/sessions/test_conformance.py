@@ -622,6 +622,8 @@ def test_attempt_records_add_up_to_the_status(start):
 @pytest.mark.filterwarnings("ignore:the temporal absorber attenuates")
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.GrazingIncidenceWarning")
+# A device build's bridge steps these flows on solprop's host engine, and says so.
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize("kind", COUPLED_KINDS)
 def test_a_wide_or_off_route_coupled_flow_keeps_the_contract(start, executor, kind):
     """SEP 47 section 6.3 (phase 4): the coupled flows the session took over.

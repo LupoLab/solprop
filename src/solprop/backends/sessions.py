@@ -12,14 +12,13 @@ execution opens its own session
 :class:`solprop.backends.host.driver.HostDriver`); a native backend's
 (``solprop_native.session.NativePrepared``) opens the native execution session
 (``solprop_native.session.NativeSession``) whenever it admits the run, before the
-start is loaded -- on a device build, SEP 47 phase 3's representative device path
-(``solprop_native.session.device_refusal``) -- and the transitional session over the
-inherited driver (:class:`solprop.backends.driver_session.DriverSession`) for what it
-refuses by name, the reason logged at debug level; any other driver's opens the
-transitional one.
+start is loaded, on a CPU or a device build alike (SEP 47 phase 4), and the
+transitional session over the inherited driver
+(:class:`solprop.backends.driver_session.DriverSession`) for what it refuses by name,
+the reason logged at debug level; any other driver's opens the transitional one.
 
 :func:`start_group` is the door for a group of compatible members (SEP 47 section
-6.7): native CPU members run in the native group session
+6.7): native members run in the native group session
 (``solprop_native.group.NativeGroupSession``, one native session per member)
 whenever it admits the group; any other group runs in the transitional group over the
 lockstep runners

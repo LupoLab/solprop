@@ -22,6 +22,7 @@ is exported. Three things are checked on each:
 
 import dataclasses
 import math
+import re
 
 import numpy as np
 import pytest
@@ -30,6 +31,7 @@ from bounds import gamma
 from optmat_parity import INTEGRATION_AGREEMENT
 from sessions.executors import (
     PLANES,
+    device_build,
     entrance,
     fibre,
     skip_device_refused,
@@ -953,7 +955,15 @@ def test_a_negative_lobe_s_widths_are_refused_by_the_session_as_by_the_reference
         session.close()
     assert len(errors) == 1
     assert type(errors[0]) is BackendError
-    assert str(errors[0]) == str(want.value)
+    got, expected = str(errors[0]), str(want.value)
+    if device_build():
+        # Two of the lobe's nodes hold the same flux to the message's four digits
+        # (measured on an NVIDIA A40): which one a device's rounding takes beyond the
+        # budget first is the device's transform's, not the session's.
+        got, expected = (
+            re.sub(r"at node \d+", "at node N", one) for one in (got, expected)
+        )
+    assert got == expected
 
 
 # --- a metric that varies inside an interval: refused by name on native ------------

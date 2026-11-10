@@ -679,7 +679,7 @@ batched scan's loop (`driver/_scan_batch.py`) is the group's service loop. Two g
 serve it:
 
 - **The native group session** (`solprop_native.group.NativeGroupSession`) serves
-  native CPU members whenever it admits the group. It owns one native execution session
+  native members, on a CPU or a device build, whenever it admits the group. It owns one native execution session
   per member (`solprop_native.session.NativeSession`, adopting the member backend the
   scan built), so each member's march, events, attempts, statistics rows, tickets and
   boundary monitor are its own session's, and the group only orders the members'
@@ -690,8 +690,8 @@ serve it:
   trajectory is its lone native session's, bit for bit at one thread, and so is the
   transitional lockstep group's. The members share the schedule and nothing mutable: no
   fused kernel, because the native marches own each whole step. Its refusals
-  (`solprop_native.group.refusal`) are named and made before allocation: a device
-  build, a run the native session refuses, an adaptive member, step or interpolated
+  (`solprop_native.group.refusal`) are named and made before allocation: a run the
+  native session refuses, an adaptive member, step or interpolated
   planes, or members that do not share the schedule, save planes, method, field shape
   and statistics request.
 - **The transitional group** (`solprop.backends.driver_session.DriverGroupSession`)

@@ -468,7 +468,7 @@ reason. A z table's carrier frame steps natively: the stage tables carry the ima
 part of the table's reference element as a scalar table, read by the Clenshaw helper
 solprop's tables use, so its shift and step cap are the host's (issue #255). The
 transitional lockstep
-batches replay on the host (`replay_step`); a native CPU group the native group session
+batches replay on the host (`replay_step`); a native group the native group session
 admits replays each member in its own native session instead (`solprop_native.group`).
 
 **Resume** (ADR-046): an engine that can export its rows (`snapshot_rows`, and

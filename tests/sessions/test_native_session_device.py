@@ -8,10 +8,12 @@ SEP 47 phase 4 (section 6.3): on a CUDA or HIP build the native session serves w
 device build runs today -- Adams and the embedded Runge-Kutta tableaux, adaptive and
 replayed, the low-storage replay, dense output, the radial, Cartesian, line and planar
 spatial routes with their fluence widths, a free-space run's transverse edge and a
-collar's current, and the input and modified noise models -- instead of leaving them
-to the transitional bridge (:class:`~solprop.backends.driver_session.DriverSession`
-over the backend's own march), which phase 5 deletes. A coupled flow the device steps
-on solprop's host engine is still the bridge's.
+collar's current, the input and modified noise models, and fixed-schedule groups
+(the native group session, one native session per member) -- instead of leaving them
+to the transitional bridge
+(:class:`~solprop.backends.driver_session.DriverSession` over the backend's own
+march), which phase 5 deletes. A coupled flow the device steps on solprop's host
+engine is still the bridge's.
 
 Each feature runs on the same device in the native session and on the bridge, most
 through the production door (:func:`solprop.backends.sessions.start_session`) with
@@ -27,6 +29,7 @@ pairwise in solprop). The session crosses the field to the host only for an expo
 from __future__ import annotations
 
 import warnings
+from contextlib import ExitStack
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -46,6 +49,9 @@ from sessions.executors import (
     trace,
     window,
 )
+from sessions.test_group import PLANES as GROUP_PLANES
+from sessions.test_group import member
+from sessions.test_native_group import INTEGRATORS, _record, _same, _started
 from sessions.test_native_session import (
     CASES,
     _case,
@@ -61,7 +67,7 @@ from sessions.test_native_session_transverse import (
     _compare,
     _samples,
 )
-from solprop.backends.driver_session import DriverSession
+from solprop.backends.driver_session import DriverGroupSession, DriverSession
 from solprop.backends.events import ObservationReady
 from solprop.backends.registry import select
 from solprop.backends.session import Start
@@ -79,6 +85,7 @@ if TYPE_CHECKING:
     from solprop.translate.run_request import RunRequest
 
 native_session = pytest.importorskip("solprop_native.session")
+native_group = pytest.importorskip("solprop_native.group")
 
 pytestmark = pytest.mark.gpu
 
@@ -308,6 +315,33 @@ def test_a_noisy_run_is_the_bridges_on_the_device(noise, march, monkeypatch):
     for got, expected in zip(phases[False], phases[True], strict=True):
         assert got.tobytes() == expected.tobytes()
     assert_same_run(runs[False], runs[True])
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
+@pytest.mark.parametrize("name", sorted(INTEGRATORS))
+def test_a_native_group_is_the_lockstep_groups_on_the_device(name):
+    """A group of three fixed-schedule members on each march, in the native group
+    session -- one native session per member on the device -- and in the transitional
+    lockstep group: each member's fields, statistics, attempts and rows the same,
+    bitwise."""
+    recorded = []
+    for transitional in (False, True):
+        with ExitStack() as cleanup:
+            simulations = [
+                member(index, "native", INTEGRATORS[name]) for index in range(3)
+            ]
+            group = _started(simulations, cleanup, transitional=transitional)
+            served = (
+                DriverGroupSession if transitional else native_group.NativeGroupSession
+            )
+            assert isinstance(group, served)
+            recorded.append(_record(group))
+    native, lockstep = recorded
+    for index, (ours, theirs) in enumerate(zip(native, lockstep, strict=True)):
+        assert len(ours) == len(theirs) == len(GROUP_PLANES) + 1
+        for plane, (one, other) in enumerate(zip(ours, theirs, strict=True)):
+            for key in one:
+                assert _same(one[key], other[key]), (index, plane, key)
 
 
 def test_the_production_door_serves_the_device_matrix_natively(monkeypatch):

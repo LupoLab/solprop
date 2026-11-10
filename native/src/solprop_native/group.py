@@ -91,7 +91,7 @@ from solprop.backends.session import (
 from solprop.exceptions import BackendError, BoundaryError, StopRequested
 
 from . import _counters
-from .backend import NativeBackend, _on_device  # pyright: ignore[reportPrivateUsage]
+from .backend import NativeBackend
 from .session import NativeSession
 from .session import refusal as member_session_refusal
 
@@ -147,8 +147,6 @@ def refusal(
     str or None
         The reason, or ``None`` when the native group admits the group.
     """
-    if _on_device():
-        return "a device build: the native group session runs on the CPU build only"
     for index, (problem, request, start) in enumerate(
         zip(problems, requests, starts, strict=True)
     ):
