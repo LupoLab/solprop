@@ -4559,6 +4559,45 @@ def stored_spectrum(
     return target
 
 
+_EXPORT_HOOKS = ("save", "_append", "_stored_field")
+"""The plane store methods that see a plane's field, whose owners must vouch for the
+exported path, where a kept plane reaches them without one
+(``PlaneStore.takes_exports``)."""
+
+
+def _takes_exports_by_mro(cls: type) -> bool:
+    """Return whether a plane store class takes exported fields, by its MRO.
+
+    The nearest class that declares ``_takes_exports`` in its own body and says
+    ``False`` opts the class out. Otherwise each of :data:`_EXPORT_HOOKS` is resolved
+    as a call would resolve it, and the class that defines it must be the base store
+    or declare ``_takes_exports = True`` in its own body: a ``save`` or a field hook
+    from a subclass or a mixin that does not vouch for the exported path keeps the
+    class on ``save``, which is given every plane with its field.
+
+    Parameters
+    ----------
+    cls : type
+        A :class:`PlaneStore` subclass.
+
+    Returns
+    -------
+    bool
+        Whether the class takes exported fields.
+    """
+    mro = cls.__mro__
+    declared = next((klass for klass in mro if "_takes_exports" in vars(klass)), None)
+    if declared is not None and vars(declared)["_takes_exports"] is not True:
+        return False
+    for name in _EXPORT_HOOKS:
+        owner = next((klass for klass in mro if name in vars(klass)), None)
+        if owner is None or owner is PlaneStore:
+            continue
+        if vars(owner).get("_takes_exports") is not True:
+            return False
+    return True
+
+
 class PlaneStore(Displayed, ABC):
     """The shared half of an output handler: one save protocol for every backing store.
 
@@ -4598,10 +4637,15 @@ class PlaneStore(Displayed, ABC):
     """
 
     _takes_exports: ClassVar[bool] = True
-    """Whether a run stores kept fields through :meth:`save_exported`."""
+    """Declared in a class's own body: whether its own ``save``, ``_append`` and
+    ``_stored_field`` keep to the exported path's contract (:attr:`takes_exports`)."""
+
+    _exports: ClassVar[bool] = True
+    """Whether a run stores kept fields here through :meth:`save_exported`, resolved
+    once per class from its method resolution order (:func:`_takes_exports_by_mro`)."""
 
     def __init_subclass__(cls, **kwargs: object) -> None:
-        """Keep a subclass that overrides ``save`` on it, unless it says otherwise.
+        """Resolve whether the subclass takes exported fields, by its MRO.
 
         Parameters
         ----------
@@ -4609,10 +4653,7 @@ class PlaneStore(Displayed, ABC):
             Passed on to the next class.
         """
         super().__init_subclass__(**kwargs)
-        if "save" in vars(cls) and "_takes_exports" not in vars(cls):
-            # A subclass that takes its planes through its own save() is given every
-            # field there, in the internal convention, as SavedPlane promises.
-            cls._takes_exports = False
+        cls._exports = _takes_exports_by_mro(cls)
 
     def __init__(self) -> None:
         """Start with nothing stored and nothing opened."""
@@ -5066,9 +5107,11 @@ class PlaneStore(Displayed, ABC):
         A store that takes them is given each kept plane through
         :meth:`save_exported`, its field exported by the run's session straight into
         the stored form, and into :meth:`field_destination` (SEP 47 section 5.4). A
-        subclass that overrides :meth:`save` does not, unless it says so with a class
-        attribute ``_takes_exports = True``: it sees every plane, and its field, through
-        its own ``save``, as before.
+        subclass whose ``save``, ``_append`` or ``_stored_field`` comes from a class
+        that does not vouch for the exported path -- its own override, or a mixin's
+        ahead of the store in its method resolution order -- does not: it sees every
+        plane, and its field, through ``save`` as before. A class vouches with
+        ``_takes_exports = True`` in its own body, and opts out with ``False``.
 
         Returns
         -------
@@ -5081,7 +5124,7 @@ class PlaneStore(Displayed, ABC):
         >>> MemoryOutput().takes_exports
         True
         """
-        return self._takes_exports
+        return self._exports
 
     def field_destination(
         self, plane: SavedPlane, shape: tuple[int, ...]
@@ -5113,11 +5156,10 @@ class PlaneStore(Displayed, ABC):
         Raises
         ------
         OutputError
-            If the handler is closed or was never opened, or the run keeps no field at
-            this plane (:meth:`retain`).
+            If the handler is closed or was never opened, the run keeps no field at
+            this plane (:meth:`retain`), or `shape` is not the run's field shape.
         """
-        del shape
-        self._check_destination(plane)
+        self._check_destination(plane, shape)
         return None
 
     def save_exported(self, plane: SavedPlane, stored: StoredField) -> None:
@@ -5151,19 +5193,22 @@ class PlaneStore(Displayed, ABC):
             raise OutputError(msg)
         self._store(plane, stored)
 
-    def _check_destination(self, plane: SavedPlane) -> None:
+    def _check_destination(self, plane: SavedPlane, shape: tuple[int, ...]) -> None:
         """Refuse to give room for a plane that cannot be stored with a field.
 
         Parameters
         ----------
         plane : SavedPlane
             The plane about to be stored.
+        shape : tuple of int
+            The field's shape.
 
         Raises
         ------
         OutputError
             If the handler is closed or was never opened, the plane carries a field
-            already, or the run keeps no field at the next plane.
+            already, the run keeps no field at the next plane, or `shape` is not the
+            field shape the store holds or was told (:meth:`retain`).
         """
         self._check_usable()
         self._require_metadata()
@@ -5175,6 +5220,17 @@ class PlaneStore(Displayed, ABC):
             msg = (
                 f"plane {index} keeps no field: the run was saved with "
                 f"{self._retention.describe()}"
+            )
+            raise OutputError(msg)
+        held = (
+            self._layout.field_shape
+            if self._layout is not None and self._fields_stored()
+            else self._field_shape
+        )
+        if held and tuple(shape) != tuple(held):
+            msg = (
+                f"plane {index} has field shape {tuple(shape)}, but the run stores "
+                f"{tuple(held)}"
             )
             raise OutputError(msg)
 
@@ -5731,7 +5787,11 @@ class PlaneStore(Displayed, ABC):
         Parameters
         ----------
         plane : SavedPlane
-            The plane, whose field is still in the internal convention.
+            The plane: its field in the internal convention, or ``None`` where the
+            field was exported straight into the stored form
+            (:meth:`~solprop.output.schema.PlaneStore.save_exported`) and `stored`
+            alone holds it. A subclass whose own ``_append`` reads the plane's field
+            does not take exports (``PlaneStore.takes_exports``).
         stored : numpy.ndarray or None
             That field converted to the optics convention, which is what to store;
             ``None`` on a field-free plane, which stores no field.

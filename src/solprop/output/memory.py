@@ -203,6 +203,10 @@ class MemoryOutput(PlaneStore):
     >>> handler.close()
     """
 
+    _takes_exports = True
+    """Its ``_append`` and ``_stored_field`` keep to the exported path's contract: a
+    run hands it each kept field already stored, into its own row."""
+
     def __init__(self, block: int = INITIAL_BLOCK) -> None:
         """Start an empty store with no room allocated yet."""
         super().__init__()
@@ -356,15 +360,15 @@ class MemoryOutput(PlaneStore):
         Raises
         ------
         OutputError
-            If the handler is closed or was never opened, or the run keeps no field at
-            this plane.
+            If the handler is closed or was never opened, the run keeps no field at
+            this plane, or `shape` is not the run's field shape.
 
         Examples
         --------
         >>> from solprop.grid import EnvelopeGrid
         >>> from solprop.output import MemoryOutput
         >>> from solprop.output.schema import (
-        ...     GridRecord, RunMetadata, SavedPlane, StepperRecord
+        ...     GridRecord, RunMetadata, SavedPlane, StepperRecord, StoredField
         ... )
         >>> from solprop.stepper import DOPRI5, PIController
         >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)
@@ -381,12 +385,12 @@ class MemoryOutput(PlaneStore):
         >>> plane = SavedPlane(z=0.0, field=None)
         >>> row = handler.field_destination(plane, (1, 1, grid.n_omega))
         >>> row[...] = 1.0
-        >>> handler.save_exported(plane, row)
+        >>> handler.save_exported(plane, StoredField(row))
         >>> stored = handler.fields("optics")
         >>> stored.shape, bool((stored == 1.0).all())
         ((1, 1, 1, 2560), True)
         """
-        self._check_destination(plane)
+        self._check_destination(plane, shape)
         self._make_room(plane, shape)
         return self._fields[self._n_fields]
 
@@ -446,7 +450,11 @@ class MemoryOutput(PlaneStore):
         Parameters
         ----------
         plane : SavedPlane
-            The plane, whose field is still in the internal convention.
+            The plane: its field in the internal convention, or ``None`` where the
+            field was exported straight into the stored form
+            (:meth:`~solprop.output.schema.PlaneStore.save_exported`) and `stored`
+            alone holds it. A subclass whose own ``_append`` reads the plane's field
+            does not take exports (``PlaneStore.takes_exports``).
         stored : numpy.ndarray or None
             That field converted to the optics convention, in its row of the block
             (:meth:`_stored_field`); ``None`` on a field-free plane, which stores none.

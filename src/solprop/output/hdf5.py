@@ -973,7 +973,8 @@ class HDF5Output(PlaneStore):
 
     _takes_exports = True
     """Its own ``save`` adds only the flush (:meth:`_store`), which an exported plane
-    takes too: a run hands it each kept field already stored."""
+    takes too, and its ``_append`` reads the stored field alone: a run hands it each
+    kept field already stored."""
 
     def __init__(
         self,
@@ -1711,7 +1712,11 @@ class HDF5Output(PlaneStore):
         Parameters
         ----------
         plane : SavedPlane
-            The plane, whose field is still in the internal convention.
+            The plane: its field in the internal convention, or ``None`` where the
+            field was exported straight into the stored form
+            (:meth:`~solprop.output.schema.PlaneStore.save_exported`) and `stored`
+            alone holds it. A subclass whose own ``_append`` reads the plane's field
+            does not take exports (``PlaneStore.takes_exports``).
         stored : numpy.ndarray or None
             That field converted to the optics convention; ``None`` on a field-free
             plane, which stores none.

@@ -182,7 +182,34 @@ def test_a_read_only_file_refuses_an_exported_plane(grid, metadata, tmp_path):
     reader.close()
 
 
-def test_a_subclass_with_its_own_save_is_given_every_field_there():
+class _Logging:
+    """A mixin that sees every plane its store is given, ahead of the store."""
+
+    def save(self, plane: SavedPlane) -> None:
+        self.seen = [*getattr(self, "seen", []), plane]
+        super().save(plane)  # pyright: ignore[reportAttributeAccessIssue]
+
+
+class _MixedIn(_Logging, MemoryOutput):
+    pass
+
+
+class _OwnAppend(MemoryOutput):
+    """A store whose own ``_append`` reads the plane's field."""
+
+    def _append(self, plane: SavedPlane, stored: np.ndarray | None) -> None:
+        self.fields_seen = [*getattr(self, "fields_seen", []), plane.field]
+        super()._append(plane, stored)
+
+
+class _OwnConversion(MemoryOutput):
+    def _stored_field(self, plane: SavedPlane, kind) -> np.ndarray:
+        return super()._stored_field(plane, kind)
+
+
+def test_which_subclasses_take_exports_is_decided_by_the_mro():
+    """A ``save`` or field hook from a class that does not vouch keeps ``save``."""
+
     class Watching(MemoryOutput):
         def save(self, plane: SavedPlane) -> None:
             super().save(plane)
@@ -193,10 +220,61 @@ def test_a_subclass_with_its_own_save_is_given_every_field_there():
         def save(self, plane: SavedPlane) -> None:
             super().save(plane)
 
+    class OptedOut(MemoryOutput):
+        _takes_exports = False
+
     class Plain(HDF5Output):
         pass
 
+    class BelowTheMixin(_MixedIn):
+        _takes_exports = True  # vouches for its own body, not the mixin's save
+
     assert MemoryOutput().takes_exports
-    assert not Watching().takes_exports
+    assert Plain.__dict__.get("_takes_exports") is None and Plain._exports
     assert Declared().takes_exports
-    assert Plain.__dict__.get("_takes_exports") is None and Plain._takes_exports
+    for refused in (
+        Watching,
+        OptedOut,
+        _MixedIn,
+        BelowTheMixin,
+        _OwnAppend,
+        _OwnConversion,
+    ):
+        assert not refused().takes_exports, refused.__name__
+
+
+@pytest.mark.parametrize("store", [_MixedIn, _OwnAppend], ids=["mixin", "hook"])
+def test_a_store_that_does_not_take_exports_sees_every_field(store):
+    """Through a run: the mixin's ``save`` and the hook see each plane's field."""
+    from driver.test_field_free_planes import cartesian  # noqa: PLC0415
+
+    output = store()
+    cartesian("numpy_ref").run(output=output, progress="none")
+    seen = (
+        [plane.field for plane in output.seen]
+        if store is _MixedIn
+        else output.fields_seen
+    )
+    assert len(seen) == output.n_saved > 1
+    assert all(field is not None for field in seen)
+    reference = MemoryOutput()
+    cartesian("numpy_ref").run(output=reference, progress="none")
+    assert np.asarray(output["field"]).tobytes() == (
+        np.asarray(reference["field"]).tobytes()
+    )
+
+
+@pytest.mark.parametrize("store", ["memory", "file"])
+def test_a_room_of_the_wrong_shape_is_refused(grid, metadata, store, tmp_path):
+    handler = MemoryOutput() if store == "memory" else HDF5Output(tmp_path / "r.h5")
+    handler.retain(FieldRetention(), _shape(grid))
+    handler.open(metadata)
+    wrong = (N_MODES, N_POL, grid.n_omega + 2)
+    with pytest.raises(OutputError, match="has field shape"):
+        handler.field_destination(_bare(make_plane(grid, 0)), wrong)
+    plane = make_plane(grid, 0)
+    handler.save_exported(_bare(plane), _stored(plane, grid.kind))
+    # Once a field is stored, its layout's shape is the one held.
+    with pytest.raises(OutputError, match="has field shape"):
+        handler.field_destination(_bare(make_plane(grid, 1)), wrong)
+    handler.close()
