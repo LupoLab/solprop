@@ -64,7 +64,7 @@ from solprop.backends.session import (
     Start,
 )
 from solprop.exceptions import StopRequested
-from solprop.log import NullReporter, PlaneSummary, StopFlag
+from solprop.log import NullReporter, StopFlag
 from solprop.monitor import BoundaryMonitor
 from solprop.output.schema import MarchSnapshot
 from solprop.translate.linop import power_weight_at
@@ -87,22 +87,22 @@ AttemptListener = Callable[[float, float, bool], None]
 
 
 class _Attempts(NullReporter):
-    """Forwards a driver's per-attempt progress to a listener, and nothing else.
+    """Forwards a driver's per-attempt progress and its start, and nothing else.
 
-    The service loop reports planes itself; a driver's own ``plane`` calls are
-    dropped here.
+    The service loop reports planes itself; :class:`~solprop.log.NullReporter` drops
+    the rest.
 
     Parameters
     ----------
-    listener : callable or None
-        Called with each attempt; ``None`` drops them.
+    listener : callable
+        Called with each attempt.
     started : callable or None, optional
         Called once, when the driver first propagates; ``None`` drops it.
     """
 
     def __init__(
         self,
-        listener: AttemptListener | None,
+        listener: AttemptListener,
         started: Callable[[float, float, int], None] | None = None,
     ) -> None:
         """Hold the listeners."""
@@ -136,20 +136,7 @@ class _Attempts(NullReporter):
         accepted : bool
             Whether it was accepted.
         """
-        if self._listener is not None:
-            self._listener(z, dz, accepted)
-
-    def plane(self, z: float, summary: PlaneSummary) -> None:
-        """Drop a driver's plane report: the service loop reports planes.
-
-        Parameters
-        ----------
-        z : float
-            The plane, m.
-        summary : solprop.log.PlaneSummary
-            Its summary.
-        """
-        del z, summary
+        self._listener(z, dz, accepted)
 
 
 def _hook(driver: object, name: str, *arguments: object) -> None:
@@ -454,7 +441,7 @@ class DriverSession:
             outcome=self._ledger.outcome,
         )
 
-    def advance(  # noqa: PLR0911, PLR0912 - one return per barrier kind
+    def advance(  # noqa: PLR0911 - one return per barrier kind
         self,
         *,
         work_limit: int = DEFAULT_WORK_LIMIT,
@@ -522,14 +509,17 @@ class DriverSession:
             self._summary = None
             return self._observation(ObservationKind.PLANE, plane, summary)
         if self._driver_halted():
+            # A halt short of the target is never a step plane: the driver counts a
+            # step plane first and stops there unhalted, so a coincident plane is
+            # observed below and the latch, still set, is serviced at the next advance
+            # (SEP 47 section 5.3: a coincident plane's transaction precedes the
+            # snapshot).
             if self._snapshot_pending is not None:
-                if not self._step_plane_here():
-                    return self._snapshot()
-            else:
-                # A bounded yield: no barrier, only progress; the plane goes on later.
-                _hook(self._driver, "clear_halt")
-                history, rows = self._chunk()
-                return self._issue([Progress(self._z, history, rows)])
+                return self._snapshot()
+            # A bounded yield: no barrier, only progress; the plane goes on later.
+            _hook(self._driver, "clear_halt")
+            history, rows = self._chunk()
+            return self._issue([Progress(self._z, history, rows)])
         self._summary = None
         return self._observation(
             ObservationKind.STEP
@@ -997,23 +987,6 @@ class DriverSession:
             True while the latch is set and the driver did not reach its target.
         """
         return bool(getattr(self._driver, "_halted", False))
-
-    def _step_plane_here(self) -> bool:
-        """Return whether the driver stopped at a step plane, latch or not.
-
-        A halt requested for a snapshot and the ``step_planes``-th accepted step can
-        end at the same endpoint. The step plane is observed first and the latch, still
-        set, is serviced at the next advance (SEP 47 section 5.3: a coincident plane's
-        transaction precedes the snapshot).
-
-        Returns
-        -------
-        bool
-            True when the endpoint ends a ``step_planes``-th accepted step.
-        """
-        every = self._request.observation.step_planes
-        count = int(getattr(self._driver, "_natural_count", 0))
-        return bool(every) and count % every == 0
 
     def _issue(
         self, events: list[Event], *, outcome: Outcome | None = None
@@ -1639,17 +1612,16 @@ class DriverGroupSession:
         """
         chunks: list[tuple[BackendHistory, StepStats]] = []
         for index in range(len(self._members)):
-            if index not in self._drained:
-                # One member at a time, each kept until an event delivers it: a later
-                # member's failure, or the statistics', ends the group with the
-                # attempts already drained delivered by the terminals.
-                observation = self._members[index].observe(field=False)
-                self._attempts[index] += observation.n_steps
-                self._rejected[index] += observation.n_rejected
-                self._drained[index] = (
-                    observation.step_history,
-                    _rows(observation.step_stats),
-                )
+            # One member at a time, each kept until an event delivers it: a later
+            # member's failure, or the statistics', ends the group with the attempts
+            # already drained delivered by the terminals. Each event drains once.
+            observation = self._members[index].observe(field=False)
+            self._attempts[index] += observation.n_steps
+            self._rejected[index] += observation.n_rejected
+            self._drained[index] = (
+                observation.step_history,
+                _rows(observation.step_stats),
+            )
             chunks.append(self._drained[index])
         return chunks
 

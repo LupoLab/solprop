@@ -113,6 +113,7 @@ from solprop.stats import (
 from solprop.stepper.controller import START_GROWTH, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import (
+    ComparisonMultistep,
     Multistep,
     integrated_weights,
     lagrange_coefficients,
@@ -3230,15 +3231,6 @@ class _NativeAdamsMarch(AdamsMarch):
         if march == "host" or _ADAMS_MARCH == "host":
             return "the private switch asked for it", False
         engine = self._engine
-        reasons = (
-            (
-                self._general is not None,
-                "a comparison method's general path (PECE, explicit or matched pairs)",
-            ),
-        )
-        for failed, reason in reasons:
-            if failed:
-                return reason, True
         if self._runner is not None:
             return None, False
         if not isinstance(engine, _ResidentAdams):
@@ -4354,6 +4346,20 @@ def _refuse_adams(problem: KernelProblem) -> None:
     # translation admits it on: no coupled flow and no TDSE response.
     if integrator is None or isinstance(integrator, LowStorageRungeKutta):
         return
+    # solprop SEP 47 section 6.3: the benchmark-only comparison variants off the
+    # selected one-order-higher PEC family -- PECE, explicit Adams-Bashforth and the
+    # matched pairs, which solprop's general Adams path steps -- are the reference's
+    # alone. The PEC variant with corrector_order = order + 1 is the selected method.
+    if isinstance(integrator, ComparisonMultistep) and (
+        integrator.corrector != "pec"
+        or integrator.corrector_nodes(integrator.order) != integrator.order + 1
+    ):
+        raise BackendError(
+            f"solprop-native does not step the comparison variant {integrator.name} "
+            "(ComparisonMultistep's general path: PECE, explicit Adams-Bashforth and "
+            "the matched pairs are reference-only, solprop SEP 47); use "
+            "backend='numpy_ref' for it, or Multistep()"
+        )
     # solprop SEP 16 phase 3: every route's stage source serves both formulations,
     # with the modified noise. A coupled flow is stepped by the exponential
     # formulation only (phase 5), as solprop's reference does; its CF4 sections are

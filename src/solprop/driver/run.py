@@ -49,7 +49,6 @@ from solprop.exceptions import (
     OutputError,
     SolpropWarning,
 )
-from solprop.fourier import power_amplitude
 from solprop.log import (
     DEFAULT_PROGRESS_PERIOD,
     LogReporter,
@@ -91,7 +90,6 @@ from solprop.output.tdse_archive import TDSEArchiveWriter
 from solprop.stats import StatsSpec
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
-from solprop.translate.linop import power_weight_at
 from solprop.translate.problem import KernelProblem
 from solprop.translate.tdse import TDSEBinding
 
@@ -179,7 +177,8 @@ def plane_from_observation(
     way to storage (``docs/dev/conventions.md`` section 2). Nothing is rescaled either:
     the field is whatever amplitude the observation carries, the backend's
     vacuum-normalised one unless the caller has applied the interface conversion to
-    true-power amplitudes (``_power_observation``; see ``docs/dev/decisions.md``).
+    true-power amplitudes (a session's export with
+    ``ExportRecipe(power=True, ...)``; see ``docs/dev/decisions.md``).
 
     Parameters
     ----------
@@ -240,31 +239,6 @@ def plane_from_observation(
         noise_phase=None
         if observation.noise_phase is None or not field
         else observation.noise_phase[member],
-    )
-
-
-def _power_observation(problem: KernelProblem, observation: Observation) -> Observation:
-    """Convert modal output units once, before the handler changes Fourier sign.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        Translated problem supplying modal weights or spatial geometry.
-    observation : solprop.backends.protocol.Observation
-        Internal state and diagnostics at a saved plane.
-
-    Returns
-    -------
-    solprop.backends.protocol.Observation
-        Observation carrying true-power amplitudes and unchanged diagnostics.
-    """
-    if problem.transform.geometry is not None or observation.field is None:
-        return observation
-    return dataclasses.replace(
-        observation,
-        field=power_amplitude(
-            observation.field, power_weight_at(problem, observation.z)
-        ),
     )
 
 

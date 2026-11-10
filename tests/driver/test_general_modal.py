@@ -48,7 +48,7 @@ from modal_provider_cases import (
     general_guide,
 )
 from solprop import fourier
-from solprop.backends import select
+from solprop.backends import select, select_batch
 from solprop.backends.host.group import HostGroup
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.session import Start
@@ -1333,6 +1333,24 @@ def test_two_guides_never_share_a_batch_group(guide, grid):
             loaded.append(backend)
         with pytest.raises(BackendError, match="identical guide/table/gauge identity"):
             HostGroup(loaded)
+
+
+def test_the_native_batch_refuses_two_guides_too(guide, grid):
+    """The native batch, on the bridge's lockstep runner, refuses the same group."""
+    pytest.importorskip("solprop_native")
+    problems = [
+        batched_run(one, grid).translate()
+        for one in (guide, general_guide(grid=grid, radius=1.6e-6))
+    ]
+    with ExitStack() as cleanup:
+        loaded = []
+        for problem in problems:
+            backend = select("native", problem, grid=grid)
+            cleanup.callback(backend.close)
+            backend.set_initial(problem.initial.field0, None)
+            loaded.append(backend)
+        with pytest.raises(BackendError, match="identical guide/table/gauge identity"):
+            select_batch(loaded)
 
 
 def test_the_driver_refuses_a_mixed_group_before_a_backend_is_reached(

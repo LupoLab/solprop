@@ -31,7 +31,7 @@ from solprop.driver import Simulation
 from solprop.exceptions import BackendError, BoundaryError
 from solprop.monitor import BoundaryCheck, BoundaryMonitor
 from solprop.stats import StatsSpec
-from solprop.stepper import PIController
+from solprop.stepper import LowStorageRungeKutta, Multistep, PIController
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
 
@@ -252,8 +252,11 @@ def test_lockstep_refuses_mixed_backends(monkeypatch):
     pytest.importorskip("solprop_native")
     # Each copy's own refusals, which the test session's annotation hook would
     # otherwise preempt: a member of the other family is not its driver type.
-    for module in (group_module, batch_module):
-        for name in ("_validate_members", "_refuse_mixed_precisions"):
+    for module, names in (
+        (group_module, ("_validate_members", "_refuse_mixed_precisions")),
+        (batch_module, ("_validate_members",)),
+    ):
+        for name in names:
             monkeypatch.setattr(module, name, inspect.unwrap(getattr(module, name)))
     with ExitStack() as cleanup:
         members = tuple(
@@ -264,13 +267,28 @@ def test_lockstep_refuses_mixed_backends(monkeypatch):
                 inspect.unwrap(runner.__init__)(runner.__new__(runner), members)
 
 
-def test_lockstep_refuses_adaptive_schedule():
-    one = simulation(0, "numpy_ref")
+GROUPS = [
+    pytest.param("numpy_ref", HostGroup, id="host"),
+    pytest.param("native", select_batch, id="bridge"),
+]
+"""The reference's group, and the native batch on the bridge's lockstep runner."""
+
+
+def grouped(backend):
+    """Skip a native group where the native package is not installed."""
+    if backend == "native":
+        pytest.importorskip("solprop_native")
+
+
+@pytest.mark.parametrize(("backend", "group"), GROUPS)
+def test_lockstep_refuses_adaptive_schedule(backend, group):
+    grouped(backend)
+    one = simulation(0, backend)
     one.settings = dataclasses.replace(one.settings, schedule=None)
     with ExitStack() as cleanup:
         owner = loaded(one, cleanup)
         with pytest.raises(BackendError, match="explicit fixed schedule"):
-            HostGroup([owner])
+            group([owner])
 
 
 def test_lockstep_refuses_shared_history_observation_and_closes_members():
@@ -354,11 +372,58 @@ def test_batch_registry_adopts_members_and_exposes_independent_observations():
         assert len(runner.member_metadata()) == 2
 
 
-def test_lockstep_gives_every_member_its_own_boundary_monitor():
+@pytest.mark.parametrize(("backend", "group"), GROUPS)
+def test_a_low_storage_group_stops_to_save_and_refuses_to_run_out(backend, group):
+    # Each member's own march takes the common step (SEP 24); every third step's end
+    # is saved (SEP 14 phase 3), so the group returns there, short of its target, and
+    # goes on from there. Past the schedule's last edge it cannot go.
+    grouped(backend)
+    simulations = [simulation(index, backend) for index in range(2)]
+    for one in simulations:
+        one.settings = dataclasses.replace(
+            one.settings, integrator=LowStorageRungeKutta(), step_planes=3
+        )
     with ExitStack() as cleanup:
-        simulations = [simulation(index, "numpy_ref") for index in range(2)]
+        runner = group(tuple(loaded(one, cleanup) for one in simulations))
+        cleanup.callback(runner.close)
+        runner.propagate_to(0.0005)
+        for target, reached in ((0.001, 0.00075), (0.001, 0.001)):
+            runner.propagate_to(target)
+            for member in runner.observe_members(field=False):
+                assert member.z == pytest.approx(reached, rel=1e-12)
+        with pytest.raises(BackendError, match=r"cannot reach z = 0\.00102 m"):
+            runner.propagate_to(0.00102)
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
+@pytest.mark.parametrize(("backend", "group"), GROUPS)
+def test_an_adams_group_names_the_member_behind_an_invalid_norm(
+    backend, group, monkeypatch
+):
+    # Each Adams member replays the common step through its own march; a norm that
+    # the member's own step record refuses is refused with the member's index.
+    grouped(backend)
+    simulations = [simulation(index, backend) for index in range(2)]
+    for one in simulations:
+        one.settings = dataclasses.replace(one.settings, integrator=Multistep())
+    with ExitStack() as cleanup:
         members = tuple(loaded(one, cleanup) for one in simulations)
-        runner = HostGroup(members)
+        runner = group(members)
+        cleanup.callback(runner.close)
+        monkeypatch.setattr(
+            members[1]._adams, "replay_step", lambda dz, end, slack: math.nan
+        )
+        with pytest.raises(BackendError, match="member 1 returned an invalid error"):
+            runner.propagate_to(0.0005)
+
+
+@pytest.mark.parametrize(("backend", "group"), GROUPS)
+def test_lockstep_gives_every_member_its_own_boundary_monitor(backend, group):
+    grouped(backend)
+    with ExitStack() as cleanup:
+        simulations = [simulation(index, backend) for index in range(2)]
+        members = tuple(loaded(one, cleanup) for one in simulations)
+        runner = group(members)
         cleanup.callback(runner.close)
         grid = simulations[0].grid
         # The cheap members' window holds about 1e-5 of their energy in its guards,
@@ -375,13 +440,15 @@ def test_lockstep_gives_every_member_its_own_boundary_monitor():
             assert planes["z"][-1] == pytest.approx(0.001)
 
 
-def test_a_member_s_stop_ends_its_watch_alone():
+@pytest.mark.parametrize(("backend", "group"), GROUPS)
+def test_a_member_s_stop_ends_its_watch_alone(backend, group):
     # A check strict enough to refuse any launch stops the first member before its
     # first step; the second, unwatched, and the batch go on.
+    grouped(backend)
     with ExitStack() as cleanup:
-        simulations = [simulation(index, "numpy_ref") for index in range(2)]
+        simulations = [simulation(index, backend) for index in range(2)]
         members = tuple(loaded(one, cleanup) for one in simulations)
-        runner = HostGroup(members)
+        runner = group(members)
         cleanup.callback(runner.close)
         strict = BoundaryCheck(budget=1e-300, stop_factor=1.0)
         runner.attach_monitors(
@@ -396,10 +463,12 @@ def test_a_member_s_stop_ends_its_watch_alone():
         assert runner._z == pytest.approx(0.001)
 
 
-def test_lockstep_refuses_a_monitor_per_member_miscount():
+@pytest.mark.parametrize(("backend", "group"), GROUPS)
+def test_lockstep_refuses_a_monitor_per_member_miscount(backend, group):
+    grouped(backend)
     with ExitStack() as cleanup:
-        members = tuple(loaded(simulation(i, "numpy_ref"), cleanup) for i in range(2))
-        runner = HostGroup(members)
+        members = tuple(loaded(simulation(i, backend), cleanup) for i in range(2))
+        runner = group(members)
         cleanup.callback(runner.close)
         with pytest.raises(BackendError, match="1 boundary monitors for 2 members"):
             runner.attach_monitors([None])

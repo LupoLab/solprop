@@ -9,7 +9,9 @@ PEC comparisons, adaptive or replayed, on the routes whose trial is one bundle o
 rows; any other configuration runs solprop's Python march on the same
 resident engine, with a ``HostMarchWarning`` that names the reason, and the run's
 metadata records which march stepped it. The private switch the benchmark harness uses
-selects the Python march without a warning.
+selects the Python march without a warning. The other comparison variants are the
+reference's alone (solprop SEP 47 section 6.3): the backend refuses them by name before
+it allocates anything.
 """
 
 import dataclasses
@@ -21,7 +23,7 @@ import pytest
 from capability_routes import ROUTES
 from solprop.backends import available
 from solprop.driver import Simulation
-from solprop.exceptions import HostMarchWarning
+from solprop.exceptions import BackendError, HostMarchWarning
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 from solprop.stepper.schedule import FixedSchedule
 
@@ -30,6 +32,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 NativeBackend = pytest.importorskip("solprop_native").NativeBackend
+backend_module = pytest.importorskip("solprop_native.backend")
 
 
 def built(simulation, **keywords):
@@ -111,25 +114,29 @@ def test_a_replayed_schedule_is_native():
 
 
 @pytest.mark.parametrize(
-    ("route", "integrator", "reason"),
+    "integrator",
     [
-        (
-            "gnlse",
-            ComparisonMultistep(corrector="pece", order=4),
-            "a comparison method's general path",
-        ),
+        ComparisonMultistep(corrector="pece", order=4),
+        ComparisonMultistep(corrector="pece", order=4, corrector_order=5),
+        ComparisonMultistep(corrector="none", order=3),
+        ComparisonMultistep(corrector="pec", order=4),
+        ComparisonMultistep(corrector="pec", order=4, corrector_order=4),
     ],
-    ids=["pece"],
+    ids=["pece4", "pece4/5", "ab3", "pec4 matched", "pec4/4"],
 )
-def test_an_uncovered_run_takes_the_host_march_and_says_why(route, integrator, reason):
-    with pytest.warns(HostMarchWarning, match=reason):
-        backend = built(on_route(route, integrator))
-    try:
-        assert not backend._adams.native
-        assert reason in backend._adams.refusal
-        assert backend.metadata()["adams_march"] == "host"
-    finally:
-        backend.close()
+def test_a_comparison_variant_s_general_path_is_refused_before_allocation(
+    integrator, monkeypatch
+):
+    # solprop SEP 47 section 6.3: reference-only, refused by name at admission. The
+    # native state, the first allocation, is never built.
+    built_states = []
+    monkeypatch.setattr(
+        backend_module._core, "State", lambda *args: built_states.append(args)
+    )
+    with pytest.raises(BackendError, match="reference-only") as refused:
+        built(on_route("gnlse", integrator))
+    assert f"comparison variant {integrator.name} " in str(refused.value)
+    assert built_states == []
 
 
 @pytest.mark.parametrize(

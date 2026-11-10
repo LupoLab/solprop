@@ -179,10 +179,12 @@ completed step (irrelevant without dense output, but tested).
 The NumPy reference runs its own step driver and marches in `backends/host/`:
 `HostDriver`, `HostAdamsMarch`, `HostGeneralPath`, `HostLowStorageMarch` and the
 fixed-schedule group `HostGroup`. The native backend runs the inherited `StepDriver`,
-`AdamsMarch`, `GeneralPath`, `LowStorageMarch` and `LockstepRunner` in `backends/`, the
+`AdamsMarch`, `LowStorageMarch` and `LockstepRunner` in `backends/`, the
 native bridge's temporary copies, removed with SEP 47's native session. The copies
 started identical and the decision corpora hold both to the same decisions; where this
-page names a member of one, the other's is the same.
+page names a member of one, the other's is the same. The general Adams path of the
+comparison variants is the reference's alone: the native backend refuses them by name
+(SEP 47 section 6.3).
 
 **FSAL, the evidence.** The rebasing identity `k₁ⁿ⁺¹ = exp(ΔΦⁿ)·k₇ⁿ` and the condition it
 needs (nothing changes the state after the last stage) are algorithms.md §2. **The hard
@@ -478,7 +480,7 @@ weights (`weights_<row>`). Each engine refuses rows it does not keep, so those t
 histories do not cross; every other history does. The engines' trial and dense-step
 bookkeeping is not exported: a load forgets it (`reset`), as the next step is a new
 trial. Both methods are part of the `AdamsEngine` protocol. A march that cannot carry
-its history (`AdamsMarch.export_refusal`: the general path), or one whose saved rows the engine
+its history (the reference's general path), or one whose saved rows the engine
 refuses (another engine's rows, another build's shapes), resumes afresh, and the driver
 warns.
 Nothing in the trial lifecycle reads a held trial across the snapshot: it is taken
