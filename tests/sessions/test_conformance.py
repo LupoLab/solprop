@@ -14,6 +14,7 @@ lossless copies and yields that must be transport no-ops (sections 5.1 and 7.1).
 """
 
 import dataclasses
+import itertools
 import threading
 import time
 import warnings
@@ -1107,6 +1108,35 @@ def test_a_snapshot_waits_for_the_planes_its_step_crossed(start, executor, metho
     assert _assert_inside_crossing_steps(run) > 0, "no plane was interpolated"
     if executor.deterministic:
         assert_same_run(run, baseline)
+
+
+@pytest.mark.parametrize("step_planes", [1, 2])
+def test_a_step_plane_ending_on_the_next_plane_is_observed_once(
+    start, executor, step_planes
+):
+    """SEP 47 section 5.3: a step owed as a step plane that crossed an interpolated
+    plane and ends on the next one is observed by that plane alone.
+
+    On the Adams soliton the step from 0.007 m crosses the plane at 0.01 m and lands on
+    the one at 0.015 m: the plane there observes the step's end, which is not observed
+    again as a step plane at the same position.
+    """
+    executor.require(DENSE)
+    problem = soliton(
+        step_planes=step_planes, interpolate=True, integrator=DENSE_METHODS["adams"]
+    )
+    run = drive(start(problem))
+    ends = run.accepted_ends().tolist()
+    planes = [
+        event.z for event in run.observations if event.kind is ObservationKind.PLANE
+    ]
+    # The case: a step crossing a plane and ending exactly on the next.
+    assert any(
+        later in ends and ends[ends.index(later) - 1] < earlier < later
+        for earlier, later in itertools.pairwise(planes)
+    ), "no step crossed a plane and landed on the next"
+    positions = [event.z for event in run.observations]
+    assert len(set(positions)) == len(positions), positions
 
 
 MANY_PLANES = tuple(float(z) for z in np.linspace(LENGTH / 64, LENGTH, 64))
