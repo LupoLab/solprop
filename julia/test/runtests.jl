@@ -39,6 +39,7 @@ if group == "Core"
     include("march.jl")
     include("march_services.jl")
     include("adams_session.jl")
+    include("adams_transfer.jl")
     include("observation_session.jl")
     include("low_storage_session.jl")
     include("transfer.jl")

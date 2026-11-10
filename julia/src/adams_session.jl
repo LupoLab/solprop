@@ -36,7 +36,9 @@ end
 Return startup, predictor and corrected logical charges, including absent sources.
 """
 adams_charged_calls(ledger::AdamsCallLedger) =
-    ledger.startup + ledger.predictor + ledger.corrected
+    Base.Checked.checked_add(
+    Base.Checked.checked_add(ledger.startup, ledger.predictor), ledger.corrected,
+)
 
 """
     AdamsBudgetError(maximum, charged, required, position)
@@ -74,7 +76,8 @@ struct _AdamsSessionSource{S}
 end
 
 @inline function (sample::_AdamsSessionSource)(output, field, position)
-    sample.ledger.source_evaluations += 1
+    sample.ledger.source_evaluations =
+        Base.Checked.checked_add(sample.ledger.source_evaluations, 1)
     return sample.source(output, field, position)
 end
 
@@ -229,11 +232,22 @@ function _adams_session_afford(session)
     if maximum !== nothing && charged > maximum - cost
         throw(AdamsBudgetError(maximum, charged, cost, session.state.z))
     end
+    # A portable ledger may be arbitrarily close to Int's limit. Refuse before
+    # source work if either trial outcome could no longer be recorded (#658).
+    Base.Checked.checked_add(charged, cost)
+    ledger = session.ledger
+    for counter in (
+            ledger.rejected, ledger.accepted_steps, ledger.rejected_steps,
+            ledger.restarts, ledger.failure_restarts,
+        )
+        Base.Checked.checked_add(counter, 1)
+    end
+    session.source_absent || Base.Checked.checked_add(ledger.source_evaluations, cost)
     return nothing
 end
 
 function _adams_session_start!(session)
-    session.ledger.startup += 1
+    session.ledger.startup = Base.Checked.checked_add(session.ledger.startup, 1)
     adams_seed!(
         session.history, 1, session.field, session.state.z,
         session.sampler, session.rate, session.execution;
@@ -290,17 +304,21 @@ end
 
 function _adams_session_reject!(session, landing, reading, began)
     ledger, control, policy = session.ledger, session.control, session.policy
-    ledger.rejected += 1
-    ledger.rejected_steps += 1
-    control.last_rejected = true
+    rejected = Base.Checked.checked_add(ledger.rejected, 1)
+    rejected_steps = Base.Checked.checked_add(ledger.rejected_steps, 1)
     outcome = adams_rejection(
         policy, reading, session.stencil.order;
         rejections = control.rejections, held = control.held,
     )
+    failure_restarts = Base.Checked.checked_add(
+        ledger.failure_restarts, Int(outcome.restart),
+    )
+    ledger.rejected, ledger.rejected_steps = rejected, rejected_steps
+    control.last_rejected = true
     control.rejections = outcome.rejections
     if outcome.restart
         _adams_session_reset!(session)
-        ledger.failure_restarts += 1
+        ledger.failure_restarts = failure_restarts
     end
     # Host/native raise a rejection floor before their outer attempt record (#651).
     # Keep its ledger counts, but retain this completed trial in the common event
@@ -332,6 +350,8 @@ end
 
 function _adams_session_commit!(session, landing, choice)
     control, history, policy = session.control, session.history, session.policy
+    accepted_steps = Base.Checked.checked_add(session.ledger.accepted_steps, 1)
+    restarts = Base.Checked.checked_add(session.ledger.restarts, Int(landing.hard_kink))
     keep = min(control.held, policy.order)
     offset = control.held - keep
     free = _adams_session_free(session, keep, offset)
@@ -354,14 +374,14 @@ function _adams_session_commit!(session, landing, choice)
     each!(session.execution, size(field)...) do row, column
         field[row, column] = active[row] ? candidate[row, column] : zero(eltype(field))
     end
-    session.ledger.accepted_steps += 1
+    session.ledger.accepted_steps = accepted_steps
     control.rejections = 0
     control.order = choice.stored_order
     control.last_rejected = false
     session.state.z = landing.destination
     if landing.hard_kink
         _adams_session_reset!(session)
-        session.ledger.restarts += 1
+        session.ledger.restarts = restarts
     end
     session.state.in_flight = false
     return nothing
@@ -381,7 +401,7 @@ function _march_trial!(session::AdamsSession, began)
         session.control.held, session.control.order;
         z = state.z, dz = landing.dz, last_rejected = session.control.last_rejected,
     )
-    session.ledger.predictor += 1
+    session.ledger.predictor = Base.Checked.checked_add(session.ledger.predictor, 1)
     adams_trial!(
         session.work, session.field, state.z, landing.dz, session.history, stencil,
         session.sampler, session.exponent, session.rate, session.execution;

@@ -32,6 +32,15 @@ from solprop.backends.events import (
 )
 from solprop.backends.export import ExportRecipe, destination_refusal
 from solprop.backends.julia import _calls
+from solprop.backends.julia._history import (
+    CALL_COUNTERS,
+    CallRestore,
+    HistoryIdentity,
+    export_history,
+    history_info,
+    lower_call_restore,
+    restore_history,
+)
 from solprop.backends.julia._lower import RunTransfer
 from solprop.backends.julia._ownership import JuliaHandle, require_main_thread
 from solprop.backends.julia._runtime import JuliaRuntime
@@ -70,17 +79,6 @@ _OBSERVATIONS = {
     2: ObservationKind.STEP,
 }
 _OUTCOMES = {5: Outcome.COMPLETED, 6: Outcome.STOPPED, 7: Outcome.FAILED}
-_CALL_COUNTERS = (
-    "startup",
-    "predictor",
-    "corrected",
-    "rejected",
-    "accepted_steps",
-    "rejected_steps",
-    "restarts",
-    "failure_restarts",
-    "dense_observations",
-)
 
 
 @dataclass(frozen=True)
@@ -159,13 +157,22 @@ class JuliaSession:
         initial = dict(record)
         initial["source_evaluations"] = 0
         self._adams = transfer.adams is not None
+        self._history_identity = HistoryIdentity(transfer.method, transfer.history_key)
+        self._march_refusal: str | None = None
+        restored = lower_call_restore(start.ledgers, adams=self._adams)
         if self._adams:
-            initial["response_calls"] = dict.fromkeys(_CALL_COUNTERS, 0)
+            initial["response_calls"] = (
+                dict.fromkeys(CALL_COUNTERS, 0)
+                if restored is None
+                else dict(zip(CALL_COUNTERS, restored.counts, strict=True))
+            )
         if transfer.low_storage:
             initial["attempted_source_evaluations"] = 0
             initial["norm_evaluations"] = 0
         self._accounting = _ExecutionRecord(
-            initial, np.empty((0, 2), dtype=np.int64), 0
+            initial,
+            np.empty((0, 2), dtype=np.int64) if restored is None else restored.orders,
+            0,
         )
         self._released = released
         self._ledger = SessionLedger()
@@ -178,25 +185,7 @@ class JuliaSession:
         self._stop = stop
         self._token = stop if isinstance(stop, StopToken) else StopToken()
         self._lease = StopLease(runtime, self._token)
-        try:
-            self._engine = runtime.own_call(
-                "start_low_storage"
-                if transfer.low_storage
-                else "start_adams"
-                if self._adams
-                else "start_runge_kutta",
-                preparation,
-                transfer,
-                start.field,
-                float(start.z),
-                int(start.plane_index),
-                bool(start.plane_pending),
-                self._lease.flag,
-                owners=(self._lease,),
-            )
-        except BaseException:
-            self._lease.close()
-            raise
+        self._engine = self._start_engine(transfer, start, restored)
         start.take_field()
         self._busy = False
         self._held = False
@@ -206,6 +195,64 @@ class JuliaSession:
         )
         self._exports: dict[ExportRecipe, np.ndarray] = {}
         self._abandoned: tuple[float, float] | None = None
+
+    def _start_engine(
+        self, transfer: RunTransfer, start: Start, restored: CallRestore | None
+    ) -> JuliaHandle:
+        """Construct and restore a numerical owner before taking the start's field.
+
+        Parameters
+        ----------
+        transfer : RunTransfer
+            Resolved method and control policy.
+        start : Start
+            Unconsumed field and optional portable history.
+        restored : CallRestore or None
+            Validated cumulative ledger, installed before numerical history.
+
+        Returns
+        -------
+        JuliaHandle
+            Independently owned engine; failures release all temporary resources.
+        """
+        runtime = self._runtime
+        engine: JuliaHandle | None = None
+        try:
+            engine = runtime.own_call(
+                "start_low_storage"
+                if transfer.low_storage
+                else "start_adams"
+                if self._adams
+                else "start_runge_kutta",
+                self._preparation,
+                transfer,
+                start.field,
+                float(start.z),
+                int(start.plane_index),
+                bool(start.plane_pending),
+                self._lease.flag,
+                owners=(self._lease,),
+            )
+            if restored is not None:
+                _calls.call_void(
+                    runtime, "restore_session_counts!", engine, restored.counts
+                )
+            if start.march is not None:
+                self._march_refusal = restore_history(
+                    runtime, engine, start.march, transfer, self._shape
+                )
+        except BaseException:
+            try:
+                if engine is not None:
+                    _calls.call_void(runtime, "close_session!", engine)
+            finally:
+                try:
+                    if engine is not None:
+                        engine.close()
+                finally:
+                    self._lease.close()
+            raise
+        return engine
 
     @staticmethod
     def _validate_start(start: Start, shape: tuple[int, int, int]) -> None:
@@ -234,14 +281,9 @@ class JuliaSession:
             or not math.isfinite(start.z)
         ):
             raise BackendError("julia requires a finite complex128 starting field")
-        if start.march is not None:
+        if start.noise is not None or start.monitor:
             raise BackendError(
-                "this Julia session composition accepts field restarts only"
-            )
-        if start.noise is not None or start.ledgers or start.monitor:
-            raise BackendError(
-                "this Julia composition does not yet restore noise, call ledgers "
-                "or monitors"
+                "this Julia composition does not yet restore noise or monitors"
             )
 
     def _check(self) -> None:
@@ -436,7 +478,7 @@ class JuliaSession:
                 else:
                     runs.append((order, 1))
             updated["response_calls"] = {
-                **dict(zip(_CALL_COUNTERS, record.response_calls, strict=True)),
+                **dict(zip(CALL_COUNTERS, record.response_calls, strict=True)),
             }
         updated["source_evaluations"] = record.source_evaluations
         if record.low_storage_counts is not None:
@@ -711,7 +753,7 @@ class JuliaSession:
         return SnapshotReceipt(request, coalesced)
 
     def march_snapshot(self, ticket: ExportTicket) -> MarchSnapshot | None:
-        """Return no continuation history for a Runge-Kutta field restart.
+        """Copy a pending endpoint's portable Adams history losslessly.
 
         Parameters
         ----------
@@ -721,30 +763,62 @@ class JuliaSession:
         Returns
         -------
         solprop.output.schema.MarchSnapshot or None
-            None, as required for this method's explicit reset record.
+            Detached raw history, or None for RK, before startup, or behind the march.
 
         Raises
         ------
-        BackendError
-            For Adams until its portable history export is implemented.
+        SessionError
+            For a stale, foreign or otherwise ineligible ticket.
         """
-        self._check_ticket(ticket)
+        report = self._check_ticket(ticket)
         if self._adams:
-            raise BackendError(
-                "Julia portable Adams history export is not yet implemented"
+            return export_history(
+                self._runtime,
+                self._engine,
+                report.generation,
+                ticket.z,
+                self._shape,
+                self._history_identity,
             )
         return None
 
     def march_snapshot_nbytes(self) -> int | None:
-        """Return no history size for the Runge-Kutta method.
+        """Read the pending endpoint's history retention size without copying arrays.
 
         Returns
         -------
         int or None
-            None because the method retains no restart history.
+            Raw state and full store bytes, or None without an eligible pending history.
         """
         self._check()
+        ticket = self.pending_ticket()
+        if self._adams and ticket is not None:
+            info = history_info(
+                self._runtime, self._engine, ticket.generation, ticket.z
+            )
+            return None if info is None else info.nbytes
         return None
+
+    def march_export_refusal(self) -> str | None:
+        """Return no refusal for the admitted portable history implementations.
+
+        Returns
+        -------
+        str or None
+            None; RK methods have an explicit field reset, and Adams exports history.
+        """
+        return None
+
+    @property
+    def march_refusal(self) -> str | None:
+        """Return why an input snapshot restarted from its field, when applicable.
+
+        Returns
+        -------
+        str or None
+            Shared restoration-record reason, absent after compatible installation.
+        """
+        return self._march_refusal
 
     def execution_record(self) -> Mapping[str, object]:
         """Return this session's detached execution choices.

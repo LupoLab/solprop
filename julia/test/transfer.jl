@@ -232,6 +232,46 @@ end
     end
 end
 
+@testset "Restored logical calls preserve budgets before any numerical work" begin
+    counters = (1, 3, 1, 1, 3, 1, 2, 1, 0)
+    session = adams_session_fixture(;
+        replay = true, policy = adams_session_policy(; max_calls = 5),
+    )
+    SP.restore_session_counts!(session, counters)
+    launch = SP.advance!(session)
+    @test SP.session_execution(session, launch.generation) == (0, counters, nothing)
+    @test_throws ArgumentError SP.restore_session_counts!(session, counters)
+    SP.acknowledge!(session, launch.generation)
+    failed = SP.advance!(session; deadline = 60.0)
+    @test failed.kind == SP.SESSION_FAILED
+    @test session.source.calls == session.state.attempts == 0
+    @test SP.session_budget(session, failed.generation) == (5, 5, 2)
+    @test SP.session_execution(session, failed.generation) == (0, counters, nothing)
+    for invalid in ((-1, 0, 0, 0, 0, 0, 0, 0, 0), (typemax(Int), 1, 0, 0, 0, 0, 0, 0, 0))
+        fresh = adams_session_fixture(; replay = true)
+        @test_throws ArgumentError SP.restore_session_counts!(fresh, invalid)
+        @test SP.adams_charged_calls(fresh.ledger) == 0
+        @test fresh.ledger.accepted_steps == fresh.ledger.restarts == 0
+    end
+    for name in (
+            :startup, :predictor, :corrected, :rejected, :accepted_steps,
+            :rejected_steps, :restarts, :failure_restarts,
+        )
+        fresh = adams_session_fixture(; replay = true)
+        setproperty!(fresh.ledger, name, typemax(Int))
+        state = copy(fresh.field)
+        launch = SP.advance!(fresh)
+        SP.acknowledge!(fresh, launch.generation)
+        failure = SP.advance!(fresh; work_limit = 1, deadline = 60.0)
+        @test failure.kind == SP.SESSION_FAILED
+        @test fresh.state.failure_code === :OverflowError
+        @test !failure.poisoned
+        @test getproperty(fresh.ledger, name) == typemax(Int)
+        @test fresh.source.calls == fresh.state.attempts == 0
+        @test fresh.field == state
+    end
+end
+
 @testset "Bridge low-storage accounting preserves committed and attempted work" begin
     for failed_call in (0, 2, 6)
         session = low_storage_session_fixture(; fail_on = failed_call)

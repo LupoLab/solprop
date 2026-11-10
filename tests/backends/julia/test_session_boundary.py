@@ -34,6 +34,7 @@ from solprop.backends.events import (
 )
 from solprop.backends.export import ExportRecipe
 from solprop.backends.julia import _calls, _runtime
+from solprop.backends.julia import _session as session_module
 from solprop.backends.julia._lower import RunTransfer
 from solprop.backends.julia._runtime import JuliaRuntime
 from solprop.backends.julia._session import JuliaSession
@@ -41,6 +42,7 @@ from solprop.backends.julia.backend import JuliaBackend, JuliaPrepared
 from solprop.backends.protocol import BackendHistory
 from solprop.backends.session import SessionError, SessionState, Start, StopToken
 from solprop.exceptions import BackendError, ConvergenceError, StopRequested
+from solprop.output.schema import MarchSnapshot
 from solprop.stepper.controller import PIController
 from solprop.translate.run_request import ErrorControlSpec
 
@@ -637,6 +639,43 @@ def test_failed_engine_construction_keeps_start_and_detaches_stop(boundary):
         boundary.prepared.start(start, stop=token, owns=False)
     assert start.field is original and not boundary.owner.closed
     assert boundary.engine.sessions == []
+    token.set()
+    assert boundary.stopped == []
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_failed_history_restore_releases_engine_without_consuming_start(
+    boundary, monkeypatch, interrupted
+):
+    token = StopToken()
+    field = np.ones(SHAPE, dtype=np.complex128)
+    snapshot = MarchSnapshot(
+        z=0.0,
+        state=field.copy(),
+        proposal=0.1,
+        method="test",
+        order=1,
+        rejections=0,
+        last_rejected=False,
+        positions=np.array([0.0]),
+        identities=("accepted",),
+        slots=np.array([0], dtype=np.int64),
+        rows={"store": np.zeros((3, 1, *SHAPE), dtype=np.complex128)},
+    )
+    start = Start(field, 0.0, march=snapshot)
+
+    def failure(*_):
+        if interrupted:
+            raise KeyboardInterrupt
+        raise BackendError("scripted history copy failure")
+
+    monkeypatch.setattr(session_module, "restore_history", failure)
+    with pytest.raises(KeyboardInterrupt if interrupted else BackendError):
+        boundary.prepared.start(start, stop=token, owns=False)
+    assert start.field is field and not boundary.owner.closed
+    assert len(boundary.engine.sessions) == 1
+    assert boundary.engine.sessions[0].closed
+    assert not boundary.owner._sessions
     token.set()
     assert boundary.stopped == []
 

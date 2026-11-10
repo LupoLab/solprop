@@ -1434,6 +1434,30 @@ critical path for phase 2; it does not claim that the gate passed. Existing fail
 and the passing 36-case macOS non-SIGTERM matrix remain recorded. Independent numerical
 review, integration, short reference witnesses and required accuracy checks continue.
 
+### CPU implementation milestones — 2026-11-10
+
+The internal binary64 scalar modal adapter now constructs Julia-owned Runge–Kutta,
+exponential Adams and fixed low-storage RK4IP sessions through the SEP 47 execution
+owner contract. Julia owns stepping, control, bounded attempts and numerical failures;
+Python translates descriptors and services closed events. Kerr, Raman and plasma use
+their independent represented profiles. The composed observation services and dense
+numerical leaf have separate tests; their Python attachment remains in progress.
+
+Portable Adams history copies raw accepted state, all engine rows and actual selected
+sample coordinates into detached host buffers. Shared history keys gate restoration;
+execution identities do not. Cumulative logical budgets and compact order records
+survive both full-history and field-only resumes. Twelve managed-runtime witnesses cover
+Julia continuation, both directions with the NumPy reference and native CPU,
+plain/compensated storage, lifetime checks and budget/counter-capacity refusal before
+new work. Dense and cross-precision restart cases remain to be qualified. The complete
+phase 2 report will follow its remaining route,
+observation, group, noise, conformance and measurement work; this milestone does not
+declare any implementation phase complete.
+
+The recoverable assignment and verification record is `julia/IMPLEMENTATION.md`.
+The full primary-source DF32 analysis and per-vendor qualification remain in phases 3
+and 4. All implementation changes remain on the single draft PR #611.
+
 ## Part III — History
 
 - 2026-11-10: The maintainer accepted external hard-kill supervision for stalled Julia

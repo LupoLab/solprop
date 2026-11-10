@@ -50,14 +50,17 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Numerical transform/Adams agent | `julia/src/adams_transfer.jl` and its test; two approved identity-tag assignments in `adams_session.jl` | Portable history transfer and fresh-session restore; dense wrapper proposed separately |
-| Numerical services agent | `src/solprop/backends/julia/_profiles.py` and its test | Independent represented profile-statistic lowering with measured errors; numerical alarm and diagnostic fix reviewed and integrated |
+| Numerical transform/Adams agent | `julia/src/adams_observation.jl` and its test | Dense observation wrapper; portable history leaf and sample tags independently reviewed and integrated |
+| Numerical services agent | `src/solprop/backends/julia/_observations.py` and its test | Request-specific statistics/monitor preparation; profile lowering independently reviewed and integrated |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
-| Independent reviewer | Production code read-only | Adams and observation sessions approved; reviewing Python bridge integration and subsequent numerical slices |
+| Independent reviewer | Production code read-only | Portable history and profile lowering approved; reviewing Python bridge integration and subsequent numerical slices |
 
 The temporary CI assignments for `restore_control!`, CPU allocation and source/monitor
 constructors are complete and integrated after independent review. Their files return
 to master ownership; further leaf changes require an explicit assignment.
+The portable history leaf, sample tags and profile lowering also return to master
+ownership after review. Observation preparation is request-specific: its catalogue,
+monitor policy and profile context do not enter a problem-only preparation cache.
 
 The foundation is committed at `540794bd`. Setup commits `6c569742`, `fadae531` and
 `52269788` were independently reviewed and integrated as `9fe74c26`, `5cec895c` and
@@ -509,3 +512,32 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   strings, exact full store copies, oldest-first selected positions and zero-based
   portable slots. Only a fresh unadvanced session can restore; compatibility refusals
   precede all writes. Python retains history-key, precision, noise and ledger policy.
+- Portable history leaf `f6849fa0` is independently reviewed and integrated at
+  `aa06f03d`, following the reviewed sample-kind correction. Its two-thread,
+  bounds-enabled selection passes 1,034 assertions, including plain/compensated
+  continuation, full inactive-row copies, signed zeros, alias/lifecycle refusals and
+  zero warmed resumed-advance allocations. Its quality run passes all 16 checks with
+  997 definitions analysed and none cached.
+- Profile-statistic lowering `b8e3bd10` is independently reviewed and integrated at
+  `d7fe0ee7`. Thirty-eight focused typed tests pass independently; the author's broader
+  descriptor selection passes 54. Profiles retain their actual units and measured
+  approximation records without retaining originating callables. Extreme-range shared
+  Chebyshev transform overflow remains tracked in #657.
+- The Python portable-history bridge passes twelve actual managed-runtime tests:
+  Julia-to-Julia and both directions involving NumPy/native CPU, exact raw/full-row
+  transfer, foreign-store resets, overlapping destination refusal, and restored
+  budget exhaustion without a trial. Twenty-two pure history tests and the existing
+  64 typed boundary/lowering tests pass. A trillion-step compact order record restores
+  in one pair without per-step expansion. Broader dense/restart qualification
+  remains pending; no binary32 history is admitted by this binary64 composition.
+- Independent bridge review found that a restored int64-limit counter could wrap on
+  its next increment (#658). Checked cumulative arithmetic and pre-trial capacity
+  checks now preserve the final representable trial and refuse subsequent work before
+  source evaluation. Independent witnesses pass 32 additional assertions. The final
+  numerical aggregate passes 3,103 bounds-enabled assertions; all 16 Aqua/JET checks
+  pass with 1,014 definitions analysed and none cached. Forty-two real core/history
+  tests pass together in 79.29 seconds, with the two native continuation witnesses and
+  compensated-history transfer passing in subsequent focused runs. The offset-view
+  alias regression also passes. The combined typed Python/CI-runner/SEP selection
+  passes 514 tests with three expected process-SEP skips; docstrings, spelling, Runic,
+  scoped types and the Sphinx build pass. The full GitHub matrix remains outstanding.

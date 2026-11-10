@@ -27,6 +27,7 @@ _RUNTIME_TESTS = (
     "tests/backends/julia/runtime_probe.py",
     "tests/backends/julia/test_control_oracle.py",
     "tests/backends/julia/test_cpu_session.py",
+    "tests/backends/julia/test_cpu_history.py",
     "tests/backends/julia/test_session_boundary.py",
     "julia/test/control_oracle.jl",
     "julia/test/march.jl",
@@ -248,6 +249,7 @@ def _verify_runtime_report(report: Path) -> None:
         "test_runtime_subprocess",
         "test_control_oracle",
         "test_cpu_session",
+        "test_cpu_history",
     ):
         cases = [
             case for case in results if module in case.get("classname", "").split(".")

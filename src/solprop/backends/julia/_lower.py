@@ -51,6 +51,10 @@ class RunTransfer:
         No sampled zero or constant profile establishes this property.
     low_storage : bool
         Select the fixed RK4IP register scheme instead of an embedded tableau.
+    method : str
+        Method representation retained as portable history provenance.
+    history_key : str or None
+        Shared Adams history identity, independent of execution choices and controls.
     """
 
     control: ErrorControlSpec
@@ -71,6 +75,8 @@ class RunTransfer:
     adams: MarchPolicy | None = None
     source_absent: bool = False
     low_storage: bool = False
+    method: str = "Runge-Kutta"
+    history_key: str | None = None
 
 
 def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
@@ -143,6 +149,10 @@ def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
         # lower_modal has already excluded general, spatial and atomic pipelines.
         len(responses.response_order) == 1 and not in_stage,
         low_storage,
+        repr(request.integration.method),
+        request.integration.method.history_key
+        if isinstance(request.integration.method, Multistep)
+        else None,
     )
 
 

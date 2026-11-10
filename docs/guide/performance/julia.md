@@ -23,8 +23,15 @@ Adams receives its controller and landing constants from the shared resolved met
 policy. Its execution record distinguishes logical response-call charges from actual
 source invocations, including structurally absent sources, and retains compact accepted
 order counts. A spent call budget stops before the next trial and carries the last
-accepted field. Portable Adams history export and restore are still pending and refuse
-explicitly; this milestone does not qualify continuation checkpoints.
+accepted field. Portable binary64 Adams snapshots retain that raw state, every history
+row, the selected sample positions and the next controller state. Compatible history
+continues without an extra startup evaluation; cumulative charges and compact orders
+also survive a field-only restart. History identity uses the shared method key, not a
+Julia setup, thread count or backend name. Incompatible keys, precision or store layouts
+produce the shared explicit field-reset reason before any history is installed.
+Short fixed-history continuation between Julia, the NumPy reference and native CPU is
+tested in both directions involving Julia. Plain and compensated stores retain every
+row exactly. Dense checkpoints and the remaining restart matrix still need qualification.
 
 Low-storage execution records preserve the established `source_evaluations` count
 of committed steps and separately report `attempted_source_evaluations` and completed

@@ -24,8 +24,13 @@ numerical writes. Broader route, method, observation and device support remains 
 implementation.
 
 Adams preserves shared control policy, exact logical budget charges, actual source-call
-counts and compact accepted-order records across event yields. Budget refusal retains
-the accepted field; portable Adams history continuation remains under implementation.
+counts and compact accepted-order records across event yields and resumes. Portable
+binary64 snapshots transfer raw accepted state and full history stores losslessly;
+compatible Julia/NumPy/native CPU continuation adds no startup charge. Field-only resets preserve
+cumulative budgets and record incompatible history explicitly. The remaining restart
+and device qualification matrix is still in progress.
+Cumulative counters refuse before overflow or unrecordable work, preserving their
+saved values ([#658](https://github.com/LupoLab/solprop/issues/658)).
 
 The fixed low-storage RK4IP session owns its register updates and prescribed itinerary.
 Its record separates attempted from committed source calls, and in-flight failures

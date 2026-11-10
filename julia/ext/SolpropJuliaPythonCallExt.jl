@@ -8,6 +8,7 @@ import SolpropJulia
 import SolpropJulia: copy_preparation, prepare_modal, start_runge_kutta, start_adams
 import SolpropJulia: start_low_storage
 import SolpropJulia: export_session!, session_attempts!, session_orders!
+import SolpropJulia: export_adams_history!, restore_adams_history!, restore_session_counts!
 
 """
     copy_preparation(values::Py)
@@ -359,6 +360,100 @@ end
 
 function session_orders!(output::Py, session::SolpropJulia.AdamsSession, generation::Int)
     return session_orders!(_python_buffer(Int64, Val(1), output), session, generation)
+end
+
+function restore_session_counts!(session::SolpropJulia.AdamsSession, counts::Py)
+    return restore_session_counts!(session, pyconvert(NTuple{9, Int}, counts))
+end
+
+function _history_buffer(::Type{T}, ::Val{N}, value::Py) where {T, N}
+    borrowed = _python_buffer(T, Val(N), value)
+    expected = 1
+    for axis in N:-1:1
+        size(borrowed, axis) == 1 || stride(borrowed, axis) == expected ||
+            throw(ArgumentError("Python history buffers must be C-contiguous"))
+        expected *= size(borrowed, axis)
+    end
+    return borrowed
+end
+
+function _history_optional(value::Py)
+    return pyis(value, pybuiltins.None) ? nothing :
+        _history_buffer(ComplexF64, Val(5), value)
+end
+
+function _history_owners(buffers::Py)
+    owners = (
+        _history_buffer(ComplexF64, Val(3), buffers.state),
+        _history_buffer(Float64, Val(1), buffers.positions),
+        _history_buffer(UInt8, Val(1), buffers.identities),
+        _history_buffer(Int64, Val(1), buffers.slots),
+        _history_buffer(ComplexF64, Val(5), buffers.store),
+        _history_optional(buffers.states), _history_optional(buffers.rates),
+    )
+    # Nonowning Julia arrays do not carry a foreign view's common Python parent.
+    # Compare byte ranges before wrapping, rather than relying on mightalias there.
+    for first in eachindex(owners)
+        left = owners[first]
+        left === nothing && continue
+        left_start = UInt(Base.unsafe_convert(Ptr{eltype(left)}, left))
+        left_stop = left_start + sizeof(eltype(left)) * length(left)
+        for second in (first + 1):length(owners)
+            right = owners[second]
+            right === nothing && continue
+            right_start = UInt(Base.unsafe_convert(Ptr{eltype(right)}, right))
+            right_stop = right_start + sizeof(eltype(right)) * length(right)
+            left_start < right_stop && right_start < left_stop &&
+                throw(ArgumentError("Python history buffers must be disjoint"))
+        end
+    end
+    return owners
+end
+
+_history_view(::Nothing) = nothing
+function _history_view(value::PyArray{T, 1}) where {T}
+    return unsafe_wrap(Array, Base.unsafe_convert(Ptr{T}, value), size(value); own = false)
+end
+function _history_view(value::PyArray{ComplexF64, 3})
+    modes, components, frequencies = size(value)
+    return unsafe_wrap(
+        Array, Base.unsafe_convert(Ptr{ComplexF64}, value),
+        (frequencies, components * modes); own = false,
+    )
+end
+function _history_view(value::PyArray{ComplexF64, 5})
+    slots, batch, modes, components, frequencies = size(value)
+    batch == 1 || throw(ArgumentError("portable history rows require one trajectory"))
+    return unsafe_wrap(
+        Array, Base.unsafe_convert(Ptr{ComplexF64}, value),
+        (frequencies, components * modes, slots); own = false,
+    )
+end
+
+function export_adams_history!(
+        buffers::Py, session::SolpropJulia.AdamsSession, generation::Int, z::Float64,
+    )
+    owners = _history_owners(buffers)
+    GC.@preserve buffers owners begin
+        borrowed = SolpropJulia.AdamsHistoryBuffers(map(_history_view, owners)...)
+        export_adams_history!(borrowed, session, generation, z)
+    end
+    return nothing
+end
+
+function restore_adams_history!(
+        session::SolpropJulia.AdamsSession, snapshot::Py, buffers::Py,
+    )
+    metadata = SolpropJulia.AdamsHistoryMetadata(
+        pyconvert(Float64, snapshot.z), pyconvert(Float64, snapshot.proposal),
+        pyconvert(Int, snapshot.order), pyconvert(Int, snapshot.rejections),
+        pyconvert(Bool, snapshot.last_rejected), pyconvert(Bool, snapshot.collar_was_quiet),
+    )
+    owners = _history_owners(buffers)
+    GC.@preserve buffers owners begin
+        borrowed = SolpropJulia.AdamsHistoryBuffers(map(_history_view, owners)...)
+        return restore_adams_history!(session, metadata, borrowed)
+    end
 end
 
 end

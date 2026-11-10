@@ -30,7 +30,7 @@ from solprop.log import StopFlag
 from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
 from solprop.translate.problem import PropagationProblem
-from solprop.translate.run_request import MethodKind, RunRequest
+from solprop.translate.run_request import RunRequest
 
 __all__ = ["JuliaBackend", "JuliaPrepared"]
 
@@ -231,10 +231,8 @@ class JuliaBackend:
         Returns
         -------
         str or None
-            Adams continuation remains pending; Runge-Kutta uses an explicit reset.
+            None: Adams exports portable history; Runge-Kutta uses an explicit reset.
         """
-        if self._request.integration.kind is MethodKind.ADAMS:
-            return "this Julia composition does not yet export portable Adams history"
         return None
 
     def edge_memory(self, space: object) -> int:

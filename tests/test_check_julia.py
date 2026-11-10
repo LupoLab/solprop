@@ -244,6 +244,7 @@ def test_python_phase_runs_the_whole_adapter_directory(pinned_tree, monkeypatch)
                     "test_runtime_subprocess",
                     "test_control_oracle",
                     "test_cpu_session",
+                    "test_cpu_history",
                 )
             )
             + "</testsuite>",

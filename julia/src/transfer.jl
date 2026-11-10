@@ -7,6 +7,7 @@ public advance_session, acknowledge_session, session_status, export_session!
 public session_attempts!, session_failure, session_memory, preparation_memory
 public fail_session
 public session_execution, session_orders!, session_budget
+public restore_session_counts!
 
 """
     ModalPreparation(execution, data, operator, power_weight, node_chunk)
@@ -187,6 +188,34 @@ function session_execution(session::LowStorageSession, generation::Int)
         counts.attempted_source_evaluations, nothing,
         (counts.committed_source_evaluations, counts.norm_evaluations),
     )
+end
+
+"""
+    restore_session_counts!(session, counts)
+
+Install nine cumulative logical Adams counters before history or numerical work.
+
+`counts` is an integer tuple in shared `CallLedger` order. Validate every count and
+the charged total before mutation. Actual source invocations belong to this execution
+and remain zero; accepted order runs are owned by the Python delivery record. A field
+restart retains these charges even when its history is incompatible. Reject a session
+that has already started, published an event or restored numerical history.
+"""
+function restore_session_counts!(session::AdamsSession, counts::NTuple{9, Int})
+    _adams_transfer_fresh(session) ||
+        throw(ArgumentError("call counts require a fresh unadvanced Adams session"))
+    all(count -> count >= 0, counts) ||
+        throw(ArgumentError("logical call counters must be nonnegative"))
+    counts[1] <= typemax(Int) - counts[2] &&
+        counts[1] + counts[2] <= typemax(Int) - counts[3] ||
+        throw(ArgumentError("logical call total exceeds integer capacity"))
+    ledger = session.ledger
+    ledger.startup, ledger.predictor, ledger.corrected = counts[1], counts[2], counts[3]
+    ledger.rejected, ledger.accepted_steps, ledger.rejected_steps =
+        counts[4], counts[5], counts[6]
+    ledger.restarts, ledger.failure_restarts, ledger.dense_observations =
+        counts[7], counts[8], counts[9]
+    return nothing
 end
 
 """
