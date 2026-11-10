@@ -5,6 +5,8 @@
 """Resume: continuing a file the same run wrote, and refusing one it did not."""
 
 import dataclasses
+import importlib
+import importlib.util
 from typing import Any
 
 import h5py
@@ -473,10 +475,28 @@ def test_a_run_interrupted_before_its_first_plane_resumes_without_a_second_entra
         raise CrashError("interrupted before the first step")
 
     # Fail the actual march so its terminal checkpoint and regular observations
-    # agree; truncating an advanced file leaves its later checkpoint in place.
+    # agree; truncating an advanced file leaves its later checkpoint in place. The
+    # native session marches in its advance: it fails its first advance past the
+    # launch plane, before the native call, as the drivers' first propagation does.
+    native = (
+        None
+        if importlib.util.find_spec("solprop_native") is None
+        else importlib.import_module("solprop_native.session")
+    )
+    advances: list[int] = []
+
+    def fail_first_march(self, **bounds):
+        if advances:
+            raise CrashError("interrupted before the first step")
+        advances.append(1)
+        return advance(self, **bounds)
+
     with monkeypatch.context() as patch:
         for driver in (StepDriver, HostDriver):
             patch.setattr(driver, "propagate_to", fail_before_first_step)
+        if native is not None:
+            advance = native.NativeSession.advance
+            patch.setattr(native.NativeSession, "advance", fail_first_march)
         with pytest.raises(CrashError, match="before the first step"):
             scheduled(build_simulation).run(path, progress="none")
     stopped = resume(path)

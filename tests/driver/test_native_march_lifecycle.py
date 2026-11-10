@@ -7,9 +7,15 @@
 A native call runs many attempts and returns at an event or its bound; whatever stops
 the run -- a native failure at the startup sample, a trial or an accept, the floor, the
 budget, a signal or a stop flag during the call, a progress reporter's exception as the
-call's steps are recorded -- leaves the backend at the call's last accepted step, its
+call's steps are recorded -- leaves the run at the call's last accepted step, its
 state, position, history and ledger together, and a terminal checkpoint that a resume
 continues.
+
+Production runs the march in the native execution session (SEP 47), whose advance is
+the native call here; what the session refuses still runs on the backend's own march
+over the transitional session (the bridge), which the failure classes are also held on.
+Both are read through what the run persists: the file's outcome, ledger, checkpoint and
+method history.
 """
 
 import dataclasses
@@ -23,7 +29,8 @@ from driver.test_interrupts import AfterStep, needs_default_sigterm, planes_of
 from driver.test_resume import CrashError
 from driver.test_resume_history import RTOL, assert_accurate_run, soliton, tight_run
 from march_bounds import TIGHTER
-from solprop.backends import available
+from solprop.backends import available, sessions
+from solprop.backends.session import DEFAULT_WORK_LIMIT
 from solprop.cli import main
 from solprop.exceptions import ConvergenceError, ResponseBudgetError, RunTerminated
 from solprop.output.hdf5 import open_file, resume
@@ -37,11 +44,23 @@ pytestmark = [
 
 backend_module = pytest.importorskip("solprop_native.backend")
 NativeAdamsMarch = backend_module._NativeAdamsMarch
+NativeSession = pytest.importorskip("solprop_native.session").NativeSession
+
+PATHS = ("session", "bridge")
+"""The native session, which production runs on, and the transitional session over the
+backend's own march, which serves what the session refuses."""
+
+
+def on_path(monkeypatch, path: str) -> None:
+    """Run on `path`: the bridge when the native session is made to refuse every run."""
+    if path == "bridge":
+        monkeypatch.setattr(sessions, "_native_session", lambda *_, **__: None)
 
 
 def with_fault(monkeypatch, stage: str, after: int, category: str) -> list[Any]:
-    """Arm a native failure when the run's march is first configured; return the
-    marches it was armed on."""
+    """Arm a native failure (or, for ``"sigint"`` and ``"sigterm"``, a signal raised in
+    the native call) when the run's march is first configured, before a session leases
+    the state; return the marches it was armed on."""
     armed: list[Any] = []
     configure = NativeAdamsMarch._configure
 
@@ -60,41 +79,56 @@ def assert_consistent_stop(part) -> None:
     state = resume(part)
     assert state.checkpoint is not None and state.march is not None
     assert state.march.z == state.checkpoint.plane.z
+    assert state.march.positions[-1] == state.march.z
 
 
+def ledger_of(part) -> dict[str, Any]:
+    """Return the call ledger the run's outcome records."""
+    with open_file(part) as stored:
+        assert stored.outcome is not None
+        return dict(stored.outcome.logical_calls)
+
+
+@pytest.mark.parametrize("path", PATHS)
 @pytest.mark.parametrize(
-    ("stage", "category", "raised"),
+    "fault",
     [
         ("startup", "backend", RuntimeError),
         ("trial", "convergence", ConvergenceError),
         ("trial", "value", ValueError),
         ("accept", "backend", RuntimeError),
     ],
+    ids=lambda fault: f"{fault[0]}-{fault[1]}-{fault[2].__name__}",
 )
 def test_a_native_failure_raises_its_class_at_the_last_accepted_step(
-    build_simulation, tmp_path, monkeypatch, stage, category, raised
+    build_simulation, tmp_path, monkeypatch, fault, path
 ):
+    stage, category, raised = fault
+    on_path(monkeypatch, path)
     build = soliton(build_simulation, "native")
+    part = tmp_path / "part.h5"
     armed = with_fault(monkeypatch, stage, 0 if stage == "startup" else 30, category)
     with pytest.raises(raised, match="an injected native failure"):
-        build().run(tmp_path / "part.h5", progress="none")
+        build().run(part, progress="none")
     (march,) = armed
     assert march.native
-    ledger = march.ledger
+    ledger = ledger_of(part)
     if stage == "startup":
         # The startup sample was charged before it failed, and nothing was accepted:
         # the checkpoint is the entrance, with no history to keep.
-        assert (ledger.startup, ledger.accepted_steps) == (1, 0)
-        assert march._backend._z == 0.0
-        state = resume(tmp_path / "part.h5")
+        assert (ledger["startup"], ledger["accepted_steps"]) == (1, 0)
+        state = resume(part)
         assert state.checkpoint is not None and state.checkpoint.plane.z == 0.0
         assert state.march is None
         return
-    # The steps committed before the failure stand, with their history.
-    assert ledger.accepted_steps + ledger.rejected_steps >= 30
-    assert march._history and march._history[-1].z == march._backend._z
-    assert len(ledger.orders) == ledger.accepted_steps
-    assert_consistent_stop(tmp_path / "part.h5")
+    # The steps committed before the failure stand, with their history and orders.
+    assert ledger["accepted_steps"] + ledger["rejected_steps"] >= 30
+    orders = cast("list[list[int]]", ledger["orders"])
+    assert sum(count for _, count in orders) == ledger["accepted_steps"]
+    assert_consistent_stop(part)
+    state = resume(part)
+    assert state.march is not None
+    assert state.march.z == state.outcome.z  # pyright: ignore[reportOptionalMemberAccess]
 
 
 @pytest.mark.medium
@@ -154,28 +188,21 @@ def test_an_exception_as_native_steps_are_recorded_leaves_a_consistent_checkpoin
 def test_sigterm_during_a_native_call_waits_for_its_commit(
     build_simulation, tmp_path, monkeypatch
 ):
-    # The signal arrives while the native march runs: it is held until the call's
-    # state and rows are adopted, then stops the run there.
+    # The signal arrives while the native march runs, at its 41st trial: it is held
+    # until the call's state and rows are adopted, then stops the run there.
     build = soliton(build_simulation, "native")
-    planes = planes_of(build)
-    run = NativeAdamsMarch._native_run
-    seen: list[float] = []
-
-    def signalled(self, state, bounds):
-        if not seen and state["z"] > planes[1]:
-            seen.append(state["z"])
-            signal.raise_signal(signal.SIGTERM)
-        return run(self, state, bounds)
-
-    monkeypatch.setattr(NativeAdamsMarch, "_native_run", signalled)
+    calls = calling(monkeypatch)
+    with_fault(monkeypatch, "trial", 40, "sigterm")
     part = tmp_path / "part.h5"
     with pytest.raises(RunTerminated):
         build().run(part, progress="none")
-    assert seen
+    assert calls.signalled(40)
     state = resume(part)
     assert state.checkpoint is not None and state.march is not None
-    # The call ran to its event before the signal was raised.
-    assert state.march.z == state.checkpoint.plane.z > seen[0]
+    # The call ran to its end before the signal was raised: the checkpoint is where
+    # it returned, past where it began.
+    assert state.march.z == state.checkpoint.plane.z == calls.ends[-1]
+    assert state.checkpoint.plane.z > calls.starts[-1]
 
 
 FORMS = {
@@ -215,45 +242,80 @@ def one_plane(build_simulation, form: str):
     return unmonitored
 
 
-def calling(monkeypatch, at_call: int, act) -> list[int]:
-    """Run `act` as native call number `at_call` begins; return each call's attempts."""
-    run = NativeAdamsMarch._native_run
-    attempts: list[int] = []
+class Calls:
+    """Each native call a run made: its attempts and where it began and returned."""
 
-    def counted(self, state, bounds):
-        if len(attempts) + 1 == at_call:
-            act()
-        result = run(self, state, bounds)
-        attempts.append(len(result["rows"]))
-        return result
+    def __init__(self) -> None:
+        self.attempts: list[int] = []
+        self.starts: list[float] = []
+        self.ends: list[float] = []
 
-    monkeypatch.setattr(NativeAdamsMarch, "_native_run", counted)
-    return attempts
+    def signalled(self, trials: int) -> bool:
+        """Return whether the run's last call made the attempt after `trials` attempts,
+        the one a signal armed after `trials` trials arrived in."""
+        return sum(self.attempts[:-1]) <= trials < sum(self.attempts)
 
 
-def assert_stopped_at_its_call(part, attempts: list[int], at_call: int) -> None:
-    """Assert the run made no native call after `at_call`, and stopped at its end."""
-    assert len(attempts) == at_call
-    assert all(found <= NativeAdamsMarch.MAX_ATTEMPTS for found in attempts)
+def calling(monkeypatch) -> Calls:
+    """Record each native session advance, the run's native call, as it returns or
+    raises."""
+    calls = Calls()
+    advance = NativeSession.advance
+
+    def counted(self, **bounds):
+        before = self.status()
+        calls.starts.append(before.z)
+        try:
+            return advance(self, **bounds)
+        finally:
+            after = self.status()
+            calls.attempts.append(after.attempts - before.attempts)
+            calls.ends.append(after.z)
+
+    monkeypatch.setattr(NativeSession, "advance", counted)
+    return calls
+
+
+TRIALS = 300
+"""The trials before the signal: past the first native call of the one-plane run,
+whose bound is 256 attempts."""
+
+
+def assert_stopped_at_its_call(part, calls: Calls) -> None:
+    """Assert the run made no native call after the one the signal arrived in, and
+    stopped where that call returned."""
+    assert calls.signalled(TRIALS)
+    assert len(calls.attempts) >= 3
+    assert all(found <= DEFAULT_WORK_LIMIT for found in calls.attempts)
     assert_consistent_stop(part)
     with open_file(part) as stored:
         assert stored.outcome is not None
         assert stored.outcome.status == "failed"
         assert 0.0 < stored.outcome.z < ONE_PLANE_LENGTH
+        assert stored.outcome.z == calls.ends[-1]
         assert stored.n_saved == 1
         taken = cast("int", stored.outcome.logical_calls["accepted_steps"])
-    assert taken <= sum(attempts)
+    assert taken <= sum(calls.attempts)
 
 
 @pytest.mark.parametrize("form", FORMS)
 def test_a_flag_set_during_a_native_call_stops_the_march_as_it_returns(
     build_simulation, tmp_path, monkeypatch, form
 ):
+    # A front end's flag is set while the native call holds no Python lock; here a
+    # signal handler sets it, which Python runs as the call returns, as it would see
+    # a flag another thread set during the call.
     flag = threading.Event()
-    attempts = calling(monkeypatch, 3, flag.set)
-    part = tmp_path / "part.h5"
-    one_plane(build_simulation, form)().run(part, progress="none", stop=flag)
-    assert_stopped_at_its_call(part, attempts, 3)
+    previous = signal.signal(signal.SIGINT, lambda *_: flag.set())
+    try:
+        calls = calling(monkeypatch)
+        with_fault(monkeypatch, "trial", TRIALS, "sigint")
+        part = tmp_path / "part.h5"
+        one_plane(build_simulation, form)().run(part, progress="none", stop=flag)
+    finally:
+        signal.signal(signal.SIGINT, previous)
+    assert flag.is_set()
+    assert_stopped_at_its_call(part, calls)
 
 
 @pytest.mark.medium
@@ -277,10 +339,11 @@ def test_a_signal_during_a_one_plane_march_stops_it_as_the_native_call_returns(
     build = one_plane(build_simulation, form)
     part = tmp_path / "part.h5"
     with monkeypatch.context() as patch:
-        attempts = calling(patch, 3, lambda: signal.raise_signal(number))
+        calls = calling(patch)
+        with_fault(patch, "trial", TRIALS, signal.Signals(number).name.lower())
         with pytest.raises(raised):
             build().run(part, progress="none")
-    assert_stopped_at_its_call(part, attempts, 3)
+    assert_stopped_at_its_call(part, calls)
     build().run(part, resume=True, progress="none")
     with open_file(part) as stored:
         assert stored.outcome is not None
@@ -320,11 +383,12 @@ def test_the_command_line_stops_a_one_plane_march_on_its_first_signal(
     recipe, part = tmp_path / "soliton.toml", tmp_path / "part.h5"
     recipe.write_text(ONE_PLANE_RECIPE, encoding="utf-8")
     with monkeypatch.context() as patch:
-        attempts = calling(patch, 3, lambda: signal.raise_signal(signal.SIGTERM))
+        calls = calling(patch)
+        with_fault(patch, "trial", TRIALS, "sigterm")
         status = main(["run", str(recipe), "-o", str(part), "--progress", "none"])
     assert status == 128 + signal.SIGTERM
     assert "solprop resume" in capsys.readouterr().err
-    assert_stopped_at_its_call(part, attempts, 3)
+    assert_stopped_at_its_call(part, calls)
     assert main(["resume", str(part), "--progress", "none"]) == 0
     with open_file(part) as stored:
         assert stored.outcome is not None
@@ -332,33 +396,49 @@ def test_the_command_line_stops_a_one_plane_march_on_its_first_signal(
         assert stored.outcome.z == ONE_PLANE_LENGTH
 
 
-def two_marches(build, monkeypatch, run) -> dict[str, Any]:
-    """Run `run(simulation)` on the native march and on the host one; return each
-    march's outcome: the error's class and message, its position and its ledger."""
+def two_marches(build, monkeypatch, part) -> dict[str, Any]:
+    """Run the simulation to `part` on the native march and on the host one; return
+    each march's outcome, as the file records it: the error's class and message, its
+    position and its ledger.
+
+    The native march runs in the native session; the host one, which the session
+    refuses, on the bridge."""
     found = {}
     original = NativeAdamsMarch.__init__
     for march in ("native", "host"):
         marches: list[Any] = []
+        served: list[str] = []
 
         def recording(self, *args, marches=marches, **keywords):
             original(self, *args, **keywords)
             marches.append(self)
 
+        def serving(*args, served=served, start=sessions.start_session, **keywords):
+            session = start(*args, **keywords)
+            served.append(type(session).__name__)
+            return session
+
         with monkeypatch.context() as patch:
             patch.setattr(backend_module, "_ADAMS_MARCH", march)
             patch.setattr(NativeAdamsMarch, "__init__", recording)
+            patch.setattr(sessions, "start_session", serving)
             try:
-                run(build())
+                build().run(part)
                 error = None
             except (ConvergenceError, ResponseBudgetError) as stopped:
                 error = (type(stopped), str(stopped))
         (taken,) = marches
         assert taken.native == (march == "native")
+        assert served == ["NativeSession" if march == "native" else "DriverSession"]
+        ledger = ledger_of(part)
+        with open_file(part) as stored:
+            assert stored.outcome is not None
+            z = stored.outcome.z
         found[march] = {
             "error": error,
-            "z": taken._backend._z,
-            "ledger": taken.ledger.total,
-            "steps": (taken.ledger.accepted_steps, taken.ledger.rejected_steps),
+            "z": z,
+            "ledger": ledger["startup"] + ledger["predictor"] + ledger["corrected"],
+            "steps": (ledger["accepted_steps"], ledger["rejected_steps"]),
         }
     return found
 
@@ -375,9 +455,7 @@ def test_the_budget_stops_both_marches_at_the_same_step(
     build_simulation, tmp_path, monkeypatch
 ):
     build = soliton(build_simulation, "native", integrator=Multistep(max_calls=60))
-    found = two_marches(
-        build, monkeypatch, lambda simulation: simulation.run(tmp_path / "b.h5")
-    )
+    found = two_marches(build, monkeypatch, tmp_path / "b.h5")
     native, host = found["native"], found["host"]
     assert native["error"] is not None and native["error"][0] is ResponseBudgetError
     # Within one build both marches round alike (SEP 39 4.9): the same calls stop the
@@ -398,9 +476,7 @@ def test_the_floor_stops_both_marches_at_the_same_step(
         )
         return simulation
 
-    found = two_marches(
-        build, monkeypatch, lambda simulation: simulation.run(tmp_path / "f.h5")
-    )
+    found = two_marches(build, monkeypatch, tmp_path / "f.h5")
     native, host = found["native"], found["host"]
     assert native["error"] is not None and native["error"][0] is ConvergenceError
     assert "below the floor" in native["error"][1]
@@ -409,9 +485,7 @@ def test_the_floor_stops_both_marches_at_the_same_step(
 
 def test_both_marches_take_the_same_steps(build_simulation, tmp_path, monkeypatch):
     build = soliton(build_simulation, "native")
-    found = two_marches(
-        build, monkeypatch, lambda simulation: simulation.run(tmp_path / "s.h5")
-    )
+    found = two_marches(build, monkeypatch, tmp_path / "s.h5")
     assert found["native"]["error"] is None
     assert_same_stop(found["native"], found["host"])
 
