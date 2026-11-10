@@ -1806,8 +1806,15 @@ monitor and holds the march's predictions to (`BackendError` on a difference). T
 so that they round as solprop's do; within one build the two marches take the same
 steps. A configuration it does not cover runs solprop's march on the same engine with a
 `HostMarchWarning`, and the metadata's `adams_march` says which stepped a run. The
-private environment variable `SOLPROP_ADAMS_MARCH=host`, read at import, selects
-solprop's march for an A/B comparison.
+host marches are no longer production modes ([SEP 47](seps/sep-0047-run-ownership.md)
+§6.3): the environment variables `SOLPROP_ADAMS_MARCH`, `SOLPROP_RK_MARCH` and
+`SOLPROP_RK_ROWS` and the backend's `adams_march` keyword are gone, and only a test or
+a diagnostic benchmark arm (`benchmarks.adams_host --host-march`) selects solprop's
+march, through the module's test interface (`_ADAMS_MARCH`, `_RK_MARCH`, `_RK_ROWS`),
+which sends the run to the transitional bridge. Every representation the translation
+forms is read by the native stage tables (a z table on CPU builds only, which device
+builds refuse), so no admitted run has stage rows the host forms; a problem stripped of
+its representation's leaves is refused by name at admission (`host_rows_refusal`).
 
 **Resident Adams storage.** `native` allocates dense-output storage only when
 `interpolate_planes=True`. For maximum predictor order `q`, its ordinary resident
@@ -1879,7 +1886,7 @@ that execution space.
 | coupled flow: `"cf4"` sections | yes | refused | refused |
 | the dispersive electronic response (`responses.dispersive_kerr`) | every route | every route | qualified on one AMD Instinct device (HIP) and one NVIDIA Hopper device (CUDA) |
 | the low-call Adams integrator (`StepperSettings.integrator`), both formulations | yes | every route, the history resident; beside a coupled flow the exponential formulation alone, on constant-Schur and frozen-residual sections, the history resident when every bin takes the flow's eigenbasis and it has at most 16 channels, and otherwise solprop's march with a `HostMarchWarning` | qualified |
-| the Adams carrier frame (`Multistep(carrier_frame="scalar")`, SEP 35) | every guided route; free space refused | CPU builds, resident; device builds refused | refused by name |
+| the Adams carrier frame (`Multistep(carrier_frame="scalar")`, SEP 35) | every guided route; free space refused | CPU builds, resident, on every representation of the operator (a z table's chord carried as its own scalar table, #255); device builds refused | refused by name |
 | the low-storage RK4IP march (`LowStorageRungeKutta`), replay-only | every diagonal-flow route | every diagonal-flow route, a resident engine whose step is one native call | flows recomputed per element; qualified under HIP, not under CUDA |
 | moving solid guide (moving maps beside a frozen-residual flow) | yes | yes | qualified |
 | fixed-schedule lockstep batches (no coupled flow) | fibre and general guides | fibre and general guides | fibre and general guides |

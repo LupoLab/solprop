@@ -10,7 +10,6 @@ import dataclasses
 import functools
 import logging
 import math
-import os
 import time
 import types
 import warnings
@@ -352,7 +351,6 @@ class NativeBackend(StepDriver[_core.State]):
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
         profiles: Mapping[str, ZProfile] | None = None,
-        adams_march: Literal["native", "host"] = "native",
         cpu_execution: ExecutionRecord | None = None,
         fft_planning: Mapping[str, object] | None = None,
         far_field: FarFieldTables | None = None,
@@ -368,6 +366,12 @@ class NativeBackend(StepDriver[_core.State]):
         # build refuses it, naming the table's size and the CPU backends.
         if not problem.device_ready and _on_device():
             require_device_ready(problem, "native")
+        # solprop SEP 47 section 6.3: the native stage tables read every
+        # representation the translation forms; one they do not read is refused here,
+        # before anything is allocated, not stepped with rows the host forms.
+        refused = host_rows_refusal(problem)
+        if refused is not None:
+            raise BackendError(refused)
         super().__init__(
             problem, request, grid=grid, modes=modes, profiles=profiles, options=options
         )
@@ -496,7 +500,7 @@ class NativeBackend(StepDriver[_core.State]):
         integrator = stepper.integrator
         self._resident: _ResidentAdams | None = None
         self._adams = (
-            _NativeAdamsMarch(self, integrator, march=adams_march)
+            _NativeAdamsMarch(self, integrator)
             if isinstance(integrator, Multistep)
             else None
         )
@@ -2884,9 +2888,10 @@ def _chord_tables(carrier: CarrierReference | None) -> dict[str, object]:
     """Return the carrier frame's chord as the native stage tables take it.
 
     The imaginary part of the reference element's operator for the one batch member
-    (`CarrierChord`): a constant's rate, or an expansion's terms over the ``Phi``
-    weights the tables already hold. None without an active frame, and none for a z
-    table's chord, whose run steps solprop's march.
+    (`CarrierChord`): a constant's rate, an expansion's terms over the ``Phi`` weights
+    the tables already hold, or a z table's reference-element column as a scalar table
+    of its own (solprop issue #255), packed as its batch pass reads it. None without an
+    active frame.
     """
     chord = None if carrier is None or not carrier.active else carrier.chord
     if chord is not None and chord.constant is not None:
@@ -2894,11 +2899,28 @@ def _chord_tables(carrier: CarrierReference | None) -> dict[str, object]:
             "chord": 1,
             "chord_rate": float(np.imag(chord.constant)[0]),
             "chord_terms": [],
+            "chord_table": None,
         }
     if chord is not None and chord.expansion is not None:
         terms = np.imag(np.asarray(chord.expansion.terms))[:, 0]
-        return {"chord": 2, "chord_rate": 0.0, "chord_terms": terms.tolist()}
-    return {"chord": 0, "chord_rate": 0.0, "chord_terms": []}
+        return {
+            "chord": 2,
+            "chord_rate": 0.0,
+            "chord_terms": terms.tolist(),
+            "chord_table": None,
+        }
+    if chord is not None and chord.table is not None:
+        edges, lower, upper, coefficients = chord.table.packed()
+        # The one batch member's column: the imaginary part a complex Clenshaw pass
+        # forms at a real position, by the same operations (`stage::chord`).
+        column = np.ascontiguousarray(np.imag(coefficients[:, :, :1]))
+        return {
+            "chord": 3,
+            "chord_rate": 0.0,
+            "chord_terms": [],
+            "chord_table": (edges, lower, upper, column),
+        }
+    return {"chord": 0, "chord_rate": 0.0, "chord_terms": [], "chord_table": None}
 
 
 def _on_device() -> bool:
@@ -2992,16 +3014,18 @@ def _low_storage_payload(
     }
 
 
-_ADAMS_MARCH = os.environ.get("SOLPROP_ADAMS_MARCH", "native")
-_RK_ROWS = os.environ.get("SOLPROP_RK_ROWS", "native")
-_RK_MARCH = os.environ.get("SOLPROP_RK_MARCH", "native")
-"""``host`` steps a Runge-Kutta run with solprop's loop instead of the native march
-(solprop SEP 45 phase 3): a private switch for comparisons, read at import."""
-"""``host`` packs a Runge-Kutta trial's rows and reduces its norm on the host, as before
-solprop SEP 45 phase 2: a private switch for comparisons, read at import."""
-"""Which march steps an admitted exponential ``Multistep()`` run: ``"native"``, or
-``"host"`` for solprop's Python march (solprop SEP 39 section 5). A private switch for
-the benchmark harness's A/B comparisons, read once at import."""
+_ADAMS_MARCH: Literal["native", "host"] = "native"
+"""``"host"`` steps an admitted exponential ``Multistep()`` run with solprop's Python
+march instead of the native one (solprop SEP 39 section 5). A test interface, not a
+production mode (solprop SEP 47 section 6.3): no environment variable or keyword sets
+it; a diagnostic test or benchmark arm sets the attribute in its own process, and the
+native session then leaves the run to the transitional bridge."""
+_RK_ROWS: Literal["native", "host"] = "native"
+"""``"host"`` packs a Runge-Kutta trial's rows and reduces its norm on the host, as
+before solprop SEP 45 phase 2. A test interface, as `_ADAMS_MARCH` is."""
+_RK_MARCH: Literal["native", "host"] = "native"
+"""``"host"`` steps a Runge-Kutta run with solprop's loop instead of the native march
+(solprop SEP 45 phase 3). A test interface, as `_ADAMS_MARCH` is."""
 
 _MARCH_COUNTERS = (
     "startup",
@@ -3081,56 +3105,82 @@ def stage_tables_available(problem: PropagationProblem) -> bool:
     return phi and prefactor
 
 
+def host_rows_refusal(problem: PropagationProblem) -> str | None:
+    """Return why the native stage tables cannot read a problem's rows, or ``None``.
+
+    Every representation the translation forms -- a constant, an expansion, a
+    separable operator's, and on a CPU build a z table -- is one the native state reads
+    from its stage tables (:func:`stage_tables_available`); a device build refuses a z
+    table before this is asked. What is left is a problem built by hand with a
+    representation and no leaves for it, which no built-in configuration reaches: the
+    backend refuses it by name at admission (solprop SEP 47 section 6.3) rather than
+    stepping it with rows the host forms.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The problem.
+
+    Returns
+    -------
+    str or None
+        The refusal, naming the representation, or ``None``.
+    """
+    if stage_tables_available(problem):
+        return None
+    linear, responses = problem.linear, problem.responses
+    parts = []
+    if not (
+        (not problem.device_ready and linear.phi_representation == "table")
+        or linear.separable is not None
+        or linear.phi_constant is not None
+        or linear.phi_expansion is not None
+    ):
+        parts.append(f"the operator's {linear.phi_representation!r} representation")
+    if not parts:
+        parts.append(
+            f"the prefactor's {responses.prefactor_representation!r} representation"
+        )
+    return (
+        f"solprop-native does not read {parts[0]} in its stage tables: it holds no "
+        "leaves the native state evaluates (solprop SEP 47 section 6.3); use "
+        "backend='numpy_ref'"
+    )
+
+
 def native_march_refusal(
     problem: PropagationProblem, stepper: StepperSettings
 ) -> str | None:
     """Return why the backend would step a run's march on the host, or ``None``.
 
     ``_NativeAdamsMarch._native_refusal`` and ``_NativeRungeKuttaMarch.refusal``,
-    decided from the problem alone (solprop SEP 47 section 5.2): the private host
-    switches; for Adams, a formulation without a resident engine, a coupled flow off
-    the eigenbasis route or wider than :data:`ADAMS_MAX_CHANNELS`, stage rows the host
-    forms, and the carrier frame on a z table; for Runge-Kutta, stage rows the host
-    forms. A controller overriding a decision is refused by its caller.
+    decided from the problem alone (solprop SEP 47 section 5.2): the host marches the
+    backend's test interface asks for; for Adams, a coupled flow off the eigenbasis
+    route or wider than :data:`ADAMS_MAX_CHANNELS`, and a carrier frame with no chord.
+    A controller overriding a decision is refused by its caller. What the backend
+    refuses at admission is not asked here: a comparison variant without a resident
+    engine (``_refuse_adams``) and stage rows the native tables do not read
+    (:func:`host_rows_refusal`).
     """
     integrator = stepper.integrator
-    staged = stage_tables_available(problem)
     if isinstance(integrator, Multistep):
         if _ADAMS_MARCH == "host":
-            return "the private switch asked for the host Adams march"
-        exponential = integrator.formulation == "exponential"
-        fused = not exponential and (
-            integrator.corrector == "pec"
-            and all(
-                integrator.corrector_nodes(order) == order + 1
-                for order in range(1, integrator.order + 1)
-            )
-        )
+            return "the test interface asked for the host Adams march"
         flow = problem.linear.coupled_flow
-        route_off = flow is not None and (
-            not exponential
+        if flow is not None and (
+            integrator.formulation != "exponential"
             or not bool(np.all(_host_flow(problem).route))  # pyright: ignore[reportOptionalMemberAccess]
             or problem.shape[0] > ADAMS_MAX_CHANNELS
-        )
-        if not (exponential or fused):
-            return "the host engine, which steps a formulation with no resident engine"
-        if route_off:
+        ):
             return (
                 "the host engine, which steps a coupled flow off the eigenbasis "
                 "route or wider than 16 channels"
             )
-        if not staged:
-            return (
-                "an operator or prefactor representation the native stage tables do "
-                "not read"
-            )
         carrier = carrier_reference(problem, integrator)
-        if carrier is not None and carrier.active:
-            chord = carrier.chord
-            if chord is None or chord.table is not None:
-                return "the carrier frame on a z table"
+        if carrier is not None and carrier.active and carrier.chord is None:
+            return "the carrier frame on an operator with no chord"
         return None
-    if _RK_MARCH == "host" or _RK_ROWS == "host" or not staged:
+    if _RK_MARCH == "host" or _RK_ROWS == "host":
         return "a trial whose stage rows the host forms"
     return None
 
@@ -3250,7 +3300,7 @@ class _NativeAdamsMarch(AdamsMarch):
     a signal and a stop wait for the call in hand, at most its bound and one attempt.
 
     A configuration the native march does not cover runs the Python march
-    (:attr:`refusal`), with a warning unless the private switch asked for it.
+    (:attr:`refusal`), with a warning unless the test interface asked for it.
     """
 
     MAX_ATTEMPTS: ClassVar[int] = 256
@@ -3264,7 +3314,6 @@ class _NativeAdamsMarch(AdamsMarch):
         backend: StepDriver[Any],
         method: Multistep,
         *,
-        march: Literal["native", "host"] = "native",
         runner: _MarchRunner | None = None,
         kernels: AdamsKernels | None = None,
         exponential: ExponentialKernels | None = None,
@@ -3282,7 +3331,7 @@ class _NativeAdamsMarch(AdamsMarch):
         self._driver: Any = backend
         self._runner = runner
         self._configured: tuple[float | None] | None = None
-        refusal, warn = self._native_refusal(march)
+        refusal, warn = self._native_refusal()
         self.refusal = refusal
         """Why the Python march steps the run, or ``None`` when the native one does."""
         if refusal is not None and warn:
@@ -3300,10 +3349,10 @@ class _NativeAdamsMarch(AdamsMarch):
         """Whether the native march steps the run."""
         return self.refusal is None
 
-    def _native_refusal(self, march: str) -> tuple[str | None, bool]:
+    def _native_refusal(self) -> tuple[str | None, bool]:
         """Return why the native march does not step the run, and whether to warn."""
-        if march == "host" or _ADAMS_MARCH == "host":
-            return "the private switch asked for it", False
+        if _ADAMS_MARCH == "host":
+            return "the test interface asked for it", False
         engine = self._engine
         if self._runner is not None:
             return None, False
@@ -3317,13 +3366,12 @@ class _NativeAdamsMarch(AdamsMarch):
         resident = (
             (
                 not engine.staged,
-                "an operator or prefactor representation the native stage tables "
-                "do not read",
+                "stage tables withheld by the test interface",
             ),
             (not engine.device_scale, "a controller with a norm scale of its own"),
             (
-                self._policy.carrier and (chord is None or chord.table is not None),
-                "the carrier frame on a z table",
+                self._policy.carrier and chord is None,
+                "the carrier frame on an operator with no chord",
             ),
         )
         for failed, reason in resident:
@@ -3701,7 +3749,7 @@ class _NativeRungeKuttaMarch:
     def refusal(backend: NativeBackend) -> tuple[str | None, bool]:
         """Return why the native march does not step a run, and whether to warn."""
         if _RK_MARCH == "host":
-            return "the private switch asked for it", False
+            return "the test interface asked for it", False
         driver: Any = backend
         stepper = driver._stepper
         controller: PIController = stepper.controller

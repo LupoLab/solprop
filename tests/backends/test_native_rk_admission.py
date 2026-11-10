@@ -6,8 +6,9 @@
 
 The native march steps an adaptive run on staged rows with ``PIController``'s weak norm;
 any other configuration runs solprop's loop with a ``HostMarchWarning`` that names the
-reason, and the run's metadata records which loop stepped it. The private switch the
-benchmark harness uses selects solprop's loop without a warning.
+reason, and the run's metadata records which loop stepped it. The backend's test
+interface (``solprop_native.backend._RK_MARCH``) selects solprop's loop without a
+warning.
 """
 
 import dataclasses
@@ -106,7 +107,7 @@ def test_an_uncovered_run_takes_the_host_loop_and_says_why(route, settings, reas
         backend.close()
 
 
-def test_the_private_switch_is_silent(monkeypatch):
+def test_the_test_interface_is_silent(monkeypatch):
     monkeypatch.setattr(backend_module, "_RK_MARCH", "host")
     backend = launched("gnlse")
     try:

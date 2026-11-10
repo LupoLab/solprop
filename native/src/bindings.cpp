@@ -834,9 +834,16 @@ native::stage::Tables stage_tables_from(const nb::dict values) {
     tables.plasma_preionisation = stage_table_list(values["plasma_preionisation"]);
     tables.raman_densities = stage_table_list(values["raman_densities"]);
     tables.dispersive_densities = stage_table_list(values["dispersive_densities"]);
-    tables.chord = static_cast<native::stage::Chord>(nb::cast<int>(values["chord"]));
+    const int chord = nb::cast<int>(values["chord"]);
+    if (chord < static_cast<int>(native::stage::Chord::none) ||
+        chord > static_cast<int>(native::stage::Chord::table))
+      throw std::invalid_argument("the stage tables are inconsistent: chord kind " +
+                                  std::to_string(chord) + " is unknown");
+    tables.chord = static_cast<native::stage::Chord>(chord);
     tables.chord_rate = nb::cast<double>(values["chord_rate"]);
     tables.chord_terms = nb::cast<std::vector<double>>(values["chord_terms"]);
+    if (values.contains("chord_table"))
+      tables.chord_table = stage_table_from(values["chord_table"]);
     tables.flow.edges = nb::cast<std::vector<double>>(values["flow_edges"]);
     tables.flow.degrees = nb::cast<std::size_t>(values["flow_degrees"]);
     tables.flow.slack = nb::cast<double>(values["flow_slack"]);
@@ -864,6 +871,8 @@ native::stage::Tables stage_tables_from(const nb::dict values) {
       tables.plasma_densities.size() != tables.plasma_preionisation.size() ||
       (tables.chord == native::stage::Chord::expansion &&
        (!expansion || tables.chord_terms.size() != tables.phi_weights.n_values)) ||
+      (tables.chord == native::stage::Chord::table &&
+       (!tables.chord_table.present() || tables.chord_table.n_values != 1)) ||
       (tables.flow.present() && tables.flow.edges.size() < 2) ||
       (tables.transform.present() && tables.transform.edges.size() < 2))
     throw std::invalid_argument("the stage tables are inconsistent");

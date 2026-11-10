@@ -149,7 +149,6 @@ from .backend import (
     _NativeRungeKuttaMarch,  # pyright: ignore[reportPrivateUsage]
     _on_device,  # pyright: ignore[reportPrivateUsage]
     native_march_refusal,
-    stage_tables_available,
 )
 
 if TYPE_CHECKING:
@@ -279,10 +278,7 @@ def refusal(
         return "a controller with its own " + ", ".join(overridden)
     if tdse_descriptor(problem.route) is not None:
         return "a TDSE response"
-    if isinstance(method, LowStorageRungeKutta):
-        if not stage_tables_available(problem):
-            return "a low-storage step whose stage rows the host forms"
-    else:
+    if not isinstance(method, LowStorageRungeKutta):
         march = native_march_refusal(problem, request.stepper)
         if march is not None:
             return march
@@ -339,10 +335,13 @@ def backend_refusal(backend: NativeBackend) -> str | None:
     """Return why a built backend would step its march on the host, or ``None``.
 
     :func:`refusal` decides before the backend is built; the backend's own march
-    adapter decides once it is, from the engine it was given and the private host
-    switches (``SOLPROP_ADAMS_MARCH``, ``SOLPROP_RK_MARCH``). A run either refuses is
-    served by the transitional session over the backend's own march, never by this
-    one. Nothing is loaded or changed.
+    adapter decides once it is, from the engine it was given and its test interface
+    (``_ADAMS_MARCH``, ``_RK_MARCH``, ``_RK_ROWS``, or stage tables a test withholds;
+    solprop SEP 47 section 6.3 retires them as production modes). A run either
+    refuses is served by the transitional session over the backend's own march, never
+    by this one. Nothing about the run changes, but a Runge-Kutta or low-storage
+    backend asked for the first time uploads its stage tables to the native state
+    (``NativeBackend._staged_rows``), as its march would on its first trial.
 
     Parameters
     ----------

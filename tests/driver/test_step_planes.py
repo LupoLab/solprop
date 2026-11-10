@@ -51,7 +51,7 @@ which the native backend runs for a configuration its march does not cover."""
 def on_march(monkeypatch, march):
     """Select solprop's Python march on the native backend when `march` is ``"host"``.
 
-    The native backend's private switches select it without a warning, for the
+    The native backend's test interface selects it without a warning, for the
     Runge-Kutta and the Adams march alike.
     """
     if march is not None:
