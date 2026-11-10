@@ -10,6 +10,7 @@
 #include "solprop_native/envelope_plasma.hpp"
 #include "solprop_native/far_field.hpp"
 #include "solprop_native/fft_plan.hpp"
+#include "solprop_native/flow_functions.hpp"
 #include "solprop_native/fp.hpp"
 #include "solprop_native/gemm.hpp"
 #include "solprop_native/general_modal.hpp"
@@ -36,6 +37,7 @@
 #include <complex>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <limits>
 #include <span>
@@ -2433,6 +2435,8 @@ public:
                           const std::vector<double>& divisor, const TrialScalars& step,
                           const TrialScalars& sample, const std::vector<double>& rate);
   void adams_rate(const std::vector<double>& rate, const ComplexView2& out);
+  void adams_fallback_squarings(std::size_t section, double dz,
+                                const ExponentialWeights& weights);
   // A trial's `rows` norms: its reduction over `policy` into the pinned buffer, then
   // the trial's one fence, on the reduction's own instance. A reduction into memory the
   // device writes returns before it completes.
@@ -3039,6 +3043,10 @@ public:
   // beside a block wider than `adams_max_channels` (solprop SEP 47 phase 4); empty
   // otherwise, when a host task holds them on its stack.
   ComplexView2 adams_channels_;
+  // A host's functions of the bins off the flow's eigenbasis route, `(n_fallback,
+  // augmented_blocks(slots), n_modes, n_modes)`: the augmented exponential's first
+  // block row and its scratch, per bin (solprop SEP 47 phase 4); empty otherwise.
+  Kokkos::View<Complex****, Layout, MemorySpace> adams_fallback_;
   // A frozen-residual flow's generator at each sample applied to its state, `G(z_j)
   // u_j`, formed once per sample; the trial's at its end, and the weights it is formed
   // from. A trial forms `R_s(z_j) u_j = G(z_j) u_j - G_s u_j` against its own section.
@@ -6373,9 +6381,24 @@ void GeneralWorkspace::adams_allocate(const std::size_t slots, const bool compen
   // Beside a coupled flow the trial's block functions, and a frozen-residual flow's
   // weights per sample, live beside the history (solprop SEP 16 phase 6).
   if (flow_) {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     if (!flow_->full_route())
       throw std::logic_error("the resident Adams engine needs every coupled bin on the "
-                             "flow's eigenbasis route");
+                             "flow's eigenbasis route on a device");
+#else
+    if (!flow_->forms_actions())
+      throw std::logic_error("the resident Adams engine needs the flow's eigenbasis "
+                             "and route");
+    // A bin off the route takes the augmented exponential, per bin.
+    const auto off = flow_->n_fallback();
+    const auto blocks = flow_functions::augmented_blocks(slots);
+    if (off == 0)
+      adams_fallback_ = {};
+    else if (adams_fallback_.extent(0) != off || adams_fallback_.extent(1) != blocks)
+      adams_fallback_ = Kokkos::View<Complex****, Layout, MemorySpace>(
+          "solprop_native.adams.fallback_functions", off, blocks, problem_.n_modes,
+          problem_.n_modes);
+#endif
     if (columns != problem_.n_modes)
       throw std::logic_error("the resident Adams engine steps a coupled block of one "
                              "batch row");
@@ -8568,6 +8591,57 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
   return norms;
 }
 
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+// Refuse a trial whose bins off the flow's eigenbasis route would need more squarings
+// than solprop's reference admits for a flow action (solprop SEP 47 phase 4): the
+// augmented exponential of each bin's shifted block for the moments, and the block's
+// own `span dz T` for each carried sample. Before any pass of the trial moves the
+// state, so a refusal leaves the accepted step as it was.
+void GeneralWorkspace::adams_fallback_squarings(const std::size_t section,
+                                                const double dz,
+                                                const ExponentialWeights& weights) {
+  const auto slots = flow_->block_slots();
+  const auto route = flow_->route();
+  const auto triangular = flow_->fallback_triangular();
+  const auto exponent = adams_exponent_;
+  const auto modes = problem_.n_modes;
+  const std::size_t count = weights.count;
+  int needed = 0;
+  launch::parallel_reduce(
+      "solprop_native.adams.fallback_squarings",
+      Kokkos::RangePolicy<ExecutionSpace>(flow_execution_space_, 0, problem_.n_omega),
+      KOKKOS_LAMBDA(const std::size_t index, int& most) {
+        const auto one = slots(index);
+        if (one == 0)
+          return;
+        const auto path = route(section, one - 1);
+        if (path == 0)
+          return;
+        const Complex argument = adams_moment_argument(weights, exponent(0, index));
+        int squarings = flow_functions::augmented_squarings(argument, dz, triangular,
+                                                            path - 1, modes, count);
+        if (weights.compensated)
+          for (std::size_t t = 0; t + 1 < weights.width; ++t) {
+            const int carry = flow_functions::augmented_squarings(
+                Complex{}, weights.span[t] * dz, triangular, path - 1, modes, 0);
+            squarings = carry > squarings ? carry : squarings;
+          }
+        most = squarings > most ? squarings : most;
+      },
+      Kokkos::Max<int>(needed));
+  if (needed > flow_functions::max_squarings) {
+    std::array<char, 32> length{};
+    std::snprintf(length.data(), length.size(), "%.4g", dz);
+    throw BackendRefusal(
+        std::string("native cannot take the flow and moments of a coupled flow's bin "
+                    "off its eigenbasis route over a step of ") +
+        length.data() + " m: its exponent would need more than " +
+        std::to_string(flow_functions::max_squarings) +
+        " squarings, the most this backend admits. Cap dz_max");
+  }
+}
+#endif
+
 std::vector<double> GeneralWorkspace::adams_exponential_trial(
     const double dz, const ExponentialWeights& weights,
     const std::vector<double>& divisor, const TrialScalars& step,
@@ -8622,12 +8696,22 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
         for (std::size_t k = 0; k < count; ++k)
           moments(k, column, index) = adams_factorial(k) * phi[k + 1];
       });
-  // The block's flow and moments, W f(x + h lambda) Y from the section's eigenbasis,
-  // every bin on its route (adams_allocate refuses a flow with a bin off it).
+  // The block's flow and moments, W f(x + h lambda) Y from the section's eigenbasis on
+  // its route; a host forms a bin off it from its Schur factors by the augmented
+  // exponential (`flow_functions`), and a device refuses such a flow (adams_allocate).
   const auto block = adams_block_;
   // A host's channel vectors of a block wider than `adams_max_channels`.
   [[maybe_unused]] const auto channels = adams_channels_;
   const auto modes = problem_.n_modes;
+  // The bins off the eigenbasis route, on a host (solprop SEP 47 phase 4).
+  [[maybe_unused]] const auto route = flow_->route();
+  [[maybe_unused]] const auto fallback_vectors = flow_->fallback_vectors();
+  [[maybe_unused]] const auto fallback_triangular = flow_->fallback_triangular();
+  [[maybe_unused]] const auto fallback = adams_fallback_;
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  if (flow_->falls_back(section))
+    adams_fallback_squarings(section, dz, weights);
+#endif
   const auto left = flow_->left();
   const auto right = flow_->right();
   const auto eigenvalues = flow_->eigenvalues();
@@ -8678,6 +8762,44 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
         if (one == 0)
           return;
         const auto bin = one - 1;
+        const auto path = route(section, bin);
+        if (path != 0) {
+          // Off the eigenbasis route: the first block row of the augmented
+          // exponential of the shifted block, carried back by Z, the moments
+          // scaled by k! and the flow by the carrier's exp(sigma) (solprop's
+          // `coupled_moments`).
+          const auto f = path - 1;
+          const Complex argument = adams_moment_argument(weights, exponent(0, index));
+          flow_functions::augmented_row(
+              argument, dz, fallback_triangular, f, modes, count,
+              flow_functions::augmented_squarings(argument, dz, fallback_triangular, f,
+                                                  modes, count),
+              fallback, f);
+          const Complex factor = weights.shifted
+                                     ? exponential(Complex(0.0, weights.shift))
+                                     : Complex(1.0, 0.0);
+          const auto product = count + 1;
+          for (std::size_t k = 0; k <= count; ++k) {
+            for (std::size_t i = 0; i < modes; ++i)
+              for (std::size_t j = 0; j < modes; ++j) {
+                Complex total{};
+                for (std::size_t m = 0; m <= j; ++m)
+                  total += fallback_vectors(f, i, m) * fallback(f, k, m, j);
+                fallback(f, product, i, j) = total;
+              }
+            const Complex scale =
+                k == 0 ? factor : Complex(adams_factorial(k - 1), 0.0);
+            for (std::size_t i = 0; i < modes; ++i)
+              for (std::size_t j = 0; j < modes; ++j) {
+                Complex total{};
+                for (std::size_t m = 0; m < modes; ++m)
+                  total += fallback(f, product, i, m) *
+                           Kokkos::conj(fallback_vectors(f, j, m));
+                block(k, bin, i, j) = scale * total;
+              }
+          }
+          return;
+        }
         const Complex shift = exponent(0, index);
         // Eigenvalue m's functions at `values + m (adams_max_samples + 1)`.
         constexpr std::size_t stride = adams_max_samples + 1;
@@ -8794,6 +8916,41 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
               if (one == 0) {
                 for (std::size_t i = 0; i < modes; ++i)
                   term[i] = exponential(span * exponent(i, index)) * term[i];
+              } else if (const auto path = route(section, one - 1); path != 0) {
+                // Off the eigenbasis route, the reference's flow matrix
+                // Z exp(span x) Z^H with x = shift I + dz T, the shift's exponential
+                // apart: exp(span shift) Z exp(span dz T) Z^H, then applied.
+                const auto f = path - 1;
+                const double length = span * dz;
+                flow_functions::augmented_row(
+                    Complex{}, length, fallback_triangular, f, modes, 0,
+                    flow_functions::augmented_squarings(
+                        Complex{}, length, fallback_triangular, f, modes, 0),
+                    fallback, f);
+                const Complex factor = exponential(span * exponent(0, index));
+                for (std::size_t i = 0; i < modes; ++i)
+                  for (std::size_t j = 0; j < modes; ++j) {
+                    Complex total{};
+                    for (std::size_t m = 0; m <= j; ++m)
+                      total += fallback_vectors(f, i, m) * fallback(f, 0, m, j);
+                    fallback(f, 1, i, j) = total;
+                  }
+                for (std::size_t i = 0; i < modes; ++i)
+                  for (std::size_t j = 0; j < modes; ++j) {
+                    Complex total{};
+                    for (std::size_t m = 0; m < modes; ++m)
+                      total += fallback(f, 1, i, m) *
+                               Kokkos::conj(fallback_vectors(f, j, m));
+                    fallback(f, 2, i, j) = factor * total;
+                  }
+                for (std::size_t i = 0; i < modes; ++i) {
+                  Complex value{};
+                  for (std::size_t j = 0; j < modes; ++j)
+                    value += fallback(f, 2, i, j) * term[j];
+                  rotated[i] = value;
+                }
+                for (std::size_t i = 0; i < modes; ++i)
+                  term[i] = rotated[i];
               } else {
                 const auto bin = one - 1;
                 const Complex shift = exponent(0, index);
@@ -16917,8 +17074,8 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
         adams_dense_end_.size() + adams_dense_exponent_.size() + adams_states_.size() +
         adams_rates_.size() + adams_carried_.size() + adams_dense_terms_.size() +
         adams_lab_.size() + adams_endpoint_.size() + adams_endpoint_rate_.size() +
-        adams_block_.size() + adams_channels_.size() + adams_applied_.size() +
-        adams_end_applied_.size()) *
+        adams_block_.size() + adams_channels_.size() + adams_fallback_.size() +
+        adams_applied_.size() + adams_end_applied_.size()) *
                complex_bytes +
            (adams_divisor_.size() + adams_rate_weights_.size() +
             adams_end_weights_.size() + adams_scale_weights_.size() +
@@ -17192,6 +17349,7 @@ void GeneralWorkspace::close() noexcept {
   adams_rate_weights_ = {};
   adams_block_ = {};
   adams_channels_ = {};
+  adams_fallback_ = {};
   adams_applied_ = {};
   adams_end_applied_ = {};
   adams_end_weights_ = {};
