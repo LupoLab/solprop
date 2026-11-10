@@ -38,7 +38,7 @@ from sessions.executors import (
 from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
 from solprop.backends.registry import select
-from solprop.exceptions import SolpropError, TranslationError
+from solprop.exceptions import BackendError, SolpropError, TranslationError
 from solprop.stats import (
     CATALOGUE,
     PLASMA_INTEGRATION_STATISTICS,
@@ -462,6 +462,30 @@ def test_the_plasma_and_weight_statistics_are_native():
 
 
 PROFILES = ("energy", "density", "pressure", "core_radius")
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+def test_a_profile_table_short_of_the_target_is_the_closest_within_the_tolerance(
+    monkeypatch,
+):
+    """A lowered profile no builder tolerance brings to ``1e-13`` of its scale (the
+    platform's libm sets the last bits it is measured against) takes the closest table
+    within :data:`PROFILE_TOLERANCE`, its error recorded; beyond it, refused by name."""
+    from solprop.profiles import PiecewiseLinear  # noqa: PLC0415
+
+    _, problem, run_request, _, _ = _capillary()
+    profile = PiecewiseLinear(
+        np.array([0.0, 1.3e-3, 3e-3]), np.array([125e-6, 119e-6, 122e-6])
+    )
+    z_end = float(run_request.observation.save_planes[-1])
+    lowered = native_statistics._lowered_profile_table
+    monkeypatch.setattr(native_statistics, "_FIT_TARGET", 0.0)
+    _, record = lowered(problem, "core_radius", profile, z_end)
+    assert record["source"] == "lowered profile"
+    assert 0.0 < record["relative_error"] <= native_statistics.PROFILE_TOLERANCE
+    monkeypatch.setattr(native_statistics, "PROFILE_TOLERANCE", 0.0)
+    with pytest.raises(BackendError, match="the core_radius statistic: its profile"):
+        lowered(problem, "core_radius", profile, z_end)
 
 
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")

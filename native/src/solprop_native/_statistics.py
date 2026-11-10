@@ -21,7 +21,9 @@ tables reproduces the profile at rounding level; otherwise the profile itself is
 lowered at preparation over the propagation's span, the whole run and the tables'
 margin past its end (it holds its end value outside its own span), with its declared
 breakpoints as mandatory edges, refined until its measured error on a dense check set
-is at rounding level (:data:`PROFILE_TOLERANCE`), or refused by name. Either way the
+is at rounding level (``1e-13`` of its scale, or the closest table within
+:data:`PROFILE_TOLERANCE` when the platform's libm leaves none that close), or refused
+by name. Either way the
 measured error is recorded (:attr:`StatisticsLowering.tables`) and reaches the run's
 execution record under ``statistics_tables``: it is what separates a native profile
 statistic from the profile's own value, planes and rows alike. The metric statistics
@@ -160,15 +162,22 @@ _RESPONSE = (
     "core_radius",
 )
 
-PROFILE_TOLERANCE = 1e-13
+PROFILE_TOLERANCE = 1e-12
 """The largest error a profile statistic's table may carry, relative to the profile's
-largest magnitude on the run, measured on the check set."""
+largest magnitude on the run, measured on the check set: a few thousand units of
+roundoff of that scale. The measurement compares against the profile evaluated through
+the platform's libm, whose last bits differ between platforms; a tolerance of ``1e-13``
+held on one and refused the same capillary's density at ``1.14e-13`` on another."""
 
 _CHECK_POINTS = 4097
 """Uniform positions of a profile table's check set, beside its knots and midpoints."""
 
 _FIT_TOLERANCES = (1e-12, 1e-13, 1e-14)
 """The builder tolerances tried, in turn, for a profile no problem table reproduces."""
+
+_FIT_TARGET = 1e-13
+"""The relative error at which a lowered table is taken at once; failing it on every
+builder tolerance, the closest table is taken if within :data:`PROFILE_TOLERANCE`."""
 
 _PROFILE_NAMES = ("density", "pressure", "core_radius")
 
@@ -748,7 +757,7 @@ def _lowered_profile_table(
         }
 
     def acceptable(error: float, scale: float) -> bool:
-        return error <= PROFILE_TOLERANCE * scale
+        return error <= _FIT_TARGET * scale
 
     for source, table in _walk_tables(problem):  # pyright: ignore[reportPrivateUsage]
         if not _covers(table, start, end):
@@ -758,13 +767,19 @@ def _lowered_profile_table(
         if acceptable(error, scale):
             return table, record(source, error, scale, check.size)
     best = math.inf
+    closest: tuple[PiecewiseChebyshev, dict[str, object]] | None = None
     for tolerance in _FIT_TOLERANCES:
         table = profile_table(profile, lower, upper, tol=tolerance)
         check = _check_set(profile, start, end, np.asarray(table.breakpoints))
         error, scale = _measured(table, profile, check)
-        if acceptable(error, scale):
+        relative = error / scale if scale > 0.0 else math.inf
+        if error <= _FIT_TARGET * scale:
             return table, record("lowered profile", error, scale, check.size)
-        best = min(best, error / scale if scale > 0.0 else math.inf)
+        if relative < best:
+            best = relative
+            closest = (table, record("lowered profile", error, scale, check.size))
+    if closest is not None and best <= PROFILE_TOLERANCE:
+        return closest
     msg = (
         f"the {name} statistic: its profile cannot be tabulated to rounding level "
         f"over the run (best measured relative error {best:.3g}, above "

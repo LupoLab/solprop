@@ -14,6 +14,7 @@ the per-bin bound, which the C++ test holds only to ``norm(lT) <= 2`` at a fixed
 eps.
 """
 
+import weakref
 from dataclasses import replace
 from functools import partial
 
@@ -133,6 +134,11 @@ def test_the_flow_s_actions_are_the_reference_s_within_the_formation_bound(
     if route == "scaling_and_squaring":
         monkeypatch.setattr(
             "solprop.translate.coupled.eigenbasis_limit", lambda n_modes: 0.0
+        )
+        # Each problem's decomposition is kept while it lives, routed by the limit
+        # in force when it was formed: this route forms its own.
+        monkeypatch.setattr(
+            "solprop_native.backend._HOST_FLOWS", weakref.WeakKeyDictionary()
         )
     held = backend_module._host_flow(problem)
     assert held is not None

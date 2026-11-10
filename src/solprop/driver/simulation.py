@@ -1158,7 +1158,10 @@ class SimulationSettings(Displayed):
         Examples
         --------
         >>> from solprop.driver import SimulationSettings
-        >>> SimulationSettings(node_budget=2**26).execution_options().node_budget
+        >>> settings = SimulationSettings(
+        ...     save_planes=[1.0], dz_max=0.1, dz_init=0.01, node_budget=2**26
+        ... )
+        >>> settings.execution_options().node_budget
         67108864
         """
         return ExecutionOptions(node_budget=self.node_budget)

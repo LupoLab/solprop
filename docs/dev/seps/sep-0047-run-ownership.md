@@ -1672,7 +1672,8 @@ Intel Xeon Gold 6240 under shared load:
     `RunRequest`. Moving them out means `PropagationProblem.validate()` and every
     backend constructor take the request, about fifty modules. That is its own window,
     scheduled with milestone 2's preparation work (`Backend.prepare(problem,
-    request)`). The kernel contract §7 records them as run policy.
+    request)`). The kernel contract §7 records them as run policy. *Landed in
+    milestone 2* (below).
 - `ExecutionOptions` carries the node budget. The backends plan the node chunk itself
   in milestone 2 (#361).
 
@@ -1693,7 +1694,7 @@ merging.
 - *GPU builds, CUDA and HIP:* the session serves Adams and the embedded Runge-Kutta
   tableaux on modal routes.
 - *Everything else:* the transitional `DriverSession` serves it, with the session's
-  reason recorded. That covers the spatial routes on GPUs, host-finished plane
+  reason logged. That covers the spatial routes on GPUs, host-finished plane
   statistics, comparison methods, custom controllers, TDSE, and the march routes the
   backend itself steps on the host. The list is in
   `changelog.d/sep-0047-native-session-production.changed.md`.
@@ -1731,6 +1732,16 @@ merging.
 - *Adams method history:* export and import, resumed starts, call ledgers, and input
   and modified noise.
 - *Native fixed-schedule groups*, over per-member sessions.
+- *The run request leaves the problem (A5c).* `PropagationProblem` no longer carries
+  `stepper` or `stats_spec`; translation returns the problem with its `RunRequest`
+  (`Translation`), and the checks that need the run's policy moved from `validate()`
+  to `validate_run(problem, request)`, in the original order and with the original
+  messages. Every backend is built for a problem and a request and starts a run
+  through its own preparation, `backend.prepare(problem, request).start(...)`;
+  `start_session` only dispatches through it. A preparation refuses a request that is
+  not one run of the backend's own (`foreign_request`). Configuration hashes and
+  resume identity are unchanged: eleven pinned example hashes and two stopped files
+  written before the change are checked in the test suite.
 - *Destination export (#346).* A kept plane is written once, straight into its store's
   room, by one native pass.
 - *Backend-owned node chunk (#361).*
@@ -1765,8 +1776,15 @@ main before SEP 47, B = milestone 1 and C = this milestone. Geometric means, end
 - RK dense output was ported as the maintainer decided. The session now drops the
   recycled stage after an observation, as the bridge does, so dense trajectories are
   bitwise the bridge's under every FFT plan.
-- The `stepper`/`stats_spec` request split (A5c) lands in this milestone, as recorded
-  under milestone 1.
+- The `stepper`/`stats_spec` request split (A5c) landed in this milestone, as recorded
+  under milestone 1. `start_group` still chooses the native group by the backend's
+  name; a group preparation through the same seam is phase 4.
+- A profile statistic's lowered table is taken at `1e-13` of the profile's scale, as
+  planned, or else the closest table within `1e-12`
+  (`solprop_native._statistics.PROFILE_TOLERANCE`). The measurement compares against
+  the profile evaluated through the platform's libm, and one capillary's density
+  measured `1.14e-13` on one CI platform and less on another. The recorded error is
+  the measured one either way.
 - Device ports beyond the representative path are phase 4.
 
 ## Part III — History

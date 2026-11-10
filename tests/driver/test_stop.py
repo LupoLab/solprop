@@ -139,10 +139,14 @@ REPLAY_STEPS = {"adams_replay": 4000, "low_storage": 400}
 this soliton stays stable on, and few enough that the host's per-step work stays small
 for a march it steps from Python."""
 
-LENGTHS = {"runge_kutta": 0.02, "low_storage": 0.02}
-"""The marches stepped from Python run a tenth of :data:`ONE_PLANE_LENGTH`, m: they stop
-at once, and only their resume runs the whole length. On native the Runge-Kutta march
-is compiled (SEP 45) and runs the whole length, as the Adams marches do."""
+LENGTHS = {"runge_kutta": 0.08, "low_storage": 0.02}
+"""The marches stepped from Python run less than :data:`ONE_PLANE_LENGTH`, m: they stop
+at once, and only their resume runs the whole length. Each still takes more accepted
+steps than :data:`FLAGGED_AT` plus one advance's bound (the reference's adaptive
+Runge-Kutta march about 330, the low-storage replay its 400), so a flag reported with
+the end of a whole advance's chunk still falls before the plane. On native the
+Runge-Kutta march is compiled (SEP 45) and runs the whole length, as the Adams marches
+do."""
 
 FLAGGED_AT = 20
 """The accepted step whose report sets the flag."""

@@ -23,6 +23,7 @@ non-negligible.
 import math
 import subprocess
 import sys
+import weakref
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -352,6 +353,11 @@ def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_boun
     if route == "scaling_and_squaring":
         monkeypatch.setattr(
             "solprop.translate.coupled.eigenbasis_limit", lambda n_modes: 0.0
+        )
+        # Each problem's decomposition is kept while it lives, routed by the limit
+        # in force when it was formed: this route forms its own.
+        monkeypatch.setattr(
+            "solprop_native.backend._HOST_FLOWS", weakref.WeakKeyDictionary()
         )
     case = taper_gradient()
     reference = _coupled_flow_maps(case.problem)
