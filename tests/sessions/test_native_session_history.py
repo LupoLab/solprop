@@ -554,6 +554,7 @@ def test_a_noisy_run_is_the_drivers(noise, check, march):
     problem = simulation.translate()
     assert problem.initial.noise_model == noise
     request = describe_run(problem, monitor=simulation._boundary_monitor())
+    skip_device_refused(problem, request)
     assert native_session.refusal(problem, request) is None
     context = {"grid": simulation.grid, "modes": simulation.modes}
     phases: dict[str, list[np.ndarray]] = {"driver": [], "native": []}
@@ -566,7 +567,6 @@ def test_a_noisy_run_is_the_drivers(noise, check, march):
                 select("native", problem, **context), problem, request, start
             )
         else:
-            skip_device_refused(problem, request)
             session = native_session.NativeSession(problem, request, start, **context)
 
         def phase(one, batch, found=phases[kind]) -> None:

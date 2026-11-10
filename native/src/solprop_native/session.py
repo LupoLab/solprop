@@ -291,7 +291,8 @@ def device_refusal(problem: KernelProblem, request: RunRequest) -> str | None:
     boundary monitor, the Adams history and host export. The device matrix's other
     features are refused by name until phase 4 ports and qualifies them; the session
     then leaves them to the backend's own march, which runs them on the device today.
-    Everything :func:`refusal` refuses on the CPU build is refused here too.
+    :func:`refusal` asks it first on a device build; its own refusals apply on every
+    build.
 
     Parameters
     ----------
