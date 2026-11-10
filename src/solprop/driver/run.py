@@ -677,11 +677,11 @@ def check_snapshot_request(
     # section 5.5).
     if problem.shape[0] != 1:
         raise DriverError("snapshots require an unbatched run")
-    # Interpolated output stays refused for now: a running checkpoint must first drain
-    # and commit the dense planes its accepted step crossed (SEP 47 section 5.5),
-    # which the transitional session does not do yet.
-    if problem.stepper.interpolate_planes or fields != "all":
-        raise DriverError("snapshots require fields='all' and no interpolated output")
+    # Interpolated output is admitted: every session takes a snapshot at an accepted
+    # endpoint only, once the planes its step crossed are observed, so a checkpoint
+    # never needs the step's extension to reconstruct a plane (SEP 47 section 5.5).
+    if fields != "all":
+        raise DriverError("snapshots require fields='all'")
     if isinstance(problem.stepper.integrator, Multistep) and resume_history is False:
         raise DriverError(
             "snapshots require Adams history; resume_history=False is incompatible"

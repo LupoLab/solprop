@@ -422,7 +422,9 @@ path (PECE and the comparison variants) keeps host arrays.
 its staged trial and native norm, a call of attempts at a time, returning only at a host
 event and taking the boundary checks itself; the kernel contract's section 12 is the
 interface. It covers interpolated planes (the step across a plane returns to solprop, which
-holds its extension), a replayed schedule, a coupled flow (its guards transcribed), a z table
+holds its extension; in SEP 47's native session the march holds it through its engine,
+`rk::Engine::extend`, finishes the step itself and the session observes the plane where the
+state lives, `native/src/dense.cpp`), a replayed schedule, a coupled flow (its guards transcribed), a z table
 the transverse edge (read on the host, as the Adams march reads it) and a weighted norm
 (reduced natively in both loops), on CPU and device builds alike; a controller with its own
 methods still steps the driver's loop, with a `HostMarchWarning` naming the reason.
@@ -559,7 +561,11 @@ the measurements behind them.
   `interpolate_planes=True` asks for DOPRI5's continuous extension (ADR-039): then the save planes leave the landing targets, the accepted step that
   crosses a plane is contracted into its five extension coefficients (driver hook
   `_dense_stages`), and the plane is evaluated and carried there by the exact flow while
-  the march's own state is held ahead.
+  the march's own state is held ahead. A session keeps the two positions apart: a
+  snapshot latched while a plane's field is held waits for the next accepted endpoint,
+  every plane its step crossed observed first, so a checkpoint never needs the
+  extension to reconstruct a plane ([SEP 47](seps/sep-0047-run-ownership.md) section
+  5.5).
 - **Floor**: a proposal below `dz_min` raises `ConvergenceError` at once (algorithms.md §3,
   traps). The default is `default_dz_min`, 1e-9 of the run length: a run that wants steps
   that small needs over a billion of them and would never finish, and the finest legitimate

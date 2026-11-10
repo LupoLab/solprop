@@ -3522,10 +3522,10 @@ class Simulation(Displayed):
             neither the propagation nor the call ledger.
         snapshots : solprop.output.SnapshotController or None, optional
             Publish immutable local checkpoints without rebuilding the backend or
-            atomic provider, each at the next accepted endpoint. Requires HDF5,
-            ``fields='all'`` and no interpolated output. Adams history cannot be
-            explicitly disabled. A configured archive is copied together with the
-            optical file.
+            atomic provider, each at the next accepted endpoint, after every
+            interpolated plane its step crossed. Requires HDF5 and ``fields='all'``.
+            Adams history cannot be explicitly disabled. A configured archive is
+            copied together with the optical file.
         stop : object or None, optional
             This run's own stop flag: any object with an ``is_set()`` method, such as
             a :class:`threading.Event` (SEP 41, S17). It is polled before the first
