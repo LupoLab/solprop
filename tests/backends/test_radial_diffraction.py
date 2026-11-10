@@ -141,7 +141,7 @@ def test_gaussian_width_gouy_and_axis_intensity_include_nonparaxial_error(
         start[:, 1, index] = 1j * spectrum
         start /= math.sqrt(2)
     stop = max(distance, rayleigh / 8)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [],
@@ -154,7 +154,7 @@ def test_gaussian_width_gouy_and_axis_intensity_include_nonparaxial_error(
         dz_init=stop / 8,
         schedule=FixedSchedule.uniform(0.0, stop, stop / 8),
     )
-    backend = spatial_backend_class(problem, grid=grid)
+    backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         if distance:

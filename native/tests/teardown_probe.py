@@ -65,7 +65,7 @@ grid = EnvelopeGrid.from_limits(1.0, WAVELENGTH, (500e-9, 2e-6), 1e-12)
 model = problem_from([0.0, 0.0, BETA2], omega_ref=grid.omega0, gamma=GAMMA, shock=False)
 peak = abs(BETA2) / (GAMMA * TAU0**2)
 initial = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=peak).build(grid)
-problem = assemble(
+problem, run_request = assemble(
     grid,
     model.mode,
     [model.kerr],
@@ -84,7 +84,7 @@ backends: list[object] = []
 for name in names:
     # Each backend is kept to the end of the script, as a user's script keeps its
     # simulations, so what it holds is released by the interpreter's own finalisation.
-    backend = select(name, problem, grid=grid)
+    backend = select(name, problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(1e-4)
     backends.append(backend)

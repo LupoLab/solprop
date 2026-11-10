@@ -229,28 +229,29 @@ def march(
     simulation,
     source=None,
     *,
-    schedule=None,
-    method=None,
     prepare=None,
     backend_class=NumpyRefBackend,
+    **changes,
 ):
     """Run a simulation's problem on numpy_ref; return planes, errors, accepted steps.
 
     With `source`, the lab-frame source is replaced by it and each plane's error
     against the closed form is the largest active bin's, relative to the field.
     `prepare` may rewrite the problem first (a shifted or non-fundamental launch);
-    `backend_class` is the backend run.
+    `backend_class` is the backend run, and `changes` replace stepper settings (a
+    schedule, an integrator, the first proposed step).
     """
     problem = simulation.translate()
-    stepper = problem.stepper
-    if schedule is not None:
-        stepper = dataclasses.replace(stepper, schedule=schedule)
-    if method is not None:
-        stepper = dataclasses.replace(stepper, integrator=method)
-    problem = dataclasses.replace(problem, stepper=stepper)
+    run_request = simulation._run_request()
+    if changes:
+        run_request = run_request.with_stepper(
+            dataclasses.replace(run_request.stepper, **changes)
+        )
     if prepare is not None:
         problem = prepare(problem)
-    backend = backend_class(problem, grid=simulation.grid, modes=simulation.modes)
+    backend = backend_class(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     active = problem.grids.active_mask
     try:
         if source is not None:
@@ -263,7 +264,7 @@ def march(
         start = problem.initial.field0
         backend.set_initial(start, None)
         fields, errors, steps = [], [], []
-        for plane in stepper.save_planes:
+        for plane in run_request.stepper.save_planes:
             backend.propagate_to(float(plane))
             observed = backend.observe()
             field = observed.require_field()
@@ -346,13 +347,14 @@ def test_the_refusals_name_the_policy_and_the_route():
 
 
 def test_a_backend_refuses_what_it_does_not_deliver():
-    problem = capillary(SCALAR).translate()
+    simulation = capillary(SCALAR)
+    problem, stepper = simulation.translate(), simulation._run_request().stepper
     with pytest.raises(BackendError, match="carrier_frame='scalar'"):
-        refuse_carrier_frame(problem, "a backend")
-    refuse_carrier_frame(problem, "numpy_ref", delivered=frozenset({"scalar"}))
+        refuse_carrier_frame(problem, stepper, "a backend")
+    refuse_carrier_frame(problem, stepper, "numpy_ref", delivered=frozenset({"scalar"}))
     # The Runge-Kutta march (no Adams integrator) has no carrier frame to refuse.
-    stepper = dataclasses.replace(problem.stepper, integrator=None)
-    refuse_carrier_frame(dataclasses.replace(problem, stepper=stepper), "a backend")
+    stepper = dataclasses.replace(stepper, integrator=None)
+    refuse_carrier_frame(problem, stepper, "a backend")
 
 
 @pytest.mark.parametrize("backend_name", sorted(COMPILED))
@@ -360,7 +362,7 @@ def test_a_compiled_cpu_backend_accepts_the_shift(backend_name):
     for method in (OFF, SCALAR):
         built = capillary(method)
         COMPILED[backend_name](
-            built.translate(), grid=built.grid, modes=built.modes
+            built.translate(), built._run_request(), grid=built.grid, modes=built.modes
         ).close()
 
 
@@ -500,7 +502,7 @@ def test_a_source_following_the_frame_is_stepped_exactly():
     assert max(run.errors) <= manufactured_budget(run)
     # Unshifted, the same source is interpolated while it rotates: a tolerance-level
     # error.
-    unshifted = march(simulation, source, method=OFF)
+    unshifted = march(simulation, source, integrator=OFF)
     assert min(unshifted.errors) > TOLERANCE_LEVEL
     # The exact steps grow until the cap holds them at one radian of carrier phase;
     # a capped step is not a landing, so the history never restarts.
@@ -731,6 +733,7 @@ def test_the_adaptive_march_resolves_what_the_shift_leaves(kind):
     # the controller's variable steps, and then replayed on its own accepted steps.
     simulation = capillary(SCALAR, rtol=1e-6, n_save=2, interpolate=False)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     source = (
         manufactured(problem, harmonic=0.1)
         if kind == "mixed"
@@ -749,7 +752,7 @@ def test_the_adaptive_march_resolves_what_the_shift_leaves(kind):
     # Replay on the recorded schedule: no estimate, the same envelope. The last step
     # closes the sum's rounding onto the plane, which a schedule must land on.
     steps = run.steps.copy()
-    steps[-1] = float(problem.stepper.save_planes[-1]) - float(np.sum(steps[:-1]))
+    steps[-1] = float(run_request.stepper.save_planes[-1]) - float(np.sum(steps[:-1]))
     replay = march(simulation, source, schedule=FixedSchedule(steps))
     assert max(replay.errors) < envelope
 
@@ -761,12 +764,7 @@ def test_the_controller_recovers_from_rejections_under_the_frame():
     simulation = capillary(SCALAR, rtol=1e-10, n_save=2, interpolate=False)
     problem = simulation.translate()
     source = manufactured(problem, harmonic=0.5)
-
-    def long_first_step(problem):
-        stepper = dataclasses.replace(problem.stepper, dz_init=1e-3)
-        return dataclasses.replace(problem, stepper=stepper)
-
-    run = march(simulation, source, prepare=long_first_step)
+    run = march(simulation, source, dz_init=1e-3)
     assert run.march.ledger.rejected_steps > 0
     assert max(run.errors) < 1e-10 * run.march.ledger.accepted_steps
 
@@ -930,11 +928,14 @@ def gradient_run(
     """Run the gradient window with the given compensation; return field and march."""
     simulation = gradient(method, 1e-8)
     problem = simulation.translate()
-    backend = NumpyRefBackend(problem, grid=simulation.grid, modes=simulation.modes)
+    run_request = simulation._run_request()
+    backend = NumpyRefBackend(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         backend._adams = HostAdamsMarch(backend, method, compensation=compensation)
         backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(problem.stepper.save_planes[-1]))
+        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
         return backend.observe().require_field(), backend._adams
     finally:
         backend.close()
@@ -1016,10 +1017,13 @@ def coupled_run(name, integrator, rtol, backend_class=NumpyRefBackend):
             simulation.settings, integrator=integrator
         )
         problem = simulation.translate()
-    backend = backend_class(problem, grid=simulation.grid, modes=simulation.modes)
+        run_request = simulation._run_request()
+    backend = backend_class(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         backend.set_initial(problem.initial.field0, None)
-        for plane in problem.stepper.save_planes:
+        for plane in run_request.stepper.save_planes:
             backend.propagate_to(float(plane))
         return backend.observe().require_field(), backend._adams
     finally:
@@ -1047,8 +1051,11 @@ def test_coupled_sections_agree_with_runge_kutta_under_the_frame(name, bound):
 def test_a_snapshot_continues_only_under_its_own_policy():
     simulation = capillary(SCALAR, energy=1e-6, interpolate=False, n_save=3)
     problem = simulation.translate()
-    planes = [float(z) for z in problem.stepper.save_planes]
-    first = NumpyRefBackend(problem, grid=simulation.grid, modes=simulation.modes)
+    run_request = simulation._run_request()
+    planes = [float(z) for z in run_request.stepper.save_planes]
+    first = NumpyRefBackend(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         first.set_initial(problem.initial.field0, None)
         first.propagate_to(planes[1])
@@ -1061,7 +1068,9 @@ def test_a_snapshot_continues_only_under_its_own_policy():
     # Under the same policy the saved history continues; with the same steps, orders
     # and history it agrees with the in-memory continuation within a rounding budget
     # of the steps after the plane (SEP 25's matched-method bound, 512 eps a step).
-    second = NumpyRefBackend(problem, grid=simulation.grid, modes=simulation.modes)
+    second = NumpyRefBackend(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         second.set_initial(problem.initial.field0, None, z=stored.z)
         assert second.restore_march(stored) is None
@@ -1074,10 +1083,12 @@ def test_a_snapshot_continues_only_under_its_own_policy():
     assert_within(resumed, continued, max(steps, 1) * 512 * EPS, what="resumed history")
     # Under another policy, or another order (the history key differs): refused.
     for method in (OFF, Multistep(carrier_frame="scalar", order=4)):
-        other = dataclasses.replace(
-            problem, stepper=dataclasses.replace(problem.stepper, integrator=method)
+        other = run_request.with_stepper(
+            dataclasses.replace(run_request.stepper, integrator=method)
         )
-        backend = NumpyRefBackend(other, grid=simulation.grid, modes=simulation.modes)
+        backend = NumpyRefBackend(
+            problem, other, grid=simulation.grid, modes=simulation.modes
+        )
         try:
             backend.set_initial(problem.initial.field0, None, z=stored.z)
             reason = backend.restore_march(stored)
@@ -1257,7 +1268,7 @@ def test_the_chord_is_the_engine_s_exponent_at_the_reference(backend_name, opera
     assert reference is not None and reference.chord is not None
     assert reference.bin is not None
     backend = backends[backend_name](
-        problem, grid=simulation.grid, modes=simulation.modes
+        problem, simulation._run_request(), grid=simulation.grid, modes=simulation.modes
     )
     try:
         for z1, z2 in ((0.0, 1e-4), (1e-3, 1.7e-3)):

@@ -14,6 +14,7 @@ from backends.test_radial_nonlinear import derivative, make_problem
 from bounds import gamma
 from cartesian_oracles import longitudinal_square
 from solprop import fourier
+from solprop.backends.session import ExecutionOptions
 from solprop.constants import EPS0, C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.nonlinear.responses import KerrResponse
@@ -143,16 +144,15 @@ def test_cartesian_kerr_matches_physical_column_oracle(
         axes=(0, 1),
     ).reshape(initial.shape)
     expected = projected * prefactor[:, None, :] * grid.crop_scale * grid.omega_window
-    problem = make_problem(grid, space, initial, [response])
+    problem, run_request = make_problem(grid, space, initial, [response])
     # Force a remainder chunk, independently of the memory-derived default.
-    problem = dataclasses.replace(
+    actual = derivative(
+        spatial_backend_class,
         problem,
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(problem.transform, node_chunk=7),
-        ),
+        run_request,
+        grid,
+        ExecutionOptions(node_chunk=7),
     )
-    actual = derivative(spatial_backend_class, problem, grid)
     defect = np.max(np.abs(actual - expected))
     assert defect < bound, (defect, bound)
     record_metric(
@@ -170,13 +170,13 @@ def test_resolved_grazing_allows_backend_construction_and_a_zero_field_trial(
 ):
     grid = FieldGrid.from_limits(1e-4, 800e-9, (600e-9, 1.2e-6), 150e-15)
     space = FreeGrid(3e-7, 9, 4e-7, 12, collar_fraction=0)
-    problem = make_problem(
+    problem, run_request = make_problem(
         grid,
         space,
         np.zeros((space.n_columns, 1, grid.n_omega), complex),
         [KerrResponse(1e-22)],
     )
-    backend = spatial_backend_class(problem, grid=grid)
+    backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         error, advanced = backend._trial_step(0.0, 1e-7)
@@ -198,7 +198,7 @@ def test_cartesian_linear_flow_resolves_both_sides_and_exact_cutoff(
     initial = np.zeros((space.n_columns, 2, grid.n_omega), complex)
     initial[1, 0, grid.active_mask] = 1
     initial[1, 1, grid.active_mask] = 0.4j
-    problem = make_problem(grid, space, initial, [], steps=1)
+    problem, run_request = make_problem(grid, space, initial, [], steps=1)
     original = problem.linear.separable
     assert original is not None
     # Equal high parts make q exactly the supplied representable residual. Its
@@ -224,7 +224,7 @@ def test_cartesian_linear_flow_resolves_both_sides_and_exact_cutoff(
     # Two exponential paths and the final product cost fewer than 64 rounded
     # operations on O(1) amplitudes; the represented square root is exact here.
     bound = 64 * np.finfo(float).eps
-    backend = spatial_backend_class(problem, grid=grid)
+    backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(grid.length)

@@ -54,6 +54,7 @@ from jaxtyping import Complex, Float, Inexact, Num
 from solprop.backends.numpy_ref import passes, transforms
 from solprop.backends.numpy_ref.backend import NumpyRefBackend, SourceTables
 from solprop.backends.numpy_ref.envelope_plasma import envelope_sources
+from solprop.backends.session import ExecutionOptions
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError, ConvergenceError, TranslationError
 from solprop.fourier import GridKind
@@ -79,6 +80,7 @@ from solprop.translate.responses import (
     PlasmaChannel,
     ResponseStage,
 )
+from solprop.translate.run_request import RunRequest
 from solprop.translate.stage import StageScalars
 from solprop.translate.tdse import TDSEBinding
 
@@ -122,6 +124,8 @@ class NumpySingleBackend(NumpyRefBackend):
     ----------
     problem : solprop.translate.problem.PropagationProblem
         A validated problem with ``precision.single``.
+    request : solprop.translate.run_request.RunRequest
+        The run's policies.
     grid : solprop.grid.TimeGrid, optional
         The grid the state lives on, needed only by :meth:`stats`.
     modes : collections.abc.Sequence, optional
@@ -130,6 +134,9 @@ class NumpySingleBackend(NumpyRefBackend):
         The z-profiles keyed by statistic name.
     tdse_binding : solprop.translate.tdse.TDSEBinding or None, optional
         Must be ``None``: TDSE responses are refused under single precision.
+    options : solprop.backends.session.ExecutionOptions or None, optional
+        The run's execution options, from which the node chunk is planned; ``None``
+        for the automatic choice.
 
     Raises
     ------
@@ -143,14 +150,16 @@ class NumpySingleBackend(NumpyRefBackend):
     # The observed field is the state widened into a new array (`_observed_field`).
     observes_fresh_field: ClassVar[bool] = True
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - the problem, its request and the host context
         self,
         problem: PropagationProblem,
+        request: RunRequest,
         *,
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
         profiles: Mapping[str, ZProfile] | None = None,
         tdse_binding: TDSEBinding | None = None,
+        options: ExecutionOptions | None = None,
     ) -> None:
         """Adopt a single-precision problem and narrow its tables."""
         if not problem.precision.single:
@@ -158,7 +167,7 @@ class NumpySingleBackend(NumpyRefBackend):
         # The settings admit a run through the same function, but a problem built or
         # replaced past them (``registry.select`` on a translated problem) reaches the
         # backend unadmitted; the refusals are the backend's own too.
-        stepper = problem.stepper
+        stepper = request.stepper
         try:
             admit_precision(
                 problem.precision,
@@ -170,10 +179,12 @@ class NumpySingleBackend(NumpyRefBackend):
             raise BackendError(str(error)) from error
         super().__init__(
             problem,
+            request,
             grid=grid,
             modes=modes,
             profiles=profiles,
             tdse_binding=tdse_binding,
+            options=options,
         )
         self._real = np.dtype(np.float32)
         self._complex = np.dtype(np.complex64)
@@ -215,7 +226,7 @@ class NumpySingleBackend(NumpyRefBackend):
         self._lab_frame = np.broadcast_to(
             np.ones((), dtype=self._complex), (1, *problem.shape)
         )
-        controller = problem.stepper.controller
+        controller = stepper.controller
         self._controller = dataclasses.replace(
             controller, atol=controller.atol / self._scale
         )

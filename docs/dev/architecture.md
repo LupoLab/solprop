@@ -262,10 +262,11 @@ user script / prop_capillary(...)                                  (D)
    ▼
 Simulation(...)                                                    (D)
    │  .translate() → PropagationProblem  (validated arrays)                   (T)
-   │  .backend = backends.select(name, problem)                     (B)
+   │     beside it the RunRequest: stepper settings, planes, statistics
+   │  .backend = backends.select(name, problem, request)            (B)
    ▼
 run loop over save planes and stats periods                        (D)
-   │  session = start_session(backend, problem, request, start)
+   │  session = backend.prepare(problem, request.for_run(...)).start(start)
    │  backend.set_initial(field)  (by the session)                  host → device once
    │  for z_save in planes: backend.propagate_to(z_save)            the driver's marches
    │                        obs = backend.observe()                 small host arrays
@@ -291,7 +292,9 @@ specific to a `Simulation`; it is the piece a batch runner or a scan calls. What
 driver does not do is as much a part of the design as what it does:
 
 - It **never conjugates a spectrum**. The backend works in the FFT convention, the output
-  layer converts on the way to disk, and those are the only two places a sign changes.
+  layer's recipe converts on the way to disk -- applied by the session as it exports a kept
+  field into the store ([backends.md §1](backends.md#1-the-seam), "Export into a
+  destination") -- and those are the only two places a sign changes.
 - It **never touches the state between planes**. Everything between two save planes
   happens inside the backend's march.
 - It **never computes physics**. The mapping from `gamma` to a susceptibility is
@@ -467,8 +470,11 @@ shared groups are common to every route; what differs between routes is one vari
 closed union, `problem.route` (`translate/routes.py`: `ModalRoute`, `GeneralRoute` or
 `SpatialRoute` of kind radial, Cartesian, planar or line), each with the fields its
 executor needs, which every backend visits explicitly and refuses by name before it
-allocates ([SEP 47](seps/sep-0047-run-ownership.md) §6.2). What it computes, once per
-problem:
+allocates ([SEP 47](seps/sep-0047-run-ownership.md) §6.2). Beside the problem it
+returns the run's `RunRequest` (`translate/run_request.py`): the stepper settings with
+the route's defaults filled and the collars' limits applied, the save planes and the
+statistics, which are how the problem is run and not what it means (SEP 47 §5.2;
+`assemble` returns `Translation(problem, request)`). What it computes, once per problem:
 
 | product | from | representation |
 |---|---|---|
@@ -478,13 +484,14 @@ problem:
 | response spec | `nonlinear/responses.py` | compiled ordering of the fused pass, coefficients, ionisation-rate spline tables (log-spaced, converged, clip limits), Raman kernels on the doubled grid in the frequency domain, normalisation prefactors |
 | masks and rates | `grid.py`, `boundaries.py` | in-band mask, spectral rate (already in D), temporal rate, hard band mask, crop/pad scaling; analytic fine-grid collar derivative and steady-current certificate for field plasma |
 | initial state and noise realisation | `pulses.py`, `noise.py` | canonical layout |
-| stepper settings | `stepper/` | tableau, tolerances, controller parameters, schedule, save planes, caps |
-| statistics requests | `stats.py` | which statistics, which windows |
+| stepper settings (the request's) | `stepper/` | tableau, tolerances, controller parameters, schedule, save planes, caps |
+| statistics requests (the request's) | `stats.py` | which statistics, which windows |
 | spatial plane measure | `spatial.py`, `adiabatic.py`, `translate/flux.py` | the `FluxPlan`: separable coefficients whose root gives each column's axial admittance, the material square's z table for a varying radial medium, and its adiabatic admission (SEP 34) |
 | route | `translate/routes.py` | the variant, its transform and its own leaves: the TDSE source, the plane measure, the transverse boundary |
 
-Validation is not optional: a backend calls `problem.validate()` and refuses anything
-inconsistent. Tables are cached on the `Simulation` and rebuilt only when a physics object
+Validation is not optional: a backend calls `validate_run(problem, request)` where it is
+built, before it allocates, and refuses anything inconsistent; `problem.validate()` is the
+part of it that needs no request. Tables are cached on the `Simulation` and rebuilt only when a physics object
 changes.
 
 ## 8. The solver, in one page
@@ -617,10 +624,17 @@ A TDSE run may also write its raw provider evaluations to a separate archive
 (`output/tdse_archive.py`, schema `solprop.tdse-archive.v1`), which the optical record
 references and never needs ([the archive page](../guide/media/tdse.md)).
 
+A kept field reaches a store once, already converted ([SEP 47](seps/sep-0047-run-ownership.md)
+§5.4): the run's session exports it in the stored form straight into the room the store
+gives (`PlaneStore.field_destination`) -- `MemoryOutput`'s own block row, or a new array
+that `HDF5Output` writes as it is -- and `PlaneStore.save_exported` stores the plane. The
+conversion is the one `save` makes, so the stored bits do not depend on the route.
+
 `CallbackOutput` (`output/callback.py`) stores nothing: it implements `Output` and
-`RetainingOutput` and hands each plane to a callable, unconverted. It is deliberately not a
-`PlaneStore`, whose save path converts the field into a new volume, and not a
-`CheckpointOutput`, which promises a state a resume can continue.
+`RetainingOutput` and hands each plane to a callable, unconverted, its field a fresh array
+in the internal convention that the callable may keep. It is deliberately not a
+`PlaneStore`, whose readers would have nothing to read, and not a `CheckpointOutput`,
+which promises a state a resume can continue.
 
 `output/snapshots.py` coordinates optional immutable disk snapshots at the existing
 accepted-step commit boundary. It persists retained march state and execution facts,
@@ -659,23 +673,51 @@ durable distributed execution. A controller owns the collected HDF5 scan file.
 Fixed-schedule fibre batches run as a group (`solprop.backends.session.GroupSession`,
 started by `solprop.backends.sessions.start_group`; SEP 47 section 6.7): a sequence of
 independently translated single-trajectory member problems — no problem carries a batch
-axis — each loaded from its own `Start`, advanced
+axis — each started from its own `Start`, advanced
 one common window (save plane) at a time, each member reporting its own events. The
-batched scan's loop (`driver/_scan_batch.py`) is the group's service loop. Until the
-native session lands the group is served over the lockstep runners (`BatchBackend`,
-`select_batch`), which adopt the loaded member backends, each with its own tables,
-state and noise. The accepted update is fused on compiled backends, while response and
-transform work remains member-owned. `observe_members` preserves each member's history
-and statistics. Admission uses memory ledgers and a free-device-memory query with
-headroom.
+batched scan's loop (`driver/_scan_batch.py`) is the group's service loop. Two groups
+serve it:
+
+- **The native group session** (`solprop_native.group.NativeGroupSession`) serves
+  native CPU members whenever it admits the group. It owns one native execution session
+  per member (`solprop_native.session.NativeSession`, adopting the member backend the
+  scan built), so each member's march, events, attempts, statistics rows, tickets and
+  boundary monitor are its own session's, and the group only orders the members'
+  advances. Within a window the members take turns in rounds of at most 256 common
+  steps (`ROUND_STEPS`), each turn native from end to end. The running members stand
+  at one common step between rounds, and a group-wide stop is polled there. A member's
+  trajectory is its lone native session's, bit for bit at one thread, and so is the
+  transitional lockstep group's. The members share the schedule and nothing mutable: no
+  fused kernel, because the native marches own each whole step. Its refusals
+  (`solprop_native.group.refusal`) are named and made before allocation: a device
+  build, a run the native session refuses, an adaptive member, step or interpolated
+  planes, or members that do not share the schedule, save planes, method, field shape
+  and statistics request.
+- **The transitional group** (`solprop.backends.driver_session.DriverGroupSession`)
+  serves every other group: the reference's, and native groups the native group
+  refuses. It runs over the lockstep runners (`BatchBackend`, `select_batch`), which
+  adopt the loaded member backends, each with its own tables, state and noise. On the
+  native backend the accepted update is fused (`NativeBatchBackend`), while response
+  and transform work remains member-owned. `observe_members` preserves each member's
+  history and statistics.
+
+Admission uses memory ledgers and a free-device-memory query with headroom.
 
 Every backend has exact member-versus-singleton identity checks under the same
 schedule. That does not imply a throughput improvement on every workload: whether a
 batch beats independent runs depends on the problem size and the device. Adaptive
-lockstep is not implemented. A boundary stop fails its member alone; a group-level
-failure (a non-finite norm, a step floor, a trial exception, an in-flight failure)
-fails every member of that group, each reporting its own committed position and
-checkpoint eligibility; recovering the surviving members is an open question ([#171](https://github.com/LupoLab/solprop/issues/171)).
+lockstep is not implemented. A boundary stop (the monitor's error, or its warning
+raised as an error) fails its member alone. A group-level failure (a non-finite norm,
+a step floor, a trial exception, an in-flight failure) fails every member of that
+group, each reporting its own committed position and checkpoint eligibility. Members
+take their steps in turn, so those ahead of the failing one have already taken the
+failed step: the transitional group's members are then in flight and poisoned, having
+stepped without recording; a native group's have committed and recorded their whole
+turn and stay eligible. Recovering the surviving members is an open question
+([#171](https://github.com/LupoLab/solprop/issues/171)). A native member commits its
+launch plane before its monitor judges the launch, as a lone run does (SEP 47 section
+5.3), so a refused launch ends it in the window after the launch's; the transitional
+group attaches the monitors first.
 
 Independent simulations use spawned processes, normally one scientific thread per
 worker, rather than threads, because thread pools, FFTW plans and the OpenMP runtime are
@@ -715,10 +757,15 @@ otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native 
   folds each slope into its registers as it is produced (ADR-009 as amended by ADR-050).
 - Space-domain work runs over node chunks; the chunk size is chosen from a memory budget
   (default: the whole node set when it fits a per-problem budget, else the largest chunk that
-  does).
+  does). The backend plans it when it is prepared, not the translation (SEP 47 section 6.5,
+  `solprop.backends.node_chunk`), and an explicit `node_budget` is authoritative.
 - `HDF5Output` never holds more than the current plane, in datasets preallocated for the
   planned planes with an `n_saved` count; `MemoryOutput` is allocated for the planned
   planes and grows by doubling past them.
+- A kept plane's field is exported once, in the stored form, and shared by every consumer
+  of that plane (the store, a plane observer, a terminal checkpoint): into
+  `MemoryOutput`'s block row with no host volume of its own, or into one new array for
+  `HDF5Output` ([backends.md §1](backends.md#1-the-seam), "Export into a destination").
 - A run keeps its fields on every plane, the named planes or none
   (`FieldRetention`,
   [SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md)): a plane without its field is not copied, converted or

@@ -8,6 +8,7 @@
 
 #include "solprop_native/rk_march.hpp"
 
+#include <atomic>
 #include <cmath>
 #include <vector>
 
@@ -15,6 +16,7 @@
 
 namespace {
 namespace rk = solprop_native::rk;
+namespace march = solprop_native::march;
 
 volatile double factor_a = 1.0 + 0x1p-30;
 volatile double factor_b = 1.0 - 0x1p-30;
@@ -93,4 +95,125 @@ TEST(RungeKuttaMarch, TheControllerTakesPIControllersBranches) {
   // A zero current norm grows by the largest factor; the cap bounds a proposal.
   EXPECT_EQ(rk::propose(policy, {0.5, 0.0, 0.75}), policy.max_factor);
   EXPECT_EQ(rk::limited(policy, 0.75, 2.0), policy.dz_max);
+}
+
+namespace {
+// A Runge-Kutta engine whose trials score 0.25, or 5.0 at trial `reject`, and which
+// requests a stop from inside its `stop_at`-th trial (solprop SEP 47 section 5.5).
+class Stopping final : public rk::Engine {
+public:
+  Stopping(std::atomic<bool>& stop, const int stop_at, const int reject = 0)
+      : stop_(stop), stop_at_(stop_at), reject_(reject) {}
+  double trial(double /*z*/, double /*dz*/) override {
+    ++trials;
+    if (trials == stop_at_)
+      stop_.store(true);
+    return trials == reject_ ? 5.0 : 0.25;
+  }
+  void accept(double /*dz*/) override { ++accepts; }
+  std::vector<double> reading() override { return {}; }
+  int trials = 0;
+  int accepts = 0;
+
+private:
+  std::atomic<bool>& stop_;
+  int stop_at_;
+  int reject_;
+};
+
+rk::Policy landing_controller() {
+  auto policy = controller();
+  policy.auto_init = false;
+  policy.dz_min = 1e-9;
+  policy.dz_max = 1e-2;
+  policy.landings.dz_min = 1e-9;
+  policy.landings.dz_max = 1e-2;
+  policy.landings.stretch = 1.0;
+  policy.landings.z_end = 0.1;
+  policy.landings.breakpoints = {0.0, 0.1};
+  policy.landings.landing_ulps = 8;
+  return policy;
+}
+
+march::Bounds stopping_bounds(const std::atomic<bool>& stop) {
+  march::Bounds bounds;
+  bounds.target = 0.05;
+  bounds.read_spacing = INFINITY;
+  bounds.max_attempts = 1000;
+  bounds.max_seconds = 10.0;
+  bounds.stop = &stop;
+  return bounds;
+}
+} // namespace
+
+TEST(RungeKuttaMarch, AStopAlreadyRequestedTakesNoAttempt) {
+  std::atomic<bool> stop{true};
+  rk::State state;
+  state.proposal = 1e-3;
+  Stopping engine(stop, 0);
+  const auto result =
+      rk::run(landing_controller(), state, engine, stopping_bounds(stop));
+  EXPECT_EQ(result.march.reason, march::Reason::stopped);
+  EXPECT_TRUE(result.march.rows.empty());
+  EXPECT_EQ(engine.trials, 0);
+}
+
+TEST(RungeKuttaMarch, AStopEndsTheCallAfterTheAttemptsCommitAndAccounting) {
+  std::atomic<bool> stop{false};
+  rk::State state;
+  state.proposal = 1e-3;
+  Stopping engine(stop, 3);
+  const auto result =
+      rk::run(landing_controller(), state, engine, stopping_bounds(stop));
+  ASSERT_EQ(result.march.reason, march::Reason::stopped);
+  ASSERT_EQ(result.march.rows.size(), 3 * march::row_columns);
+  // The third attempt, during which the stop was asked for, is accepted, finished and
+  // remembered by the controller before the call returns.
+  EXPECT_EQ(engine.accepts, 3);
+  EXPECT_EQ(state.norms.size(), 3U);
+  EXPECT_EQ(state.z, result.march.rows[2 * march::row_columns + march::end_column]);
+}
+
+TEST(RungeKuttaMarch, ARejectedAttemptStopsAtTheCommittedState) {
+  std::atomic<bool> stop{false};
+  rk::State state;
+  state.proposal = 1e-3;
+  Stopping engine(stop, 3, 3);
+  const auto result =
+      rk::run(landing_controller(), state, engine, stopping_bounds(stop));
+  ASSERT_EQ(result.march.reason, march::Reason::stopped);
+  ASSERT_EQ(result.march.rows.size(), 3 * march::row_columns);
+  EXPECT_EQ(result.march.rows[2 * march::row_columns + march::accepted_column], 0.0);
+  EXPECT_EQ(engine.accepts, 2);
+  EXPECT_EQ(state.z, result.march.rows[1 * march::row_columns + march::end_column]);
+}
+
+TEST(RungeKuttaMarch, AnEventStepsHostWorkPrecedesAStop) {
+  std::atomic<bool> stop{false};
+  rk::State state;
+  state.proposal = 1e-3;
+  Stopping engine(stop, 2);
+  auto bounds = stopping_bounds(stop);
+  bounds.host_step = 2;
+  auto result = rk::run(landing_controller(), state, engine, bounds);
+  ASSERT_EQ(result.march.reason, march::Reason::host_step);
+  result = rk::run(landing_controller(), state, engine, bounds);
+  EXPECT_EQ(result.march.reason, march::Reason::stopped);
+  EXPECT_EQ(engine.trials, 2);
+}
+
+TEST(RungeKuttaMarch, AHaltEndsTheCallAtTheNextAcceptedEndpoint) {
+  std::atomic<bool> halt{false};
+  rk::State state;
+  state.proposal = 1e-3;
+  // The third trial is rejected and sets the halt: the fourth, accepted, ends the call.
+  Stopping engine(halt, 3, 3);
+  auto bounds = stopping_bounds(halt);
+  bounds.stop = nullptr;
+  bounds.halt = &halt;
+  const auto result = rk::run(landing_controller(), state, engine, bounds);
+  ASSERT_EQ(result.march.reason, march::Reason::halted);
+  ASSERT_EQ(result.march.rows.size(), 4 * march::row_columns);
+  EXPECT_EQ(engine.accepts, 3);
+  EXPECT_EQ(state.z, result.march.rows[3 * march::row_columns + march::end_column]);
 }

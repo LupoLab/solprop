@@ -82,8 +82,9 @@ def test_a_refinement_is_stored_and_a_later_run_applies_it(
     assert any("validating" in line for line in lines)
     # A later backend of the same execution finds and applies it.
     problem = simulation.translate()
+    run_request = simulation._run_request()
     backend = solprop_native.backend.NativeBackend(
-        problem, grid=simulation.grid, modes=simulation.modes
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
         record = backend.metadata()["calibration"]
@@ -95,7 +96,7 @@ def test_a_refinement_is_stored_and_a_later_run_applies_it(
     # Another execution (another grid) has another descriptor and applies none.
     other = problems.build("gnlse", 2.0)
     backend = solprop_native.backend.NativeBackend(
-        other.translate(), grid=other.grid, modes=other.modes
+        other.translate(), other._run_request(), grid=other.grid, modes=other.modes
     )
     try:
         record = backend.metadata()["calibration"]
@@ -116,7 +117,10 @@ def test_a_refinement_of_another_machine_record_is_not_applied(
     changed = solprop_native.EXECUTION.updated({"compact_threads": 3})
     monkeypatch.setattr(solprop_native, "EXECUTION", changed)
     backend = solprop_native.backend.NativeBackend(
-        simulation.translate(), grid=simulation.grid, modes=simulation.modes
+        simulation.translate(),
+        simulation._run_request(),
+        grid=simulation.grid,
+        modes=simulation.modes,
     )
     try:
         record = backend.metadata()["calibration"]
@@ -230,6 +234,24 @@ def test_the_real_windows_time_and_compare_trial_steps(profiled: Path) -> None:
     finally:
         base.close()
         serial.close()
+
+
+def test_the_windows_time_the_run_s_own_node_chunk(profiled: Path) -> None:
+    """A user's node budget reaches the timed workspaces (SEP 47 section 6.5)."""
+    from solprop.backends.node_chunk import plan_node_chunk  # noqa: PLC0415
+
+    simulation = problems.build("line")
+    problem = simulation.translate()
+    automatic = plan_node_chunk(problem).chunk
+    budget = 20 * 16 * problem.shape[1] * problem.grids.n_to * 3
+    simulation.settings = dataclasses.replace(simulation.settings, node_budget=budget)
+    expected = plan_node_chunk(problem, simulation.settings.execution_options()).chunk
+    assert expected < automatic
+    window = _Windows(simulation, None)
+    try:
+        assert window.backend.node_chunk == expected
+    finally:
+        window.close()
 
 
 def test_the_report_describes_a_kept_refinement() -> None:

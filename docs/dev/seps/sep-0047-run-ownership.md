@@ -1542,7 +1542,7 @@ another decision.
 
 ## Part II — Implementation record
 
-### Milestone 1 (phases 1–2) — in progress
+### Milestone 1 (phases 1–2) — merged 2026-11-10 (#605)
 
 Branch `feature/sep-0047-contract` ([#605](https://github.com/LupoLab/solprop/pull/605)),
 started 2026-11-09 by Opus 5.5 (AI) as manager for John Travers. Work packages were
@@ -1672,11 +1672,120 @@ Intel Xeon Gold 6240 under shared load:
     `RunRequest`. Moving them out means `PropagationProblem.validate()` and every
     backend constructor take the request, about fifty modules. That is its own window,
     scheduled with milestone 2's preparation work (`Backend.prepare(problem,
-    request)`). The kernel contract §7 records them as run policy.
+    request)`). The kernel contract §7 records them as run policy. *Landed in
+    milestone 2* (below).
 - `ExecutionOptions` carries the node budget. The backends plan the node chunk itself
   in milestone 2 (#361).
 
 **Issues filed:** #599, #600, #601 and #606, plus a comment on #78.
+
+### Milestone 2 (phase 3) — in progress
+
+Branch `feature/sep-0047-native-session`
+([#607](https://github.com/LupoLab/solprop/pull/607)), stacked on milestone 1 and
+retargeted to `main` when #605 merged. It was developed the same way as milestone 1:
+work packages on sub-branches, each with an independent correctness review before
+merging.
+
+**Production owner after this milestone.**
+
+- *Native CPU builds:* production runs are served by the native execution session
+  (`solprop_native.session.NativeSession`) whenever it admits the run.
+- *GPU builds, CUDA and HIP:* the session serves Adams and the embedded Runge-Kutta
+  tableaux on modal routes.
+- *Everything else:* the transitional `DriverSession` serves it, with the session's
+  reason logged. That covers the spatial routes on GPUs, host-finished plane
+  statistics, comparison methods, custom controllers, TDSE, and the march routes the
+  backend itself steps on the host. The list is in
+  `changelog.d/sep-0047-native-session-production.changed.md`.
+- *Batched scans:* the native group session (`NativeGroupSession`) serves the groups it
+  admits. Others keep the lockstep group.
+
+**What landed.**
+
+- *Session core* (`native::session::Session`, a strict translation unit). It is the one
+  mutable owner of the march, the cursors, the row cadence, the stop flag, the snapshot
+  latch and the export generation.
+  - Exactly-once chunked delivery.
+  - A lease on the backend's state.
+  - Typed bindings.
+- *Boundary monitor owned natively.* The temporal monitor (`watch::Monitor`) and the
+  transverse edge (`transverse::Edge`) hold every decision state and build every
+  record; Python only formats them.
+  - Scalar decisions are identical to solprop's on the same readings, checked by
+    recorded-readings harnesses.
+  - These reductions are each backend's own reading, bounded under SEP 25: the
+    floor-removal sum, the launch's ramp-band total and share, and the ramp's removal
+    per interval. The two ramp decisions may differ from solprop's within that bound
+    near a threshold, and the removal's bound accumulates across reads.
+- *Every periodic statistic computed natively,* from a plan lowered once per run.
+  - Profile statistics read the propagation's own tables, or a profile table lowered
+    over the propagation's span, whose measured error the execution record carries
+    (`statistics_tables`).
+  - Lowered tables are kept per problem.
+- *Low-storage replay, dense output and snapshots in the session.*
+  - Low-storage replay runs with native stage scalars. A mid-step failure poisons the
+    session and falls back to the latest running checkpoint.
+  - Dense output for Adams and Runge-Kutta, interpolated inside the step that crossed
+    each plane.
+  - Snapshots with dense output: the refusal is lifted on every session.
+- *Adams method history:* export and import, resumed starts, call ledgers, and input
+  and modified noise.
+- *Native fixed-schedule groups*, over per-member sessions.
+- *The run request leaves the problem (A5c).* `PropagationProblem` no longer carries
+  `stepper` or `stats_spec`; translation returns the problem with its `RunRequest`
+  (`Translation`), and the checks that need the run's policy moved from `validate()`
+  to `validate_run(problem, request)`, in the original order and with the original
+  messages. Every backend is built for a problem and a request and starts a run
+  through its own preparation, `backend.prepare(problem, request).start(...)`;
+  `start_session` only dispatches through it. A preparation refuses a request that is
+  not one run of the backend's own (`foreign_request`). Configuration hashes and
+  resume identity are unchanged: eleven pinned example hashes and two stopped files
+  written before the change are checked in the test suite.
+- *Destination export (#346).* A kept plane is written once, straight into its store's
+  room, by one native pass.
+- *Backend-owned node chunk (#361).*
+- *Structural counters* that cover the native session.
+- *A representative device path.* Bitwise equal to the transitional session on an
+  NVIDIA A40 and on an AMD Instinct MI300X (gfx942).
+
+**Readiness and evidence.** Results are bitwise identical to the transitional session
+on one thread wherever both compute natively. Paired timings were taken on an AMD EPYC
+7763 (one NUMA domain of 16 cores, an A/A control within ±1.5% per case), with A =
+main before SEP 47, B = milestone 1 and C = this milestone. Geometric means, end to end:
+
+| Pair | 16 threads (21 cases) | 1 thread (10 cases) |
+|---|---|---|
+| A→B | 1.014 | 1.019 |
+| B→C | 1.000 | 0.937 |
+
+- *Improvements from B to C:* period-one statistics 0.62 (Adams) and 0.84
+  (Runge-Kutta); idle snapshots 0.94.
+- *Regressions found and fixed:*
+  - per-run statistics lowering, which cost up to 1.1 s;
+  - a coupled flow's admission, about 12 ms per run.
+- *Still above the 5% rule:* a local scan at 1.05, whose cause in the scan bookkeeping
+  is unconfirmed.
+- *A to B:* the regressions are the transitional session's fixed service cost, which
+  this milestone removes.
+- *Structural:* periodic statistics cause zero returns to Python on the session. The
+  bridge makes one return per row.
+
+**Deviations from Part I.**
+
+- RK dense output was ported as the maintainer decided. The session now drops the
+  recycled stage after an observation, as the bridge does, so dense trajectories are
+  bitwise the bridge's under every FFT plan.
+- The `stepper`/`stats_spec` request split (A5c) landed in this milestone, as recorded
+  under milestone 1. `start_group` still chooses the native group by the backend's
+  name; a group preparation through the same seam is phase 4.
+- A profile statistic's lowered table is taken at `1e-13` of the profile's scale, as
+  planned, or else the closest table within `1e-12`
+  (`solprop_native._statistics.PROFILE_TOLERANCE`). The measurement compares against
+  the profile evaluated through the platform's libm, and one capillary's density
+  measured `1.14e-13` on one CI platform and less on another. The recorded error is
+  the measured one either way.
+- Device ports beyond the representative path are phase 4.
 
 ## Part III — History
 

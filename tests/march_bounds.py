@@ -102,8 +102,9 @@ def evaluation_rounding(
     return rounding
 
 
-def march_bound(
+def march_bound(  # noqa: PLR0913 - the problem, its request and the budget
     problem,
+    run_request,
     steps: int | None = None,
     *,
     phi: float = 1.0,
@@ -116,7 +117,9 @@ def march_bound(
     Parameters
     ----------
     problem : PropagationProblem
-        The translated problem; its grid, transform and integrator set the counts.
+        The translated problem; its grid and transform set the counts.
+    run_request : RunRequest
+        Its run's request; its integrator and schedule set the counts.
     steps : int, optional
         Steps taken; the prescribed schedule's by default.
     phi : float, optional
@@ -137,11 +140,11 @@ def march_bound(
         ``margin exp(Phi) S (32 u + W (Phi / S) eps_eval)``.
     """
     if steps is None:
-        schedule = problem.stepper.schedule
+        schedule = run_request.stepper.schedule
         assert schedule is not None, "a matched march needs a prescribed schedule"
         steps = int(schedule.n_steps)
     n_to = int(problem.grids.n_to)
-    evaluations = step_evaluations(problem)
+    evaluations = step_evaluations(run_request)
     per_evaluation = kappa * evaluation_rounding(
         n_to,
         int(problem.transform.n_nodes),
@@ -173,7 +176,8 @@ def measured_scales(simulation) -> tuple[float, float]:
     from solprop.backends.numpy_ref.backend import _general_maps  # noqa: PLC0415
 
     problem = simulation.translate()
-    backend = NumpyRefBackend(problem, grid=simulation.grid)
+    run_request = simulation._run_request()
+    backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
         # The backend's private state keeps its leading axis of one.
         state = problem.initial.field0[np.newaxis]
@@ -181,7 +185,7 @@ def measured_scales(simulation) -> tuple[float, float]:
         source = backend._nonlinear(state, bundle, np.ones_like(state))
     finally:
         backend.close()
-    length = float(problem.stepper.save_planes[-1])
+    length = float(run_request.stepper.save_planes[-1])
     phi = length * float(np.linalg.norm(source) / np.linalg.norm(state))
     maps = _general_maps(problem)
     kappa = 1.0
@@ -201,6 +205,7 @@ def simulation_bound(simulation, *, margin: float = MARGIN, backend="numpy_ref")
     phi, kappa = measured_scales(simulation)
     return march_bound(
         simulation.translate(),
+        simulation._run_request(),
         phi=max(phi, 0.1),
         kappa=kappa,
         margin=margin,

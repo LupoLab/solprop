@@ -143,16 +143,12 @@ def test_varying_radial_medium_uses_cumulative_expansion(case, comoving):
             )
 
 
-def test_radial_transform_keeps_polarisations_independent_and_chunks_nodes(case):
+def test_radial_transform_keeps_polarisations_independent(case):
     grid, space = case
-    budget = 2048 * grid.n_to
-    transform = radial_transform(
-        space, grid, n_pol=2, z_max=grid.length, node_budget=budget
-    )
+    transform = radial_transform(space, grid, z_max=grid.length)
     assert transform.n_pol == 1
     assert transform.synthesis.shape == (space.n_r, space.n_r)
     assert transform.projection.shape == (space.n_r, space.n_r)
-    assert transform.node_chunk <= space.n_r
     np.testing.assert_array_equal(transform.projection_coarse, transform.projection)
     assert transform.geometry is not None
     assert np.all(transform.geometry.absorber_rate == 0)

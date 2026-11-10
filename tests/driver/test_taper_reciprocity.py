@@ -91,6 +91,7 @@ def transfer(radii, steps, name="numpy_ref"):
     )
     simulation.settings = replace(simulation.settings, absorber=None)
     problem, grid = simulation.translate(), simulation.grid
+    run_request = simulation._run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None and flow.connection is not None
     backend = backend_class(name)
@@ -98,7 +99,7 @@ def transfer(radii, steps, name="numpy_ref"):
     columns = []
     for channel in range(flow.n_modes):
         _, launched = linear_launch(problem, grid, channel=channel)
-        driver = backend(launched, grid=grid)
+        driver = backend(launched, run_request, grid=grid)
         driver.set_initial(launched.initial.field0, None)
         driver.propagate_to(LENGTH)
         columns.append(driver.observe().require_field()[:, 0, index] / 1e-9)

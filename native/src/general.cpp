@@ -2238,6 +2238,12 @@ public:
   void adams_accepted_boundary() const;
   void adams_exponential_observe(double xi, double dz,
                                  const ExponentialWeights& weights);
+  // solprop SEP 47: a Runge-Kutta march's dense output in a native session.
+  void rk_dense_allocate(const std::vector<double>& weights);
+  void rk_dense_hold(double dz);
+  void rk_dense_observe(double theta, const TrialScalars& carry);
+  void rk_dense_restore();
+  void rk_dense_release() noexcept;
   std::vector<std::string> adams_row_names() const;
   std::array<std::size_t, 3> adams_row_extents(const std::string& name) const;
   std::vector<Complex> adams_rows_to_host(const std::string& name) const;
@@ -2283,6 +2289,10 @@ public:
                                  double intensity_factor,
                                  const std::vector<double>& channel_preionisation,
                                  const std::vector<double>& power_weight);
+  std::vector<double> whitened_statistics(const std::vector<Complex>& root,
+                                          std::uint64_t flags,
+                                          const std::vector<double>& windows,
+                                          double intensity_factor, bool spectral);
   void finish(double dz);
   void promote_fsal();
   void clear_fsal();
@@ -2315,6 +2325,19 @@ public:
   [[nodiscard]] CrossedBytes crossed_bytes() const noexcept { return crossed_; }
   std::vector<Complex> field_to_host() const;
   void field_to_host(std::span<Complex> destination) const;
+  const Complex* host_field() const {
+    require_open();
+    if (!initialized_)
+      throw std::logic_error("no initial field has been loaded");
+    if constexpr (!Kokkos::SpaceAccessibility<Kokkos::HostSpace,
+                                              MemorySpace>::accessible)
+      return nullptr;
+    execution_space_.fence("solprop_native host_field");
+    return current_.data();
+  }
+  void count_to_host(const std::size_t bytes) const noexcept {
+    crossed_.to_host += bytes;
+  }
   void cross_to_host(const ComplexView2& source, std::span<Complex> destination) const;
   void set_crossing_workers(const std::size_t workers) noexcept {
     crossing_ring_.set_workers(workers);
@@ -2907,6 +2930,12 @@ public:
   RealView2 spatial_statistics_partials_;
   RealView statistics_total_power_;
   RealView statistics_on_axis_, statistics_packed_;
+  // solprop SEP 47: a general modal basis's whitened columns, the metric's square
+  // root at one position and their sums, allocated by the first statistics call that
+  // needs them (outside any trial step).
+  ComplexView2 statistics_whitened_;
+  ComplexView statistics_root_;
+  RealView statistics_whitened_sums_;
   RealView tableau_, omega_, omega_window_, time_window_, absorber_fine_,
       absorber_coarse_;
   RealView stage_phi_delta_, stage_phi_at_, stage_prefactor_;
@@ -3013,6 +3042,15 @@ public:
   ComplexView2 adams_end_applied_;
   Kokkos::View<double*, Layout, MemorySpace> adams_end_weights_;
   std::size_t adams_dense_count_{};
+  // solprop SEP 47: a Runge-Kutta step's continuous extension for dense output, its
+  // five coefficients `(5, columns, n_omega)`; the bins its flow changes by more than
+  // an e-fold; the committed state held across an observation; the tableau's
+  // dense-output weights; and whether a step is held.
+  ComplexView3 rk_dense_coefficients_;
+  Kokkos::View<unsigned char**, Layout, MemorySpace> rk_dense_stiff_;
+  ComplexView2 rk_dense_held_;
+  std::vector<double> rk_dense_weights_;
+  bool rk_dense_ready_{};
   bool adams_trial_ready_{};
   bool adams_trial_compensated_{};
   bool adams_trial_coupled_{};
@@ -4437,6 +4475,18 @@ void GeneralWorkspace::allocate() {
     }
   }
   if (problem_.general_modal) {
+    // solprop SEP 47: a general modal basis's statistics whiten the columns by the
+    // metric's root (`whitened_statistics`), into scratch held from the start.
+    statistics_whitened_ = ComplexView2("solprop_native.statistics.whitened",
+                                        problem_.n_columns(), problem_.n_omega);
+    statistics_root_ =
+        ComplexView("solprop_native.statistics.metric_root",
+                    checked_product(problem_.n_omega,
+                                    checked_product(problem_.n_modes, problem_.n_modes,
+                                                    "metric root"),
+                                    "metric root"));
+    statistics_whitened_sums_ = RealView("solprop_native.statistics.whitened_sums",
+                                         problem_.n_columns() + problem_.n_omega);
     general_ = std::make_unique<GeneralModalSource>(problem_);
     // The source owns execution-space copies; the host maps are the largest arrays a
     // general guide carries and nothing reads them again.
@@ -9171,6 +9221,198 @@ void GeneralWorkspace::adams_exponential_observe(const double xi, const double d
   mask(current_);
   stash_is_current_ = false;
   execution_space_.fence("solprop_native Adams observation boundary");
+}
+
+// --- solprop SEP 47: a Runge-Kutta march's dense output in a native session ---------
+//
+// DOPRI5's continuous extension (Hairer, Norsett and Wanner, II.6) in the step's
+// interaction picture, as solprop's `extension_coefficients`, `extension_value` and
+// `StepDriver._observe_inside` form it: with `v0` the state at the step's anchor, `k_i`
+// its stages in the anchor's frame and `v1 - v0 = h sum_i b_i k_i`, the coefficients
+// `v0`, `v1 - v0`, `h k1 - (v1 - v0)`, `(v1 - v0) - h k7 - (h k1 - (v1 - v0))` and
+// `h sum_i d_i k_i`, evaluated at the fraction theta as `r1 + theta (r2 + (1 - theta)
+// (r3 + theta (r4 + (1 - theta) r5)))`. A bin the step's flow changes by more than an
+// e-fold takes the anchor's value: no polynomial in theta follows its exponentially
+// growing interaction-picture derivative. The value is carried from the anchor to the
+// plane by `U(position, anchor)` and masked. Every product and sum is rounded on its
+// own, in solprop's order.
+
+namespace {
+
+/** The most stages a dense extension reads. */
+constexpr std::size_t rk_dense_max_stages = 16;
+
+/** A tableau's solution and dense-output weights, captured by a kernel. */
+struct RungeKuttaDenseWeights {
+  double solution[rk_dense_max_stages]{};
+  double dense[rk_dense_max_stages]{};
+  std::size_t stages{};
+};
+
+/** The step's phase increment at one element from the uploaded weights' last row: on a
+    separable route the step's length times the element's operator, otherwise `sum_t
+    dPhi_t Phi_t` in term order (`adams_phase`'s exponent). */
+struct StepExponent {
+  bool separable{};
+  SpatialCoefficients spatial;
+  ByteView active;
+  RealView delta;
+  ComplexView3 phi_terms;
+  std::size_t n_pol{};
+  std::size_t n_stages{};
+  std::size_t n_phi{};
+  KOKKOS_INLINE_FUNCTION Complex operator()(const std::size_t column,
+                                            const std::size_t index) const {
+    if (separable) {
+      const auto values = spatial.value(column / n_pol, index, active(index) != 0U);
+      return delta(n_stages) * values.linear;
+    }
+    return adams_phase_sum(phi_terms, delta, n_stages * n_phi, n_phi, column, index);
+  }
+};
+
+} // namespace
+
+void GeneralWorkspace::rk_dense_allocate(const std::vector<double>& weights) {
+  require_open();
+  if (problem_.low_storage || stages_.extent(0) == 0)
+    throw std::logic_error("Runge-Kutta dense output needs the Runge-Kutta stages");
+  if (weights.size() != problem_.n_stages || weights.size() > rk_dense_max_stages)
+    throw std::invalid_argument("the dense-output weights are one per stage");
+  const auto columns = problem_.n_columns();
+  const auto n = problem_.n_omega;
+  rk_dense_weights_ = weights;
+  if (rk_dense_coefficients_.extent(0) == 0) {
+    rk_dense_coefficients_ =
+        ComplexView3("solprop_native.rk.dense_coefficients", 5, columns, n);
+    rk_dense_stiff_ = Kokkos::View<unsigned char**, Layout, MemorySpace>(
+        "solprop_native.rk.dense_stiff", columns, n);
+    rk_dense_held_ = ComplexView2("solprop_native.rk.dense_held", columns, n);
+  }
+  rk_dense_ready_ = false;
+}
+
+void GeneralWorkspace::rk_dense_hold(const double dz) {
+  require_open();
+  if (rk_dense_coefficients_.extent(0) == 0)
+    throw std::logic_error("Runge-Kutta dense output storage is not allocated");
+  if (!stages_ready_)
+    throw std::logic_error("no Runge-Kutta trial is held for a dense extension");
+  RungeKuttaDenseWeights weights;
+  weights.stages = problem_.n_stages;
+  for (std::size_t stage = 0; stage < weights.stages; ++stage) {
+    weights.solution[stage] = problem_.solution_weights[stage];
+    weights.dense[stage] = rk_dense_weights_[stage];
+  }
+  // The trial's own scalars are bound: their last row is the whole step's.
+  const StepExponent step{problem_.separable_geometry(),
+                          spatial_,
+                          active_mask_,
+                          stage_phi_delta_,
+                          phi_terms_,
+                          problem_.n_pol_state,
+                          problem_.n_stages,
+                          problem_.n_phi_terms};
+  const auto current = current_;
+  const auto stages = stages_;
+  const auto coefficients = rk_dense_coefficients_;
+  const auto stiff = rk_dense_stiff_;
+  launch::parallel_for(
+      "solprop_native.rk.dense_hold",
+      Range2(execution_space_, {0, 0}, {problem_.n_columns(), problem_.n_omega}),
+      KOKKOS_LAMBDA(const std::size_t column, const std::size_t index)
+          SOLPROP_NATIVE_STRICT_FUNCTION {
+            SOLPROP_NATIVE_STRICT_BLOCK
+            Complex span{};
+            Complex dense{};
+            for (std::size_t stage = 0; stage < weights.stages; ++stage) {
+              const Complex slope = stages(stage, column, index);
+              span = strict_accumulate(span, weights.solution[stage], slope);
+              dense = strict_accumulate(dense, weights.dense[stage], slope);
+            }
+            span = strict_scale(dz, span);
+            const Complex first =
+                strict_sub(strict_scale(dz, stages(0, column, index)), span);
+            const Complex last = strict_sub(
+                strict_sub(span,
+                           strict_scale(dz, stages(weights.stages - 1, column, index))),
+                first);
+            coefficients(0, column, index) = current(column, index);
+            coefficients(1, column, index) = span;
+            coefficients(2, column, index) = first;
+            coefficients(3, column, index) = last;
+            coefficients(4, column, index) = strict_scale(dz, dense);
+            const Complex x = step(column, index);
+            stiff(column, index) = Kokkos::abs(x.real()) > 1.0 ? 1U : 0U;
+          });
+  rk_dense_ready_ = true;
+}
+
+void GeneralWorkspace::rk_dense_observe(const double theta, const TrialScalars& carry) {
+  require_open();
+  if (!rk_dense_ready_)
+    throw std::logic_error("no Runge-Kutta step is held for a dense observation");
+  require_trial_scalars(carry);
+  graph::deep_copy(execution_space_, rk_dense_held_, current_);
+  upload_trial(carry);
+  const StepExponent flow{problem_.separable_geometry(),
+                          spatial_,
+                          active_mask_,
+                          stage_phi_delta_,
+                          phi_terms_,
+                          problem_.n_pol_state,
+                          problem_.n_stages,
+                          problem_.n_phi_terms};
+  const double rest = 1.0 - theta;
+  const auto coefficients = rk_dense_coefficients_;
+  const auto stiff = rk_dense_stiff_;
+  const auto current = current_;
+  launch::parallel_for(
+      "solprop_native.rk.dense_observe",
+      Range2(execution_space_, {0, 0}, {problem_.n_columns(), problem_.n_omega}),
+      KOKKOS_LAMBDA(const std::size_t column,
+                    const std::size_t index) SOLPROP_NATIVE_STRICT_FUNCTION {
+        SOLPROP_NATIVE_STRICT_BLOCK
+        const Complex start = coefficients(0, column, index);
+        Complex value = start;
+        if (stiff(column, index) == 0U) {
+          Complex inner = strict_scale(rest, coefficients(4, column, index));
+          inner =
+              strict_scale(theta, strict_add(coefficients(3, column, index), inner));
+          inner = strict_scale(rest, strict_add(coefficients(2, column, index), inner));
+          inner =
+              strict_scale(theta, strict_add(coefficients(1, column, index), inner));
+          value = strict_add(start, inner);
+        }
+        current(column, index) = strict_mul(exponential(flow(column, index)), value);
+      });
+  mask(current_);
+  stash_is_current_ = false;
+  // A plane inside a step already taken has no quadrature score of its own, as on
+  // the driver's path, which reloads the observed field.
+  quadrature_error_ = Kokkos::Experimental::quiet_NaN_v<double>;
+  quadrature_stale_ = false;
+  execution_space_.fence("solprop_native Runge-Kutta observation boundary");
+}
+
+void GeneralWorkspace::rk_dense_restore() {
+  require_open();
+  if (rk_dense_held_.extent(0) == 0)
+    throw std::logic_error("Runge-Kutta dense output storage is not allocated");
+  graph::deep_copy(execution_space_, current_, rk_dense_held_);
+  // As the driver's march reloads the committed state (`_adams_restore`): the next
+  // step evaluates its first stage afresh rather than reuse the crossing step's last,
+  // so that the session's run is the driver's whatever FFT plans round each.
+  clear_fsal();
+  execution_space_.fence("solprop_native Runge-Kutta restore boundary");
+}
+
+void GeneralWorkspace::rk_dense_release() noexcept {
+  rk_dense_coefficients_ = {};
+  rk_dense_stiff_ = {};
+  rk_dense_held_ = {};
+  rk_dense_weights_ = {};
+  rk_dense_ready_ = false;
 }
 
 std::vector<double> GeneralWorkspace::collect_trial() {
@@ -14182,6 +14424,109 @@ std::vector<double> GeneralWorkspace::statistics(
   return result;
 }
 
+std::vector<double> GeneralWorkspace::whitened_statistics(
+    const std::vector<Complex>& root, const std::uint64_t flags,
+    const std::vector<double>& windows, const double intensity_factor,
+    const bool spectral) {
+  require_open();
+  if (!initialized_)
+    throw std::logic_error("no initial field has been loaded");
+  constexpr std::uint64_t admitted = statistics_omega0 | statistics_energy |
+                                     statistics_peak_power_total | statistics_fwhm;
+  if ((flags & ~admitted) != 0U)
+    throw std::invalid_argument("a general modal basis's statistics are omega0, the "
+                                "energy, the peak total power and the widths");
+  const auto columns = problem_.n_columns();
+  const auto n = problem_.n_omega;
+  const auto modes = problem_.n_modes;
+  const auto n_pol = problem_.n_pol_state;
+  const bool whiten = !root.empty();
+  if (whiten) {
+    require_extent(
+        root.size(),
+        checked_product(n, checked_product(modes, modes, "metric root"), "metric root"),
+        "metric root");
+    if (statistics_whitened_.extent(0) != columns ||
+        statistics_whitened_.extent(1) != n)
+      throw std::logic_error("whitened statistics are a general modal basis's");
+    copy_vector(execution_space_, statistics_root_, root);
+    const auto field = current_;
+    const auto whitened = statistics_whitened_;
+    const auto matrix = statistics_root_;
+    // `c_mp(w) = sum_n R_mn(w) a_np(w)`, `numpy.einsum("kmn,npk->mpk", ...)`'s terms.
+    launch::parallel_for(
+        "solprop_native.statistics.whiten",
+        Range2(execution_space_, {0, 0}, {columns, n}),
+        KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
+          const auto mode = column / n_pol;
+          const auto pol = column % n_pol;
+          Complex sum{};
+          for (std::size_t other = 0; other < modes; ++other)
+            sum += matrix((index * modes + mode) * modes + other) *
+                   field(other * n_pol + pol, index);
+          whitened(column, index) = sum;
+        });
+  }
+  const auto sums_size = columns + (spectral ? n : 0);
+  if (statistics_whitened_sums_.size() < sums_size)
+    throw std::logic_error("whitened statistics are a general modal basis's");
+  std::vector<double> result;
+  {
+    // The statistics passes read `current_`: they read the whitened columns while
+    // this scope holds them there, and the state's own afterwards, even on a throw.
+    struct Swap {
+      ComplexView2& first;
+      ComplexView2& second;
+      bool active;
+      Swap(ComplexView2& a, ComplexView2& b, const bool on)
+          : first(a), second(b), active(on) {
+        if (active)
+          std::swap(first, second);
+      }
+      ~Swap() {
+        if (active)
+          std::swap(first, second);
+      }
+      Swap(const Swap&) = delete;
+      Swap& operator=(const Swap&) = delete;
+      Swap(Swap&&) = delete;
+      Swap& operator=(Swap&&) = delete;
+    } swap(current_, statistics_whitened_, whiten);
+    if (flags != 0U)
+      result = statistics(flags, windows, {}, 0.0, 1.0, 0.0, intensity_factor, {}, {});
+    const auto field = current_;
+    const auto sums = statistics_whitened_sums_;
+    launch::parallel_for(
+        "solprop_native.statistics.whitened_column_sums",
+        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns),
+        KOKKOS_LAMBDA(const std::size_t column) {
+          double sum = 0.0;
+          for (std::size_t index = 0; index < n; ++index)
+            sum += squared_abs(field(column, index));
+          sums(column) = sum;
+        });
+    if (spectral)
+      launch::parallel_for(
+          "solprop_native.statistics.whitened_bin_sums",
+          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n),
+          KOKKOS_LAMBDA(const std::size_t index) {
+            double sum = 0.0;
+            for (std::size_t column = 0; column < columns; ++column)
+              sum += squared_abs(field(column, index));
+            sums(columns + index) = sum;
+          });
+  }
+  const auto active = Kokkos::subview(statistics_whitened_sums_,
+                                      std::make_pair<std::size_t>(0, sums_size));
+  auto host = Kokkos::create_mirror_view(active);
+  graph::deep_copy(execution_space_, host, active);
+  execution_space_.fence("solprop_native whitened statistics boundary");
+  result.reserve(result.size() + sums_size);
+  for (std::size_t index = 0; index < sums_size; ++index)
+    result.push_back(host(index));
+  return result;
+}
+
 // solprop SEP 34: the buffers of the magnetic closure's synthesis, allocated at
 // construction when the problem's own request has a local flux statistic and here,
 // outside any trial step, when a later request first needs them.
@@ -16403,6 +16748,10 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       {"accumulator_error", error_.size() * complex_bytes},
       {"weighted_residual", residual_.size() * complex_bytes},
       {"recycled_stage", recycled_.size() * complex_bytes},
+      // A native session's Runge-Kutta dense output (solprop SEP 47 section 5.3).
+      {"rk_dense",
+       (rk_dense_coefficients_.size() + rk_dense_held_.size()) * complex_bytes +
+           rk_dense_stiff_.size() * byte_bytes},
       {"noise", problem_.modified_noise ? field : 0},
       // The Runge-Kutta march's whole-step propagator, or the low-storage march's
       // table or step pair (solprop's `propagators` row).
@@ -16525,6 +16874,9 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       {"fixed_phi_terms", phi_terms_.size() * complex_bytes},
       {"fixed_prefactor_terms", prefactor_terms_.size() * complex_bytes},
       {"z_tables", phi_table_.bytes() + prefactor_table_.bytes() + rate_table_.bytes()},
+      {"statistics_metric", statistics_whitened_.size() * complex_bytes +
+                                statistics_root_.size() * complex_bytes +
+                                statistics_whitened_sums_.size() * real_bytes},
       // solprop SEP 34: a radial run's plane-measure squares and its material table
       // (a separable run's alias its operator's), and the magnetic closure's
       // transverse volume of a separable run's local flux statistics.
@@ -17112,6 +17464,26 @@ void GeneralState::adams_exponential_accept(const double dz, const std::size_t f
   const CpuTeamScope team(workspace_->cpu_team());
   workspace_->adams_exponential_accept(dz, free, dense);
 }
+void GeneralState::rk_dense_allocate(const std::vector<double>& weights) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->rk_dense_allocate(weights);
+}
+void GeneralState::rk_dense_hold(const double dz) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->rk_dense_hold(dz);
+}
+void GeneralState::rk_dense_observe(const double theta, const TrialScalars& carry) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->rk_dense_observe(theta, carry);
+}
+void GeneralState::rk_dense_restore() {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->rk_dense_restore();
+}
+void GeneralState::rk_dense_release() noexcept {
+  if (workspace_)
+    workspace_->rk_dense_release();
+}
 void GeneralState::adams_exponential_observe(const double xi, const double dz,
                                              const ExponentialWeights& weights) {
   const CpuTeamScope team(workspace_->cpu_team());
@@ -17152,6 +17524,15 @@ GeneralState::statistics(const std::uint64_t flags, const std::vector<double>& w
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->statistics(flags, windows, on_axis, density, taper, preionisation,
                                 intensity_factor, channel_preionisation, power_weight);
+}
+std::vector<double>
+GeneralState::whitened_statistics(const std::vector<Complex>& root,
+                                  const std::uint64_t flags,
+                                  const std::vector<double>& windows,
+                                  const double intensity_factor, const bool spectral) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->whitened_statistics(root, flags, windows, intensity_factor,
+                                         spectral);
 }
 std::vector<double> GeneralState::spatial_statistics(const std::uint64_t flags,
                                                      const double intensity_factor,
@@ -17265,6 +17646,13 @@ void GeneralState::set_crossing_workers(const std::size_t workers) noexcept {
 void GeneralState::field_to_host(const std::span<Complex> destination) const {
   const CpuTeamScope team(workspace_->cpu_team());
   workspace_->field_to_host(destination);
+}
+const Complex* GeneralState::host_field() const {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->host_field();
+}
+void GeneralState::count_to_host(const std::size_t bytes) const noexcept {
+  workspace_->count_to_host(bytes);
 }
 void GeneralState::stage_to_host(const std::size_t stage,
                                  const std::span<Complex> destination) const {

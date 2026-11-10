@@ -58,7 +58,7 @@ def operator_bound(problem, length):
     return 2 * EPS * math.sqrt(float(np.max(np.abs(square)))) * length
 
 
-def ladder_bound(name, grid, space, problem, steps, length):
+def ladder_bound(name, grid, space, problem, run_request, steps, length):  # noqa: PLR0913, PLR0917 - the case, its run and the window
     """Return the retired ladder's bound of ``steps`` replayed steps over ``length``.
 
     The operator's ``2 eps k_max L``, and per evaluation ``32 eps`` per FFT level with
@@ -68,13 +68,13 @@ def ladder_bound(name, grid, space, problem, steps, length):
     evaluation = 32 * EPS * depth + 2 * space.n_p * gamma(space.x.size)
     if name in PLASMA_CASES:
         evaluation += gamma(12 * grid.n_to)
-    evaluations = max(1.0, step_evaluations(problem) * steps)
+    evaluations = max(1.0, step_evaluations(run_request) * steps)
     return operator_bound(problem, length) + evaluations * evaluation
 
 
-def propagate(backend_class, problem, grid, length, noise=None):
+def propagate(backend_class, problem, run_request, grid, length, noise=None):
     """Return the state a backend reaches at ``length``."""
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, noise)
         backend.propagate_to(length)
@@ -99,17 +99,17 @@ def test_the_responses_are_exercised(name):
     takes ``kerr_coefficients``, and its other responses their own leaves), so the
     linear run here is the reference's, which does.
     """
-    grid, space, problem = planar_case(name)
+    grid, space, problem, run_request = planar_case(name)
     linear = dataclasses.replace(
         problem,
         responses=dataclasses.replace(
             problem.responses, response_order=problem.responses.response_order[:1]
         ),
     )
-    steps = problem.stepper.schedule.steps.size  # pyright: ignore[reportOptionalMemberAccess]
-    bound = ladder_bound(name, grid, space, problem, steps, grid.length)
-    nonlinear = propagate(native_class(), problem, grid, grid.length)
-    plain = propagate(NumpyRefBackend, linear, grid, grid.length)
+    steps = run_request.stepper.schedule.steps.size  # pyright: ignore[reportOptionalMemberAccess]
+    bound = ladder_bound(name, grid, space, problem, run_request, steps, grid.length)
+    nonlinear = propagate(native_class(), problem, run_request, grid, grid.length)
+    plain = propagate(NumpyRefBackend, linear, run_request, grid, grid.length)
     assert relative(plain, nonlinear) > 1e3 * bound
 
 
@@ -120,7 +120,7 @@ def test_a_linear_run_with_the_collar_split_off_is_the_reference_s():
     "split_step"``, so no term enters the stages and the linear flow alone carries the
     state (the case has no y collar); the bound is the ladder's.
     """
-    grid, space, problem = planar_case("kerr")
+    grid, space, problem, run_request = planar_case("kerr")
     linear = dataclasses.replace(
         problem,
         responses=dataclasses.replace(
@@ -131,10 +131,10 @@ def test_a_linear_run_with_the_collar_split_off_is_the_reference_s():
             absorber_scheme="split_step",
         ),
     )
-    steps = linear.stepper.schedule.steps.size  # pyright: ignore[reportOptionalMemberAccess]
-    bound = ladder_bound("kerr", grid, space, linear, steps, grid.length)
-    expected = propagate(NumpyRefBackend, linear, grid, grid.length)
-    actual = propagate(native_class(), linear, grid, grid.length)
+    steps = run_request.stepper.schedule.steps.size  # pyright: ignore[reportOptionalMemberAccess]
+    bound = ladder_bound("kerr", grid, space, linear, run_request, steps, grid.length)
+    expected = propagate(NumpyRefBackend, linear, run_request, grid, grid.length)
+    actual = propagate(native_class(), linear, run_request, grid, grid.length)
     assert relative(actual, expected) < bound
 
 
@@ -147,17 +147,16 @@ def test_a_modified_noise_draw_rides_the_slab_phase():
     backend, so the retired test's separate hold of it at ``2 eps k_max z`` is reached
     through the state alone; the draw has to move that state by more than the bound.
     """
-    grid, space, problem = planar_case("kerr")
+    grid, space, problem, run_request = planar_case("kerr")
     length = grid.length / 10
-    problem = dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(
-            problem.stepper,
+    run_request = run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
             schedule=FixedSchedule.uniform(0.0, length, length),
             save_planes=np.array([length]),
-        ),
+        )
     )
-    quiet = propagate(NumpyRefBackend, problem, grid, length)
+    quiet = propagate(NumpyRefBackend, problem, run_request, grid, length)
     generator = np.random.default_rng(7)
     shape = problem.initial.field0.shape
     noise = (
@@ -169,9 +168,11 @@ def test_a_modified_noise_draw_rides_the_slab_phase():
         initial=Initial(problem.initial.field0, noise, "modified"),
     )
     realisation = NoiseRealisation(noise, None, "modified")
-    reference = propagate(NumpyRefBackend, problem, grid, length, realisation)
-    actual = propagate(native_class(), problem, grid, length, realisation)
-    bound = ladder_bound("kerr", grid, space, problem, 1, length)
+    reference = propagate(
+        NumpyRefBackend, problem, run_request, grid, length, realisation
+    )
+    actual = propagate(native_class(), problem, run_request, grid, length, realisation)
+    bound = ladder_bound("kerr", grid, space, problem, run_request, 1, length)
     assert relative(actual, reference) <= bound
     assert relative(reference, quiet) > bound
 
@@ -184,7 +185,7 @@ def test_the_safety_ramp_joins_the_slab_on_either_backend():
     could not say on its own: ``collar-only`` has one, the case's collar with no
     response, and removing it moves the answer by more than the ladder's bound on both.
     """
-    grid, space, problem = planar_case("collar-only")
+    grid, space, problem, run_request = planar_case("collar-only")
     separable = problem.linear.separable
     assert float(np.max(np.abs(separable.kperp_rate))) > 0.0  # pyright: ignore[reportArgumentType, reportCallIssue, reportOptionalMemberAccess]
     bare = dataclasses.replace(
@@ -199,12 +200,14 @@ def test_the_safety_ramp_joins_the_slab_on_either_backend():
             problem.route, flux=dataclasses.replace(_flux(problem), base=bare)
         ),
     )
-    steps = problem.stepper.schedule.steps.size  # pyright: ignore[reportOptionalMemberAccess]
-    bound = ladder_bound("collar-only", grid, space, problem, steps, grid.length)
-    expected = propagate(NumpyRefBackend, problem, grid, grid.length)
-    actual = propagate(native_class(), problem, grid, grid.length)
+    steps = run_request.stepper.schedule.steps.size  # pyright: ignore[reportOptionalMemberAccess]
+    bound = ladder_bound(
+        "collar-only", grid, space, problem, run_request, steps, grid.length
+    )
+    expected = propagate(NumpyRefBackend, problem, run_request, grid, grid.length)
+    actual = propagate(native_class(), problem, run_request, grid, grid.length)
     assert relative(actual, expected) < bound
-    moved = propagate(native_class(), without, grid, grid.length)
+    moved = propagate(native_class(), without, run_request, grid, grid.length)
     assert relative(moved, actual) > bound
 
 

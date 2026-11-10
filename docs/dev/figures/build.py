@@ -713,6 +713,7 @@ MODULES = {
                 "spatial",
                 "populations",
                 "memory",
+                "node_chunk",
                 "multistep",
                 "adams_core",
                 "rk_core",
@@ -934,8 +935,8 @@ RUN_STAGES = (
         "D",
         "Simulation(...)",
         (
-            "translate.assemble(...)  →  PropagationProblem",
-            "backends.select(name, problem, grid=, modes=, profiles=)",
+            "translate.assemble(...)  →  PropagationProblem, RunRequest",
+            "backends.select(name, problem, request, grid=, modes=)",
         ),
         "validated arrays",
     ),
@@ -990,6 +991,14 @@ class Section(NamedTuple):
 
     backend: str
     """What a backend does with it."""
+
+    request: tuple[str, ...] = ()
+    """The `RunRequest` members it documents: the run's policy, beside the problem."""
+
+    def label(self) -> str:
+        """Return the box's first line: the section and the fields it documents."""
+        names = (*self.fields, *(f"request.{name}" for name in self.request))
+        return f"§{self.number}   {' · '.join(names)}"
 
 
 CONTRACT_SECTIONS = (
@@ -1050,25 +1059,29 @@ CONTRACT_SECTIONS = (
     Section(
         7,
         "stepper settings and schedule",
-        ("stepper", "split_crossing"),
+        ("split_crossing",),
         "translate.problem.StepperSettings",
         ("stepper/", "tableau · controller · schedule"),
         "D",
         "the controller's decision, and the planes and kinks to land on",
+        ("stepper",),
     ),
     Section(
         8,
         "statistics requests",
-        ("stats_spec",),
+        (),
         "solprop.stats.StatsSpec",
         ("stats.py", "the catalogue and the energy windows"),
         "D",
         "one fused pass per save plane, deterministic reductions",
+        ("observation.stats",),
     ),
 )
 """The eight sections of `kernel-contract.md`, each with the fields it documents.
 
-Section 9 of that document is not a field: it is `Observation`, what comes back.
+Sections 7 and 8 are the run's policy, which the `RunRequest` carries beside the problem
+(SEP 47 section 5.2). Section 9 of that document is not a field: it is `Observation`,
+what comes back.
 """
 
 PHI_REPRESENTATIONS = ("constant", "expansion", "table", "separable")
@@ -1195,6 +1208,7 @@ TABLEAU = (
 """What `stepper.md` section 2 says about the tableau, for the panel beside it."""
 
 SEAM_METHODS = (
+    ("prepare", "bind a problem and its run request; each start opens a session"),
     ("set_initial", "the state and the noise realisation, host to device, once"),
     ("set_progress", "the observer each attempted step reports to; never an input"),
     ("set_stop", "the flag polled between trials, or none"),
@@ -2011,10 +2025,10 @@ def kernel_contract() -> drawsvg.Drawing:
     ]
     gap = 12.0
     subtitle = (
-        "kernel-contract.md §1 to §8. PropagationProblem is the only object that "
-        "crosses into a backend: one trajectory, its route a closed union, frozen and "
-        "validated. On the left, what builds each section; on the right, what a "
-        "backend does with it."
+        "kernel-contract.md §1 to §8. A backend is built from a PropagationProblem, "
+        "one trajectory, its route a closed union, frozen and validated, and the "
+        "RunRequest that carries the run's policy, §7 and §8. On the left, what "
+        "builds each section; on the right, what a backend does with it."
     )
     top = header_height(subtitle) + 30
     inset = inset_height()
@@ -2053,7 +2067,7 @@ def kernel_contract() -> drawsvg.Drawing:
         _node(
             drawing,
             Slot(middle_x, y, CONTRACT_MIDDLE),
-            f"§{section.number}   {' · '.join(section.fields)}",
+            section.label(),
             (section.title, section.leaf),
             Paint("fill-t", "ink-t"),
         )
@@ -2401,7 +2415,7 @@ def one_stage() -> drawsvg.Drawing:
     _arrow(drawing, [(MARGIN + PIPE_WIDTH + 4, fourth + 24), (side_x - 4, fourth + 24)])
     _text(
         drawing,
-        "over a chunk of transform.node_chunk nodes, so the buffers are",
+        "over the backend's node chunk at a time, so the buffers are",
         side_x,
         fourth + column + 14,
         size=SMALL_SIZE,

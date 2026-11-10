@@ -212,7 +212,7 @@ def resumed_bound(simulation, final) -> float:
     arithmetic over the five steps left is less). Both are taken over the whole run.
     """
     problem = simulation.translate()
-    scales = flow_scales(problem, simulation.grid, final)
+    scales = flow_scales(problem, simulation._run_request(), simulation.grid, final)
     carried = scales.condition**STEPS * math.exp(scales.phi) * scales.attenuation
     return 2.0 * UNIT * carried + ten_step_bound(scales)
 
@@ -273,7 +273,12 @@ def test_a_moving_guide_run_stopped_and_resumed_is_the_uninterrupted_run(
     # from the resume (its round trip is a conjugation and a sign flip).
     simulation = moving_case(kinked, "numpy_ref")
     bound = ten_step_bound(
-        flow_scales(simulation.translate(), simulation.grid, expected["field"][-1])
+        flow_scales(
+            simulation.translate(),
+            simulation._run_request(),
+            simulation.grid,
+            expected["field"][-1],
+        )
     )
     if not continued(got):
         # An engine that starts the Adams history afresh (Kokkos): what the schedule

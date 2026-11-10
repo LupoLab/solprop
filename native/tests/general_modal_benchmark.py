@@ -44,7 +44,9 @@ def _timed(
     field = np.empty(0, dtype=np.complex128)
     ledger = 0
     for _ in range(repeats):
-        backend = backend_class(case.problem, grid=case.simulation.grid)
+        backend = backend_class(
+            case.problem, case.run_request, grid=case.simulation.grid
+        )
         try:
             backend.set_initial(case.state, None)
             started = time.perf_counter()

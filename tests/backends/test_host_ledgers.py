@@ -18,7 +18,7 @@ from solprop.exceptions import BackendError
 
 
 def test_a_host_driver_without_an_atomic_service_refuses_atomic_ledgers():
-    driver = HostScriptedDriver(soliton(), grid=window())
+    driver = HostScriptedDriver(*soliton(), grid=window())
     try:
         with pytest.raises(BackendError, match="does not restore atomic"):
             driver.restore_call_ledgers({}, {"attempted": 1})

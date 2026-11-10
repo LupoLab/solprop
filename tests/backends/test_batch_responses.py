@@ -22,6 +22,7 @@ from bounds import EPS, gamma
 from former_raman import FORMER_H2, former_response
 from rate_oracles import AdkOracle, adk_oracle
 from solprop.backends import select, select_batch
+from solprop.backends.session import ExecutionOptions
 from solprop.constants import AU_ENERGY
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
@@ -59,7 +60,7 @@ def modal_problem(case, route):
         if route == "rows":
             modes = [row for mode in modes for row in (mode, mode.rotated(math.pi / 2))]
             initial = initial.reshape(4, 1, grid.n_omega)
-    problem = assemble(
+    return assemble(
         grid,
         modes,
         [KerrResponse(chi3=1e-26, thg=grid.kind == "field")],
@@ -71,13 +72,6 @@ def modal_problem(case, route):
         dz_max=1e-4,
         schedule=FixedSchedule.uniform(0.0, 8e-4, 1e-4),
         quadrature=transverse_quadrature(modes, n_r=4, radial_rule="gauss"),
-    )
-    return dataclasses.replace(
-        problem,
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(problem.transform, node_chunk=3),
-        ),
     )
 
 
@@ -100,7 +94,7 @@ def scalar_raman_problem(kind, with_plasma):
         # with its members, so any fixed rate serves.
         rate = AdkOracle("H2", 0.5669 * AU_ENERGY, 0, 1.0, hydrogenic=True)
         responses.append(PlasmaResponse("H2", rate))
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         modes,
         responses,
@@ -114,13 +108,7 @@ def scalar_raman_problem(kind, with_plasma):
         schedule=FixedSchedule.uniform(0.0, 8e-7, 1e-7),
         quadrature=transverse_quadrature(modes, n_r=4, radial_rule="gauss"),
     )
-    return grid, dataclasses.replace(
-        problem,
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(problem.transform, node_chunk=3),
-        ),
-    )
+    return grid, problem, run_request
 
 
 def scalar_plasma_problem(mode_count, preionisation, with_kerr):
@@ -137,7 +125,7 @@ def scalar_plasma_problem(mode_count, preionisation, with_kerr):
     ]
     if with_kerr:
         responses.append(KerrResponse(chi3=2e-52, thg=True))
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         modes[0] if mode_count == 1 else modes,
         responses,
@@ -153,27 +141,32 @@ def scalar_plasma_problem(mode_count, preionisation, with_kerr):
         if mode_count == 1
         else transverse_quadrature(modes, n_r=4, radial_rule="gauss"),
     )
-    if mode_count > 1:
-        problem = dataclasses.replace(
-            problem,
-            route=dataclasses.replace(
-                problem.route,
-                transform=dataclasses.replace(problem.transform, node_chunk=3),
-            ),
-        )
-    return grid, problem
+    return grid, problem, run_request
 
 
-def compare(problem, grid, backend, *, factory=select, spec=None):
+PARTIAL = ExecutionOptions(node_chunk=3)
+"""Three-node chunks, which every multinode case's members and solo runs take."""
+
+
+def compare(  # noqa: PLR0913 - the run, the backend and what is compared
+    problem,
+    run_request,
+    grid,
+    backend,
+    *,
+    factory=select,
+    spec=None,
+    options: ExecutionOptions | None = PARTIAL,
+):
     if spec is None:
         spec = StatsSpec(names=("energy", "peak_power"), periodic=("energy",), period=1)
-    problem = dataclasses.replace(problem, stats_spec=spec)
+    run_request = run_request.for_run(stats=spec)
     # A member and its solo run take one method on one fixed schedule: two steps of
     # seven evaluations, each a transform's 32 eps a level and the plasma column's
     # sums, gamma(12 n_to) (the band-rule ladder's count with a single tap).
     n_to = problem.grids.n_to
     bound = 2 * 7 * (32 * EPS * math.ceil(math.log2(n_to)) + gamma(12 * n_to))
-    rtol = problem.stepper.controller.rtol
+    rtol = run_request.stepper.controller.rtol
     with ExitStack() as cleanup:
         members, independent = [], []
         for index in range(2):
@@ -195,13 +188,13 @@ def compare(problem, grid, backend, *, factory=select, spec=None):
                 flags=dataclasses.replace(problem.flags, has_noise=True),
             )
             for destination in (members, independent):
-                owner = factory(backend, one, grid=grid)
+                owner = factory(backend, one, run_request, grid=grid, options=options)
                 cleanup.callback(owner.close)
                 owner.set_initial(initial.field0, draw)
                 destination.append(owner)
         runner = select_batch(members)
         cleanup.callback(runner.close)
-        for target in problem.stepper.schedule.edges[1:3]:
+        for target in run_request.stepper.schedule.edges[1:3]:
             runner.propagate_to(float(target))
             statistics = runner.stats(spec)
             for index, (actual, owner) in enumerate(
@@ -226,7 +219,7 @@ def compare(problem, grid, backend, *, factory=select, spec=None):
 def test_modal_batches_preserve_members(modal_case, backend, route):
     if backend == "native":
         pytest.importorskip("solprop_native")
-    compare(modal_problem(modal_case, route), modal_case[0], backend)
+    compare(*modal_problem(modal_case, route), modal_case[0], backend)
 
 
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])
@@ -236,17 +229,18 @@ def test_modal_batches_preserve_members(modal_case, backend, route):
 def test_raman_and_plasma_batches_preserve_members(backend, kind, plasma):
     if backend == "native":
         pytest.importorskip("solprop_native")
-    grid, problem = scalar_raman_problem(kind, plasma)
-    compare(problem, grid, backend)
+    grid, problem, run_request = scalar_raman_problem(kind, plasma)
+    compare(problem, run_request, grid, backend)
 
 
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_plasma_batches_preserve_species_statistics(backend):
     if backend == "native":
         pytest.importorskip("solprop_native")
-    grid, problem = scalar_plasma_problem(2, 0.125, True)
+    grid, problem, run_request = scalar_plasma_problem(2, 0.125, True)
     compare(
         problem,
+        run_request,
         grid,
         backend,
         spec=StatsSpec(

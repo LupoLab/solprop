@@ -7,7 +7,10 @@
 Each case of the ``sep47`` set runs once, briefly, with the native adapter's structural
 counters on (``benchmarks.worker.measure(count_events=True)``), and its counts must show
 the events it was declared for: a statistics row at every accepted step, snapshots
-serviced, a group's lockstep steps, the native or host march of a coupled flow.
+serviced, a group's common steps, the native or host march of a coupled flow. A run is
+served by the native execution session wherever it admits the run, as in production;
+the transitional bridge's counts are checked beside it where they document what the
+session removed (SEP 47 section 7.3).
 """
 
 import warnings
@@ -36,6 +39,12 @@ FIBRES = (
     "scan_local",
     "group_batch",
 )
+
+
+def _no_native_session(*args):
+    """Refuse every run to the native session, so the bridge serves it."""
+    del args
+    return "the test's bridge"
 
 
 def counted(name, tmp_path, fraction=0.125, repeats=0):
@@ -107,12 +116,57 @@ def test_period_one_statistics_take_a_row_at_every_accepted_step(name, tmp_path)
     timed, run, counts = counted(name, tmp_path, repeats=1)
     assert counts["statistics_rows"] == run["accepted"] == counts["accepted"] > 4
     assert counts["attempts"] == run["accepted"] + run["rejected"]
-    march = "adams_march" if name.endswith("adams") else "rk_march"
+    march = "session_adams" if name.endswith("adams") else "session_runge_kutta"
+    assert counts["march_calls"] == {march: counts["march_calls"][march]}
     assert counts["march_calls"][march] > 4
-    # Today every row is a return to Python.
-    assert counts["native_returns"]["host_step:statistics"] > 4
+    # The rows are taken natively: the session returns to Python at its launch, its
+    # planes and its end alone, and exports each kept plane once.
+    observations = CASES[name].planes + 1
+    assert counts["native_returns"] == {
+        "session_observation": observations,
+        "session_terminal": 1,
+    }
+    assert counts["planes"] == observations - 1
+    assert counts["field_crossings"] == {"export": observations}
+    assert counts["statistics_evaluations"] == counts["statistics_rows"] + observations
+    assert counts["host_attempts"] == counts["transverse_reads"] == 0
     assert timed is not None
     assert (timed["accepted"], timed["rejected"]) == (run["accepted"], run["rejected"])
+
+
+@pytest.mark.parametrize("name", ["stats_period1_rk", "snapshots_sparse"])
+def test_the_bridge_counts_the_same_work_with_a_return_per_step(
+    name, tmp_path, monkeypatch
+):
+    # The transitional bridge still serves what the native session refuses. Measured
+    # the same way, it makes the same attempts, rows, planes and copies, and returns
+    # to Python at every step the session keeps native.
+    _, run, session = counted(name, tmp_path)
+    monkeypatch.setattr("solprop_native.session.session_refusal", _no_native_session)
+    _, bridged, bridge = counted(name, tmp_path / "bridge")
+    assert (bridged["accepted"], bridged["rejected"]) == (
+        run["accepted"],
+        run["rejected"],
+    )
+    same = (
+        "attempts",
+        "accepted",
+        "planes",
+        "statistics_rows",
+        "statistics_evaluations",
+        "field_bytes",
+        "field_loads",
+        "load_bytes",
+    )
+    assert {key: bridge[key] for key in same} == {key: session[key] for key in same}
+    assert (
+        sum(bridge["field_crossings"].values()) == session["field_crossings"]["export"]
+    )
+    assert set(bridge["field_crossings"]) == {"plane"}
+    cause = "statistics" if name.startswith("stats") else "step_planes"
+    assert bridge["native_returns"][f"host_step:{cause}"] >= run["accepted"] - 2
+    assert all(not key.startswith("session_") for key in bridge["native_returns"])
+    assert all(not key.startswith("host_step") for key in session["native_returns"])
 
 
 @pytest.mark.parametrize(
@@ -128,9 +182,17 @@ def test_snapshot_cases_service_what_they_ask_for(name, every, tmp_path):
     _, run, counts = counted(name, tmp_path)
     assert run["accepted"] > 4
     assert run["snapshots"] == (run["accepted"] // every if every else 0)
-    # step_planes=1: a plane, and today a return, at every accepted step.
+    # step_planes=1: a plane at every accepted step, each a requested observation and
+    # a return; each snapshot asked for is one more, serviced at its endpoint, and
+    # snapshots enabled but not asked for cost none (SEP 47 section 7.3).
     assert run["planes"] == run["accepted"] + 1
-    assert counts["native_returns"]["host_step:step_planes"] >= run["accepted"] - 2
+    expected = {"session_observation": run["planes"], "session_terminal": 1}
+    if run["snapshots"]:
+        expected["session_snapshot"] = run["snapshots"]
+    assert counts["native_returns"] == expected
+    # Every plane's field is exported once; a Runge-Kutta march has no history to
+    # copy for a snapshot.
+    assert counts["field_crossings"] == {"export": run["planes"]}
 
 
 @pytest.mark.medium
@@ -138,25 +200,47 @@ def test_repeated_inputs_scans_and_groups_run_their_members(tmp_path):
     _, run, counts = counted("with_input_repeat", tmp_path)
     assert run["runs"] == 3
     assert run["finite"] is True
-    assert counts["march_calls"]["rk_march"] >= 3
-    assert counts["field_crossings"]["plane"] == 3 * (
-        CASES["with_input_repeat"].planes + 1
-    )
+    assert counts["march_calls"]["session_runge_kutta"] >= 3
+    observations = CASES["with_input_repeat"].planes + 1
+    # Each run is a native session of its own: loaded once, a return at each plane
+    # and at its end, each kept plane exported once.
+    assert counts["native_returns"] == {
+        "session_observation": 3 * observations,
+        "session_terminal": 3,
+    }
+    assert counts["field_crossings"] == {"export": 3 * observations}
+    assert counts["field_loads"] == {"start": 3}
     _, run, counts = counted("scan_local", tmp_path / "scan")
     assert run["runs"] == 4
     # Field-free: finiteness from the points' statistics; the watched runs' steps.
     assert run["finite"] is True
     assert run["accepted"] == counts["accepted"]
     assert counts["accepted"] > 4
+    observations = CASES["scan_local"].planes + 1
+    assert counts["native_returns"] == {
+        "session_observation": 4 * observations,
+        "session_terminal": 4,
+    }
     # A field-free scan's members never copy a field to the host.
+    assert counts["field_crossings"] == {}
     assert counts["field_bytes"] == 0
     _, run, counts = counted("group_batch", tmp_path / "group", fraction=0.5)
     schedule = build(CASES["group_batch"].configuration("default", 1, "native", 0.5))
     assert schedule.settings.schedule is not None
     steps = schedule.settings.schedule.n_steps
     assert counts["group_steps"] == steps > 1
-    assert counts["native_returns"] == {"group_step": steps}
-    assert counts["host_attempts"] == counts["accepted"] == 4 * steps
+    # The native group session: each member's native session returns at its launch,
+    # at each plane and at its end, its steps native; and each point's resource
+    # probe, a native session of its own, at its launch.
+    planes = len(schedule.settings.save_planes)
+    assert counts["native_returns"] == {
+        "session_observation": 4 * (planes + 1) + 4,
+        "session_terminal": 4,
+    }
+    assert counts["field_loads"] == {"start": 8}
+    assert counts["field_crossings"] == {}
+    assert counts["attempts"] == counts["accepted"] == 4 * steps
+    assert counts["host_attempts"] == 0
     # Batch watches no point's run: its steps are uncounted, not zero.
     assert (run["accepted"], run["rejected"], run["finite"]) == (None, None, True)
 
@@ -180,6 +264,30 @@ def test_counters_attribute_a_host_step_to_the_work_due_on_it():
     }
     assert record["march_calls"] == {"adams_march": 1, "rk_march": 3}
     assert (record["attempts"], record["accepted"]) == (10, 7)
+    # A native session's batch: one return by its event, its chunk's work.
+    counters.session_batch(
+        "progress:work_limit",
+        4,
+        3,
+        rows=3,
+        evaluations=3,
+        march="session_adams",
+        calls=2,
+    )
+    counters.session_batch(
+        "observation", 0, 0, evaluations=1, plane=True, march="session_adams"
+    )
+    counters.crossing("export", 64)
+    counters.load("start", 32)
+    record = counters.record()
+    assert record["native_returns"]["session_progress:work_limit"] == 1
+    assert record["native_returns"]["session_observation"] == 1
+    assert record["march_calls"]["session_adams"] == 2
+    assert (record["attempts"], record["accepted"]) == (14, 10)
+    assert (record["statistics_rows"], record["statistics_evaluations"]) == (3, 4)
+    assert record["planes"] == 1
+    assert (record["field_crossings"], record["field_bytes"]) == ({"export": 1}, 64)
+    assert (record["field_loads"], record["load_bytes"]) == ({"start": 1}, 32)
     # The per-attempt hooks live on the backend only while counting.
     hooks = ("_record", "_record_step_stats")
     assert _counters.disable() is None
@@ -226,7 +334,8 @@ def test_a_narrow_flow_marches_natively_and_a_wide_one_on_the_host(tmp_path):
         assert HostMarchWarning not in found
         _, _, wide = counted("taper_flow_17", tmp_path / "wide", fraction=1.0)
     assert HostMarchWarning in {type(item.message) for item in caught}
-    assert narrow["march_calls"].get("adams_march", 0) > 0
+    # The narrow flow runs in the native session, on its native Adams march.
+    assert narrow["march_calls"].get("session_adams", 0) > 0
     assert narrow["host_attempts"] == 0
     assert wide["march_calls"] == {}
     assert wide["host_attempts"] == wide["native_returns"]["host_attempt"] > 0

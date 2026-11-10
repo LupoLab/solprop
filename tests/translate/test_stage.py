@@ -38,7 +38,7 @@ from solprop.stepper import PIController
 from solprop.translate.chebyshev import PiecewiseChebyshev, build
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.linop import delta_phi, unitary_phase
-from solprop.translate.problem import Flags, PropagationProblem, assemble
+from solprop.translate.problem import Flags, PropagationProblem, assemble, validate_run
 from solprop.translate.responses import prefactor_at
 from solprop.translate.stage import (
     anchor,
@@ -148,7 +148,7 @@ def case(request):
     """Each device-ready problem the bundle is asserted on, once."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return CASES[request.param]()
+        return CASES[request.param]().problem
 
 
 def stage_pairs(problem, count=12, seed=20260907):
@@ -252,6 +252,12 @@ def test_the_scalar_paths_are_read_at_the_stage_position(case):
         assert math.isfinite(bundle.density)
 
 
+@pytest.fixture(scope="module")
+def plasma_problem(plasma_translation):
+    """The plasma case's problem."""
+    return plasma_translation.problem
+
+
 def test_the_raman_rates_come_off_the_leaf_in_its_own_order(raman_problem):
     """One rate per undamped row, hashable, so a backend can memoise on it."""
     coefficients = raman_problem.responses.raman_coefficients
@@ -272,7 +278,7 @@ def test_the_preionisation_comes_off_the_plasma_leaf(plasma_problem):
 
 
 @pytest.fixture(scope="module")
-def raman_problem():
+def raman_translation():
     """A nitrogen Raman response, for the decay rates the bundle carries."""
     grid = EnvelopeGrid.from_limits(0.1, 835e-9, (650e-9, 1.2e-6), 1e-12)
     mode = SpecifiedMode.from_taylor(
@@ -299,7 +305,13 @@ def raman_problem():
 
 
 @pytest.fixture(scope="module")
-def plasma_problem():
+def raman_problem(raman_translation):
+    """The Raman case's problem."""
+    return raman_translation.problem
+
+
+@pytest.fixture(scope="module")
+def plasma_translation():
     """An ionising argon capillary with a pre-ionised fraction."""
     grid = FieldGrid.from_limits(0.2, 800e-9, (200e-9, 4e-6), 100e-15)
     mode = MarcatiliMode(
@@ -375,7 +387,7 @@ def test_an_accelerator_refusal_sizes_the_one_table_taken(quantity):
     """Either quantity may be the table beside the other's expansion: its size alone."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        problem = gradient_capillary()
+        problem = gradient_capillary().problem
     if quantity == "phi":
         table = dataclasses.replace(problem, linear=_tabulated_phi(problem))
         assert table.linear.phi_coefficients is not None
@@ -413,7 +425,7 @@ def tabulated():
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        problem = gradient_capillary()
+        problem, run_request = gradient_capillary()
     linear = _tabulated_phi(problem)
     responses = dataclasses.replace(
         problem.responses,
@@ -432,11 +444,9 @@ def tabulated():
         linear=linear,
         responses=responses,
         initial=problem.initial,
-        stepper=problem.stepper,
-        stats_spec=problem.stats_spec,
         route=problem.route,
     )
-    rebuilt.validate()
+    validate_run(rebuilt, run_request)
     return rebuilt
 
 
@@ -579,9 +589,9 @@ def _same(mine, theirs):
             assert a == b, field.name
 
 
-def _step_positions(problem, z0, dz):
+def _step_positions(problem, run_request, z0, dz):
     """A trial's positions: its nodes and its end, as a Runge-Kutta trial forms them."""
-    nodes = problem.stepper.tableau.nodes
+    nodes = run_request.stepper.tableau.nodes
     return [z0 + dz, *(z0 + float(node) * dz for node in nodes)]
 
 
@@ -597,12 +607,15 @@ def _boundaries(problem):
     scope="module",
     params=["soliton", "gradient capillary", "reduced M2", "raman", "plasma"],
 )
-def every_case(request, raman_problem, plasma_problem):
-    """The device-ready cases and the two leaves with their own scalar tables."""
+def every_case(request, raman_translation, plasma_translation):
+    """The device-ready cases and the two leaves with their own scalar tables.
+
+    Each as its problem and its run's request.
+    """
     if request.param == "raman":
-        return raman_problem
+        return raman_translation
     if request.param == "plasma":
-        return plasma_problem
+        return plasma_translation
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return CASES[request.param]()
@@ -617,7 +630,7 @@ def test_the_stages_taken_together_are_the_stages_taken_alone(every_case):
     across and onto every table's interior breakpoints, steps a relative 1e-12 long,
     and steps anchored at the far end of the range, where the anchor dwarfs the step.
     """
-    problem = every_case
+    problem, run_request = every_case
     low, high = problem.linear.z_span
     steps = [(z0, z1 - z0) for z0, z1 in stage_pairs(problem, count=6) if z1 > z0]
     for edge in _boundaries(problem)[:6]:
@@ -628,7 +641,9 @@ def test_the_stages_taken_together_are_the_stages_taken_alone(every_case):
     steps += [(high - high * 2e-12, high * 1e-12), (0.5 * (low + high), 1e-12 * high)]
     steps += [(low, high - low)]
     for z0, dz in steps:
-        positions = [min(z, high) for z in _step_positions(problem, z0, dz)]
+        positions = [
+            min(z, high) for z in _step_positions(problem, run_request, z0, dz)
+        ]
         held = anchor(problem, z0)
         _forget(problem)
         alone = [scalars(problem, z0, z1, at=held) for z1 in positions]

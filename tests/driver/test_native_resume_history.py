@@ -139,10 +139,12 @@ def quiet(test):
 def opened(simulation, backend):
     """Return the translated problem and `backend` built for it, at the entrance."""
     problem = simulation.translate()
+    run_request = simulation._run_request()
     # A step driver that is also a closable backend: no one static type names both.
     built: Any = select(
         backend,
         problem,
+        run_request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
@@ -187,7 +189,7 @@ def counted_starts(backend):
 def test_the_resident_history_is_restored_exactly_and_continued(build_simulation, case):
     simulation = CASES[case](build_simulation, "native")()
     problem, first = opened(simulation, "native")
-    planes = [float(z) for z in problem.stepper.save_planes]
+    planes = [float(z) for z in simulation._run_request().stepper.save_planes]
     try:
         engine = first._adams._engine
         assert type(engine).__name__ == "_ResidentAdams"
@@ -237,7 +239,7 @@ def test_the_host_engine_on_native_hooks_round_trips_too(
     problem, first = opened(simulation, "native")
     try:
         assert type(first._adams._engine).__name__ == "HostHistory"
-        first.propagate_to(float(problem.stepper.save_planes[0]))
+        first.propagate_to(float(simulation._run_request().stepper.save_planes[0]))
         stored = first.march_snapshot()
     finally:
         first.close()
@@ -251,7 +253,7 @@ def test_the_host_engine_on_native_hooks_round_trips_too(
         starts = counted_starts(second)
         assert second.restore_march(stored) is None
         assert_same_snapshot(second.march_snapshot(), stored)
-        second.propagate_to(float(problem.stepper.save_planes[1]))
+        second.propagate_to(float(simulation._run_request().stepper.save_planes[1]))
         assert starts() == 0
     finally:
         second.close()
@@ -263,10 +265,10 @@ def test_a_resume_without_the_snapshot_restarts_the_history(build_simulation, ca
     # The witness above is a real one: the same backend without the snapshot does
     # evaluate the startup sample.
     simulation = CASES[case](build_simulation, "native")()
-    problem, backend = opened(simulation, "native")
+    _, backend = opened(simulation, "native")
     try:
         starts = counted_starts(backend)
-        backend.propagate_to(float(problem.stepper.save_planes[0]))
+        backend.propagate_to(float(simulation._run_request().stepper.save_planes[0]))
         assert starts() == 1
     finally:
         backend.close()
@@ -401,9 +403,9 @@ def test_a_history_of_the_same_rows_crosses_backends(
 
 def snapshot_at_first_plane(simulation):
     """Return the march snapshot of `simulation`'s backend at its first save plane."""
-    problem, backend = opened(simulation, simulation.settings.backend)
+    _, backend = opened(simulation, simulation.settings.backend)
     try:
-        backend.propagate_to(float(problem.stepper.save_planes[0]))
+        backend.propagate_to(float(simulation._run_request().stepper.save_planes[0]))
         stored = backend.march_snapshot()
     finally:
         backend.close()

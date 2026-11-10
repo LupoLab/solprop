@@ -106,16 +106,18 @@ def translated(integrator):
         )
         changes["absorber_scheme"] = "split_step"
     simulation.settings = dataclasses.replace(simulation.settings, **changes)
-    return simulation, simulation.translate()
+    return simulation, simulation.translate(), simulation._run_request()
 
 
 def propagate(backend_class, prepared):
     """Construct the backend on a translated problem and run its two short steps."""
-    simulation, problem = prepared
-    backend = backend_class(problem, grid=simulation.grid, modes=simulation.modes)
+    simulation, problem, run_request = prepared
+    backend = backend_class(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         backend.set_initial(problem.initial.field0, None)
-        for plane in problem.stepper.save_planes:
+        for plane in run_request.stepper.save_planes:
             backend.propagate_to(float(plane))
         observed = backend.observe()
         assert observed.field is not None
@@ -186,7 +188,7 @@ def z_table(integrator):
     )
     problem = simulation.translate()
     assert problem.linear.phi_representation == "table"
-    return simulation, problem
+    return simulation, problem, simulation._run_request()
 
 
 @pytest.mark.parametrize(

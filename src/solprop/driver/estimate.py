@@ -25,9 +25,10 @@ from solprop.driver.run import field_retention
 from solprop.exceptions import DriverError
 from solprop.grid import FreeGrid, RadialGrid
 from solprop.modes.slab import PlanarGrid
-from solprop.stats import CATALOGUE
+from solprop.stats import CATALOGUE, StatsSpec
 from solprop.stepper import LowStorageRungeKutta, Multistep
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.run_request import RunRequest
 
 if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
@@ -101,7 +102,7 @@ class RunEstimate:
 
 
 def _timed_step(
-    backend: Backend, problem: PropagationProblem
+    backend: Backend, problem: PropagationProblem, request: RunRequest
 ) -> tuple[Callable[[], object], int]:
     """Load a run's entrance and return the step to time, and its evaluations.
 
@@ -115,17 +116,19 @@ def _timed_step(
         The constructed backend, holding no state yet; closed by the caller.
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        Its run's request, whose method decides the evaluations.
 
     Returns
     -------
     tuple
         A callable taking one step, and the right-hand-side evaluations in it.
     """
-    integrator = problem.stepper.integrator
+    integrator = request.integration.method
     evaluations = (
         _calls_per_step(integrator)
         if isinstance(integrator, LowStorageRungeKutta)
-        else len(problem.stepper.tableau.nodes)
+        else len(request.integration.tableau.nodes)
     )
     return backend.timing_probe(Start.entrance(problem)).trial, evaluations
 
@@ -170,20 +173,23 @@ def estimate(
         The estimate.
     """
     problem = simulation.translate()
+    request = simulation._run_request()
     settings = simulation.settings
-    n_planes = len(problem.stepper.save_planes) + 1
+    n_planes = request.observation.save_planes.size + 1
     size = output_bytes(simulation)
-    integrator = problem.stepper.integrator
+    integrator = request.integration.method
     calls = _calls_per_step(integrator)
-    schedule = problem.stepper.schedule
-    total = None if schedule is None else int(schedule.steps.size) * calls
+    replay = request.replay
+    total = None if replay is None else int(replay.schedule.steps.size) * calls
     started = time.perf_counter()
     backend = select(
         settings.backend,
         problem,
+        request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
+        options=settings.execution_options(),
     )
     try:
         memory = sum(backend.memory_ledger().values())
@@ -194,7 +200,7 @@ def estimate(
             and isinstance(simulation.spatial_grid, RadialGrid | FreeGrid | PlanarGrid)
         ):
             memory += backend.edge_memory(simulation.spatial_grid)
-        step, evaluations = _timed_step(backend, problem)
+        step, evaluations = _timed_step(backend, problem, request)
         step()
         setup = time.perf_counter() - started
         timings = []
@@ -247,14 +253,16 @@ def output_bytes(simulation: "Simulation") -> int:  # noqa: UP037 - checked at r
         Bytes.
     """
     problem = simulation.translate()
+    request = simulation._run_request()
     settings = simulation.settings
-    retention = field_retention(problem, settings.fields, settings.field_planes)
-    n_planes = len(problem.stepper.save_planes) + 1
+    retention = field_retention(request, settings.fields, settings.field_planes)
+    n_planes = request.observation.save_planes.size + 1
     kept = sum(1 for index in range(n_planes) if retention.keeps(index))
-    return n_planes * plane_bytes(problem) - (n_planes - kept) * field_bytes(problem)
+    plane = plane_bytes(problem, request.observation.stats)
+    return n_planes * plane - (n_planes - kept) * field_bytes(problem)
 
 
-def plane_bytes(problem: PropagationProblem) -> int:
+def plane_bytes(problem: PropagationProblem, stats: StatsSpec) -> int:
     """Return the bytes one saved plane occupies in an in-memory store.
 
     The field (complex128), the noise phase (float64) when the run carries a noise
@@ -266,6 +274,8 @@ def plane_bytes(problem: PropagationProblem) -> int:
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
+    stats : solprop.stats.StatsSpec
+        The statistics its run collects.
 
     Returns
     -------
@@ -282,7 +292,8 @@ def plane_bytes(problem: PropagationProblem) -> int:
     ...     width=100e-15, peak_power=9.8, shape="sech",
     ... )
     >>> problem = simulation.translate()
-    >>> plane_bytes(problem) >= 16 * problem.shape[-1]
+    >>> stats = simulation._run_request().observation.stats
+    >>> plane_bytes(problem, stats) >= 16 * problem.shape[-1]
     True
     """
     n_modes, n_pol, n_omega = problem.shape
@@ -294,13 +305,13 @@ def plane_bytes(problem: PropagationProblem) -> int:
         "n_modes": n_modes,
         "n_pol": n_pol,
         "n_omega": n_omega,
-        "n_windows": problem.stats_spec.n_windows,
-        "n_apertures": problem.stats_spec.n_apertures,
-        "n_regions": problem.stats_spec.n_regions,
+        "n_windows": stats.n_windows,
+        "n_apertures": stats.n_apertures,
+        "n_regions": stats.n_regions,
         "n_species": problem.responses.n_species,
         "n_nodes": problem.transform.n_nodes,
     }
-    for name in problem.stats_spec.names:
+    for name in stats.names:
         total += 8 * _catalogued_entries(CATALOGUE[name].shape, sizes)
     return total
 

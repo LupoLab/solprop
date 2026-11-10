@@ -38,7 +38,7 @@ from backends.dispersive_route_cases import run as march
 from backends.dispersive_route_cases import source as launch_source
 from bounds import assert_within, step_evaluations
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref import backend as numpy_ref_backend
+from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
 from solprop.exceptions import GeneralModalBasisWarning, MaterialRangeWarning
 from solprop.physdata import MaterialSelection, Mixture
@@ -88,9 +88,9 @@ def falling_mixture(evaluator, helium_end, argon_end):
         )
 
 
-def source_at(backend_class, problem, grid, z):
+def source_at(backend_class, problem, run_request, grid, z):
     """Return one evaluation of the lab-frame source on the launch at position `z`."""
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         return np.array(backend._adams_lab_source(problem.initial.field0[None], z))
@@ -100,23 +100,25 @@ def source_at(backend_class, problem, grid, z):
 
 def from_capillary(evaluator, **ends):
     simulation = falling_mixture(evaluator, **ends)
-    return simulation.translate(), simulation.grid
+    return simulation.translate(), simulation._run_request(), simulation.grid
 
 
 @pytest.mark.parametrize("evaluator", sorted(POLICIES))
 def test_a_member_at_exactly_zero_density_is_the_reference_s(evaluator):
     """Helium's partial pressure reaches an exact zero; argon carries on alone there."""
-    problem, grid = from_capillary(evaluator, helium_end=0.0, argon_end=2.0)
+    problem, run_request, grid = from_capillary(
+        evaluator, helium_end=0.0, argon_end=2.0
+    )
     densities = scalars(problem, 0.0, LENGTH).dispersive_kerr_densities
     assert densities[0] == 0.0
     assert densities[1] > 0.0
-    ours = source_at(NativeBackend, problem, grid, LENGTH)
-    theirs = source_at(NumpyRefBackend, problem, grid, LENGTH)
+    ours = source_at(NativeBackend, problem, run_request, grid, LENGTH)
+    theirs = source_at(NumpyRefBackend, problem, run_request, grid, LENGTH)
     assert disagreement(ours, theirs) < evaluation_bound(problem)
     # The whole march down to it, at the steps' count of one evaluation.
-    limit = STEPS * step_evaluations(problem) * evaluation_bound(problem)
-    ending = march(NativeBackend, problem, grid)[0]
-    reference = march(NumpyRefBackend, problem, grid)[0]
+    limit = STEPS * step_evaluations(run_request) * evaluation_bound(problem)
+    ending = march(NativeBackend, problem, run_request, grid)[0]
+    reference = march(NumpyRefBackend, problem, run_request, grid)[0]
     assert_within(ending, reference, limit, what="the march to a zero member")
 
 
@@ -127,39 +129,39 @@ def test_a_vacuum_has_exactly_no_source(evaluator):
     A vacuum's filter is a unit one by contract, the C++ test's explicit no-op; its
     source, the multiplier's product, must be an exact zero on both, not a rounding.
     """
-    problem, grid = from_capillary(evaluator, helium_end=0.0, argon_end=0.0)
+    problem, run_request, grid = from_capillary(
+        evaluator, helium_end=0.0, argon_end=0.0
+    )
     densities = scalars(problem, 0.0, LENGTH).dispersive_kerr_densities
     assert np.all(np.asarray(densities) == 0.0)
-    ours = source_at(NativeBackend, problem, grid, LENGTH)
-    theirs = source_at(NumpyRefBackend, problem, grid, LENGTH)
+    ours = source_at(NativeBackend, problem, run_request, grid, LENGTH)
+    theirs = source_at(NumpyRefBackend, problem, run_request, grid, LENGTH)
     np.testing.assert_array_equal(theirs, 0.0)
     np.testing.assert_array_equal(ours, 0.0)
     # Vacuous unless the same evaluation makes one where there is gas.
-    assert np.any(source_at(NativeBackend, problem, grid, 0.0))
+    assert np.any(source_at(NativeBackend, problem, run_request, grid, 0.0))
 
 
 @pytest.mark.filterwarnings(
     f"ignore::{GeneralModalBasisWarning.__module__}.{GeneralModalBasisWarning.__name__}"
 )
 @pytest.mark.parametrize("evaluator", sorted(POLICIES))
-def test_a_general_chunk_without_a_gas_node_adds_nothing(monkeypatch, evaluator):
+def test_a_general_chunk_without_a_gas_node_adds_nothing(evaluator):
     """A chunk of the solid core's nodes alone, on native as on the reference.
 
-    The original's construction, the chunk cut at the first gas node; native reads it
-    from the same function through its own import, so both are patched. With no
-    regional tensor in the core, the chunk's polarisation is zero and the evaluation
-    still agrees.
+    The original's construction, the chunk cut at the first gas node, an exact chunk
+    both backends are prepared with. With no regional tensor in the core, the chunk's
+    polarisation is zero and the evaluation still agrees.
     """
-    problem, grid = general_problem(strand(ARGON_FILL), evaluator, "real")
+    problem, run_request, grid = general_problem(strand(ARGON_FILL), evaluator, "real")
     tables = problem.transform.modal_tables
     assert tables is not None
     region = np.asarray(tables.region_index)
     first_gas = int(np.flatnonzero(region == 1)[0])
     assert first_gas >= 1
     assert np.all(region[:first_gas] != 1)
-    for module in (numpy_ref_backend, native_backend):
-        monkeypatch.setattr(module, "general_node_chunk", lambda *_, **__: first_gas)
-    ours = launch_source(NativeBackend, problem, grid)
-    theirs = launch_source(NumpyRefBackend, problem, grid)
+    options = ExecutionOptions(node_chunk=first_gas)
+    ours = launch_source(NativeBackend, problem, run_request, grid, options)
+    theirs = launch_source(NumpyRefBackend, problem, run_request, grid, options)
     assert np.any(theirs)
     assert disagreement(ours, theirs) < evaluation_bound(problem)

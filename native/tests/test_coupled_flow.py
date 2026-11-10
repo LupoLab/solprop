@@ -41,6 +41,7 @@ from solprop.modes import CoherentWall
 from solprop.profiles import PiecewiseLinear
 from solprop.stepper import FixedSchedule
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend, NativeBatchBackend
 from solprop_native.backend import (
@@ -121,11 +122,12 @@ CASES = {
 def run(
     backend: type[NumpyRefBackend] | type[NativeBackend],
     problem: PropagationProblem,
+    run_request: RunRequest,
     grid: FieldGrid,
     field0: ComplexArray | None = None,
 ) -> ComplexArray:
     """Propagate one problem to the end of the window and return the state."""
-    driver = backend(problem, grid=grid)
+    driver = backend(problem, run_request, grid=grid)
     try:
         driver.set_initial(problem.initial.field0 if field0 is None else field0, None)
         driver.propagate_to(LENGTH)
@@ -134,7 +136,9 @@ def run(
         driver.close()
 
 
-def _formation_bound(problem: PropagationProblem, dz: float) -> float:
+def _formation_bound(
+    problem: PropagationProblem, run_request: RunRequest, dz: float
+) -> float:
     """Return the actions' formation bound, relative to each action; before any run.
 
     solprop's derivation (``tests/flow_parity.py``), restated: each
@@ -154,7 +158,7 @@ def _formation_bound(problem: PropagationProblem, dz: float) -> float:
     unit = EPS / 2
     certificate = float(np.max(flow.condition_bound))
     harmonic = sum(1.0 / term for term in range(1, 17))
-    fractions = {float(node) for node in problem.stepper.tableau.nodes} | {1.0}
+    fractions = {float(node) for node in run_request.stepper.tableau.nodes} | {1.0}
     worst = 0.0
     for section in range(flow.vectors.shape[0]):
         vectors: ComplexArray = flow.vectors[section]
@@ -208,7 +212,10 @@ def _formation_bound(problem: PropagationProblem, dz: float) -> float:
 
 
 def _parity_bound(
-    problem: PropagationProblem, expected: ComplexArray, linear: ComplexArray
+    problem: PropagationProblem,
+    run_request: RunRequest,
+    expected: ComplexArray,
+    linear: ComplexArray,
 ) -> float:
     """Return the ten-step bound relative to the launch; fixed before the first run.
 
@@ -232,13 +239,13 @@ def _parity_bound(
     residual = float(np.max(flow.residual_norm_bound)) * LENGTH / STEPS
     terms = int(flow.generator.shape[0] * flow.generator.shape[1])
     carry = 2 * channels * kappa * EPS + kappa * _formation_bound(
-        problem, LENGTH / STEPS
+        problem, run_request, LENGTH / STEPS
     )
     source = (
         2 * 512 * EPS * math.log2(problem.grids.n_to)
         + (channels + 84 + 3 * problem.transform.n_nodes) * EPS
     )
-    stages = problem.stepper.tableau.n_stages
+    stages = run_request.stepper.tableau.n_stages
     per_step = 16 * EPS + 2 * carry
     per_stage = rho * (source + 2 * carry) + residual * (terms + 2 * channels) * EPS
     return STEPS * (per_step + stages * per_stage) * (1 + 3 * rho + residual) ** STEPS
@@ -248,13 +255,14 @@ def _parity_bound(
 def test_ten_steps_of_the_flow_are_the_reference_within_the_bound(name: str) -> None:
     case = CASES[name]()
     problem = case.translate()
+    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
     grid = cast(FieldGrid, case.grid)
-    expected = run(NumpyRefBackend, problem, grid)
-    actual = run(NativeBackend, problem, grid)
+    expected = run(NumpyRefBackend, problem, run_request, grid)
+    actual = run(NativeBackend, problem, run_request, grid)
     small = np.asarray(problem.initial.field0 * 1e-3, dtype=np.complex128)
-    linear = 1e3 * run(NumpyRefBackend, problem, grid, small)
+    linear = 1e3 * run(NumpyRefBackend, problem, run_request, grid, small)
     scale = float(np.max(np.abs(problem.initial.field0)))
-    bound = _parity_bound(problem, expected, linear)
+    bound = _parity_bound(problem, run_request, expected, linear)
     assert float(np.max(np.abs(expected - linear))) / scale / STEPS > 1e-4
     assert float(np.max(np.abs(actual - expected))) / scale <= bound
 
@@ -262,10 +270,13 @@ def test_ten_steps_of_the_flow_are_the_reference_within_the_bound(name: str) -> 
 def test_cf4_and_a_batch_are_refused_by_name() -> None:
     case = simulation(radius=taper(), wall=CoherentWall(method="cf4"))
     with pytest.raises(BackendError, match=r"native does not execute a 'cf4' section"):
-        NativeBackend(case.translate(), grid=case.grid)
+        NativeBackend(case.translate(), case._run_request(), grid=case.grid)  # pyright: ignore[reportPrivateUsage]
     constant = CASES["scalar_wall"]()
     problem = constant.translate()
-    members = [NativeBackend(problem, grid=constant.grid) for _ in range(2)]
+    run_request = constant._run_request()  # pyright: ignore[reportPrivateUsage]
+    members = [
+        NativeBackend(problem, run_request, grid=constant.grid) for _ in range(2)
+    ]
     try:
         for member in members:
             member.set_initial(problem.initial.field0, None)
@@ -282,6 +293,7 @@ def test_a_step_beyond_the_certificate_is_refused_by_name() -> None:
     # default exponential formulation acts forward only and does not measure it.
     case = CASES["scalar_wall"]()
     problem = case.translate()
+    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
     flow = problem.linear.coupled_flow
     assert flow is not None
     shrunk = dataclasses.replace(
@@ -290,9 +302,11 @@ def test_a_step_beyond_the_certificate_is_refused_by_name() -> None:
     spoiled = dataclasses.replace(
         problem,
         linear=dataclasses.replace(problem.linear, coupled_flow=shrunk),
-        stepper=dataclasses.replace(problem.stepper, integrator=None),
     )
-    backend = NativeBackend(spoiled, grid=case.grid)
+    run_request = run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, integrator=None)
+    )
+    backend = NativeBackend(spoiled, run_request, grid=case.grid)
     try:
         backend.set_initial(spoiled.initial.field0, None)
         with pytest.raises(BackendError, match="native measured a coupled flow"):
@@ -304,10 +318,11 @@ def test_a_step_beyond_the_certificate_is_refused_by_name() -> None:
 def test_the_flow_ledger_counts_its_views() -> None:
     case = CASES["taper_gradient"]()
     problem = case.translate()
+    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
-    backend = NativeBackend(problem, grid=case.grid)
+    backend = NativeBackend(problem, run_request, grid=case.grid)
     try:
         ledger = backend.memory_ledger()
     finally:
@@ -315,7 +330,7 @@ def test_the_flow_ledger_counts_its_views() -> None:
     channels, _, bins = problem.shape
     active = int(np.count_nonzero(np.any(flow.generator != 0.0, axis=(0, 1, 2, 3))))
     block = active * channels * channels * 16
-    stages = problem.stepper.tableau.n_stages
+    stages = run_request.stepper.tableau.n_stages
     assert ledger["flow_forward"] == ledger["flow_inverse"] == (stages + 1) * block
     assert ledger["flow_frozen"] == len(flow.section_methods) * block
     assert ledger["flow_lab"] == channels * bins * 16
@@ -329,7 +344,8 @@ def test_a_length_needing_too_many_squarings_is_refused_by_name() -> None:
     """
     case = CASES["scalar_wall"]()
     problem = case.translate()
-    backend = NativeBackend(problem, grid=case.grid)
+    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
+    backend = NativeBackend(problem, run_request, grid=case.grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         whole = backend._stage_scalars(  # pyright: ignore[reportPrivateUsage]
@@ -354,15 +370,16 @@ def test_the_engine_forms_the_reference_s_actions_within_the_formation_bound() -
     """
     case = CASES["taper_gradient"]()
     problem = case.translate()
+    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
     reference = _coupled_flow_maps(problem)
     assert reference is not None
     dz = LENGTH / STEPS
-    bound = _formation_bound(problem, dz)
+    bound = _formation_bound(problem, run_request, dz)
     fractions = np.array(
-        [*(float(node) for node in problem.stepper.tableau.nodes), 1.0],
+        [*(float(node) for node in run_request.stepper.tableau.nodes), 1.0],
         dtype=np.float64,
     )
-    backend = NativeBackend(problem, grid=case.grid)
+    backend = NativeBackend(problem, run_request, grid=case.grid)
     try:
         native = backend._native_state  # pyright: ignore[reportPrivateUsage]
         shape = (fractions.size, -1, reference.n_modes, reference.n_modes)

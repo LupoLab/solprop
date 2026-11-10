@@ -43,9 +43,9 @@ if __name__ == "__main__":
     from backends.test_native_far_field import native_stats, thread_case
 
     warnings.simplefilter("ignore")
-    grid, problem, field = thread_case()
+    grid, problem, run_request, field = thread_case()
     names = sys.argv[2:]
-    values, _ = native_stats(problem, grid, field, names)
+    values, _ = native_stats(problem, run_request, grid, field, names)
     np.savez(
         sys.argv[1],
         runtime_threads=_runtime_threads(),

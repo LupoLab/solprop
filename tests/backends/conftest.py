@@ -51,7 +51,13 @@ from solprop.translate.chebyshev import PiecewiseChebyshev, build
 from solprop.translate.expansion import ParameterExpansion
 from solprop.translate.linop import LinearOperator, delta_phi
 from solprop.translate.masks import DEFAULT_ABSORBER_SCHEME, AbsorberScheme
-from solprop.translate.problem import Flags, PropagationProblem, assemble
+from solprop.translate.problem import (
+    Flags,
+    PropagationProblem,
+    Translation,
+    assemble,
+    validate_run,
+)
 from solprop.translate.responses import prefactor_at
 
 # The GNLSE soliton of tests/driver/test_scaffold.py and docs/tutorials, so that the
@@ -208,7 +214,7 @@ def soliton_field(grid, order):
 
 @pytest.fixture(scope="session")
 def soliton_problem(gnlse):
-    """Return ``(grid, order, **overrides) -> PropagationProblem``, an N-soliton run."""
+    """Return ``(grid, order, **overrides) -> Translation``, an N-soliton run."""
 
     def build_problem(grid, order, *, save_planes, **overrides):
         settings = {
@@ -231,7 +237,7 @@ def soliton_problem(gnlse):
 
 @pytest.fixture(scope="session")
 def linear_problem(gnlse):
-    """Return ``(grid, **overrides) -> PropagationProblem``, the Kerr term switched off.
+    """Return ``(grid, **overrides) -> Translation``, the Kerr term switched off.
 
     Two ways of switching it off are wanted: ``chi3 = 0`` keeps every pass in the step
     and multiplies by nothing, and an empty response list removes the nonlinear
@@ -270,17 +276,18 @@ def substitute():
     The flags are re-derived from the substituted content by
     :meth:`solprop.translate.problem.Flags.from_content`, so they cannot disagree with
     what they describe, and the result is validated exactly as ``assemble`` validates
-    its own. Pass ``flags=`` to declare something the compilers cannot yet build -- a
-    plasma or Raman term -- which is precisely what a backend has to refuse.
+    its own when ``run_request=`` is given (``validate_run``), and against the problem's
+    own promises otherwise. Pass ``flags=`` to declare something the compilers cannot
+    yet build -- a plasma or Raman term -- which is precisely what a backend has to
+    refuse.
     """
 
-    def replace_groups(base, *, flags=None, validate=True, **groups):
+    def replace_groups(base, *, flags=None, validate=True, run_request=None, **groups):
         parts = {
             "grids": base.grids,
             "linear": base.linear,
             "responses": base.responses,
             "initial": base.initial,
-            "stepper": base.stepper,
             "route": base.route,
         } | groups
         derived = flags or Flags.from_content(
@@ -294,13 +301,15 @@ def substitute():
             grid_kind=base.grid_kind,
             shape=base.shape,
             flags=derived,
-            stats_spec=base.stats_spec,
             precision=base.precision,
             split_crossing=base.split_crossing,
             **parts,
         )
         if validate:
-            problem.validate()
+            if run_request is None:
+                problem.validate()
+            else:
+                validate_run(problem, run_request)
         return problem
 
     return replace_groups
@@ -420,7 +429,7 @@ def thg_grid():
 
 @pytest.fixture(scope="session")
 def thg_problem(thg_grid):
-    """Return ``(*, thg) -> PropagationProblem`` on the oversampled envelope grid."""
+    """Return ``(*, thg) -> Translation`` on the oversampled envelope grid."""
     fibre = problem_from(
         [0.0, 0.0, BETA2], omega_ref=thg_grid.omega0, gamma=GAMMA, shock=False
     )
@@ -443,7 +452,7 @@ def thg_problem(thg_grid):
 
 @pytest.fixture(scope="session")
 def capillary_problem(field_grid):
-    """Return ``(*, scheme) -> PropagationProblem`` for the gradient capillary.
+    """Return ``(*, scheme) -> Translation`` for the gradient capillary.
 
     The fixture of ``tests/translate/test_problem.py``: a Marcatili HE11 capillary with
     a two-point pressure gradient, so the operator varies along z, the prefactor is a
@@ -485,7 +494,7 @@ def tabulated_problem(capillary_problem, substitute):
     declares nothing would present them. It is the one problem a compiled backend
     refuses and the oracle runs.
     """
-    problem = capillary_problem()
+    problem, run_request = capillary_problem()
     phi = build(
         lambda z: np.stack([delta_phi(problem.linear, 0.0, float(one)) for one in z]),
         *problem.linear.z_span,
@@ -500,8 +509,9 @@ def tabulated_problem(capillary_problem, substitute):
             tol=1e-10,
         )
     )
-    return substitute(
+    tabulated = substitute(
         problem,
+        run_request=run_request,
         linear=dataclasses.replace(
             problem.linear,
             phi_expansion=None,
@@ -522,6 +532,7 @@ def tabulated_problem(capillary_problem, substitute):
             prefactor_constant=None,
         ),
     )
+    return Translation(tabulated, run_request)
 
 
 @dataclasses.dataclass(frozen=True)

@@ -51,6 +51,7 @@ from backends.forced_threads import assert_threaded
 from backends.matched import fixed_order, native_thread_fields
 from bounds import assert_within, dispersive_device_bound, step_evaluations
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
 from solprop.exceptions import MaterialRangeWarning
 from solprop.physdata import MaterialSelection, Mixture
@@ -75,9 +76,9 @@ def evaluation_bound(problem: PropagationProblem) -> float:
     return dispersive_device_bound(cpu_evaluation_bound(problem), problem)
 
 
-def steps_bound(problem: PropagationProblem) -> float:
+def steps_bound(problem: PropagationProblem, run_request) -> float:
     """Bound a replayed window of fixed steps: every evaluation's rounding, added."""
-    return STEPS * step_evaluations(problem) * evaluation_bound(problem)
+    return STEPS * step_evaluations(run_request) * evaluation_bound(problem)
 
 
 PROBE = Path(__file__).parent / "native_dispersive_thread_probe.py"
@@ -105,14 +106,19 @@ def embedded(problem: PropagationProblem) -> bool:
     )
 
 
-def native_evaluation(problem: PropagationProblem, grid: Any) -> Evaluation:
+def native_evaluation(
+    problem: PropagationProblem,
+    run_request,
+    grid: Any,
+    options: ExecutionOptions | None = None,
+) -> Evaluation:
     """Evaluate the source once at the launch and return the native projected spectra.
 
     The engine keeps both rules' projected polarisation spectra of its last
     evaluation, unnormalised, as the reference's projections' transforms are; the
     embedded rule's dispersive share is finished when it is read.
     """
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid, options=options)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend._adams_lab_source(problem.initial.field0[None], 0.0)
@@ -133,17 +139,24 @@ def assert_close(ours: Evaluation, theirs: Evaluation, bound: float) -> None:
         assert disagreement(ours.coarse, theirs.coarse) < bound
 
 
-def assert_one_evaluation(problem: PropagationProblem, grid: Any) -> None:
+def assert_one_evaluation(
+    problem: PropagationProblem,
+    run_request,
+    grid: Any,
+    options: ExecutionOptions | None = None,
+) -> None:
     """One evaluation, both rules, against the reference."""
-    ours = native_evaluation(problem, grid)
+    ours = native_evaluation(problem, run_request, grid, options)
     bound = evaluation_bound(problem)
     assert bound > 0
-    assert_close(ours, reference_evaluation(problem, grid), bound)
+    assert_close(ours, reference_evaluation(problem, run_request, grid, options), bound)
 
 
-def source(backend_class: type, problem: PropagationProblem, grid: Any) -> np.ndarray:
+def source(
+    backend_class: type, problem: PropagationProblem, run_request, grid: Any
+) -> np.ndarray:
     """Return one evaluation's whole stage source at the launch."""
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         return np.array(backend._adams_lab_source(problem.initial.field0[None], 0.0))
@@ -151,19 +164,21 @@ def source(backend_class: type, problem: PropagationProblem, grid: Any) -> np.nd
         backend.close()
 
 
-def assert_steps(problem: PropagationProblem, grid: Any) -> None:
+def assert_steps(problem: PropagationProblem, run_request, grid: Any) -> None:
     """A replayed window of fixed steps, the same steps, against the reference."""
-    ours, summary = run(NativeBackend, problem, grid)
-    bound = steps_bound(problem)
+    ours, summary = run(NativeBackend, problem, run_request, grid)
+    bound = steps_bound(problem, run_request)
     assert bound > 0
-    theirs, reference = run(NumpyRefBackend, problem, grid)
+    theirs, reference = run(NumpyRefBackend, problem, run_request, grid)
     assert summary.n_steps == reference.n_steps
     assert disagreement(ours, theirs) < bound
 
 
-def path_of(problem: PropagationProblem, grid: Any) -> dict[str, bool] | None:
+def path_of(
+    problem: PropagationProblem, run_request, grid: Any
+) -> dict[str, bool] | None:
     """Return how the native response runs: alone, in place, borrowed."""
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         path = backend.metadata()["dispersive_path"]
     finally:
@@ -188,15 +203,16 @@ def test_one_evaluation_on_the_multimode_capillary_matches_the_reference(
     """
     simulation = capillary(evaluator, **GRID_CASES[case])
     problem = simulation.translate()
+    run_request = simulation._run_request()
     assert problem.transform.n_nodes == 33
-    path = path_of(problem, simulation.grid)
+    path = path_of(problem, run_request, simulation.grid)
     analytic = case == "field conserving"
     assert path == {
         "alone": True,
         "in_place": False,
         "borrowed": evaluator == "symmetric" and not analytic,
     }
-    assert_one_evaluation(problem, simulation.grid)
+    assert_one_evaluation(problem, run_request, simulation.grid)
 
 
 @pytest.mark.parametrize("evaluator", sorted(POLICIES))
@@ -216,15 +232,16 @@ def test_one_step_on_the_multimode_capillary_matches_the_reference(case, evaluat
         **GRID_CASES[case],
     )
     problem = simulation.translate()
-    assert path_of(problem, simulation.grid) == {
+    run_request = simulation._run_request()
+    assert path_of(problem, run_request, simulation.grid) == {
         "alone": True,
         "in_place": evaluator == "symmetric",
         "borrowed": evaluator == "symmetric" and case != "field conserving",
     }
-    ours, summary = run(NativeBackend, problem, simulation.grid)
-    theirs, _ = run(NumpyRefBackend, problem, simulation.grid)
+    ours, summary = run(NativeBackend, problem, run_request, simulation.grid)
+    theirs, _ = run(NumpyRefBackend, problem, run_request, simulation.grid)
     assert summary.n_steps == 1
-    bound = step_evaluations(problem) * evaluation_bound(problem)
+    bound = step_evaluations(run_request) * evaluation_bound(problem)
     assert bound > 0
     assert disagreement(ours, theirs) < bound
 
@@ -238,7 +255,7 @@ def test_ten_steps_on_the_multimode_capillary_match_the_reference(case, evaluato
     Measured 5.8-6.7 eps against the reference, under bounds of 155 000-273 000 eps.
     """
     simulation = capillary(evaluator, stepped=True, **GRID_CASES[case])
-    assert_steps(simulation.translate(), simulation.grid)
+    assert_steps(simulation.translate(), simulation._run_request(), simulation.grid)
 
 
 @pytest.mark.medium
@@ -253,10 +270,11 @@ def test_the_quadrature_alarm_is_the_reference_s(sector, evaluator):
     """
     simulation = capillary(evaluator, stepped=True, **GRID_CASES[sector])
     problem = simulation.translate()
+    run_request = simulation._run_request()
     spec = StatsSpec(names=("quadrature_error",))
     alarms = []
     for backend_class in (NativeBackend, NumpyRefBackend):
-        backend = backend_class(problem, grid=simulation.grid)
+        backend = backend_class(problem, run_request, grid=simulation.grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)
@@ -265,7 +283,9 @@ def test_the_quadrature_alarm_is_the_reference_s(sector, evaluator):
             backend.close()
     ours, theirs = alarms
     assert theirs > 0
-    assert abs(ours - theirs) < steps_bound(problem) + evaluation_bound(problem)
+    assert abs(ours - theirs) < steps_bound(problem, run_request) + evaluation_bound(
+        problem
+    )
 
 
 @pytest.mark.parametrize("evaluator", sorted(POLICIES))
@@ -287,14 +307,10 @@ def test_node_chunks_accumulate_as_one(case, raman, evaluator):
         evaluator, gas="N2" if raman else "Ar", raman=raman, **GRID_CASES[case]
     )
     problem = simulation.translate()
-    problem = dataclasses.replace(
-        problem,
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(problem.transform, node_chunk=8),
-        ),
+    run_request = simulation._run_request()
+    assert_one_evaluation(
+        problem, run_request, simulation.grid, ExecutionOptions(node_chunk=8)
     )
-    assert_one_evaluation(problem, simulation.grid)
 
 
 @pytest.mark.parametrize("evaluator", sorted(POLICIES))
@@ -306,12 +322,13 @@ def test_a_state_with_zero_frequency_content_matches_the_reference(thg, evaluato
     """
     simulation = capillary(evaluator, thg=thg)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     start = problem.initial.field0.copy()
     start[..., 0] = 1e-3 * np.abs(start).max()
     problem = dataclasses.replace(
         problem, initial=dataclasses.replace(problem.initial, field0=start)
     )
-    assert_one_evaluation(problem, simulation.grid)
+    assert_one_evaluation(problem, run_request, simulation.grid)
 
 
 @pytest.mark.medium
@@ -319,10 +336,10 @@ def test_a_state_with_zero_frequency_content_matches_the_reference(thg, evaluato
 @pytest.mark.parametrize("case", list(GRID_CASES))
 def test_the_mode_averaged_route_matches_the_reference(case, evaluator):
     """One node: one evaluation and ten steps."""
-    problem, grid = averaged(evaluator, **GRID_CASES[case])
+    problem, run_request, grid = averaged(evaluator, **GRID_CASES[case])
     assert problem.transform.n_nodes == 1
-    assert_one_evaluation(problem, grid)
-    assert_steps(problem, grid)
+    assert_one_evaluation(problem, run_request, grid)
+    assert_steps(problem, run_request, grid)
 
 
 @pytest.mark.medium
@@ -330,10 +347,10 @@ def test_the_mode_averaged_route_matches_the_reference(case, evaluator):
 @pytest.mark.parametrize("case", ["field full", "field conserving", "envelope full"])
 def test_a_two_component_field_matches_the_reference(case, evaluator):
     """The isotropic Kleinman contraction of an elliptical launch, on the quadrature."""
-    problem, grid = averaged(evaluator, vector=True, **GRID_CASES[case])
+    problem, run_request, grid = averaged(evaluator, vector=True, **GRID_CASES[case])
     assert problem.transform.n_pol * problem.shape[1] == 2
-    assert_one_evaluation(problem, grid)
-    assert_steps(problem, grid)
+    assert_one_evaluation(problem, run_request, grid)
+    assert_steps(problem, run_request, grid)
 
 
 @pytest.mark.medium
@@ -341,10 +358,10 @@ def test_a_two_component_field_matches_the_reference(case, evaluator):
 @pytest.mark.parametrize("envelope", [False, True])
 def test_the_radial_route_matches_the_reference(envelope, evaluator):
     """The Hankel route, sixteen nodes."""
-    problem, grid = radial(evaluator, envelope=envelope, thg=envelope)
+    problem, run_request, grid = radial(evaluator, envelope=envelope, thg=envelope)
     assert problem.transform.n_nodes == 16
-    assert_one_evaluation(problem, grid)
-    assert_steps(problem, grid)
+    assert_one_evaluation(problem, run_request, grid)
+    assert_steps(problem, run_request, grid)
 
 
 @pytest.mark.medium
@@ -359,13 +376,14 @@ def test_a_mixture_matches_the_reference(case, evaluator):
     """
     simulation = capillary(evaluator, gas={"He": 0.6, "Ar": 0.4}, **GRID_CASES[case])
     problem = simulation.translate()
+    run_request = simulation._run_request()
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None and leaf.n_channels == 2
-    assert_one_evaluation(problem, simulation.grid)
+    assert_one_evaluation(problem, run_request, simulation.grid)
     stepped = capillary(
         evaluator, gas={"He": 0.6, "Ar": 0.4}, stepped=True, **GRID_CASES[case]
     )
-    assert_steps(stepped.translate(), stepped.grid)
+    assert_steps(stepped.translate(), stepped._run_request(), stepped.grid)
 
 
 @pytest.mark.medium
@@ -402,7 +420,7 @@ def test_a_mixture_of_varying_composition_matches_the_reference(evaluator):
     end = scalars(problem, 0.0, LENGTH).dispersive_kerr_densities
     assert start[0] / start[1] == pytest.approx(4.0, rel=1e-2)
     assert end[0] / end[1] == pytest.approx(0.25, rel=1e-2)
-    assert_steps(problem, simulation.grid)
+    assert_steps(problem, simulation._run_request(), simulation.grid)
 
 
 @pytest.mark.medium
@@ -418,10 +436,11 @@ def test_species_with_one_leg_bound_share_their_derivative_fields(case):
         "polynomial", gas={"Kr": 0.5, "Xe": 0.5}, **band, **GRID_CASES[case]
     )
     problem = simulation.translate()
+    run_request = simulation._run_request()
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None and leaf.n_channels == 2
     assert leaf.groups() == ((0, 1),)
-    ledger = NativeBackend(problem, grid=simulation.grid)
+    ledger = NativeBackend(problem, run_request, grid=simulation.grid)
     try:
         held = ledger.memory_ledger()
     finally:
@@ -431,7 +450,7 @@ def test_species_with_one_leg_bound_share_their_derivative_fields(case):
     # Two filtered fields and three products: one group.
     assert held["dispersive_filtered_time"] == 2 * n_columns * n_to * item
     assert held["dispersive_products"] == 3 * n_columns * n_to * item
-    assert_one_evaluation(problem, simulation.grid)
+    assert_one_evaluation(problem, run_request, simulation.grid)
     stepped = capillary(
         "polynomial",
         gas={"Kr": 0.5, "Xe": 0.5},
@@ -439,7 +458,7 @@ def test_species_with_one_leg_bound_share_their_derivative_fields(case):
         **band,
         **GRID_CASES[case],
     )
-    assert_steps(stepped.translate(), stepped.grid)
+    assert_steps(stepped.translate(), stepped._run_request(), stepped.grid)
 
 
 @pytest.mark.medium
@@ -449,15 +468,16 @@ def test_raman_beside_the_response_reads_the_bare_field(thg, evaluator):
     """Nitrogen's Raman response beside it: the response must not filter the drive."""
     simulation = capillary(evaluator, gas="N2", raman=True, thg=thg)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     assert problem.flags.has_raman
-    assert path_of(problem, simulation.grid) == {
+    assert path_of(problem, run_request, simulation.grid) == {
         "alone": False,
         "in_place": False,
         "borrowed": False,
     }
-    assert_one_evaluation(problem, simulation.grid)
+    assert_one_evaluation(problem, run_request, simulation.grid)
     stepped = capillary(evaluator, gas="N2", raman=True, thg=thg, stepped=True)
-    assert_steps(stepped.translate(), stepped.grid)
+    assert_steps(stepped.translate(), stepped._run_request(), stepped.grid)
 
 
 @pytest.mark.medium
@@ -480,28 +500,37 @@ def test_plasma_beside_the_response_reads_the_bare_field(envelope, evaluator):
     problem = simulation.translate()
     assert (problem.responses.envelope_plasma is not None) == envelope
     baseline = capillary("carrier-kerr", **kind)
+    run_request = simulation._run_request()
     carrier = baseline.translate()
+    carrier_request = baseline._run_request()
     floor = disagreement(
-        source(NativeBackend, carrier, baseline.grid),
-        source(NumpyRefBackend, carrier, baseline.grid),
+        source(NativeBackend, carrier, carrier_request, baseline.grid),
+        source(NumpyRefBackend, carrier, carrier_request, baseline.grid),
     )
     bound = evaluation_bound(problem) + floor
-    ours = source(NativeBackend, problem, simulation.grid)
-    assert disagreement(ours, source(NumpyRefBackend, problem, simulation.grid)) < bound
+    ours = source(NativeBackend, problem, run_request, simulation.grid)
+    theirs = source(NumpyRefBackend, problem, run_request, simulation.grid)
+    assert disagreement(ours, theirs) < bound
     stepped = capillary(evaluator, stepped=True, **kind)
     stepped_problem = stepped.translate()
+    stepped_request = stepped._run_request()
     stepped_carrier = capillary("carrier-kerr", stepped=True, **kind)
     carrier_problem = stepped_carrier.translate()
+    carrier_stepped = stepped_carrier._run_request()
     step_floor = disagreement(
-        run(NativeBackend, carrier_problem, stepped_carrier.grid)[0],
-        run(NumpyRefBackend, carrier_problem, stepped_carrier.grid)[0],
+        run(NativeBackend, carrier_problem, carrier_stepped, stepped_carrier.grid)[0],
+        run(NumpyRefBackend, carrier_problem, carrier_stepped, stepped_carrier.grid)[0],
     )
-    ours_field, summary = run(NativeBackend, stepped_problem, stepped.grid)
-    theirs_field, reference = run(NumpyRefBackend, stepped_problem, stepped.grid)
+    ours_field, summary = run(
+        NativeBackend, stepped_problem, stepped_request, stepped.grid
+    )
+    theirs_field, reference = run(
+        NumpyRefBackend, stepped_problem, stepped_request, stepped.grid
+    )
     assert summary.n_steps == reference.n_steps
     assert (
         disagreement(ours_field, theirs_field)
-        < steps_bound(stepped_problem) + step_floor
+        < steps_bound(stepped_problem, stepped_request) + step_floor
     )
 
 
@@ -511,8 +540,9 @@ def test_runge_kutta_steps_match_the_reference(evaluator):
     """The Runge-Kutta march: seven stages a step, the first recycled."""
     simulation = capillary(evaluator, stepped=True, integrator=RungeKutta())
     problem = simulation.translate()
-    assert problem.stepper.integrator is None
-    assert_steps(problem, simulation.grid)
+    run_request = simulation._run_request()
+    assert run_request.stepper.integrator is None
+    assert_steps(problem, run_request, simulation.grid)
 
 
 # --- what is this backend's alone ---------------------------------------------------
@@ -527,10 +557,11 @@ def test_two_runs_of_one_build_agree(evaluator):
     may order its sums differently from one run to the next.
     """
     simulation = capillary(evaluator, gas="N2", raman=True, stepped=True)
-    problem = fixed_order(simulation.translate())
-    first, _ = run(NativeBackend, problem, simulation.grid)
-    second, _ = run(NativeBackend, problem, simulation.grid)
-    assert_within(second, first, steps_bound(problem), what="repeat run")
+    problem = simulation.translate()
+    run_request = fixed_order(simulation._run_request())
+    first, _ = run(NativeBackend, problem, run_request, simulation.grid)
+    second, _ = run(NativeBackend, problem, run_request, simulation.grid)
+    assert_within(second, first, steps_bound(problem, run_request), what="repeat run")
 
 
 @pytest.mark.medium
@@ -549,8 +580,8 @@ def test_one_thread_and_four_agree(tmp_path):
     four = native_thread_fields(PROBE, 4, names, tmp_path)
     assert_threaded(four["sizing"], 4, "kernels.stage", "kernels.response", "fft.fft")
     for name in names:
-        problem, _ = averaged(name, envelope=False, thg=True)
-        bound = steps_bound(fixed_order(problem))
+        problem, run_request, _ = averaged(name, envelope=False, thg=True)
+        bound = steps_bound(problem, fixed_order(run_request))
         assert_within(again[name], one[name], bound, what=f"{name} repeat")
         assert_within(four[name], one[name], bound, what=f"{name} four threads")
 
@@ -558,9 +589,14 @@ def test_one_thread_and_four_agree(tmp_path):
 # --- the memory ledger -------------------------------------------------------------
 
 
-def ledger_of(problem: PropagationProblem, grid: Any) -> dict[str, int]:
+def ledger_of(
+    problem: PropagationProblem,
+    run_request,
+    grid: Any,
+    options: ExecutionOptions | None = None,
+) -> dict[str, int]:
     """Return the backend's ledger and check its rows are released on close."""
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid, options=options)
     try:
         ledger = backend.memory_ledger()
     finally:
@@ -577,7 +613,8 @@ def test_a_lone_symmetric_response_without_an_in_stage_absorber_holds_no_field()
     """SEP 6's memory target: the stage's own buffers, filtered in place."""
     simulation = capillary("symmetric", stepped=True)
     problem = simulation.translate()
-    ledger = ledger_of(problem, simulation.grid)
+    run_request = simulation._run_request()
+    ledger = ledger_of(problem, run_request, simulation.grid)
     for row in DISPERSIVE_ROWS[:-1]:
         assert ledger[row] == 0, row
     n_bins = problem.grids.n_to // 2 + 1
@@ -589,7 +626,8 @@ def test_a_lone_symmetric_mixture_holds_no_field_either():
     """A mixture is one product under its filter, so it takes the lone path too."""
     simulation = capillary("symmetric", gas={"He": 0.6, "Ar": 0.4}, stepped=True)
     problem = simulation.translate()
-    ledger = ledger_of(problem, simulation.grid)
+    run_request = simulation._run_request()
+    ledger = ledger_of(problem, run_request, simulation.grid)
     for row in DISPERSIVE_ROWS[:-1]:
         assert ledger[row] == 0, row
 
@@ -602,8 +640,9 @@ def test_a_lone_symmetric_response_beside_the_collar_holds_one_field():
     """
     simulation = capillary("symmetric")
     problem = simulation.translate()
+    run_request = simulation._run_request()
     assert problem.responses.absorber_scheme == "nonlinear"
-    ledger = ledger_of(problem, simulation.grid)
+    ledger = ledger_of(problem, run_request, simulation.grid)
     n_columns, n_to = problem.shape[0] * problem.shape[1], problem.grids.n_to
     assert ledger["dispersive_filtered_time"] == n_columns * n_to * 8
     for row in ("dispersive_node_fields", "dispersive_products"):
@@ -615,7 +654,8 @@ def test_the_polynomial_holds_two_derivative_fields_and_its_products():
     """Two filtered fields, two node slots and three products per rule."""
     simulation = capillary("polynomial", thg=False)
     problem = simulation.translate()
-    ledger = ledger_of(problem, simulation.grid)
+    run_request = simulation._run_request()
+    ledger = ledger_of(problem, run_request, simulation.grid)
     n_columns, n_to = problem.shape[0] * problem.shape[1], problem.grids.n_to
     field = n_columns * n_to * 16  # the analytic family: complex fields
     assert ledger["dispersive_filtered_time"] == 2 * field
@@ -631,7 +671,8 @@ def test_a_response_beside_raman_holds_its_own_node_field_and_products():
     """The bare field stays the column's; the products are landed in its spectrum."""
     simulation = capillary("symmetric", gas="N2", raman=True, thg=False)
     problem = simulation.translate()
-    ledger = ledger_of(problem, simulation.grid)
+    run_request = simulation._run_request()
+    ledger = ledger_of(problem, run_request, simulation.grid)
     n_columns, n_to = problem.shape[0] * problem.shape[1], problem.grids.n_to
     assert ledger["dispersive_node_fields"] == ledger["node_field"]
     assert ledger["dispersive_products"] == n_columns * n_to * 16
@@ -642,14 +683,10 @@ def test_chunked_nodes_pack_their_projections():
     """More than one chunk: each chunk's columns of both scaled projections, once."""
     simulation = capillary("polynomial")
     problem = simulation.translate()
-    problem = dataclasses.replace(
-        problem,
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(problem.transform, node_chunk=8),
-        ),
+    run_request = simulation._run_request()
+    ledger = ledger_of(
+        problem, run_request, simulation.grid, ExecutionOptions(node_chunk=8)
     )
-    ledger = ledger_of(problem, simulation.grid)
     chunks = -(-problem.transform.n_nodes // 8)
     per_rule = chunks * problem.shape[0] * 8 * problem.transform.n_pol * 8
     assert ledger["dispersive_projection_chunks"] == 2 * per_rule
@@ -658,7 +695,8 @@ def test_chunked_nodes_pack_their_projections():
 def test_a_problem_without_the_leaf_names_the_rows_at_zero():
     simulation = capillary("carrier-kerr")
     problem = simulation.translate()
-    backend = NativeBackend(problem, grid=simulation.grid)
+    run_request = simulation._run_request()
+    backend = NativeBackend(problem, run_request, grid=simulation.grid)
     try:
         ledger = backend.memory_ledger()
         metadata = backend.metadata()

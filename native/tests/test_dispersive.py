@@ -38,6 +38,7 @@ from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.linop import profile_table
 from solprop.translate.problem import PropagationProblem, assemble
 from solprop.translate.responses import dispersive_terms
+from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend
 from solprop_native.backend import (
@@ -52,8 +53,8 @@ POLICIES = {"symmetric": "symmetric-kerr", "polynomial": "gas-polynomial"}
 
 def capillary(
     policy: str, gas: str | dict[str, float] = "Ar", *, envelope: bool, thg: bool
-) -> PropagationProblem:
-    """Return a short three-mode capillary under a dispersive policy, translated."""
+) -> tuple[PropagationProblem, RunRequest]:
+    """Return a short three-mode capillary under a dispersive policy and its request."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
         simulation = Simulation.from_capillary(
@@ -76,14 +77,16 @@ def capillary(
             thg=thg,
             noise=None,
         )
-        return simulation.translate()
+        return simulation.translate(), simulation._run_request()  # pyright: ignore[reportPrivateUsage]
 
 
-def averaged(evaluator: str, *, thg: bool) -> tuple[PropagationProblem, FieldGrid]:
+def averaged(
+    evaluator: str, *, thg: bool
+) -> tuple[PropagationProblem, RunRequest, FieldGrid]:
     """Return a mode-averaged argon problem on a field grid, one node."""
     grid = FieldGrid.from_limits(LENGTH, 800e-9, (150e-9, 4e-6), 150e-15)
     pulse = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=2e-6).build(grid)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         MarcatiliMode(75e-6, cladding=1.45, loss=False),
         [
@@ -100,7 +103,7 @@ def averaged(evaluator: str, *, thg: bool) -> tuple[PropagationProblem, FieldGri
         absorber_scheme="split_step",
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / 10),
     )
-    return problem, grid
+    return problem, run_request, grid
 
 
 def test_a_symmetric_mixture_is_one_product_under_its_filter() -> None:
@@ -110,7 +113,7 @@ def test_a_symmetric_mixture_is_one_product_under_its_filter() -> None:
     rows stand at the first species' filter until the native stage rebuilds them from
     the channels' ``g^4``.
     """
-    problem = capillary(
+    problem, _ = capillary(
         "symmetric-kerr", {"He": 0.6, "Ar": 0.4}, envelope=True, thg=False
     )
     leaf = problem.responses.dispersive_kerr
@@ -143,7 +146,7 @@ def test_the_polynomial_groups_species_of_one_leg_bound() -> None:
     Each channel weighs the shared ``E^3`` and ``T(E, E, D E)`` by its own output
     multipliers; the weighted pair carries its channels' factors already.
     """
-    problem = capillary(
+    problem, _ = capillary(
         "gas-polynomial", {"Kr": 0.5, "Xe": 0.5}, envelope=False, thg=False
     )
     leaf = problem.responses.dispersive_kerr
@@ -193,10 +196,10 @@ def test_the_sector_chooses_the_field_family(
     envelope: bool, thg: bool, family: str, form: int
 ) -> None:
     """A field grid's number-conserving sector is formed on analytic signals."""
-    problem = capillary("gas-polynomial", envelope=envelope, thg=thg)
-    backend = NativeBackend(problem)
+    problem, run_request = capillary("gas-polynomial", envelope=envelope, thg=thg)
+    backend = NativeBackend(problem, run_request)
     try:
-        payload = _native_problem(problem, backend._terms)  # pyright: ignore[reportPrivateUsage]
+        payload = _native_problem(problem, run_request, backend._terms)  # pyright: ignore[reportPrivateUsage]
     finally:
         backend.close()
     assert payload["family"] == family
@@ -205,7 +208,7 @@ def test_the_sector_chooses_the_field_family(
 
 
 def test_a_problem_without_the_leaf_packs_nothing() -> None:
-    problem = capillary("carrier-kerr", envelope=False, thg=True)
+    problem, _ = capillary("carrier-kerr", envelope=False, thg=True)
     assert _dispersive_payload(problem) == {"dispersive": False}
 
 
@@ -264,11 +267,11 @@ def test_the_general_route_lays_out_its_regions(evaluator: str) -> None:
 
 def test_a_trial_without_the_densities_is_refused() -> None:
     """The native response weighs its channels from each stage's densities."""
-    problem, grid = averaged("symmetric", thg=True)
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = averaged("symmetric", thg=True)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        stages = problem.stepper.tableau.n_stages
+        stages = run_request.stepper.tableau.n_stages
         terms = backend._terms.phi  # pyright: ignore[reportPrivateUsage]
         assert terms is not None
         n_phi = terms.shape[0]
@@ -295,12 +298,12 @@ def test_one_evaluation_matches_the_reference(evaluator: str, thg: bool) -> None
     The bound, for one node: the transforms both backends take, ``8 eps log2 n_to``
     each, doubled.
     """
-    problem, grid = averaged(evaluator, thg=thg)
+    problem, run_request, grid = averaged(evaluator, thg=thg)
     transforms = 2 + (3 if evaluator == "symmetric" else 6)
     bound = 2 * transforms * 8 * EPS * np.ceil(np.log2(problem.grids.n_to))
     spectra: list[npt.NDArray[np.complex128]] = []
     for backend_class in (NativeBackend, NumpyRefBackend):
-        backend = backend_class(problem, grid=grid)
+        backend = backend_class(problem, run_request, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             backend._adams_lab_source(problem.initial.field0[None], 0.0)  # pyright: ignore[reportPrivateUsage]

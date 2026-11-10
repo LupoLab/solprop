@@ -12,8 +12,7 @@ import math
 import os
 import time
 import warnings
-from dataclasses import replace
-from typing import Any, TypedDict, cast
+from typing import TypedDict, cast
 
 PERIODIC = ("energy", "peak_power", "fwhm_t", "electron_density")
 
@@ -88,6 +87,7 @@ def _worker(
     from solprop.driver import Simulation
     from solprop.exceptions import MaterialRangeWarning
     from solprop.stats import StatsSpec
+    from solprop.translate.run_request import RunRequest
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
@@ -115,24 +115,24 @@ def _worker(
                 atol=1e-10,
                 backend=backend_name,
             )
-        plain = simulation.translate()
-    stashed = replace(
-        plain,
-        stats_spec=StatsSpec(
+        problem = simulation.translate()
+        plain = simulation._run_request()  # pyright: ignore[reportPrivateUsage]
+    stashed = plain.for_run(
+        stats=StatsSpec(
             names=PERIODIC,
             periodic=("electron_density",),
             period=1_000_000_000,
         ),
     )
-    watched = replace(
-        plain,
-        stats_spec=StatsSpec(names=PERIODIC, periodic=PERIODIC, period=period),
+    watched = plain.for_run(
+        stats=StatsSpec(names=PERIODIC, periodic=PERIODIC, period=period),
     )
 
-    def run(problem: Any) -> Arm:
+    def run(request: RunRequest) -> Arm:
         backend = select(
             backend_name,
             problem,
+            request,
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -152,17 +152,17 @@ def _worker(
     run(plain)
     run(stashed)
     run(watched)
-    problems = {"plain": plain, "stashed": stashed, "watched": watched}
+    requests = {"plain": plain, "stashed": stashed, "watched": watched}
     best: dict[str, Arm] = {
-        label: {"seconds": math.inf, "steps": 0, "rows": 0} for label in problems
+        label: {"seconds": math.inf, "steps": 0, "rows": 0} for label in requests
     }
-    samples: dict[str, list[Arm]] = {label: [] for label in problems}
+    samples: dict[str, list[Arm]] = {label: [] for label in requests}
     for repetition in range(repeats):
-        labels = list(problems)
+        labels = list(requests)
         offset = repetition % len(labels)
         order = labels[offset:] + labels[:offset]
         for label in order:
-            measured = run(problems[label])
+            measured = run(requests[label])
             samples[label].append(measured)
             if measured["seconds"] < best[label]["seconds"]:
                 best[label] = measured

@@ -392,7 +392,7 @@ def test_the_modified_noise_model_is_refused_beside_a_coupled_flow(rotated, grid
     # The backend names it too, for a problem that reaches it by hand: the
     # translation layer refuses first, so the draw is spoofed onto a clean problem.
     simulation = build(rotated, grid)
-    problem = simulation.translate()
+    problem, run_request = simulation.translate(), simulation._run_request()
     initial = problem.initial
     spoofed = replace(
         problem,
@@ -404,7 +404,11 @@ def test_the_modified_noise_model_is_refused_beside_a_coupled_flow(rotated, grid
         BackendError, match="'modified' noise model beside a coupled flow"
     ):
         NumpyRefBackend(
-            spoofed, grid=simulation.grid, modes=list(simulation.modes), profiles=None
+            spoofed,
+            run_request,
+            grid=simulation.grid,
+            modes=list(simulation.modes),
+            profiles=None,
         )
 
 
@@ -458,8 +462,13 @@ def test_a_lockstep_batch_refuses_a_member_carrying_a_coupled_flow(rotated, grid
     """The batch reimplements the step loop and applies neither half of the flow."""
     simulation = build(rotated, grid)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     member = NumpyRefBackend(
-        problem, grid=simulation.grid, modes=list(simulation.modes), profiles=None
+        problem,
+        run_request,
+        grid=simulation.grid,
+        modes=list(simulation.modes),
+        profiles=None,
     )
     with pytest.raises(BackendError, match="lockstep batch does not execute"):
         NumpyBatchBackend([member])

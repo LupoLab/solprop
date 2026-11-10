@@ -292,7 +292,7 @@ def test_a_nonlinear_step_in_the_grin_guide_is_the_direct_quadrature(
         dz_max=1e-4,
         dz_init=1e-5,
         general=route,
-    )
+    ).problem
     maps = _general_maps(problem)
     assert maps is not None
     source = (

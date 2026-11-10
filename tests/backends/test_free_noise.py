@@ -41,7 +41,7 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
         model="modified",
     )
     initial = np.zeros_like(noise.spectrum)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [KerrResponse(1e-22, thg=False)],
@@ -67,8 +67,8 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
     rotated[..., grid.active_mask] = noise.spectrum[..., grid.active_mask] * np.exp(
         1j * phase[:, None, :]
     )
-    reference = NumpyRefBackend(problem, grid=grid)
-    backend = spatial_backend_class(problem, grid=grid)
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
+    backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(position)

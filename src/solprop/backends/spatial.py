@@ -12,6 +12,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop import fourier
+from solprop.backends.node_chunk import plan_node_chunk
 from solprop.constants import EPS0, C
 from solprop.exceptions import BackendError, GridError
 from solprop.grid import TimeGrid
@@ -65,6 +66,8 @@ __all__ = [
 def collar_field_fraction(
     problem: PropagationProblem,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    *,
+    node_chunk: int | None = None,
 ) -> float:
     """Measure the fraction of the beam's field norm in the declared spatial collar.
 
@@ -79,6 +82,9 @@ def collar_field_fraction(
         Plain geometry, temporal scaling and scalar synthesis data.
     field : numpy.ndarray
         One internal spatial spectrum, with the problem's state dimensions.
+    node_chunk : int or None, optional
+        The node chunk that bounds the transient; ``None`` takes the host plan's
+        automatic chunk (:func:`solprop.backends.node_chunk.plan_node_chunk`).
 
     Returns
     -------
@@ -92,24 +98,24 @@ def collar_field_fraction(
     of frequency** (:func:`collar_block`), never as the whole volume: each node's
     fluence is a sum over frequency, so blocks accumulate it exactly, up to the order
     of the sum (SEP 22 section 6.3), and the transient is one block, bounded by the
-    node chunk the run's ``node_budget`` admits. The radial kind synthesises by node
-    chunk, as before.
+    node chunk. The radial kind synthesises by node chunk, as before.
     """
     transform = problem.transform
+    chunk = plan_node_chunk(problem).chunk if node_chunk is None else node_chunk
     geometry = transform.geometry
     if geometry is None or np.all(geometry.window == 1):
         return 0.0
     dt = problem.grids.dt_fine * problem.grids.pad_scale
     if geometry.kind in ("free", "slab"):
-        fluence = _blockwise_fluence(problem, field, dt)
+        fluence = _blockwise_fluence(problem, field, dt, chunk)
         energy = geometry.spatial_weights * fluence
         total = float(np.sum(energy))
         collar = float(np.sum(energy[geometry.window < 1]))
         return collar / total if total > 0 else 0.0
     total = 0.0
     collar = 0.0
-    for first in range(0, transform.n_nodes, transform.node_chunk):
-        rows = slice(first, first + transform.node_chunk)
+    for first in range(0, transform.n_nodes, chunk):
+        rows = slice(first, first + chunk)
         physical = (
             (transform.synthesis[rows] / problem.grids.pad_scale)
             @ field.reshape(transform.n_modes, -1)
@@ -124,19 +130,22 @@ def collar_field_fraction(
     return collar / total if total > 0 else 0.0
 
 
-def collar_block(problem: PropagationProblem) -> int:
+def collar_block(problem: PropagationProblem, node_chunk: int | None = None) -> int:
     """Return how many frequency bins the collar diagnostic reconstructs at a time.
 
     A block of the physical field on every node holds at most as many complex samples,
     with its working copies (the strided slice, the transform's output and the
     weighted power: three block volumes), as one node chunk of the response pass holds
     of one temporal column, ``node_chunk * n_pol * n_to``. The chunk is what the run's
-    ``node_budget`` admits, so the diagnostic's transient is bounded by the same budget.
+    node budget admits, so the diagnostic's transient is bounded by the same budget.
 
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
         A Cartesian or planar problem.
+    node_chunk : int or None, optional
+        The backend's node chunk; ``None`` takes the host plan's automatic chunk
+        (:func:`solprop.backends.node_chunk.plan_node_chunk`).
 
     Returns
     -------
@@ -145,7 +154,8 @@ def collar_block(problem: PropagationProblem) -> int:
     """
     transform = problem.transform
     n_pol = problem.shape[1]
-    budget = transform.node_chunk * n_pol * problem.grids.n_to
+    chunk = plan_node_chunk(problem).chunk if node_chunk is None else node_chunk
+    budget = chunk * n_pol * problem.grids.n_to
     per_bin = 3 * transform.n_nodes * n_pol
     return int(min(problem.shape[2], max(1, budget // per_bin)))
 
@@ -154,6 +164,7 @@ def _blockwise_fluence(
     problem: PropagationProblem,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
     dt: float,
+    node_chunk: int,
 ) -> Float[np.ndarray, " n_nodes"]:
     """Accumulate each node's fluence, up to a common factor, by block of frequency.
 
@@ -165,6 +176,8 @@ def _blockwise_fluence(
         One internal spatial spectrum.
     dt : float
         Coarse sample spacing, s.
+    node_chunk : int
+        The node chunk that bounds a block.
 
     Returns
     -------
@@ -175,7 +188,7 @@ def _blockwise_fluence(
     transform = problem.transform
     n_omega = field.shape[-1]
     weights = fourier.energy_weights(n_omega, dt, kind=problem.grid_kind)
-    block = collar_block(problem)
+    block = collar_block(problem, node_chunk)
     fluence = np.zeros(transform.n_nodes)
     for first in range(0, n_omega, block):
         bins = slice(first, first + block)
@@ -390,17 +403,20 @@ def far_field_bands(n_x: int, n_y: int, n_slots: int, n_omega: int) -> np.ndarra
     return np.minimum(units * unit, n_columns)
 
 
-def far_field_partials(problem: PropagationProblem) -> tuple[int, int]:
+def far_field_partials(problem: PropagationProblem, spec: StatsSpec) -> tuple[int, int]:
     """Return the slots and bands a compiled far-field pass holds for a problem.
 
-    Sized from the problem's own request at construction: its names, tables and
-    polarisations. A Cartesian or line problem whose request forms nothing in the pass
-    (and any other kind) holds none.
+    Sized from the run's own statistics at construction: their names and tables, and
+    the problem's polarisations. A Cartesian or line problem whose request forms
+    nothing in the pass (and any other kind) holds none.
 
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
+    spec : solprop.stats.StatsSpec
+        The run's statistics (:attr:`solprop.translate.run_request.
+        ObservationRequest.stats`).
 
     Returns
     -------
@@ -412,7 +428,6 @@ def far_field_partials(problem: PropagationProblem) -> tuple[int, int]:
     geometry = problem.transform.geometry
     if geometry is None or geometry.kind != "free":
         return 0, 0
-    spec = problem.stats_spec
     layout = far_field_layout(
         spec.names,
         n_apertures=spec.n_apertures,
@@ -430,29 +445,31 @@ class FarFieldTables:
     """Hold a problem's far-field tables, formed at construction, for its statistics.
 
     A backend builds one when it is constructed, which forms
-    :func:`solprop.translate.spatial.aperture_tables` for the problem's own spec --
+    :func:`solprop.translate.spatial.aperture_tables` for the run's own spec --
     refusing a geometry the far-field statistics do not admit before any step -- and
     hands :meth:`for_spec` the spec of each statistics call. The periodic channel and
-    the reference backend's filtered specs carry the problem's own apertures and
-    regions, and get the held tables; a different spec handed to the run loop gets
-    tables formed for it.
+    the reference backend's filtered specs carry the run's own apertures and regions,
+    and get the held tables; a different spec handed to the run loop gets tables
+    formed for it.
 
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem the backend executes.
+    spec : solprop.stats.StatsSpec
+        The statistics of the request it was built for.
 
     Raises
     ------
     OutputError
-        If the problem's spec names a far-field statistic its geometry does not
+        If the spec names a far-field statistic the problem's geometry does not
         admit (:func:`solprop.translate.spatial.aperture_tables`).
     """
 
-    def __init__(self, problem: PropagationProblem) -> None:
-        """Form the problem's own tables once."""
+    def __init__(self, problem: PropagationProblem, spec: StatsSpec) -> None:
+        """Form the run's own tables once."""
         self._problem = problem
-        self._spec = problem.stats_spec
+        self._spec = spec
         self._held = (
             None
             if problem.transform.geometry is None
@@ -499,6 +516,7 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
     physical: np.ndarray | None = None,
     tables: ApertureTables | None = None,
     operator: SeparableOperator | None = None,
+    node_chunk: int | None = None,
 ) -> dict[str, np.ndarray]:
     """Collect spatial statistics without retaining a full physical-space field.
 
@@ -531,6 +549,9 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
         statistics of SEP 23.
     operator : solprop.translate.spatial.SeparableOperator or None, optional
         The run's separable linear operator, whose rates ``absorbed_power`` needs.
+    node_chunk : int or None, optional
+        The backend's node chunk, which bounds each pass's columns; ``None`` takes
+        every column in one chunk.
 
     Returns
     -------
@@ -546,14 +567,15 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
     Notes
     -----
     The far-field statistics are one pass of
-    :func:`solprop.spatial.aperture_statistics` over the columns, in chunks of the
-    transform's ``node_chunk``, reading the plane's root through
+    :func:`solprop.spatial.aperture_statistics` over the columns, in chunks of
+    `node_chunk`, reading the plane's root through
     :func:`solprop.translate.spatial.axial_factors`, the root the stages use.
     """
     geometry = transform.geometry
     if geometry is None:
         msg = "spatial statistics require spatial geometry"
         raise BackendError(msg)
+    chunk = transform.n_nodes if node_chunk is None else node_chunk
     values: dict[str, np.ndarray] = {}
     wanted = set(spec.names)
     fielded = wanted & (
@@ -573,8 +595,8 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
     plane = None if flux is None else flux.at(z)
     conversion = 0.5 * EPS0 * C
     chunks = [
-        slice(first, min(first + transform.node_chunk, transform.n_modes))
-        for first in range(0, transform.n_modes, transform.node_chunk)
+        slice(first, min(first + chunk, transform.n_modes))
+        for first in range(0, transform.n_modes, chunk)
     ]
     axis_needed = bool(
         wanted & {"on_axis_spectrum", "on_axis_intensity", "beam_radius", "fwhm_r"}
@@ -604,7 +626,13 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
         values["energy"] = np.asarray(conversion * total)
     values.update(
         _far_field(
-            wanted, grid, transform, field, tables, plane=plane, operator=operator
+            wanted,
+            grid,
+            field,
+            tables,
+            plane=plane,
+            operator=operator,
+            chunk=chunk,
         )
     )
     axis_fluence = 0.0
@@ -628,6 +656,7 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
                 closure,
                 physical=physical,
                 axis_fluence=axis_fluence,
+                chunk=chunk,
             )
         )
     for name in wanted & set(PROFILE_STATISTICS):
@@ -651,6 +680,7 @@ def _local_statistics(  # noqa: PLR0913 - the local pass's whole context
     *,
     physical: np.ndarray | None,
     axis_fluence: float,
+    chunk: int,
 ) -> dict[str, np.ndarray]:
     """Form the peak local axial flux and the fluence widths, node chunk by chunk.
 
@@ -670,6 +700,8 @@ def _local_statistics(  # noqa: PLR0913 - the local pass's whole context
         A compiled backend's borrowed physical-space field, or None.
     axis_fluence : float
         The on-axis fluence in J/m^2, for the radial widths.
+    chunk : int
+        The backend's node chunk.
 
     Returns
     -------
@@ -693,8 +725,8 @@ def _local_statistics(  # noqa: PLR0913 - the local pass's whole context
     fluence = np.empty(transform.n_nodes)
     magnitudes = np.empty(transform.n_nodes)
     peak = -np.inf
-    for first in range(0, transform.n_nodes, transform.node_chunk):
-        rows = slice(first, first + transform.node_chunk)
+    for first in range(0, transform.n_nodes, chunk):
+        rows = slice(first, first + chunk)
 
         electric = analytic_field(grid, _rows(transform, grid, field, full, rows))
         magnetic = analytic_field(
@@ -944,12 +976,12 @@ def _rows(
 def _far_field(  # noqa: PLR0913 - the far-field pass's whole context
     names: set[str],
     grid: TimeGrid,
-    transform: Transform,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
     tables: ApertureTables | None,
     *,
     plane: SeparableOperator | None,
     operator: SeparableOperator | None,
+    chunk: int,
 ) -> dict[str, np.ndarray]:
     """Form the requested far-field statistics in one chunked pass.
 
@@ -960,8 +992,6 @@ def _far_field(  # noqa: PLR0913 - the far-field pass's whole context
         to the other passes.
     grid : solprop.grid.TimeGrid
         The temporal grid.
-    transform : solprop.translate.modal.Transform
-        The Cartesian transform, whose ``node_chunk`` bounds the pass's chunks.
     field : numpy.ndarray
         One internal spectrum, shape ``(n_x*n_y, n_pol, n_omega)``.
     tables : solprop.spatial.ApertureTables or None
@@ -970,6 +1000,8 @@ def _far_field(  # noqa: PLR0913 - the far-field pass's whole context
         The plane's coefficients, whose root weighs every statistic.
     operator : solprop.translate.spatial.SeparableOperator or None
         The run's separable operator, whose rates ``absorbed_power`` reads.
+    chunk : int
+        The backend's node chunk, which bounds the pass's chunks.
 
     Returns
     -------
@@ -1016,7 +1048,7 @@ def _far_field(  # noqa: PLR0913 - the far-field pass's whole context
         return axial_admittance(plane, grid.omega, columns), rates
 
     return aperture_statistics(
-        sorted(names), grid, field, tables, axial=axial, chunk=transform.node_chunk
+        sorted(names), grid, field, tables, axial=axial, chunk=chunk
     )
 
 

@@ -111,6 +111,7 @@ def capillary(modes: int, trange: float, *, envelope: bool) -> Simulation:
 def measure(simulation: Simulation, kind: str, size: int, envelope: bool | None) -> Row:
     """Time one problem's march five times after a warm one; return its row."""
     problem: Any = simulation.translate()
+    request = simulation._run_request()  # pyright: ignore[reportPrivateUsage]
     seconds: list[float] = []
     calls = 0
     providers = ("", "")
@@ -118,6 +119,7 @@ def measure(simulation: Simulation, kind: str, size: int, envelope: bool | None)
         backend: Any = select(
             "native",
             problem,
+            request,
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -130,7 +132,7 @@ def measure(simulation: Simulation, kind: str, size: int, envelope: bool | None)
             )
         backend.set_initial(problem.initial.field0.copy(), None, z=0.0)
         clock = time.perf_counter()
-        backend.propagate_to(float(problem.stepper.save_planes[-1]))
+        backend.propagate_to(float(request.stepper.save_planes[-1]))
         seconds.append(time.perf_counter() - clock)
         calls = 6 * int(backend.observe().n_steps) + 1
         backend.close()

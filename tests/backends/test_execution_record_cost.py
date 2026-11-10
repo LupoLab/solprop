@@ -25,8 +25,8 @@ def test_the_wisdom_digest_is_taken_once_per_backend(
         return digest(applied)
 
     monkeypatch.setattr(wisdom, "digest", counted)
-    problem = soliton_problem(soliton_grid, 1, save_planes=[0.01])
-    backend = native.NativeBackend(problem, grid=soliton_grid)
+    problem, run_request = soliton_problem(soliton_grid, 1, save_planes=[0.01])
+    backend = native.NativeBackend(problem, run_request, grid=soliton_grid)
     try:
         records = [backend.metadata() for _ in range(3)]
     finally:

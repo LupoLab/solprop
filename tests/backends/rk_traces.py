@@ -192,19 +192,20 @@ class _Scripted:
         self.scenario = scenario
         controller = PIController(**scenario.controller)
         breakpoints = scenario.breakpoints or [scenario.z0, scenario.z_end]
+        # The run's stepper section, which the march reads off the backend.
+        self._stepper = _Namespace(  # pyright: ignore[reportAttributeAccessIssue]
+            controller=controller,
+            interpolate_planes=False,
+            interval_cap=scenario.interval_cap,
+            save_planes=np.array(scenario.save_planes, dtype=np.float64),
+            dz_min=scenario.dz_min,
+            dz_max=scenario.dz_max,
+            z_end=scenario.z_end,
+            stretch=scenario.stretch,
+            auto_init=scenario.auto_init,
+            step_planes=scenario.step_planes,
+        )
         self._problem = _Namespace(  # pyright: ignore[reportAttributeAccessIssue]
-            stepper=_Namespace(
-                controller=controller,
-                interpolate_planes=False,
-                interval_cap=scenario.interval_cap,
-                save_planes=np.array(scenario.save_planes, dtype=np.float64),
-                dz_min=scenario.dz_min,
-                dz_max=scenario.dz_max,
-                z_end=scenario.z_end,
-                stretch=scenario.stretch,
-                auto_init=scenario.auto_init,
-                step_planes=scenario.step_planes,
-            ),
             linear=_Namespace(
                 phi_breakpoints=np.array(breakpoints, dtype=np.float64),
                 hard_kinks=np.array(scenario.kinks, dtype=np.float64),
@@ -231,6 +232,7 @@ class _Scripted:
         self._dense_ahead = None
         self._natural_count = 0
         self._halt_requested = False
+        self._halt_ahead = False
         self._halt_check = None
         self._natural_due = False
         self._schedule_index = 0

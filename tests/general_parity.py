@@ -343,7 +343,7 @@ def scaled_case(name):
         guide, grid, z_max=LENGTH, omega_reference=float(grid.omega0), kerr_form=form
     )
     state = launch(grid, len(guide.mode_collection))
-    maps = _general_maps(problem_for(grid, guide, route, state))
+    maps = _general_maps(problem_for(grid, guide, route, state).problem)
     assert maps is not None
     state = state * math.sqrt(PHI / nonlinear_scale(maps, state, grid))
     return grid, guide, route, state

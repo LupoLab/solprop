@@ -235,7 +235,7 @@ def test_assemble_divides_true_power_launch_and_noise():
         save_planes=[0.01],
         dz_max=0.01,
         dz_init=0.001,
-    )
+    ).problem
     root = np.ones(grid.n_omega)
     root[grid.active_mask] = np.sqrt(np.real(mode.neff(grid.omega[grid.active_mask])))
     # Division and the independently evaluated square root each round once.
@@ -273,7 +273,7 @@ def test_weight_row_matches_direct_evaluation(representation):
         save_planes=[0.01],
         dz_max=0.01,
         dz_init=0.001,
-    )
+    ).problem
     if representation == "table":
         phi = build_phi(
             mode, grid, Frame.comoving(grid), z_max=0.01, representation="table"
@@ -325,7 +325,7 @@ def test_weight_factors_refuse_a_plane_outside_the_span():
             save_planes=[0.01],
             dz_max=0.01,
             dz_init=0.001,
-        )
+        ).problem
     with pytest.raises(TranslationError, match="outside"):
         power_weight_factors(problem, np.array([0.0, 1.0]))
 
@@ -381,7 +381,7 @@ def test_a_dispersion_specified_mode_needs_the_prefactor_index():
         assemble(grid, mode, [], launch, **settings)
     # The remedy the message names: the GNLSE interface passes 1.0, and then the row
     # is exactly one everywhere and the launch is untouched.
-    problem = assemble(grid, mode, [], launch, prefactor_index=1.0, **settings)
+    problem = assemble(grid, mode, [], launch, prefactor_index=1.0, **settings).problem
     np.testing.assert_array_equal(power_weight_at(problem, 0.0), 1.0)
     np.testing.assert_array_equal(problem.initial.field0, launch)
 
@@ -413,7 +413,7 @@ def test_the_entrance_conversion_reads_the_weight_row(representation):
         save_planes=[0.01],
         dz_max=0.01,
         dz_init=0.001,
-    )
+    ).problem
     weight = power_weight_at(problem, 0.0)
     # One rounding for the divide at the entrance and one for the multiply back: the
     # round trip through the same row cannot be worse than 2 eps, and is not.

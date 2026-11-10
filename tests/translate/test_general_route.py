@@ -291,11 +291,10 @@ def test_the_general_transform_needs_the_guides_channels(case):
                 "synthesis": np.zeros((2, 1)),
                 "projection": np.zeros((1, 2)),
                 "projection_coarse": np.zeros((1, 2)),
-                "node_chunk": 2,
             },
             "zero placeholders",
         ),
-        ({"node_chunk": 1, "node_weights": np.ones(1)}, "node_chunk is 1"),
+        ({"node_weights": np.ones(1)}, "the node weights"),
     ],
 )
 def test_a_general_transform_refuses_a_static_matrix_that_carries_anything(
@@ -312,7 +311,7 @@ def test_a_general_transform_refuses_a_static_matrix_that_carries_anything(
 
 
 def test_the_assembled_problem_carries_the_three_leaves_and_validates(case):
-    problem = problem_of(case)
+    problem = problem_of(case).problem
     assert problem.transform.modal_tables is case.route.tables
     assert problem.linear.modal_metric is not None
     assert problem.linear.modal_metric.kind == "identity"
@@ -324,7 +323,7 @@ def test_the_assembled_problem_carries_the_three_leaves_and_validates(case):
 
 def test_the_power_weight_of_a_poynting_basis_is_the_constant_one(case):
     """No power conversion is needed: the amplitude is already true-power."""
-    problem = problem_of(case)
+    problem = problem_of(case).problem
     assert problem.linear.power_weight_representation == "constant"
     weight = problem.linear.power_weight_constant
     assert weight is not None and np.all(weight == 1.0)
@@ -332,7 +331,7 @@ def test_the_power_weight_of_a_poynting_basis_is_the_constant_one(case):
 
 def test_the_prefactor_is_the_crop_scale_inside_the_band_and_zero_outside(case):
     """The -i omega is the record's own factor; what is left here is the grid."""
-    problem = problem_of(case)
+    problem = problem_of(case).problem
     assert problem.responses.prefactor_representation == "constant"
     prefactor = problem.responses.prefactor_constant
     assert prefactor is not None
@@ -776,7 +775,9 @@ def test_the_assembly_logs_its_summary_at_debug(case, caplog):
 
 def test_the_debug_summary_carries_the_certificates_nothing_else_reads(case):
     """The Gram defect and the profile error reach a log."""
-    text = debug_summary(problem_of(case))
+    problem, run_request = problem_of(case)
+    text = debug_summary(problem, run_request.observation.stats)
+    assert "statistics:" in text
     assert "route general modal" in text
     assert f"defect {case.route.gram_defect:.3e}" in text
     assert "certificate sampled-gram" in text
@@ -996,7 +997,7 @@ def test_a_declared_basis_assembles_and_the_noise_check_admits_it(circular_route
         dz_max=GENERAL_Z_END / 10,
         dz_init=GENERAL_Z_END / 20,
         general=route,
-    )
+    ).problem
     assert problem.linear.modal_metric is not None
     assert problem.linear.modal_metric.kind == "dense"
     assert problem.linear.modal_metric.n_modes == 2

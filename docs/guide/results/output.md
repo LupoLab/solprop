@@ -206,6 +206,21 @@ and the file itself carry the attribute `spectral_convention = "optics"` to say 
 {py:meth}`~solprop.output.schema.PlaneStore.fields` with `convention="fft"` converts
 back, to the form a backend works in.
 
+A run makes that conversion only once per kept plane, and where the field is kept. Rather
+than handing a store a plane with its field and having the store convert it into a second
+volume, the run's session converts the field straight into the stored form, into the room
+the store gives it ({py:meth}`~solprop.output.schema.PlaneStore.field_destination`):
+`MemoryOutput`'s own row for the plane, so the field is written once, where it stays, or a
+new array that `HDF5Output` writes into the plane's chunk without a copy. The store then
+takes the plane with
+{py:meth}`~solprop.output.schema.PlaneStore.save_exported`, its field beside it as a
+{py:class}`~solprop.output.schema.StoredField`. What is stored is bit for bit what
+{py:meth}`~solprop.output.schema.PlaneStore.save` stores for the same field. A store
+subclass that overrides `save` is still given every plane, with its field in the internal
+convention, through its `save`
+({py:attr}`~solprop.output.schema.PlaneStore.takes_exports`); so is any output that is not
+a `PlaneStore`.
+
 Two things stay internal, and are marked so rather than converted: the **noise
 realisation** in {py:class}`~solprop.output.schema.NoiseRecord` and the per-plane
 **noise phase**. Neither is a user-facing spectrum — they are the object the stepper adds
@@ -527,10 +542,12 @@ function. The default, `None`, leaves the run unchanged. This is an execution po
 outside the scientific configuration hash; `SimulationRunner`'s restriction on
 reusing TDSE across inputs still applies.
 
-A snapshot requires an unbatched HDF5 run with `fields="all"` and
-`interpolate_planes=False`; it no longer needs `step_planes`
-([SEP 47](../../dev/seps/sep-0047-run-ownership.md)). Interpolated output stays
-refused until a snapshot can first commit the planes its step crossed. Adams runs must allow retained
+A snapshot requires an unbatched HDF5 run with `fields="all"`; it no longer needs
+`step_planes`, and it is taken with interpolated planes too
+([SEP 47](../../dev/seps/sep-0047-run-ownership.md)). With `interpolate_planes=True` a
+request is taken at the end of the step that crossed the plane being saved, once every
+plane that step crossed has been saved, so the snapshot holds a state the march passed
+through and `resume=True` continues it without `resume="interpolated"`. Adams runs must allow retained
 history: explicit `resume_history=False` is refused, and a requested snapshot keeps
 history even above the automatic retention-size cutoff. Every backend's Adams history
 is supported, the native backend's resident one included: its engine copies the

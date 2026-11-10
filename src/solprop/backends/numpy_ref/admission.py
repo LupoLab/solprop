@@ -108,7 +108,7 @@ def refuse_general_route(
     >>> gnlse = problem_from([0.0, 0.0, -1.183e-26], omega_ref=grid.omega0,
     ...                      gamma=0.11, shock=False)
     >>> start = SechPulse(wavelength=835e-9, width=100e-15, peak_power=9.8).build(grid)
-    >>> problem = assemble(grid, gnlse.mode, [gnlse.kerr], start,
+    >>> problem, request = assemble(grid, gnlse.mode, [gnlse.kerr], start,
     ...                    controller=PIController(rtol=1e-8, atol=1e-16),
     ...                    save_planes=[0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0)

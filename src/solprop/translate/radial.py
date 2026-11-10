@@ -35,7 +35,7 @@ from solprop.translate.linop import (
     endpoint_phi,
     tabulate,
 )
-from solprop.translate.modal import DEFAULT_NODE_BUDGET, Transform, _node_chunk
+from solprop.translate.modal import Transform
 from solprop.translate.spatial import (
     RateBounds,
     SeparableOperator,
@@ -49,14 +49,12 @@ __all__ = ["radial_operators", "radial_rate_bounds", "radial_transform"]
 logger = logging.getLogger(__name__)
 
 
-def radial_transform(  # noqa: PLR0913 - geometry and the shared translation controls
+def radial_transform(
     space: RadialGrid,
     time: TimeGrid,
     *,
-    n_pol: int,
     z_max: float,
     collar_rate: Float[np.ndarray, " n_nodes"] | None = None,
-    node_budget: int = DEFAULT_NODE_BUDGET,
     margin: float = DEFAULT_MARGIN,
 ) -> Transform:
     """Build the scalar inverse/forward QDHT applied to each state polarisation.
@@ -66,24 +64,20 @@ def radial_transform(  # noqa: PLR0913 - geometry and the shared translation con
     space : solprop.grid.RadialGrid
         Validated radial axes, weights and collar.
     time : solprop.grid.TimeGrid
-        Temporal grid supplying the pad scaling and chunk-buffer size.
-    n_pol : int
-        Number of state polarisation components, 1 or 2.
+        Temporal grid supplying the pad scaling.
     z_max : float
         Propagation length in m, positive.
     collar_rate : numpy.ndarray or None, optional
         The real-space collar's power rate on the nodes, 1/m, from the run's
         :class:`solprop.spatial_absorber.SpatialAbsorberDesign`; ``None`` for no
         collar.
-    node_budget : int, optional
-        Shared node-buffer budget in bytes, positive.
     margin : float, optional
         Relative extension of the scalar diagnostic table beyond z_max.
 
     Returns
     -------
     solprop.translate.modal.Transform
-        Hankel matrices, geometry and bounded node chunk, ready for all backends.
+        Hankel matrices and geometry, ready for all backends.
     """
     space.validate()
     hankel = space.hankel
@@ -110,7 +104,6 @@ def radial_transform(  # noqa: PLR0913 - geometry and the shared translation con
         projection=projection,
         projection_coarse=projection,
         taper_scale=None,
-        node_chunk=_node_chunk(space.n_r, n_pol, time.n_to, node_budget),
         aeff=tabulate(
             lambda z: np.full_like(z, np.pi * space.outer_radius**2),
             0.0,

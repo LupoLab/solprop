@@ -15,7 +15,6 @@ Every comparison is a matched discrete computation, held to a rounding budget fi
 here before the comparison (SEP 25).
 """
 
-import dataclasses
 import importlib.util
 
 import numpy as np
@@ -104,7 +103,7 @@ def _radial(medium):
     simulation = Simulation.from_radial(
         grid, space, medium, [], _pulse(60e-6), settings=_settings(LOCAL), noise=None
     )
-    return grid, simulation.translate()
+    return grid, simulation.translate(), simulation._run_request()
 
 
 def _free(space):
@@ -119,12 +118,12 @@ def _free(space):
         settings=_settings(names, apertures=HOLES, spectral_regions=HALVES),
         noise=None,
     )
-    return grid, simulation.translate()
+    return grid, simulation.translate(), simulation._run_request()
 
 
 def _planar():
-    grid, _, problem = planar_case("kerr", steps=0)
-    return grid, dataclasses.replace(problem, stats_spec=StatsSpec(names=LOCAL))
+    grid, _, problem, run_request = planar_case("kerr", steps=0)
+    return grid, problem, run_request.for_run(stats=StatsSpec(names=LOCAL))
 
 
 CASES = {
@@ -144,7 +143,7 @@ CASES = {
 def measured(request):
     """Every backend's statistics of one state at one plane."""
     build, z = CASES[request.param]
-    grid, problem = build()
+    grid, problem, run_request = build()
     rng = np.random.default_rng(34)
     field = problem.initial.field0
     # A chirp-like phase on every column makes the frequencies and the columns
@@ -152,13 +151,13 @@ def measured(request):
     field = field * np.exp(1j * rng.uniform(-0.3, 0.3, field.shape[-1]))
     values = {}
     for name in BACKENDS:
-        backend = select(name, problem, grid=grid)
+        backend = select(name, problem, run_request, grid=grid)
         try:
             backend.set_initial(field, None, z=z)
-            values[name] = backend.stats(problem.stats_spec)
+            values[name] = backend.stats(run_request.observation.stats)
         finally:
             backend.close()
-    return request.param, grid, problem, values
+    return request.param, grid, problem, run_request, values
 
 
 def _budget(name, grid, problem):
@@ -183,11 +182,11 @@ def _budget(name, grid, problem):
 
 
 def test_every_backend_measures_the_same_flux(measured):
-    case, grid, problem, values = measured
+    case, grid, problem, run_request, values = measured
     reference = values["numpy_ref"]
-    assert set(reference) == set(problem.stats_spec.names)
+    assert set(reference) == set(run_request.observation.stats.names)
     for backend in BACKENDS[1:]:
-        for name in problem.stats_spec.names:
+        for name in run_request.observation.stats.names:
             assert_within(
                 values[backend][name],
                 reference[name],
@@ -198,7 +197,7 @@ def test_every_backend_measures_the_same_flux(measured):
 
 def test_a_width_refuses_a_fluence_negative_beyond_its_normwise_budget():
     """Rounding in a beam's wings is read as zero; a real negative lobe is refused."""
-    _, problem = _free(LineGrid(4e-4, 24))
+    _, problem, _ = _free(LineGrid(4e-4, 24))
     geometry = problem.transform.geometry
     assert geometry is not None
     x = geometry.axes[0]
@@ -219,11 +218,11 @@ def test_a_width_refuses_a_fluence_negative_beyond_its_normwise_budget():
 @pytest.mark.skipif("native" not in BACKENDS, reason="solprop-native is not installed")
 def test_the_native_closure_buffers_are_in_the_ledger():
     """The closure's transverse volume, the radial plane measure and its table."""
-    grid, problem = _free(FreeGrid(3e-4, 24, 3e-4, 16))
+    grid, problem, run_request = _free(FreeGrid(3e-4, 24, 3e-4, 16))
     # One state's bytes beside the transverse scratch, sized for the problem's own
     # local statistics.
     closure = 16 * int(np.prod(problem.shape))
-    owner = select("native", problem, grid=grid)
+    owner = select("native", problem, run_request, grid=grid)
     try:
         ledger = owner.memory_ledger()
         assert ledger["flux_closure_transverse"] == closure
@@ -234,19 +233,21 @@ def test_the_native_closure_buffers_are_in_the_ledger():
     finally:
         owner.close()
     # Without a local statistic nothing is held until a call first needs it.
-    bare = dataclasses.replace(problem, stats_spec=StatsSpec(names=("energy",)))
-    owner = select("native", bare, grid=grid)
+    bare = run_request.for_run(stats=StatsSpec(names=("energy",)))
+    owner = select("native", problem, bare, grid=grid)
     try:
         assert owner.memory_ledger()["flux_closure_transverse"] == 0
-        owner.set_initial(bare.initial.field0, None)
+        owner.set_initial(problem.initial.field0, None)
         owner.stats(StatsSpec(names=("peak_intensity",)))
         assert owner.memory_ledger()["flux_closure_transverse"] == closure
     finally:
         owner.close()
-    grid, radial = _radial(SpatialMedium("Ar", pressure=Linear(0.5, 3.0, 1e-3)))
+    grid, radial, radial_request = _radial(
+        SpatialMedium("Ar", pressure=Linear(0.5, 3.0, 1e-3))
+    )
     flux = flux_of(radial.route)
     assert flux is not None and flux.material is not None
-    owner = select("native", radial, grid=grid)
+    owner = select("native", radial, radial_request, grid=grid)
     try:
         ledger = owner.memory_ledger()
         # The entrance squares (two complex rows of n_omega, two real of n_modes)

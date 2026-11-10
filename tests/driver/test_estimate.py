@@ -131,8 +131,8 @@ def test_a_low_storage_estimate_times_the_march_s_own_step(backend, monkeypatch)
     taken = []
     build = estimate_module._timed_step
 
-    def spy(constructed, problem):
-        step, evaluations = build(constructed, problem)
+    def spy(constructed, problem, run_request):
+        step, evaluations = build(constructed, problem, run_request)
         monkeypatch.setattr(
             constructed,
             "_trial_step",
@@ -194,9 +194,11 @@ BACKENDS = [
 
 def _backend(simulation):
     problem = simulation.translate()
+    run_request = simulation._run_request()
     return problem, select(
         simulation.settings.backend,
         problem,
+        run_request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
@@ -218,7 +220,7 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
             probed.timing_probe(start)
         with pytest.raises(BackendError, match="take a trial"):
             probe.field()
-        dz = float(problem.stepper.dz_init)
+        dz = float(simulation._run_request().stepper.dz_init)
         probe.trial()
         probe.trial(float(problem.initial.z), 0.5 * dz)
         half = probe.field()

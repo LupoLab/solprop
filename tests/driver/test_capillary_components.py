@@ -232,7 +232,7 @@ def test_a_negligible_wall_beside_a_two_component_set_is_the_uncoupled_run(kind)
     # The TE/TM wall beside a TE_0m or TM_0m pair, a launch strong enough that the
     # Kerr half (now with E_y) is exercised (``tests/flow_parity.py``).
     simulation = build(kind)
-    problem = simulation.translate()
+    problem, run_request = simulation.translate(), simulation._run_request()
     assert problem.transform.n_pol == 2
     # The wall changes the linear operator alone: the synthesis and projection are
     # the wall-free run's, bit for bit.
@@ -249,9 +249,10 @@ def test_a_negligible_wall_beside_a_two_component_set_is_the_uncoupled_run(kind)
     # A wall made zero: exactly the run without a flow, an explicitly exact no-op
     # (SEP 25 keeps those structural). The Schur factors of a zero block are exact,
     # and so is multiplying by an exact identity.
-    zeroed = with_flow(problem, np.zeros_like(generator))
+    zeroed = with_flow(problem, run_request, np.zeros_like(generator))
     np.testing.assert_array_equal(
-        run(NumpyRefBackend, zeroed, grid), run(NumpyRefBackend, uncoupled, grid)
+        run(NumpyRefBackend, zeroed, run_request, grid),
+        run(NumpyRefBackend, uncoupled, run_request, grid),
     )
     # The wall's coupling made zero: the diagonal flow is the same diagonal inside
     # Phi, to the rounding of one exponential and one dot product per stage, a few
@@ -268,8 +269,10 @@ def test_a_negligible_wall_beside_a_two_component_set_is_the_uncoupled_run(kind)
         problem,
         linear=replace(uncoupled.linear, phi_constant=folded),
     )
-    coupled = run(NumpyRefBackend, with_flow(problem, diagonal), grid)
-    reference = run(NumpyRefBackend, inside, grid)
+    coupled = run(
+        NumpyRefBackend, with_flow(problem, run_request, diagonal), run_request, grid
+    )
+    reference = run(NumpyRefBackend, inside, run_request, grid)
     scale = float(np.max(abs(coupled)))
     np.testing.assert_allclose(coupled, reference, rtol=0.0, atol=1e-12 * scale)
 
@@ -288,14 +291,16 @@ def test_beside_the_wall_the_kerr_increment_is_eight_thirds_of_the_x_only_one(ki
     # term, so its ratio is 8/3 up to the second-order part, relative O(Phi) with the
     # launch's Phi of order 1e-4 (``tests/flow_parity.py``): bound 1e-3.
     def increment(simulation):
-        problem = simulation.translate()
+        problem, run_request = simulation.translate(), simulation._run_request()
         weak = replace(
             problem,
             initial=replace(problem.initial, field0=problem.initial.field0 * 1e-3),
         )
         grid = simulation.grid
-        full = run(NumpyRefBackend, problem, grid)
-        return float(np.linalg.norm(full - 1e3 * run(NumpyRefBackend, weak, grid)))
+        full = run(NumpyRefBackend, problem, run_request, grid)
+        return float(
+            np.linalg.norm(full - 1e3 * run(NumpyRefBackend, weak, run_request, grid))
+        )
 
     vector = build(kind)
     scalar = build(kind)

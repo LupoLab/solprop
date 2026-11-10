@@ -38,8 +38,9 @@ backend_module = pytest.importorskip("solprop_native.backend")
 def built(simulation, **keywords):
     """Return the native backend for `simulation`, translated."""
     problem = simulation.translate()
+    run_request = simulation._run_request()
     return NativeBackend(
-        problem, grid=simulation.grid, modes=simulation.modes, **keywords
+        problem, run_request, grid=simulation.grid, modes=simulation.modes, **keywords
     )
 
 
@@ -94,7 +95,7 @@ def test_the_fused_methods_are_native(integrator):
 
 
 def test_a_replayed_schedule_is_native():
-    stepper = on_route("capillary (mode-averaged)", Multistep()).translate().stepper
+    stepper = on_route("capillary (mode-averaged)", Multistep())._run_request().stepper
     simulation = on_route("capillary (mode-averaged)", Multistep())
     schedule = FixedSchedule.uniform(
         0.0,

@@ -50,6 +50,7 @@ from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, RungeKutta
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend
 from legacy_geometry import LEGACY_GRID
@@ -112,7 +113,7 @@ def capillary(
     preionisation: float,
     steps: int = 1,
     rate: object = None,
-) -> tuple[FieldGrid, PropagationProblem]:
+) -> tuple[FieldGrid, PropagationProblem, RunRequest]:
     """Return a mode-averaged argon capillary whose launch is one comb bin of `peak`."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
@@ -141,23 +142,29 @@ def capillary(
             simulation.settings, quadrature=None, components=None
         )
         problem = simulation.translate()
+    run_request = simulation._run_request()  # pyright: ignore[reportPrivateUsage]
     grid = simulation.grid
     assert isinstance(grid, FieldGrid)
     field = np.zeros(problem.shape, complex)
     field[..., grid.n_to // 8] = 1.0
-    field *= peak / np.max(np.abs(synthesised(problem, grid, field)))
-    return grid, dataclasses.replace(
-        problem,
-        initial=dataclasses.replace(problem.initial, field0=field),
-        stats_spec=StatsSpec(names=STATISTICS),
+    field *= peak / np.max(np.abs(synthesised(problem, run_request, grid, field)))
+    return (
+        grid,
+        dataclasses.replace(
+            problem, initial=dataclasses.replace(problem.initial, field0=field)
+        ),
+        run_request.for_run(stats=StatsSpec(names=STATISTICS)),
     )
 
 
 def synthesised(
-    problem: PropagationProblem, grid: FieldGrid, field: ComplexArray
+    problem: PropagationProblem,
+    run_request: RunRequest,
+    grid: FieldGrid,
+    field: ComplexArray,
 ) -> npt.NDArray[np.float64]:
     """Return the reference's node fields of `field`, ``(nodes, n_pol, n_to)``."""
-    reference = NumpyRefBackend(problem, grid=grid)
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(field, None)
         state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
@@ -170,9 +177,11 @@ def synthesised(
         reference.close()
 
 
-def source_of_reference(problem: PropagationProblem, grid: FieldGrid) -> ComplexArray:
+def source_of_reference(
+    problem: PropagationProblem, run_request: RunRequest, grid: FieldGrid
+) -> ComplexArray:
     """Return the reference's first stage on the launch, ``N(E, z = 0)``."""
-    reference = NumpyRefBackend(problem, grid=grid)
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
@@ -185,9 +194,11 @@ def source_of_reference(problem: PropagationProblem, grid: FieldGrid) -> Complex
         reference.close()
 
 
-def source_of_native(problem: PropagationProblem, grid: FieldGrid) -> ComplexArray:
+def source_of_native(
+    problem: PropagationProblem, run_request: RunRequest, grid: FieldGrid
+) -> ComplexArray:
     """Return native's first stage on the launch, from a zero-length trial."""
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
@@ -201,13 +212,14 @@ def source_of_native(problem: PropagationProblem, grid: FieldGrid) -> ComplexArr
 def launch_statistics(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
     problem: PropagationProblem,
+    run_request: RunRequest,
     grid: FieldGrid,
 ) -> dict[str, np.ndarray]:
     """Return the statistics of the launch, before any step."""
-    backend = implementation(problem, grid=grid)
+    backend = implementation(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        return backend.stats(problem.stats_spec)
+        return backend.stats(run_request.observation.stats)
     finally:
         backend.close()
 
@@ -215,15 +227,16 @@ def launch_statistics(
 def march(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
     problem: PropagationProblem,
+    run_request: RunRequest,
     grid: FieldGrid,
 ) -> tuple[ComplexArray, dict[str, np.ndarray]]:
     """Return the field and the statistics after the problem's fixed steps."""
-    backend = implementation(problem, grid=grid)
+    backend = implementation(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(problem.stepper.save_planes[-1]))
+        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
         return backend.observe().require_field().copy(), backend.stats(
-            problem.stats_spec
+            run_request.observation.stats
         )
     finally:
         backend.close()
@@ -240,21 +253,25 @@ def lossless_unit_bound(preionisation: float) -> float:
     V/m, with a vanishing ionisation potential, fixed from its operands before either
     tiny run.
     """
-    grid, problem = capillary(peak=1.0, floor=1e-6, preionisation=preionisation)
+    grid, problem, run_request = capillary(
+        peak=1.0, floor=1e-6, preionisation=preionisation
+    )
     channels = tuple(
         dataclasses.replace(channel, ionisation_potential=float(np.finfo(float).tiny))
         for channel in problem.responses.plasma_channels
     )
     responses = dataclasses.replace(problem.responses, plasma_channels=channels)
-    return evaluation_bound(dataclasses.replace(problem, responses=responses), grid)
+    return evaluation_bound(
+        dataclasses.replace(problem, responses=responses), run_request, grid
+    )
 
 
 def assert_source_agrees(
-    problem: PropagationProblem, grid: FieldGrid, bound: float
+    problem: PropagationProblem, run_request: RunRequest, grid: FieldGrid, bound: float
 ) -> None:
     """Native's first stage on the launch is finite and within `bound` of the oracle."""
-    expected = source_of_reference(problem, grid)
-    actual = source_of_native(problem, grid)
+    expected = source_of_reference(problem, run_request, grid)
+    actual = source_of_native(problem, run_request, grid)
     assert np.all(np.isfinite(actual))
     scale = float(np.max(np.abs(expected)))
     assert scale > 0.0
@@ -275,19 +292,23 @@ def require_exact_zeros(fields: npt.NDArray[np.float64]) -> None:
 
 
 def assert_exact_zeros_in_a_live_row(
-    problem: PropagationProblem, grid: FieldGrid
+    problem: PropagationProblem, run_request: RunRequest, grid: FieldGrid
 ) -> None:
     """The launch holds exact zeros, a quarter of the row, between live samples."""
-    fields = synthesised(problem, grid, problem.initial.field0)
+    fields = synthesised(problem, run_request, grid, problem.initial.field0)
     require_exact_zeros(fields)
     assert np.count_nonzero(fields == 0.0) == grid.n_to // 4
 
 
 @pytest.mark.parametrize("preionisation", PREIONISATION)
 def test_exact_zeros_in_a_live_row_match_the_reference(preionisation: float) -> None:
-    grid, problem = capillary(peak=LIVE, floor=1.0, preionisation=preionisation)
-    assert_exact_zeros_in_a_live_row(problem, grid)
-    assert_source_agrees(problem, grid, evaluation_bound(problem, grid))
+    grid, problem, run_request = capillary(
+        peak=LIVE, floor=1.0, preionisation=preionisation
+    )
+    assert_exact_zeros_in_a_live_row(problem, run_request, grid)
+    assert_source_agrees(
+        problem, run_request, grid, evaluation_bound(problem, run_request, grid)
+    )
 
 
 @pytest.mark.parametrize("preionisation", PREIONISATION)
@@ -300,8 +321,10 @@ def test_a_vanishing_divisor_under_a_live_rate_has_a_zero_loss_current(
     free current alone: one that took the division would be infinite or NaN at every
     live sample, and a backend's source would not be finite, let alone within the bound.
     """
-    grid, problem = capillary(peak=TINY, floor=1e-180, preionisation=preionisation)
-    fields = synthesised(problem, grid, problem.initial.field0)
+    grid, problem, run_request = capillary(
+        peak=TINY, floor=1e-180, preionisation=preionisation
+    )
+    fields = synthesised(problem, run_request, grid, problem.initial.field0)
     live = fields != 0.0
     assert np.any(live)
     # The two conditions the guard sees, on the reference's field, which native's is
@@ -310,7 +333,7 @@ def test_a_vanishing_divisor_under_a_live_rate_has_a_zero_loss_current(
     coefficients = problem.responses.plasma_coefficients
     assert coefficients is not None
     assert np.all(np.asarray(coefficients.rate(np.abs(fields[live]))) > 0.0)
-    assert_source_agrees(problem, grid, lossless_unit_bound(preionisation))
+    assert_source_agrees(problem, run_request, grid, lossless_unit_bound(preionisation))
 
 
 def test_the_exact_zeros_do_occur_on_native() -> None:
@@ -323,10 +346,10 @@ def test_the_exact_zeros_do_occur_on_native() -> None:
     no rate at all. So a source of the reference's size means the samples are zero, or
     below the first knot. No rounding bound applies: the chain's own is infinite here.
     """
-    grid, problem = capillary(peak=LIVE, floor=1e-30, preionisation=0.0)
-    assert_exact_zeros_in_a_live_row(problem, grid)
-    expected = source_of_reference(problem, grid)
-    actual = source_of_native(problem, grid)
+    grid, problem, run_request = capillary(peak=LIVE, floor=1e-30, preionisation=0.0)
+    assert_exact_zeros_in_a_live_row(problem, run_request, grid)
+    expected = source_of_reference(problem, run_request, grid)
+    actual = source_of_native(problem, run_request, grid)
     scale = float(np.max(np.abs(expected)))
     if float(np.max(np.abs(actual))) > 1e3 * scale:
         pytest.skip(
@@ -338,15 +361,15 @@ def test_the_exact_zeros_do_occur_on_native() -> None:
 
 def test_an_all_zero_state_stays_exactly_zero() -> None:
     """Class P: a state of exact zeros has no source and no statistics on either."""
-    grid, problem = capillary(peak=LIVE, floor=1.0, preionisation=0.2)
+    grid, problem, run_request = capillary(peak=LIVE, floor=1.0, preionisation=0.2)
     zero = np.zeros(problem.shape, complex)
     problem = dataclasses.replace(
         problem, initial=dataclasses.replace(problem.initial, field0=zero)
     )
-    np.testing.assert_array_equal(source_of_reference(problem, grid), 0.0)
-    np.testing.assert_array_equal(source_of_native(problem, grid), 0.0)
-    expected = launch_statistics(NumpyRefBackend, problem, grid)
-    actual = launch_statistics(NativeBackend, problem, grid)
+    np.testing.assert_array_equal(source_of_reference(problem, run_request, grid), 0.0)
+    np.testing.assert_array_equal(source_of_native(problem, run_request, grid), 0.0)
+    expected = launch_statistics(NumpyRefBackend, problem, run_request, grid)
+    actual = launch_statistics(NativeBackend, problem, run_request, grid)
     for name in STATISTICS:
         np.testing.assert_array_equal(actual[name], expected[name], err_msg=name)
 
@@ -366,21 +389,21 @@ def test_fixed_steps_from_the_inputs_match_the_reference(
     square stays underflowed over a run this short.
     """
     if row == "live":
-        grid, problem = capillary(
+        grid, problem, run_request = capillary(
             peak=LIVE,
             floor=1e3,
             preionisation=preionisation,
             steps=steps,
             rate=QuadraticRate(RATE / (LIVE / 1e9) ** 2, 1e3),
         )
-        bound = march_bound(problem, grid, steps)
+        bound = march_bound(problem, run_request, grid, steps)
     else:
-        grid, problem = capillary(
+        grid, problem, run_request = capillary(
             peak=TINY, floor=1e-180, preionisation=preionisation, steps=steps
         )
         bound = 7 * steps * lossless_unit_bound(preionisation)
-    expected, expected_stats = march(NumpyRefBackend, problem, grid)
-    actual, actual_stats = march(NativeBackend, problem, grid)
+    expected, expected_stats = march(NumpyRefBackend, problem, run_request, grid)
+    actual, actual_stats = march(NativeBackend, problem, run_request, grid)
     assert np.all(np.isfinite(actual))
     scale = float(np.max(np.abs(expected)))
     assert scale > 0.0
@@ -397,14 +420,16 @@ def test_the_launch_statistics_match_the_reference(
     preionisation: float, peak: float, floor: float
 ) -> None:
     """The stash's fraction and rate, from zeros and tiny rows, at every initial one."""
-    grid, problem = capillary(peak=peak, floor=floor, preionisation=preionisation)
+    grid, problem, run_request = capillary(
+        peak=peak, floor=floor, preionisation=preionisation
+    )
     bound = (
-        evaluation_bound(problem, grid)
+        evaluation_bound(problem, run_request, grid)
         if peak == LIVE
         else lossless_unit_bound(preionisation)
     )
-    expected = launch_statistics(NumpyRefBackend, problem, grid)
-    actual = launch_statistics(NativeBackend, problem, grid)
+    expected = launch_statistics(NumpyRefBackend, problem, run_request, grid)
+    actual = launch_statistics(NativeBackend, problem, run_request, grid)
     assert_statistics_agree(actual, expected, bound)
     assert float(expected["peak_ionisation_rate"]) == pytest.approx(RATE, rel=1e-6)
     if preionisation == 1.0:
@@ -428,7 +453,7 @@ def test_the_knot_index_is_clamped_at_both_ends_of_the_table(
     source and the launch's statistics. `scale` puts each end's knots at a rate of about
     1e11 s^-1, so what the clamp selects moves the current.
     """
-    grid, problem = capillary(
+    grid, problem, run_request = capillary(
         peak=LIVE, floor=1e3, preionisation=0.0, rate=UncappedRate(scale, 1e3)
     )
     channel = problem.responses.plasma_channels[0]
@@ -441,7 +466,7 @@ def test_the_knot_index_is_clamped_at_both_ends_of_the_table(
         ionisation_table=(table,),
     )
     problem = dataclasses.replace(problem, responses=responses)
-    fields = synthesised(problem, grid, problem.initial.field0)
+    fields = synthesised(problem, run_request, grid, problem.initial.field0)
     # The comb's zero crossings lie below the table, whether or not they are exact.
     magnitude = np.abs(fields[np.abs(fields) >= table.field_min])
     assert magnitude.size == 3 * grid.n_to // 4
@@ -451,29 +476,35 @@ def test_the_knot_index_is_clamped_at_both_ends_of_the_table(
         assert np.all(index < 0.0)
     else:
         assert np.all(index >= table.coefficients.shape[1])
-    assert_source_agrees(problem, grid, evaluation_bound(problem, grid))
-    expected = launch_statistics(NumpyRefBackend, problem, grid)
-    actual = launch_statistics(NativeBackend, problem, grid)
+    assert_source_agrees(
+        problem, run_request, grid, evaluation_bound(problem, run_request, grid)
+    )
+    expected = launch_statistics(NumpyRefBackend, problem, run_request, grid)
+    actual = launch_statistics(NativeBackend, problem, run_request, grid)
     assert float(expected["electron_density"]) > 0.0
     assert float(expected["peak_ionisation_rate"]) > 1e10
-    assert_statistics_agree(actual, expected, evaluation_bound(problem, grid))
+    assert_statistics_agree(
+        actual, expected, evaluation_bound(problem, run_request, grid)
+    )
 
 
 def test_a_two_component_row_with_an_exactly_zero_component_matches_the_reference():
     """The original's ``n_pol = 2``: exact zeros in x, a y of exact zeros, radially."""
-    grid, problem = vector(1)
+    grid, problem, run_request = vector(1)
     launch = np.asarray(problem.initial.field0)
     field = np.zeros(problem.shape, complex)
     # The launch's radial shape, every radial node's row the same comb in time.
     field[:, 0, grid.n_to // 8] = np.max(np.abs(launch[:, 0, :]), axis=-1)
-    field *= LIVE / np.max(np.abs(synthesised(problem, grid, field)))
+    field *= LIVE / np.max(np.abs(synthesised(problem, run_request, grid, field)))
     problem = dataclasses.replace(
         problem, initial=dataclasses.replace(problem.initial, field0=field)
     )
-    fields = synthesised(problem, grid, field)
+    fields = synthesised(problem, run_request, grid, field)
     assert fields.shape[1] == 2
     np.testing.assert_array_equal(fields[:, 1, :], 0.0)
     live = fields[:, 0, :]
     require_exact_zeros(live)
     assert np.all(live[:, ::4] != 0.0)
-    assert_source_agrees(problem, grid, evaluation_bound(problem, grid))
+    assert_source_agrees(
+        problem, run_request, grid, evaluation_bound(problem, run_request, grid)
+    )

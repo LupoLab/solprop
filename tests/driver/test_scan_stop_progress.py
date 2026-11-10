@@ -19,6 +19,7 @@ from jaxtyping import TypeCheckError
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER
 from solprop.backends.registry import available
+from solprop.backends.session import DEFAULT_WORK_LIMIT
 from solprop.driver import _scan_batch
 from solprop.driver._scan_run import _collect, _Job, _Options, _ScanEvents, _Work
 from solprop.driver.executors import Batch, Local, Queue, Slurm, pool
@@ -247,9 +248,11 @@ def test_local_stop_mid_point_is_not_committed_and_a_rerun_computes_it(tmp_path)
     error = next(c for c in stopped.calls if c[0] == "interrupted")[2]
     assert isinstance(error, StopRequested)
     assert error.flag is flag
-    # Polled before every trial: the run stops within one step of the flag.
+    # The reporter hears each advance's attempts as its chunk arrives (SEP 47 5.3),
+    # and the flag is polled before the next advance: the run stops at the end of the
+    # chunk whose attempts set it, at most one advance's bound past the flag.
     steps = [call for call in stopped.calls if call[0] == "step"]
-    assert len(steps) == 10
+    assert 10 <= len(steps) < 10 + DEFAULT_WORK_LIMIT
     rerun = Recorder()
     again = run_scan(
         scan, build_point, output=path, executor=Local(), progress=rerun, stop=None

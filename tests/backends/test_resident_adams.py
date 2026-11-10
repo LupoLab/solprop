@@ -56,7 +56,10 @@ def engine_of(route: str, integrator: Multistep) -> str:
         }
     )
     problem = simulation.translate()
-    backend = NativeBackend(problem, grid=simulation.grid, modes=simulation.modes)
+    run_request = simulation._run_request()
+    backend = NativeBackend(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         assert backend._adams is not None
         return type(backend._adams._engine).__name__
@@ -124,10 +127,13 @@ def test_a_resident_trial_packs_what_its_bundles_would(route):
     # general packing and a formed bundle.
     simulation = ROUTES[route](None)
     problem = simulation.translate()
-    backend = NativeBackend(problem, grid=simulation.grid, modes=simulation.modes)
+    run_request = simulation._run_request()
+    backend = NativeBackend(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
-        stages = problem.stepper.tableau.n_stages
-        z, end = 0.1 * problem.stepper.z_end, 0.13 * problem.stepper.z_end
+        stages = run_request.stepper.tableau.n_stages
+        z, end = 0.1 * run_request.stepper.z_end, 0.13 * run_request.stepper.z_end
         backend._hoist(z)
         step = backend._resident_arrays(z, end)
         bundle = backend._stage_scalars(z, end)
@@ -141,7 +147,7 @@ def test_a_resident_trial_packs_what_its_bundles_would(route):
         backend.close()
 
 
-def run(problem, grid, monkeypatch, *, resident):
+def run(problem, run_request, grid, monkeypatch, *, resident):
     """Propagate on ``native`` through every plane, with or without the resident engine.
 
     Without it the same backend takes the host engine over its hooks, so the two runs
@@ -150,11 +156,11 @@ def run(problem, grid, monkeypatch, *, resident):
     with monkeypatch.context() as patch:
         if not resident:
             patch.setattr(NativeBackend, "_adams_engine", lambda *_: None)
-        backend = NativeBackend(problem, grid=grid)
+        backend = NativeBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     fields, steps = [], []
     try:
-        for plane in problem.stepper.save_planes:
+        for plane in run_request.stepper.save_planes:
             backend.propagate_to(float(plane))
             observed = backend.observe()
             fields.append(observed.field.copy())
@@ -215,7 +221,7 @@ def test_resident_dense_observation_follows_the_host_engine(
     # equal calls (1.7e-8 and 3.9e-15 on the former grid). The engines' rounding
     # orders part it by 8.9e-5 and 2.2e-11 (Apple M5 Max); its bounds are five and
     # four times that control's.
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         2,
         save_planes=PLANES,
@@ -224,11 +230,11 @@ def test_resident_dense_observation_follows_the_host_engine(
         interpolate_planes=True,
         integrator=integrator,
     )
-    resident = run(problem, narrow_grid, monkeypatch, resident=True)
+    resident = run(problem, run_request, narrow_grid, monkeypatch, resident=True)
     assert resident[1].ledger.dense_observations > 0
     assert_same_run(
         resident,
-        run(problem, narrow_grid, monkeypatch, resident=False),
+        run(problem, run_request, narrow_grid, monkeypatch, resident=False),
         steps_rtol=steps_rtol,
         fields_atol=fields_atol,
     )
@@ -239,7 +245,7 @@ def test_resident_dense_observation_follows_the_host_engine(
 def test_a_budget_stop_reports_the_resident_state(
     narrow_grid, soliton_problem, monkeypatch, formulation, oversized_first_step
 ):
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         2,
         save_planes=[SOLITON_PERIOD / 2],
@@ -252,7 +258,7 @@ def test_a_budget_stop_reports_the_resident_state(
         with monkeypatch.context() as patch:
             if not resident:
                 patch.setattr(NativeBackend, "_adams_engine", lambda *_: None)
-            backend = NativeBackend(problem, grid=narrow_grid)
+            backend = NativeBackend(problem, run_request, grid=narrow_grid)
         backend.set_initial(problem.initial.field0, None)
         with pytest.raises(ResponseBudgetError) as caught:
             backend.propagate_to(SOLITON_PERIOD / 2)
@@ -277,7 +283,7 @@ def test_a_replayed_schedule_follows_the_host_engine(
 ):
     length = SOLITON_PERIOD / 4
     planes = [length / 2, length]
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         2,
         save_planes=planes,
@@ -287,8 +293,8 @@ def test_a_replayed_schedule_follows_the_host_engine(
         integrator=Multistep(formulation=formulation),
     )
     assert_same_run(
-        run(problem, narrow_grid, monkeypatch, resident=True),
-        run(problem, narrow_grid, monkeypatch, resident=False),
+        run(problem, run_request, narrow_grid, monkeypatch, resident=True),
+        run(problem, run_request, narrow_grid, monkeypatch, resident=False),
     )
 
 
@@ -313,17 +319,18 @@ def test_a_separable_route_follows_the_host_engine(route, formulation, monkeypat
         }
     )
     problem = simulation.translate()
+    run_request = simulation._run_request()
 
     def march(resident):
         with monkeypatch.context() as patch:
             if not resident:
                 patch.setattr(NativeBackend, "_adams_engine", lambda *_: None)
             backend = NativeBackend(
-                problem, grid=simulation.grid, modes=simulation.modes
+                problem, run_request, grid=simulation.grid, modes=simulation.modes
             )
         try:
             backend.set_initial(problem.initial.field0, None)
-            for plane in problem.stepper.save_planes:
+            for plane in run_request.stepper.save_planes:
                 backend.propagate_to(float(plane))
             observed = backend.observe()
             march = backend._adams
@@ -354,18 +361,19 @@ def test_the_compensated_reference_follows_the_host_engine(dense, monkeypatch):
         absorber_scheme="nonlinear" if dense else "split_step",
     )
     problem = simulation.translate()
+    run_request = simulation._run_request()
 
     def march(resident):
         with monkeypatch.context() as patch:
             if not resident:
                 patch.setattr(NativeBackend, "_adams_engine", lambda *_: None)
             backend = NativeBackend(
-                problem, grid=simulation.grid, modes=simulation.modes
+                problem, run_request, grid=simulation.grid, modes=simulation.modes
             )
         try:
             backend.set_initial(problem.initial.field0, None)
             fields = []
-            for plane in problem.stepper.save_planes:
+            for plane in run_request.stepper.save_planes:
                 backend.propagate_to(float(plane))
                 fields.append(backend.observe().require_field().copy())
             march = backend._adams
@@ -419,7 +427,8 @@ def test_a_divisor_formed_on_the_host_takes_the_same_steps():
         save_planes=list(np.linspace(LENGTH / 4, LENGTH, 4)), rtol=1e-7
     )
     problem = simulation.translate()
-    own = problem.stepper.controller
+    run_request = simulation._run_request()
+    own = run_request.stepper.controller
     assert type(own) is PIController
     hosted = HostScaleController(
         **{
@@ -428,16 +437,18 @@ def test_a_divisor_formed_on_the_host_takes_the_same_steps():
             if field.init
         }
     )
-    on_host = dataclasses.replace(
-        problem, stepper=dataclasses.replace(problem.stepper, controller=hosted)
+    on_host = run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, controller=hosted)
     )
 
-    def march(problem):
-        backend = NativeBackend(problem, grid=simulation.grid, modes=simulation.modes)
+    def march(run_request):
+        backend = NativeBackend(
+            problem, run_request, grid=simulation.grid, modes=simulation.modes
+        )
         try:
             backend.set_initial(problem.initial.field0, None)
             fields = []
-            for plane in problem.stepper.save_planes:
+            for plane in run_request.stepper.save_planes:
                 backend.propagate_to(float(plane))
                 fields.append(backend.observe().require_field().copy())
             march = backend._adams
@@ -448,7 +459,7 @@ def test_a_divisor_formed_on_the_host_takes_the_same_steps():
         finally:
             backend.close()
 
-    fields, calls, device = march(problem)
+    fields, calls, device = march(run_request)
     host, host_calls, host_device = march(on_host)
     assert (device, host_device) == (True, False)
     assert calls == host_calls

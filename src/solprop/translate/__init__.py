@@ -43,8 +43,6 @@ from solprop.translate.masks import (
     temporal_rates,
 )
 from solprop.translate.modal import (
-    DEFAULT_NODE_BUDGET,
-    DEFAULT_SPATIAL_NODE_BUDGET,
     Transform,
     mode_averaged_transform,
     multimode_transform,
@@ -98,8 +96,6 @@ __all__ = [
     "DEFAULT_MARGIN",
     "DEFAULT_MAX_DEGREE",
     "DEFAULT_MAX_INTERVALS",
-    "DEFAULT_NODE_BUDGET",
-    "DEFAULT_SPATIAL_NODE_BUDGET",
     "DEFAULT_TOL",
     "MAX_DECAY_EXPONENT",
     "AbsorberScheme",

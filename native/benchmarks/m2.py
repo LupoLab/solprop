@@ -130,6 +130,7 @@ def _worker(
 
     import numpy as np
 
+    from solprop.backends.node_chunk import plan_node_chunk
     from solprop.backends.registry import select
     from solprop.driver import Simulation
     from solprop.exceptions import MaterialRangeWarning
@@ -159,20 +160,28 @@ def _worker(
             backend=backend_name,
         )
         problem = simulation.translate()
+        request = simulation._run_request()  # pyright: ignore[reportPrivateUsage]
 
     construction_started = time.perf_counter()
     backend: Any = select(
         backend_name,
         problem,
+        request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
     construction_seconds = time.perf_counter() - construction_started
+    # The chunk a native response pass holds; the reference's is the host plan's.
+    node_chunk = (
+        int(backend.node_chunk)
+        if backend_name == "native"
+        else plan_node_chunk(problem).chunk
+    )
     try:
         memory_ledger = backend.memory_ledger()
         backend.set_initial(problem.initial.field0, simulation.noise)
-        first_plane = float(problem.stepper.save_planes[0])
+        first_plane = float(request.stepper.save_planes[0])
         backend.propagate_to(min(first_plane, case["length"] * 1e-4))
         backend.set_initial(problem.initial.field0, simulation.noise)
         device_before = device_record(backend.metadata())
@@ -180,24 +189,24 @@ def _worker(
         started = time.perf_counter()
         if mode == "trial":
             for _ in range(trial_count):
-                backend._trial_step(0.0, problem.stepper.dz_init)
+                backend._trial_step(0.0, request.stepper.dz_init)
             seconds = time.perf_counter() - started
-            _, candidate = backend._trial_step(0.0, problem.stepper.dz_init)
-            backend._finish(candidate, problem.stepper.dz_init)
+            _, candidate = backend._trial_step(0.0, request.stepper.dz_init)
+            backend._finish(candidate, request.stepper.dz_init)
             attempts = 0
             rejected = 0
             trials = trial_count
         else:
             backend.observe()
-            backend.stats(problem.stats_spec)
+            backend.stats(request.observation.stats)
             attempts = 0
             rejected = 0
-            for target in problem.stepper.save_planes:
+            for target in request.stepper.save_planes:
                 summary = backend.propagate_to(float(target))
                 attempts += summary.n_steps
                 rejected += summary.n_rejected
                 backend.observe()
-                backend.stats(problem.stats_spec)
+                backend.stats(request.observation.stats)
             seconds = time.perf_counter() - started
             trials = attempts
         load_end = os.getloadavg()[0]
@@ -248,10 +257,10 @@ def _worker(
         "milliseconds_per_accepted_step": (
             1000.0 * seconds / accepted if accepted else None
         ),
-        "modes": problem.shape[1],
+        "modes": problem.shape[0],
         "nodes": problem.transform.n_nodes,
-        "node_chunk": problem.transform.node_chunk,
-        "components": problem.transform.n_pol * problem.shape[2],
+        "node_chunk": node_chunk,
+        "components": problem.transform.n_pol * problem.shape[1],
         "n_omega": problem.shape[-1],
         "n_to": problem.grids.n_to,
         "warmed": True,

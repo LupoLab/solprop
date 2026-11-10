@@ -15,7 +15,7 @@ from solprop.backends.session import Start
 
 
 def test_the_entrance_is_the_launch_state_with_its_plane_owed():
-    problem = soliton()
+    problem = soliton().problem
     start = Start.entrance(problem)
     np.testing.assert_array_equal(start.field, problem.initial.field0)
     assert start.z == problem.initial.z

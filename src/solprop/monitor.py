@@ -140,6 +140,144 @@ switch costing the march a reused stage or an Adams rejection."""
 logger = logging.getLogger(__name__)
 
 
+def _guard_message(
+    check: BoundaryCheck, worst: float, z: float | None, *, stop: bool
+) -> str:
+    """Return the message of a guard occupancy's stop or warning (D7).
+
+    One text for every owner of a monitor's decisions: :meth:`BoundaryMonitor._judge`
+    and a backend whose session judges natively (SEP 47 section 6.4).
+
+    Parameters
+    ----------
+    check : BoundaryCheck
+        The thresholds.
+    worst : float
+        The amplitude of the worse guard occupancy.
+    z : float or None
+        Where, m, or ``None`` for the launch.
+    stop : bool
+        Whether it stops the run, rather than warns.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    if z is None:
+        where = "at the launch"
+        cause = "the window clips the input, which can seed spurious radiation"
+        fate = ""
+    else:
+        where = f"at z = {z:.6e} m"
+        cause = "light is reaching the window's edge"
+        fate = " and will wrap around or be absorbed"
+    if stop:
+        return (
+            f"{where} the field puts {worst**2:.2e} of its energy in the time "
+            f"window's {check.guard_fraction:g} guards, whose square root "
+            f"{worst:.2e} is above {check.stop_factor:g} times the "
+            f"{check.budget:.0e} budget: {cause}{fate}; widen trange, move the "
+            "launch, or relax the check (settings.boundary_check)"
+        )
+    return (
+        f"{where} the square root of the time window's guard occupancy "
+        f"is {worst:.2e}, above the {check.budget:.0e} budget: {cause}; "
+        "widen trange or move the launch"
+    )
+
+
+def _removal_message(check: BoundaryCheck, removed: float) -> str:
+    """Return the message of the end of a run's removal warning (D5).
+
+    Parameters
+    ----------
+    check : BoundaryCheck
+        The thresholds.
+    removed : float
+        The removed fraction of the launch energy.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    return (
+        f"the temporal collar removed {removed:.2e} of the launch energy, "
+        f"whose square root is above the {check.budget:.0e} budget: "
+        "what left the window may have mattered; widen trange to keep it"
+    )
+
+
+def _log_finish(removed: float, low: float, high: float) -> None:
+    """Log the removed fraction and the guards' peaks at the end of a run (D5).
+
+    Parameters
+    ----------
+    removed : float
+        The removed fraction of the launch energy.
+    low, high : float
+        The guards' largest occupancies.
+    """
+    logger.info(
+        "the temporal collar removed %.3e of the launch energy; the guards peaked "
+        "at %.2e (low) and %.2e (high)",
+        removed,
+        low,
+        high,
+    )
+
+
+def _boundary_warning(message: str) -> BoundaryWarning:
+    """Return the warning the monitor issues, with its attributes (SEP 41, S10).
+
+    One construction for every owner of a monitor's decisions: the monitor here and a
+    backend whose session judges natively (SEP 47 section 6.4), so that both issue the
+    same warning.
+
+    Parameters
+    ----------
+    message : str
+        Its text.
+
+    Returns
+    -------
+    solprop.exceptions.BoundaryWarning
+        The warning, concerning ``boundary_check``.
+    """
+    return BoundaryWarning(message, parameter="boundary_check")
+
+
+def _count(value: float, name: str) -> int:
+    """Return a resumed record's count, refusing one that is not a whole count.
+
+    Python's ``int`` of the recorded number, which truncates; a count that is not
+    finite, or truncates below zero, is refused, by the monitor here and by a native
+    session's alike (SEP 47 section 5.5).
+
+    Parameters
+    ----------
+    value : float
+        The recorded number.
+    name : str
+        Its field, for the message.
+
+    Returns
+    -------
+    int
+        The count.
+
+    Raises
+    ------
+    BoundaryError
+        When `value` is not finite or is negative.
+    """
+    if not math.isfinite(value) or math.trunc(value) < 0:
+        msg = f"a resumed boundary record holds an invalid count: {name} = {value!r}"
+        raise BoundaryError(msg)
+    return int(value)
+
+
 def _number(
     record: Mapping[str, object], name: str, default: float = math.nan
 ) -> float:
@@ -754,13 +892,15 @@ class BoundaryMonitor:
         quiet_checks = _number(record, "quiet_checks", math.nan)
         if math.isfinite(quiet_checks):
             self._restored_quiet = (
-                int(quiet_checks),
+                _count(quiet_checks, "quiet_checks"),
                 bool(record.get("collar_quiet", False)),
             )
         self._raw_guard_max = _number(record, "raw_guard_max", 0.0)
-        self._steps = int(_number(record, "steps", 0.0))
-        self._skipped = int(_number(record, "skipped", 0.0))
-        self._left_out_checks = int(_number(record, "collar_left_out_checks", 0.0))
+        self._steps = _count(_number(record, "steps", 0.0), "steps")
+        self._skipped = _count(_number(record, "skipped", 0.0), "skipped")
+        self._left_out_checks = _count(
+            _number(record, "collar_left_out_checks", 0.0), "collar_left_out_checks"
+        )
         resumed = record.get("resumed_at")
         if isinstance(resumed, list):
             self._resumed_at = [float(one) for one in cast("list[float]", resumed)]
@@ -951,32 +1091,12 @@ class BoundaryMonitor:
         """
         check = self.check
         worst = math.sqrt(max(float(shares[0]), float(shares[1]), 0.0))
-        if z is None:
-            where = "at the launch"
-            cause = "the window clips the input, which can seed spurious radiation"
-            fate = ""
-        else:
-            where = f"at z = {z:.6e} m"
-            cause = "light is reaching the window's edge"
-            fate = " and will wrap around or be absorbed"
         if worst > check.stop_factor * check.budget:
-            msg = (
-                f"{where} the field puts {worst**2:.2e} of its energy in the time "
-                f"window's {check.guard_fraction:g} guards, whose square root "
-                f"{worst:.2e} is above {check.stop_factor:g} times the "
-                f"{check.budget:.0e} budget: {cause}{fate}; widen trange, move the "
-                "launch, or relax the check (settings.boundary_check)"
-            )
-            raise BoundaryError(msg)
+            raise BoundaryError(_guard_message(check, worst, z, stop=True))
         if worst > check.budget and not self._warned:
             self._warned = True
             warnings.warn(
-                BoundaryWarning(
-                    f"{where} the square root of the time window's guard occupancy "
-                    f"is {worst:.2e}, above the {check.budget:.0e} budget: {cause}; "
-                    "widen trange or move the launch",
-                    parameter="boundary_check",
-                ),
+                _boundary_warning(_guard_message(check, worst, z, stop=False)),
                 stacklevel=3,
             )
 
@@ -1360,20 +1480,8 @@ class BoundaryMonitor:
         if self.transverse is not None:
             self.transverse.finish()
         removed = max(self.removed, 0.0)
-        logger.info(
-            "the temporal collar removed %.3e of the launch energy; the guards peaked "
-            "at %.2e (low) and %.2e (high)",
-            removed,
-            self._guard_max[0],
-            self._guard_max[1],
-        )
+        _log_finish(removed, self._guard_max[0], self._guard_max[1])
         if removed > 0.0 and math.sqrt(removed) > self.check.budget:
             warnings.warn(
-                BoundaryWarning(
-                    f"the temporal collar removed {removed:.2e} of the launch energy, "
-                    f"whose square root is above the {self.check.budget:.0e} budget: "
-                    "what left the window may have mattered; widen trange to keep it",
-                    parameter="boundary_check",
-                ),
-                stacklevel=2,
+                _boundary_warning(_removal_message(self.check, removed)), stacklevel=2
             )

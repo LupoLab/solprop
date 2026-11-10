@@ -16,19 +16,31 @@ the same tests.
   (:class:`~solprop.backends.host.session.HostSession`, SEP 47 phase 2).
 - ``native`` is the compiled backend, through the same transitional session until its
   own session replaces it; it is skipped where ``solprop_native`` is not installed.
+- ``native-session`` is the native execution session itself
+  (:class:`solprop_native.session.NativeSession`, SEP 47's phase 1 prototype): the
+  native backend owns the run, its boundary monitor included, whose decisions and
+  record are native (:attr:`Executor.native_monitor`); it evaluates every
+  periodic-capable statistic natively.
+- ``native-session-low-storage`` is the native execution session replaying the same
+  problem's planes on a uniform schedule of :data:`LOW_STORAGE_STEPS` steps with the
+  low-storage march (SEP 47 section 6.3), whose loop the native session owns.
 - ``scripted-host`` is the same script on the reference's own driver, in the
   reference's session (:class:`HostSessionScript`).
 - ``scripted`` is :class:`SessionScript`, a step driver whose norms, rejections,
   failures, in-flight failures and warnings are chosen by the test.
 
 The problem is the fundamental GNLSE soliton of ``tests/backends/conftest.py`` on its
-768-bin window, over 2 cm in four planes: a few dozen attempts on any executor.
+768-bin window, over 2 cm in four planes: a few dozen attempts on any executor. A
+free-space run's transverse edge (SEP 40 section 5.3) is the re-review's tilted packet
+on its periodic line (:func:`edged`), which an executor starts with that run's grid
+(``context``).
 """
 
+import dataclasses
 import functools
 import os
 import warnings
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -39,7 +51,10 @@ from solprop.backends.driver_session import DriverSession
 from solprop.backends.events import (
     EventBatch,
     ObservationReady,
+    ServiceKind,
+    ServiceRequired,
     Terminal,
+    emit_warning,
     join_attempts,
 )
 from solprop.backends.export import ExportRecipe
@@ -54,13 +69,21 @@ from solprop.backends.session import (
     Start,
 )
 from solprop.grid import EnvelopeGrid
-from solprop.monitor import BoundaryMonitor
+from solprop.monitor import BoundaryCheck, BoundaryMonitor
 from solprop.nonlinear.gnlse import GnlseProblem, problem_from
 from solprop.pulses import SechPulse
 from solprop.stats import StatsSpec
-from solprop.stepper import Multistep, PIController
-from solprop.translate.problem import PropagationProblem, assemble
-from solprop.translate.run_request import RunRequest
+from solprop.stepper import PIController
+from solprop.stepper.low_storage import LowStorageRungeKutta
+from solprop.stepper.multistep import Multistep
+from solprop.stepper.schedule import FixedSchedule
+from solprop.translate.problem import PropagationProblem, Translation, assemble
+from solprop.translate.run_request import (
+    IntegrationSpec,
+    MethodKind,
+    ReplaySpec,
+    RunRequest,
+)
 
 BETA2 = -11.83e-27  # s^2/m, as tests/backends/conftest.py
 GAMMA = 0.11  # 1/(W m)
@@ -72,6 +95,9 @@ LENGTH = 0.02
 
 PLANES = (LENGTH / 4, LENGTH / 2, 3 * LENGTH / 4, LENGTH)
 """The save planes, m."""
+
+LOW_STORAGE_STEPS = 40
+"""The steps of the low-storage executor's uniform schedule over :data:`LENGTH`."""
 
 FACTOR = 2.0
 """What a scripted trial multiplies the state by: a power of two, so the field after
@@ -120,9 +146,14 @@ def fibre() -> GnlseProblem:
 
 
 def soliton(
-    *, step_planes: int = 0, period: int = 2, integrator: Multistep | None = None
-) -> PropagationProblem:
-    """Return the fundamental soliton over :data:`PLANES`.
+    *,
+    step_planes: int = 0,
+    period: int = 2,
+    interpolate: bool = False,
+    integrator: Multistep | None = None,
+    planes: Collection[float] = PLANES,
+) -> Translation:
+    """Return the fundamental soliton over :data:`PLANES`, and its run's request.
 
     Parameters
     ----------
@@ -130,14 +161,17 @@ def soliton(
         Observe the end of every ``step_planes``-th accepted step; ``0`` for none.
     period : int, optional
         The period of the periodic ``energy`` rows, accepted steps.
+    interpolate : bool, optional
+        Interpolate the save planes inside the steps that cross them (dense output).
     integrator : solprop.stepper.multistep.Multistep or None, optional
-        An Adams march, which no scripted driver runs; the default Runge-Kutta march
-        otherwise.
+        The Adams method; the default Runge-Kutta tableau by default.
+    planes : collection of float, optional
+        The save planes, m, increasing and ending at :data:`LENGTH`.
 
     Returns
     -------
-    solprop.translate.problem.PropagationProblem
-        The translated problem.
+    solprop.translate.problem.Translation
+        The translated problem and its request.
     """
     grid = window()
     peak = abs(BETA2) / (GAMMA * TAU0**2)
@@ -146,7 +180,7 @@ def soliton(
         fibre().mode,
         [fibre().kerr],
         SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=peak).build(grid),
-        save_planes=list(PLANES),
+        save_planes=list(planes),
         controller=PIController(rtol=1e-4, atol=1e-16),
         dz_max=LENGTH,
         dz_init=1e-3,
@@ -154,6 +188,7 @@ def soliton(
         shock=False,
         prefactor_index=1.0,
         step_planes=step_planes,
+        interpolate_planes=interpolate,
         integrator=integrator,
         stats_spec=StatsSpec(
             names=("energy", "peak_power"), periodic=("energy",), period=period
@@ -194,6 +229,8 @@ class _Outcomes:
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
+    run_request : solprop.translate.run_request.RunRequest
+        Its run's request.
     reject_at : collection of int, optional
         Trials that score :data:`REJECTED`.
     fail_at : int or None, optional
@@ -211,6 +248,7 @@ class _Outcomes:
     def __init__(
         self,
         problem: PropagationProblem,
+        run_request: RunRequest,
         *,
         reject_at: Collection[int] = (),
         fail_at: int | None = None,
@@ -218,7 +256,7 @@ class _Outcomes:
         warn_at: int | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(problem, factor=FACTOR, scale=SCALE, **kwargs)  # pyright: ignore[reportCallIssue]
+        super().__init__(problem, run_request, factor=FACTOR, scale=SCALE, **kwargs)  # pyright: ignore[reportCallIssue]
         self._reject_at = frozenset(reject_at)
         self._fail_at = fail_at
         self._leave_in_flight = in_flight
@@ -287,9 +325,11 @@ class Factory(Protocol):
         *,
         stop: object | None = None,
         listener: Callable[[float, float, bool], None] | None = None,
+        context: Mapping[str, Any] | None = None,
         **script: Any,
     ) -> Started:
-        """Return a started session; `script` is for the scripted executor alone."""
+        """Return a started session; `script` is for the scripted executor alone, and
+        `context` (the grid and modes) for a problem other than the soliton."""
         ...
 
 
@@ -301,7 +341,7 @@ def _over_driver(
     Parameters
     ----------
     make : callable
-        ``(problem, **script) -> driver``.
+        ``(problem, request, **script) -> driver``.
     host_state : bool
         Whether the driver's state is a host array the aliasing checks can read.
     session : type, optional
@@ -313,8 +353,10 @@ def _over_driver(
         The factory.
     """
 
-    def start_session(problem, request, start, *, stop=None, listener=None, **script):
-        driver = make(problem, **script)
+    def start_session(
+        problem, request, start, *, stop=None, listener=None, context=None, **script
+    ):
+        driver = make(problem, request, context=context, **script)
         reads = [0]
         observe = driver.observe
 
@@ -347,19 +389,50 @@ def _selected(name: str) -> Callable[..., Any]:
         The constructor; it takes no script.
     """
 
-    def make(problem: PropagationProblem) -> Any:
-        return select(name, problem, grid=window(), modes=[fibre().mode])
+    def make(
+        problem: PropagationProblem,
+        request: RunRequest,
+        *,
+        context: Mapping[str, Any] | None,
+    ) -> Any:
+        return select(
+            name,
+            problem,
+            request,
+            **(_soliton_context() if context is None else context),
+        )
 
     return make
 
 
-def _host_scripted(problem: PropagationProblem, **script: Any) -> HostSessionScript:
+def _soliton_context() -> dict[str, Any]:
+    """Return the soliton's grid and mode, as a backend takes them.
+
+    Returns
+    -------
+    dict
+        ``grid`` and ``modes``.
+    """
+    return {"grid": window(), "modes": [fibre().mode]}
+
+
+def _host_scripted(
+    problem: PropagationProblem,
+    request: RunRequest,
+    *,
+    context: Mapping[str, Any] | None,
+    **script: Any,
+) -> HostSessionScript:
     """Return a scripted driver on the reference's own driver for a problem.
 
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
+    request : solprop.translate.run_request.RunRequest
+        Its run's request.
+    context : collections.abc.Mapping or None
+        Refused: a script runs the soliton alone.
     **script
         The outcomes, as :class:`SessionScript` takes them.
 
@@ -368,16 +441,27 @@ def _host_scripted(problem: PropagationProblem, **script: Any) -> HostSessionScr
     HostSessionScript
         The driver.
     """
-    return HostSessionScript(problem, grid=window(), **script)
+    assert context is None, "a script runs the soliton alone"
+    return HostSessionScript(problem, request, grid=window(), **script)
 
 
-def _scripted(problem: PropagationProblem, **script: Any) -> SessionScript:
+def _scripted(
+    problem: PropagationProblem,
+    request: RunRequest,
+    *,
+    context: Mapping[str, Any] | None,
+    **script: Any,
+) -> SessionScript:
     """Return a scripted driver for a problem.
 
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
+    request : solprop.translate.run_request.RunRequest
+        Its run's request.
+    context : collections.abc.Mapping or None
+        Refused: a script runs the soliton alone.
     **script
         The outcomes, as :class:`SessionScript` takes them.
 
@@ -386,7 +470,176 @@ def _scripted(problem: PropagationProblem, **script: Any) -> SessionScript:
     SessionScript
         The driver.
     """
-    return SessionScript(problem, grid=window(), **script)
+    assert context is None, "a script runs the soliton alone"
+    return SessionScript(problem, request, grid=window(), **script)
+
+
+def _native_session(
+    problem, request, start, *, stop=None, listener=None, context=None, **script
+):
+    """Start a native execution session (SEP 47's prototype) for a problem.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's policies.
+    start : solprop.backends.session.Start
+        Where the run starts.
+    stop : object or None, optional
+        The stop token.
+    listener : callable or None, optional
+        The attempt listener.
+    context : collections.abc.Mapping or None, optional
+        The grid and modes of a problem other than the soliton.
+    **script
+        Refused: the native session's outcomes are not scripted.
+
+    Returns
+    -------
+    Started
+        The session, counting the fields it exports natively.
+    """
+    assert not script, "the native session takes no script"
+    from solprop_native.session import (  # noqa: PLC0415 - optional  # pyright: ignore[reportMissingImports]
+        NativeSession,
+    )
+
+    session = NativeSession(
+        problem,
+        request,
+        start,
+        stop=stop,
+        listener=listener,
+        **(_soliton_context() if context is None else context),
+    )
+    return Started(session, field_reads=lambda: session.native.status().exports)
+
+
+def low_storage(
+    problem: PropagationProblem, request: RunRequest
+) -> tuple[PropagationProblem, RunRequest]:
+    """Return a problem and its request replayed by the low-storage march.
+
+    The same problem and policies, its planes replayed on a uniform schedule of
+    :data:`LOW_STORAGE_STEPS` steps over :data:`LENGTH` with
+    :class:`~solprop.stepper.low_storage.LowStorageRungeKutta`.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The problem.
+    request : solprop.translate.run_request.RunRequest
+        Its run request.
+
+    Returns
+    -------
+    tuple
+        The replayed problem and its request.
+    """
+    stepper = request.stepper
+    schedule = FixedSchedule.uniform(
+        float(problem.initial.z),
+        stepper.z_end,
+        LENGTH / LOW_STORAGE_STEPS,
+        save_planes=list(stepper.save_planes),
+    )
+    method = LowStorageRungeKutta()
+    integration = IntegrationSpec(
+        kind=MethodKind.LOW_STORAGE,
+        tableau=request.integration.tableau,
+        method=method,
+        propagator_mode=request.integration.propagator_mode,
+    )
+    return problem, dataclasses.replace(
+        request, integration=integration, replay=ReplaySpec(schedule)
+    )
+
+
+def _native_low_storage(problem, request, start, *, stop=None, listener=None, **script):
+    """Start a native execution session replaying a problem by the low-storage march.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The problem, whose planes the replay lands on (:func:`low_storage`).
+    request : solprop.translate.run_request.RunRequest
+        Its run request.
+    start : solprop.backends.session.Start
+        Where the run starts.
+    stop : object or None, optional
+        The stop token.
+    listener : callable or None, optional
+        The attempt listener.
+    **script
+        Refused: the native session's outcomes are not scripted.
+
+    Returns
+    -------
+    Started
+        The session, counting the fields it exports natively.
+    """
+    replayed, policies = low_storage(problem, request)
+    return _native_session(
+        replayed, policies, start, stop=stop, listener=listener, **script
+    )
+
+
+MONITOR = "monitor"
+"""The capability of watching the boundary with a monitor (SEP 21)."""
+
+STATISTICS = "statistics"
+"""The capability of evaluating the catalogue's statistics of the soliton's route,
+every periodic-capable one as a periodic row (SEP 47 section 6.4); a scripted driver
+reports positions in their place."""
+
+TRANSVERSE = "transverse"
+"""The capability of watching a free-space run's transverse edge (SEP 40 section 5.3):
+its reads on their spacing, held on the steps, and its judgement (:func:`edged`)."""
+
+DENSE = "dense output"
+"""The capability of interpolating save planes inside the steps that cross them (SEP 14
+phase 3); a scripted driver's trials hold no stages to interpolate, and a replay lands
+on its planes."""
+
+CAPABILITIES = frozenset({MONITOR, STATISTICS, TRANSVERSE, DENSE})
+"""Every capability a test may need of an executor."""
+
+
+def edged(
+    check: BoundaryCheck,
+) -> tuple[PropagationProblem, RunRequest, dict[str, Any]]:
+    """Return the re-review's tilted packet, edged, with its context.
+
+    The packet of ``tests/test_transverse_reads.py`` on its 256-sample periodic line,
+    marched by Runge-Kutta over 1 mm in two planes; under the default budget the edge
+    stops it, and a relaxed one reads it to the end.
+
+    Parameters
+    ----------
+    check : solprop.monitor.BoundaryCheck
+        The run's thresholds.
+
+    Returns
+    -------
+    tuple
+        The problem, without statistics, its monitored request, and the grid and modes
+        an executor starts it with.
+    """
+    from test_transverse_reads import REREVIEW, packet_run  # noqa: PLC0415
+
+    simulation = packet_run(
+        REREVIEW,
+        check=check,
+        planes=[REREVIEW.length / 2, REREVIEW.length],
+        backend="numpy_ref",
+    )
+    problem = simulation.translate()
+    request = simulation._run_request().for_run(
+        stats=StatsSpec(), monitor=simulation._boundary_monitor()
+    )
+    return problem, request, {"grid": simulation.grid, "modes": simulation.modes}
 
 
 def _one_thread() -> bool:
@@ -403,6 +656,60 @@ def _one_thread() -> bool:
     }
 
 
+DEVICE_REFUSED = frozenset({TRANSVERSE, DENSE})
+"""What the native session refuses on a device build (SEP 47 phase 3's representative
+device path, ``solprop_native.session.device_refusal``); the suite's problem is modal
+and noiseless, so nothing else it asks is refused there."""
+
+
+@functools.cache
+def device_build() -> bool:
+    """Return whether the installed native backend is a device (CUDA or HIP) build.
+
+    Returns
+    -------
+    bool
+        False without ``solprop_native``.
+    """
+    try:
+        import solprop_native  # noqa: PLC0415 - optional  # pyright: ignore[reportMissingImports]
+    except ImportError:
+        return False
+    return solprop_native.build_info().device_backend != "none"
+
+
+def skip_device_refused(problem: PropagationProblem, request: RunRequest) -> None:
+    """Skip the calling test where the native session refuses its run on a device.
+
+    On a device build the native session admits SEP 47 phase 3's representative path
+    and refuses the rest by name (``solprop_native.session.device_refusal``), which
+    phase 4 ports; a test of a refused feature skips, naming it. Nothing on a CPU
+    build.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The problem.
+    request : solprop.translate.run_request.RunRequest
+        Its run request.
+    """
+    if not device_build():
+        return
+    import pytest  # noqa: PLC0415 - only a test calls it
+    from solprop_native.session import (  # noqa: PLC0415 - optional  # pyright: ignore[reportMissingImports]
+        device_refusal,
+    )
+
+    refused = device_refusal(problem, request)
+    if refused is not None:
+        pytest.skip(f"the native session refuses {refused} (SEP 47 phase 4)")
+
+
+DEVICE_GROUP = "the native group session refuses a device build (SEP 47 phase 4)"
+"""Why the native group's tests skip on a device build: a group there runs in the
+transitional group, as before."""
+
+
 @dataclass(frozen=True)
 class Executor:
     """One session implementation under the conformance suite.
@@ -417,12 +724,54 @@ class Executor:
         A module it needs, skipped without it.
     scripted : bool
         Whether its numerical outcomes are scripted (:class:`SessionScript`).
+    capabilities : frozenset of str
+        What it can be asked to run beyond the soliton (:data:`CAPABILITIES`); a test
+        that needs another skips it explicitly (:meth:`require`).
+    native_monitor : bool
+        Whether the session owns its boundary monitor's state natively, so that the
+        request's solprop monitor stays fresh and the session's
+        :meth:`~solprop.backends.session.RunSession.monitor_record` alone shows what
+        it did (SEP 47 section 6.4).
+    device : frozenset of str or None
+        What it can be asked to run on a device build, where the native session
+        refuses :data:`DEVICE_REFUSED`; ``None`` where it does not run there at all.
+        Unused on a CPU build.
     """
 
     name: str
     start: Factory
     requires: str | None = None
     scripted: bool = False
+    capabilities: frozenset[str] = CAPABILITIES
+    native_monitor: bool = False
+    device: frozenset[str] | None = CAPABILITIES
+
+    @property
+    def available(self) -> bool:
+        """Return whether this executor runs on the installed build.
+
+        Returns
+        -------
+        bool
+            False for an executor the native session refuses on a device build.
+        """
+        return self.device is not None or not device_build()
+
+    def require(self, capability: str) -> None:
+        """Skip the calling test when this executor lacks a capability.
+
+        Parameters
+        ----------
+        capability : str
+            The capability, one of :data:`CAPABILITIES`.
+        """
+        import pytest  # noqa: PLC0415 - only a test calls it
+
+        capabilities = self.capabilities
+        if device_build() and self.device is not None:
+            capabilities &= self.device
+        if capability not in capabilities:
+            pytest.skip(f"the {self.name} executor does not run a {capability}")
 
     @property
     def deterministic(self) -> bool:
@@ -436,7 +785,7 @@ class Executor:
         bool
             True for the reference and the script, and for native on one thread.
         """
-        return self.name != "native" or _one_thread()
+        return not self.name.startswith("native") or _one_thread()
 
 
 EXECUTORS: dict[str, Executor] = {
@@ -450,12 +799,31 @@ EXECUTORS: dict[str, Executor] = {
         requires="solprop_native",
     ),
     "scripted": Executor(
-        "scripted", _over_driver(_scripted, host_state=True), scripted=True
+        "scripted",
+        _over_driver(_scripted, host_state=True),
+        scripted=True,
+        capabilities=frozenset({MONITOR}),
+    ),
+    "native-session": Executor(
+        "native-session",
+        _native_session,
+        requires="solprop_native",
+        native_monitor=True,
+        device=CAPABILITIES - DEVICE_REFUSED,
+    ),
+    "native-session-low-storage": Executor(
+        "native-session-low-storage",
+        _native_low_storage,
+        requires="solprop_native",
+        capabilities=CAPABILITIES - {DENSE},
+        native_monitor=True,
+        device=None,
     ),
     "scripted-host": Executor(
         "scripted-host",
         _over_driver(_host_scripted, host_state=True, session=HostSession),
         scripted=True,
+        capabilities=frozenset({MONITOR, STATISTICS}),
     ),
 }
 """Every executor of the suite, by name."""
@@ -632,6 +1000,10 @@ def drive(
     while not session.finished:
         batch = session.advance(work_limit=work_limit, deadline=deadline)
         batches.append(batch)
+        for event in batch.events:
+            if isinstance(event, ServiceRequired) and event.kind is ServiceKind.WARNING:
+                # A warning barrier: emitted as a service loop emits it (SEP 47 5.5).
+                emit_warning(event)
         if export is not None:
             fields.extend(
                 np.array(session.export(event.ticket, export))

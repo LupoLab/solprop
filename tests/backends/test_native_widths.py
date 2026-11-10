@@ -14,7 +14,6 @@ most exposed on: a beam off centre, a hollow profile, one node, one column, one 
 beam in a corner, and two beams that cancel on the axis.
 """
 
-import dataclasses
 import importlib.util
 import math
 
@@ -82,7 +81,7 @@ def _simulation(kind, space, n_pol, medium=LOSSY, waist=60e-6):
     simulation = Simulation.from_free(
         grid, space, medium, [], pulse, settings=settings, noise=None
     )
-    return grid, simulation.translate()
+    return grid, simulation.translate(), simulation._run_request()
 
 
 def _gaussian(x, y, x0=0.0, y0=0.0, waist=6e-5):
@@ -132,8 +131,8 @@ def _state(problem, grid, name):
     return field * (1e3 / np.max(np.abs(field)))
 
 
-def _measure(name, grid, problem, field, spec):
-    backend = select(name, problem, grid=grid)
+def _measure(name, grid, problem, run_request, field, spec):
+    backend = select(name, problem, run_request, grid=grid)
     try:
         backend.set_initial(field, None, z=0.0)
         return backend.stats(spec)
@@ -194,12 +193,12 @@ STATES = (
 def _check_plane(kind, n_pol, state):
     # Unequal samples and spacings: the rule's dx, dy and its y-first order.
     space = FreeGrid(3e-4, 32, 4e-4, 24)
-    grid, problem = _simulation(kind, space, n_pol)
+    grid, problem, run_request = _simulation(kind, space, n_pol)
     assert problem.shape[1] == n_pol
     field = _state(problem, grid, state)
     spec = StatsSpec(names=(*WIDTHS, "on_axis_intensity", "peak_intensity"))
-    want = _measure("numpy_ref", grid, problem, field, spec)
-    got = _measure("native", grid, problem, field, spec)
+    want = _measure("numpy_ref", grid, problem, run_request, field, spec)
+    got = _measure("native", grid, problem, run_request, field, spec)
     geometry = problem.transform.geometry
     assert geometry is not None
     x = geometry.axes[0]
@@ -255,10 +254,10 @@ def _route(route, kind="envelope"):
         return _simulation(kind, LineGrid(4e-4, 48), 2)
     assert route == "planar"
     # The field grid's time is padded, which a slab's fluence has to scale away.
-    grid, _, problem = planar_case(
+    grid, _, problem, run_request = planar_case(
         "kerr" if kind == "envelope" else "field-kerr", steps=0
     )
-    return grid, dataclasses.replace(problem, stats_spec=StatsSpec(names=WIDTHS))
+    return grid, problem, run_request.for_run(stats=StatsSpec(names=WIDTHS))
 
 
 def _field_for(route, grid, problem):
@@ -271,7 +270,7 @@ def _field_for(route, grid, problem):
 
 
 def _check_fluence(monkeypatch, route, kind):
-    grid, problem = _route(route, kind)
+    grid, problem, run_request = _route(route, kind)
     field = _field_for(route, grid, problem)
     held = {}
     function = host_spatial.signed_fluence_widths
@@ -281,9 +280,9 @@ def _check_fluence(monkeypatch, route, kind):
         return function(geometry, fluence, budget, axis)
 
     monkeypatch.setattr(host_spatial, "signed_fluence_widths", capture)
-    _measure("numpy_ref", grid, problem, field, StatsSpec(names=WIDTHS))
+    _measure("numpy_ref", grid, problem, run_request, field, StatsSpec(names=WIDTHS))
     monkeypatch.undo()
-    backend = select("native", problem, grid=grid)
+    backend = select("native", problem, run_request, grid=grid)
     try:
         backend.set_initial(field, None, z=0.0)
         state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
@@ -336,9 +335,9 @@ def test_a_plane_s_moments_bound_the_refusal_as_its_fluence_does(route, kind):
     # What a plane's refusal scales by is in its moments, and its width comes out the
     # same whatever that is unless a negative lobe is near it: flag 16's value is held
     # to the reference's, so flag 32's is held to that.
-    grid, problem = _route(route, kind)
+    grid, problem, run_request = _route(route, kind)
     field = _field_for(route, grid, problem)
-    backend = select("native", problem, grid=grid)
+    backend = select("native", problem, run_request, grid=grid)
     try:
         backend.set_initial(field, None, z=0.0)
         state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
@@ -360,11 +359,11 @@ def test_a_plane_s_moments_bound_the_refusal_as_its_fluence_does(route, kind):
 
 def _check_axis(route):
     """One route's on-axis intensity: the far-field slots', or the planar kernel's."""
-    grid, problem = _route(route)
+    grid, problem, run_request = _route(route)
     field = _field_for(route, grid, problem)
     spec = StatsSpec(names=("on_axis_intensity", "peak_intensity"))
-    want = _measure("numpy_ref", grid, problem, field, spec)
-    got = _measure("native", grid, problem, field, spec)
+    want = _measure("numpy_ref", grid, problem, run_request, field, spec)
+    got = _measure("native", grid, problem, run_request, field, spec)
     # The fluence's budget without the interpolation's factor of eight.
     assert_within(
         got["on_axis_intensity"],
@@ -421,8 +420,10 @@ class _NoState:
 @native_only
 @pytest.mark.parametrize("n_pol", [1, 2])
 def test_a_plane_s_widths_bring_only_numbers_across(n_pol):
-    grid, problem = _simulation("envelope", FreeGrid(3e-4, 32, 4e-4, 24), n_pol)
-    backend = select("native", problem, grid=grid)
+    grid, problem, run_request = _simulation(
+        "envelope", FreeGrid(3e-4, 32, 4e-4, 24), n_pol
+    )
+    backend = select("native", problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None, z=0.0)
         spy = _NoState(backend._native_state)  # pyright: ignore[reportAttributeAccessIssue]
@@ -439,7 +440,7 @@ def test_a_plane_s_widths_bring_only_numbers_across(n_pol):
 @pytest.mark.parametrize("kind", ["envelope", "field"])
 def test_widths_beside_the_other_statistics_read_the_same_volumes(kind):
     """One call forms the fluence and the peak from one pair of transverse volumes."""
-    grid, problem = _route("plane", kind)
+    grid, problem, run_request = _route("plane", kind)
     field = _field_for("plane", grid, problem)
     together = (
         "energy",
@@ -448,11 +449,17 @@ def test_widths_beside_the_other_statistics_read_the_same_volumes(kind):
         "peak_intensity",
         *WIDTHS,
     )
-    joint = _measure("native", grid, problem, field, StatsSpec(names=together))
-    reference = _measure("numpy_ref", grid, problem, field, StatsSpec(names=together))
+    joint = _measure(
+        "native", grid, problem, run_request, field, StatsSpec(names=together)
+    )
+    reference = _measure(
+        "numpy_ref", grid, problem, run_request, field, StatsSpec(names=together)
+    )
     bound = _width_budget(grid, problem)
     for name in together:
-        one = _measure("native", grid, problem, field, StatsSpec(names=(name,)))
+        one = _measure(
+            "native", grid, problem, run_request, field, StatsSpec(names=(name,))
+        )
         # The same statistic of the same state, in two orders of the same kernels.
         assert_within(joint[name], one[name], bound, what=f"joint {name}")
         assert_within(joint[name], reference[name], bound, what=f"reference {name}")
@@ -461,10 +468,12 @@ def test_widths_beside_the_other_statistics_read_the_same_volumes(kind):
 @native_only
 @pytest.mark.parametrize("names", [WIDTHS, ("peak_intensity", *WIDTHS)])
 def test_an_empty_plane_has_no_widths(names):
-    grid, problem = _route("plane")
+    grid, problem, run_request = _route("plane")
     field = np.zeros_like(problem.initial.field0)
     for backend in ("numpy_ref", "native"):
-        values = _measure(backend, grid, problem, field, StatsSpec(names=names))
+        values = _measure(
+            backend, grid, problem, run_request, field, StatsSpec(names=names)
+        )
         for name in WIDTHS:
             assert np.all(np.isnan(values[name]))
 
@@ -480,7 +489,9 @@ def test_a_negative_lobe_is_refused_on_both():
     a negative lobe of about 0.2 % of the peak, against a budget of about 1e-12 of it.
     """
     space = FreeGrid(6e-6, 24, 6e-6, 24)
-    grid, problem = _simulation("envelope", space, 1, SpatialMedium(1.45), waist=2e-6)
+    grid, problem, run_request = _simulation(
+        "envelope", space, 1, SpatialMedium(1.45), waist=2e-6
+    )
     columns = np.zeros(problem.shape[0], complex)
     columns[0] = 0.9
     columns[12] = 1.0
@@ -490,13 +501,13 @@ def test_a_negative_lobe_is_refused_on_both():
     spec = StatsSpec(names=WIDTHS)
     for backend in ("numpy_ref", "native"):
         with pytest.raises(BackendError, match="nonnegative fluence profile"):
-            _measure(backend, grid, problem, field, spec)
+            _measure(backend, grid, problem, run_request, field, spec)
 
 
 @native_only
 def test_the_native_trace_needs_a_held_plane_and_real_rings():
-    grid, problem = _route("plane")
-    backend = select("native", problem, grid=grid)
+    grid, problem, run_request = _route("plane")
+    backend = select("native", problem, run_request, grid=grid)
     no_rings = np.empty(0)
     factor = 0.5 * EPS0 * C
     try:
@@ -524,8 +535,8 @@ def test_the_native_trace_needs_a_held_plane_and_real_rings():
 
 @native_only
 def test_a_line_has_no_plane_moments():
-    grid, problem = _route("line")
-    backend = select("native", problem, grid=grid)
+    grid, problem, run_request = _route("line")
+    backend = select("native", problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None, z=0.0)
         state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
@@ -588,7 +599,7 @@ def _moments(profile, size=None, worst=None):
 
 
 def _plane_geometry():
-    _, problem = _route("plane")
+    _, problem, _ = _route("plane")
     geometry = problem.transform.geometry
     assert geometry is not None
     return geometry

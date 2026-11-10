@@ -41,7 +41,7 @@ def test_a_ramped_rate_is_read_sample_by_sample(absorber_case):
     ramp has to move the answer by more than the bound, so its term is exercised.
     """
     grid = absorber_case[0]
-    base = problem_for(absorber_case, 8)
+    base, run_request = problem_for(absorber_case, 8)
     # A ramp rather than a constant, so that the rate is read sample by sample.
     rate = np.linspace(0.0, 2000.0, grid.n_to)
     rate.setflags(write=False)
@@ -55,7 +55,7 @@ def test_a_ramped_rate_is_read_sample_by_sample(absorber_case):
             base.responses, temporal_absorber=coarse, temporal_absorber_fine=rate
         ),
     )
-    reference = NumpyRefBackend(problem, grid=grid)
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)
@@ -67,7 +67,7 @@ def test_a_ramped_rate_is_read_sample_by_sample(absorber_case):
         matrix = reference._spatial_absorber.copy()
     finally:
         reference.close()
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend._trial_step(0.0, LENGTH / 8)

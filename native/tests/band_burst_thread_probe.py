@@ -28,13 +28,13 @@ from solprop_native import NativeBackend
 arrays: dict[str, np.ndarray] = {}
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
-    grid, problem = burst(STEPS)
+    grid, problem, run_request = burst(STEPS)
     for call in range(2):
-        field, stats = march(NativeBackend, problem, grid)
+        field, stats = march(NativeBackend, problem, run_request, grid)
         arrays[f"field_{call}"] = field
         for name in STATISTICS:
             arrays[f"{name}_{call}"] = np.asarray(stats[name])
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         sizing = backend.metadata()["execution_sizing"]
     finally:

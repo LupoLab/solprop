@@ -70,7 +70,7 @@ from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.coupled import CoupledFlowTables, ModalMetricTables, metric_at
 from solprop.translate.general import metric_departure
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import _walk_arrays, assemble
+from solprop.translate.problem import Translation, _walk_arrays, assemble
 from solprop.translate.responses import (
     RegionalResponseTables,
     isotropic_kerr_tensor,
@@ -172,9 +172,15 @@ def replaced_group(problem, group_name, group):
 
 
 @pytest.fixture(scope="module")
-def disabled(soliton_grid, soliton_problem):
-    """The plain N-soliton problem: every general-modal leaf absent."""
+def disabled_run(soliton_grid, soliton_problem):
+    """The plain N-soliton problem and its request: every general-modal leaf absent."""
     return soliton_problem(soliton_grid, 1, save_planes=[0.001])
+
+
+@pytest.fixture(scope="module")
+def disabled(disabled_run):
+    """The plain N-soliton problem alone."""
+    return disabled_run.problem
 
 
 def test_every_general_modal_leaf_is_absent_on_an_existing_route(disabled):
@@ -200,7 +206,7 @@ def test_the_disabled_route_puts_no_new_array_across_the_seam(disabled):
 
 @pytest.mark.parametrize("leaf", LEAVES)
 def test_every_backend_refuses_every_general_modal_leaf_by_name(
-    backend_class, backend_name, disabled, soliton_grid, leaf
+    backend_class, backend_name, disabled, disabled_run, soliton_grid, leaf
 ):
     """A leaf a backend has no kernel for is refused by its dotted name.
 
@@ -219,7 +225,7 @@ def test_every_backend_refuses_every_general_modal_leaf_by_name(
     if backend_name == "native":
         expected = "native executes (a general modal guide|a constant-Schur|.* as part)"
     with pytest.raises(BackendError, match=expected):
-        backend_class(spoiled, grid=soliton_grid)
+        backend_class(spoiled, disabled_run.request, grid=soliton_grid)
 
 
 BACKEND_NAMES = {"numpy_ref", "native"}
@@ -285,7 +291,7 @@ def route_source(case, state):
     `n_t / n_to` is carried by `responses.prefactor`, where it is on every route, so
     the amplitude rate is the product of the two.
     """
-    problem = general_problem(case, state)
+    problem = general_problem(case, state).problem
     maps = _general_maps(problem)
     assert maps is not None
     source = general_source(
@@ -556,8 +562,8 @@ def test_a_millimetre_of_one_channel_accumulates_the_self_phase(
     case = strand
     length = Z_END
     index, state = continuous_wave(case, [9.5e3])
-    problem = general_problem(case, state)
-    backend = NumpyRefBackend(problem, grid=case.grid)
+    problem, run_request = general_problem(case, state)
+    backend = NumpyRefBackend(problem, run_request, grid=case.grid)
     backend.set_initial(problem.initial.field0, None)
     summary = backend.propagate_to(length)
     final = backend.observe().require_field()[0, 0, index]
@@ -592,14 +598,16 @@ def test_a_millimetre_of_one_channel_accumulates_the_self_phase(
 
 
 def spoiled_problem(case, *, amplitudes=(1.0,), **changes):
-    """Assemble a general problem and replace one group's field past the hook."""
+    """Assemble a general problem and replace one group's field past the hook.
+
+    Return it with its run's request."""
     _, state = continuous_wave(case, list(amplitudes))
-    problem = general_problem(case, state)
+    problem, run_request = general_problem(case, state)
     for group_name, name, value in changes.values():
         group = dataclasses.replace(getattr(problem, group_name))
         object.__setattr__(group, name, value)
         problem = replaced_group(problem, group_name, group)
-    return problem
+    return Translation(problem, run_request)
 
 
 def test_the_reference_refuses_a_diagonal_metric_by_name(strand):
@@ -616,12 +624,16 @@ def test_the_reference_refuses_a_diagonal_metric_by_name(strand):
         "lab",
         "sampled",
     )
-    problem = spoiled_problem(strand, metric=("linear", "modal_metric", metric))
+    problem, run_request = spoiled_problem(
+        strand, metric=("linear", "modal_metric", metric)
+    )
     with pytest.raises(BackendError, match="kind 'diagonal'"):
-        NumpyRefBackend(problem, grid=strand.grid)
-    absent = spoiled_problem(strand, metric=("linear", "modal_metric", None))
+        NumpyRefBackend(problem, run_request, grid=strand.grid)
+    absent, absent_request = spoiled_problem(
+        strand, metric=("linear", "modal_metric", None)
+    )
     with pytest.raises(BackendError, match="is absent"):
-        NumpyRefBackend(absent, grid=strand.grid)
+        NumpyRefBackend(absent, absent_request, grid=strand.grid)
 
 
 # ---------------------------------------------- the declared change of basis
@@ -638,10 +650,10 @@ def circular_strand():
 def test_the_reference_executes_a_dense_metric_of_a_declared_basis(circular_strand):
     """The admission: a unitary transform of a certified orthonormal reference."""
     index, state = continuous_wave(circular_strand, [1.0, 0.0])
-    problem = general_problem(circular_strand, state)
+    problem, run_request = general_problem(circular_strand, state)
     assert problem.linear.modal_metric is not None
     assert problem.linear.modal_metric.kind == "dense"
-    backend = NumpyRefBackend(problem, grid=circular_strand.grid)
+    backend = NumpyRefBackend(problem, run_request, grid=circular_strand.grid)
     backend.set_initial(problem.initial.field0, None)
     values = backend.stats(StatsSpec(names=("physical_energy", "analytic_flux")))
     assert set(values) == {"physical_energy", "analytic_flux"}
@@ -672,17 +684,17 @@ def test_the_reference_executes_a_dense_metric_of_a_declared_basis(circular_stra
 
 def test_the_reference_refuses_a_dense_metric_of_another_basis(circular_strand):
     _, state = continuous_wave(circular_strand, [1.0, 0.0])
-    problem = general_problem(circular_strand, state)
+    problem = general_problem(circular_strand, state).problem
     metric = problem.linear.modal_metric
     assert metric is not None
     elsewhere = dataclasses.replace(metric, gauge_id="elsewhere")
-    spoiled = spoiled_problem(
+    spoiled, spoiled_request = spoiled_problem(
         circular_strand,
         amplitudes=(1.0, 0.0),
         metric=("linear", "modal_metric", elsewhere),
     )
     with pytest.raises(BackendError, match="describes the basis 'elsewhere'"):
-        NumpyRefBackend(spoiled, grid=circular_strand.grid)
+        NumpyRefBackend(spoiled, spoiled_request, grid=circular_strand.grid)
 
 
 def test_the_reference_refuses_a_dense_metric_too_far_from_orthonormal(
@@ -690,18 +702,18 @@ def test_the_reference_refuses_a_dense_metric_too_far_from_orthonormal(
 ):
     """The nonunitary refusal at the backend, measured on the block itself."""
     _, state = continuous_wave(circular_strand, [1.0, 0.0])
-    problem = general_problem(circular_strand, state)
+    problem = general_problem(circular_strand, state).problem
     metric = problem.linear.modal_metric
     assert metric is not None and metric.dense is not None
     skewed = dataclasses.replace(metric)
     object.__setattr__(skewed, "dense", metric.dense * 1.5)
-    spoiled = spoiled_problem(
+    spoiled, spoiled_request = spoiled_problem(
         circular_strand,
         amplitudes=(1.0, 0.0),
         metric=("linear", "modal_metric", skewed),
     )
     with pytest.raises(BackendError, match=r"dense and 0\.5"):
-        NumpyRefBackend(spoiled, grid=circular_strand.grid)
+        NumpyRefBackend(spoiled, spoiled_request, grid=circular_strand.grid)
 
 
 def test_the_reference_refuses_an_identity_metric_that_is_not_the_identity(strand):
@@ -725,19 +737,21 @@ def test_the_reference_refuses_an_identity_metric_that_is_not_the_identity(stran
         "lab",
         "sampled",
     )
-    problem = spoiled_problem(strand, metric=("linear", "modal_metric", metric))
+    problem, run_request = spoiled_problem(
+        strand, metric=("linear", "modal_metric", metric)
+    )
     with pytest.raises(BackendError, match=r"linear\.modal_metric\.error is 0\.5"):
-        NumpyRefBackend(problem, grid=strand.grid)
+        NumpyRefBackend(problem, run_request, grid=strand.grid)
 
 
 def test_the_reference_refuses_a_metric_or_a_response_with_no_tables(
-    disabled, soliton_grid
+    disabled, disabled_run, soliton_grid
 ):
     """A leaf of the general route without the reference it belongs to."""
     for leaf in ("modal_metric", "regional_responses"):
         spoiled = with_leaf(disabled, leaf)
         with pytest.raises(BackendError, match=r"no transform\.modal_tables"):
-            NumpyRefBackend(spoiled, grid=soliton_grid)
+            NumpyRefBackend(spoiled, disabled_run.request, grid=soliton_grid)
 
 
 def test_the_reference_refuses_a_reference_with_no_execution_map(strand):
@@ -745,9 +759,11 @@ def test_the_reference_refuses_a_reference_with_no_execution_map(strand):
     tables = dataclasses.replace(strand.route.tables)
     object.__setattr__(tables, "synthesis", None)
     object.__setattr__(tables, "projection", None)
-    problem = spoiled_problem(strand, maps=("transform", "modal_tables", tables))
+    problem, run_request = spoiled_problem(
+        strand, maps=("transform", "modal_tables", tables)
+    )
     with pytest.raises(BackendError, match="carries neither"):
-        NumpyRefBackend(problem, grid=strand.grid)
+        NumpyRefBackend(problem, run_request, grid=strand.grid)
 
 
 def test_the_reference_refuses_moving_maps_without_their_connection(strand):
@@ -762,9 +778,11 @@ def test_the_reference_refuses_moving_maps_without_their_connection(strand):
     object.__setattr__(
         tables, "synthesis", np.repeat(strand.route.tables.synthesis, 2, axis=1)
     )
-    problem = spoiled_problem(strand, maps=("transform", "modal_tables", tables))
+    problem, run_request = spoiled_problem(
+        strand, maps=("transform", "modal_tables", tables)
+    )
     with pytest.raises(BackendError, match="carries no coupled flow"):
-        NumpyRefBackend(problem, grid=strand.grid)
+        NumpyRefBackend(problem, run_request, grid=strand.grid)
     # A backend that has not built moving maps refuses them by name, whatever else.
     with pytest.raises(BackendError, match=r"native executes .* of constant geometry"):
         refuse_general_route(problem, backend="native")
@@ -773,12 +791,12 @@ def test_the_reference_refuses_moving_maps_without_their_connection(strand):
 def test_the_reference_refuses_a_power_weight_that_is_not_one(strand):
     """The Poynting amplitude is the true-power amplitude: the weight is one."""
     _, state = continuous_wave(strand, [1.0])
-    problem = general_problem(strand, state)
+    problem, run_request = general_problem(strand, state)
     linear = dataclasses.replace(problem.linear)
     object.__setattr__(linear, "power_weight_constant", np.full(problem.shape, 1.5))
     spoiled = dataclasses.replace(problem, linear=linear)
     with pytest.raises(BackendError, match="constant one"):
-        NumpyRefBackend(spoiled, grid=strand.grid)
+        NumpyRefBackend(spoiled, run_request, grid=strand.grid)
 
 
 def spatial_case():
@@ -788,7 +806,7 @@ def spatial_case():
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 80e-6
     )
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [],
@@ -802,7 +820,7 @@ def spatial_case():
         schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / 8),
         stats_spec=default_spec("radial"),
     )
-    return grid, problem
+    return grid, problem, run_request
 
 
 @pytest.mark.parametrize("name", ["numpy_ref", "native"])
@@ -817,8 +835,8 @@ def test_both_backends_check_the_whitelist_before_the_spatial_branch(name):
     """
     if name == "native":
         pytest.importorskip("solprop_native")
-    grid, problem = spatial_case()
-    built = select(name, problem, grid=grid)
+    grid, problem, run_request = spatial_case()
+    built = select(name, problem, run_request, grid=grid)
     try:
         built.set_initial(problem.initial.field0, None)
         for asked in ("physical_energy", "analytic_flux"):
@@ -846,8 +864,8 @@ def test_a_general_statistic_under_a_weight_that_is_not_one_is_refused(strand, n
     if name == "native":
         pytest.importorskip("solprop_native")
     _, state = continuous_wave(strand, [1.0])
-    grid, problem = strand.grid, general_problem(strand, state)
-    built = select(name, problem, grid=grid)
+    grid, (problem, run_request) = strand.grid, general_problem(strand, state)
+    built = select(name, problem, run_request, grid=grid)
     try:
         built.set_initial(problem.initial.field0, None)
         object.__setattr__(
@@ -900,7 +918,7 @@ def test_the_reference_refuses_a_regional_response_it_cannot_execute(
     `node_kerr_tensor`, because that is where it matters: the refusal is in the
     admission list, which runs before `StepDriver.__init__` allocates a stage.
     """
-    problem = spoiled_problem(
+    problem, run_request = spoiled_problem(
         strand,
         responses=(
             "responses",
@@ -909,7 +927,7 @@ def test_the_reference_refuses_a_regional_response_it_cannot_execute(
         ),
     )
     with pytest.raises(BackendError, match=message):
-        NumpyRefBackend(problem, grid=strand.grid)
+        NumpyRefBackend(problem, run_request, grid=strand.grid)
     # And the public helper refuses the same record, before its own allocation.
     with pytest.raises(BackendError, match=message):
         node_kerr_tensor(strand.route.tables, spoiled_response(strand, name, value))
@@ -937,11 +955,11 @@ def test_the_reference_refuses_a_state_with_a_polarisation_axis(strand):
     prefactor -- two polarisations driven by one channel's polarisation.
     """
     _, state = continuous_wave(strand, [1.0])
-    problem = general_problem(strand, state)
+    problem, run_request = general_problem(strand, state)
     n_modes, _, n_omega = problem.shape
     spoiled = dataclasses.replace(problem, shape=(n_modes, 2, n_omega))
     with pytest.raises(BackendError, match="n_pol = 1, and this problem carries 2"):
-        NumpyRefBackend(spoiled, grid=strand.grid)
+        NumpyRefBackend(spoiled, run_request, grid=strand.grid)
 
 
 def test_a_linear_guide_has_no_polarisation_at_any_node(strand):
@@ -983,8 +1001,8 @@ def test_the_general_chunk_and_ledger_count_the_routes_own_buffers(strand):
     by that much.
     """
     _, state = continuous_wave(strand, [1.0])
-    problem = general_problem(strand, state)
-    backend = NumpyRefBackend(problem, grid=strand.grid)
+    problem, run_request = general_problem(strand, state)
+    backend = NumpyRefBackend(problem, run_request, grid=strand.grid)
     ledger = backend.memory_ledger()
     backend.close()
     maps = _general_maps(problem)
@@ -1048,9 +1066,9 @@ def test_the_general_chunk_and_ledger_count_the_routes_own_buffers(strand):
         general_node_chunk(3, 256, 129, 0)
 
 
-def test_every_general_ledger_row_is_zero_on_another_route(disabled, soliton_grid):
+def test_every_general_ledger_row_is_zero_on_another_route(disabled_run, soliton_grid):
     """`memory_ledger` names every buffer on every route, empty or not."""
-    backend = NumpyRefBackend(disabled, grid=soliton_grid)
+    backend = NumpyRefBackend(*disabled_run, grid=soliton_grid)
     ledger = backend.memory_ledger()
     backend.close()
     assert all(ledger[name] == 0 for name in _GENERAL_LEDGER_ROWS)
@@ -1059,7 +1077,7 @@ def test_every_general_ledger_row_is_zero_on_another_route(disabled, soliton_gri
 def test_the_chunk_loop_does_not_change_the_source(strand):
     """A chunk of one node and a chunk of every node differ only in round-off."""
     _, state = continuous_wave(strand, [2.0 + 0.5j])
-    problem = general_problem(strand, state)
+    problem = general_problem(strand, state).problem
     maps = _general_maps(problem)
     assert maps is not None
     arguments = {
@@ -1104,7 +1122,7 @@ def test_the_static_profile_agrees_with_the_full_one_at_matched_accuracy(
     """
     grid = strand.grid
     state = GaussianPulse(wavelength=835e-9, fwhm=20e-15, energy=1e-12).build(grid)
-    problem = general_problem(strand, state)
+    problem = general_problem(strand, state).problem
     maps = _general_maps(problem)
     assert maps is not None
     arguments = {
@@ -1172,7 +1190,7 @@ def test_a_coarse_synthesis_is_the_fine_one_with_the_unread_columns_dropped(stra
     """
     case = strand
     index, state = continuous_wave(case, [3.0 + 1.0j])
-    problem = general_problem(case, state)
+    problem = general_problem(case, state).problem
     maps = _general_maps(problem)
     assert maps is not None
     grid = case.grid
@@ -1240,10 +1258,10 @@ def pre_c2b_review_source(state, synthesis, maps, crop_index, *, n_to, pad_scale
 def test_the_reference_refuses_a_general_route_on_an_envelope_grid(strand):
     """A leaf is tabulated on the canonical coarse grid, which is increasing."""
     _, state = continuous_wave(strand, [1.0])
-    problem = general_problem(strand, state)
+    problem, run_request = general_problem(strand, state)
     spoiled = dataclasses.replace(problem, grid_kind="envelope")
     with pytest.raises(BackendError, match="on a field grid"):
-        NumpyRefBackend(spoiled, grid=strand.grid)
+        NumpyRefBackend(spoiled, run_request, grid=strand.grid)
 
 
 @pytest.mark.medium
@@ -1268,7 +1286,7 @@ def test_a_linear_guide_does_not_run_the_source_pass(strand, monkeypatch):
     route = dataclasses.replace(case.route, responses=None)
     assert route.responses is None
     _, state = continuous_wave(case, [9.5e3])
-    problem = general_problem(
+    problem, run_request = general_problem(
         case,
         state,
         general=route,
@@ -1284,7 +1302,7 @@ def test_a_linear_guide_does_not_run_the_source_pass(strand, monkeypatch):
         backend.close()
         return field
 
-    forced = NumpyRefBackend(problem, grid=case.grid)
+    forced = NumpyRefBackend(problem, run_request, grid=case.grid)
     assert not forced._general_responds
     forced._general_responds = True
     expected = step(forced)
@@ -1293,7 +1311,7 @@ def test_a_linear_guide_does_not_run_the_source_pass(strand, monkeypatch):
         raise AssertionError("the general source pass ran for a linear guide")
 
     monkeypatch.setattr("solprop.backends.numpy_ref.backend.general_source", refuse)
-    short = NumpyRefBackend(problem, grid=case.grid)
+    short = NumpyRefBackend(problem, run_request, grid=case.grid)
     assert not short._general_responds
     field = step(short)
     assert np.any(field)
@@ -1330,7 +1348,7 @@ def test_the_route_carries_the_in_stage_absorber(strand):
                 "absorber_scheme": scheme,
             }
         )
-        problem = general_problem(
+        problem, run_request = general_problem(
             case,
             state,
             save_planes=[plane],
@@ -1341,7 +1359,7 @@ def test_the_route_carries_the_in_stage_absorber(strand):
         assert (problem.responses.temporal_absorber_fine is not None) == (
             scheme is not None
         )
-        backend = NumpyRefBackend(problem, grid=case.grid)
+        backend = NumpyRefBackend(problem, run_request, grid=case.grid)
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(plane)
         field = backend.observe().require_field()[0, 0]
@@ -1363,7 +1381,7 @@ def kerr_forms(case, state):
     them from the same `GeneralMaps` fields isolates the model from everything else
     the route does.
     """
-    problem = general_problem(case, state)
+    problem = general_problem(case, state).problem
     maps = _general_maps(problem)
     assert maps is not None
     assert case.route.responses is not None
@@ -1530,7 +1548,9 @@ def test_the_delayed_pass_is_the_reference_tensor_response(strand):
     assert tensors is not None and spectra is not None
     core = owner == 0
     assert core.any() and not core.all()
-    built = _general_maps(general_problem(case, continuous_wave(case, [1.0])[1]))
+    built = _general_maps(
+        general_problem(case, continuous_wave(case, [1.0])[1]).problem
+    )
     assert built is not None
     maps = dataclasses.replace(
         built,
@@ -1571,7 +1591,9 @@ def delayed_maps(case, form, declared=SilicaTensorResponse()):  # noqa: B008 - f
     )
     owner, tensors, spectra = node_delayed_maps(case.route.tables, regional)
     assert tensors is not None and spectra is not None
-    built = _general_maps(general_problem(case, continuous_wave(case, [1.0])[1]))
+    built = _general_maps(
+        general_problem(case, continuous_wave(case, [1.0])[1]).problem
+    )
     assert built is not None
     return owner, dataclasses.replace(
         built,
@@ -1834,7 +1856,7 @@ def test_the_real_form_runs_the_symmetric_contraction(strand):
     state = (
         grid.active_mask * np.exp(1j * rng.uniform(0.0, 2 * np.pi, grid.n_omega)) * 1e3
     )[None, None, :]
-    maps = _general_maps(general_problem(strand, state))
+    maps = _general_maps(general_problem(strand, state).problem)
     assert maps is not None and maps.form == "real"
     source = general_source(
         state, maps, grid.crop_index, n_to=grid.n_to, pad_scale=grid.pad_scale
@@ -1952,7 +1974,9 @@ def test_two_regions_meet_their_own_kernels_and_only_theirs(strand):
     assert tensors is not None and spectra is not None
     core, clad = owner == 0, owner == 1
     assert core.any() and clad.any() and not np.any(owner < 0)
-    built = _general_maps(general_problem(case, continuous_wave(case, [1.0])[1]))
+    built = _general_maps(
+        general_problem(case, continuous_wave(case, [1.0])[1]).problem
+    )
     assert built is not None
     maps = dataclasses.replace(
         built,
@@ -2017,7 +2041,7 @@ def test_native_runs_ten_steps_of_the_route_as_numpy_ref_does(
     pulse = np.asarray(pulse).reshape(-1)
     state = np.stack([pulse, 0.6 * np.exp(0.3j) * pulse])[:, None, :]
     steps, length = 10, 2e-4
-    problem = general_problem(
+    problem, run_request = general_problem(
         case,
         state,
         save_planes=[length],
@@ -2025,7 +2049,7 @@ def test_native_runs_ten_steps_of_the_route_as_numpy_ref_does(
     )
 
     def run(implementation, one):
-        backend = implementation(one, grid=grid)
+        backend = implementation(one, run_request, grid=grid)
         try:
             backend.set_initial(one.initial.field0, None)
             backend.propagate_to(length)
@@ -2052,7 +2076,7 @@ def test_native_runs_ten_steps_of_the_route_as_numpy_ref_does(
         source += 2 * 512 * eps * np.log2(2 * n_to) + 27 * eps
     scale = float(np.max(np.abs(problem.initial.field0)))
     rho = float(np.max(np.abs(expected - linear))) / scale / steps
-    stages = problem.stepper.tableau.n_stages
+    stages = run_request.stepper.tableau.n_stages
     bound = steps * (16 * eps + stages * source * rho) * (1 + 3 * rho) ** steps * scale
     assert rho > 1e-3
     assert float(np.max(np.abs(actual - expected))) <= bound

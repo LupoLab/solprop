@@ -31,11 +31,11 @@ grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12)
 model = problem_from([0.0, 0.0, -11.83e-27], omega_ref=grid.omega0, gamma=0.11,
                      shock=False)
 field = SechPulse(wavelength=835e-9, width=100e-15, peak_power=1e4).build(grid)
-problem = assemble(grid, model.mode, [model.kerr], field, save_planes=[1e-3],
-                   density=1.0, shock=False, prefactor_index=1.0,
-                   controller=PIController(rtol=1e-8, atol=1e-16), dz_max=1e-3,
-                   dz_init=1e-4)
-backend = NativeBackend(problem, grid=grid)
+problem, run_request = assemble(
+    grid, model.mode, [model.kerr], field, save_planes=[1e-3], density=1.0,
+    shock=False, prefactor_index=1.0, controller=PIController(rtol=1e-8, atol=1e-16),
+    dz_max=1e-3, dz_init=1e-4)
+backend = NativeBackend(problem, run_request, grid=grid)
 calibration = backend.metadata()["calibration"]
 backend.close()
 print(json.dumps({

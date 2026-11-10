@@ -16,7 +16,7 @@ import numpy as np
 
 from solprop.fourier import n_omega_for
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.translate.problem import PropagationProblem
+from solprop.translate.problem import PropagationProblem, StepperSettings
 from solprop.translate.routes import tdse_descriptor
 
 __all__ = [
@@ -29,20 +29,22 @@ __all__ = [
 ]
 
 
-def reference_base_memory(
+def reference_base_memory(  # noqa: PLR0913 - the problem and the backend's own sizes
     problem: PropagationProblem,
+    stepper: StepperSettings,
     *,
     tabulating: bool,
     embedded: bool,
     noise: bool,
     statistics_weight: int,
     spatial_absorber: int,
+    node_chunk: int,
 ) -> dict[str, int]:
     """Return the reference backend's rows outside the general route and the flow.
 
     ``numpy_ref``'s ``memory_ledger`` returns these rows. What one step has resident at
     its peak (the reference allocates its buffers per pass); the space-domain rows are
-    sized by ``transform.node_chunk``, not by the node count.
+    sized by the backend's node chunk, not by the node count.
 
     **Method-aware** (SEP 24 section 6.5). The Runge-Kutta march holds the tableau's
     stage rows, two accumulators and the propagator pair or the six fractions' pairs.
@@ -55,6 +57,9 @@ def reference_base_memory(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
+    stepper : solprop.translate.problem.StepperSettings
+        The run's stepper section (``RunRequest.stepper``), whose method decides the
+        rows.
     tabulating : bool
         Whether the Runge-Kutta march's propagators are tabulated (six distinct
         exponent pairs held) or recomputed (one pair); the low-storage march counts its
@@ -67,6 +72,9 @@ def reference_base_memory(
         Bytes of the statistics power weight, non-negative.
     spatial_absorber : int
         Bytes of the composed radial absorber matrix, non-negative.
+    node_chunk : int
+        Nodes the backend's response pass holds at once
+        (:func:`solprop.backends.node_chunk.plan_node_chunk`), positive.
 
     Returns
     -------
@@ -75,10 +83,10 @@ def reference_base_memory(
     """
     n_modes, n_pol, n_omega = problem.shape
     field_bytes = n_modes * n_pol * n_omega * 16
-    stepping = _stepping_rows(problem, field_bytes, tabulating=tabulating)
+    stepping = _stepping_rows(problem, stepper, field_bytes, tabulating=tabulating)
     transform = problem.transform
     n_to = problem.grids.n_to
-    chunk_columns = transform.node_chunk * transform.n_pol * n_pol
+    chunk_columns = node_chunk * transform.n_pol * n_pol
     n_omega_fine = n_omega_for(n_to, problem.grid_kind)
     element = 8 if problem.grid_kind == "field" else 16
     free = problem.linear.separable is not None
@@ -92,9 +100,9 @@ def reference_base_memory(
         and any(np.any(c.tensor_weights[:, 1]) for c in problem.responses.raman_terms)
         else 1
     )
-    raman_columns = transform.node_chunk * (3 if raman_kernels == 2 else 1)
+    raman_columns = node_chunk * (3 if raman_kernels == 2 else 1)
     flags = problem.flags
-    plasma_nodes = flags.n_channels * transform.node_chunk * n_to * 8
+    plasma_nodes = flags.n_channels * node_chunk * n_to * 8
     held = bool(problem.responses.plasma_channels)
     radial = transform.geometry is not None and transform.geometry.kind == "radial"
     held_columns = chunk_columns if free or radial else n_modes * n_pol
@@ -127,7 +135,7 @@ def reference_base_memory(
         "held_current_spectra": 2 * held_columns * n_omega_fine * 16 if held else 0,
         "held_current_derivative": n_to * 8 if held else 0,
         "envelope_source_streams": 2 * chunk_columns * n_to * 16 if envelope else 0,
-        "envelope_histories": 5 * transform.node_chunk * n_to * 8 if envelope else 0,
+        "envelope_histories": 5 * node_chunk * n_to * 8 if envelope else 0,
         "envelope_current_scratch": chunk_columns * n_to * 16 if envelope else 0,
         "envelope_projected": 2 * modal_time if envelope else 0,
         "envelope_embedded_projected": 2 * modal_time if envelope and embedded else 0,
@@ -163,7 +171,7 @@ def reference_base_memory(
         "node_ionisation_rate": plasma_nodes if flags.has_plasma else 0,
         "node_fraction": plasma_nodes if flags.has_plasma else 0,
         "plasma_channel_scalars": 2 * flags.n_channels * 8,
-        "plasma_weighted_sums": 3 * transform.node_chunk * n_to * 8
+        "plasma_weighted_sums": 3 * node_chunk * n_to * 8
         if flags.n_channels > 1
         else 0,
         "node_free_current": chunk_columns * n_to * 8 if flags.has_plasma else 0,
@@ -182,14 +190,21 @@ def reference_base_memory(
 
 
 def _stepping_rows(
-    problem: PropagationProblem, field_bytes: int, *, tabulating: bool
+    problem: PropagationProblem,
+    stepper: StepperSettings,
+    field_bytes: int,
+    *,
+    tabulating: bool,
 ) -> dict[str, int]:
     """Return the march's own field-sized rows: stages, accumulators, registers, flows.
 
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
-        The translated problem, whose integrator decides the rows.
+        The translated problem.
+    stepper : solprop.translate.problem.StepperSettings
+        The run's stepper section (``RunRequest.stepper``), whose method decides the
+        rows.
     field_bytes : int
         One state's bytes.
     tabulating : bool
@@ -200,11 +215,11 @@ def _stepping_rows(
     dict
         Buffer name to bytes, every row named even when it is zero.
     """
-    if isinstance(problem.stepper.integrator, LowStorageRungeKutta):
-        return _low_storage_rows(problem, field_bytes)
-    distinct = _distinct_fractions(problem)
+    if isinstance(stepper.integrator, LowStorageRungeKutta):
+        return _low_storage_rows(problem, stepper, field_bytes)
+    distinct = _distinct_fractions(stepper)
     return {
-        "stages": problem.stepper.tableau.n_stages * field_bytes,
+        "stages": stepper.tableau.n_stages * field_bytes,
         "accumulator_solution": field_bytes,
         "accumulator_error": field_bytes,
         "register_accumulator": 0,
@@ -213,7 +228,9 @@ def _stepping_rows(
     }
 
 
-def _low_storage_rows(problem: PropagationProblem, field_bytes: int) -> dict[str, int]:
+def _low_storage_rows(
+    problem: PropagationProblem, stepper: StepperSettings, field_bytes: int
+) -> dict[str, int]:
     """Return the low-storage march's field-sized rows: two registers and the flows.
 
     Every backend that runs the march holds these, the native engine to the byte
@@ -225,6 +242,9 @@ def _low_storage_rows(problem: PropagationProblem, field_bytes: int) -> dict[str
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
+    stepper : solprop.translate.problem.StepperSettings
+        The run's stepper section (``RunRequest.stepper``), whose method decides the
+        rows.
     field_bytes : int
         One state's bytes.
 
@@ -239,11 +259,13 @@ def _low_storage_rows(problem: PropagationProblem, field_bytes: int) -> dict[str
         "accumulator_error": 0,
         "register_accumulator": field_bytes,
         "register_stage": field_bytes,
-        "propagators": low_storage_flows(problem, "numpy_ref") * field_bytes,
+        "propagators": low_storage_flows(problem, stepper, "numpy_ref") * field_bytes,
     }
 
 
-def low_storage_flows(problem: PropagationProblem, backend: str) -> int:
+def low_storage_flows(
+    problem: PropagationProblem, stepper: StepperSettings, backend: str
+) -> int:
     """Return how many flow volumes a compiled backend's low-storage march holds.
 
     The one predicate the engines share (SEP 24 section 4.3): with
@@ -259,6 +281,8 @@ def low_storage_flows(problem: PropagationProblem, backend: str) -> int:
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
+    stepper : solprop.translate.problem.StepperSettings
+        The run's stepper section, whose propagator mode decides the count.
     backend : str
         A registry name; every backend that runs the march counts the same.
 
@@ -279,15 +303,15 @@ def low_storage_flows(problem: PropagationProblem, backend: str) -> int:
     >>> gnlse = problem_from([0.0, 0.0, -1.183e-26], omega_ref=grid.omega0,
     ...                      gamma=0.11, shock=False)
     >>> start = SechPulse(wavelength=835e-9, width=100e-15, peak_power=9.8).build(grid)
-    >>> problem = assemble(grid, gnlse.mode, [gnlse.kerr], start,
+    >>> problem, request = assemble(grid, gnlse.mode, [gnlse.kerr], start,
     ...                    controller=PIController(rtol=1e-8, atol=1e-16),
     ...                    save_planes=[0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0)
-    >>> low_storage_flows(problem, "native")  # a constant operator's table
+    >>> low_storage_flows(problem, request.stepper, "native")  # a constant table
     1
     """
     del backend
-    asked = problem.stepper.propagator_mode
+    asked = stepper.propagator_mode
     constant = problem.flags.constant_linop
     if asked == "recompute" or (asked == "auto" and not constant):
         return 0
@@ -328,7 +352,7 @@ def low_storage_stage_register(problem: PropagationProblem, backend: str) -> boo
     >>> gnlse = problem_from([0.0, 0.0, -1.183e-26], omega_ref=grid.omega0,
     ...                      gamma=0.11, shock=False)
     >>> start = SechPulse(wavelength=835e-9, width=100e-15, peak_power=9.8).build(grid)
-    >>> problem = assemble(grid, gnlse.mode, [gnlse.kerr], start,
+    >>> problem, request = assemble(grid, gnlse.mode, [gnlse.kerr], start,
     ...                    controller=PIController(rtol=1e-8, atol=1e-16),
     ...                    save_planes=[0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0)
@@ -351,7 +375,9 @@ def low_storage_stage_register(problem: PropagationProblem, backend: str) -> boo
     return in_stage or len(responses.response_order) <= 1
 
 
-def adams_memory(problem: PropagationProblem) -> dict[str, int]:
+def adams_memory(
+    problem: PropagationProblem, stepper: StepperSettings
+) -> dict[str, int]:
     """Return the Adams march's history rows ``numpy_ref`` holds for a problem.
 
     Empty without an Adams integrator, and on the general path, whose history is a list
@@ -361,6 +387,8 @@ def adams_memory(problem: PropagationProblem) -> dict[str, int]:
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
+    stepper : solprop.translate.problem.StepperSettings
+        The run's stepper section, whose method decides the rows.
 
     Returns
     -------
@@ -380,18 +408,19 @@ def adams_memory(problem: PropagationProblem) -> dict[str, int]:
     >>> gnlse = problem_from([0.0, 0.0, -1.183e-26], omega_ref=grid.omega0,
     ...                      gamma=0.11, shock=False)
     >>> start = SechPulse(wavelength=835e-9, width=100e-15, peak_power=9.8).build(grid)
-    >>> problem = assemble(grid, gnlse.mode, [gnlse.kerr], start,
+    >>> problem, request = assemble(grid, gnlse.mode, [gnlse.kerr], start,
     ...                    controller=PIController(rtol=1e-8, atol=1e-16),
     ...                    save_planes=[0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0,
     ...                    integrator=Multistep(order=4))
-    >>> adams_memory(problem) == {"adams_store": 6 * 16 * grid.n_omega}
+    >>> rows = adams_memory(problem, request.stepper)
+    >>> rows == {"adams_store": 6 * 16 * grid.n_omega}
     True
     """
     from solprop.backends.multistep import source_absent  # noqa: PLC0415 - import cycle
     from solprop.stepper.multistep import Multistep  # noqa: PLC0415
 
-    method = problem.stepper.integrator
+    method = stepper.integrator
     if not isinstance(method, Multistep):
         return {}
     exponential = method.formulation == "exponential"
@@ -429,7 +458,7 @@ LOCAL_FLUX_STATISTICS = frozenset(
 """The spatial statistics that synthesise the magnetic closure in time (SEP 34)."""
 
 
-def z_table_slots(problem: PropagationProblem) -> int:
+def z_table_slots(stepper: StepperSettings) -> int:
     """Return the position slots the native CPU build holds for a z table.
 
     SEP 29 section 6.6: the native backend evaluates a z table at each native call's
@@ -441,8 +470,8 @@ def z_table_slots(problem: PropagationProblem) -> int:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
+    stepper : solprop.translate.problem.StepperSettings
+        The run's stepper section, whose method and tableau decide the positions.
 
     Returns
     -------
@@ -461,31 +490,29 @@ def z_table_slots(problem: PropagationProblem) -> int:
     >>> gnlse = problem_from([0.0, 0.0, -1.183e-26], omega_ref=grid.omega0,
     ...                      gamma=0.11, shock=False)
     >>> start = SechPulse(wavelength=835e-9, width=100e-15, peak_power=9.8).build(grid)
-    >>> problem = assemble(grid, gnlse.mode, [gnlse.kerr], start,
+    >>> problem, request = assemble(grid, gnlse.mode, [gnlse.kerr], start,
     ...                    controller=PIController(rtol=1e-8, atol=1e-16),
     ...                    save_planes=[0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0)
-    >>> z_table_slots(problem)  # DOPRI5: 0, 1/5, 3/10, 4/5, 8/9 and 1
+    >>> z_table_slots(request.stepper)  # DOPRI5: 0, 1/5, 3/10, 4/5, 8/9 and 1
     6
     """
-    fractions = np.concatenate(([0.0, 1.0], problem.stepper.tableau.nodes))
-    low_storage = (
-        5 if isinstance(problem.stepper.integrator, LowStorageRungeKutta) else 0
-    )
+    fractions = np.concatenate(([0.0, 1.0], stepper.tableau.nodes))
+    low_storage = 5 if isinstance(stepper.integrator, LowStorageRungeKutta) else 0
     return int(max(np.unique(fractions).size, low_storage, 2))
 
 
-def _distinct_fractions(problem: PropagationProblem) -> int:
+def _distinct_fractions(stepper: StepperSettings) -> int:
     """Return the tableau's distinct stage fractions, the step's end included.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
+    stepper : solprop.translate.problem.StepperSettings
+        The run's stepper section.
 
     Returns
     -------
     int
         The count, positive.
     """
-    return int(np.unique(np.append(problem.stepper.tableau.nodes, 1.0)).size)
+    return int(np.unique(np.append(stepper.tableau.nodes, 1.0)).size)

@@ -82,7 +82,7 @@ def gaussian_reference(space, waist, wave, distance):
 def propagate(spatial_backend_class, grid, space, start, distance):
     """Use the real driver and an eight-step schedule on either spatial grid."""
     stop = max(distance, 1e-5)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [],
@@ -95,7 +95,7 @@ def propagate(spatial_backend_class, grid, space, start, distance):
         dz_init=stop / 8,
         schedule=FixedSchedule.uniform(0, stop, stop / 8),
     )
-    backend = spatial_backend_class(problem, grid=grid)
+    backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         if distance:

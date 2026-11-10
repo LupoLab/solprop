@@ -44,7 +44,9 @@ from solprop.stats import StatsSpec
 
 if TYPE_CHECKING:
     # The session module builds on this one's records, so its start is a forward name.
-    from solprop.backends.session import Start
+    from solprop.backends.session import PreparedExecution, Start
+    from solprop.translate.problem import PropagationProblem
+    from solprop.translate.run_request import RunRequest
 
 __all__ = [
     "Backend",
@@ -659,9 +661,10 @@ class Backend(Protocol):
     """What every execution backend provides, and nothing more.
 
     ``docs/dev/backends.md`` section 1. A backend is constructed from a validated
-    :class:`solprop.translate.problem.PropagationProblem`; the numbers are the contract,
-    and a backend is correct when it reproduces the ``numpy_ref`` oracle to the stated
-    bound.
+    :class:`solprop.translate.problem.PropagationProblem` and the
+    :class:`solprop.translate.run_request.RunRequest` it is run with (SEP 47 section
+    5.2); the numbers are the contract, and a backend is correct when it reproduces the
+    ``numpy_ref`` oracle to the stated bound.
 
     Attributes
     ----------
@@ -685,14 +688,47 @@ class Backend(Protocol):
     >>> names[8:12]
     ['march_snapshot_nbytes', 'memory_ledger', 'metadata', 'observe']
     >>> names[12:16]
-    ['propagate_to', 'restore_call_ledgers', 'restore_march', 'set_initial']
-    >>> names[16:]
-    ['set_progress', 'set_stop', 'stats', 'timing_probe']
+    ['prepare', 'propagate_to', 'request', 'restore_call_ledgers']
+    >>> names[16:19]
+    ['restore_march', 'set_initial', 'set_progress']
+    >>> names[19:]
+    ['set_stop', 'stats', 'timing_probe']
     """
 
     name: str
     max_batch: int
     reads_transverse_edge: bool
+
+    @property
+    def request(self) -> "RunRequest":  # noqa: UP037 - the request module imports this one's
+        """Return the run request the backend was built for.
+
+        Its method, error control, itinerary, planes and statistics; a run adapts it
+        with :meth:`~solprop.translate.run_request.RunRequest.for_run`.
+        """
+        ...
+
+    def prepare(
+        self,
+        problem: "PropagationProblem",  # noqa: UP037 - the translation imports this one
+        request: "RunRequest",  # noqa: UP037
+    ) -> "PreparedExecution":  # noqa: UP037 - the session module imports this one
+        """Prepare a run for one problem and request (SEP 47 section 5.2).
+
+        Parameters
+        ----------
+        problem : solprop.translate.problem.PropagationProblem
+            The problem the backend was built for, or one derived from it with
+            another input.
+        request : solprop.translate.run_request.RunRequest
+            The run's request: the backend's own, or one run's adaptation of it.
+
+        Returns
+        -------
+        solprop.backends.session.PreparedExecution
+            The prepared execution, whose ``start`` opens the backend's session.
+        """
+        ...
 
     def set_initial(
         self,

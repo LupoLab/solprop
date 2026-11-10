@@ -26,7 +26,7 @@ from solprop.exceptions import DriverError, SolpropWarning
 from solprop.log import PlaneObserver, ProgressReporter
 from solprop.output.capability import BasisCapability, capability_of
 from solprop.output.memory import MemoryOutput
-from solprop.output.schema import RunMetadata, SavedPlane
+from solprop.output.schema import RunMetadata, SavedPlane, StoredField
 from solprop.processing import fields
 
 if TYPE_CHECKING:
@@ -56,6 +56,10 @@ class PlaneView:
         Returns the plane's field where it was not kept; ``None`` where it was.
     spend : solprop._host.ObserverSpend
         The run's observer ledger, which counts the fetches.
+    stored : solprop.output.schema.StoredField or None, optional
+        The kept field as the output stored it, where it was exported straight into
+        the output (SEP 47 section 5.4) and the plane carries none: the view reads
+        that, with no fetch.
 
     Attributes
     ----------
@@ -74,6 +78,8 @@ class PlaneView:
         metadata: RunMetadata,
         fetch: Callable[[], np.ndarray] | None,
         spend: ObserverSpend,
+        *,
+        stored: StoredField | None = None,
     ) -> None:
         """Hold the plane; compute nothing yet."""
         self.z = float(plane.z)
@@ -83,6 +89,7 @@ class PlaneView:
         self._metadata = metadata
         self._fetch = fetch
         self._spend = spend
+        self._stored = stored
         self._output: MemoryOutput | None = None
         self._open = True
 
@@ -125,6 +132,13 @@ class PlaneView:
             raise DriverError(_EXPIRED)
         if self._output is None:
             plane = self._plane
+            if self._stored is not None:
+                output = MemoryOutput()
+                output.open(self._metadata)
+                # A copy of what the output stored, into the view's own room.
+                output.save_exported(plane, self._stored)
+                self._output = output
+                return output
             if plane.field is None and self._fetch is not None:
                 self._spend.transfers += 1
                 plane = SavedPlane(
@@ -288,7 +302,9 @@ class PlaneWatch:
         self._fetch = fetch
         self._spend = spend
 
-    def show(self, plane: SavedPlane, index: int) -> None:
+    def show(
+        self, plane: SavedPlane, index: int, stored: StoredField | None = None
+    ) -> None:
         """Show one committed plane, detaching an observer that fails.
 
         Parameters
@@ -297,6 +313,9 @@ class PlaneWatch:
             The plane as committed.
         index : int
             Its index among the saved planes.
+        stored : solprop.output.schema.StoredField or None, optional
+            Its kept field as the output stored it, where it was exported straight
+            into the output and the plane carries none.
 
         Warns
         -----
@@ -310,8 +329,9 @@ class PlaneWatch:
             plane,
             index,
             self._metadata,
-            self._fetch if plane.field is None else None,
+            self._fetch if plane.field is None and stored is None else None,
             self._spend,
+            stored=stored,
         )
         started = time.perf_counter()
         try:

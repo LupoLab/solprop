@@ -14,7 +14,7 @@ for the free-space two-component case's two fixed Runge-Kutta steps.
 import importlib
 import importlib.util
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
@@ -27,6 +27,7 @@ if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
 from mixture_cases import AnalyticRate, mixture_case
+from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
 from solprop.modes import MarcatiliMode
 from solprop.nonlinear import EnvelopePlasmaResponse
@@ -85,7 +86,7 @@ def geometry_case(envelope_mixture, geometry, n_pol):
     else:
         mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
         initial = pulse.build(grid) * np.asarray(jones)[None, :, None]
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         mode,
         responses,
@@ -98,14 +99,17 @@ def geometry_case(envelope_mixture, geometry, n_pol):
         **kwargs,
     )
     if geometry != "modal":
-        problem = replace(
-            problem,
-            route=replace(
-                problem.route, transform=replace(problem.transform, node_chunk=3)
-            ),
-        )
         assert problem.transform.n_nodes % 3 != 0
-    return problem, grid
+    return problem, run_request, grid
+
+
+PARTIAL = ExecutionOptions(node_chunk=3)
+"""Three-node chunks, which leave a partial chunk on both spatial geometries."""
+
+
+def geometry_options(geometry):
+    """Return the execution options a geometry's case runs with: partial chunks."""
+    return None if geometry == "modal" else PARTIAL
 
 
 # The doctest collection imports every module under tests/, and the arguments it
@@ -116,8 +120,10 @@ if __name__ == "__main__":
 
     record_sizing(sys.argv[1])
     solprop_native = importlib.import_module("solprop_native")
-    problem, grid = geometry_case(build_envelope_mixture(), "free", 2)
-    backend = solprop_native.NativeBackend(problem, grid=grid)
+    problem, run_request, grid = geometry_case(build_envelope_mixture(), "free", 2)
+    backend = solprop_native.NativeBackend(
+        problem, run_request, grid=grid, options=geometry_options("free")
+    )
     try:
         backend.set_initial(problem.initial.field0, None)
         summary = backend.propagate_to(grid.length)

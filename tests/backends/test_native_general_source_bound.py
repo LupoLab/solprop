@@ -65,9 +65,9 @@ def cases():
     return get
 
 
-def run(backend_class, problem, grid):
+def run(backend_class, problem, run_request, grid):
     """Return the final state of ten fixed steps on one backend."""
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(LENGTH)
@@ -87,12 +87,12 @@ def test_one_stage_of_the_source_is_the_reference_within_the_bound(
 ):
     """Native's source on the launch state, against the reference's."""
     grid, guide, route, state = cases(name)
-    problem = problem_for(grid, guide, route, state)
+    problem, run_request = problem_for(grid, guide, route, state)
     maps = _general_maps(problem)
     assert maps is not None
     bound = source_bound(maps, grid.n_to, conditioning(maps, state, grid))
     expected = reference_source(maps, state, grid) * grid.crop_scale
-    backend = native.NativeBackend(problem, grid=grid)
+    backend = native.NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend._trial_step(0.0, 0.0)
@@ -115,19 +115,19 @@ def test_ten_steps_are_the_reference_within_the_bound(cases, name, record_proper
     exercised: the launch's own linear flow alone is far from the answer.
     """
     grid, guide, route, state = cases(name)
-    problem = problem_for(grid, guide, route, state)
+    problem, run_request = problem_for(grid, guide, route, state)
     maps = _general_maps(problem)
     assert maps is not None
     bound = ten_step_bound(
         nonlinear_scale(maps, state, grid),
         source_bound(maps, grid.n_to, conditioning(maps, state, grid)),
     )
-    expected = run(NumpyRefBackend, problem, grid)
-    got = run(native.NativeBackend, problem, grid)
+    expected = run(NumpyRefBackend, problem, run_request, grid)
+    got = run(native.NativeBackend, problem, run_request, grid)
     measured = departure(got, expected)
     record_property("ten_step_bound", bound)
     record_property("ten_step_departure", measured)
     assert measured <= bound
     linear = dataclasses.replace(route, responses=None)
-    alone = run(NumpyRefBackend, problem_for(grid, guide, linear, state), grid)
+    alone = run(NumpyRefBackend, *problem_for(grid, guide, linear, state), grid)
     assert departure(alone, expected) > 1e3 * bound
