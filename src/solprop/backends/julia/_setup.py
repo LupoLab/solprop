@@ -1002,7 +1002,7 @@ def _check_workspace_parents(project: Path) -> None:
         Owned application environment whose effective base must remain itself.
     """
     # Match Base.base_project's home boundary and explicit workspace project list.
-    home = Path.home().resolve()
+    home = Path.home().absolute()
     started_in_home = str(project).startswith(str(home))
     for parent in project.parents:
         if started_in_home and not str(parent).startswith(str(home)):

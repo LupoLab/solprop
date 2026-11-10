@@ -769,6 +769,23 @@ def test_workspace_search_honors_julias_home_boundary(prepared, monkeypatch):
     assert select_setup() == record
 
 
+@pytest.mark.skipif(
+    _setup.sys.platform == "win32",
+    reason="creating symlinks needs Windows privileges",
+)
+def test_workspace_search_uses_julias_lexical_symlink_home(prepared, monkeypatch):
+    record = setup()
+    alias = prepared.depot.parent / "home-alias"
+    alias.symlink_to(prepared.depot, target_is_directory=True)
+    monkeypatch.setattr(Path, "home", lambda: alias)
+    project = dict(record.projects)["cpu"]
+    ancestor = prepared.depot.parent / "Project.toml"
+    relative = project.relative_to(ancestor.parent).as_posix()
+    _write(ancestor, f'[workspace]\nprojects = ["{relative}"]\n')
+    with pytest.raises(BackendError, match="redirected by ancestor workspace"):
+        select_setup()
+
+
 def test_changed_retained_sources_and_templates_are_refused(prepared):
     record = setup()
     source = record.engine / "src" / "SolpropJulia.jl"
