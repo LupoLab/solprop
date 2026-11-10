@@ -34,6 +34,19 @@ script; Python setup, identity, artifact preflight and commands; and the master'
 runtime, cancellation, wheel/CLI integration and CI. Session implementations wait
 for the runtime probes. Numerical source review may proceed independently.
 
+| Assignment | Exclusive files | State |
+|---|---|---|
+| Julia package agent | `julia/Project.toml`, manifests, `environments/`, `scripts/`, `test/`, `src/SolpropJulia.jl`, PythonCall extension scaffold | Active; package/setup work only |
+| Distribution agent | `src/solprop/backends/julia/` setup, source identity, artifact, platform and command modules; setup tests | Active; excludes runtime/session/transfer modules |
+| Master | `julia/AGENTS.md`, this record, bridge contract and cancellation code; Python runtime/session/transfer; root packaging, CLI, CI and documentation | Signal-policy decision pending |
+| Independent reviewer | Read-only reviews of the above; isolated lifecycle probes | Signal conflict independently reproduced |
+
+The foundation is committed at `540794bd`. These independent package assignments
+start there while proposal acceptance is held by
+[#610](https://github.com/LupoLab/solprop/issues/610). They do not implement a replacement
+signal policy. After the proposal merges, the integration branch takes updated main
+before the implementation PR opens.
+
 ## Decisions
 
 - The accepted SEP's scope is retained with binary64-only input noise. Every binary32
