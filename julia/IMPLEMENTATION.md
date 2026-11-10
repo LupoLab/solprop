@@ -30,6 +30,9 @@ The subsequent Part B CI corrections at `f6921fae` are integrated at `10be2eff`.
 The additional CI corrections at `55fdc423` are also integrated: they restore
 request-owned arrays to the mixture baseline and remove nonportable hash literals.
 The final documentation/skip corrections at `21b5808c` are integrated as well.
+The final contract/coverage corrections at `f351d0a3` are integrated at `4dade535`.
+The targeted merged selection passes 528 tests with 56 declared capability skips.
+`RunSession.march_export_refusal()` is now explicit; Julia already implements it.
 The legacy callers of this branch's new execution-owner protocol are corrected;
 whole-package basedpyright reports zero errors and three existing native-stub warnings.
 Explicit legacy selections retain their stronger type; general selection keeps the
@@ -586,3 +589,12 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   expected process-SEP skips) and Sphinx with warnings as errors. The earlier pushed
   head's CI reports Julia Linux and combined coverage failures; their logs are being
   investigated, and this local milestone does not claim a green full gate.
+- CI run `42916416591` at `12613fc5` completed with failures in Julia Linux and the
+  combined coverage report. The Julia suite passed 465 cases but failed two known
+  first-SIGTERM-exit probes (#610) and a status test that incorrectly assumed its
+  parent process had never initialized Julia (#668). The status assertion now runs
+  in a bounded cold subprocess; four typed tests and independent review pass.
+  A subsequent pytest-process SIGSEGV is retained separately in #669 without a
+  claimed cause or fix. Runtime investigation remains deferred as directed.
+  The latest SEP 47 merge addresses several reported coverage gaps; the next CI
+  report must establish the remaining package-wide coverage result.

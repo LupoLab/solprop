@@ -23,20 +23,37 @@ def test_parser_registration_imports_no_numerical_backend():
         "sorted(forbidden.intersection(sys.modules))"
     )
     completed = subprocess.run(
-        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
     )
     assert completed.returncode == 0, completed.stderr
 
 
 def test_status_routes_without_creating_a_depot_or_importing_julia(
-    tmp_path, monkeypatch, capsys
+    tmp_path, monkeypatch
 ):
     depot = tmp_path / "depot"
     monkeypatch.setenv("SOLPROP_JULIA_DEPOT", str(depot))
-    assert main(["julia", "status"]) == 0
-    assert "No published Julia setup" in capsys.readouterr().out
+    # The real session lane can already own Julia in this process. A cold child
+    # proves status's lazy-import guarantee independently of randomized test order.
+    script = (
+        "import sys; from solprop.cli import main; "
+        "assert main(['julia', 'status']) == 0; "
+        "assert 'juliacall' not in sys.modules"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "No published Julia setup" in completed.stdout
     assert not depot.exists()
-    assert "juliacall" not in sys.modules
 
 
 def test_setup_routes_explicit_options(monkeypatch, setup_record, capsys):
