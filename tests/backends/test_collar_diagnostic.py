@@ -79,7 +79,7 @@ def test_the_block_is_bounded_by_the_node_chunk_and_so_is_the_transient():
     chunk = plan_node_chunk(problem, simulation.settings.execution_options()).chunk
     assert chunk == 4
     transform = problem.transform
-    n_pol, n_omega = problem.shape[2], problem.shape[3]
+    n_pol, n_omega = problem.shape[1], problem.shape[2]
     block = collar_block(problem, chunk)
     assert 1 <= block < n_omega
     assert 3 * transform.n_nodes * n_pol * block <= max(

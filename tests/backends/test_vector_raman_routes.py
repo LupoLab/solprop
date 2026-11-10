@@ -125,7 +125,7 @@ def test_raman_acts_on_synthesised_position_dependent_direction(
         dz_init=grid.length / 2,
         schedule=original.stepper.schedule,
     )
-    assert problem.transform.n_pol * problem.shape[2] == 2
+    assert problem.transform.n_pol * problem.shape[1] == 2
     check_run(
         spatial_equivalence_backend_class,
         problem,

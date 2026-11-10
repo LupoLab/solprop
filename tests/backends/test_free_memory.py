@@ -27,8 +27,8 @@ def test_cartesian_column_buffers_stay_within_the_shared_budget(
     # response/FFT 8, doubled Raman 3, GPU plasma 3.5, split-step 2, statistics 2.5.
     # One further column covers real-FFT endpoint bins. Use a small budget to
     # exercise the backend's plan without allocating a full-size run.
-    budget = 7 * 20 * 16 * problem.shape[2] * grid.n_to
-    transform = free_transform(space, n_pol=problem.shape[2], z_max=grid.length)
+    budget = 7 * 20 * 16 * problem.shape[1] * grid.n_to
+    transform = free_transform(space, n_pol=problem.shape[1], z_max=grid.length)
     geometry = transform.geometry
     assert geometry is not None
     transform = dataclasses.replace(
