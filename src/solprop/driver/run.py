@@ -306,12 +306,10 @@ class SessionFacts:
         Returns
         -------
         str or None
-            The session's own reason. Every session answers it, though
-            :class:`~solprop.backends.session.RunSession` does not declare it: these
-            facts are read of the native session alone, a transitional session's
-            driver being read directly.
+            The session's own reason
+            (:meth:`~solprop.backends.session.RunSession.march_export_refusal`).
         """
-        return cast("str | None", self._session.march_export_refusal())  # pyright: ignore[reportAttributeAccessIssue]
+        return self._session.march_export_refusal()
 
 
 @handled()  # SIGTERM and Ctrl-C stop a run between its commits

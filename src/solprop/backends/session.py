@@ -633,6 +633,10 @@ class RunSession(Protocol):
         """Return the size a method-history snapshot would have, without making it."""
         ...
 
+    def march_export_refusal(self) -> str | None:
+        """Return why the method history cannot be exported, or ``None`` when it can."""
+        ...
+
     def execution_record(self) -> Mapping[str, object]:
         """Return the session's execution facts for the run's execution record."""
         ...
