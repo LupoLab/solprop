@@ -957,11 +957,18 @@ class DriverSession:
         Returns
         -------
         bool
-            False while a dense observation holds the state between endpoints.
+            False while a dense observation holds the state between endpoints: the
+            driver's own (a Runge-Kutta march's) or its Adams march's.
         """
         # The starting position is no accepted endpoint of this session: an Adams
         # march holds no history there to snapshot.
-        return self._stepped and getattr(self._driver, "_dense_ahead", None) is None
+        driver = self._driver
+        adams = getattr(driver, "_adams", None)
+        return (
+            self._stepped
+            and getattr(driver, "_dense_ahead", None) is None
+            and getattr(adams, "_ahead", None) is None
+        )
 
     def _driver_halted(self) -> bool:
         """Return whether the driver stopped at a requested halt.

@@ -6,6 +6,7 @@
 #include "solprop_native/adams_march.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/crossing.hpp"
+#include "solprop_native/dense_output.hpp"
 #include "solprop_native/engines.hpp"
 #include "solprop_native/fft_plan.hpp"
 #include "solprop_native/lagrange_basis.hpp"
@@ -2142,10 +2143,15 @@ public:
   // solprop SEP 47: the march a native execution session runs, from the policy, the
   // schedule and the stage tables this state was configured with, its engine over the
   // state and its tables; `state` is the march's state at the session's start.
+  // `dense`, a session's dense output (solprop SEP 47 section 5.3), is none or
+  // `{"weights": float64 array}`: a Runge-Kutta tableau's dense-output weights, empty
+  // for the Adams march.
   native::session::Method session_method(const std::string& kind,
-                                         const nb::dict state_values) {
+                                         const nb::dict state_values,
+                                         const nb::handle dense) {
     require_unleased();
     auto& general = open_state();
+    const bool interpolated = !dense.is_none();
     if (kind == "adams") {
       if (!march_policy_ || !stage_tables_)
         throw std::logic_error("the native Adams march is not configured");
@@ -2156,6 +2162,13 @@ public:
       method.engine = std::make_unique<native::engines::ResidentEngine>(
           general, *stage_tables_, stage_anchor_, march_fused_, march_compensated_,
           march_interpolate_, march_fault_);
+      if (interpolated) {
+        if (!march_interpolate_)
+          throw std::invalid_argument(
+              "a session's dense output needs an Adams engine that keeps its steps");
+        method.dense = std::make_unique<native::engines::AdamsDense>(
+            general, *stage_tables_, stage_anchor_, march_fused_, march_compensated_);
+      }
       return method;
     }
     if (kind == "runge_kutta") {
@@ -2165,12 +2178,26 @@ public:
       method.policy = *rk_policy_;
       method.state = rk_state_from(state_values);
       method.schedule = rk_schedule_;
-      method.engine = std::make_unique<native::engines::ResidentRungeKutta>(
+      auto engine = std::make_unique<native::engines::ResidentRungeKutta>(
           general,
           [this](const double z, const double dz) {
             return staged_trial(z, dz, rk_nodes_, false);
           },
           rk_rtol_, rk_atol_, rk_weights_);
+      if (interpolated) {
+        if (!stage_tables_)
+          throw std::logic_error("a session's dense output needs the stage tables");
+        auto holder = std::make_unique<native::engines::RungeKuttaDense>(
+            general, *stage_tables_, stage_anchor_,
+            real_vector(exact_array<RealInput>(nb::cast<nb::dict>(dense)["weights"])));
+        // The engine holds each crossing step's extension through it; both live in
+        // the method, the engine released first.
+        auto* held = holder.get();
+        engine->set_extension(
+            [held](const double z, const double dz) { held->hold(z, dz); });
+        method.dense = std::move(holder);
+      }
+      method.engine = std::move(engine);
       return method;
     }
     throw std::invalid_argument("a session's march is \"adams\" or \"runge_kutta\"");
@@ -2595,7 +2622,9 @@ native::session::Plan session_plan_from(const nb::dict values) {
 std::unique_ptr<BoundSession> start_session(BoundState& state, const std::string& kind,
                                             const nb::dict march_state,
                                             const nb::dict plan, const double z) {
-  auto method = state.session_method(kind, march_state);
+  const nb::object dense =
+      plan.contains("dense") ? nb::object(plan["dense"]) : nb::object(nb::none());
+  auto method = state.session_method(kind, march_state, dense);
   auto session = std::make_unique<native::session::Session>(
       state.session_resident(), std::move(method), session_plan_from(plan), z);
   return std::make_unique<BoundSession>(state, std::move(session));
@@ -2997,7 +3026,8 @@ NB_MODULE(_core, module_) {
                               native::watch::strict_probe(a, b, c),
                               native::rk::strict_probe(a, b, c),
                               native::session::strict_probe(a, b, c),
-                              native::statistics::strict_probe(a, b, c));
+                              native::statistics::strict_probe(a, b, c),
+                              native::dense::strict_probe(a, b, c));
       },
       "a"_a, "b"_a, "c"_a);
   module_.def(

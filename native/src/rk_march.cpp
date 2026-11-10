@@ -382,11 +382,21 @@ Result run(const Policy& policy, State& state, Engine& engine,
       state.proposal = next;
     } else {
       if (dense && !march::reached(target, end, ulps)) {
-        // solprop records the step's extension from the state before it, then
-        // finishes and commits it with the reference's own code.
-        result.reason = march::Reason::dense;
-        out.pending_equivalent = equivalent_norm;
-        return out;
+        if (!bounds.extend) {
+          // solprop records the step's extension from the state before it, then
+          // finishes and commits it with the reference's own code.
+          result.reason = march::Reason::dense;
+          out.pending_equivalent = equivalent_norm;
+          return out;
+        }
+        // A native session's: the extension from the state before the step, then
+        // the step finished and committed here (`_finish_crossing`'s order).
+        try {
+          engine.extend(state.z, stop.dz);
+        } catch (const std::exception& error) {
+          fail(result, march::Stage::accept, error);
+          return out;
+        }
       }
       try {
         engine.accept(stop.dz);

@@ -23,6 +23,7 @@ import pytest
 
 from sessions.executors import (
     CONSUMER,
+    DENSE,
     FACTOR,
     IDENTITY,
     LENGTH,
@@ -62,6 +63,7 @@ from solprop.backends.session import (
 )
 from solprop.exceptions import BackendError, StopRequested
 from solprop.stats import StatsSpec
+from solprop.stepper.multistep import Multistep
 from solprop.translate.run_request import describe_run
 
 # The soliton's 1 ps window is tight for a monitor's guards; the window is not tested.
@@ -972,6 +974,139 @@ def test_a_snapshot_at_a_step_plane_follows_its_observation(start):
     )
     assert isinstance(events[step + 1], ServiceRequired)
     assert events[step + 1].z == events[step].z
+
+
+# ----------------------------------------------------------------- dense output
+
+
+DENSE_METHODS = {"runge-kutta": None, "adams": Multistep()}
+"""The marches whose planes are interpolated: the default tableau's DOPRI5 extension
+and the Adams march's own interpolant."""
+
+
+def _delivered_ends(run: Run) -> list[np.ndarray]:
+    """Return, for each event of a run, the accepted ends delivered up to it, inclusive.
+
+    Parameters
+    ----------
+    run : sessions.executors.Run
+        The run.
+
+    Returns
+    -------
+    list of numpy.ndarray
+        One array per event, in order.
+    """
+    ends: list[float] = []
+    found: list[np.ndarray] = []
+    for history, _ in run.chunks:
+        ends.extend((history.z[history.accepted]).tolist())
+        found.append(np.array(ends))
+    return found
+
+
+def _assert_inside_crossing_steps(run: Run) -> int:
+    """Assert each requested plane is observed inside the last step delivered before it.
+
+    Parameters
+    ----------
+    run : sessions.executors.Run
+        A dense run.
+
+    Returns
+    -------
+    int
+        How many planes fell strictly inside a step: interpolated, not landed.
+    """
+    inside = 0
+    for event, ends in zip(run.events, _delivered_ends(run), strict=True):
+        if not (
+            isinstance(event, ObservationReady) and event.kind is ObservationKind.PLANE
+        ):
+            continue
+        # The step that crossed the plane is the last one delivered: it ends at or past
+        # the plane, and every step before it ends short of it.
+        assert ends.size and ends[-1] >= event.z, (event.z, ends[-1:])
+        assert ends.size == 1 or ends[-2] < event.z, (event.z, ends[-2:])
+        inside += bool(ends[-1] > event.z)
+    return inside
+
+
+@pytest.mark.parametrize("method", sorted(DENSE_METHODS))
+def test_dense_planes_follow_the_committed_order(start, executor, method):
+    """SEP 47 section 5.3: dense planes are served in requested-position order, each at
+    its own position inside the step that crossed it, neither replacing the committed
+    endpoint nor advancing it.
+
+    The run of :func:`test_events_follow_the_committed_order` with its planes
+    interpolated: the launch first, the planes in order at exactly their requested
+    positions, a step plane at every third accepted step -- after the planes its step
+    crossed --, the terminal event last; each attempt and row delivered once, and the
+    monitor's record holding one row per observation at its position.
+    """
+    executor.require(DENSE)
+    executor.require(MONITOR)
+    log: list[tuple[str, float]] = []
+    problem = soliton(
+        step_planes=3, period=2, interpolate=True, integrator=DENSE_METHODS[method]
+    )
+    started = start(problem, describe_run(problem, monitor=spy_monitor(log)))
+    run = drive(started)
+    _assert_committed_order(run)
+    assert _assert_inside_crossing_steps(run) > 0, "no plane was interpolated"
+    # The run's end is landed on; the monitor closed one row at each observation.
+    assert run.accepted_ends()[-1] == LENGTH
+    record = started.session.monitor_record()
+    assert record is not None
+    assert record["planes"]["z"] == [event.z for event in run.observations]
+
+
+@pytest.mark.parametrize("method", sorted(DENSE_METHODS))
+def test_a_snapshot_waits_for_the_planes_its_step_crossed(start, executor, method):
+    """SEP 47 section 5.5: before a snapshot, every earlier owed dense plane crossed by
+    the accepted step is observed, and the snapshot is taken at an accepted endpoint.
+
+    A snapshot is requested at every interpolated plane, while the session holds the
+    plane's field between two endpoints. Each is serviced at the next accepted endpoint,
+    after every plane short of it, so that no persisted state would need the step's
+    extension to reconstruct a plane; and the planes, attempts and fields are the run's
+    without snapshots.
+    """
+    executor.require(DENSE)
+    problem = soliton(
+        step_planes=0, period=2, interpolate=True, integrator=DENSE_METHODS[method]
+    )
+    baseline = drive(start(problem), export=IDENTITY)
+    held: list[float] = []
+
+    def between(session: RunSession, batch: EventBatch) -> None:
+        for event in batch.events:
+            if (
+                isinstance(event, ObservationReady)
+                and event.kind is ObservationKind.PLANE
+            ):
+                held.append(event.z)
+                session.request_snapshot()
+
+    run = drive(start(problem), export=IDENTITY, between=between)
+    snapshots = [event for event in run.events if isinstance(event, ServiceRequired)]
+    assert snapshots and held
+    ends = _delivered_ends(run)
+    for snapshot in snapshots:
+        assert snapshot.kind is ServiceKind.SNAPSHOT
+        index = run.events.index(snapshot)
+        assert snapshot.z in ends[index].tolist(), "a snapshot between endpoints"
+        before = [
+            event.z
+            for event in run.events[:index]
+            if isinstance(event, ObservationReady)
+            and event.kind is ObservationKind.PLANE
+        ]
+        # A plane at the endpoint itself is observed first too (section 5.3).
+        assert before == [plane for plane in PLANES if plane <= snapshot.z]
+    assert _assert_inside_crossing_steps(run) > 0, "no plane was interpolated"
+    if executor.deterministic:
+        assert_same_run(run, baseline)
 
 
 # ------------------------------------------------------------------- invariance

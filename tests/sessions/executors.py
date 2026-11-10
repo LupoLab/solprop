@@ -67,6 +67,7 @@ from solprop.nonlinear.gnlse import GnlseProblem, problem_from
 from solprop.pulses import SechPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
+from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import KernelProblem, assemble
 from solprop.translate.run_request import RunRequest
 
@@ -127,7 +128,13 @@ def fibre() -> GnlseProblem:
     )
 
 
-def soliton(*, step_planes: int = 0, period: int = 2) -> KernelProblem:
+def soliton(
+    *,
+    step_planes: int = 0,
+    period: int = 2,
+    interpolate: bool = False,
+    integrator: Multistep | None = None,
+) -> KernelProblem:
     """Return the fundamental soliton over :data:`PLANES`.
 
     Parameters
@@ -136,6 +143,10 @@ def soliton(*, step_planes: int = 0, period: int = 2) -> KernelProblem:
         Observe the end of every ``step_planes``-th accepted step; ``0`` for none.
     period : int, optional
         The period of the periodic ``energy`` rows, accepted steps.
+    interpolate : bool, optional
+        Interpolate the save planes inside the steps that cross them (dense output).
+    integrator : solprop.stepper.multistep.Multistep or None, optional
+        The Adams method; the default Runge-Kutta tableau by default.
 
     Returns
     -------
@@ -157,6 +168,8 @@ def soliton(*, step_planes: int = 0, period: int = 2) -> KernelProblem:
         shock=False,
         prefactor_index=1.0,
         step_planes=step_planes,
+        interpolate_planes=interpolate,
+        integrator=integrator,
         stats_spec=StatsSpec(
             names=("energy", "peak_power"), periodic=("energy",), period=period
         ),
@@ -437,7 +450,11 @@ STATISTICS = "statistics"
 every periodic-capable one as a periodic row (SEP 47 section 6.4); a scripted driver
 reports positions in their place."""
 
-CAPABILITIES = frozenset({MONITOR, STATISTICS})
+DENSE = "dense output"
+"""The capability of interpolating save planes inside the steps that cross them (SEP 14
+phase 3); a scripted driver's trials hold no stages to interpolate."""
+
+CAPABILITIES = frozenset({MONITOR, STATISTICS, DENSE})
 """Every capability a test may need of an executor."""
 
 
@@ -540,6 +557,7 @@ EXECUTORS: dict[str, Executor] = {
         "scripted-host",
         _over_driver(_host_scripted, host_state=True, session=HostSession),
         scripted=True,
+        capabilities=CAPABILITIES - {DENSE},
     ),
 }
 """Every executor of the suite, by name."""

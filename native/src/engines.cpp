@@ -180,6 +180,12 @@ void ResidentRungeKutta::accept(const double dz) {
 
 std::vector<double> ResidentRungeKutta::reading() { return state_.monitor_reading(); }
 
+void ResidentRungeKutta::extend(const double z, const double dz) {
+  if (!extension_)
+    throw std::logic_error("this Runge-Kutta engine holds no dense extension");
+  extension_(z, dz);
+}
+
 GeneralResident::GeneralResident(GeneralState& state, const std::size_t elements,
                                  const std::size_t n_omega)
     : state_(state), elements_(elements), n_omega_(n_omega) {}

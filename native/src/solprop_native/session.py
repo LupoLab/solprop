@@ -33,8 +33,13 @@ every other feature by name before allocating anything (:func:`refusal`):
   its every decision and record are native, a warning is a
   :class:`~solprop.backends.events.ServiceRequired` barrier and a stop a terminal
   failure, and a monitored resume continues the record natively;
-- no transverse edge, dense output, low-storage replay, comparison method, custom
-  controller, group, noise model, TDSE, resumed run or method-history snapshot.
+- dense output (``interpolate_planes``), for Adams and the embedded Runge-Kutta
+  tableau alike: a plane the march steps across is interpolated natively inside the
+  step that crossed it, the committed state held aside, and observed in order before
+  the march goes on; a latched snapshot waits for the next accepted endpoint, every
+  plane its step crossed observed first (SEP 47 sections 5.3 and 5.5);
+- no transverse edge, low-storage replay, comparison method, custom controller,
+  group, noise model, TDSE, resumed run or method-history snapshot.
 """
 
 from __future__ import annotations
@@ -83,6 +88,7 @@ from solprop.stats import PLASMA_INTEGRATION_STATISTICS
 from solprop.stepper.controller import ControlRecord, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
+from solprop.stepper.tableau import continuous_extension
 from solprop.translate.linop import power_weight_at
 
 from . import _core, _watch
@@ -208,8 +214,6 @@ def refusal(
     ]
     if overridden:
         return "a controller with its own " + ", ".join(overridden)
-    if request.observation.dense:
-        return "dense output (interpolated save planes)"
     monitor = request.boundary.monitor
     if monitor is not None and monitor.transverse is not None:
         return "a boundary monitor's transverse edge"
@@ -554,7 +558,25 @@ class NativeSession:
             "call_attempts": CALL_ATTEMPTS,
             "call_seconds": CALL_SECONDS,
             "monitor": self._monitor_plan(start),
+            "dense": self._dense_plan() if observation.dense else None,
         }
+
+    def _dense_plan(self) -> dict[str, object]:
+        """Return the dense output the native session interpolates planes with.
+
+        Returns
+        -------
+        dict
+            The tableau's dense-output weights, one per stage, empty for Adams: those
+            of :func:`~solprop.stepper.tableau.continuous_extension`, which the
+            translation requires of a Runge-Kutta run with interpolated planes.
+        """
+        stepper = self._problem.stepper
+        if isinstance(stepper.integrator, Multistep):
+            return {"weights": _EMPTY}
+        weights = continuous_extension(stepper.tableau)
+        assert weights is not None  # the translation refuses dense output without one
+        return {"weights": np.ascontiguousarray(weights, dtype=np.float64)}
 
     def _monitor_plan(self, start: Start) -> dict[str, object] | None:
         """Return the native monitor's configuration and any record it continues.

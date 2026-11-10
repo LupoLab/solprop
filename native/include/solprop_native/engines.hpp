@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <functional>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "solprop_native/adams_march.hpp"
@@ -89,10 +90,16 @@ public:
                               const std::vector<double>& weights);
   void accept(double dz) override;
   std::vector<double> reading() override;
+  /** Hold the accepted trial as a dense extension (a native session's dense output,
+      `engines::RungeKuttaDense::hold`); refused without one. */
+  void extend(double z, double dz) override;
+  using Extension = std::function<void(double, double)>;
+  void set_extension(Extension extension) { extension_ = std::move(extension); }
 
 private:
   GeneralState& state_;
   Trial trial_;
+  Extension extension_;
   double rtol_;
   double atol_;
   const std::vector<double>& weights_;

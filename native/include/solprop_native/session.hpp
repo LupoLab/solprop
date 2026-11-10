@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "solprop_native/adams_march.hpp"
+#include "solprop_native/dense.hpp"
 #include "solprop_native/rk_march.hpp"
 #include "solprop_native/statistics_plan.hpp"
 #include "solprop_native/watch.hpp"
@@ -133,12 +134,14 @@ struct MonitorPlan {
   std::vector<std::array<double, 2>> unwatched;
 };
 
-/** The Adams march a session runs: its policy, state, replayed schedule and engine. */
+/** The Adams march a session runs: its policy, state, replayed schedule and engine,
+    and its dense output when its planes are interpolated (none otherwise). */
 struct AdamsMethod {
   march::Policy policy;
   march::State state;
   march::Schedule schedule;
   std::unique_ptr<march::Engine> engine;
+  std::unique_ptr<Dense> dense;
 };
 
 /** The Runge-Kutta march a session runs. */
@@ -147,6 +150,7 @@ struct RungeKuttaMethod {
   rk::State state;
   march::Schedule schedule;
   std::unique_ptr<rk::Engine> engine;
+  std::unique_ptr<Dense> dense;
 };
 
 using Method = std::variant<AdamsMethod, RungeKuttaMethod>;
@@ -351,6 +355,7 @@ private:
   march::Result call(double target, double slack, std::size_t attempts, double seconds);
   void absorb(const march::Result& result, Clock::time_point started);
   [[nodiscard]] double position() const noexcept;
+  [[nodiscard]] double here() const noexcept;
   [[nodiscard]] std::uint64_t cursor() const;
   [[nodiscard]] std::uint64_t host_step() const;
   [[nodiscard]] bool at_endpoint() const;
@@ -377,6 +382,7 @@ private:
   bool endpoint(Batch& batch, double target);
   bool observe_plane(Batch& batch, Observation kind, std::int64_t plane, bool next);
   bool plane_rest(Batch& batch);
+  bool observe_inside(Batch& batch, double target);
   [[nodiscard]] const march::Schedule& schedule() const noexcept;
 
   std::unique_ptr<Resident> resident_;
@@ -410,6 +416,15 @@ private:
   std::uint64_t generation_ = 0;
   bool stepped_ = false;
   bool last_accepted_ = false;
+
+  // Dense output (SEP 47 section 5.3): the march's, or none; whether the state holds
+  // an interpolated plane, the committed state held aside, and that plane's position;
+  // and a step plane owed at the end of a step that crossed its target
+  // (`_natural_due`).
+  Dense* dense_ = nullptr;
+  bool observed_ = false;
+  double observed_z_ = 0.0;
+  bool natural_due_ = false;
 
   // The chunk since the previous event, bounded by the plan's capacities.
   std::vector<double> history_;

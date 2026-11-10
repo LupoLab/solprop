@@ -6,8 +6,9 @@
 """Fail on a fused multiply-add in a strict file's code in a built wheel (solprop #135).
 
 The Adams march (``march::``), the boundary watch (``watch::``), the Runge-Kutta
-march (``rk::``), the native execution session (``session::``) and its statistics
-plan's finishing (``statistics::``) are compiled without contraction, so that their
+march (``rk::``), the native execution session (``session::``), its statistics
+plan's finishing (``statistics::``) and its dense-output weights (``dense::``) are
+compiled without contraction, so that their
 decisions round as solprop's Python does (ADR-060, SEP 45, SEP 47).
 ``python native/ci/check_strict_fma.py WHEEL`` unpacks the wheel, disassembles each
 extension in it with ``objdump`` and exits 1, naming every function of those
@@ -30,7 +31,7 @@ from pathlib import Path
 __all__ = ["STRICT", "fused_functions", "main"]
 
 STRICT = re.compile(
-    r"^[0-9a-f]+ <solprop_native::(march|watch|rk|session|statistics)::"
+    r"^[0-9a-f]+ <solprop_native::(march|watch|rk|session|statistics|dense)::"
 )
 """A function label in ``objdump -C`` output from one of the strict files."""
 
