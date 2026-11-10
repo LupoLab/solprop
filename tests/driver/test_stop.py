@@ -14,6 +14,7 @@ from driver.test_resume_history import assert_accurate_run, tight_run
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import TIGHTER
 from solprop.backends.registry import available
+from solprop.backends.session import DEFAULT_WORK_LIMIT
 from solprop.exceptions import StopRequested
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
@@ -95,13 +96,12 @@ def test_a_set_flag_stops_the_run_which_returns_and_resumes(
     assert outcome is not None
     assert outcome.status == "failed"
     assert "stopped by the caller's stop flag" in (outcome.message or "")
-    # solprop's replay polls the flag before each trial, so the run stops within one
-    # step of it; the native march polls it between its calls, each of which runs to
-    # the driver's next event, here the next saved plane (SEP 45 phase 4).
-    upper = 16 * LENGTH / STEPS
-    if backend == "native":
-        planes = np.linspace(0.0, LENGTH, N_SAVE)[1:]
-        upper = float(min(plane for plane in planes if plane >= upper - 1e-15))
+    # The reporter hears each advance's attempts as its chunk arrives (SEP 47 5.3),
+    # and the flag is polled before the next advance, which runs at most to the next
+    # event, here the next saved plane: the run stops between the flag's step and it.
+    planes = np.linspace(0.0, LENGTH, N_SAVE)[1:]
+    after = 16 * LENGTH / STEPS - 1e-15
+    upper = float(min(plane for plane in planes if plane >= after))
     assert 15 * LENGTH / STEPS <= outcome.z <= upper + 1e-15
     assert reporter.interrupted_at is not None
     assert isinstance(reporter.interrupted_at[1], StopRequested)
@@ -202,17 +202,13 @@ def _one_plane(march, backend, *, rtol=ONE_PLANE_RTOL):
 def _steps_after_the_flag(march, backend):
     """Return the most accepted steps a march can report after the flag's report.
 
-    Each Python march polls before every trial, so it takes none. A native Adams or
-    Runge-Kutta march polls each time a native call returns, and the rest of that call's
-    attempts report after the one that set the flag.
+    The reporter hears each advance's attempts as the advance's chunk arrives (SEP 47
+    section 5.3), and the flag is polled before the next advance, on every backend and
+    march: the rest of the chunk whose attempt set the flag reports after it, at most
+    one advance's bound of attempts.
     """
-    if backend == "native" and march.startswith("adams"):
-        native = pytest.importorskip("solprop_native.backend")
-        return native._NativeAdamsMarch.MAX_ATTEMPTS - 1
-    if backend == "native" and march == "runge_kutta":
-        native = pytest.importorskip("solprop_native.backend")
-        return native._NativeRungeKuttaMarch.MAX_ATTEMPTS - 1
-    return 0
+    del march, backend
+    return DEFAULT_WORK_LIMIT - 1
 
 
 @pytest.mark.parametrize("backend", ["numpy_ref", NATIVE])

@@ -12,6 +12,8 @@ contract, with a copy taken as the plane arrived.
 """
 
 import dataclasses
+import importlib
+import importlib.util
 from collections.abc import Callable
 from typing import cast
 
@@ -21,6 +23,7 @@ import pytest
 from driver.test_field_free_planes import cartesian, low_storage
 from driver.test_runner import capillary
 from solprop import fourier
+from solprop.backends import sessions
 from solprop.backends.driver import StepDriver
 from solprop.backends.events import ObservationReady
 from solprop.backends.export import ExportRecipe
@@ -41,6 +44,9 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.translate.linop import power_weight_at
 from solprop.translate.problem import KernelProblem
 from solprop.translate.run_request import describe_run
+
+IDENTITY = ExportRecipe(power=False, optics=False)
+"""The state as the session holds it."""
 
 # These cases run coarse grids for speed; their windows are not what is tested here.
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
@@ -236,6 +242,21 @@ def _copied_observations(monkeypatch: pytest.MonkeyPatch) -> list[np.ndarray]:
             return observation
 
         monkeypatch.setattr(driver, "observe", copying)
+    # The native session observes its resident state: the identity export is that
+    # state, copied, at each observation it reports.
+    if importlib.util.find_spec("solprop_native") is not None:
+        native = importlib.import_module("solprop_native.session")
+        advance = native.NativeSession.advance
+
+        def exporting(self, **bounds):
+            batch = advance(self, **bounds)
+            for event in batch.events:
+                if isinstance(event, ObservationReady):
+                    raw = self.export(event.ticket, IDENTITY)
+                    copies.append(np.array(raw)[np.newaxis])
+            return batch
+
+        monkeypatch.setattr(native.NativeSession, "advance", exporting)
     return copies
 
 
@@ -289,8 +310,16 @@ def _observed_at_its_first_plane(
 
 @pytest.mark.parametrize("backend", available())
 @pytest.mark.parametrize("case", ["modal", "single-mode"])
-def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(backend, case):
-    """The session converts an owned field where it is; the reference's is detached."""
+def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(
+    backend, case, monkeypatch
+):
+    """The session converts an owned field where it is; the reference's is detached.
+
+    The transitional session's own conversion of a driver's observation: a native
+    backend is held to it on the bridge, which still serves what the native session
+    refuses; the native session exports from its resident state instead.
+    """
+    monkeypatch.setattr(sessions, "_native_session", lambda *_, **__: None)
     simulation = STORED[case](backend)
     problem = simulation.translate()
     stepping = select(

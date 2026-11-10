@@ -25,6 +25,7 @@ import pytest
 from bounds import assert_within, fft_bound, step_evaluations
 from driver.test_field_free_planes import cartesian, low_storage, replay_bound
 from runtime_types import unchecked
+from solprop.backends import sessions
 from solprop.backends.driver import StepDriver
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.registry import available, select
@@ -207,8 +208,17 @@ def test_a_runner_counts_each_run_s_low_storage_evaluations_alone():
 @pytest.mark.parametrize("backend", available())
 @pytest.mark.parametrize("dense", [True, False], ids=["dense", "replayed Adams"])
 def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(
-    backend, dense
+    backend, dense, monkeypatch
 ):
+    served: list[str] = []
+    start = sessions.start_session
+
+    def serving(*args, **keywords):
+        session = start(*args, **keywords)
+        served.append(type(session).__name__)
+        return session
+
+    monkeypatch.setattr(sessions, "start_session", serving)
     simulation = capillary(backend, dense=dense)
     if dense:
         # The Runge-Kutta march observes densely through the backend's look-ahead.
@@ -224,7 +234,10 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(
             # The failed run held the march ahead of its interpolated plane.
             assert left._dense_ahead is not None
         else:
-            assert left._adams is not None and left._adams.ledger.total > 0
+            assert left._adams is not None
+            # The native session keeps the march's ledger itself and leaves the
+            # backend's untouched; the transitional session's march books into it.
+            assert left._adams.ledger.total > 0 or served == ["NativeSession"]
             # A failed run can stop just after a rejection; the load clears it.
             left._adams._last_rejected = True
         left.set_initial(problem.initial.field0, None, z=problem.initial.z)
