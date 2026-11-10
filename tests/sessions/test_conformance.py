@@ -775,14 +775,20 @@ def test_a_snapshot_between_planes_carries_the_attempts_since_the_last_plane(sta
     )
     end = next(z for z, _, accepted in heard[requested:] if accepted)
     assert snapshot.z == end
-    launch, first, second = run.observations[:3]
+    _, first, second = run.observations[:3]
     assert (first.plane_index, second.plane_index) == (0, 1)
     assert first.z < snapshot.z < second.z
     assert snapshot.history is not None and snapshot.step_stats is not None
-    # The attempts from the first plane to the endpoint, that one included.
+    # The attempts up to the endpoint, that one included, less every chunk an earlier
+    # event delivered (bounded yields deliver theirs too: exactly once).
     reached = [z for z, _, _ in heard].index(end) + 1
-    count = reached - launch.history.n_steps - first.history.n_steps
-    assert snapshot.history.n_steps == count
+    before = run.events[: run.events.index(snapshot)]
+    delivered = sum(
+        history.n_steps
+        for event in before
+        if (history := getattr(event, "history", None)) is not None
+    )
+    assert snapshot.history.n_steps == reached - delivered
     rows = snapshot.step_stats
     assert rows.n_rows == int(snapshot.history.accepted.sum())
     np.testing.assert_array_equal(snapshot.history.z[rows.step], rows.z)
@@ -791,11 +797,32 @@ def test_a_snapshot_between_planes_carries_the_attempts_since_the_last_plane(sta
     ((_, history, assembled),) = [
         entry for entry in run.assembled() if entry[0] is second
     ]
-    assert history.n_steps == count + second.history.n_steps
-    heard_since = heard[reached - count : reached + second.history.n_steps]
-    np.testing.assert_array_equal(history.z, [z for z, _, _ in heard_since])
-    np.testing.assert_array_equal(assembled.z[: rows.n_rows], rows.z)
-    np.testing.assert_array_equal(assembled.step[: rows.n_rows], rows.step)
+
+    def delivered_through(event: object) -> tuple[int, int]:
+        """Attempts and rows every event up to and including `event` delivered."""
+        upto = run.events[: run.events.index(event) + 1]
+        return (
+            sum(
+                history.n_steps
+                for e in upto
+                if (history := getattr(e, "history", None)) is not None
+            ),
+            sum(
+                rows.n_rows
+                for e in upto
+                if (rows := getattr(e, "step_stats", None)) is not None
+            ),
+        )
+
+    first_end, first_rows = delivered_through(first)
+    second_end, _ = delivered_through(second)
+    np.testing.assert_array_equal(
+        history.z, [z for z, _, _ in heard[first_end:second_end]]
+    )
+    # The snapshot's rows sit in the plane's assembled rows where it delivered them.
+    _, snapshot_rows = delivered_through(snapshot)
+    offset = snapshot_rows - rows.n_rows - first_rows
+    np.testing.assert_array_equal(assembled.z[offset : offset + rows.n_rows], rows.z)
     assert run.attempts == run.status.attempts
 
 

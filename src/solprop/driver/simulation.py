@@ -4201,6 +4201,18 @@ class Simulation(Displayed):
         )
 
         def reset(reason: str) -> dict[str, object]:
+            """Return the restoration record of a history that starts afresh.
+
+            Parameters
+            ----------
+            reason : str
+                Why the history starts afresh.
+
+            Returns
+            -------
+            dict
+                The record's ``"state"``, ``"reason"``, ``"z"`` and ``"retention"``.
+            """
             return {"state": "reset", "reason": reason, "z": z, "retention": retention}
 
         if self.settings.resume_history is False:

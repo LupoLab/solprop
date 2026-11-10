@@ -97,12 +97,14 @@ from solprop.translate.tdse import TDSEBinding
 
 __all__ = [
     "MARCH_SNAPSHOT_AUTO_BYTES",
+    "RESTART_RECORD",
     "LogReporter",
     "ProgressReporter",
     "check_snapshot_request",
     "field_retention",
     "open_run_record",
     "plane_from_observation",
+    "retention_at",
     "run_problem",
 ]
 

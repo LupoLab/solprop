@@ -32,30 +32,27 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import numpy as np
+from jaxtyping import Float
 
 from solprop.exceptions import TranslationError
+from solprop.monitor import BoundaryMonitor
 from solprop.output.schema import FieldRetention
+from solprop.stats import StatsSpec
+from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
-
-if TYPE_CHECKING:
-    from jaxtyping import Float
-
-    from solprop.monitor import BoundaryMonitor
-    from solprop.stats import StatsSpec
-    from solprop.stepper.controller import PIController
-    from solprop.stepper.schedule import FixedSchedule
-    from solprop.stepper.tableau import Tableau
-    from solprop.translate.problem import KernelProblem, PropagatorMode
+from solprop.stepper.schedule import FixedSchedule
+from solprop.stepper.tableau import Tableau
+from solprop.translate.problem import KernelProblem, PropagatorMode
 
 __all__ = [
     "MARCH_SNAPSHOT_AUTO_BYTES",
     "BoundaryRequest",
     "ErrorControlSpec",
     "HistoryPolicy",
+    "HistoryRetention",
     "IntegrationSpec",
     "MethodKind",
     "ObservationRequest",

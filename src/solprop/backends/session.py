@@ -52,8 +52,13 @@ from __future__ import annotations
 import enum
 import itertools
 import threading
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from types import TracebackType
+from typing import Protocol, runtime_checkable
+
+import numpy as np
+from jaxtyping import Complex
 
 from solprop.backends.events import (
     EventBatch,
@@ -62,20 +67,12 @@ from solprop.backends.events import (
     Outcome,
     Receipt,
 )
+from solprop.backends.export import ExportRecipe
 from solprop.exceptions import BackendError
-
-if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
-    from types import TracebackType
-
-    import numpy as np
-    from jaxtyping import Complex
-
-    from solprop.backends.export import ExportRecipe
-    from solprop.noise import NoiseRealisation
-    from solprop.output.schema import MarchSnapshot
-    from solprop.translate.problem import KernelProblem
-    from solprop.translate.run_request import RunRequest
+from solprop.noise import NoiseRealisation
+from solprop.output.schema import MarchSnapshot
+from solprop.translate.problem import KernelProblem
+from solprop.translate.run_request import RunRequest
 
 __all__ = [
     "DEFAULT_DEADLINE",
@@ -184,6 +181,7 @@ class StopToken:
             listener()
 
         def detach() -> None:
+            """Remove the listener; a second call does nothing."""
             with self._lock:
                 if listener in self._listeners:
                     self._listeners.remove(listener)
@@ -406,11 +404,25 @@ class RunSession(Protocol):
         work_limit: int = DEFAULT_WORK_LIMIT,
         deadline: float = DEFAULT_DEADLINE,
     ) -> EventBatch:
-        """Run until a barrier, the attempt bound or the deadline, and report it."""
+        """Run until a barrier, the attempt bound or the deadline, and report it.
+
+        Parameters
+        ----------
+        work_limit : int, optional
+            Attempts before a yield.
+        deadline : float, optional
+            Host seconds before a yield, s.
+        """
         ...
 
     def acknowledge(self, receipt: Receipt) -> None:
-        """Release a batch and allow advancing across its barrier."""
+        """Release a batch and allow advancing across its barrier.
+
+        Parameters
+        ----------
+        receipt : solprop.backends.events.Receipt
+            The pending batch's receipt.
+        """
         ...
 
     def export(
@@ -419,11 +431,27 @@ class RunSession(Protocol):
         recipe: ExportRecipe,
         out: Complex[np.ndarray, "n_modes n_pol n_omega"] | None = None,
     ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
-        """Fill a destination with a pending observation's converted field."""
+        """Fill a destination with a pending observation's converted field.
+
+        Parameters
+        ----------
+        ticket : solprop.backends.events.ExportTicket
+            The pending observation's ticket.
+        recipe : solprop.backends.export.ExportRecipe
+            The conversion.
+        out : numpy.ndarray or None, optional
+            The destination; a new array by default.
+        """
         ...
 
     def noise_phase(self, ticket: ExportTicket) -> np.ndarray | None:
-        """Return the noise phase at a pending observation, when a noise model runs."""
+        """Return the noise phase at a pending observation, when a noise model runs.
+
+        Parameters
+        ----------
+        ticket : solprop.backends.events.ExportTicket
+            The pending observation's ticket.
+        """
         ...
 
     def request_snapshot(self) -> SnapshotReceipt:
@@ -431,7 +459,13 @@ class RunSession(Protocol):
         ...
 
     def march_snapshot(self, ticket: ExportTicket) -> MarchSnapshot | None:
-        """Return the method history at a pending observation, when retained."""
+        """Return the method history at a pending observation, when retained.
+
+        Parameters
+        ----------
+        ticket : solprop.backends.events.ExportTicket
+            The pending observation's ticket.
+        """
         ...
 
     def march_snapshot_nbytes(self) -> int | None:
@@ -460,7 +494,17 @@ class RunSession(Protocol):
         error: BaseException | None,
         trace: TracebackType | None,
     ) -> None:
-        """Close the session."""
+        """Close the session.
+
+        Parameters
+        ----------
+        kind : type or None
+            The type of the exception leaving the scope, if any.
+        error : BaseException or None
+            The exception, if any.
+        trace : types.TracebackType or None
+            Its traceback, if any.
+        """
         ...
 
 
@@ -569,7 +613,13 @@ class PreparedExecution(Protocol):
         ...
 
     def start(self, start: Start) -> RunSession:
-        """Start a session from an initial state or a checkpoint."""
+        """Start a session from an initial state or a checkpoint.
+
+        Parameters
+        ----------
+        start : Start
+            The initial state or checkpoint the session starts from.
+        """
         ...
 
     def metadata(self) -> Mapping[str, object]:
@@ -596,7 +646,17 @@ class SessionBackend(Protocol):
         request: RunRequest,
         options: ExecutionOptions,
     ) -> PreparedExecution:
-        """Lower a problem and request; refuse an unsupported one before allocating."""
+        """Lower a problem and request; refuse an unsupported one before allocating.
+
+        Parameters
+        ----------
+        problem : solprop.translate.problem.KernelProblem
+            The translated problem.
+        request : solprop.translate.run_request.RunRequest
+            What the run asks of the backend.
+        options : ExecutionOptions
+            The execution options.
+        """
         ...
 
 

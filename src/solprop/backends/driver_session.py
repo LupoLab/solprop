@@ -24,13 +24,15 @@ from __future__ import annotations
 
 import dataclasses
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
+from types import TracebackType
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
 from solprop.backends.events import (
     Eligibility,
+    Event,
     EventBatch,
     ExportTicket,
     GroupBatch,
@@ -44,7 +46,7 @@ from solprop.backends.events import (
     Terminal,
     join_attempts,
 )
-from solprop.backends.export import apply_recipe
+from solprop.backends.export import ExportRecipe, apply_recipe
 from solprop.backends.protocol import (
     BackendHistory,
     Observation,
@@ -59,27 +61,24 @@ from solprop.backends.session import (
     SessionState,
     SessionStatus,
     SnapshotReceipt,
+    Start,
 )
 from solprop.exceptions import StopRequested
-from solprop.log import NullReporter
+from solprop.log import NullReporter, PlaneSummary, StopFlag
+from solprop.monitor import BoundaryMonitor
+from solprop.output.schema import MarchSnapshot
 from solprop.translate.linop import power_weight_at
+from solprop.translate.problem import KernelProblem
+from solprop.translate.run_request import RunRequest
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
-    from types import TracebackType
-
+    # Under TYPE_CHECKING, so that the runtime type checks of the test suite do not
+    # hold the scripted drivers to the full protocol or check a refused export
+    # destination's shape before the session refuses it.
     from jaxtyping import Complex
 
     from solprop.backends.driver import StepDriver
-    from solprop.backends.events import Event
-    from solprop.backends.export import ExportRecipe
     from solprop.backends.protocol import Backend
-    from solprop.backends.session import Start
-    from solprop.log import PlaneSummary, StopFlag
-    from solprop.monitor import BoundaryMonitor
-    from solprop.output.schema import MarchSnapshot
-    from solprop.translate.problem import KernelProblem
-    from solprop.translate.run_request import RunRequest
 
 __all__ = ["AttemptListener", "DriverGroupSession", "DriverSession"]
 
@@ -260,6 +259,46 @@ _EMPTY_SUMMARY = StepSummary(
 )
 
 
+class _YieldDue:
+    """Says whether a bounded advance has reached its attempt bound or its deadline.
+
+    A class rather than a closure in :meth:`DriverSession.advance`, so that no function
+    object is made per call (each one costs the coverage lane's import hook a compile).
+
+    Parameters
+    ----------
+    session : DriverSession
+        The session whose attempts are counted.
+    limit : int
+        The attempt count at which the march halts.
+    started : float
+        The advance's start, in :func:`time.perf_counter` seconds.
+    deadline : float
+        The seconds after `started` at which the march halts.
+    """
+
+    def __init__(
+        self, session: DriverSession, limit: int, started: float, deadline: float
+    ) -> None:
+        self._session = session
+        self._limit = limit
+        self._started = started
+        self._deadline = deadline
+
+    def __call__(self) -> bool:
+        """Return whether the attempt bound or the deadline has been reached.
+
+        Returns
+        -------
+        bool
+            True once the march should halt at its next accepted endpoint.
+        """
+        return (
+            self._session._listened >= self._limit
+            or time.perf_counter() - self._started >= self._deadline
+        )
+
+
 class DriverSession:
     """A :class:`~solprop.backends.session.RunSession` over an inherited driver.
 
@@ -331,6 +370,17 @@ class DriverSession:
         self._lent = False
 
         def counted(z: float, dz: float, accepted: bool) -> None:
+            """Count an attempt and pass it on to the listener.
+
+            Parameters
+            ----------
+            z : float
+                The position the attempt started from, m.
+            dz : float
+                The attempted step, m.
+            accepted : bool
+                Whether the step was accepted.
+            """
             self._listened += 1
             if listener is not None:
                 listener(z, dz, accepted)
@@ -444,8 +494,7 @@ class DriverSession:
         started = time.perf_counter()
         limit = self._listened + max(int(work_limit), 1)
 
-        def due() -> bool:
-            return self._listened >= limit or time.perf_counter() - started >= deadline
+        due = _YieldDue(self, limit, started, deadline)
 
         _hook(self._driver, "set_halt_check", due)
         try:
