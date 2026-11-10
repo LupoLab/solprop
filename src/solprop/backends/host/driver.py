@@ -39,6 +39,7 @@ from jaxtyping import Complex, Float
 from solprop._helpers import PLAIN, Helpers
 from solprop._interrupts import committing, poll
 from solprop.backends import rk_core
+from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.protocol import (
     BackendHistory,
     Observation,
@@ -47,7 +48,7 @@ from solprop.backends.protocol import (
     TimingProbe,
 )
 from solprop.backends.rk_core import rk_policy
-from solprop.backends.session import Start
+from solprop.backends.session import ExecutionOptions, Start
 from solprop.exceptions import BackendError, BoundaryError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter, StopFlag
@@ -394,6 +395,11 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         The propagated modes, in state order, for the statistics that need them.
     profiles : collections.abc.Mapping, optional
         The z-profiles keyed by statistic name.
+    options : solprop.backends.session.ExecutionOptions, optional
+        The run's execution options: an explicit node budget or an exact node chunk,
+        from which the node chunk is planned here, before anything is allocated
+        (:func:`solprop.backends.node_chunk.plan_node_chunk`). ``None`` for the
+        automatic choice.
 
     Attributes
     ----------
@@ -431,9 +437,14 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
         profiles: Mapping[str, ZProfile] | None = None,
+        options: ExecutionOptions | None = None,
     ) -> None:
         """Adopt a validated problem and start the run at the entrance."""
         self._problem = problem
+        # SEP 47 section 6.5: the node chunk is an execution choice, planned from the
+        # problem and the options.
+        self._options = ExecutionOptions() if options is None else options
+        self._chunk_plan: NodeChunkPlan = plan_node_chunk(problem, self._options)
         self._adams: HostAdamsMarch | None = None
         # The low-storage march (SEP 24), set at construction by a backend that
         # executes it, and the step it has left in flight: from the step's start to
@@ -902,6 +913,28 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             return "recompute"
         return self.propagator_default if asked == "auto" else asked
 
+    @property
+    def node_chunk(self) -> int:
+        """Return the nodes a response pass of this backend holds at once.
+
+        Returns
+        -------
+        int
+            The planned chunk (:attr:`chunk_plan`).
+        """
+        return self._chunk_plan.chunk
+
+    @property
+    def chunk_plan(self) -> NodeChunkPlan:
+        """Return the node-chunk plan and what chose it.
+
+        Returns
+        -------
+        solprop.backends.node_chunk.NodeChunkPlan
+            The plan made at construction.
+        """
+        return self._chunk_plan
+
     def available_device_memory(self) -> int | None:
         """Return None for host execution; device backends report free bytes.
 
@@ -931,6 +964,9 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         record: dict[str, object] = {
             "backend": self.name,
             "propagator_mode": self._propagator_mode,
+            # SEP 47 section 4.3: execution metadata, outside the resume key.
+            **self._chunk_plan.record(),
+            "node_chunk": self.node_chunk,
         }
         if self._problem.responses.plasma_channels:
             record["plasma_source"] = plasma_source_record(self._problem.grids)
