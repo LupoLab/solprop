@@ -68,7 +68,12 @@ from solprop.backends.session import (
     SnapshotReceipt,
     StopToken,
 )
-from solprop.exceptions import BackendError, BoundaryError, StopRequested
+from solprop.exceptions import (
+    BackendError,
+    BoundaryError,
+    HostMarchWarning,
+    StopRequested,
+)
 from solprop.monitor import BoundaryCheck
 from solprop.stats import StatsSpec
 from solprop.stepper.multistep import Multistep
@@ -624,8 +629,6 @@ def test_attempt_records_add_up_to_the_status(start):
 @pytest.mark.filterwarnings("ignore:the temporal absorber attenuates")
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.GrazingIncidenceWarning")
-# A device build's bridge steps these flows on solprop's host engine, and says so.
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize("kind", COUPLED_KINDS)
 def test_a_wide_or_off_route_coupled_flow_keeps_the_contract(start, executor, kind):
     """SEP 47 section 6.3 (phase 4): the coupled flows the session took over.
@@ -645,9 +648,15 @@ def test_a_wide_or_off_route_coupled_flow_keeps_the_contract(start, executor, ki
     # 17-channel block is long, and its repeatability is the suite's other tests'.
     repeated = executor.deterministic and executor.name.startswith("native")
     runs = []
-    for _ in range(2 if repeated else 1):
-        started = start(problem, request, context=context)
-        runs.append(drive(started, export=IDENTITY))
+    with warnings.catch_warnings():
+        if device_build():
+            # A device build's bridge steps a flow off the route on solprop's host
+            # engine, and says so; a CPU build steps both natively, so the warning
+            # stays an error there.
+            warnings.simplefilter("ignore", HostMarchWarning)
+        for _ in range(2 if repeated else 1):
+            started = start(problem, request, context=context)
+            runs.append(drive(started, export=IDENTITY))
     run = runs[0]
     assert run.terminal.outcome is Outcome.COMPLETED
     assert run.attempts == run.status.attempts == len(schedule.steps)

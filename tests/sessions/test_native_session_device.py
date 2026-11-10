@@ -55,7 +55,9 @@ from sessions.test_group import member
 from sessions.test_native_group import INTEGRATORS, _record, _same, _started
 from sessions.test_native_session import (
     CASES,
+    DENSE,
     _case,
+    _control_trace,
     _driver_session,
     _make_native,
 )
@@ -93,7 +95,22 @@ pytestmark = pytest.mark.gpu
 DEVICE_CASES = tuple(sorted(CASES))
 """Every case of the CPU session's bitwise suite: adaptive and replayed, with
 rejections, periodic rows on two periods and step planes, every temporal statistic,
-the low-storage replay and dense output in both Adams formulations."""
+the low-storage replay and dense output in both Adams formulations. The Runge-Kutta
+tableau's dense output is :data:`RK_DENSE`'s, held to a bound."""
+
+RK_DENSE = {
+    "runge-kutta": {"step_planes": 3, "rtol": 1e-8},
+    "runge-kutta-rejections": DENSE["runge-kutta-rejections"],
+}
+"""DOPRI5's dense output, adaptive and with rejections (the CPU suite's
+``test_runge_kutta_dense_planes_follow_the_drivers_run``)."""
+
+RK_DENSE_BOUND = 1e-14
+"""The interpolated planes' bound against the bridge's, relative to the largest
+exported field: the CPU suite's. On a device the bridge forms each plane on the host
+with NumPy (``StepDriver._dense_record``, ``_observe_inside``) and the session where
+the state lives, through the device's own extension and flow kernels
+(``rk_dense_hold``, ``rk_dense_observe``)."""
 
 ROUTES = ("radial", "plane", "line", "planar")
 """The spatial routes, each with its own fluence-width rule."""
@@ -211,6 +228,55 @@ def test_the_device_session_gives_the_drivers_trace_and_fields(case, recipe):
     nbytes = np.prod(problem.shape) * 16
     assert status.exports == len(run.fields)
     assert to_host == status.export_bytes == status.exports * nbytes
+
+
+def rk_dense_departure(case: str) -> tuple[float, float]:
+    """Run an RK dense case on the bridge and in the session; return the departures.
+
+    Parameters
+    ----------
+    case : str
+        A key of :data:`RK_DENSE`.
+
+    Returns
+    -------
+    tuple of float
+        The planes' largest difference relative to the largest exported field, and
+        the plane statistics' largest relative difference.
+    """
+    options = {"step_planes": 0, **RK_DENSE[case]}
+    problem, request = _case(interpolate=True, **options)
+    baseline = drive(_driver_session(problem, request), export=CONSUMER)
+    session = _make_native(problem, request)
+    run = drive(Started(session), export=CONSUMER)
+    session.close()
+    assert _control_trace(run) == _control_trace(baseline)
+    assert len(run.fields) == len(baseline.fields) > 2
+    scale = max(float(np.max(np.abs(field))) for field in baseline.fields)
+    fields = max(
+        float(np.max(np.abs(field - other)))
+        for field, other in zip(run.fields, baseline.fields, strict=True)
+    )
+    stats = 0.0
+    for got, expected in zip(run.observations, baseline.observations, strict=True):
+        for name, value in expected.stats.items():
+            want = np.asarray(value, dtype=float)
+            found = np.asarray(got.stats[name], dtype=float)
+            relative = np.abs(found - want) / np.maximum(np.abs(want), 1e-300)
+            stats = max(stats, float(np.max(relative, initial=0.0)))
+    return fields / scale, stats
+
+
+@pytest.mark.parametrize("case", sorted(RK_DENSE))
+def test_runge_kutta_dense_planes_follow_the_bridge_on_the_device(case):
+    """DOPRI5's dense output in the device session against the bridge's: every
+    attempt, norm, acceptance, row and observation position the same, bitwise (both
+    reload the committed state after an observation), and the planes, which the
+    bridge forms on the host and the session on the device, within
+    :data:`RK_DENSE_BOUND` of the peak, their statistics within 1e-12."""
+    fields, stats = rk_dense_departure(case)
+    assert fields <= RK_DENSE_BOUND
+    assert stats <= 1e-12
 
 
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
