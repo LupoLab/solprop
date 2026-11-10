@@ -5,19 +5,26 @@ The package and explicit setup commands are available on its implementation bran
 Numerical sessions and device qualification remain in progress; installing a device
 environment does not establish that its propagation kernels are qualified.
 
-The current integration exercises constant scalar modal envelopes in binary64 with
-Kerr response and Runge–Kutta stepping, including adaptive and fixed replay schedules.
+The current internal integration supports scalar modal fields and envelopes in binary64
+with Kerr, Raman and plasma responses and Runge–Kutta stepping, including adaptive and
+fixed replay schedules. Constant, tabulated and expanded operators, prefactors and power
+weights keep their full represented variation. Each material response uses its own
+density, decay and preionisation profiles; taper scaling follows the translated mode map.
 Julia owns the stepping loop, error control, bounded attempt history and event barriers.
 Snapshots, cooperative stops and field exports use the same session contract as other
 backends. An acknowledged event invalidates its export ticket; arrays already returned
 to Python remain valid. Failed output consumers can recover an undelivered history chunk
 once, without repeating numerical work.
 
-This first composition is being extended to the remaining accepted responses,
+This composition is being extended to the remaining accepted routes,
 integrators, statistics and monitors before public backend selection is enabled.
 Unsupported combinations currently refuse by name at preparation. The standalone
-Adams, low-storage, statistics and temporal-monitor components have separate tests;
+Adams, low-storage, statistics and temporal/transverse-monitor components have separate tests;
 their presence alone does not establish complete session support.
+The current session supports in-stage temporal absorption. Split absorption, noise,
+vector responses, general modal and spatial transforms, and observation services remain
+pending. An explicit node chunk bounds the source's physical-node scratch; memory-budget
+admission remains pending. These execution choices do not alter scientific identities.
 
 ## Install and inspect
 
@@ -74,15 +81,15 @@ Python environment that created it does not remove the engine.
 
 Changed engine sources, preferences or installed device selections produce a different
 identity. Selection without an explicit identity requires exactly one compatible setup;
-ambiguity reports the available IDs. The forthcoming session interface will select an
-identity through the `setup_id` backend option and record it as execution metadata.
+ambiguity reports the available IDs. The session interface selects an
+identity through the `setup_id` backend option and records it as execution metadata.
 
 `SimulationSettings.backend_options` carries backend-specific execution choices. It
 defaults to an independently owned empty mapping, and preparation takes another owned
 copy through `settings.execution_options()`. These choices survive spawned workers and
 may be replaced after translation without changing the scientific configuration or
 restart identity. The selected backend refuses unsupported keys before constructing a
-workspace. The Julia adapter will admit `setup_id` and `wide`; the existing native and
+workspace. The Julia adapter admits `setup_id` and `wide`; the existing native and
 NumPy reference backends accept no backend-specific keys.
 Recipes that construct `SimulationSettings` carry this mapping under
 `build.settings.backend_options`; TOML round trips and Python export preserve it.

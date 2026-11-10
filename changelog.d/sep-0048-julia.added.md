@@ -13,7 +13,11 @@ factories, so the optional Julia adapter can keep all numerical marching in Juli
 Failed group construction preserves entrance fields and caller-owned backends for
 retry ([#623](https://github.com/LupoLab/solprop/issues/623)).
 
-The first binary64 Julia session runs constant scalar Kerr envelopes through the
+The binary64 Julia session runs scalar modal fields and envelopes through the
 shared event and output services, with adaptive or fixed Runge–Kutta stepping,
 bounded attempt delivery, cooperative stops, snapshots and validated destination
-exports. Broader response, method and device support remains under implementation.
+exports. Kerr, Raman and plasma responses retain independent represented profiles;
+operators, prefactors and power weights support constant, table and expansion forms.
+The source owns bounded node scratch and refuses overlapping caller buffers before
+numerical writes. Broader route, method, observation and device support remains under
+implementation.

@@ -11,7 +11,7 @@ The completed implementation is left ready for maintainer review, not auto-merge
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
 | 1: package and runtime | Setup/package integrated; remaining runtime qualification deferred | Maintainer directs core implementation to proceed; failures remain tracked |
-| 2: CPU binary64 session | First complete route passes; broader composition in progress | Nine real bridge tests pass for constant scalar Kerr/RK; remaining response/service integration below |
+| 2: CPU binary64 session | Scalar modal RK composition passes; methods and services in progress | Nineteen real bridge tests cover field/envelope Kerr, Raman, plasma and represented operators |
 | 3: CPU binary32 | Pending | Phase 2 and source-checked DF32 bounds |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
@@ -27,6 +27,8 @@ of legacy numerical operations. The Julia owner now uses that contract directly;
 public registry selection awaits the broader CPU composition. No new backend-name
 branch belongs in the service/session dispatcher.
 The subsequent Part B CI corrections at `f6921fae` are integrated at `10be2eff`.
+The additional CI corrections at `55fdc423` are also integrated: they restore
+request-owned arrays to the mixture baseline and remove nonportable hash literals.
 The legacy callers of this branch's new execution-owner protocol are corrected;
 whole-package basedpyright reports zero errors and three existing native-stub warnings.
 Explicit legacy selections retain their stronger type; general selection keeps the
@@ -47,10 +49,15 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Numerical transform/Adams agent | `julia/src/execution.jl`, `transforms.jl`, `operators.jl`, `tables.jl`, `phi_functions.jl`, `adams.jl`, `adams_control.jl`, `low_storage.jl`, `composition.jl`; corresponding tests; dependency declarations/generated environments | Reviewed Adams/low-storage integrated; general source in review; pure Adams control next |
-| Numerical services agent | `julia/src/responses.jl`, `raman.jl`, `plasma.jl`, `statistics.jl`, `monitor.jl`, `observations.jl`; corresponding Julia tests | Transverse monitor reviewed and integrated; modal observation composition next |
+| Numerical transform/Adams agent | `julia/src/execution.jl`, `transforms.jl`, `operators.jl`, `tables.jl`, `phi_functions.jl`, `adams.jl`, `adams_control.jl`, `low_storage.jl`, `composition.jl`; corresponding tests; dependency declarations/generated environments | General source reviewed and integrated; pure Adams control qualification |
+| Numerical services agent | `julia/src/responses.jl`, `raman.jl`, `plasma.jl`, `statistics.jl`, `monitor.jl`, `power_weights.jl`, `observations.jl`; corresponding Julia tests | Shared power-weight evaluator, then modal observation composition |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
-| Independent reviewer | Production code read-only | First CPU bridge and transverse monitor approved; general source composition in review |
+| Independent reviewer | Production code read-only | Modal lowering/bridge approved; Adams control and observation composition in review |
+
+Temporary CI correction ownership: the numerical agent also owns the narrow
+`restore_control!` correction in `control.jl` and its directly affected tests. The
+master leaves that code untouched until review and integration. The services agent
+owns the `TransverseState` constructor correction in its existing monitor files.
 
 The foundation is committed at `540794bd`. Setup commits `6c569742`, `fadae531` and
 `52269788` were independently reviewed and integrated as `9fe74c26`, `5cec895c` and
@@ -344,3 +351,33 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   reconstructions. Split monitoring captures the masked pre-split candidate, then
   consumes it after split damping, final masking and commit. Numerical observation
   work owns scratch only; session glue owns bounded rows, event cursors and delivery.
+- The shared real power-weight evaluator is integrated at `92bb693a`: 61 bounds-enabled
+  assertions, independent review, zero warmed allocation, Aqua and concrete JET checks
+  pass. Destination exports and statistics use this one represented-value evaluator.
+- General scalar modal sources are integrated at `12cc9f41` and `76331571`, after
+  independent review. The final one/two-thread selections pass 1,027/1,981 assertions;
+  240 actual NumPy witnesses pass, including field/envelope, each response, independent
+  profiles, three prefactor forms, chunk remainders and in-stage absorption. Aqua and
+  eight concrete JET checks pass. Review corrected operand overlap (#639) and mixed-
+  profile allocations (#640), with zero warmed allocation preserved. A cancellation
+  regression verifies the strengthened absolute-input contribution envelope.
+- Full modal Python lowering/bridge integration passed independent review. The former narrow
+  envelope source is retired; its defining-DFT, ownership and nonlinear-phase tests now
+  exercise the general source. The carried source/march/transfer selection passes 309
+  bounds-enabled assertions. Pure lowering/session-boundary selection passes 41 tests;
+  scoped typing has zero errors or warnings. Nineteen managed-runtime tests pass on
+  macOS arm64 with two Julia threads, including all three scalar response families on
+  both grids, represented varying operators/prefactors, and actual-position power
+  exports. Short material runs compare eight steps with sixteen/thirty-two-step NumPy
+  references under explicit accuracy and refinement envelopes. No long propagation
+  is part of this qualification. Sphinx passes with warnings as errors.
+- Independent review corrected destination overlap with any retained numerical buffer
+  before weight evaluation (#642), and duplicate accounting of Julia-owned stop
+  storage (#643). Views and reinterpreted arrays are covered; borrowed stop storage
+  remains counted. The reviewer passed 111 transfer assertions and the original three
+  reproducer assertions after the fixes.
+- CI at `5ae085f2` exposed an unqualified test package's `conftest` collision and
+  Linux package-wide JET findings. Adding a package identity resolves the three-file
+  fixture collection; the narrow runtime selection collects all 31 tests. Owned JET
+  corrections are in progress and remain blocking. The earlier local Aqua/JET pass
+  does not qualify the failing Linux lane.

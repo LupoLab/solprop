@@ -1,39 +1,53 @@
 # SPDX-FileCopyrightText: 2026 John C. Travers and contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-public EnvelopePreparation, prepare_envelope, start_runge_kutta
+public ModalPreparation, prepare_modal, start_runge_kutta
 public advance_session, acknowledge_session, session_status, export_session!
 public session_attempts!, session_failure, session_memory, preparation_memory
 public fail_session
 
 """
-    EnvelopePreparation(execution, data, operator, crop_index, power_weight)
+    ModalPreparation(execution, data, operator, power_weight, node_chunk)
 
-Retain immutable owned numerical preparation shared by constant-envelope sessions.
+Retain immutable owned numerical preparation shared by scalar modal sessions.
 
-`data` is `EnvelopeKerrData`, `operator` a diagonal generator, `crop_index` the
-zero-based frequency map and `power_weight` dimensionless positive modal weights.
-Each started session constructs its own source, FFT plans, flow and march storage.
-The PythonCall extension lowers the typed Python transfer record into this preparation.
+`data` is `ModalSourceData`, `operator` a diagonal generator or represented cumulative
+operator, and `power_weight` an `ObservationWeight`. Each started session constructs
+its own source, FFT plans, flow, exports and march storage. The positive `node_chunk`
+is the maximum physical nodes held at once; it does not change their quadrature.
 """
-struct EnvelopePreparation{E, D, O, I, W}
+struct ModalPreparation{E, D, O, W}
     execution::E
     data::D
     operator::O
-    crop_index::I
     power_weight::W
+    node_chunk::Int
+end
+
+struct _FieldExport{W, A, C}
+    weight::W
+    values::A
+    coefficients::C
+end
+
+function _FieldExport(execution, weight)
+    count = weight.weights === nothing ? 0 : size(weight.weights.coefficients, 1)
+    return _FieldExport(
+        weight, dzeros(execution, Float64, weight.shape...),
+        dzeros(execution, Float64, count),
+    )
 end
 
 """
-    prepare_envelope(transfer, threads)
+    prepare_modal(transfer, threads, node_chunk)
 
-Convert a Python envelope transfer once through the PythonCall extension.
+Convert a Python modal transfer once through the PythonCall extension.
 
 Every numerical array is copied into Julia-owned storage; no Python object is
-retained. `threads` is a positive execution budget. Admission precedes this bridge
-entry in Python and is rechecked by the typed numerical constructors.
+retained. `threads` and `node_chunk` are positive execution budgets. Pure Python
+admission precedes this entry; typed numerical constructors recheck the data.
 """
-function prepare_envelope end
+function prepare_modal end
 
 """
     start_runge_kutta(preparation, transfer, field, z, plane, plane_pending, stop)
@@ -111,6 +125,25 @@ function _session_exportable(session, generation)
     return nothing
 end
 
+# Destinations cross an ownership boundary. Reject overlap with every retained
+# numerical array, including immutable preparation and scratch, before any write.
+# Vendor plans are opaque, but their input/output arrays are explicit owned fields.
+function _retained_alias(destination, value)
+    if value isa AbstractArray
+        return Base.mightalias(destination, value)
+    elseif value === nothing || isbitstype(typeof(value)) || value isa String
+        return false
+    elseif value isa Union{Tuple, NamedTuple}
+        return any(item -> _retained_alias(destination, item), value)
+    elseif parentmodule(typeof(value)) === @__MODULE__
+        return any(
+            name -> _retained_alias(destination, getfield(value, name)),
+            fieldnames(typeof(value)),
+        )
+    end
+    return false
+end
+
 """
     export_session!(output, session, generation, power_weight, power, optics)
 
@@ -132,7 +165,7 @@ function export_session!(
     field = session.field
     size(output) == size(field) == size(power_weight) ||
         throw(DimensionMismatch("session export dimensions disagree"))
-    (Base.mightalias(output, field) || Base.mightalias(output, power_weight)) &&
+    (_retained_alias(output, session) || Base.mightalias(output, power_weight)) &&
         throw(ArgumentError("an export must not alias session storage"))
     scale = power && !all(isone, power_weight)
     each!(session.execution, size(field)...) do row, column
@@ -173,9 +206,8 @@ function session_attempts!(
         length(elapsed) == buffer.count ||
         throw(DimensionMismatch("attempt destinations must match the pending chunk"))
     destinations = (positions, lengths, norms, accepted, elapsed)
-    retained = (buffer.z, buffer.dz, buffer.norm, buffer.accepted, buffer.elapsed)
     for first in eachindex(destinations)
-        any(source -> Base.mightalias(destinations[first], source), retained) &&
+        _retained_alias(destinations[first], session) &&
             throw(ArgumentError("attempt destinations must not alias retained storage"))
         for second in (first + 1):length(destinations)
             Base.mightalias(destinations[first], destinations[second]) &&
@@ -200,73 +232,97 @@ function session_failure(session)
     )
 end
 
+# Ledger traversal is an observation, never a numerical hot path. Arrays shared
+# with immutable preparation or through views are counted once by owner identity.
+function _memory_arrays!(ledger, seen, path, value)
+    if value === nothing || isbitstype(typeof(value)) || value isa String
+        return nothing
+    elseif value isa AbstractArray
+        owner = parent(value)
+        if owner !== value
+            return _memory_arrays!(ledger, seen, path, owner)
+        end
+        if !haskey(seen, owner)
+            seen[owner] = true
+            ledger[Symbol(path)] = sizeof(owner)
+        end
+    elseif value isa Tuple
+        for (index, item) in enumerate(value)
+            _memory_arrays!(ledger, seen, string(path, ".", index), item)
+        end
+    elseif parentmodule(typeof(value)) === @__MODULE__
+        for name in fieldnames(typeof(value))
+            _memory_arrays!(ledger, seen, string(path, ".", name), getfield(value, name))
+        end
+    elseif parentmodule(typeof(value)) === FFTW
+        if !haskey(seen, value)
+            seen[value] = true
+            ledger[Symbol(string(path, ".estimated_plan"))] = Base.summarysize(value)
+        end
+    end
+    return nothing
+end
+
+function _memory_record(ledger)
+    ordered = sort!(collect(keys(ledger)); by = string)
+    return NamedTuple{Tuple(ordered)}(Tuple(ledger[key] for key in ordered))
+end
+
 """
     session_memory(session)
 
-Return named retained array sizes in bytes for the first envelope session composition.
+Return named retained array sizes in bytes for one independent numerical session.
 
-The immutable preparation is accounted separately by its owner. FFT plans retain
-vendor storage in addition to these explicit arrays; their size is reported separately
-using Julia's recursive size estimate rather than silently omitted.
+Shared source/operator/export preparation is excluded and reported by its owner.
+Views and repeated references count their owning array once. FFT plan sizes are
+explicitly marked estimates because their vendor allocations are opaque.
 """
 function session_memory(session)
-    source, work = session.source, session.work
-    flow, attempts = session.flow, session.attempts
-    return (
-        field = sizeof(session.field),
-        stages = sizeof(work.stages),
-        combination = sizeof(work.combination),
-        lab = sizeof(work.lab),
-        source = sizeof(work.source),
-        transported = sizeof(work.transported),
-        candidate = sizeof(work.candidate),
-        defect = sizeof(work.defect),
-        norm_parts = sizeof(work.norm_parts),
-        fine_modal = sizeof(source.fine_modal),
-        fine_nodal = sizeof(source.fine_nodal),
-        samples = sizeof(source.samples),
-        polarisation = sizeof(source.polarisation),
-        source_failures = sizeof(source.failures),
-        flow_exponent = sizeof(flow.exponent),
-        flow_failures = sizeof(flow.failures),
-        history = sizeof(session.history.readings),
-        active = sizeof(session.norm.active),
-        observed = sizeof(session.norm.observed),
-        weights = sizeof(session.norm.weights),
-        planes = sizeof(session.schedule.planes),
-        breakpoints = sizeof(session.schedule.breakpoints),
-        hard_kinks = sizeof(session.schedule.hard_kinks),
-        replay_steps = sizeof(session.schedule.replay_steps),
-        replay_edges = sizeof(session.schedule.replay_edges),
-        crop = sizeof(source.padding.crop),
-        uncrop = sizeof(source.padding.uncrop),
-        stop = 1,
-        attempt_positions = sizeof(attempts.z),
-        attempt_lengths = sizeof(attempts.dz),
-        attempt_norms = sizeof(attempts.norm),
-        attempt_accepted = sizeof(attempts.accepted),
-        attempt_elapsed = sizeof(attempts.elapsed),
-        fft_plans = Base.summarysize(source.transform),
-    )
+    ledger = Dict{Symbol, Int}()
+    seen = IdDict{Any, Bool}()
+    _memory_arrays!(ledger, seen, "shared.source", session.source.data)
+    _memory_arrays!(ledger, seen, "shared.operator", session.flow.operator)
+    if session.exports !== nothing
+        _memory_arrays!(ledger, seen, "shared.weight", session.exports.weight)
+    end
+    empty!(ledger)
+    _memory_arrays!(ledger, seen, "session", session)
+    # Julia-owned bytes were visited above. Only foreign storage needs this entry.
+    session.stop.storage === nothing && (ledger[:stop] = 1)
+    return _memory_record(ledger)
 end
 
 """
     preparation_memory(preparation)
 
-Return named array byte counts for immutable shared envelope preparation.
+Return named array byte counts for immutable shared modal preparation.
 
-All source matrices, windows, optional carrier, operator, crop map and export weights
-are owned copies. Sessions refer to these arrays; their ledgers must not count them twice.
+The source records, represented operator and export weights are owned copies.
+Sessions refer to these arrays; their ledgers exclude them to avoid double counting.
 """
-function preparation_memory(preparation::EnvelopePreparation)
-    data = preparation.data
-    return (
-        synthesis = sizeof(data.synthesis), projection = sizeof(data.projection),
-        prefactor = sizeof(data.prefactor), omega_window = sizeof(data.omega_window),
-        source_window = sizeof(data.source_window),
-        carrier = data.carrier === nothing ? 0 : sizeof(data.carrier),
-        operator = sizeof(preparation.operator.rate),
-        crop_index = sizeof(preparation.crop_index),
-        power_weight = sizeof(preparation.power_weight),
+function preparation_memory(preparation::ModalPreparation)
+    ledger = Dict{Symbol, Int}()
+    _memory_arrays!(ledger, IdDict{Any, Bool}(), "preparation", preparation)
+    return _memory_record(ledger)
+end
+
+function export_session!(
+        output::AbstractMatrix{ComplexF64}, session, generation::Int,
+        preparation::ModalPreparation, power::Bool, optics::Bool,
     )
+    _session_exportable(session, generation)
+    storage = session.exports
+    storage !== nothing && storage.weight === preparation.power_weight ||
+        throw(ArgumentError("session exports belong to another numerical preparation"))
+    size(output) == size(session.field) ||
+        throw(DimensionMismatch("session export dimensions disagree"))
+    (_retained_alias(output, session) || _retained_alias(output, preparation)) &&
+        throw(ArgumentError("an export must not alias retained numerical storage"))
+    if power
+        evaluate_weight!(
+            storage.values, storage.weight, session.state.z, session.execution;
+            work = storage.coefficients,
+        )
+    end
+    return export_session!(output, session, generation, storage.values, power, optics)
 end

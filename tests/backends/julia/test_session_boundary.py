@@ -277,6 +277,7 @@ def boundary(monkeypatch, setup_record):
     owner._sessions = WeakSet()
     owner._options = {}
     owner._wide = "binary64"
+    owner._node_chunk = 1
     prepared = JuliaPrepared(owner, runtime, preparation, _transfer(), SHAPE)
     harness = SimpleNamespace(
         engine=engine,

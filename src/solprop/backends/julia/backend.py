@@ -7,14 +7,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import fields
 from weakref import WeakSet
-
-import numpy as np
 
 from solprop.backends.driver_session import foreign_request
 from solprop.backends.julia import _calls
-from solprop.backends.julia._lower import RunTransfer, lower_envelope, lower_runge_kutta
+from solprop.backends.julia._descriptors import lower_modal, transfer_memory
+from solprop.backends.julia._lower import RunTransfer, lower_runge_kutta
 from solprop.backends.julia._ownership import JuliaHandle, require_main_thread
 from solprop.backends.julia._runtime import JuliaRuntime, get_runtime
 from solprop.backends.julia._session import JuliaSession
@@ -95,9 +93,9 @@ class JuliaBackend:
             raise BackendError(
                 "this Julia binary64 composition requires wide='binary64'"
             )
-        if selected.budget is not None or selected.chunk is not None:
+        if selected.budget is not None:
             raise BackendError(
-                "this Julia composition does not yet implement node chunking"
+                "this Julia composition does not yet implement node memory budgets"
             )
         if request.integration.propagator_mode == "tabulate":
             raise BackendError(
@@ -105,7 +103,11 @@ class JuliaBackend:
             )
         self._problem = problem
         self._request = request
-        self._lowered = lower_envelope(problem)
+        self._lowered = lower_modal(problem)
+        self._node_chunk = min(
+            problem.transform.n_nodes,
+            problem.transform.n_nodes if selected.chunk is None else selected.chunk,
+        )
         lower_runge_kutta(problem, request)
         self._setup_id = setup_id
         self._wide = wide
@@ -186,7 +188,7 @@ class JuliaBackend:
         if self._preparation is None:
             runtime = get_runtime(setup_id=self._setup_id, device="cpu")
             handle = runtime.own_call(
-                "prepare_envelope", self._lowered, runtime.threads
+                "prepare_modal", self._lowered, runtime.threads, self._node_chunk
             )
             self._runtime, self._preparation = runtime, handle
         assert self._runtime is not None
@@ -210,6 +212,7 @@ class JuliaBackend:
             "wide": self._wide,
             "propagator_mode": "recompute",
             "backend_options": dict(self._options),
+            "node_chunk": self._node_chunk,
         }
         if runtime is not None:
             record.update(
@@ -289,11 +292,10 @@ class JuliaBackend:
             Named byte counts, with each session in its own namespace.
         """
         self._check()
-        ledger: dict[str, int] = {}
-        for field in fields(self._lowered):
-            values = getattr(self._lowered, field.name)
-            if isinstance(values, np.ndarray):
-                ledger[f"transfer.{field.name}"] = values.nbytes
+        ledger = {
+            f"transfer.{name}": size
+            for name, size in transfer_memory(self._lowered).items()
+        }
         if self._runtime is not None and self._preparation is not None:
             ledger.update(
                 (f"preparation.{name}", size)

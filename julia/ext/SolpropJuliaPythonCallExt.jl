@@ -3,9 +3,9 @@
 
 module SolpropJuliaPythonCallExt
 
-import PythonCall: Py, PyArray, pyconvert, pyis
+import PythonCall: Py, PyArray, pyconvert, pyis, pyisinstance, pybuiltins
 import SolpropJulia
-import SolpropJulia: copy_preparation, prepare_envelope, start_runge_kutta
+import SolpropJulia: copy_preparation, prepare_modal, start_runge_kutta
 import SolpropJulia: export_session!, session_attempts!
 
 """
@@ -26,35 +26,160 @@ A Julia `Array` that does not retain a Python array, buffer or owner.
 """
 copy_preparation(values::Py) = copy_preparation(PyArray(values; copy = false))
 
-function prepare_envelope(transfer::Py, threads::Int)
-    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), threads)
-    kerr = if pyis(transfer.kerr, nothing)
-        nothing
-    else
-        factors = pyconvert(NTuple{4, Float64}, transfer.kerr)
-        coefficient, self, conjugate, harmonic = factors
-        SolpropJulia.KerrCoefficients(
-            coefficient, :analytic; self_factor = self, conjugate_factor = conjugate,
-            harmonic_factor = harmonic,
+function _table(execution, transfer)
+    return SolpropJulia.ChebyshevTable(
+        execution, copy_preparation(transfer.edges),
+        copy_preparation(transfer.coefficients);
+        lower = pyconvert(Float64, transfer.lower),
+        upper = pyconvert(Float64, transfer.upper),
+    )
+end
+
+_optional_copy(value) = pyis(value, nothing) ? nothing : copy_preparation(value)
+
+function _profile(execution, value, name)
+    if pyisinstance(value, pybuiltins.float)
+        return SolpropJulia.SourceProfile(pyconvert(Float64, value); name)
+    end
+    return SolpropJulia.SourceProfile(_table(execution, value); name)
+end
+
+function _prefactor(execution, transfer, shape)
+    if !pyis(transfer.table, nothing)
+        return SolpropJulia.SourcePrefactor(_table(execution, transfer.table), shape)
+    elseif !pyis(transfer.weights, nothing)
+        return SolpropJulia.SourcePrefactor(
+            execution, copy_preparation(transfer.values),
+            _table(execution, transfer.weights),
         )
     end
-    data = SolpropJulia.EnvelopeKerrData(
-        execution;
-        synthesis = copy_preparation(transfer.synthesis),
-        projection = copy_preparation(transfer.projection),
-        prefactor = copy_preparation(transfer.prefactor),
+    return SolpropJulia.SourcePrefactor(execution, copy_preparation(transfer.values))
+end
+
+function _operator(execution, transfer, shape)
+    if !pyis(transfer.table, nothing)
+        return SolpropJulia.RepresentedOperator(
+            execution, _table(execution, transfer.table), shape...,
+        )
+    elseif !pyis(transfer.weights, nothing)
+        return SolpropJulia.ExpansionOperator(
+            execution, copy_preparation(transfer.values),
+            _table(execution, transfer.weights),
+        )
+    end
+    return SolpropJulia.DiagonalOperator(execution, copy_preparation(transfer.values))
+end
+
+function _power_weight(execution, transfer, shape)
+    if !pyis(transfer.table, nothing)
+        return SolpropJulia.ObservationWeight(_table(execution, transfer.table), shape)
+    elseif !pyis(transfer.weights, nothing)
+        return SolpropJulia.ObservationWeight(
+            execution, copy_preparation(transfer.values),
+            _table(execution, transfer.weights),
+        )
+    end
+    return SolpropJulia.ObservationWeight(execution, copy_preparation(transfer.values))
+end
+
+function _kerr(execution, transfer)
+    pyis(transfer, nothing) && return nothing
+    coefficients = SolpropJulia.KerrCoefficients(
+        pyconvert(Float64, transfer.coefficient), Symbol(pyconvert(String, transfer.form));
+        self_factor = pyconvert(Float64, transfer.self_factor),
+        conjugate_factor = pyconvert(Float64, transfer.conjugate_factor),
+        harmonic_factor = pyconvert(Float64, transfer.harmonic_factor),
+        take_real = pyconvert(Bool, transfer.take_real),
+    )
+    return SolpropJulia.ModalKerr(
+        coefficients, _profile(execution, transfer.density, :kerr),
+    )
+end
+
+function _raman(execution, transfer, dt)
+    kernel = SolpropJulia.RamanKernel(copy_preparation(transfer.undamped), dt)
+    return SolpropJulia.ModalRaman(
+        kernel, Tuple(_profile(execution, rate, :raman_decay) for rate in transfer.rates),
+        _profile(execution, transfer.density, :raman_density);
+        fraction = pyconvert(Float64, transfer.fraction),
+        material_factor = pyconvert(Float64, transfer.material_factor),
+        thg = pyconvert(Bool, transfer.thg),
+    )
+end
+
+function _plasma_channel(execution, transfer)
+    value = transfer.rate
+    rate = SolpropJulia.IonisationRateTable(
+        copy_preparation(value.coefficients), pyconvert(Float64, value.field_min),
+        pyconvert(Float64, value.field_max), pyconvert(Float64, value.rate_max),
+        pyconvert(Float64, value.log_field_min), pyconvert(Float64, value.d_log_field),
+    )
+    channel = SolpropJulia.PlasmaChannel(
+        rate, pyconvert(Float64, transfer.charge_mass_ratio),
+        pyconvert(Float64, transfer.ionisation_potential),
+    )
+    cycle = transfer.cycle
+    quadrature = pyis(cycle, nothing) ? nothing : SolpropJulia.CycleQuadrature(
+            copy_preparation(cycle.nodes), copy_preparation(cycle.weights),
+            pyconvert(Tuple{Vararg{Int}}, cycle.ends);
+            moment_rtol = pyconvert(Float64, cycle.moment_rtol),
+            negligible_rate = pyconvert(Float64, cycle.negligible_rate),
+        )
+    return SolpropJulia.ModalPlasmaChannel(
+        channel, _profile(execution, transfer.density, :plasma_density),
+        _profile(execution, transfer.preionisation, :preionisation); quadrature,
+    )
+end
+
+function _plasma(execution, transfer, dt)
+    pyis(transfer, nothing) && return nothing
+    channels = Tuple(_plasma_channel(execution, channel) for channel in transfer.channels)
+    if !pyis(transfer.taps, nothing)
+        rule = SolpropJulia.RunningIntegralRule(
+            copy_preparation(transfer.taps), dt;
+            floor_exposure = pyconvert(Bool, transfer.floor_exposure),
+        )
+        return SolpropJulia.ModalPlasma(execution, channels, rule)
+    end
+    return SolpropJulia.ModalPlasma(
+        execution, channels; drude = copy_preparation(transfer.drude),
+        loss = copy_preparation(transfer.loss),
+    )
+end
+
+function prepare_modal(transfer::Py, threads::Int, node_chunk::Int)
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), threads)
+    dt = pyconvert(Float64, transfer.dt)
+    grid = SolpropJulia.ModalSourceGrid(
+        execution; kind = Symbol(pyconvert(String, transfer.kind)),
+        n_time = pyconvert(Int, transfer.n_time), dt,
+        crop_index = copy_preparation(transfer.crop_index),
+        omega = copy_preparation(transfer.omega),
+        active = copy_preparation(transfer.active),
         omega_window = copy_preparation(transfer.omega_window),
         source_window = copy_preparation(transfer.source_window),
-        kerr, density = pyconvert(Float64, transfer.density),
-        carrier = pyis(transfer.carrier, nothing) ? nothing :
-            copy_preparation(transfer.carrier),
+        source_window_derivative = copy_preparation(transfer.source_window_derivative),
+        temporal_rate = _optional_copy(transfer.temporal_rate),
+        carrier = _optional_copy(transfer.carrier),
     )
-    operator = SolpropJulia.DiagonalOperator(execution, copy_preparation(transfer.operator))
-    weight = copy_preparation(transfer.power_weight)
-    all(value -> isfinite(value) && value > 0, weight) ||
-        throw(ArgumentError("power export weights must be finite and positive"))
-    return SolpropJulia.EnvelopePreparation(
-        execution, data, operator, copy_preparation(transfer.crop_index), weight,
+    map = SolpropJulia.ModalSourceMap(
+        execution; synthesis = copy_preparation(transfer.synthesis),
+        projection = copy_preparation(transfer.projection),
+        coarse_projection = copy_preparation(transfer.coarse_projection),
+        taper = _profile(execution, transfer.taper, :taper),
+    )
+    shape = (length(grid.omega), size(map.synthesis, 2))
+    data = SolpropJulia.ModalSourceData(
+        grid, map, _prefactor(execution, transfer.prefactor, shape);
+        kerr = _kerr(execution, transfer.kerr),
+        raman = Tuple(_raman(execution, component, dt) for component in transfer.raman),
+        plasma = _plasma(execution, transfer.plasma, dt),
+    )
+    1 <= node_chunk <= size(map.synthesis, 1) ||
+        throw(ArgumentError("node chunk must fit the prepared modal quadrature"))
+    return SolpropJulia.ModalPreparation(
+        execution, data, _operator(execution, transfer.operator, shape),
+        _power_weight(execution, transfer.power_weight, shape), node_chunk,
     )
 end
 
@@ -76,7 +201,7 @@ function _control(transfer)
 end
 
 function start_runge_kutta(
-        preparation::SolpropJulia.EnvelopePreparation, transfer::Py, field,
+        preparation::SolpropJulia.ModalPreparation, transfer::Py, field,
         z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
     )
     execution = preparation.execution
@@ -104,13 +229,17 @@ function start_runge_kutta(
         replay_steps = copy_preparation(transfer.steps),
         replay_edges = copy_preparation(transfer.edges),
     )
-    source = SolpropJulia.EnvelopeKerrSource(
-        execution, preparation.data, preparation.crop_index
+    source = SolpropJulia.ModalSource(
+        execution, preparation.data; node_chunk = preparation.node_chunk,
     )
-    flow = SolpropJulia.LinearFlow(execution, preparation.operator, state)
+    operator = preparation.operator
+    work = operator isa SolpropJulia.ExpansionOperator ?
+        zeros(size(operator.terms, 3)) : nothing
+    flow = SolpropJulia.LinearFlow(execution, operator, state; work)
     return SolpropJulia.RungeKuttaSession(
         execution, state, z, pyconvert(Float64, control.dz_init), tableau, policy,
         norm, schedule, source, flow; stop, plane_index = plane, plane_pending,
+        exports = SolpropJulia._FieldExport(execution, preparation.power_weight),
     )
 end
 
@@ -126,7 +255,7 @@ end
 
 function export_session!(
         output::Union{Py, PyArray}, session, generation::Int,
-        preparation::SolpropJulia.EnvelopePreparation,
+        preparation::SolpropJulia.ModalPreparation,
         power::Bool, optics::Bool,
     )
     borrowed = _python_buffer(ComplexF64, Val(3), output)
@@ -140,7 +269,7 @@ function export_session!(
             Array, address, (frequencies, components * modes); own = false,
         )
         export_session!(
-            columns, session, generation, preparation.power_weight, power, optics,
+            columns, session, generation, preparation, power, optics,
         )
     end
     return nothing

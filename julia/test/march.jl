@@ -13,16 +13,17 @@ end
 function march_fixture(;
         replay = false, capacity = 256, step_planes = 0, control = march_control(),
         n_steps = 8, z = 0.0, plane_index = nothing, plane_pending = true,
-        initial_field = nothing, active = fill(true, 8),
+        initial_field = nothing, active = fill(true, 8), prepared_exports = false,
+        stop = SolpropJulia.StopFlag(),
     )
     execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 1)
-    data = SolpropJulia.EnvelopeKerrData(
+    data = source_data_fixture(
         execution; synthesis = ones(1, 1), projection = ones(1, 1),
         prefactor = fill(-0.5im, 8, 1), omega_window = ones(8),
         source_window = ones(8), density = 1.0,
         kerr = SolpropJulia.KerrCoefficients(4 / 3, :analytic),
     )
-    source = SolpropJulia.EnvelopeKerrSource(execution, data, collect(0:7))
+    source = SolpropJulia.ModalSource(execution, data; node_chunk = 1)
     initial = zeros(ComplexF64, 8, 1)
     initial[1] = 8.0 + 2.4im
     initial_field === nothing || copyto!(initial, initial_field)
@@ -41,9 +42,12 @@ function march_fixture(;
         replay_steps = replay ? fill(0.2 / n_steps, n_steps) : Float64[],
         replay_edges = replay ? [0.0; cumsum(fill(0.2 / n_steps, n_steps))] : Float64[],
     )
+    exports = prepared_exports ? SolpropJulia._FieldExport(
+            execution, SolpropJulia.ObservationWeight(execution, fill(2.0, 8, 1)),
+        ) : nothing
     return SolpropJulia.RungeKuttaSession(
         execution, initial, z, 0.05, tableau, control, norm, schedule, source, flow;
-        capacity, plane_index, plane_pending,
+        capacity, plane_index, plane_pending, exports, stop,
     )
 end
 

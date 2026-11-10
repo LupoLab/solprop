@@ -38,6 +38,47 @@
     )
 end
 
+@testset "Exports refuse every retained owner before weight evaluation" begin
+    session = march_fixture(; prepared_exports = true)
+    preparation = SolpropJulia.ModalPreparation(
+        session.execution, session.source.data, session.flow.operator,
+        session.exports.weight, 1,
+    )
+    launch = SolpropJulia.advance!(session)
+    fill!(session.exports.values, 3.0)
+    fill!(session.work.candidate, 4.0 + 2.0im)
+    fill!(session.attempts.z, 7.0)
+    destinations = (
+        preparation.data.prefactor.data, session.flow.operator.rate,
+        session.work.candidate, view(session.work.candidate, :, :),
+        reshape(view(reinterpret(ComplexF64, session.attempts.z), 1:8), 8, 1),
+    )
+    for output in destinations, power in (false, true)
+        retained = copy(output)
+        @test_throws ArgumentError SolpropJulia.export_session!(
+            output, session, launch.generation, preparation, power, true,
+        )
+        @test output == retained
+        @test all(==(3.0), session.exports.values)
+        @test session.source.calls == 0
+        @test_throws ArgumentError SolpropJulia.export_session!(
+            output, session, launch.generation, ones(8, 1), power, true,
+        )
+        @test output == retained
+    end
+    output = zeros(ComplexF64, 8, 1)
+    @test_throws ArgumentError SolpropJulia.export_session!(
+        output, session, launch.generation + 1, preparation, true, true,
+    )
+    @test all(iszero, output)
+    @test all(==(3.0), session.exports.values)
+    SolpropJulia.export_session!(
+        output, session, launch.generation, preparation, true, false,
+    )
+    @test output == session.field .* sqrt(2.0)
+    @test all(==(2.0), session.exports.values)
+end
+
 @testset "Bridge attempt copies do not consume or corrupt a pending chunk" begin
     session = march_fixture(; replay = true)
     launch = SolpropJulia.advance!(session)
@@ -90,20 +131,39 @@ end
 @testset "Session storage accounts for numerical and delivery arrays" begin
     session = march_fixture()
     sizes = SolpropJulia.session_memory(session)
-    @test sizes.active == length(session.norm.active)
-    @test sizes.observed == length(session.norm.observed)
-    @test sizes.weights == sizeof(session.norm.weights)
-    @test sizes.replay_steps == sizes.replay_edges == 0
-    @test sizes.crop == sizeof(session.source.padding.crop)
-    @test sizes.uncrop == sizeof(session.source.padding.uncrop)
-    @test sizes.field == sizeof(session.field)
+    @test getproperty(sizes, Symbol("session.norm.active")) == length(session.norm.active)
+    @test getproperty(sizes, Symbol("session.norm.weights")) == sizeof(session.norm.weights)
+    @test getproperty(sizes, Symbol("session.schedule.replay_steps")) == 0
+    @test getproperty(sizes, Symbol("session.source.padding.crop")) ==
+        sizeof(session.source.padding.crop)
+    @test getproperty(sizes, Symbol("session.source.padding.uncrop")) ==
+        sizeof(session.source.padding.uncrop)
+    @test getproperty(sizes, Symbol("session.field")) == sizeof(session.field)
+    @test getproperty(sizes, Symbol("session.stop.storage")) == 1
+    @test !hasproperty(sizes, :stop)
     @test all(>=(0), sizes)
-    preparation = SolpropJulia.EnvelopePreparation(
+    @test !any(contains(".data."), string.(keys(sizes)))
+    preparation = SolpropJulia.ModalPreparation(
         session.execution, session.source.data, session.flow.operator,
-        collect(0:7), ones(8, 1),
+        SolpropJulia.ObservationWeight(session.execution, ones(8, 1)), 1,
     )
     prepared = SolpropJulia.preparation_memory(preparation)
-    @test prepared.operator == sizeof(session.flow.operator.rate)
-    @test prepared.carrier == 0
-    @test prepared.power_weight == 8sizeof(Float64)
+    @test getproperty(prepared, Symbol("preparation.operator.rate")) ==
+        sizeof(session.flow.operator.rate)
+    @test getproperty(prepared, Symbol("preparation.power_weight.data")) == 8sizeof(Float64)
+end
+
+@testset "Foreign stop storage is counted once without claiming its ownership" begin
+    owner = SolpropJulia.StopFlag()
+    borrowed = SolpropJulia.StopFlag(SolpropJulia.stop_address(owner))
+    GC.@preserve owner begin
+        session = march_fixture(; stop = borrowed)
+        sizes = SolpropJulia.session_memory(session)
+        @test sizes.stop == 1
+        @test !hasproperty(sizes, Symbol("session.stop.storage"))
+        ordinary = SolpropJulia.session_memory(march_fixture())
+        # Identical session buffers have the same sizes; only the stop entry name
+        # changes when the allocation belongs to a caller instead of Julia.
+        @test sum(values(sizes)) == sum(values(ordinary))
+    end
 end

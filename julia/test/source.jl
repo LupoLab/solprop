@@ -1,6 +1,37 @@
 # SPDX-FileCopyrightText: 2026 John C. Travers and contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+function source_data_fixture(
+        execution; synthesis, projection, prefactor, omega_window, source_window,
+        kerr, density, carrier = nothing,
+        crop_index = collect(0:(size(prefactor, 1) - 1)),
+    )
+    grid = SolpropJulia.ModalSourceGrid(
+        execution; kind = :envelope, n_time = length(source_window), dt = 1.0,
+        crop_index, omega = ones(length(crop_index)),
+        active = fill(true, length(crop_index)),
+        omega_window, source_window,
+        source_window_derivative = zeros(length(source_window)),
+        carrier,
+    )
+    map = SolpropJulia.ModalSourceMap(execution; synthesis, projection)
+    material = kerr === nothing ? nothing : SolpropJulia.ModalKerr(
+            kerr, SolpropJulia.SourceProfile(density),
+        )
+    return SolpropJulia.ModalSourceData(
+        grid, map, SolpropJulia.SourcePrefactor(execution, prefactor); kerr = material,
+    )
+end
+
+function source_fixture_values(data)
+    return (
+        synthesis = data.map.synthesis, projection = data.map.projection,
+        prefactor = data.prefactor.data, source_window = data.grid.source_window,
+        omega_window = data.grid.omega_window, carrier = data.grid.carrier,
+        kerr = data.kerr.coefficients, density = data.kerr.density.value,
+    )
+end
+
 function source_fixture(execution; harmonic = 0.0, kerr = true)
     synthesis = [2.0 -0.5; 0.75 1.5; -1.0 0.25]
     projection = [0.5 0.25 -0.125; -0.25 0.5 0.75]
@@ -11,14 +42,15 @@ function source_fixture(execution; harmonic = 0.0, kerr = true)
     coefficients = kerr ? SolpropJulia.KerrCoefficients(
             0.7, :analytic; harmonic_factor = harmonic
         ) : nothing
-    data = SolpropJulia.EnvelopeKerrData(
+    data = source_data_fixture(
         execution; synthesis, projection, prefactor, omega_window, source_window,
-        kerr = coefficients, density = 1.2, carrier,
+        kerr = coefficients, density = 1.2, carrier, crop_index = [0, 1, 2, 7],
     )
     return data, (synthesis, projection, prefactor, omega_window, source_window, carrier)
 end
 
 function direct_source(data, state, crop_index)
+    data = source_fixture_values(data)
     n_time, nodes = length(data.source_window), size(data.synthesis, 1)
     modes = size(state, 2)
     # Independent defining sums, with no FFT, pad/crop or contraction helper.
@@ -50,6 +82,7 @@ function source_allocations(source, output, state)
 end
 
 function source_rounding_scale(data, state)
+    data = source_fixture_values(data)
     n_time = length(data.source_window)
     # Absolute contributions before each cancellation: inverse DFT, modal map,
     # cubic, projection, forward DFT and final translated spectral weights.
@@ -74,7 +107,7 @@ end
             SolpropJulia.KernelAbstractions.CPU(), tasks, true
         )
         data, inputs = source_fixture(execution; harmonic)
-        source = SolpropJulia.EnvelopeKerrSource(execution, data, crop_index)
+        source = SolpropJulia.ModalSource(execution, data; node_chunk = 2)
         expected = direct_source(data, state, crop_index)
         output = fill(ComplexF64(NaN, NaN), size(state))
         original = copy(state)
@@ -94,23 +127,22 @@ end
         @test maximum(abs, output - expected) <= budget
         source_allocations(source, output, state)
         @test source_allocations(source, output, state) == 0
-        other = SolpropJulia.EnvelopeKerrSource(execution, data, crop_index)
-        @test source.samples !== other.samples
+        other = SolpropJulia.ModalSource(execution, data; node_chunk = 2)
+        @test source.nodes !== other.nodes
         @test source.polarisation !== other.polarisation
-        @test source.fine_modal !== other.fine_modal
+        @test source.modal_spectrum !== other.modal_spectrum
     end
 end
 
 @testset "Source failure preserves accepted fields and complete scratch writes" begin
     execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 1)
     data, _ = source_fixture(execution; kerr = false)
-    source = SolpropJulia.EnvelopeKerrSource(execution, data, [0, 1, 2, 7])
+    source = SolpropJulia.ModalSource(execution, data; node_chunk = 2)
     state = fill(1.0 + 0.2im, 4, 2)
     output = similar(state)
     fill!(source.polarisation, NaN)
     source(output, state, 0.0)
     @test all(iszero, output)
-    @test all(iszero, source.polarisation)
     @test_throws ArgumentError source(state, state, 0.0)
     @test source.calls == 2
     original = copy(state)
@@ -122,7 +154,7 @@ end
     state[2, 2] = original[2, 2]
     source(output, state, 0.0)
     @test all(iszero, output)
-    @test_throws DimensionMismatch SolpropJulia.EnvelopeKerrSource(execution, data, [0])
+    @test_throws ArgumentError SolpropJulia.ModalSource(execution, data; node_chunk = 0)
 end
 
 function source_rk4_tableau()
@@ -136,13 +168,13 @@ end
 @testset "Short assembled Kerr propagation converges to the nonlinear phase" begin
     execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 1)
     n_time = 8
-    data = SolpropJulia.EnvelopeKerrData(
+    data = source_data_fixture(
         execution; synthesis = ones(1, 1), projection = ones(1, 1),
         prefactor = fill(-0.5im, n_time, 1), omega_window = ones(n_time),
         source_window = ones(n_time), density = 1.0,
         kerr = SolpropJulia.KerrCoefficients(4 / 3, :analytic),
     )
-    source = SolpropJulia.EnvelopeKerrSource(execution, data, collect(0:(n_time - 1)))
+    source = SolpropJulia.ModalSource(execution, data; node_chunk = 1)
     initial = zeros(ComplexF64, n_time, 1)
     amplitude = 1.0 + 0.3im
     initial[1] = n_time * amplitude

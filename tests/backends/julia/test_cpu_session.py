@@ -280,3 +280,157 @@ def test_shared_service_loop_uses_only_the_execution_owner(fields):
         assert np.count_nonzero(output["step_history/accepted"]) == 8
     finally:
         owner.close()
+
+
+def _material_run(kind, response, *, julia, steps):
+    from backends.julia.cases import material_case  # noqa: PLC0415
+
+    case, grid, mode = material_case(kind, response, steps=steps)
+    if julia:
+        _, prepared = _prepared(case)
+    else:
+        owner = select("numpy_ref", case.problem, case.request, grid=grid, modes=[mode])
+        prepared = owner.prepare(case.problem, case.request)
+    session = prepared.start(Start.entrance(case.problem))
+    with session:
+        result = drive(Started(session), export=IDENTITY)
+        assert result.status.outcome is Outcome.COMPLETED, result.batches[-1].terminal
+        assert result.status.attempts == steps
+        assert np.all(np.isfinite(result.fields[-1]))
+        return result.fields[-1]
+
+
+@pytest.mark.parametrize("kind", ["field", "envelope"])
+@pytest.mark.parametrize("response", ["kerr", "raman", "plasma"])
+def test_material_sessions_meet_short_converged_reference_envelopes(kind, response):
+    actual = _material_run(kind, response, julia=True, steps=8)
+    coarse = _material_run(kind, response, julia=False, steps=16)
+    fine = _material_run(kind, response, julia=False, steps=32)
+    scale = np.linalg.norm(fine.ravel())
+    # These are different discrete histories. The independent reference must settle
+    # three orders inside the fixed1e-8 global accuracy envelope over eight micrometres.
+    assert np.linalg.norm((fine - coarse).ravel()) <= 1e-11 * scale
+    assert np.linalg.norm((actual - fine).ravel()) <= 1e-8 * scale
+
+
+@pytest.mark.parametrize("representation", ["expansion", "table"])
+def test_varying_field_operator_and_prefactor_use_complete_representations(
+    representation, capillary_problem, tabulated_problem, field_grid
+):
+    from solprop.stats import StatsSpec  # noqa: PLC0415
+    from solprop.stepper.schedule import FixedSchedule  # noqa: PLC0415
+    from solprop.translate.run_request import ReplaySpec  # noqa: PLC0415
+
+    original = (
+        capillary_problem() if representation == "expansion" else tabulated_problem
+    )
+    length = 8e-6
+
+    def run(steps, julia):
+        # The represented descriptor spans later material kinks. Retain those
+        # itinerary edges for admission; the sole observation ends this short run.
+        later = original.problem.linear.hard_kinks
+        edges = np.linspace(0.0, length, steps + 1)
+        for kink in later[later > length]:
+            # Unused future steps must still respect the temporal collar's
+            # admission bound; only the first eight micrometres are executed.
+            count = max(1, int(np.ceil((kink - edges[-1]) / 1e-3)))
+            edges = np.concatenate((edges, np.linspace(edges[-1], kink, count + 1)[1:]))
+        request = replace(
+            original.request,
+            replay=ReplaySpec(FixedSchedule(np.diff(edges))),
+            observation=replace(
+                original.request.observation,
+                save_planes=np.array([length]),
+                stats=StatsSpec(names=(), periodic=()),
+            ),
+        )
+        case = Translation(original.problem, request)
+        if julia:
+            _, prepared = _prepared(case)
+        else:
+            owner = select("numpy_ref", case.problem, request, grid=field_grid)
+            prepared = owner.prepare(case.problem, request)
+        session = prepared.start(Start.entrance(case.problem))
+        with session:
+            result = drive(Started(session), export=IDENTITY)
+            terminal = result.batches[-1].terminal
+            assert result.status.outcome is Outcome.COMPLETED, (
+                None if terminal is None else str(terminal.error)
+            )
+            return result.fields[-1]
+
+    actual, coarse, fine = run(8, True), run(16, False), run(32, False)
+    scale = np.linalg.norm(fine.ravel())
+    # Varying represented operators are compared to the refined reference using
+    # the same fixed short-window accuracy envelope as the material compositions.
+    assert np.linalg.norm((fine - coarse).ravel()) <= 1e-11 * scale
+    assert np.linalg.norm((actual - fine).ravel()) <= 1e-8 * scale
+
+
+@pytest.mark.parametrize("representation", ["table", "expansion"])
+def test_power_export_evaluates_weights_at_the_restart_position(representation):
+    from solprop.translate.expansion import ParameterExpansion  # noqa: PLC0415
+
+    case = cpu_case(steps=None)
+    shape = case.problem.shape
+    span = np.array(case.problem.linear.z_span)
+    midpoint = float(np.mean(span))
+    # The exact midpoint of this affine representation gives weight1.5. The
+    # destination recipe is then a structural test of one state's fixed conversion.
+    table = PiecewiseChebyshev(
+        np.stack((np.full(shape, 1.5), np.full(shape, 0.5)))[None],
+        span.copy(),
+        np.array([1], dtype=np.intp),
+        np.empty(0),
+    )
+    for value in (
+        table.coefficients,
+        table.breakpoints,
+        table.degrees,
+        table.hard_kinks,
+    ):
+        value.setflags(write=False)
+    expansion = None
+    if representation == "expansion":
+        weights = PiecewiseChebyshev(
+            np.array([[[1.0, 0.5], [0.0, 0.5]]]),
+            span.copy(),
+            np.array([1], dtype=np.intp),
+            np.empty(0),
+        )
+        for value in (
+            weights.coefficients,
+            weights.breakpoints,
+            weights.degrees,
+            weights.hard_kinks,
+        ):
+            value.setflags(write=False)
+        expansion = ParameterExpansion(
+            ("test",),
+            np.array([[0.0, 1.0]]),
+            np.array([1]),
+            np.ones((2, *shape)),
+            weights,
+        )
+    problem = replace(
+        case.problem,
+        linear=replace(
+            case.problem.linear,
+            power_weight_constant=None,
+            power_weight_representation=representation,
+            power_weight=table if expansion is None else None,
+            power_weight_expansion=expansion,
+        ),
+    )
+    _, prepared = _prepared(Translation(problem, case.request))
+    with prepared.start(
+        Start(np.array(problem.initial.field0), midpoint, plane_index=1)
+    ) as session:
+        launch = session.advance().events[0]
+        assert isinstance(launch, ObservationReady)
+        assert launch.z == midpoint
+        raw = session.export(launch.ticket, IDENTITY)
+        recipe = ExportRecipe(power=True, optics=True)
+        expected = apply_recipe(raw, recipe, weight=np.full(shape, 1.5))
+        assert session.export(launch.ticket, recipe).tobytes() == expected.tobytes()

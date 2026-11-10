@@ -234,7 +234,7 @@ before advancing again; export generations expire on acknowledgment. This first 
 composition supports landed planes and field restarts; other methods/services attach
 through their own typed compositions without changing its transport contract.
 """
-struct RungeKuttaSession{E, A, T, W, N, S, F, B, O}
+struct RungeKuttaSession{E, A, T, W, N, S, F, B, O, X}
     execution::E
     field::A
     tableau::T
@@ -249,13 +249,15 @@ struct RungeKuttaSession{E, A, T, W, N, S, F, B, O}
     attempts::AttemptBuffer
     state::_MarchState
     services::O
+    exports::X
 end
 
 function RungeKuttaSession(
         execution, state::AbstractMatrix{ComplexF64}, z::Float64, proposal::Float64,
         tableau::EmbeddedTableau, control::PIControl, norm::MarchNorm,
         schedule::MarchSchedule, source, flow; stop = StopFlag(), capacity::Int = 256,
-        services = _NoSessionServices(), plane_index::Union{Nothing, Int} = nothing,
+        services = _NoSessionServices(), exports = nothing,
+        plane_index::Union{Nothing, Int} = nothing,
         plane_pending::Bool = true,
     )
     all(isfinite, state) && size(state, 1) == length(norm.active) &&
@@ -293,7 +295,7 @@ function RungeKuttaSession(
     return RungeKuttaSession(
         execution, owned, tableau, RungeKuttaWork(owned, tableau), control,
         NormHistory(control), norm, schedule, source, flow, stop, AttemptBuffer(capacity),
-        progress, services,
+        progress, services, exports,
     )
 end
 
