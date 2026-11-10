@@ -242,12 +242,12 @@ class TemporalObservationTransfer:
     policy : TemporalPolicyTransfer
         The shared prediction and decision policy, without mutable readings.
     regions : numpy.ndarray
-        Owned read-only weights, shape ``(n_t,4)``: low guard, high guard, collar
-        share and temporal power-loss rate. The first three are dimensionless;
+        Owned read-only binary64 weights, shape ``(n_t,4)``: low guard, high guard,
+        collar share and temporal power-loss rate. The first three are dimensionless;
         the last is in m^-1.
     columns : numpy.ndarray
-        Owned nonnegative reduction weights, shape ``(n_modes,)``; modal defaults
-        are one, independently of the statistics' varying power weight.
+        Owned nonnegative binary64 reduction weights, shape ``(n_modes,)``; modal
+        defaults are one, independently of the statistics' varying power weight.
     buckets : numpy.ndarray or None
         Owned one-based Int64 crossing buckets, shape ``(n_omega,n_modes)``.
         Absent without a translated crossing rule.
@@ -738,8 +738,17 @@ def _temporal(
         cast("float", policy["share"]),
         owned(limits),
     )
+    # Monitor context does not pass the problem's binary64 seam normalisation.
+    # Widen binary32 represented weights before Julia construction, as the shared
+    # monitor's binary64 power products do; reject any overflowing conversion.
+    try:
+        with np.errstate(over="raise", invalid="raise"):
+            prepared_regions = owned(np.asarray(regions.T, dtype=np.float64))
+            prepared_columns = owned(np.asarray(columns, dtype=np.float64))
+    except FloatingPointError as exc:
+        raise BackendError("julia temporal monitor weights exceed binary64") from exc
     return TemporalObservationTransfer(
-        prepared_policy, owned(regions.T), owned(columns), buckets
+        prepared_policy, prepared_regions, prepared_columns, buckets
     )
 
 

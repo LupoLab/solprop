@@ -581,6 +581,27 @@ def test_split_rate_is_retained_without_a_monitor(field_case):
     assert not np.shares_memory(actual.split_rate, rate)
 
 
+def test_binary32_monitor_weights_are_widened_exactly_and_owned(field_case):
+    case, grid, _ = field_case
+    columns = np.array([1.7], dtype=np.float32)
+    monitor = BoundaryMonitor.build(grid, None, BoundaryCheck(), columns=columns)
+    monitor.weights = monitor.weights.astype(np.float32)
+    regions = monitor.weights
+    actual = lower_observations(case.problem, _request(case, monitor=monitor)).temporal
+    assert actual is not None
+    assert actual.columns.dtype == actual.regions.dtype == np.float64
+    assert np.array_equal(actual.columns, columns.astype(np.float64))
+    assert np.array_equal(actual.regions, regions.T.astype(np.float64))
+    for prepared, original in ((actual.columns, columns), (actual.regions, regions)):
+        assert prepared.flags.owndata and prepared.flags.f_contiguous
+        assert not prepared.flags.writeable
+        assert not np.shares_memory(prepared, original)
+    columns[:] = 2.0
+    regions[:] = 0.0
+    assert actual.columns[0] == float(np.float32(1.7))
+    assert np.any(actual.regions[:, :2] > 0.0)
+
+
 def test_rest_eligibility_is_the_shared_route_method_intersection(field_case):
     case, grid, _ = field_case
     rate = np.ones(grid.n_t)
