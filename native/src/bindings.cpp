@@ -49,6 +49,7 @@
 #include <algorithm>
 #include <array>
 #include <complex>
+#include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -983,6 +984,17 @@ ComplexOutput complex_output(const std::vector<native::Complex>& values,
   return ComplexOutput(pointer->data(), shape.size(), shape.data(), owner);
 }
 
+/** A complex array owning `storage`. */
+ComplexOutput owned_complex(std::unique_ptr<ComplexStorage> storage,
+                            std::vector<std::size_t> shape) {
+  auto* pointer = storage.get();
+  nb::capsule owner(pointer, [](void* value) noexcept {
+    const std::unique_ptr<ComplexStorage> held(static_cast<ComplexStorage*>(value));
+  });
+  storage.release();
+  return ComplexOutput(pointer->data(), shape.size(), shape.data(), owner);
+}
+
 /** A complex array owning `storage`, uninitialised doubles a native copy filled. */
 ComplexOutput complex_buffer_output(native::crossing::HostBuffer storage,
                                     std::vector<std::size_t> shape) {
@@ -1276,6 +1288,15 @@ native::session::MonitorPlan monitor_plan_from(const nb::dict values) {
       if (values.contains("edge_record"))
         plan.edge_record = native::bindings::transverse_resumption_from(
             nb::cast<nb::dict>(values["edge_record"]));
+    }
+    // The input noise's floor: its energy, then its four regions' shares.
+    if (values.contains("floor") && !values["floor"].is_none()) {
+      const auto floor = nb::cast<std::vector<double>>(values["floor"]);
+      if (floor.size() != 5)
+        throw std::invalid_argument("a monitor's floor is its energy and four regions");
+      plan.floor = true;
+      plan.floor_energy = floor[0];
+      std::copy(floor.begin() + 1, floor.end(), plan.floor_regions.begin());
     }
     // A free-space run's transverse edge (SEP 40 section 5.3), owned alike.
     if (values.contains("edge") && !values["edge"].is_none())
@@ -2022,9 +2043,13 @@ public:
       fault.category = march::Category::value;
     else if (category == "backend")
       fault.category = march::Category::backend;
+    else if (category == "sigint")
+      fault.signal = SIGINT;
+    else if (category == "sigterm")
+      fault.signal = SIGTERM;
     else
-      throw std::invalid_argument(
-          "a march fault's category is convergence, value or backend");
+      throw std::invalid_argument("a march fault's category is convergence, value, "
+                                  "backend, sigint or sigterm");
     fault.after = after;
     march_fault_ = fault;
   }
@@ -2239,6 +2264,12 @@ public:
   std::unique_ptr<native::session::Resident> session_resident() {
     return std::make_unique<native::engines::GeneralResident>(open_state(), elements_,
                                                               elements_ / columns_);
+  }
+  // The state `session` leases, for that session's own reads under its lock.
+  native::GeneralState& leased_state(const BoundSession* session) const {
+    if (session_ != session)
+      throw std::logic_error("native state is not leased by this session");
+    return built_state();
   }
   // A session leases the state exclusively: the host's own march and loads refuse.
   void lease(BoundSession* session) {
@@ -2476,6 +2507,91 @@ public:
     if (!record)
       return nb::none();
     return watch_record_to(*record);
+  }
+  // solprop SEP 47 section 5.5: the Adams march's state with the orders of its
+  // accepted steps from `since` (the call ledger), or None for a Runge-Kutta march;
+  // read under the session's lock, between advances.
+  nb::object march_state(const std::size_t since) {
+    std::optional<march::State> state;
+    std::vector<std::size_t> orders;
+    {
+      const nb::gil_scoped_release release;
+      session_->read(
+          0, 0,
+          [&](const native::session::Method& method,
+              native::session::Resident& /*resident*/) {
+            const auto* adams = std::get_if<native::session::AdamsMethod>(&method);
+            if (adams == nullptr)
+              return;
+            state = adams->state;
+            const std::size_t first = std::min(since, adams->orders.size());
+            orders.assign(adams->orders.begin() + static_cast<std::ptrdiff_t>(first),
+                          adams->orders.end());
+          });
+    }
+    if (!state)
+      return nb::none();
+    nb::dict out = march_state_to(*state);
+    out["orders"] = orders;
+    return out;
+  }
+  // The Adams march's history at the pending batch's committed state, its ticket
+  // `(sequence, generation)` (SEP 47 section 5.4): the march's state, the accepted
+  // field as the state holds it and each persistent history row, each copied once,
+  // losslessly (`AdamsMarch.snapshot`); None for a Runge-Kutta march or before any
+  // history.
+  nb::object march_snapshot(const std::uint64_t sequence,
+                            const std::uint64_t generation) {
+    std::optional<march::State> state;
+    std::unique_ptr<ComplexStorage> field;
+    std::vector<std::string> names;
+    std::vector<std::array<std::size_t, 3>> extents;
+    std::vector<std::unique_ptr<ComplexStorage>> rows;
+    {
+      const nb::gil_scoped_release release;
+      session_->read(
+          sequence, generation,
+          [&](const native::session::Method& method,
+              native::session::Resident& resident) {
+            const auto* adams = std::get_if<native::session::AdamsMethod>(&method);
+            if (adams == nullptr || adams->state.history.empty())
+              return;
+            state = adams->state;
+            field = std::make_unique<ComplexStorage>(resident.elements());
+            resident.field_to_host(reinterpret_cast<double*>(field->data()));
+            const auto& general = owner_->leased_state(this);
+            names = general.adams_row_names();
+            for (const auto& name : names) {
+              const auto extent = general.adams_row_extents(name);
+              auto storage =
+                  std::make_unique<ComplexStorage>(extent[0] * extent[1] * extent[2]);
+              general.adams_rows_to_host(name, storage->data(), storage->size());
+              extents.push_back(extent);
+              rows.push_back(std::move(storage));
+            }
+          });
+    }
+    if (!state)
+      return nb::none();
+    const std::size_t n = field->size();
+    nb::dict held;
+    for (std::size_t index = 0; index < names.size(); ++index)
+      held[names[index].c_str()] =
+          owned_complex(std::move(rows[index]),
+                        {extents[index][0], extents[index][1], extents[index][2]});
+    return nb::make_tuple(march_state_to(*state), owned_complex(std::move(field), {n}),
+                          held);
+  }
+  // Issue a failed terminal batch for a failure outside the session; takes its lock.
+  std::optional<BatchRecord> fail_outside() {
+    std::optional<native::session::Batch> batch;
+    {
+      const nb::gil_scoped_release release;
+      batch = session_->fail_outside();
+    }
+    if (!batch)
+      return std::nullopt;
+    return BatchRecord(std::move(*batch));
   }
   // Takes the session's lock (waiting for an advance in hand): bound with the
   // interpreter lock released. The lease is released only once the session closed.
@@ -4295,6 +4411,10 @@ NB_MODULE(_core, module_) {
       .def("continue_monitor", &BoundSession::continue_monitor, "record"_a, "plane"_a,
            "unwatched"_a, "edge_record"_a)
       .def("edge_record", &BoundSession::edge_record)
+      .def("march_state", &BoundSession::march_state, "since"_a)
+      .def("march_snapshot", &BoundSession::march_snapshot, "sequence"_a,
+           "generation"_a)
+      .def("fail_outside", &BoundSession::fail_outside)
       .def("close", &BoundSession::close, nb::call_guard<nb::gil_scoped_release>());
   // solprop SEP 47 section 6.4: the owning boundary monitor alone, for solprop's tests
   // to feed recorded readings through it and its own monitor alike.

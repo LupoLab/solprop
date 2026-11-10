@@ -179,10 +179,12 @@ completed step (irrelevant without dense output, but tested).
 The NumPy reference runs its own step driver and marches in `backends/host/`:
 `HostDriver`, `HostAdamsMarch`, `HostGeneralPath`, `HostLowStorageMarch` and the
 fixed-schedule group `HostGroup`. The native backend runs the inherited `StepDriver`,
-`AdamsMarch`, `GeneralPath`, `LowStorageMarch` and `LockstepRunner` in `backends/`, the
+`AdamsMarch`, `LowStorageMarch` and `LockstepRunner` in `backends/`, the
 native bridge's temporary copies, removed with SEP 47's native session. The copies
 started identical and the decision corpora hold both to the same decisions; where this
-page names a member of one, the other's is the same.
+page names a member of one, the other's is the same. The general Adams path of the
+comparison variants is the reference's alone: the native backend refuses them by name
+(SEP 47 section 6.3).
 
 **FSAL, the evidence.** The rebasing identity `k₁ⁿ⁺¹ = exp(ΔΦⁿ)·k₇ⁿ` and the condition it
 needs (nothing changes the state after the last stage) are algorithms.md §2. **The hard
@@ -461,7 +463,9 @@ reading through the monitor at its own step. The Python march is the reference -
 configuration the native march does not cover (the comparison
 methods' general path, a coupled flow on the host engine (off the eigenbasis route or
 wider than 16 channels), a norm scale other than `PIController`'s, and a z table's
-carrier frame), with a `HostMarchWarning` naming the reason. Lockstep batches replay on the host (`replay_step`).
+carrier frame), with a `HostMarchWarning` naming the reason. The transitional lockstep
+batches replay on the host (`replay_step`); a native CPU group the native group session
+admits replays each member in its own native session instead (`solprop_native.group`).
 
 **Resume** (ADR-046): an engine that can export its rows (`snapshot_rows`, and
 `load_rows` to install them) lets `HostAdamsMarch.snapshot` (and `AdamsMarch.snapshot`
@@ -478,7 +482,7 @@ weights (`weights_<row>`). Each engine refuses rows it does not keep, so those t
 histories do not cross; every other history does. The engines' trial and dense-step
 bookkeeping is not exported: a load forgets it (`reset`), as the next step is a new
 trial. Both methods are part of the `AdamsEngine` protocol. A march that cannot carry
-its history (`AdamsMarch.export_refusal`: the general path), or one whose saved rows the engine
+its history (the reference's general path), or one whose saved rows the engine
 refuses (another engine's rows, another build's shapes), resumes afresh, and the driver
 warns.
 Nothing in the trial lifecycle reads a held trial across the snapshot: it is taken
@@ -574,13 +578,14 @@ the measurements behind them.
   every plane its step crossed observed first -- the end of that step itself when the
   next plane lies beyond it, since with planes closer than the steps every later step
   crosses another plane -- so a checkpoint never needs the extension to reconstruct a
-  plane ([SEP 47](seps/sep-0047-run-ownership.md) section 5.5). The native session's
-  Runge-Kutta march keeps the committed state and its recycled last stage (FSAL) across
-  an observation, where the native bridge reloads the committed state from its host
-  copy, which drops that stage, and evaluates the next step's first stage afresh. Their
-  norms, and so in general their trajectories, differ at rounding level: on the
-  qualification cases the decisions are the same, the norms agree to 1e-8 relative and
-  the planes to 9.2e-17 of the peak, each within the reference's budgets.
+  plane ([SEP 47](seps/sep-0047-run-ownership.md) section 5.5). After an observation
+  the next step evaluates its first stage afresh rather than recycle the crossing step's
+  last (FSAL), in the native session as in the bridge, which reloads the committed
+  state from its host copy: a recycled stage parted the two by up to 9e-8 in a norm,
+  and by 2e-10 in the positions after it, under some FFT plans and not others, and
+  measured planning makes the plans differ from process to process. Their trajectories
+  are now the same to the bit; their planes differ only in the flow's exponential (the
+  bridge's NumPy one, the session's native one), by 5.5e-16 of the peak.
 - **Floor**: a proposal below `dz_min` raises `ConvergenceError` at once (algorithms.md §3,
   traps). The default is `default_dz_min`, 1e-9 of the run length: a run that wants steps
   that small needs over a billion of them and would never finish, and the finest legitimate

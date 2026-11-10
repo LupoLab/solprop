@@ -41,7 +41,7 @@ from solprop._interrupts import committing, handled
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, BackendHistory, Observation
 from solprop.backends.registry import statistics_refusal
-from solprop.backends.session import RunSession, Start
+from solprop.backends.session import RunSession, SessionState, Start
 from solprop.driver.summary import run_summary
 from solprop.exceptions import (
     BackendError,
@@ -49,7 +49,6 @@ from solprop.exceptions import (
     OutputError,
     SolpropWarning,
 )
-from solprop.fourier import power_amplitude
 from solprop.log import (
     DEFAULT_PROGRESS_PERIOD,
     LogReporter,
@@ -91,7 +90,6 @@ from solprop.output.tdse_archive import TDSEArchiveWriter
 from solprop.stats import StatsSpec
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
-from solprop.translate.linop import power_weight_at
 from solprop.translate.problem import KernelProblem
 from solprop.translate.tdse import TDSEBinding
 
@@ -179,7 +177,8 @@ def plane_from_observation(
     way to storage (``docs/dev/conventions.md`` section 2). Nothing is rescaled either:
     the field is whatever amplitude the observation carries, the backend's
     vacuum-normalised one unless the caller has applied the interface conversion to
-    true-power amplitudes (``_power_observation``; see ``docs/dev/decisions.md``).
+    true-power amplitudes (a session's export with
+    ``ExportRecipe(power=True, ...)``; see ``docs/dev/decisions.md``).
 
     Parameters
     ----------
@@ -243,31 +242,6 @@ def plane_from_observation(
     )
 
 
-def _power_observation(problem: KernelProblem, observation: Observation) -> Observation:
-    """Convert modal output units once, before the handler changes Fourier sign.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        Translated problem supplying modal weights or spatial geometry.
-    observation : solprop.backends.protocol.Observation
-        Internal state and diagnostics at a saved plane.
-
-    Returns
-    -------
-    solprop.backends.protocol.Observation
-        Observation carrying true-power amplitudes and unchanged diagnostics.
-    """
-    if problem.transform.geometry is not None or observation.field is None:
-        return observation
-    return dataclasses.replace(
-        observation,
-        field=power_amplitude(
-            observation.field, power_weight_at(problem, observation.z)
-        ),
-    )
-
-
 class SessionFacts:
     """A session's execution facts, as the service loop's records read a backend's.
 
@@ -314,15 +288,20 @@ class SessionFacts:
         """
         return dict(self._session.execution_record())
 
-    def march_snapshot(self) -> None:
-        """Return ``None``: method history is the session's, not a backend's.
+    def march_snapshot(self) -> MarchSnapshot | None:
+        """Return the session's method history at its pending committed state.
 
         Returns
         -------
-        None
-            No snapshot.
+        solprop.output.schema.MarchSnapshot or None
+            The session's snapshot (:meth:`~solprop.backends.session.RunSession.
+            march_snapshot`), or ``None`` without one or with no batch pending.
         """
-        return
+        session = self._session
+        if session.status().state is not SessionState.PENDING:
+            return None
+        ticket = session.pending_ticket()
+        return None if ticket is None else session.march_snapshot(ticket)
 
     def march_snapshot_nbytes(self, z: float) -> int | None:
         """Return the size of the session's method-history snapshot, or ``None``.
@@ -341,13 +320,17 @@ class SessionFacts:
         return self._session.march_snapshot_nbytes()
 
     def march_export_refusal(self) -> str | None:
-        """Return why the session's method history is not exported here.
+        """Return why the session's method history is not exported here, or ``None``.
 
         Returns
         -------
         str or None
-            The reason.
+            The session's own reason, when it states one; otherwise a session keeps
+            no history the service loop can export.
         """
+        refusal = getattr(self._session, "march_export_refusal", None)
+        if callable(refusal):
+            return cast("str | None", refusal())
         return "this session keeps no method history the service loop can export"
 
 
@@ -569,7 +552,6 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
         problem,
         request,
         start,
-        listener=reporter.step,
         started=reporter.started,
         stop=stop,
         owns=False,

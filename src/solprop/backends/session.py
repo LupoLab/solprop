@@ -53,7 +53,7 @@ import enum
 import itertools
 import operator
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Protocol, SupportsIndex, cast, runtime_checkable
@@ -91,6 +91,8 @@ __all__ = [
     "SnapshotReceipt",
     "Start",
     "StopToken",
+    "check_group",
+    "check_member_ticket",
     "positive_count",
 ]
 
@@ -180,8 +182,6 @@ class StopToken:
         with self._lock:
             self._listeners.append(listener)
             already = self._event.is_set()
-        if already:
-            listener()
 
         def detach() -> None:
             """Remove the listener; a second call does nothing."""
@@ -189,6 +189,8 @@ class StopToken:
                 if listener in self._listeners:
                     self._listeners.remove(listener)
 
+        if already:
+            listener()
         return detach
 
 
@@ -266,6 +268,75 @@ class ExecutionOptions:
             :attr:`node_chunk`, which construction already made an ``int``.
         """
         return None if self.node_chunk is None else operator.index(self.node_chunk)
+
+
+def check_group(
+    count: int,
+    problems: Sequence[KernelProblem],
+    requests: Sequence[RunRequest],
+    starts: Sequence[Start],
+) -> None:
+    """Refuse a group's inputs that no group implementation starts from.
+
+    A group (:class:`GroupSession`) takes one problem, request and start per member,
+    and starts every member at its entrance, with no method history or monitor record
+    to continue (SEP 47 section 6.7).
+
+    Parameters
+    ----------
+    count : int
+        The members given.
+    problems : collections.abc.Sequence of solprop.translate.problem.KernelProblem
+        Each member's problem.
+    requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
+        Each member's run request.
+    starts : collections.abc.Sequence of Start
+        Each member's start.
+
+    Raises
+    ------
+    SessionError
+        If the sequences differ in length or are empty, or if a start is not a fresh
+        entrance whose launch plane is owed.
+    """
+    if count == 0 or not count == len(problems) == len(requests) == len(starts):
+        msg = (
+            f"a group needs one problem, request and start per member, and got "
+            f"{count} members, {len(problems)} problems, {len(requests)} "
+            f"requests and {len(starts)} starts"
+        )
+        raise SessionError(msg)
+    for start in starts:
+        fresh = start.march is None and start.monitor is None
+        if not fresh or start.plane_index or not start.plane_pending:
+            msg = (
+                "a group starts its members at their entrance, its launch plane owed, "
+                "with no method history or monitor record to continue"
+            )
+            raise SessionError(msg)
+
+
+def check_member_ticket(ticket: ExportTicket, member: int) -> None:
+    """Refuse a group ticket presented for another member than the one it names.
+
+    Parameters
+    ----------
+    ticket : solprop.backends.events.ExportTicket
+        A ticket of a group's pending batch.
+    member : int
+        The member it is presented for.
+
+    Raises
+    ------
+    SessionError
+        If the ticket names another member, or none.
+    """
+    if ticket.member != member:
+        msg = (
+            f"the export ticket for z = {ticket.z!r} m is member {ticket.member}'s, "
+            f"not member {member}'s"
+        )
+        raise SessionError(msg)
 
 
 def positive_count(name: str, value: object) -> int:
@@ -678,7 +749,13 @@ class GroupSession(Protocol):
         ...
 
     def acknowledge(self, receipt: Receipt) -> None:
-        """Release a window's batch and allow advancing past it."""
+        """Release a window's batch and allow advancing past it.
+
+        Parameters
+        ----------
+        receipt : solprop.backends.events.Receipt
+            The batch's receipt.
+        """
         ...
 
     def export(
@@ -688,23 +765,86 @@ class GroupSession(Protocol):
         recipe: ExportRecipe,
         out: Complex[np.ndarray, "n_modes n_pol n_omega"] | None = None,
     ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
-        """Fill a destination with one member's converted field at a pending ticket."""
+        """Fill a destination with one member's converted field at a pending ticket.
+
+        Parameters
+        ----------
+        member : int
+            The member's index, from zero.
+        ticket : solprop.backends.events.ExportTicket
+            The member's pending ticket.
+        recipe : solprop.backends.export.ExportRecipe
+            The conversion.
+        out : numpy.ndarray or None, optional
+            The destination; a new array by default.
+
+        Returns
+        -------
+        numpy.ndarray
+            The filled destination.
+        """
         ...
 
     def noise_phase(self, member: int, ticket: ExportTicket) -> np.ndarray | None:
-        """Return one member's noise phase at a pending ticket."""
+        """Return one member's noise phase at a pending ticket.
+
+        Parameters
+        ----------
+        member : int
+            The member's index, from zero.
+        ticket : solprop.backends.events.ExportTicket
+            The member's pending ticket.
+
+        Returns
+        -------
+        numpy.ndarray or None
+            The phase, or ``None`` without noise.
+        """
         ...
 
     def member_status(self, member: int) -> SessionStatus:
-        """Return one member's committed position, counters and outcome."""
+        """Return one member's committed position, counters and outcome.
+
+        Parameters
+        ----------
+        member : int
+            The member's index, from zero.
+
+        Returns
+        -------
+        SessionStatus
+            The member's status.
+        """
         ...
 
     def execution_record(self, member: int) -> Mapping[str, object]:
-        """Return one member's execution facts."""
+        """Return one member's execution facts.
+
+        Parameters
+        ----------
+        member : int
+            The member's index, from zero.
+
+        Returns
+        -------
+        collections.abc.Mapping
+            The member's execution record.
+        """
         ...
 
     def monitor_record(self, member: int) -> Mapping[str, object] | None:
-        """Return one member's boundary-monitor record, ``None`` when unwatched."""
+        """Return one member's boundary-monitor record, ``None`` when unwatched.
+
+        Parameters
+        ----------
+        member : int
+            The member's index, from zero.
+
+        Returns
+        -------
+        collections.abc.Mapping or None
+            The record.
+        """
         ...
 
     def close(self) -> None:
@@ -721,7 +861,17 @@ class GroupSession(Protocol):
         error: BaseException | None,
         trace: TracebackType | None,
     ) -> None:
-        """Close the group."""
+        """Close the group.
+
+        Parameters
+        ----------
+        kind : type or None
+            The type of the exception leaving the scope, if any.
+        error : BaseException or None
+            The exception, if any.
+        trace : types.TracebackType or None
+            Its traceback, if any.
+        """
         ...
 
 

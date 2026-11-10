@@ -10,6 +10,11 @@ state crosses each return and comes back, and a stop flag or a signal acts only 
 so a return has to be an exact no-op: every number a run stores is compared here, bit
 for bit, under bounds that return at every attempt, at every seventh, at the wall
 clock's every attempt, and never.
+
+Production runs the march in the native execution session (SEP 47), whose march calls
+take the session's call bound (``solprop_native.session.CALL_ATTEMPTS`` and
+``CALL_SECONDS``); a case the session refuses (dense output, a transverse edge) runs on
+the backend's own march over the transitional session. Both are bounded alike here.
 """
 
 import dataclasses
@@ -40,6 +45,7 @@ pytestmark = [
 ]
 
 NativeAdamsMarch = pytest.importorskip("solprop_native.backend")._NativeAdamsMarch
+native_session = pytest.importorskip("solprop_native.session")
 
 BOUNDS = {
     "every_attempt": (1, math.inf),
@@ -205,21 +211,64 @@ def _stored(path) -> dict[str, np.ndarray | str]:
     return found
 
 
-def _counted_attempts(patch: pytest.MonkeyPatch) -> list[int]:
-    """Return a list that fills with each native call's attempts."""
+@dataclasses.dataclass
+class Calls:
+    """The native calls of a run: each bridge call's attempts, or the native session's
+    march calls and attempts, which it counts itself."""
+
+    bridge: list[int] = dataclasses.field(default_factory=list)
+    session_calls: int = 0
+    session_attempts: int = 0
+
+    def __len__(self) -> int:
+        """Return the native calls made."""
+        return len(self.bridge) + self.session_calls
+
+    def held(self, most: int, *, exactly: bool = False) -> None:
+        """Assert no call made more than `most` attempts (every call `most`, with
+        `exactly`): each session call makes at least one attempt."""
+        if self.bridge:
+            assert max(self.bridge) == most if exactly else max(self.bridge) <= most
+        if self.session_calls:
+            wanted = math.ceil(self.session_attempts / most)
+            if exactly:
+                assert self.session_calls == wanted
+            else:
+                assert self.session_calls >= wanted
+
+
+def _counted_attempts(patch: pytest.MonkeyPatch, most: int, seconds: float) -> Calls:
+    """Bound both paths' native calls; return the record that fills with them."""
+    patch.setattr(NativeAdamsMarch, "MAX_ATTEMPTS", most)
+    patch.setattr(NativeAdamsMarch, "MAX_SECONDS", seconds)
+    # The session's own bound: a call's attempts and time; its advances are lifted,
+    # so that only the call's bound returns it.
+    patch.setattr(native_session, "CALL_ATTEMPTS", most)
+    patch.setattr(native_session, "CALL_SECONDS", seconds if seconds > 0 else 1e-300)
     run = NativeAdamsMarch._native_run
-    attempts: list[int] = []
+    advance = native_session.NativeSession.advance
+    calls = Calls()
 
     def counted(self, state, bounds):
         result = run(self, state, bounds)
-        attempts.append(len(result["rows"]))
+        calls.bridge.append(len(result["rows"]))
         return result
 
+    def unbounded(self, **_):
+        before = self.native.status()
+        try:
+            return advance(self, work_limit=2**62, deadline=math.inf)
+        finally:
+            after = self.native.status()
+            calls.session_calls += after.march_calls - before.march_calls
+            calls.session_attempts += after.attempts - before.attempts
+
     patch.setattr(NativeAdamsMarch, "_native_run", counted)
-    return attempts
+    patch.setattr(native_session.NativeSession, "advance", unbounded)
+    return calls
 
 
-def _assert_no_number_moved(build, tmp_path, monkeypatch) -> dict[str, list[int]]:
+def _assert_no_number_moved(build, tmp_path, monkeypatch) -> dict[str, Calls]:
     """Run `build` under every bound; assert the files' numbers are one set of bits.
 
     A return is an explicitly exact no-op (class P of ``docs/dev/testing.md``): the
@@ -230,9 +279,7 @@ def _assert_no_number_moved(build, tmp_path, monkeypatch) -> dict[str, list[int]
     attempts = {}
     for name, (most, seconds) in BOUNDS.items():
         with monkeypatch.context() as patch:
-            patch.setattr(NativeAdamsMarch, "MAX_ATTEMPTS", most)
-            patch.setattr(NativeAdamsMarch, "MAX_SECONDS", seconds)
-            attempts[name] = _counted_attempts(patch)
+            attempts[name] = _counted_attempts(patch, most, seconds)
             path = tmp_path / f"{name}.h5"
             build().run(path, progress="none")
             stored[name] = _stored(path)
@@ -242,9 +289,9 @@ def _assert_no_number_moved(build, tmp_path, monkeypatch) -> dict[str, list[int]
         for key, value in reference.items():
             np.testing.assert_array_equal(found[key], value, f"{name}: {key}")
     # Each bound held: nothing above was compared with itself by accident.
-    assert max(attempts["every_attempt"]) == 1
-    assert max(attempts["every_seventh"]) <= 7
-    assert max(attempts["clock_at_every_attempt"]) == 1
+    attempts["every_attempt"].held(1, exactly=True)
+    attempts["every_seventh"].held(7)
+    attempts["clock_at_every_attempt"].held(1, exactly=True)
     return attempts
 
 

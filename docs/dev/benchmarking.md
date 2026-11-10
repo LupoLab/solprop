@@ -294,7 +294,7 @@ uv run python -m benchmarks ab --set sep47 --threads 1 --counters \
 | `snapshots_idle`, `snapshots_sparse`, `snapshots_every` | the same fibre to HDF5 with `step_planes=1` and a `SnapshotController` never asked, asked after every eighth accepted step, or asked at every accepted endpoint | a plane at every step; 0, 5 and 42 snapshots published |
 | `with_input_repeat` | three runs of the fibre with other peak powers through `Simulation.with_input` | three preparations from one translation |
 | `scan_local` | `run_scan` of four peak powers on `Local`, built with `with_input`, field-free | four points, no field copied to the host |
-| `group_batch` | the same four points on `Batch(4)`, replaying ten 1.6 mm steps with the split-step collar | ten lockstep steps of four members |
+| `group_batch` | the same four points on `Batch(4)`, replaying ten 1.6 mm steps with the split-step collar | ten common steps of four members |
 | `radial_filament_256_{saved,free}_{memory,hdf5}` | the radial filament's first 3 mm, four planes, every field kept or none, to memory or to HDF5 | four planes, transverse-edge reads and collar checks |
 | `cartesian_filament_128_{saved,free}_{memory,hdf5}` | the Cartesian filament's first 1 mm, likewise | the same on a 128² grid |
 | `taper_flow_4`, `taper_flow_17` | 40 µm of a He capillary tapering from 50 to 48 µm with taper coupling, 4 or 17 modes | a coupled flow on the native Adams march, and one wider than 16 channels on solprop's host march (`HostMarchWarning`) |
@@ -329,9 +329,13 @@ the harness) holds:
   (the check by steps), `transverse` (a collar's per-step current) or
   `transverse_read`, joined with `+` when several fall due together. Then
   `host_attempt` for each attempt solprop's own loop steps, `low_storage_step` for the
-  low-storage march and `group_step` for a native group's lockstep step;
-- `march_calls`, `attempts` and `accepted` (native march and host attempts together),
-  `host_attempts`, `low_storage_steps` and `group_steps`;
+  low-storage march and `group_step` for a transitional native group's lockstep step.
+  A member of the native group session returns with its native session's batch, by its
+  event: `session_observation`, `session_progress`, `session_warning` or
+  `session_terminal`;
+- `march_calls`, `attempts` and `accepted` (native march, native group member and host
+  attempts together), `host_attempts`, `low_storage_steps` and `group_steps` (a group's
+  common steps);
 - `planes` (calls of `propagate_to`), `statistics_rows` and `statistics_evaluations`,
   `transverse_reads` (native reads of the edge's faces or a collar's current), and
   `field_crossings` with `field_bytes`: fields copied to the host at a plane, at every

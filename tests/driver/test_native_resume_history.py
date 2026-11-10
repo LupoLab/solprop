@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from driver.test_resume import CrashError, run_until
+from driver.test_resume import LENGTH, N_SAVE, CrashError, run_until
 from driver.test_resume_history import (
     AFRESH,
     RTOL,
@@ -42,7 +42,7 @@ from solprop.grid import EnvelopeGrid
 from solprop.output import open_file
 from solprop.output.hdf5 import resume
 from solprop.output.schema import MarchSnapshot
-from solprop.stepper import Multistep
+from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep, RungeKutta
 from solprop.stepper.multistep import ComparisonMultistep
 
 pytestmark = [
@@ -444,6 +444,44 @@ def test_an_incompatible_native_history_is_refused(build_simulation, damage, mes
         assert backend.restore_march(stored) is None
     finally:
         backend.close()
+
+
+@quiet
+def test_a_snapshot_from_elsewhere_or_another_march_is_not_continued(build_simulation):
+    # A native Adams snapshot offered at another position starts the history afresh;
+    # offered to a march that keeps no history, it is not continued, and that march
+    # has no snapshot of its own to give.
+    stored = snapshot_at_first_plane(soliton(build_simulation, "native")())
+    problem, backend = opened(soliton(build_simulation, "native")(), "native")
+    try:
+        assert "the run resumes at z = 0.0 m" in str(backend.restore_march(stored))
+        assert backend.march_snapshot() is None
+    finally:
+        backend.close()
+    planes = np.linspace(0.0, LENGTH, N_SAVE)[1:].tolist()
+    schedule = FixedSchedule.uniform(0.0, LENGTH, LENGTH / 32, save_planes=planes)
+    marches = {
+        "Runge-Kutta": {"integrator": RungeKutta()},
+        "low-storage": {
+            "integrator": LowStorageRungeKutta(),
+            "schedule": schedule,
+            "dz_max": schedule.max_step,
+            "dz_init": schedule.max_step,
+            # Without the collar, whose stable step a replay must respect.
+            "absorber": False,
+        },
+    }
+    for march, keywords in marches.items():
+        other = soliton(build_simulation, "native", **keywords)()
+        problem, backend = opened(other, "native")
+        try:
+            backend.set_initial(problem.initial.field0, None, z=stored.z)
+            assert backend.restore_march(stored) == (
+                f"the run steps with the {march} march, which keeps no history"
+            )
+            assert backend.march_snapshot() is None
+        finally:
+            backend.close()
 
 
 @pytest.mark.medium

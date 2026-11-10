@@ -23,8 +23,9 @@ from __future__ import annotations
 import dataclasses
 import logging
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 
@@ -342,12 +343,29 @@ class _Chunks:
     includes them without consuming them; a terminal checkpoint includes them.
     """
 
-    def __init__(self) -> None:
-        """Start with nothing held."""
-        self._chunks: list[_Chunk] = []
+    def __init__(self, step: Callable[[float, float, bool], None]) -> None:
+        """Start with nothing held.
 
-    def add(self, history: BackendHistory | None, rows: BackendRows | None) -> None:
-        """Hold one event's chunk.
+        Parameters
+        ----------
+        step : callable
+            The progress reporter's per-attempt call, made with each attempt's end,
+            length and acceptance as its chunk arrives.
+        """
+        self._chunks: list[_Chunk] = []
+        self._step = step
+
+    def add(
+        self,
+        history: BackendHistory | None,
+        rows: BackendRows | None,
+        *,
+        report: bool = True,
+    ) -> None:
+        """Hold one event's chunk, and report its attempts.
+
+        Every attempt arrives exactly once, so the reporter hears each once, in order,
+        at the cadence of the session's yields rather than from inside its march.
 
         Parameters
         ----------
@@ -355,8 +373,20 @@ class _Chunks:
             Its attempts.
         rows : solprop.backends.protocol.StepStats or None
             Its periodic rows, without a batch axis.
+        report : bool, optional
+            Whether the reporter hears the attempts; ``False`` for the attempts no
+            event delivered, which a failure's checkpoint holds and no reporter call
+            may lose.
         """
         self._chunks.append((history, rows))
+        if report and history is not None:
+            for z, dz, accepted in zip(
+                history.z.tolist(),
+                history.dz.tolist(),
+                history.accepted.tolist(),
+                strict=True,
+            ):
+                self._step(z, dz, accepted)
 
     def joined(self) -> tuple[BackendHistory, BackendRows]:
         """Return every chunk held, assembled, without consuming them.
@@ -587,7 +617,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
     snapshots = context.snapshots
     snapshots_started = False
     terminal_rows: tuple[object, object] = (None, None)
-    chunks = _Chunks()
+    chunks = _Chunks(reporter.step)
     failure: BaseException | None = None
     adams = isinstance(context.request.integration.method, Multistep)
     try:
@@ -829,6 +859,21 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
     z = event.z
     at_plane = output.n_saved > 0 and float(output["z"][-1]) == z
     checkpoint = None
+
+    def persist() -> None:
+        """Keep the method history and record the execution beside the snapshot."""
+        keeper.keep(z, required=adams)
+        _record_execution(
+            checkpoint_output,
+            backend,  # pyright: ignore[reportArgumentType]
+            context.tdse_binding,
+            _Status("running", z),
+            clock=clock,
+            checkpoint=checkpoint,
+            restart=_restart(base, keeper),
+        )
+
+    # A snapshot at the plane just saved needs no running checkpoint beside it.
     if not at_plane:
         assert event.ticket is not None
         history, rows = attempts
@@ -846,19 +891,6 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
                 np.searchsorted(context.request.observation.save_planes, z, "right")
             ),
             landed=True,
-        )
-
-    def persist() -> None:
-        """Keep the method history and record the execution beside the snapshot."""
-        keeper.keep(z, required=adams)
-        _record_execution(
-            checkpoint_output,
-            backend,  # pyright: ignore[reportArgumentType]
-            context.tdse_binding,
-            _Status("running", z),
-            clock=clock,
-            checkpoint=checkpoint,
-            restart=_restart(base, keeper),
         )
 
     snapshots._service(
@@ -936,9 +968,10 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
             restart=_restart(base, keeper),
         )
     if ticket is None:
+        # The loop's own session is open, and a state left in flight is recorded
+        # above: the committed state always has a ticket.
         ticket = _fallback_ticket(session)
-        if ticket is None:
-            return None
+        assert ticket is not None
     problem = context.problem
     reached = None
     try:
@@ -949,8 +982,10 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
             history, step_rows = rows
             if history is None and step_rows is None:
                 # A failure outside the session: the chunks since the last plane, a
-                # running checkpoint's included, and what no event delivered.
-                chunks.add(*session.undelivered(ticket))
+                # running checkpoint's included, and what no event delivered, which
+                # the run's reporter does not hear: it is ending, and a reporter that
+                # raised here would lose the checkpoint.
+                chunks.add(*session.undelivered(ticket), report=False)
                 history, step_rows = chunks.joined()
             pending = SavedPlane(
                 z=ticket.z,
@@ -1027,8 +1062,9 @@ def _fallback_ticket(session: RunSession) -> ExportTicket | None:
     """Return a ticket for the committed state after a failure outside the session.
 
     A service failure -- an output error, a signal during a commit -- leaves the
-    session's batch pending, so its state is still where the batch left it. When the
-    session already finished, nothing is pending and nothing can be exported.
+    session's batch pending, so its state is still where the batch left it. When
+    nothing is pending, the session issues a failed terminal batch whose ticket exports
+    the committed state (``DriverSession.pending_ticket``).
 
     Parameters
     ----------
@@ -1038,8 +1074,15 @@ def _fallback_ticket(session: RunSession) -> ExportTicket | None:
     Returns
     -------
     solprop.backends.events.ExportTicket or None
-        A ticket for the pending state, or ``None``.
+        A ticket for the committed state, or ``None`` when the session is closed or
+        its state was left in flight.
     """
+    # A session that can end itself at its committed state for the checkpoint says
+    # so (`NativeSession.failure_ticket`); the transitional session's pending ticket
+    # already does.
+    issue = getattr(session, "failure_ticket", None)
+    if callable(issue):
+        return cast("ExportTicket | None", issue())
     return session.pending_ticket()
 
 

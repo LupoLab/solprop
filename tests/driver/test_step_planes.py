@@ -36,6 +36,29 @@ pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarn
 
 BACKENDS = ["numpy_ref"] + (["native"] if "native" in available() else [])
 
+NEEDS_NATIVE = pytest.mark.skipif(
+    "native" not in available(), reason="native is not installed"
+)
+MARCHES = [
+    pytest.param("numpy_ref", None, id="reference"),
+    pytest.param("native", None, id="native", marks=NEEDS_NATIVE),
+    pytest.param("native", "host", id="native-python-loop", marks=NEEDS_NATIVE),
+]
+"""The reference, the native march, and solprop's Python march on the native kernels,
+which the native backend runs for a configuration its march does not cover."""
+
+
+def on_march(monkeypatch, march):
+    """Select solprop's Python march on the native backend when `march` is ``"host"``.
+
+    The native backend's private switches select it without a warning, for the
+    Runge-Kutta and the Adams march alike.
+    """
+    if march is not None:
+        module = pytest.importorskip("solprop_native.backend")
+        monkeypatch.setattr(module, "_RK_MARCH", march)
+        monkeypatch.setattr(module, "_ADAMS_MARCH", march)
+
 
 def soliton(**extra):
     """Return a second-order soliton over a quarter of its period, three planes."""
@@ -218,11 +241,15 @@ def test_a_scan_refuses_saved_steps(tmp_path):
     ],
     ids=["runge-kutta", "adams"],
 )
-def test_a_step_that_crosses_an_interpolated_plane_is_saved_after_it(dense):
+@pytest.mark.parametrize(("backend", "march"), MARCHES)
+def test_a_step_that_crosses_an_interpolated_plane_is_saved_after_it(
+    dense, backend, march, monkeypatch
+):
     # With every step saved, the step that crosses a requested plane is saved too, in
     # order after the plane interpolated inside it.
-    alone = soliton(backend="numpy_ref", **dense).run(progress="none")
-    every = soliton(backend="numpy_ref", step_planes=1, **dense).run(progress="none")
+    on_march(monkeypatch, march)
+    alone = soliton(backend=backend, **dense).run(progress="none")
+    every = soliton(backend=backend, step_planes=1, **dense).run(progress="none")
     z = np.asarray(every["z"])
     assert np.all(np.diff(z) > 0)
     np.testing.assert_array_equal(
@@ -233,14 +260,16 @@ def test_a_step_that_crosses_an_interpolated_plane_is_saved_after_it(dense):
 @pytest.mark.parametrize(
     "integrator", [Multistep(), RungeKutta()], ids=["default", "runge_kutta"]
 )
-def test_a_replayed_schedule_saves_its_steps(integrator):
+@pytest.mark.parametrize(("backend", "march"), MARCHES)
+def test_a_replayed_schedule_saves_its_steps(integrator, backend, march, monkeypatch):
     # Each integrator replays a schedule in a loop of its own.
+    on_march(monkeypatch, march)
     schedule = FixedSchedule.uniform(
         0.0, 0.012, 0.001, save_planes=[0.004, 0.008, 0.012]
     )
     # Without the collar, which refuses twelve fixed steps; the planes are the point.
     replay = soliton(
-        backend="numpy_ref",
+        backend=backend,
         schedule=schedule,
         step_planes=1,
         integrator=integrator,

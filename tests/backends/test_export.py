@@ -9,6 +9,10 @@ makes on its way to a destination. Its bits are those of today's two steps, the
 true-power weight (``fourier.power_amplitude``) and then the optics convention
 (``fourier.spectrum_to_optics``), with signed zeros and every sign of value; that is a
 structural contract of lossless storage, so the equalities here are exact.
+
+
+It also pins the refusals and the in-place conversion, which the session lifecycle
+suite reaches only through whole runs.
 """
 
 from types import SimpleNamespace
@@ -126,3 +130,47 @@ def test_an_unfit_destination_is_refused_by_what_is_wrong():
 def test_a_fit_destination_has_no_refusal():
     assert destination_refusal(np.empty(SHAPE, complex), SHAPE) is None
     assert destination_refusal(np.empty((1, *SHAPE), complex)[0], SHAPE) is None
+
+
+POWER = ExportRecipe(power=True, optics=False)
+STORED = ExportRecipe(power=True, optics=True)
+OPTICS = ExportRecipe(power=False, optics=True)
+IDENTITY = ExportRecipe(power=False, optics=False)
+
+
+def state() -> np.ndarray:
+    """Return a small modal field: two modes, one polarisation, four bins."""
+    rng = np.random.default_rng(47)
+    return rng.standard_normal((2, 1, 4)) + 1j * rng.standard_normal((2, 1, 4))
+
+
+@pytest.mark.parametrize("bad", [0.0, -1.0, np.inf, np.nan])
+def test_a_true_power_export_refuses_a_weight_not_positive_and_finite(bad):
+    weight = np.full((2, 1, 4), 2.0)
+    weight[1, 0, 2] = bad
+    with pytest.raises(GridError, match="positive and finite"):
+        apply_recipe(state(), POWER, weight=weight)
+
+
+def test_an_identity_export_of_a_field_into_itself_leaves_it_unchanged():
+    field = state()
+    before = field.copy()
+    assert apply_recipe(field, IDENTITY, weight=None, out=field) is field
+    np.testing.assert_array_equal(field, before)
+
+
+def test_a_unit_weight_export_into_itself_converts_in_place_without_scaling():
+    field = state()
+    expected = fourier.spectrum_to_optics(field.copy(), kind="envelope")
+    out = apply_recipe(field, STORED, weight=np.ones((2, 1, 4)), out=field)
+    assert out is field
+    np.testing.assert_array_equal(field, expected)
+
+
+def test_a_destination_overlapping_the_state_is_refused():
+    field = state()
+    # A writeable, C-contiguous complex128 view of the field that is not the field.
+    view = field[:]
+    assert view is not field
+    with pytest.raises(BackendError, match="must not overlap"):
+        apply_recipe(field, OPTICS, weight=None, out=view)

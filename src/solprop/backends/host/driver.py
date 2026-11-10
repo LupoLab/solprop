@@ -87,7 +87,6 @@ __all__ = [
     "INITIAL_STEP_STATS_CAPACITY",
     "HostDriver",
     "reached",
-    "refuse_general_leaves",
     "replay_tolerance",
 ]
 
@@ -283,19 +282,17 @@ class _TrialProbe:
     driver : HostDriver
         The driver, loaded from the probe's start.
     start : tuple
-        The loaded position, m, the noise realisation it was loaded with, and the
-        replayed itinerary's index there, for reloading the loaded state after a
-        readback that had to commit the trial (:meth:`field`).
+        The loaded position, m, and the replayed itinerary's index there.
     """
 
     def __init__(
         self,
         driver: "HostDriver[object]",  # noqa: UP037 - the driver class follows
-        start: tuple[float, NoiseRealisation | None, int],
+        start: tuple[float, int],
     ) -> None:
         """Hold the loaded driver; no trial is taken yet."""
         self._driver = driver
-        self._z, self._noise, self._index = start
+        self._z, self._index = start
         self._trial: tuple[object, float] | None = None
 
     def trial(self, z: float | None = None, dz: float | None = None) -> None:
@@ -327,10 +324,8 @@ class _TrialProbe:
         """Return the last trial's end state on the host, as a kept step would be.
 
         The trial's state after the accepted-step boundary treatments (the band mask,
-        and the split-step absorber where it runs). A backend whose trial lives in its
-        own state, as the native state's does, can read it back only by finishing the
-        step there; the loaded state is then loaded again, exactly, so that the probe
-        still commits nothing.
+        and the split-step absorber where it runs). A host trial is a new array beside
+        the loaded state, so finishing it leaves the loaded state alone.
 
         Returns
         -------
@@ -354,15 +349,7 @@ class _TrialProbe:
         if self._trial is None:
             raise BackendError("take a trial before reading its field")
         state, length = self._trial
-        loaded = driver._require_state()
-        shared = state is loaded
-        # The loaded state, kept only when finishing the trial overwrites it.
-        kept = np.array(driver._observed_field(loaded)) if shared else None
-        finished = driver._finish(state, length)
-        field = np.array(driver._observed_field(finished)[0])
-        if kept is not None:
-            # The kept array already carries any `input` draw: a resume adds none.
-            driver.set_initial(kept, self._noise, z=self._z, resume=True)
+        field = np.array(driver._observed_field(driver._finish(state, length))[0])
         self._trial = None
         return field
 
@@ -599,12 +586,24 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         ----------
         count : int
             Number of logical source evaluations required by the trial.
+
+        Raises
+        ------
+        NotImplementedError
+            Always: the driver that runs an Adams march (the reference backend) keeps
+            its own reservations; a group's members reserve theirs.
         """
-        del count
+        raise NotImplementedError
 
     def _release_source_calls(self) -> None:
-        """Release the unused part of an external source-call reservation."""
-        return
+        """Release the unused part of an external source-call reservation.
+
+        Raises
+        ------
+        NotImplementedError
+            Always, as :meth:`_reserve_source_calls`.
+        """
+        raise NotImplementedError
 
     def _adams_source(
         self,
@@ -1622,7 +1621,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         )
         return _TrialProbe(
             cast("HostDriver[object]", self),
-            (float(start.z), start.noise, self._schedule_index),
+            (float(start.z), self._schedule_index),
         )
 
     # --- the step loop -------------------------------------------------------------
@@ -3009,56 +3008,6 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             msg = (
                 f"z = {target:.6g} m lies beyond the operator table, which covers "
                 f"[{span[0]:.6g}, {span[1]:.6g}] m"
-            )
-            raise BackendError(msg)
-
-
-def refuse_general_leaves(
-    problem: KernelProblem, backend: str, *, admits: Sequence[str] = ()
-) -> None:
-    """Refuse, by name, each schema-12 general-modal leaf a backend cannot execute.
-
-    The four optional leaves of the general modal route arrived at kernel schema 12
-    with no backend behind them. A
-    schema check alone cannot stand in for this: a separately built backend compares
-    against solprop's imported constant, so a freshly built wheel would accept a
-    problem carrying a representation it does not implement and silently run the old
-    physical model. Each leaf is therefore named here, one refusal each, and each
-    check is deleted only when that backend executes that exact representation.
-
-    Every backend in this repository names all four leaves and admits through the
-    shared list in :mod:`solprop.backends.numpy_ref.admission`, so this refusal guards
-    a separately built backend. A backend that executes a leaf names it in `admits` and
-    checks the exact representation it supports itself: admitting a leaf is a statement
-    about one combination of contents, not about the field being present.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        The problem to check.
-    backend : str
-        The backend's registry name, used in the refusal.
-    admits : sequence of str, optional
-        Dotted leaf names this backend executes, for example
-        ``("transform.modal_tables",)``. Empty by default: a backend refuses every
-        one until it has a kernel for it.
-
-    Raises
-    ------
-    BackendError
-        Naming the backend and the leaf it cannot execute.
-    """
-    for name, leaf in (
-        ("linear.coupled_flow", problem.linear.coupled_flow),
-        ("linear.modal_metric", problem.linear.modal_metric),
-        ("transform.modal_tables", problem.transform.modal_tables),
-        ("responses.regional_responses", problem.responses.regional_responses),
-    ):
-        if leaf is not None and name not in admits:
-            msg = (
-                f"{backend} does not execute {name}: the general modal route is not "
-                "implemented on this backend, and a leaf silently ignored would run, "
-                "converge and be the wrong physics"
             )
             raise BackendError(msg)
 

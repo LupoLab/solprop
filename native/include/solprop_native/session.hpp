@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -147,19 +148,27 @@ struct MonitorPlan {
   /** Whether it resumes at a saved plane, and the stretches run since unwatched, m. */
   bool plane = false;
   std::vector<std::array<double, 2>> unwatched;
+  /** The input noise's vacuum floor the launch judges above (`BoundaryMonitor.launch`'s
+      `floor`): its energy and its expected share in each region; none without. */
+  bool floor = false;
+  double floor_energy = 0.0;
+  std::array<double, 4> floor_regions{};
   /** A free-space run's transverse edge, and the `transverse` record it continues. */
   std::optional<transverse::Config> edge;
   transverse::Resumption edge_record;
 };
 
 /** The Adams march a session runs: its policy, state, replayed schedule and engine,
-    and its dense output when its planes are interpolated (none otherwise). */
+    its dense output when its planes are interpolated (none otherwise), and the
+    predictor order of each step it accepted, in order (the call ledger's `orders`,
+    which the state's counters leave out). */
 struct AdamsMethod {
   march::Policy policy;
   march::State state;
   march::Schedule schedule;
   std::unique_ptr<march::Engine> engine;
   std::unique_ptr<Dense> dense;
+  std::vector<std::uint8_t> orders;
 };
 
 /** The Runge-Kutta march a session runs. */
@@ -366,6 +375,20 @@ public:
   void continue_monitor(const watch::Resumption& record, bool plane,
                         const std::vector<std::array<double, 2>>& unwatched,
                         const transverse::Resumption& edge_record = {});
+  /** Call `reader` with the march and the state it leases, under the session's lock:
+      between advances when `sequence` is zero, or else while the pending batch
+      `sequence` holds the committed state at `generation` (an export's ticket), for a
+      method-history snapshot (SEP 47 section 5.4) or the call ledger. */
+  void read(std::uint64_t sequence, std::uint64_t generation,
+            const std::function<void(const Method&, Resident&)>& reader);
+  /** Issue a failed terminal batch at the committed state when none is pending, so
+      that a failure outside the session can still checkpoint that state
+      (`DriverSession.pending_ticket`), and return it. It carries whatever the chunk
+      buffers still hold (empty after any issued batch; attempts an advance made
+      before an escaped exception otherwise), delivered there exactly once. None when
+      a batch is already pending, or once the session has ended or closed. Takes the
+      session's lock. */
+  std::optional<Batch> fail_outside();
   /** Release the engine, the leased state and every buffer; idempotent. Returns
       whether the session is closed: false only when its lock could not be taken, and
       then nothing was released. Waits for an advance in hand. */

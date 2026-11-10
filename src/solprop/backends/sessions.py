@@ -2,24 +2,29 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Which run session serves a loaded backend (SEP 47 phase 2).
+"""Which run session serves a loaded backend (SEP 47 phases 2 and 3).
 
 The NumPy reference runs in its own session
 (:class:`solprop.backends.host.session.HostSession`, over
-:class:`solprop.backends.host.driver.HostDriver`); every other backend -- the native
-bridge, until its own session replaces it in phase 3 -- runs in the transitional
-session over the inherited driver
-(:class:`solprop.backends.driver_session.DriverSession`). :func:`start_session` chooses
-by the driver's type, so the run layer has one door. :func:`start_group` is the door
-for a group of compatible members (SEP 47 section 6.7), served on every backend by the
+:class:`solprop.backends.host.driver.HostDriver`); a native CPU backend runs in the
+native execution session (:class:`solprop_native.session.NativeSession`) whenever it
+admits the run, before the start is loaded; what it refuses by name, and every other
+backend, runs in the transitional session over the inherited driver
+(:class:`solprop.backends.driver_session.DriverSession`). :func:`start_session` chooses,
+so the run layer has one door. :func:`start_group` is the door
+for a group of compatible members (SEP 47 section 6.7): native CPU members run in the
+native group session (:class:`solprop_native.group.NativeGroupSession`, one native
+session per member) whenever it admits the group; any other group runs in the
 transitional group over the lockstep runners
-(:class:`solprop.backends.driver_session.DriverGroupSession`).
+(:class:`solprop.backends.driver_session.DriverGroupSession`), the reference's and the
+native groups the native group refuses by name (``solprop_native.group.refusal``).
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from solprop.backends.driver_session import (
     AttemptListener,
@@ -28,7 +33,7 @@ from solprop.backends.driver_session import (
 )
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.session import HostSession
-from solprop.backends.session import Start
+from solprop.backends.session import GroupSession, RunSession, Start, check_group
 from solprop.log import StopFlag
 from solprop.translate.problem import KernelProblem
 from solprop.translate.run_request import RunRequest
@@ -38,6 +43,8 @@ if TYPE_CHECKING:
     from solprop.backends.protocol import Backend
 
 __all__ = ["start_group", "start_session"]
+
+logger = logging.getLogger(__name__)
 
 
 def start_session(  # noqa: PLR0913 - the session context
@@ -50,7 +57,7 @@ def start_session(  # noqa: PLR0913 - the session context
     started: Callable[[float, float, int], None] | None = None,
     stop: StopFlag | None = None,
     owns: bool = True,
-) -> DriverSession:
+) -> RunSession:
     """Start the session that serves `backend` for one run.
 
     Parameters
@@ -75,10 +82,25 @@ def start_session(  # noqa: PLR0913 - the session context
 
     Returns
     -------
-    solprop.backends.driver_session.DriverSession
-        A :class:`~solprop.backends.host.session.HostSession` for a reference
-        backend, or the transitional session for any other.
+    solprop.backends.session.RunSession
+        The native session (:class:`solprop_native.session.NativeSession`) for a
+        native CPU backend whenever it admits the run; a
+        :class:`~solprop.backends.host.session.HostSession` for a reference backend;
+        otherwise the transitional session over the legacy driver, which serves what
+        the native session does not run yet (SEP 47 Part II).
     """
+    native = _native_session(
+        backend,
+        problem,
+        request,
+        start,
+        listener=listener,
+        started=started,
+        stop=stop,
+        owns=owns,
+    )
+    if native is not None:
+        return native
     session = HostSession if isinstance(backend, HostDriver) else DriverSession
     return session(
         backend,
@@ -99,7 +121,7 @@ def start_group(
     starts: Sequence[Start],
     *,
     stop: StopFlag | None = None,
-) -> DriverGroupSession:
+) -> GroupSession:
     """Start the group that advances compatible members through one fixed schedule.
 
     Parameters
@@ -118,7 +140,104 @@ def start_group(
 
     Returns
     -------
-    solprop.backends.driver_session.DriverGroupSession
-        The started group (:class:`~solprop.backends.session.GroupSession`).
+    solprop.backends.session.GroupSession
+        The started group: the native group session for native members it admits,
+        the transitional group otherwise.
+
+    Raises
+    ------
+    solprop.backends.session.SessionError
+        If the sequences differ in length or are empty, or if a start is not a fresh
+        entrance.
     """
+    check_group(len(members), problems, requests, starts)
+    if members[0].name == "native":
+        # The native package has its own strict type gate.
+        from solprop_native.group import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+            NativeGroupSession,
+            refusal,
+        )
+
+        refused = refusal(problems, requests, starts)
+        if refused is None:
+            return cast(
+                GroupSession,
+                NativeGroupSession(members, problems, requests, starts, stop=stop),  # pyright: ignore[reportArgumentType] - native members, checked there
+            )
+        logger.debug(
+            "the native group session does not run %s; the transitional group runs it",
+            refused,
+        )
     return DriverGroupSession(members, problems, requests, starts, stop=stop)
+
+
+def _native_session(  # noqa: PLR0913 - the session context
+    backend: Backend,
+    problem: KernelProblem,
+    request: RunRequest,
+    start: Start,
+    *,
+    listener: AttemptListener | None,
+    started: Callable[[float, float, int], None] | None,
+    stop: StopFlag | None,
+    owns: bool,
+) -> RunSession | None:
+    """Return the native session for `backend`, or ``None`` when it does not serve it.
+
+    The native distribution is imported only for its own backend, so a reference run
+    loads none of it.
+
+    Parameters
+    ----------
+    backend : solprop.backends.protocol.Backend
+        The loaded backend.
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's policies.
+    start : solprop.backends.session.Start
+        Where the run starts.
+    listener : callable or None
+        Called with each attempt as it is made; the native session then yields after
+        every attempt, so the service loop reports progress from the delivered
+        attempts instead.
+    started : callable or None
+        Called with the start, the end and the plane count when propagation begins.
+    stop : solprop.log.StopFlag or None
+        The run's stop token.
+    owns : bool
+        Whether closing the session closes the backend.
+
+    Returns
+    -------
+    solprop.backends.session.RunSession or None
+        The native session, or ``None`` for any other backend, a run the native
+        session refuses, or one the built backend would step on the host.
+    """
+    if type(backend).__module__ != "solprop_native.backend":
+        return None
+    from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        NativeBackend,
+    )
+    from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        NativeSession,
+        backend_refusal,
+        refusal,
+    )
+
+    if (
+        type(backend) is not NativeBackend
+        or refusal(problem, request, start)
+        or backend_refusal(backend)
+    ):
+        return None
+    return NativeSession(
+        problem,
+        request,
+        start,
+        stop=stop,
+        listener=listener,
+        backend=backend,
+        owns=owns,
+        started=started,
+    )

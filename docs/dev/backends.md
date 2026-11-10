@@ -69,7 +69,7 @@ class Backend(Protocol):
     def march_snapshot_nbytes(self, z: float) -> int | None: ...  # copying nothing
     def march_export_refusal(self) -> str | None: ...
     def restore_march(self, snapshot: MarchSnapshot) -> str | None: ...
-    def timing_probe(self, start: Start) -> TimingProbe: ...  # trials, committing nothing
+    def timing_probe(self, start: Start) -> TimingProbe: ...  # commits nothing
     @property
     def closed(self) -> bool: ...  # a failure can close a backend
 ```
@@ -1370,8 +1370,10 @@ in memory for its later workspaces either way. A run's own planning (the policy'
 the profile's) is offered the stored plans (`FftPlanning::stored`) and asked to keep
 what it measures (`keep`). In `begin_seed` a key the profile holds is planned from the
 profile's wisdom, as before; any other seeded above estimate plans *alone*: the
-workspace's accumulated wisdom is exported and forgotten, only that key's stored wisdom
-imported, and after the seed (`release_seed`) the transform's own wisdom is exported
+workspace's accumulated wisdom is exported and forgotten, only that key's known wisdom
+imported (stored, or measured earlier in this workspace, so a key seeded twice is
+measured once; a key to measure starts from what the workspace measured so far, whose
+sub-plans it shares), and after the seed (`release_seed`) the transform's own wisdom is exported
 into `measured` when the seed added an entry the stored text lacked, or the key is
 listed in `reused`; the workspace's wisdom is then imported back over the transform's,
 so that a profile's entries win where both hold one. A key left at estimate that the

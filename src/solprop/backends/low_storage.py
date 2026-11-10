@@ -556,10 +556,6 @@ class LowStorageMarch:
         """Forget what the engine holds: the state was loaded outside the march."""
         self._engine.reset()
 
-    def close(self) -> None:
-        """Release the engine's registers and table, with the backend's buffers."""
-        self._engine.close()
-
     def snapshot(self) -> None:
         """Return nothing for a resume to continue: the march keeps no history.
 

@@ -366,6 +366,10 @@ void Session::absorb(const march::Result& result, const Clock::time_point starte
       ++generation_;
     }
   }
+  // `_synchronise`: the call ledger's orders, one per accepted step.
+  if (auto* adams = std::get_if<AdamsMethod>(&method_))
+    for (const std::size_t order : result.orders)
+      adams->orders.push_back(static_cast<std::uint8_t>(order));
   publish();
 }
 
@@ -577,9 +581,10 @@ bool Session::attach(Batch& batch) {
     monitor_->resume(plan.record, plan.plane, plan.unwatched);
   }
   const std::vector<double> reading = resident_->boundary_reading();
-  // The input noise's floor is refused at preparation: none is read.
+  // The input noise's floor, read from its draw on the host once, or none.
   const watch::Judgement judgement =
-      monitor_->launch(reading.data(), reading.size(), position(), 0.0, nullptr);
+      monitor_->launch(reading.data(), reading.size(), position(), plan.floor_energy,
+                       plan.floor ? plan.floor_regions.data() : nullptr);
   if (judgement.verdict == watch::Verdict::warn)
     continuation_ = Continuation::attach;
   if (judged(batch, judgement))
@@ -932,6 +937,34 @@ void Session::continue_monitor(const watch::Resumption& record, const bool plane
   plan_.monitor->plane = plane;
   plan_.monitor->unwatched = unwatched;
   plan_.monitor->edge_record = edge_record;
+}
+
+void Session::read(const std::uint64_t sequence, const std::uint64_t generation,
+                   const std::function<void(const Method&, Resident&)>& reader) {
+  const std::scoped_lock lock(mutex_);
+  require_open();
+  if (sequence != 0 &&
+      (!pending_ || sequence != sequence_ || generation != pending_generation_))
+    throw LifecycleError("the ticket has expired: its batch was acknowledged, or it "
+                         "belongs to another session");
+  reader(method_, *resident_);
+}
+
+std::optional<Batch> Session::fail_outside() {
+  const std::scoped_lock lock(mutex_);
+  if (closed() || pending_ || state_.load() == State::finished)
+    return std::nullopt;
+  // The committed state is the last commit's, eligible. The chunk buffers are drained
+  // into this batch, so an attempt an aborted advance left there is delivered once,
+  // with the failure's checkpoint, never dropped or delivered twice.
+  Failure failure;
+  failure.reason = march::Reason::error;
+  failure.category = march::Category::backend;
+  failure.message = "the run failed outside its session";
+  failure.cursor = cursor();
+  Batch batch;
+  terminal(batch, Outcome::failed, std::move(failure));
+  return issue(std::move(batch), Outcome::failed);
 }
 
 std::optional<watch::Record> Session::monitor_record() const {

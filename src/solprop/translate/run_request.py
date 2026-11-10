@@ -113,9 +113,16 @@ class IntegrationSpec:
         Returns
         -------
         bool
-            True for the benchmark-only comparison family (SEP 47 section 6.3).
+            True for the benchmark-only comparison variants off the selected family
+            (SEP 47 section 6.3): PECE, explicit Adams-Bashforth and the matched pairs.
+            The PEC variant whose corrector is one order higher is the selected method
+            under another name, which every backend runs.
         """
-        return isinstance(self.method, ComparisonMultistep)
+        method = self.method
+        return isinstance(method, ComparisonMultistep) and (
+            method.corrector != "pec"
+            or method.corrector_nodes(method.order) != method.order + 1
+        )
 
 
 @dataclass(frozen=True)

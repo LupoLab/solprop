@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <csignal>
 #include <cstddef>
 #include <span>
 #include <stdexcept>
@@ -144,7 +145,13 @@ void ResidentEngine::inject(const march::Stage stage) {
     return;
   }
   const auto category = fault_->category;
+  const int signal = fault_->signal;
   fault_.reset();
+  if (signal != 0) {
+    // Python's handler only notes it: it runs once the call returns to Python.
+    static_cast<void>(std::raise(signal));
+    return;
+  }
   if (category == march::Category::convergence)
     throw EnvelopeConvergenceError("an injected native failure");
   if (category == march::Category::value)

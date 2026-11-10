@@ -804,10 +804,17 @@ def test_rejected_trials_are_recorded_and_not_kept(start_scripted):
     assert np.flatnonzero(~flags).tolist() == [trial - 1 for trial in rejected]
     assert run.status.rejected == len(rejected)
     assert run.attempts == run.status.attempts
+    # Every chunk counts, in delivery order: a deadline's yield delivers its own.
+    fields = dict(zip(map(id, run.observations), run.fields, strict=True))
     accepted = 0
-    for event, field in zip(run.observations, run.fields, strict=True):
-        accepted += int(event.history.accepted.sum())
-        np.testing.assert_array_equal(field, run.fields[0] * FACTOR**accepted)
+    for event in run.events:
+        history = getattr(event, "history", None)
+        if history is not None:
+            accepted += int(history.accepted.sum())
+        if id(event) in fields:
+            np.testing.assert_array_equal(
+                fields[id(event)], run.fields[0] * FACTOR**accepted
+            )
 
 
 # ------------------------------------------------------------------------ stops
@@ -887,6 +894,7 @@ def test_stop_token_listeners_fire():
     token.attach(lambda: calls.append("late"))
     assert calls == ["early", "late"]  # attached to a set token: called at once
     detach()
+    detach()  # a second detach does nothing
     token.clear()
     assert not token.is_set()
     token.set()
@@ -1218,6 +1226,38 @@ def test_a_step_plane_ending_on_the_next_plane_is_observed_once(
     ), "no step crossed a plane and landed on the next"
     positions = [event.z for event in run.observations]
     assert len(set(positions)) == len(positions), positions
+
+
+@pytest.mark.parametrize(
+    "bounds",
+    [
+        {"work_limit": 1},
+        {"work_limit": 7},
+        {"work_limit": 10**6},
+        {"deadline": 0.0},
+    ],
+    ids=["work-limit-1", "work-limit-7", "work-limit-1e6", "deadline-0"],
+)
+@pytest.mark.parametrize("method", sorted(DENSE_METHODS))
+def test_yields_change_nothing_beside_dense_planes(start, executor, method, bounds):
+    """SEP 47 sections 5.1 and 7.1: bounded yields are exact transport no-ops beside
+    interpolated planes, a held plane and its step's extension included.
+
+    The run with its planes interpolated and a step plane every third step, yielding
+    after every attempt, every seventh, hardly ever or at once whatever was made, is
+    bit-identical to the run with the default bounds: every attempt, row, observation
+    and exported field.
+    """
+    executor.require(DENSE)
+    _deterministic(executor)
+    problem = soliton(
+        step_planes=3, period=2, interpolate=True, integrator=DENSE_METHODS[method]
+    )
+    baseline = drive(start(problem), export=IDENTITY)
+    run = drive(start(problem), export=IDENTITY, **bounds)
+    assert_same_run(run, baseline)
+    if bounds.get("work_limit") == 1:
+        assert len(run.batches) > len(baseline.batches)
 
 
 MANY_PLANES = tuple(float(z) for z in np.linspace(LENGTH / 64, LENGTH, 64))

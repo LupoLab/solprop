@@ -48,6 +48,10 @@ EXPECTED: tuple[str, ...] = (
     r"Kokkos's propagator scratch has one fixed residency policy",
     r"native forms a staged trial's stage scalars in its own state and scores the "
     r"alarm there \(SEP 45 phase 2\): no host bundle carries the stage",
+    # A session conformance executor asked for what it does not run
+    # (tests/sessions/executors.py): the scripted drivers run no Adams march.
+    r"a scripted driver runs no Adams march",
+    r"the [a-z-]+ executor does not run an? [a-z -]+",
     # The parametrization reaches a case its subject excludes.
     r"the interaction formulation is refused beside a coupled flow",
     r"this case took the expansion",

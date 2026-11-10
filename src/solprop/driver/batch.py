@@ -371,9 +371,10 @@ def split_observation(
     **The field of every returned plane is the backend's internal, vacuum-normalised
     modal amplitude, not the interface amplitude in true sqrt(W)**. This
     function splits an observation and nothing else; the conversion ``b = sqrt(w) a`` at
-    the interface is ``solprop.driver.run._power_observation``, which a run applies to
-    the observation before any plane is stored. A caller that wants stored units must
-    convert first and split the converted observation.
+    the interface is a session's export with ``ExportRecipe(power=True, ...)``
+    (:mod:`solprop.backends.export`), which a run applies before any plane is stored.
+    A caller that wants stored units must convert first and split the converted
+    observation.
 
     Parameters
     ----------
