@@ -4059,7 +4059,7 @@ NB_MODULE(_core, module_) {
       .def(
           "planned_statistics",
           [](BoundState& self, const BoundStatisticsPlan& plan, const double z) {
-            const auto held = plan.plan();
+            const auto& held = plan.plan();
             std::vector<double> values;
             {
               const nb::gil_scoped_release release;

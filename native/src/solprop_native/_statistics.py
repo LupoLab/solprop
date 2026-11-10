@@ -368,7 +368,9 @@ class StatisticsLowering:
     plan: _core.StatisticsPlan | None
     shapes: dict[str, tuple[int, ...]]
     values: dict[str, object]
-    tables: dict[str, dict[str, object]] = dataclasses.field(default_factory=dict)
+    tables: dict[str, dict[str, object]] = dataclasses.field(
+        default_factory=dict[str, dict[str, object]]
+    )
 
     def subset(self, names: Sequence[str]) -> StatisticsLowering:
         """Return the plan of some of the names, from the same lowered inputs.

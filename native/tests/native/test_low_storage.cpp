@@ -157,8 +157,8 @@ TEST(LowStorage, AConstantOperatorsTableIsBuiltFromItsOrigin) {
   const low_storage::Config table{1, false, 0.25};
   const auto built = low_storage::scalars(tables, anchor, table, z, dz, true, key);
   // fl(origin + key / 2) - origin, not key / 2: solprop's engines build it so.
-  const double half = 0.25 + 0.5 * key;
-  EXPECT_EQ(built.phi_delta, (std::vector<double>{0.0, 0.0, half - 0.25, 0.0, 0.0}));
+  const double middle = 0.25 + 0.5 * key;
+  EXPECT_EQ(built.phi_delta, (std::vector<double>{0.0, 0.0, middle - 0.25, 0.0, 0.0}));
   const auto reused = low_storage::scalars(tables, anchor, table, z, dz, false, key);
   EXPECT_EQ(reused.phi_delta, (std::vector<double>(5, 0.0)));
   // A separable operator's increments are the distances themselves.
