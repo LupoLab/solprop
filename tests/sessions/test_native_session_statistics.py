@@ -765,3 +765,189 @@ def test_rows_of_every_family_cause_no_return_to_python():
         "session_terminal": 1,
     }
     assert record["field_crossings"] == {}
+
+
+# --- a beam's fluence widths: plane-only, finished natively -----------------------
+
+WIDTHS = ("energy", "on_axis_intensity", "beam_radius", "fwhm_r")
+"""A spatial route's plane-only fluence widths beside two periodic statistics, which
+the rows take."""
+
+
+def _beam(route):
+    """A beam on one width rule's geometry, over a few replayed steps."""
+    from backends.planar_cases import planar_case  # noqa: PLC0415
+    from solprop.driver import Simulation, SimulationSettings  # noqa: PLC0415
+    from solprop.grid import (  # noqa: PLC0415
+        EnvelopeGrid,
+        FreeGrid,
+        LineGrid,
+        RadialGrid,
+    )
+    from solprop.pulses import GaussianPulse, SpatialPulse  # noqa: PLC0415
+    from solprop.spatial import SpatialMedium  # noqa: PLC0415
+
+    if route == "planar":
+        grid, _, problem, run_request = planar_case("kerr", steps=4)
+        return grid, problem, run_request
+    grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15)
+    space = {
+        "radial": RadialGrid(3e-4, 32),
+        "plane": FreeGrid(3e-4, 32, 4e-4, 24),
+        "line": LineGrid(4e-4, 48),
+    }[route]
+    settings = SimulationSettings(
+        controller=PIController(rtol=1e-6, atol=1e-14),
+        save_planes=[1e-3],
+        dz_max=2.5e-4,
+        dz_init=2.5e-4,
+        absorber=None,
+        schedule=FixedSchedule(np.full(4, 2.5e-4)),
+        stats=StatsSpec(names=WIDTHS),
+    )
+    # Off centre, so that a centroid and a two-sided average have work to do.
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 6e-5
+    )
+    build = Simulation.from_radial if route == "radial" else Simulation.from_free
+    simulation = build(
+        grid,
+        space,
+        SpatialMedium(1.45 + 2e-3j),
+        [],
+        pulse,
+        settings=settings,
+        noise=None,
+    )
+    return grid, simulation.translate(), simulation._run_request()
+
+
+def _host_widths(problem, run_request, grid, record):
+    """The host finishing the transitional session took, on the native fluence passes.
+
+    ``solprop.backends.spatial.signed_fluence_widths`` on the fluence block, or
+    ``plane_fluence_widths`` on a plane's moments and its native trace, of the record's
+    exported field loaded at its position.
+    """
+    from solprop.backends.spatial import (  # noqa: PLC0415
+        fluence_budget,
+        plane_fluence_widths,
+        signed_fluence_widths,
+    )
+    from solprop.constants import EPS0, C  # noqa: PLC0415
+
+    geometry = problem.transform.geometry
+    assert geometry is not None
+    plane = geometry.kind == "free" and geometry.axes[1].size > 1
+    n_terms = problem.shape[1] * problem.grids.n_t + problem.transform.n_modes
+    backend = select("native", problem, run_request, grid=grid)
+    start = float(problem.initial.z)
+    try:
+        backend.set_initial(record.field, None, z=record.z, resume=record.z > start)
+        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
+        packed = np.ravel(
+            state.spatial_statistics(32 if plane else 16, 0.5 * EPS0 * C, record.z)
+        )
+        if plane:
+            return plane_fluence_widths(
+                geometry, packed, n_terms, state.plane_fluence_trace
+            )
+        count = problem.transform.n_nodes
+        budget = fluence_budget(np.full(count, packed[count + 1]), n_terms)
+        return signed_fluence_widths(
+            geometry, packed[:count], budget, float(packed[count])
+        )
+    finally:
+        backend.close()
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+@pytest.mark.filterwarnings(
+    "ignore:the temporal absorber attenuates a packet walking off"
+    ":solprop.exceptions.SolpropWarning"
+)
+@pytest.mark.parametrize("route", ["radial", "plane", "line", "planar"])
+def test_a_beam_s_fluence_widths_are_native_at_its_planes(route):
+    """``beam_radius`` and ``fwhm_r``, plane-only, in the session's own plan.
+
+    Against the host finishing the transitional session took on the same native
+    passes: the same bits on a radial, line or slab profile, whose sums are NumPy's
+    pairwise order; within a few units of rounding on a plane, whose extent is the
+    platform's ``hypot`` rather than Python's. Against the NumPy reference on each
+    exported field within the backend widths test's bound. The rows, which take the
+    periodic statistics beside them, return nothing to Python.
+    """
+    from backends.test_native_widths import _agree, _width_budget  # noqa: PLC0415
+
+    grid, problem, run_request = _beam(route)
+    request = run_request.for_run(stats=StatsSpec(names=WIDTHS))
+    assert native_session.refusal(problem, request, entrance(problem)) is None
+    seen, status, counters, _, spec = _run(problem, run_request, WIDTHS, grid=grid)
+    _check_rows(seen, WIDTHS)
+    _check_structure(seen, status, counters)
+    reference = _reference(problem, run_request, spec, seen, grid=grid)
+    geometry = problem.transform.geometry
+    assert geometry is not None
+    pixel = float(np.min(np.diff(geometry.axes[0])))
+    extent = max(float(np.max(np.abs(axis))) for axis in geometry.axes)
+    for record, want in zip(seen, reference, strict=True):
+        got = (*record.stats["beam_radius"], float(record.stats["fwhm_r"]))
+        host = _host_widths(problem, run_request, grid, record)
+        assert np.isfinite(got[0]), record.z
+        if route == "plane":
+            np.testing.assert_allclose(got, host, rtol=16 * np.finfo(float).eps)
+        else:
+            np.testing.assert_array_equal(got, host, err_msg=f"{route} at {record.z}")
+        _agree(
+            record.stats,
+            want,
+            _width_budget(grid, problem),
+            pixel,
+            f"{route} at {record.z}",
+            extent,
+        )
+
+
+def test_a_negative_lobe_s_widths_are_refused_by_the_session_as_by_the_reference():
+    """A fluence negative beyond its rounding has no width: the session's plane fails
+    with the reference's exception and message (``test_native_widths``' lobe)."""
+    from backends.test_native_widths import _simulation  # noqa: PLC0415
+    from solprop.backends.session import Start  # noqa: PLC0415
+    from solprop.grid import FreeGrid  # noqa: PLC0415
+    from solprop.spatial import SpatialMedium  # noqa: PLC0415
+
+    grid, problem, run_request = _simulation(
+        "envelope", FreeGrid(6e-6, 24, 6e-6, 24), 1, SpatialMedium(1.45), waist=2e-6
+    )
+    columns = np.zeros(problem.shape[0], complex)
+    columns[0] = 0.9
+    columns[12] = 1.0
+    spectrum = np.zeros((1, problem.shape[2]), complex)
+    spectrum[0, 0] = 1.0
+    field = np.einsum("r,pw->rpw", columns, spectrum) * 1e6
+    request = run_request.for_run(stats=StatsSpec(names=("beam_radius",)))
+    with pytest.raises(BackendError, match="nonnegative fluence profile") as want:
+        reference = select("numpy_ref", problem, run_request, grid=grid)
+        try:
+            reference.set_initial(field, None)
+            reference.stats(StatsSpec(names=("beam_radius",)))
+        finally:
+            reference.close()
+    session = native_session.NativeSession(
+        problem, request, Start(field=field, z=float(problem.initial.z)), grid=grid
+    )
+    errors = []
+    try:
+        while not session.finished:
+            batch = session.advance()
+            errors += [
+                event.error
+                for event in batch.events
+                if isinstance(event, Terminal) and event.error is not None
+            ]
+            session.acknowledge(batch.receipt)
+    finally:
+        session.close()
+    assert len(errors) == 1
+    assert type(errors[0]) is BackendError
+    assert str(errors[0]) == str(want.value)

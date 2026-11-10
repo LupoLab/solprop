@@ -71,10 +71,7 @@ from solprop.backends.session import ExecutionOptions, PreparedExecution
 from solprop.backends.spatial import (
     FarFieldTables,
     far_field_partials,
-    fluence_budget,
-    plane_fluence_widths,
     radial_absorber_matrix,
-    signed_fluence_widths,
 )
 from solprop.boundaries import SPLIT_RATE_BUCKETS
 from solprop.constants import EPS0, C
@@ -244,17 +241,6 @@ _SPATIAL_STAT_FLAGS = {
     "beam_radius": 16,
     "fwhm_r": 16,
 }
-
-_PLANE_WIDTHS_FLAG = 32
-"""A Cartesian plane's widths: the native moments of its fluence, not flag 16's rows.
-
-The native pass holds the fluence and
-:func:`solprop.backends.spatial.plane_fluence_widths` reads the reductions. Radial, line
-and planar profiles are small, and cross.
-"""
-
-_PLANE_MOMENTS = 8
-"""The values flag 32 packs, in the order ``plane_fluence_widths`` reads them."""
 
 _FAR_FIELD_FLAGS = {
     "beam_spectrum": 1 << 5,
@@ -1699,10 +1685,8 @@ class NativeBackend(StepDriver[_core.State]):
             )
         # solprop SEP 47: the native plan, the one implementation of each statistic a
         # native session's rows and planes also read; only the plane-only statistics
-        # (the axis row's, the widths, zdw) take the host.
-        return self._planned_with_host(
-            spec, spatial_names, axis_names, population_names
-        )
+        # (the axis row's, zdw) take the host.
+        return self._planned_with_host(spec, axis_names, population_names)
 
     def _planned_statistics(
         self, spec: StatsSpec, left: Sequence[str] = (), *, scanned: bool = False
@@ -1786,13 +1770,13 @@ class NativeBackend(StepDriver[_core.State]):
     def _planned_with_host(
         self,
         spec: StatsSpec,
-        spatial_names: set[str],
         axis_names: set[str],
         population_names: set[str],
     ) -> dict[str, np.ndarray]:
         """Evaluate a modal or spatial spec: the plan, then the names it leaves.
 
-        Every statistic the plan covers is the plan's. An on-axis plasma statistic is
+        Every statistic the plan covers is the plan's, a spatial route's fluence widths
+        among them (SEP 47 section 6.4). An on-axis plasma statistic is
         the host's (SEP 19); on a Radau rule it reuses the node scan of this call's
         species statistics, which the plan hands over with them
         (:data:`~solprop_native._statistics.NODE_POPULATIONS`).
@@ -1801,8 +1785,6 @@ class NativeBackend(StepDriver[_core.State]):
         ----------
         spec : solprop.stats.StatsSpec
             The statistics.
-        spatial_names : set of str
-            Its spatial statistics.
         axis_names : set of str
             Its on-axis plasma statistics.
         population_names : set of str
@@ -1827,12 +1809,7 @@ class NativeBackend(StepDriver[_core.State]):
                 scan = (rows[0, :, :, 0].T, rows[0, :, :, 1].T)
             axis = self._axis_statistics(None, scan)
             values.update({name: axis[name][None] for name in axis_names})
-        widths = set(left) & spatial_names & {"beam_radius", "fwhm_r"}
-        if widths:
-            values.update(self._spatial_statistics(widths, spec))
-        rest = tuple(
-            name for name in left if name not in widths and name not in axis_names
-        )
+        rest = tuple(name for name in left if name not in axis_names)
         if rest:
             values.update(
                 self._profile_statistics(
@@ -1904,97 +1881,6 @@ class NativeBackend(StepDriver[_core.State]):
         return {
             name: np.stack([member[name] for member in members]) for name in spec.names
         }
-
-    def _spatial_statistics(
-        self, names: set[str], spec: StatsSpec | None = None
-    ) -> dict[str, np.ndarray]:
-        """Reduce on the device and interpolate only the saved radial fluence.
-
-        On a Cartesian or line grid the far-field statistics and ``on_axis_spectrum``
-        come from the native far-field pass (solprop SEP 23 section 6).
-        """
-        geometry = self._problem.transform.geometry
-        if geometry is None:
-            raise BackendError("spatial statistics require spatial geometry")
-        folded = (
-            names & _FAR_FIELD_FLAGS.keys()
-            if geometry.kind == "free"
-            else names & set(FAR_FIELD_STATISTICS)
-        )
-        values: dict[str, np.ndarray] = {}
-        if folded:
-            values.update(self._far_field_statistics(folded, spec))
-            names = names - folded
-            if not names:
-                return values
-        flags = 0
-        for name in names:
-            flags |= _SPATIAL_STAT_FLAGS[name]
-        plane = geometry.kind == "free" and geometry.axes[1].size > 1
-        if plane and flags & _SPATIAL_STAT_FLAGS["beam_radius"]:
-            flags += _PLANE_WIDTHS_FLAG - _SPATIAL_STAT_FLAGS["beam_radius"]
-        packed = np.asarray(
-            self._native_state.spatial_statistics(flags, 0.5 * EPS0 * C, self._z)
-        ).ravel()
-        scalars, offset = self._spatial_scalars(names, packed)
-        values.update(scalars)
-        if names & {"beam_radius", "fwhm_r"}:
-            n_terms = (
-                self._problem.shape[1] * self._problem.grids.n_t
-                + self._problem.transform.n_modes
-            )
-            if plane:
-                widths = plane_fluence_widths(
-                    geometry,
-                    packed[offset : offset + _PLANE_MOMENTS],
-                    n_terms,
-                    self._native_state.plane_fluence_trace,
-                )
-                offset += _PLANE_MOMENTS
-            else:
-                # The signed fluence, the axis fluence (a radial width's alone) and the
-                # largest magnitude, which fixes the rounding budget (solprop SEP 34).
-                count = self._problem.transform.n_nodes
-                widths = signed_fluence_widths(
-                    geometry,
-                    packed[offset : offset + count],
-                    fluence_budget(np.full(count, packed[offset + count + 1]), n_terms),
-                    float(packed[offset + count]),
-                )
-                offset += count + 2
-            if "beam_radius" in names:
-                values["beam_radius"] = np.asarray([widths[:2]])
-            if "fwhm_r" in names:
-                values["fwhm_r"] = np.asarray([widths[2]])
-        if offset != packed.size:
-            raise BackendError(
-                f"native spatial statistics returned {packed.size} values; "
-                f"consumed {offset}"
-            )
-        return values
-
-    def _spatial_scalars(
-        self, names: set[str], packed: RealArray
-    ) -> tuple[dict[str, np.ndarray], int]:
-        """Unpack ``spatial_statistics``' scalar flags from the front of `packed`.
-
-        Returns the statistics, each with a leading batch axis, and how many values
-        they took: a plane's widths follow them.
-        """
-        values: dict[str, np.ndarray] = {}
-        offset = 0
-        for name in (
-            "energy",
-            "on_axis_intensity",
-            "peak_intensity",
-            "on_axis_spectrum",
-        ):
-            if name in names:
-                count = self._problem.shape[-1] if name == "on_axis_spectrum" else 1
-                data = packed[offset : offset + count]
-                values[name] = data[None] if name == "on_axis_spectrum" else data
-                offset += count
-        return values, offset
 
     def _far_field_statistics(
         self, names: set[str], spec: StatsSpec | None

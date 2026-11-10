@@ -695,3 +695,101 @@ def test_the_rings_are_the_host_widths_rule():
     radius, width = _ring_fluence_widths(radii, np.exp(-2 * radii**2))
     assert radius == pytest.approx(1.0, abs=1e-6)
     assert width == pytest.approx(np.sqrt(2 * np.log(2)), abs=1e-6)
+
+
+# --- the native finishing, against solprop's own (SEP 47 section 6.4) -------------
+
+
+def _profiles(rng):
+    """Radial or line profiles a width is most exposed on, with their axis values."""
+    radius = np.sort(rng.uniform(1e-6, 4e-4, 300))
+    gaussian = np.exp(-2 * (radius / 1e-4) ** 2)
+    return radius, (
+        (gaussian, 1.0),
+        # A ring: the axis below every level, so no threshold width.
+        (np.exp(-(((radius - 2e-4) / 3e-5) ** 2)), 0.0),
+        # A flat top a ripple above its separately formed axis value.
+        (np.where(radius < 1e-4, 1.0 + 1e-9, 0.0), 1.0),
+        # A pedestal that never falls below the 1/e^2 level.
+        (0.5 + 0.5 * gaussian, 1.0),
+        # Nothing, and one sample.
+        (np.zeros_like(radius), 0.0),
+        (np.where(np.arange(radius.size) == 7, 1.0, 0.0), 0.0),
+        (rng.uniform(0.0, 1.0, radius.size) * gaussian, 1.0),
+    )
+
+
+@native_only
+def test_the_native_radial_widths_are_solprop_s_to_the_bit():
+    """The radial widths ported operation for operation: NumPy's pairwise sums, the
+    crossings' interpolation, the hollow and the uncrossed profiles."""
+    from solprop_native import _core  # noqa: PLC0415
+
+    from solprop.spatial import radial_fluence_widths  # noqa: PLC0415
+
+    rng = np.random.default_rng(47)
+    radius, cases = _profiles(rng)
+    weights = rng.uniform(1e-10, 2e-9, radius.size)
+    for size in (2, 7, 8, 9, 128, 129, 300):
+        for fluence, axis in cases:
+            arguments = (radius[:size], fluence[:size], weights[:size], axis)
+            want = radial_fluence_widths(*arguments)
+            got = _core.radial_fluence_widths(*arguments, math.exp(-2))
+            np.testing.assert_array_equal(got, want, err_msg=f"{size} samples")
+
+
+@native_only
+def test_the_native_radial_widths_refuse_what_solprop_s_refuse():
+    from solprop_native import _core  # noqa: PLC0415
+
+    from solprop.spatial import radial_fluence_widths  # noqa: PLC0415
+
+    radius = np.array([1e-5, 2e-5, 3e-5])
+    weights = np.ones(3)
+    for fluence, axis in (
+        (np.array([1.0, -1e-300, 0.0]), 1.0),
+        (np.array([1.0, np.nan, 0.0]), 1.0),
+        (np.ones(3), -1.0),
+        (np.ones(3), math.inf),
+    ):
+        with pytest.raises(GridError, match="radial fluence widths require") as want:
+            radial_fluence_widths(radius, fluence, weights, axis)
+        with pytest.raises(ValueError, match="radial fluence widths require") as got:
+            _core.radial_fluence_widths(radius, fluence, weights, axis, math.exp(-2))
+        assert str(got.value) == str(want.value)
+    huge = np.full(3, 1e300)
+    with pytest.raises(GridError, match="not representable"):
+        radial_fluence_widths(radius * 1e200, huge, weights, 1e300)
+    with pytest.raises(ValueError, match="not representable"):
+        _core.radial_fluence_widths(radius * 1e200, huge, weights, 1e300, math.exp(-2))
+
+
+@native_only
+def test_the_native_line_widths_are_solprop_s_to_the_bit():
+    """A line's centroid, moment and two-sided average, ``numpy.interp`` included."""
+    from solprop_native import _core  # noqa: PLC0415
+
+    from solprop.spatial import _line_fluence_widths  # noqa: PLC0415
+
+    rng = np.random.default_rng(48)
+    for n in (5, 8, 48, 129, 300):
+        x = np.linspace(-2e-4, 3e-4, n)
+        # Centred, near an edge, wider than the axis, and a point on one sample.
+        point = float(x[n // 2])
+        for centre, waist in (
+            (0.0, 5e-5),
+            (2.9e-4, 2e-5),
+            (-1e-4, 3e-4),
+            (point, 1e-6),
+        ):
+            samples = np.exp(-2 * ((x - centre) / waist) ** 2)
+            samples = samples / np.max(samples)
+            want = _line_fluence_widths(x, samples)
+            got = _core.line_fluence_widths(x, samples, math.exp(-2))
+            np.testing.assert_array_equal(got, want, err_msg=f"{n} {centre} {waist}")
+        noisy = rng.uniform(0.0, 1.0, n)
+        noisy = noisy / np.max(noisy)
+        np.testing.assert_array_equal(
+            _core.line_fluence_widths(x, noisy, math.exp(-2)),
+            _line_fluence_widths(x, noisy),
+        )

@@ -57,6 +57,12 @@ constexpr std::uint64_t spatial_energy = 1;
 constexpr std::uint64_t spatial_axis = 2;
 constexpr std::uint64_t spatial_peak = 4;
 constexpr std::uint64_t spatial_spectrum = 8;
+/** The widths' fluence block: the signed fluence at each node, the axis fluence and
+    the largest magnitude. */
+constexpr std::uint64_t spatial_fluence = 16;
+/** A Cartesian plane's fluence moments, which hold its scaled profile for the trace. */
+constexpr std::uint64_t spatial_moments = 32;
+constexpr std::size_t plane_moments = 8;
 
 // `GeneralState::aperture_statistics`' flags (far_field.hpp), packed in this order.
 constexpr std::uint64_t far_beam = 1ULL << 5U;
@@ -411,6 +417,21 @@ void spatial(GeneralState& state, const Plan& plan, const double z,
       put(results, Stat::on_axis_spectrum, cursor.take(plan.n_omega));
     cursor.finish();
   }
+  if (wanted.any({Stat::beam_radius, Stat::fwhm_r})) {
+    // The widths' own pass, as the host finishing read it: a plane's moments and then
+    // its trace, or a profile's fluence block (session_widths.cpp).
+    const bool plane = plan.widths == Widths::plane;
+    const auto packed = state.spatial_statistics(plane ? spatial_moments : spatial_fluence,
+                                                 plan.intensity_factor, z);
+    if (packed.size() != (plane ? plane_moments : plan.n_nodes + 2))
+      throw std::logic_error("a fluence pass packed the wrong number of values");
+    const auto values =
+        plane ? widths::of_plane(state, plan, packed) : widths::of_block(plan, packed);
+    if (wanted(Stat::beam_radius))
+      put(results, Stat::beam_radius, {values[0], values[1]});
+    if (wanted(Stat::fwhm_r))
+      put(results, Stat::fwhm_r, {values[2]});
+  }
   std::uint64_t far = 0;
   if (wanted(Stat::beam_spectrum))
     far |= far_beam;
@@ -612,6 +633,32 @@ void Plan::validate() const {
         "apertures have the wrong extent");
   check(regions.size() == n_regions * 4, "regions have the wrong extent");
   const Wanted wanted(outputs);
+  if (wanted.any({Stat::beam_radius, Stat::fwhm_r})) {
+    check(route == Route::spatial && widths != Widths::none,
+          "asks for fluence widths without their rule");
+    check(width_x.size() >= 2 && width_terms > 0, "lacks the widths' axis");
+    switch (widths) {
+    case Widths::radial:
+      check(width_x.size() == n_nodes && width_weights.size() == n_nodes,
+            "has a radial width rule of the wrong extent");
+      break;
+    case Widths::slab:
+      check(width_n_x * width_n_y == n_nodes && width_x.size() == width_n_y &&
+                width_weights.size() == n_nodes,
+            "has a slab width rule of the wrong extent");
+      break;
+    case Widths::line:
+      check(width_x.size() == n_nodes, "has a line width rule of the wrong extent");
+      break;
+    case Widths::plane:
+      check(width_y.size() >= 2 && width_x.size() * width_y.size() == n_nodes &&
+                ring_cosines.size() == ring_sines.size() && !ring_cosines.empty(),
+            "has a plane width rule of the wrong extent");
+      break;
+    case Widths::none:
+      break;
+    }
+  }
   if (wanted.any({Stat::fwhm_t, Stat::fwhm_t_outer}))
     check(t.size() == n_t, "lacks the time axis its widths read");
   for (const auto& [stat, index] :
@@ -657,6 +704,8 @@ std::size_t Plan::width(const Stat stat) const {
     return n_apertures * n_omega;
   case Stat::node_populations:
     return 2 * n_nodes * n_channels;
+  case Stat::beam_radius:
+    return 2;
   default:
     return 1;
   }

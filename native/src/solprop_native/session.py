@@ -2071,8 +2071,9 @@ class NativeSession:
                 f"z = {event.target:.6g} m"
             )
         # A statistics evaluation the native plan refused: the reference's exception.
-        refused = translated(BackendError(event.message))
-        if not isinstance(refused, BackendError):
+        failure = BackendError(event.message)
+        refused = translated(failure)
+        if refused is not failure:
             return refused
         result = {
             "reason": event.reason,

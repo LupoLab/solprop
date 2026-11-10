@@ -850,18 +850,20 @@ endif()
 add_library(solprop_native_core STATIC src/core.cpp src/crossing.cpp src/general.cpp
   src/general_modal.cpp src/coupled_flow.cpp src/dispersive.cpp src/far_field.cpp
   src/adams_march.cpp src/watch.cpp src/rk_march.cpp src/engines.cpp src/session.cpp
-  src/session_statistics.cpp src/low_storage.cpp src/transverse.cpp src/session_edge.cpp
-  src/dense.cpp)
+  src/session_statistics.cpp src/session_widths.cpp src/low_storage.cpp src/transverse.cpp
+  src/session_edge.cpp src/dense.cpp)
 # solprop SEP 39, SEP 45 and SEP 47: the Adams march's decisions, the boundary watch's
 # predictions, the Runge-Kutta march's positions and norm, the low-storage replay's
-# positions and table keys, the native session's scheduling, export and dense-output
-# weights and the transverse edge's judgement round as solprop's Python does, so their
+# positions and table keys, the native session's scheduling, export, statistics
+# finishing, fluence widths and dense-output weights and the transverse edge's
+# judgement round as solprop's Python does, so their
 # translation units take no contraction on any build (the flag follows the global one,
 # and the last wins). MSVC's /fp:precise does not contract by default.
 if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang|AMDClang|IntelLLVM)$")
   set_source_files_properties(src/adams_march.cpp src/watch.cpp src/rk_march.cpp
-    src/session.cpp src/session_statistics.cpp src/low_storage.cpp src/transverse.cpp
-    src/session_edge.cpp src/dense.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+    src/session.cpp src/session_statistics.cpp src/session_widths.cpp src/low_storage.cpp
+    src/transverse.cpp src/session_edge.cpp src/dense.cpp
+    PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 endif()
 target_include_directories(solprop_native_core PUBLIC
   "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"

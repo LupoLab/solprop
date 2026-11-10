@@ -46,9 +46,12 @@ from typing import TYPE_CHECKING, cast
 
 import numpy as np
 from solprop.constants import EPS0, C
-from solprop.exceptions import BackendError, OutputError, TranslationError
+from solprop.exceptions import BackendError, GridError, OutputError, TranslationError
 from solprop.modes.quadrature import mode_matrix, on_axis_rule
-from solprop.spatial import ABSORBED_CHANNELS
+from solprop.spatial import (
+    ABSORBED_CHANNELS,
+    _ring_angles,  # pyright: ignore[reportPrivateUsage] - the host widths' own rule
+)
 from solprop.stats import FAR_FIELD_STATISTICS
 from solprop.translate.chebyshev import PiecewiseChebyshev
 
@@ -120,6 +123,8 @@ STATISTIC_IDS: Mapping[str, int] = {
             "pressure",
             "core_radius",
             NODE_POPULATIONS,
+            "beam_radius",
+            "fwhm_r",
         )
     )
 }
@@ -127,8 +132,6 @@ STATISTIC_IDS: Mapping[str, int] = {
 
 PLANE_ONLY = (
     "zdw",
-    "beam_radius",
-    "fwhm_r",
     "on_axis_electron_density",
     "on_axis_peak_ionisation_rate",
     "on_axis_species_electron_density",
@@ -136,13 +139,14 @@ PLANE_ONLY = (
 )
 """The plane-only statistics the plan does not evaluate.
 
-``zdw`` is a root search over the Python mode objects; ``beam_radius`` and ``fwhm_r``
-finish a fluence profile's widths on the host
-(:func:`solprop.backends.spatial.signed_fluence_widths`,
-:func:`~solprop.backends.spatial.plane_fluence_widths`); the four on-axis plasma
+``zdw`` is a root search over the Python mode objects; the four on-axis plasma
 statistics scan the axis row in time on the host
 (:func:`solprop.backends.populations.axis_row_populations`). None is
-periodic-capable (``StatDefinition.between_planes`` false).
+periodic-capable (``StatDefinition.between_planes`` false). The plan evaluates the
+other plane-only statistics, among them a spatial route's fluence widths
+(``beam_radius``, ``fwhm_r``), finished natively from the native fluence passes as
+:func:`solprop.backends.spatial.signed_fluence_widths` and
+:func:`~solprop.backends.spatial.plane_fluence_widths` finish them.
 """
 
 _RESPONSE = (
@@ -205,10 +209,12 @@ ADMITTED_SPATIAL_STATISTICS = (
     "region_spectrum",
     "aperture_spectrum",
     "aperture_on_axis_spectrum",
+    "beam_radius",
+    "fwhm_r",
     *_RESPONSE,
 )
-"""The statistics it evaluates on a spatial route: the medium's axial flux, the far
-field and the responses."""
+"""The statistics it evaluates on a spatial route: the medium's axial flux, the fluence
+widths, the far field and the responses."""
 
 ADMITTED_GENERAL_STATISTICS = (
     "omega0",
@@ -263,10 +269,16 @@ _TRANSLATED: tuple[tuple[str, type[SolpropError]], ...] = (
     ("species statistics require", OutputError),
     ("is outside a statistics table's span", TranslationError),
     ("a metric-weighted statistic needs", OutputError),
+    ("need a nonnegative fluence profile", BackendError),
+    ("fluence widths require", GridError),
+    ("fluence axes must be uniformly increasing", GridError),
+    ("fluence moments are not representable", GridError),
 )
 """Native refusals and the exceptions the reference raises for the same condition:
 the species reduction's domain (``species_statistics``), a position outside a table
-(``PiecewiseChebyshev.interval_containing``) and a metric with no root."""
+(``PiecewiseChebyshev.interval_containing``), a metric with no root, and the fluence
+widths' refusals (:func:`solprop.backends.spatial.signed_fluence_widths`,
+:func:`solprop.spatial.radial_fluence_widths`, ``cartesian_fluence_widths``)."""
 
 
 def translated(error: BaseException) -> BaseException:
@@ -822,6 +834,7 @@ def _shape(
         "energy_window": (n_windows, modes, pol),
         "peak_power": (modes,),
         "peak_power_window": (n_windows, modes),
+        "beam_radius": (2,),
         "species_ionisation": (species, nodes),
         "species_electron_density": (species,),
         "species_peak_ionisation_rate": (species,),
@@ -837,6 +850,60 @@ def _shape(
         NODE_POPULATIONS: (nodes, channels, 2),
     }
     return shapes.get(name, ())
+
+
+def _width_rule(problem: PropagationProblem) -> dict[str, object]:
+    """Return a spatial route's fluence-width rule as the native plan reads it.
+
+    The geometry's rule (:func:`solprop.backends.spatial.signed_fluence_widths`,
+    :func:`~solprop.backends.spatial.plane_fluence_widths`): a radial profile with its
+    radii and weights, a slab's profile in y with the weights it integrates over x, a
+    line's x, or a plane's axes and the angles its rings sample, which its axes alone
+    fix. The fluence's term count fixes its rounding budget
+    (:func:`~solprop.backends.spatial.fluence_budget`).
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The spatial problem.
+
+    Returns
+    -------
+    dict
+        The plan's width entries.
+    """
+    geometry = problem.transform.geometry
+    assert geometry is not None
+    x = np.ascontiguousarray(geometry.axes[0], dtype=np.float64)
+    weights = np.ascontiguousarray(geometry.spatial_weights, dtype=np.float64)
+    rule: dict[str, object] = {
+        "width_terms": int(problem.shape[1] * problem.grids.n_t)
+        + int(problem.transform.n_modes)
+    }
+    if geometry.kind == "radial":
+        rule.update(widths=1, width_x=x, width_weights=weights)
+    elif geometry.kind == "slab":
+        n_x, n_y = geometry.shape
+        rule.update(
+            widths=2,
+            width_x=np.ascontiguousarray(geometry.axes[1], dtype=np.float64),
+            width_weights=weights,
+            width_n_x=int(n_x),
+            width_n_y=int(n_y),
+        )
+    elif geometry.axes[1].size > 1:
+        y = np.ascontiguousarray(geometry.axes[1], dtype=np.float64)
+        cosines, sines = _ring_angles(x, y)
+        rule.update(
+            widths=4,
+            width_x=x,
+            width_y=y,
+            ring_cosines=np.ascontiguousarray(cosines, dtype=np.float64),
+            ring_sines=np.ascontiguousarray(sines, dtype=np.float64),
+        )
+    else:
+        rule.update(widths=3, width_x=x)
+    return rule
 
 
 def lower(
@@ -936,6 +1003,16 @@ def lower(
         "root": None,
         "spectral_prefactor": 0.0,
         "profiles": [None, None, None],
+        "widths": 0,
+        "width_x": np.empty(0),
+        "width_y": np.empty(0),
+        "width_weights": np.empty(0),
+        "width_n_x": 0,
+        "width_n_y": 0,
+        "width_terms": 0,
+        "ring_cosines": np.empty(0),
+        "ring_sines": np.empty(0),
+        "e2_fraction": math.exp(-2),
     }
     tables: dict[str, dict[str, object]] = {}
     for index, name in enumerate(_PROFILE_NAMES):
@@ -1005,6 +1082,8 @@ def lower(
         geometry = transform.geometry
         assert geometry is not None
         plan["far_field_axis"] = geometry.kind == "free"
+        if asked & {"beam_radius", "fwhm_r"}:
+            plan.update(_width_rule(problem))
         if asked & set(FAR_FIELD_STATISTICS) or (
             "on_axis_spectrum" in asked and geometry.kind == "free"
         ):
