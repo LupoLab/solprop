@@ -66,9 +66,11 @@ from solprop.backends.populations import (
     axis_row_matrix,
     axis_row_populations,
 )
+from solprop.backends.protocol import Backend
 from solprop.backends.session import (
     ExecutionOptions,
     PreparedExecution,
+    PreparedGroup,
     statistics_unavailable,
 )
 from solprop.backends.spatial import (
@@ -1289,11 +1291,12 @@ class NativeBackend(StepDriver[_core.State]):
         """Reduce one member's partials to the trial's scaled error norm.
 
         solprop's own weak scale is formed natively, the partials summed in order
-        (solprop SEP 45 phase 2, Q1); a controller with weights, or one whose ``scale``
-        is not ``PIController.scale``, keeps the host's reduction and its own scale.
+        (solprop SEP 45 phase 2, Q1), and a weighted one likewise (phase 4); the test
+        interface's host rows keep the host's reduction. A controller with a scale of
+        its own never reaches here: the backend refuses it where it is built.
         """
         controller = self._stepper.controller
-        if _RK_ROWS != "host" and type(controller).scale is PIController.scale:
+        if _RK_ROWS != "host":
             if controller.weights is None:
                 return float(_core.rk_score(partials, controller.rtol, controller.atol))
             # The weighted scale and its reduction, in order (SEP 45 phase 4).
@@ -1782,8 +1785,9 @@ class NativeBackend(StepDriver[_core.State]):
         """Evaluate a modal or spatial spec: the plan, then the names it leaves.
 
         Every statistic the plan covers is the plan's, a spatial route's fluence widths
-        among them (SEP 47 section 6.4). An on-axis plasma statistic is
-        the host's (SEP 19); on a Radau rule it reuses the node scan of this call's
+        among them (SEP 47 section 6.4). An on-axis plasma statistic is the host's
+        here (SEP 19), for the transitional session; on a Radau rule it reuses the
+        node scan of this call's
         species statistics, which the plan hands over with them
         (:data:`~solprop_native._statistics.NODE_POPULATIONS`).
 
@@ -1801,7 +1805,12 @@ class NativeBackend(StepDriver[_core.State]):
         dict
             The statistics, each with a leading batch axis.
         """
-        left = uncovered(self._problem, spec.names)
+        # The backend's own plane statistics keep the host's axis scan, which the
+        # transitional session reads; the native session's plan scans the row natively.
+        plan_left = set(uncovered(self._problem, spec.names))
+        left = tuple(
+            name for name in spec.names if name in axis_names or name in plan_left
+        )
         scanned = bool(
             axis_names
             and population_names
@@ -2100,6 +2109,36 @@ class NativeBackend(StepDriver[_core.State]):
 
         return NativePrepared(self, problem, request)
 
+    def prepare_group(
+        self,
+        members: Sequence[Backend],
+        problems: Sequence[PropagationProblem],
+        requests: Sequence[RunRequest],
+    ) -> PreparedGroup:
+        """Prepare a group of compatible native members (SEP 47 section 6.7).
+
+        Its start opens the native group session whenever that admits the group, and
+        the transitional lockstep group otherwise
+        (:class:`solprop_native.group.NativePreparedGroup`).
+
+        Parameters
+        ----------
+        members : sequence of solprop.backends.protocol.Backend
+            One constructed native backend per member, this one first.
+        problems : sequence of solprop.translate.problem.PropagationProblem
+            Each member's independently translated problem.
+        requests : sequence of solprop.translate.run_request.RunRequest
+            Each member's run request.
+
+        Returns
+        -------
+        solprop.backends.session.PreparedGroup
+            The prepared group.
+        """
+        from .group import NativePreparedGroup
+
+        return NativePreparedGroup(members, problems, requests)
+
     def close(self) -> None:
         """Release native plans and views; repeated calls have no effect."""
         if not self._closed:
@@ -2191,7 +2230,7 @@ class _ResidentAdams:
 
     native: _core.State
     method: Multistep
-    controller: object
+    controller: PIController
     n_omega: int
     arrays: Callable[[float, float], _TrialArrays]
     """``(anchor, position) -> trial arrays`` with every stage row at `position`."""
@@ -2219,7 +2258,6 @@ class _ResidentAdams:
     _trial: tuple[float, float, list[float], npt.NDArray[np.int64], int] | None = None
     _step: tuple[float, float, npt.NDArray[np.float64]] | None = None
     _exponential: bool = False
-    _device_scale: bool = False
     _coefficients: npt.NDArray[np.float64] | None = None
     _dense_nodes: npt.NDArray[np.float64] | None = None
     _trial_carrier: RealArray = dataclasses.field(default_factory=lambda: _NO_CARRIER)
@@ -2229,32 +2267,23 @@ class _ResidentAdams:
         """Allocate the history's rows in the native state."""
         self.native.adams_allocate(self.n_slots, self.compensated, self.interpolate)
         self._exponential = self.method.formulation == "exponential"
-        # solprop's own controller's scale is formed on the device each trial, so that
-        # the state's magnitude never crosses; any other controller keeps the host's.
+        # The controller's scale is formed on the device each trial, so that the
+        # state's magnitude never crosses: it is solprop's own, since the backend
+        # refuses a controller that overrides it (`_refuse_reference_only`).
         controller = self.controller
-        self._device_scale = isinstance(controller, PIController) and (
-            type(controller).scale is PIController.scale
+        weights = controller.weights
+        self.native.adams_scale(
+            float(controller.rtol),
+            float(controller.atol),
+            np.empty(0, dtype=np.float64)
+            if weights is None
+            else np.ascontiguousarray(weights, dtype=np.float64),
         )
-        if self._device_scale:
-            assert isinstance(controller, PIController)
-            weights = controller.weights
-            self.native.adams_scale(
-                float(controller.rtol),
-                float(controller.atol),
-                np.empty(0, dtype=np.float64)
-                if weights is None
-                else np.ascontiguousarray(weights, dtype=np.float64),
-            )
 
     @property
     def n_slots(self) -> int:
         """The history's rows: the method's order and two more."""
         return self.method.order + 2
-
-    @property
-    def device_scale(self) -> bool:
-        """Whether the norm's scale is solprop's own, formed in the native state."""
-        return self._device_scale
 
     def march_stepped(
         self,
@@ -2436,7 +2465,7 @@ class _ResidentAdams:
                     ),
                     order,
                     list(orders),
-                    self._divisor(),
+                    _NO_DIVISOR,
                 )
             self._trial = (z, dz, nodes, slots, order)
             return np.asarray(norms, dtype=np.float64).reshape(-1)
@@ -2444,7 +2473,6 @@ class _ResidentAdams:
         predictor, corrector, rows = fused_tables(
             nodes, order, orders, helpers=self.helpers
         )
-        divisor = self._divisor()
         width = rows.shape[1]
         arrays, material = self.arrays(z, z + dz)
         with _envelope_errors():
@@ -2454,7 +2482,7 @@ class _ResidentAdams:
                 np.ascontiguousarray(predictor, dtype=np.float64),
                 np.ascontiguousarray(corrector, dtype=np.float64),
                 np.ascontiguousarray(rows, dtype=np.float64).reshape(-1),
-                divisor,
+                _NO_DIVISOR,
                 *arrays,
                 material,
             )
@@ -2477,19 +2505,6 @@ class _ResidentAdams:
         )
         self.adopted(None)
         self._step = (z, dz, np.array([1.0, *nodes[:order]])) if interpolate else None
-
-    def _divisor(self) -> RealArray:
-        """Return the norm's scale per bin: the accepted state's before the step.
-
-        Empty when the device forms it (`__post_init__`).
-        """
-        if self._device_scale:
-            return _NO_DIVISOR
-        magnitude = self.native.adams_magnitude()
-        scale = cast("ControllerLike", self.controller).scale(magnitude, magnitude)
-        return np.ascontiguousarray(
-            np.broadcast_to(np.asarray(scale, dtype=np.float64), (self.n_omega,))
-        )
 
     def exponential_trial(
         self,
@@ -2516,7 +2531,6 @@ class _ResidentAdams:
         predictor, corrector, rows, spans, carried, endpoint, defects = trial_tables(
             nodes, order, orders, compensated=self.compensated, helpers=self.helpers
         )
-        divisor = self._divisor()
         width = corrector.shape[0]
         step, material = self.arrays(z, z + dz)
         sample, sample_material = self.sample((step, material), z + dz)
@@ -2533,7 +2547,7 @@ class _ResidentAdams:
                 predictor.reshape(-1),
                 corrector.reshape(-1),
                 rows.reshape(-1),
-                divisor,
+                _NO_DIVISOR,
                 *step,
                 material,
                 *sample,
@@ -2563,8 +2577,8 @@ class _ResidentAdams:
         """Form an exponential trial from its nodes alone; return its scored norms.
 
         The native state forms the coefficient tables (``lagrange::trial_tables``),
-        the stage scalars and the rate from the tables uploaded once; the divisor and
-        the carrier frame's shift are the host's, as on the other path. A run that
+        the stage scalars and the rate from the tables uploaded once, and the divisor
+        as on the other path; the carrier frame's shift is the host's. A run that
         interpolates its planes keeps the corrector's coefficients on the host for its
         observations, from the same basis.
         """
@@ -2579,7 +2593,7 @@ class _ResidentAdams:
                 order,
                 list(orders),
                 self.compensated,
-                self._divisor(),
+                _NO_DIVISOR,
                 carrier,
             )
         self._trial = (z, dz, nodes, slots, order)
@@ -2641,27 +2655,15 @@ class _ResidentAdams:
                 np.ascontiguousarray(self._dense_carrier),
             )
             return self.native
+        # The step's own derivative polynomial: the cubic Hermite interpolant is a
+        # comparison method's (`ComparisonMultistep`), which native refuses.
         theta = (position - z) / dz
-        if getattr(self.method, "interpolant", "adams") == "adams":
-            weights = dz * integrated_weights(
-                nodes, theta, check=False, helpers=self.helpers
-            )
-            hermite = False
-        else:
-            theta2 = theta * theta
-            theta3 = theta2 * theta
-            weights = np.array(
-                [
-                    2 * theta3 - 3 * theta2 + 1,
-                    dz * (theta3 - 2 * theta2 + theta),
-                    -2 * theta3 + 3 * theta2,
-                    dz * (theta3 - theta2),
-                ]
-            )
-            hermite = True
+        weights = dz * integrated_weights(
+            nodes, theta, check=False, helpers=self.helpers
+        )
         arrays, material = self.arrays(z, position)
         self.native.adams_observe(
-            np.ascontiguousarray(weights, dtype=np.float64), hermite, *arrays, material
+            np.ascontiguousarray(weights, dtype=np.float64), False, *arrays, material
         )
         return self.native
 
@@ -2996,10 +2998,10 @@ def native_march_refusal(
     backend's test interface asks for; for Adams, a coupled flow the host engine steps
     (:func:`_flow_on_host`: beside the interaction formulation, and on a device build
     off the eigenbasis route), and a carrier
-    frame with no chord. A controller overriding a decision is refused by its caller.
-    What the backend refuses at admission is not asked here: a comparison variant
-    without a resident engine (``_refuse_adams``) and stage rows the native tables do
-    not read (:func:`host_rows_refusal`).
+    frame with no chord. What the backend refuses at admission is not asked here: a
+    comparison method or a controller overriding a decision
+    (``_refuse_reference_only``) and stage rows the native tables do not read
+    (:func:`host_rows_refusal`).
     """
     integrator = stepper.integrator
     if isinstance(integrator, Multistep):
@@ -3195,8 +3197,7 @@ class _NativeAdamsMarch(AdamsMarch):
             warnings.warn(
                 f"solprop-native steps this {method.name} run with solprop's Python "
                 f"march: {refusal}. The native march (SEP 39) covers Multistep() in "
-                "either formulation and the one-order-higher PEC comparisons on "
-                "every route with the resident engine and PIController's norm",
+                "either formulation on every route with the resident engine",
                 HostMarchWarning,
                 stacklevel=4,
             )
@@ -3227,7 +3228,6 @@ class _NativeAdamsMarch(AdamsMarch):
                 not engine.staged,
                 "stage tables withheld by the test interface",
             ),
-            (not engine.device_scale, "a controller with a norm scale of its own"),
             (
                 self._policy.carrier and chord is None,
                 "the carrier frame on an operator with no chord",
@@ -3609,34 +3609,11 @@ class _NativeRungeKuttaMarch:
         """Return why the native march does not step a run, and whether to warn."""
         if _RK_MARCH == "host":
             return "the test interface asked for it", False
+        # A controller that overrides a decision never reaches here: the backend
+        # refuses it where it is built (`_refuse_reference_only`).
         driver: Any = backend
-        stepper = driver._stepper
-        controller: PIController = stepper.controller
-        overridden = [
-            name
-            for name in (
-                "scale",
-                "accepts",
-                "propose",
-                "rejection_factor",
-                "start_factor",
-                "equivalent_norm",
-            )
-            if getattr(type(controller), name) is not getattr(PIController, name)
-        ]
-        reasons = (
-            (
-                bool(overridden),
-                "a controller with its own " + ", ".join(overridden),
-            ),
-            (
-                _RK_ROWS == "host" or not driver._staged_rows(),
-                "a trial whose stage rows the host forms",
-            ),
-        )
-        for failed, reason in reasons:
-            if failed:
-                return reason, True
+        if _RK_ROWS == "host" or not driver._staged_rows():
+            return "a trial whose stage rows the host forms", True
         return None, False
 
     def _policy(self) -> dict[str, object]:
@@ -4314,34 +4291,76 @@ class _ZTables:
         return self._native.table_terms_to_host(kind, slot)
 
 
-class ControllerLike(Protocol):
-    """The step controller's norm scale, as the resident engine reads it."""
+_CONTROLLER_DECISIONS = (
+    "scale",
+    "accepts",
+    "propose",
+    "rejection_factor",
+    "start_factor",
+    "equivalent_norm",
+)
+"""The ``PIController`` methods the native controller implements itself.
 
-    def scale(self, before: float, after: float) -> float | RealArray:
-        """Return the norm's scale for two state magnitudes."""
-        ...
+A subclass that overrides one of them is a reference-only experiment (solprop SEP 47
+section 6.3), which native refuses by name.
+"""
+
+
+def _refuse_reference_only(stepper: StepperSettings) -> None:
+    """Refuse the reference-only methods and controllers by name (SEP 47 6.3).
+
+    The benchmark-only comparison family and a controller that decides in Python run
+    on ``numpy_ref`` alone; native refuses them, on CPU and device builds alike, before
+    anything is allocated.
+
+    Parameters
+    ----------
+    stepper : solprop.translate.problem.StepperSettings
+        The run's stepping policy.
+
+    Raises
+    ------
+    solprop.exceptions.BackendError
+        Naming the comparison variant, a method type native does not step, or the
+        controller's overridden methods.
+    """
+    integrator = stepper.integrator
+    if isinstance(integrator, ComparisonMultistep):
+        raise BackendError(
+            f"solprop-native does not step the comparison variant {integrator.name}: "
+            "ComparisonMultistep (PEC, PECE, explicit Adams-Bashforth and the matched "
+            "pairs) is benchmark-only and reference-only (solprop SEP 47); use "
+            "backend='numpy_ref' for it, or Multistep()"
+        )
+    # A request built by hand may hold a method its annotation does not name.
+    unnamed = not isinstance(integrator, Multistep | LowStorageRungeKutta)  # pyright: ignore[reportUnnecessaryIsInstance]
+    if integrator is not None and unnamed:
+        raise BackendError(
+            f"solprop-native does not step the method {type(integrator).__name__}; "
+            "use Multistep(), LowStorageRungeKutta() or a Runge-Kutta tableau"
+        )
+    controller = type(stepper.controller)
+    overridden = [
+        name
+        for name in _CONTROLLER_DECISIONS
+        if getattr(controller, name) is not getattr(PIController, name)
+    ]
+    if overridden:
+        raise BackendError(
+            f"solprop-native does not run the controller {controller.__name__}, "
+            f"which overrides PIController's {', '.join(overridden)}: a controller "
+            "that decides in Python is reference-only (solprop SEP 47); use "
+            "backend='numpy_ref' for it, or PIController"
+        )
 
 
 def _refuse_adams(problem: PropagationProblem, stepper: StepperSettings) -> None:
     integrator = stepper.integrator
     # The low-storage march (solprop SEP 24 phase 3) runs on every route the
-    # translation admits it on: no coupled flow and no TDSE response.
+    # translation admits it on: no coupled flow and no TDSE response. The comparison
+    # variants were refused before (`_refuse_reference_only`).
     if integrator is None or isinstance(integrator, LowStorageRungeKutta):
         return
-    # solprop SEP 47 section 6.3: the benchmark-only comparison variants off the
-    # selected one-order-higher PEC family -- PECE, explicit Adams-Bashforth and the
-    # matched pairs, which solprop's general Adams path steps -- are the reference's
-    # alone. The PEC variant with corrector_order = order + 1 is the selected method.
-    if isinstance(integrator, ComparisonMultistep) and (
-        integrator.corrector != "pec"
-        or integrator.corrector_nodes(integrator.order) != integrator.order + 1
-    ):
-        raise BackendError(
-            f"solprop-native does not step the comparison variant {integrator.name} "
-            "(ComparisonMultistep's general path: PECE, explicit Adams-Bashforth and "
-            "the matched pairs are reference-only, solprop SEP 47); use "
-            "backend='numpy_ref' for it, or Multistep()"
-        )
     # solprop SEP 16 phase 3: every route's stage source serves both formulations,
     # with the modified noise. A coupled flow is stepped by the exponential
     # formulation only (phase 5), as solprop's reference does; its CF4 sections are
@@ -4400,6 +4419,7 @@ def _refuse_omitted_stages(responses: CompiledResponses) -> None:
 
 
 def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -> None:
+    _refuse_reference_only(stepper)
     _refuse_omitted_stages(problem.responses)
     if problem.precision.single:
         raise BackendError(

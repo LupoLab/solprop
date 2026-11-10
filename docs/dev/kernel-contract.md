@@ -1248,12 +1248,21 @@ source and error-budget evidence, and adds a release-note fragment. It lands on
 `numpy_ref` and native CPU, in either order (ADR-068), unless its accepted SEP records
 an exception. There is no version counter to bump (ADR-068).
 
+A new **backend** extends no descriptor: it consumes this contract as it stands. It
+registers with one `BackendEntry` row in `solprop.backends.registry.BACKENDS`
+([backends.md §1](backends.md)), visits every route variant and component to prepare
+or refuse it by name, and runs through its own `prepare` (one run) and
+`prepare_group` (a group of compatible members, or a `BackendError` saying it runs
+none), so the run layer names no backend. It qualifies on the conformance suite in
+`tests/sessions` and against the reference.
+
 ## 11. The Adams march
 
 *Normative since kernel schema 39 ([SEP 39](seps/archive/sep-0039-native-adams-march.md),
 ADR-060). The native backend executes it on its CPU build for `Multistep()` in either
-formulation and the one-order-higher PEC comparisons, adaptive or replayed; every other
-configuration and backend runs the reference.*
+formulation, adaptive or replayed; every other configuration and backend runs the
+reference. The comparison methods (`ComparisonMultistep`) are the reference's alone:
+native refuses them by name ([SEP 47](seps/sep-0047-run-ownership.md) §6.3).*
 
 The step loop of `Multistep()` is one algorithm with one reference implementation,
 solprop's `AdamsMarch` and the controller core it calls (`solprop.backends.adams_core`).
@@ -1372,8 +1381,9 @@ and the wheel stage's scan of the strict files' disassembly for a fused instruct
 
 *Normative from [SEP 45](seps/archive/sep-0045-native-rk-march.md) phase 3. `native` executes it
 (`native/src/rk_march.cpp`), adaptive or replayed, with `PIController`'s norm, weighted or
-not, on CPU and device builds; a controller with its own methods steps the reference, with
-a `HostMarchWarning` naming the reason.*
+not, on CPU and device builds; a controller that overrides one of `PIController`'s
+decisions is the reference's alone, and native refuses it by name
+([SEP 47](seps/sep-0047-run-ownership.md) §6.3).*
 
 The adaptive loop of `RungeKutta()` (`integrator is None`, §7) is one algorithm with one
 reference implementation, solprop's `StepDriver._march_to` and the controller core it

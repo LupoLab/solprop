@@ -130,7 +130,7 @@ def _run(  # noqa: PLR0913 - the problem, its request and the backend's context
     request = dataclasses.replace(
         request, observation=dataclasses.replace(request.observation, step_planes=1)
     )
-    skip_device_refused(problem, request)
+    skip_device_refused(problem)
     session = native_session.NativeSession(
         problem, request, entrance(problem), grid=grid, modes=modes, profiles=profiles
     )
@@ -548,7 +548,7 @@ def test_the_profile_statistics_read_tables_with_a_recorded_error(radius):
                 <= tables["core_radius"]["max_error"]
             )
     # The record reaches the session's execution record.
-    skip_device_refused(problem, run_request.for_run(stats=spec))
+    skip_device_refused(problem)
     session = native_session.NativeSession(
         problem,
         run_request.for_run(stats=spec),
@@ -731,7 +731,7 @@ def test_rows_of_every_family_cause_no_return_to_python():
     grid, problem, run_request, modes, profiles = _capillary()
     spec = StatsSpec(names=CAPILLARY, periodic=_periodic(CAPILLARY), period=1)
     request = run_request.for_run(stats=spec)
-    skip_device_refused(problem, request)
+    skip_device_refused(problem)
     session = native_session.NativeSession(
         problem, request, entrance(problem), grid=grid, modes=modes, profiles=profiles
     )

@@ -43,8 +43,9 @@ enum class Route : int { modal = 0, spatial = 1, general = 2 };
 
 /** Each statistic a plan can emit, by its solprop catalogue name, and the per-node
     channel populations (`node_populations`, final fraction and peak rate at each
-    node and channel), which a host axis statistic reuses (SEP 19). The values are the
-    Python adapter's (`solprop_native._statistics.STATISTIC_IDS`). */
+    node and channel), which the transitional session's host axis statistics reuse
+    (SEP 19). The values are the Python adapter's
+    (`solprop_native._statistics.STATISTIC_IDS`). */
 enum class Stat : int {
   omega0 = 0,
   energy = 1,
@@ -83,10 +84,14 @@ enum class Stat : int {
   beam_radius = 34,
   fwhm_r = 35,
   zdw = 36,
+  on_axis_electron_density = 37,
+  on_axis_peak_ionisation_rate = 38,
+  on_axis_species_electron_density = 39,
+  on_axis_species_peak_ionisation_rate = 40,
 };
 
 /** The number of `Stat` values. */
-inline constexpr int stat_count = 37;
+inline constexpr int stat_count = 41;
 
 /** A piecewise Chebyshev table of z: on interval `k` of `edges`, `coefficients[(k *
     n_terms + i) * n_values + j]` is value `j`'s coefficient of degree `i`. A position
@@ -153,6 +158,11 @@ struct Plan {
   // taper rescales (`StepDriver._on_axis_synthesis`), and the taper's table.
   std::vector<double> on_axis;
   RealTable taper;
+  // The on-axis plasma statistics (solprop SEP 19): the pad scale their row carries
+  // (`solprop.backends.populations.axis_row_matrix`), and a Radau rule's node on the
+  // axis, whose populations they read when the node scan runs anyway, or -1.
+  double pad_scale = 1.0;
+  std::int64_t axis_node = -1;
   // A single population's density and preionisation, and every channel's
   // preionisation.
   RealTable plasma_density;

@@ -192,7 +192,7 @@ def _make_native(problem, request, **controls):
     solprop_native.session.NativeSession
         The session.
     """
-    skip_device_refused(problem, request)
+    skip_device_refused(problem)
     return native_session.NativeSession(
         problem,
         request,
@@ -394,17 +394,6 @@ class _OwnAccept(PIController):
     [
         (
             lambda: (
-                _case(integrator=ComparisonMultistep(corrector="pece", order=4)),
-                {},
-            ),
-            "the comparison method",
-        ),
-        (
-            lambda: (_case(controller=_OwnAccept(rtol=1e-4, atol=1e-16)), {}),
-            "a controller with its own accepts",
-        ),
-        (
-            lambda: (
                 _case(names=("energy", "peak_power", "on_axis_electron_density")),
                 {},
             ),
@@ -412,8 +401,6 @@ class _OwnAccept(PIController):
         ),
     ],
     ids=[
-        "comparison",
-        "controller",
         "statistic",
     ],
 )
@@ -424,22 +411,52 @@ def test_the_prototype_refuses_by_name_before_allocating(build, name, monkeypatc
 
 
 @pytest.mark.parametrize(
-    "case",
-    ["rk", "adams", "adams-period-3", "rk-replay", "low-storage", "adams-dense"],
+    ("options", "name"),
+    [
+        (
+            {"integrator": ComparisonMultistep(corrector="pece", order=4)},
+            "the comparison variant adams-pece4: ",
+        ),
+        (
+            {
+                "integrator": ComparisonMultistep(
+                    corrector="pec", order=4, corrector_order=5
+                )
+            },
+            "the comparison variant adams-pec4/5: ",
+        ),
+        (
+            {"controller": _OwnAccept(rtol=1e-4, atol=1e-16)},
+            "the controller _OwnAccept, which overrides PIController's accepts: ",
+        ),
+    ],
+    ids=["comparison", "selected-pec-comparison", "controller"],
 )
-def test_a_device_build_admits_what_the_cpu_build_admits(case, monkeypatch):
-    """SEP 47 phase 4: a device build's session admits what a CPU build's does.
+def test_a_reference_only_run_reaches_no_session(options, name, monkeypatch):
+    """SEP 47 section 6.3: native refuses a reference-only run where it is built.
 
-    Runge-Kutta and Adams with planes, periodic rows and step planes, the low-storage
-    replay and dense output (and a spatial route, its transverse edge and a noise
-    model, ``test_native_session_device``): nothing is refused for being on a device.
-    The decision is the problem's and the request's alone, so it is checked here on
-    any build, the device patched in; a device build's own lane runs them.
+    A comparison method and a controller that overrides a decision run on
+    ``numpy_ref`` alone: the backend refuses them by name before the native state,
+    its first allocation, is built, so neither the native session nor the
+    transitional one ever runs them, whichever opens the run.
     """
-    monkeypatch.setattr(native_session, "_on_device", lambda: True)
-    problem, run_request = _case(**CASES[case])
-    assert native_session.device_refusal(problem, run_request) is None
+    problem, run_request = _case(**options)
+    built_states = []
+    monkeypatch.setattr(
+        native_session._core, "State", lambda *args: built_states.append(args)
+    )
+    # The session's own refusal never sees them: the backend's admission is first.
     assert native_session.refusal(problem, run_request) is None
+    with pytest.raises(BackendError, match="reference-only") as selected:
+        select("native", problem, run_request, grid=window(), modes=[fibre().mode])
+    with pytest.raises(BackendError, match="reference-only") as opened:
+        native_session.NativeSession(
+            problem, run_request, entrance(problem), grid=window(), modes=[fibre().mode]
+        )
+    for refused in (selected, opened):
+        assert name in str(refused.value)
+        assert "backend='numpy_ref'" in str(refused.value)
+    assert built_states == []
 
 
 def test_a_session_leases_its_state_exclusively():

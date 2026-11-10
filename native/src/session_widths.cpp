@@ -100,7 +100,8 @@ double interp(const double point, const std::vector<double>& x,
 
 /** `cartesian_fluence_widths`' check that an axis is uniformly increasing. */
 void require_uniform(const std::vector<double>& axis) {
-  const double spacing = (axis.back() - axis.front()) / static_cast<double>(axis.size() - 1);
+  const double spacing =
+      (axis.back() - axis.front()) / static_cast<double>(axis.size() - 1);
   double largest = 0.0;
   for (const double value : axis)
     largest = python_max(largest, std::abs(value));
@@ -254,7 +255,8 @@ std::array<double, 3> line(const std::vector<double>& x,
   double extent = 0.0;
   for (std::size_t index = 0; index < n; ++index) {
     offset[index] = x[index] - center;
-    extent = index == 0 ? std::abs(offset[0]) : std::max(extent, std::abs(offset[index]));
+    extent =
+        index == 0 ? std::abs(offset[0]) : std::max(extent, std::abs(offset[index]));
   }
   for (std::size_t index = 0; index < n; ++index) {
     const double ratio = offset[index] / extent;

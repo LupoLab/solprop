@@ -355,7 +355,7 @@ def test_the_native_pass_fills_a_destination_on_every_route(route, native_sessio
     """
     problem, run_request, context = ROUTES[route]()
     request = run_request.for_run(stats=StatsSpec())
-    skip_device_refused(problem, request)
+    skip_device_refused(problem)
     session = native_session.NativeSession(
         problem, request, entrance(problem), **context
     )
@@ -442,7 +442,7 @@ def test_the_native_session_writes_a_kept_field_once_into_its_row(
     route, native_session
 ):
     problem, run_request, context = ROUTES[route]()
-    skip_device_refused(problem, run_request)
+    skip_device_refused(problem)
     spy = _Spy()
     output = _Exported()
     status = _served(native_session, output, problem, run_request, context, spy)
@@ -460,7 +460,7 @@ def test_the_native_session_hands_a_file_one_new_array_per_kept_plane(
     tmp_path, native_session
 ):
     problem, run_request, context = ROUTES["cartesian"]()
-    skip_device_refused(problem, run_request)
+    skip_device_refused(problem)
     spy = _Spy()
     path = tmp_path / "run.h5"
     status = _served(

@@ -41,12 +41,7 @@ from solprop._interrupts import committing, handled
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, BackendHistory, Observation
 from solprop.backends.registry import statistics_refusal
-from solprop.backends.session import (
-    RunSession,
-    SessionState,
-    Start,
-    statistics_unavailable,
-)
+from solprop.backends.session import RunSession, Start, statistics_unavailable
 from solprop.driver.summary import run_summary
 from solprop.exceptions import (
     BackendError,
@@ -282,11 +277,10 @@ class SessionFacts:
         solprop.output.schema.MarchSnapshot or None
             The session's snapshot
             (:meth:`~solprop.backends.session.RunSession.march_snapshot`), or
-            ``None`` without one or with no batch pending.
+            ``None`` without one or with no batch pending, for which the session's
+            :meth:`~solprop.backends.session.RunSession.pending_ticket` gives none.
         """
         session = self._session
-        if session.status().state is not SessionState.PENDING:
-            return None
         ticket = session.pending_ticket()
         return None if ticket is None else session.march_snapshot(ticket)
 
@@ -312,13 +306,10 @@ class SessionFacts:
         Returns
         -------
         str or None
-            The session's own reason, when it states one; otherwise a session keeps
-            no history the service loop can export.
+            The session's own reason
+            (:meth:`~solprop.backends.session.RunSession.march_export_refusal`).
         """
-        refusal = getattr(self._session, "march_export_refusal", None)
-        if callable(refusal):
-            return cast("str | None", refusal())
-        return "this session keeps no method history the service loop can export"
+        return self._session.march_export_refusal()
 
 
 @handled()  # SIGTERM and Ctrl-C stop a run between its commits

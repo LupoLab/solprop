@@ -11,6 +11,12 @@ name this package has never heard of is a :class:`ValueError` listing what is us
 and a known name whose dependencies are missing is an :class:`ImportError` saying what
 to install.
 
+Each backend is one row of :data:`BACKENDS`, a :class:`BackendEntry` naming by import
+path everything selection reads of it -- its constructor, its lockstep runner and its
+policy hooks -- so nothing here branches on a backend's name to construct one, and an
+optional backend in another distribution registers with one row
+(``docs/dev/backends.md`` section 1).
+
 The native backend is a second distribution, ``solprop-native``, built from ``native/``
 in this repository and a required dependency; probing availability does not import it.
 Automatic selection is that backend, with no fallback (SEP 43). It refuses when the
@@ -20,14 +26,15 @@ same code that refuses the import. Import, compatibility and construction errors
 visible, and they never trigger different arithmetic.
 """
 
+import importlib
 import importlib.util
 import logging
 import os
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, Final, cast
+from typing import Final, cast
 
 from solprop.backends.protocol import Backend, BatchBackend
 from solprop.backends.session import ExecutionOptions
@@ -42,9 +49,6 @@ from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import tdse_descriptor
 from solprop.translate.run_request import RunRequest
 from solprop.translate.tdse import TDSEBinding
-
-if TYPE_CHECKING:
-    from solprop.backends.host.driver import HostDriver
 
 __all__ = [
     "BACKENDS",
@@ -64,7 +68,11 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class BackendEntry:
-    """What a backend needs before it can be constructed.
+    """What selection needs of a backend, each object named by its import path.
+
+    A path is ``"module:attribute"``, the attribute dotted for one inside a class. It is
+    imported only when selection needs it, after ``requires`` was found, so listing a
+    backend imports nothing.
 
     Attributes
     ----------
@@ -73,17 +81,70 @@ class BackendEntry:
         nothing beyond the package's own dependencies.
     extras : tuple of str
         The optional-dependency groups that supply ``requires``, for the error message.
+    factory : str
+        The backend's constructor, called as ``factory(problem, request, *, grid,
+        modes, profiles, options)``, and with ``tdse_binding`` too for a TDSE run, which
+        only the reference is given (:func:`select`).
+    batch : str or None, optional
+        The transitional lockstep runner over loaded members, ``batch(owners)``
+        (:func:`select_batch`), which SEP 47 phase 5 deletes; ``None`` for none.
+    install : str or None, optional
+        What to install when ``requires`` is missing; ``None`` names ``extras``.
+    distribution : str or None, optional
+        The distribution that ships the backend, named by the messages of the policies
+        below; ``None`` names the package or the backend instead.
+    first_use : str or None, optional
+        Called with no arguments before each construction: the native backend's
+        first-use calibration (SEP 46); ``None`` for nothing.
+    device : str or None, optional
+        The build's description, ``device()``, whose ``device_backend`` (``"none"``
+        on a CPU build) and ``device_count`` say where it runs
+        (:data:`REQUIRE_DEVICE_SETTING`); the module holding it carries the version.
+        ``None`` for a backend that never runs on a device.
+    far_field : str or None, optional
+        The far-field statistics (SEP 23) the installed backend declares it forms;
+        another is refused by name before construction (:func:`statistics_refusal`).
+        ``None`` for a backend that forms every one, or declares nothing to check.
     """
 
     requires: tuple[str, ...]
     extras: tuple[str, ...]
+    factory: str
+    batch: str | None = None
+    install: str | None = None
+    distribution: str | None = None
+    first_use: str | None = None
+    device: str | None = None
+    far_field: str | None = None
 
 
 BACKENDS: Mapping[str, BackendEntry] = {
-    "numpy_ref": BackendEntry(requires=(), extras=()),
-    "native": BackendEntry(requires=("solprop_native",), extras=()),
+    "numpy_ref": BackendEntry(
+        requires=(),
+        extras=(),
+        factory="solprop.backends.numpy_ref:construct",
+        batch="solprop.backends.numpy_ref.batch:lockstep_runner",
+    ),
+    "native": BackendEntry(
+        requires=("solprop_native",),
+        extras=(),
+        # The optional package has its own strict type gate; it is deliberately absent
+        # from this repository's static-analysis source tree.
+        factory="solprop_native:NativeBackend",
+        batch="solprop_native.batch:NativeBatchBackend",
+        install=(
+            "solprop, or build solprop-native from native/ in the solprop repository"
+        ),
+        distribution="solprop-native",
+        first_use="solprop.calibration.first_use:ensure",
+        device="solprop_native:build_info",
+        far_field="solprop_native:NativeBackend.far_field_statistics",
+    ),
 }
-"""The backends this package knows, by name."""
+"""The backends this package knows, by name: one row each."""
+
+AUTO: Final = "native"
+"""What ``"auto"`` selects, with no fallback (SEP 43)."""
 
 REMOVED_BACKENDS: Mapping[str, str] = {
     "numba_cpu": (
@@ -104,16 +165,37 @@ FAR_FIELD_BACKENDS: tuple[str, ...] = ("numpy_ref", "native")
 """The backends that form the far-field statistics of SEP 23.
 
 ``numpy_ref`` always does; the native backend declares what it forms by its class's
-``far_field_statistics`` attribute. A statistic it does not declare is refused by name
-on this side of the seam (:func:`statistics_refusal`), before it is built.
+``far_field_statistics`` attribute (its row's ``far_field``). A statistic it does not
+declare is refused by name on this side of the seam (:func:`statistics_refusal`), before
+it is built.
 """
+
+
+def _load(path: str) -> object:
+    """Import the object a registry path names.
+
+    Parameters
+    ----------
+    path : str
+        ``"module:attribute"``, the attribute dotted for one inside a class.
+
+    Returns
+    -------
+    object
+        The object.
+    """
+    module, _, attribute = path.partition(":")
+    found: object = importlib.import_module(module)
+    for part in attribute.split("."):
+        found = getattr(found, part)
+    return found
 
 
 def statistics_refusal(name: str, names: Sequence[str]) -> str | None:
     """Return why a backend cannot form some of the statistics named, or ``None``.
 
-    Asking about the native backend for a far-field statistic imports the installed
-    plugin, as selecting it would, to read which far-field statistics it declares.
+    Asking about a backend whose row declares its far-field statistics (the native
+    backend's) imports the installed plugin, as selecting it would, to read them.
 
     Parameters
     ----------
@@ -135,9 +217,10 @@ def statistics_refusal(name: str, names: Sequence[str]) -> str | None:
     True
     """
     asked = [one for one in names if one in FAR_FIELD_STATISTICS]
-    # numpy_ref forms every far-field statistic, in binary64; single precision
-    # refuses them in validation (SEP 33).
-    if not asked or name == "numpy_ref":
+    entry = BACKENDS.get(name)
+    # numpy_ref, whose row declares nothing, forms every far-field statistic, in
+    # binary64; single precision refuses them in validation (SEP 33).
+    if not asked or entry is None or entry.far_field is None:
         return None
     formed = _plugin_far_field(name)
     if formed is None:
@@ -147,8 +230,8 @@ def statistics_refusal(name: str, names: Sequence[str]) -> str | None:
         return None
     return (
         f"the installed {name!r} backend does not form the far-field statistics "
-        f"{missing}; install a solprop-native build that does, or run them on "
-        "numpy_ref"
+        f"{missing}; install a {entry.distribution or name} build that does, or run "
+        "them on numpy_ref"
     )
 
 
@@ -158,23 +241,19 @@ def _plugin_far_field(name: str) -> frozenset[str] | None:
     Parameters
     ----------
     name : str
-        A registry name other than the in-tree backends.
+        A registry name.
 
     Returns
     -------
     frozenset of str or None
-        What the plugin's backend class declares in
-        :attr:`~solprop.backends.driver.StepDriver.far_field_statistics`, or ``None``
-        when the name is not a known, installed plugin.
+        What the plugin declares (its row's ``far_field``: the native backend's
+        :attr:`~solprop.backends.driver.StepDriver.far_field_statistics`), or ``None``
+        when the name is not a known, installed plugin that declares them.
     """
     entry = BACKENDS.get(name)
-    if name != "native" or entry is None or not _satisfied(entry):
+    if entry is None or entry.far_field is None or not _satisfied(entry):
         return None
-    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        NativeBackend,
-    )
-
-    return frozenset(cast(Collection[str], NativeBackend.far_field_statistics))
+    return frozenset(cast(Collection[str], _load(entry.far_field)))
 
 
 def available(precision: str = "double") -> tuple[str, ...]:
@@ -241,11 +320,11 @@ def resolve_name(name: str = "auto") -> str:
         raise BackendError(REMOVED_BACKENDS[name])
     if name != "auto":
         return name
-    if not _satisfied(BACKENDS["native"]):
+    if not _satisfied(BACKENDS[AUTO]):
         raise BackendError(_NATIVE_MISSING)
     refusal = _native_baseline_shortfall()
     if refusal is None:
-        return "native"
+        return AUTO
     raise BackendError(str(refusal)) from refusal
 
 
@@ -281,13 +360,30 @@ def _device_build(name: str) -> bool:
     Returns
     -------
     bool
-        True for ``native`` built for CUDA or HIP.
+        True for a backend built for a device: ``native`` built for CUDA or HIP.
     """
-    if resolve_name(name) != "native":
+    entry = BACKENDS.get(resolve_name(name))
+    if entry is None or entry.device is None:
         return False
-    import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+    return _devices(entry)[0] != "none"
 
-    return solprop_native.build_info().device_backend != "none"
+
+def _devices(entry: BackendEntry) -> tuple[str, int]:
+    """Return where a backend's installed build runs, from its row's ``device``.
+
+    Parameters
+    ----------
+    entry : BackendEntry
+        A row with a ``device``.
+
+    Returns
+    -------
+    tuple of (str, int)
+        The build's device backend, ``"none"`` on a CPU build, and the devices it sees.
+    """
+    info = cast("Callable[[], object]", _load(cast(str, entry.device)))()
+    backend = cast(str, getattr(info, "device_backend"))  # noqa: B009 - any build's
+    return backend, cast(int, getattr(info, "device_count"))  # noqa: B009
 
 
 def _check_required_device(name: str) -> None:
@@ -316,37 +412,41 @@ def _check_required_device(name: str) -> None:
         msg = f"{REQUIRE_DEVICE_SETTING}={value!r}: use one of {names}, or unset it"
         raise BackendError(msg)
     unset = f"unset {REQUIRE_DEVICE_SETTING} to run it anyway"
-    if name != "native":
+    entry = BACKENDS.get(name)
+    if entry is None or entry.device is None:
         msg = (
             f"{REQUIRE_DEVICE_SETTING}={value} requires a native device build, and "
             f"this run is on {name}; {unset}"
         )
         raise BackendError(msg)
-    if not _satisfied(BACKENDS["native"]):
+    if not _satisfied(entry):
         return  # select() goes on to say that the package is missing
+    package = entry.device.partition(":")[0]
+    shipped = entry.distribution or package
     try:
-        import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        module = importlib.import_module(package)
     except Exception as error:
         # A device build with no visible device stops in Kokkos as the package loads.
         msg = (
-            f"{REQUIRE_DEVICE_SETTING}={value}: solprop-native did not load, so this "
-            f"run wouldn't execute on a device: {error}"
+            f"{REQUIRE_DEVICE_SETTING}={value}: {shipped} did not load, so "
+            f"this run wouldn't execute on a device: {error}"
         )
         raise BackendError(msg) from error
 
-    info = solprop_native.build_info()
-    if info.device_backend not in accepted:
+    device_backend, device_count = _devices(entry)
+    if device_backend not in accepted:
+        version = getattr(module, "__version__", "unknown")
         msg = (
             f"{REQUIRE_DEVICE_SETTING}={value} requires a device build, and the "
-            f"installed solprop-native has device backend {info.device_backend!r}, "
-            f"version {solprop_native.__version__}. A new release replaces a source "
-            f"build with the CPU wheel, so rebuild it ({_NATIVE_BUILD_GUIDE}), or "
-            f"{unset}"
+            f"installed {shipped} has device backend "
+            f"{device_backend!r}, version {version}. A new release replaces a "
+            f"source build with the CPU wheel, so rebuild it ({_NATIVE_BUILD_GUIDE}), "
+            f"or {unset}"
         )
         raise BackendError(msg)
-    if info.device_count < 1:
+    if device_count < 1:
         msg = (
-            f"{REQUIRE_DEVICE_SETTING}={value}: the {info.device_backend} build sees "
+            f"{REQUIRE_DEVICE_SETTING}={value}: the {device_backend} build sees "
             f"no device; check the job's allocation, or {unset}"
         )
         raise BackendError(msg)
@@ -464,13 +564,12 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
     ['native', 'numpy_ref']
     """
     name = resolve_name(name)
-    if name == "native":
+    first_use = BACKENDS[name].first_use if name in BACKENDS else None
+    if first_use is not None:
         # SEP 46: a first native workspace in an allocation with no profile row runs
         # the quick calibration first, before the extension's runtime starts if it
         # has not yet.
-        from solprop.calibration.first_use import ensure  # noqa: PLC0415 - lazy
-
-        ensure()
+        cast("Callable[[], None]", _load(first_use))()
     _check_required_device(name)
     if _BENCHMARK_GATED.get() and name != "numpy_ref":
         raise BackendError("the gated plasma benchmark requires numpy_ref")
@@ -493,8 +592,8 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
             if importlib.util.find_spec(module) is None
         )
         install = (
-            "solprop, or build solprop-native from native/ in the solprop repository"
-            if name == "native"
+            entry.install
+            if entry.install is not None
             else " or ".join(f"solprop[{extra}]" for extra in entry.extras)
         )
         msg = (
@@ -539,40 +638,11 @@ def select_batch(owners: Sequence[Backend]) -> BatchBackend:
     if any(owner.name != owners[0].name for owner in owners):
         raise BackendError("Batch refuses mixed backends")
     name = owners[0].name
-    if name == "numpy_ref":
-        from solprop.backends.numpy_ref.backend import (  # noqa: PLC0415 - lazy backend
-            NumpyRefBackend,
-        )
-        from solprop.backends.numpy_ref.batch import (  # noqa: PLC0415 - lazy backend
-            NumpyBatchBackend,
-        )
-        from solprop.backends.numpy_ref.single import (  # noqa: PLC0415 - lazy backend
-            NumpySingleBackend,
-        )
-
-        if any(isinstance(owner, NumpySingleBackend) for owner in owners):
-            # NumpyBatchBackend's stage arithmetic over the member axis is binary64;
-            # the single-precision path's members each take their own binary32
-            # trial. The group's member validation refuses mixed precisions.
-            from solprop.backends.host.group import (  # noqa: PLC0415 - lazy backend
-                HostGroup,
-            )
-
-            return HostGroup(cast("Sequence[HostDriver[object]]", owners))
-        return NumpyBatchBackend(cast(Sequence[NumpyRefBackend], owners))
-    if name == "native":
-        # The native package has its own strict type gate.
-        from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-            NativeBackend,
-        )
-        from solprop_native.batch import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-            NativeBatchBackend,
-        )
-
-        return cast(
-            BatchBackend, NativeBatchBackend(cast(Sequence[NativeBackend], owners))
-        )
-    raise BackendError(f"Batch has no runner for backend {name!r}")
+    entry = BACKENDS.get(name)
+    if entry is None or entry.batch is None:
+        raise BackendError(f"Batch has no runner for backend {name!r}")
+    runner = cast("Callable[[Sequence[Backend]], BatchBackend]", _load(entry.batch))
+    return runner(owners)
 
 
 def _satisfied(entry: BackendEntry) -> bool:
@@ -635,50 +705,20 @@ def _construct(  # noqa: PLR0913 - as select
     ImportError
         If the name is known and satisfied but no module implements it yet.
     """
-    if name == "numpy_ref":
-        # Imported here, not at module scope: selecting a backend must not be a
-        # reason to import every backend or initialize a native runtime.
-        from solprop.backends.numpy_ref import NumpyRefBackend  # noqa: PLC0415
-
-        if problem.precision.single:
-            from solprop.backends.numpy_ref.single import (  # noqa: PLC0415
-                NumpySingleBackend,
-            )
-
-            return NumpySingleBackend(
-                problem,
-                request,
-                grid=grid,
-                modes=modes,
-                profiles=profiles,
-                tdse_binding=tdse_binding,
-                options=options,
-            )
-        return NumpyRefBackend(
-            problem,
-            request,
-            grid=grid,
-            modes=modes,
-            profiles=profiles,
-            tdse_binding=tdse_binding,
-            options=options,
-        )
-    if name == "native":
-        from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-            NativeBackend,
-        )
-
-        # The optional package has its own strict type gate; it is deliberately absent
-        # from this repository's static-analysis source tree.
-        return cast(
-            Backend,
-            NativeBackend(
-                problem,
-                request,
-                grid=grid,
-                modes=modes,
-                profiles=profiles,
-                options=options,
-            ),
-        )
-    raise AssertionError(f"unhandled backend registry entry {name!r}")
+    entry = BACKENDS.get(name)
+    if entry is None:
+        raise AssertionError(f"unhandled backend registry entry {name!r}")
+    # Imported here, not at module scope: selecting a backend must not be a reason to
+    # import every backend or initialize a native runtime.
+    factory = cast("Callable[..., Backend]", _load(entry.factory))
+    # Only the reference is given a TDSE binding; select refuses one elsewhere.
+    host = {} if tdse_binding is None else {"tdse_binding": tdse_binding}
+    return factory(
+        problem,
+        request,
+        grid=grid,
+        modes=modes,
+        profiles=profiles,
+        options=options,
+        **host,
+    )

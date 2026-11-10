@@ -665,11 +665,9 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
   on the CPU build at any width and whichever route each bin takes, on a device when every
   bin of its sections is on the flow's eigenbasis route and it has at most 16 channels
   (otherwise its matrix passes run on the host there). On the CPU build the
-  march itself runs natively too, for `Multistep()` in either formulation and the
-  one-order-higher PEC comparisons, adaptive or replayed, on every route; the
-  configurations it does not cover (the other comparison methods, a coupled flow whose
-  matrix passes run on the host, a norm scale of your own) step solprop's march on the
-  same engine, with a
+  march itself runs natively too, for `Multistep()` in either formulation, adaptive or
+  replayed, on every route; a coupled flow whose matrix passes run on the host steps
+  solprop's march on the same engine, with a
   {py:class}`~solprop.exceptions.HostMarchWarning` that names the reason. Either march
   takes the same steps.
 - **Resume across backends.** A frozen-residual coupled flow's history is kept in a

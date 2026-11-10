@@ -14,7 +14,8 @@ the terminal outcome with its checkpoint eligibility.
 
 :class:`DriverGroupSession` does the same for a group (SEP 47 section 6.7): it
 presents the lockstep runners a batched scan steps compatible members with through
-the group protocol, :class:`~solprop.backends.session.GroupSession`.
+the group protocol, :class:`~solprop.backends.session.GroupSession`, and
+:class:`DriverPreparedGroup` is the prepared group (``prepare_group``) that starts it.
 
 :class:`DriverPrepared` is the prepared execution (SEP 47 section 5.2) a constructed
 driver returns from ``prepare(problem, request)``: each ``start`` opens one session of
@@ -93,6 +94,7 @@ __all__ = [
     "AttemptListener",
     "DriverGroupSession",
     "DriverPrepared",
+    "DriverPreparedGroup",
     "DriverSession",
     "foreign_request",
 ]
@@ -760,17 +762,6 @@ class DriverSession:
             Its summary, or ``None`` without a monitor.
         """
         return None if self._monitor is None else self._monitor.summary()
-
-    @property
-    def monitor(self) -> BoundaryMonitor | None:
-        """Return the session's own boundary monitor, for transitional reporting.
-
-        Returns
-        -------
-        solprop.monitor.BoundaryMonitor or None
-            The monitor, or ``None``.
-        """
-        return self._monitor
 
     def close(self) -> None:
         """Release the driver; idempotent."""
@@ -2087,3 +2078,68 @@ class DriverGroupSession:
                     enumerate(self._runner.observe_members(field=True))
                 )
         return self._observed[member]
+
+
+class DriverPreparedGroup:
+    """A prepared group over the lockstep runners (SEP 47 section 6.7).
+
+    The group counterpart of :class:`DriverPrepared`: each :meth:`start` opens a
+    :class:`DriverGroupSession` over the members. Every driver prepares this group
+    (:meth:`solprop.backends.driver.StepDriver.prepare_group`,
+    :meth:`solprop.backends.host.driver.HostDriver.prepare_group`); the native
+    backend's prepared group falls back to it for a group the native group session
+    refuses. Like :class:`DriverGroupSession`, it is a temporary internal adapter.
+
+    Parameters
+    ----------
+    members : collections.abc.Sequence of solprop.backends.protocol.Backend
+        One constructed backend per member, all of one backend; they stay the caller's
+        until a started group owns them.
+    problems : collections.abc.Sequence of solprop.translate.problem.PropagationProblem
+        Each member's independently translated problem.
+    requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
+        Each member's run request.
+    """
+
+    def __init__(
+        self,
+        members: Sequence[Backend],
+        problems: Sequence[PropagationProblem],
+        requests: Sequence[RunRequest],
+    ) -> None:
+        """Hold the members, their problems and their requests."""
+        self._members = tuple(members)
+        self._problems = tuple(problems)
+        self._requests = tuple(requests)
+
+    @property
+    def backend(self) -> str:
+        """Return the registered name of the backend that prepared it.
+
+        Returns
+        -------
+        str
+            The first member's registered name.
+        """
+        return self._members[0].name
+
+    def start(
+        self, starts: Sequence[Start], *, stop: StopFlag | None = None
+    ) -> DriverGroupSession:
+        """Start the group over the backend's lockstep runner.
+
+        Parameters
+        ----------
+        starts : collections.abc.Sequence of solprop.backends.session.Start
+            Each member's entrance; the group takes their fields.
+        stop : solprop.log.StopFlag or None, optional
+            A group-wide stop token.
+
+        Returns
+        -------
+        DriverGroupSession
+            The started group.
+        """
+        return DriverGroupSession(
+            self._members, self._problems, self._requests, starts, stop=stop
+        )

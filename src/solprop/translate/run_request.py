@@ -119,16 +119,13 @@ class IntegrationSpec:
         Returns
         -------
         bool
-            True for the benchmark-only comparison variants off the selected family
-            (SEP 47 section 6.3): PECE, explicit Adams-Bashforth and the matched pairs.
-            The PEC variant whose corrector is one order higher is the selected method
-            under another name, which every backend runs.
+            True for the benchmark-only comparison family, ``ComparisonMultistep``
+            (SEP 47 section 6.3): PEC, PECE, explicit Adams-Bashforth and the matched
+            pairs, which native refuses;
+            :class:`~solprop.stepper.multistep.Multistep` is the selected method every
+            backend runs.
         """
-        method = self.method
-        return isinstance(method, ComparisonMultistep) and (
-            method.corrector != "pec"
-            or method.corrector_nodes(method.order) != method.order + 1
-        )
+        return isinstance(self.method, ComparisonMultistep)
 
 
 @dataclass(frozen=True)

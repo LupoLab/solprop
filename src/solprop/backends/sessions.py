@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The run layer's one door to a backend's sessions (SEP 47 phases 2 and 3).
+"""The run layer's one door to a backend's sessions (SEP 47 phases 2 to 4).
 
 :func:`start_session` starts a run through the backend's own preparation shape (SEP
 47 section 5.2), ``backend.prepare(problem, request).start(start, ...)``, so a backend
@@ -18,24 +18,24 @@ transitional session over the inherited driver
 the reason logged at debug level; any other driver's opens the transitional one.
 
 :func:`start_group` is the door for a group of compatible members (SEP 47 section
-6.7): native members run in the native group session
-(``solprop_native.group.NativeGroupSession``, one native session per member)
-whenever it admits the group; any other group runs in the transitional group over the
-lockstep runners
-(:class:`solprop.backends.driver_session.DriverGroupSession`), the reference's and the
-native groups the native group refuses by name (``solprop_native.group.refusal``).
+6.7), through the same shape: the group's first member prepares the group,
+``members[0].prepare_group(members, problems, requests).start(starts, ...)``, so a
+backend chooses its group and nothing here names one either. The native backend's
+(``solprop_native.group.NativePreparedGroup``) opens the native group session
+(``solprop_native.group.NativeGroupSession``, one native session per member), on a CPU
+or a device build, whenever it admits the group, and the transitional group over the
+lockstep runners (:class:`solprop.backends.driver_session.DriverGroupSession`) for
+what it refuses by name (``solprop_native.group.refusal``); every other driver's, the
+reference's among them, opens the transitional group
+(:class:`solprop.backends.driver_session.DriverPreparedGroup`).
 """
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
-from solprop.backends.driver_session import (
-    AttemptListener,
-    DriverGroupSession,
-)
+from solprop.backends.driver_session import AttemptListener
 from solprop.backends.session import GroupSession, RunSession, Start, check_group
 from solprop.log import StopFlag
 from solprop.translate.problem import PropagationProblem
@@ -46,8 +46,6 @@ if TYPE_CHECKING:
     from solprop.backends.protocol import Backend
 
 __all__ = ["start_group", "start_session"]
-
-logger = logging.getLogger(__name__)
 
 
 def start_session(  # noqa: PLR0913 - the session context
@@ -126,31 +124,18 @@ def start_group(
     Returns
     -------
     solprop.backends.session.GroupSession
-        The started group: the native group session for native members it admits,
-        the transitional group otherwise.
+        The group the backend's prepared group opens
+        (:meth:`~solprop.backends.protocol.Backend.prepare_group`): the native group
+        session for native members it admits, the transitional group otherwise.
 
     Raises
     ------
     solprop.backends.session.SessionError
         If the sequences differ in length or are empty, or if a start is not a fresh
         entrance.
+    solprop.exceptions.BackendError
+        If the backend runs no group, or refuses this one.
     """
     check_group(len(members), problems, requests, starts)
-    if members[0].name == "native":
-        # The native package has its own strict type gate.
-        from solprop_native.group import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-            NativeGroupSession,
-            refusal,
-        )
-
-        refused = refusal(problems, requests, starts)
-        if refused is None:
-            return cast(
-                GroupSession,
-                NativeGroupSession(members, problems, requests, starts, stop=stop),  # pyright: ignore[reportArgumentType] - native members, checked there
-            )
-        logger.debug(
-            "the native group session does not run %s; the transitional group runs it",
-            refused,
-        )
-    return DriverGroupSession(members, problems, requests, starts, stop=stop)
+    prepared = members[0].prepare_group(members, problems, requests)
+    return prepared.start(starts, stop=stop)

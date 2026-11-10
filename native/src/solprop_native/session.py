@@ -28,7 +28,7 @@ It admits a subset and refuses every other feature by name before allocating any
 - the native CPU build; Adams (``Multistep``) and the embedded Runge-Kutta tableaux,
   adaptive or replayed, on the routes the resident engines march without a host
   fallback;
-- on a device build (CUDA or HIP), the same (SEP 47 phase 4, :func:`device_refusal`):
+- on a device build (CUDA or HIP), the same (SEP 47 phase 4):
   the session's own code is host code over the resident state wherever it lives, its
   decisions made on the host from the device's reductions, and an export crosses the
   field to the destination once and converts it there; a coupled flow with bins off
@@ -43,11 +43,10 @@ It admits a subset and refuses every other feature by name before allocating any
 - every periodic-capable statistic of the catalogue on these routes, plane and
   periodic, each evaluated and finished natively from a plan lowered once
   (:mod:`solprop_native._statistics`), the profile statistics from tables whose
-  measured error the execution record carries, and the plane-only statistics the plan
-  evaluates, a spatial route's fluence widths among them; the plane-only statistics
-  the host still finishes (:data:`~solprop_native._statistics.PLANE_ONLY`) are
-  refused, as is what the problem does not carry
-  (:func:`solprop.backends.session.statistics_unavailable`);
+  measured error the execution record carries, and the plane-only statistics, a
+  spatial route's fluence widths and the on-axis plasma statistics among them (the
+  axis row scanned natively by the node scan's own pass); what the problem does not
+  carry is refused (:func:`solprop.backends.session.statistics_unavailable`);
 - the boundary monitor, temporal and a free-space run's transverse edge, which the
   native session owns (SEP 47 section 6.4): its every decision and record are native,
   each warning is its own :class:`~solprop.backends.events.ServiceRequired` barrier
@@ -67,7 +66,9 @@ It admits a subset and refuses every other feature by name before allocating any
   native monitor and the draw's readings by the native transverse edge, and the noise
   phase at each plane, formed on the host or, for a z table's propagator phase, read
   from its slot in the leased state;
-- no comparison method, custom controller, group or TDSE.
+- no group; and no comparison method, controller that overrides a decision or TDSE
+  response, which the backend refuses by name where it is built, before it allocates
+  (SEP 47 section 6.3), so that no session, native or transitional, runs them.
 """
 
 from __future__ import annotations
@@ -98,6 +99,7 @@ from solprop.backends.events import (
 )
 from solprop.backends.export import destination_refusal
 from solprop.backends.multistep import CallLedger, budget_error
+from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
@@ -125,12 +127,11 @@ from solprop.output.capability import (
     withheld_accessors,
 )
 from solprop.output.schema import MarchSnapshot
-from solprop.stepper.controller import ControlRecord, PIController
+from solprop.stepper.controller import ControlRecord
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.stepper.multistep import ComparisonMultistep, Multistep
+from solprop.stepper.multistep import Multistep
 from solprop.stepper.tableau import continuous_extension
 from solprop.translate.linop import power_weight_at
-from solprop.translate.routes import tdse_descriptor
 
 from . import _core, _counters, _transverse, _watch
 from ._statistics import (
@@ -138,10 +139,10 @@ from ._statistics import (
     ADMITTED_SPATIAL_STATISTICS,
     ADMITTED_STATISTICS,
     StatisticsLowering,
+    axis_row_refusal,
     lower,
     metric_refusal,
     translated,
-    uncovered,
 )
 from .backend import (
     _BUDGET,  # pyright: ignore[reportPrivateUsage]
@@ -176,7 +177,7 @@ __all__ = [
     "NativePrepared",
     "NativeSession",
     "backend_refusal",
-    "device_refusal",
+    "modes_refusal",
     "refusal",
     "session_refusal",
 ]
@@ -213,14 +214,6 @@ _OUTCOMES = (None, Outcome.COMPLETED, Outcome.STOPPED, Outcome.FAILED)
 _OBSERVATION, _PROGRESS, _SNAPSHOT, _TERMINAL, _WARNING = range(5)
 _EVENT_NAMES = ("observation", "progress", "snapshot", "terminal", "warning")
 """The native event kinds by name, as the benchmark counters report a batch."""
-_OVERRIDES = (
-    "scale",
-    "accepts",
-    "propose",
-    "rejection_factor",
-    "start_factor",
-    "equivalent_norm",
-)
 _EMPTY = np.empty(0, dtype=np.float64)
 _NO_ORDERS = 1 << 62
 """An order index past any run's, to read the march's state without its orders."""
@@ -244,7 +237,11 @@ def refusal(
 
     Decided from the problem, the request and the start alone, before anything is
     allocated. A march the backend itself would step on the host is refused once the
-    backend is built (:class:`NativeSession`).
+    backend is built (:class:`NativeSession`). What native runs on no session -- a
+    comparison method, a controller that overrides a decision, a TDSE response -- the
+    backend refuses by name where it is built (``NativeBackend``), still before any
+    native state; a session built without a backend reaches that refusal only after
+    these checks, which may name another feature first.
 
     Parameters
     ----------
@@ -260,64 +257,11 @@ def refusal(
     str or None
         The reason, or ``None`` when the session admits the run.
     """
-    if _on_device():
-        refused = device_refusal(problem, request)
-        if refused is not None:
-            return refused
-    method = request.integration.method
-    if isinstance(method, ComparisonMultistep):
-        return f"the comparison method {method.name}"
-    # A request built by hand may hold a method its annotation does not name.
-    unnamed = not isinstance(method, Multistep | LowStorageRungeKutta)  # pyright: ignore[reportUnnecessaryIsInstance]
-    if method is not None and unnamed:
-        return f"the method {type(method).__name__}"
-    controller = request.error_control.controller
-    overridden = [
-        name
-        for name in _OVERRIDES
-        if getattr(type(controller), name) is not getattr(PIController, name)
-    ]
-    if overridden:
-        return "a controller with its own " + ", ".join(overridden)
-    if tdse_descriptor(problem.route) is not None:
-        return "a TDSE response"
-    if not isinstance(method, LowStorageRungeKutta):
+    if not isinstance(request.integration.method, LowStorageRungeKutta):
         march = native_march_refusal(problem, request.stepper)
         if march is not None:
             return march
     return _statistics_refusal(problem, request.observation.stats)
-
-
-def device_refusal(problem: PropagationProblem, request: RunRequest) -> str | None:
-    """Return why the session refuses a run for being on a device build, or ``None``.
-
-    SEP 47 phase 4 (section 6.3): a device build's session serves the device matrix
-    a CPU build's serves -- Adams and the embedded Runge-Kutta tableaux, adaptive or
-    replayed, the low-storage replay, dense output, the modal, general and spatial
-    routes (radial, Cartesian, line and planar) with their statistics, the temporal
-    monitor and a free-space run's transverse edge, the noise models, the Adams
-    history and host export -- over the same resident engines, whose kernels run where
-    the state lives, so nothing is refused here for being on a device. What a device
-    build cannot run is refused where it is decided: the backend refuses a carrier
-    frame and a z table that is not device-ready by name, and a coupled flow the
-    device steps on solprop's host engine is :func:`refusal`'s, through
-    :func:`~solprop_native.backend.native_march_refusal`. :func:`refusal` asks this
-    first on a device build, the one place a device-only refusal goes.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
-    request : solprop.translate.run_request.RunRequest
-        The run's policies.
-
-    Returns
-    -------
-    str or None
-        The reason, or ``None`` when the device path admits the run.
-    """
-    del problem, request
-    return None
 
 
 def backend_refusal(backend: NativeBackend) -> str | None:
@@ -390,10 +334,11 @@ def _statistics_refusal(problem: PropagationProblem, spec: StatsSpec) -> str | N
 
     Every statistic the native plan evaluates on the route is admitted, plane and
     periodic (:mod:`solprop_native._statistics`), a spatial route's fluence widths
-    among them. What the backend itself would refuse, and what the problem does not
-    carry (:func:`solprop.backends.session.statistics_unavailable`, which every
-    executor refuses before it starts), are refused by name; so are the plane-only
-    statistics the host still finishes.
+    and the on-axis plasma statistics among them. What the backend itself would
+    refuse, and what the problem does not carry
+    (:func:`solprop.backends.session.statistics_unavailable`, which every executor
+    refuses before it starts, and
+    :func:`solprop.backends.populations.axis_refusal`), are refused by name.
 
     Parameters
     ----------
@@ -430,13 +375,8 @@ def _statistics_refusal(problem: PropagationProblem, spec: StatsSpec) -> str | N
     refused = metric_refusal(problem, (*names, *spec.periodic))
     if refused is not None:
         return refused
-    left = uncovered(problem, names)
-    if left:
-        return (
-            f"the statistics {left!r}, which the host finishes: the on-axis plasma "
-            "statistics"
-        )
-    return None
+    # Every other name the backend admits is the plan's on its route.
+    return axis_refusal(problem, names)
 
 
 class NativeSession:
@@ -608,7 +548,9 @@ class NativeSession:
         try:
             # The built backend's own admission, before the start's field is taken: a
             # march it would step on the host.
-            refused = backend_refusal(backend)
+            refused = backend_refusal(backend) or modes_refusal(
+                backend, problem, request
+            )
             if refused is not None:
                 msg = f"the native session does not run {refused}"
                 raise BackendError(msg)
@@ -2170,7 +2112,42 @@ def session_refusal(
     """
     if type(backend) is not NativeBackend:
         return f"a {type(backend).__name__}, which the native session does not adopt"
-    return refusal(problem, request, start) or backend_refusal(backend)
+    return (
+        refusal(problem, request, start)
+        or backend_refusal(backend)
+        or modes_refusal(backend, problem, request)
+    )
+
+
+def modes_refusal(
+    backend: NativeBackend, problem: PropagationProblem, request: RunRequest
+) -> str | None:
+    """Return why the session refuses a run for its backend's mode set, or ``None``.
+
+    What only the mode set decides, so neither :func:`refusal` nor
+    :func:`backend_refusal` can: an axis row the plan cannot scan
+    (:func:`~solprop_native._statistics.axis_row_refusal`). Every door that admits a
+    native session or group asks it, so such a run keeps the transitional session.
+
+    Parameters
+    ----------
+    backend : solprop_native.backend.NativeBackend
+        The built backend.
+    problem : solprop.translate.problem.PropagationProblem
+        The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's request.
+
+    Returns
+    -------
+    str or None
+        The reason, or ``None``.
+    """
+    return axis_row_refusal(
+        problem,
+        request.observation.stats.names,
+        backend._modes,  # pyright: ignore[reportPrivateUsage] - the set it was built with
+    )
 
 
 class NativePrepared(DriverPrepared):

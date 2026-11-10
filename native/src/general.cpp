@@ -2282,6 +2282,9 @@ public:
                                           const std::vector<double>& cosines,
                                           const std::vector<double>& sines);
   std::vector<Complex> axis_spectrum(const std::vector<double>& matrix);
+  std::vector<double>
+  axis_populations(const std::vector<double>& matrix,
+                   const std::vector<double>& channel_preionisation);
   std::vector<double> aperture_statistics(std::uint64_t flags,
                                           const std::vector<double>& apertures,
                                           int exponent,
@@ -2701,6 +2704,7 @@ public:
   void fill_statistics_pair(bool windowed, double lower, double upper);
   void form_statistics_power();
   void form_statistics_total_power();
+  void statistics_modal_time();
   void scan_plasma_statistics(std::size_t first_node, std::size_t node_count,
                               const RealView2& output, bool diagnose = false,
                               double preionisation = 0.0);
@@ -14568,28 +14572,7 @@ std::vector<double> GeneralWorkspace::statistics(
                                  preionisation);
         }
       } else {
-        graph::deep_copy(execution_space_, fine_spectrum_, Complex{});
-        const auto current = current_;
-        const auto fine = fine_spectrum_;
-        const auto crop = crop_index_;
-        const auto inverse_n_to = 1.0 / static_cast<double>(problem_.n_to);
-        const auto n_to = problem_.n_to;
-        const bool analytic = problem_.family == FieldFamily::field_analytic;
-        launch::parallel_for(
-            "solprop_native.plasma.statistics_pad",
-            Range2(execution_space_, {0, 0}, {problem_.n_columns(), problem_.n_omega}),
-            KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-              const double analytic_scale =
-                  analytic && index > 0 && 2 * crop(index) < n_to ? 2.0 : 1.0;
-              fine(column, crop(index)) =
-                  analytic_scale * inverse_n_to * current(column, index);
-            });
-        if (problem_.family == FieldFamily::field_real)
-          graph::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
-                         KokkosFFT::Normalization::none);
-        else if (!retained_synthesis_)
-          graph::execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
-                         KokkosFFT::Normalization::none);
+        statistics_modal_time();
         graph::deep_copy(execution_space_, stage_taper_, taper);
         scale_transform(problem_.n_stages - 1, taper);
         for (std::size_t first = 0; first < problem_.n_nodes;
@@ -15267,8 +15250,9 @@ std::vector<double> GeneralWorkspace::plane_fluence_trace(
 
 // The field's spectrum at one physical point, the matrix `(n_rows, n_modes)` contracted
 // with the modal state: `(n_rows * n_pol, n_omega)` samples, each a real and an
-// imaginary part in turn. The on-axis statistics scan this row on the host (solprop SEP
-// 19), so that it is all a plane's scan brings across.
+// imaginary part in turn. The transitional session's on-axis statistics scan this row
+// on the host (solprop SEP 19), so that it is all a plane's scan brings across; the
+// native session scans it in place (`axis_populations`).
 std::vector<Complex>
 GeneralWorkspace::axis_spectrum(const std::vector<double>& matrix) {
   require_open();
@@ -15318,6 +15302,165 @@ GeneralWorkspace::axis_spectrum(const std::vector<double>& matrix) {
   std::vector<Complex> result(samples);
   for (std::size_t index = 0; index < samples; ++index)
     result[index] = Complex(host(2 * index), host(2 * index + 1));
+  return result;
+}
+
+// The modal state on the fine time grid, in `modal_real_` or `modal_complex_`: the
+// coarse bins padded at `crop_index_` and transformed back, the node scans' own first
+// pass (`statistics`); a retained synthesis transforms at its nodes instead.
+void GeneralWorkspace::statistics_modal_time() {
+  graph::deep_copy(execution_space_, fine_spectrum_, Complex{});
+  const auto current = current_;
+  const auto fine = fine_spectrum_;
+  const auto crop = crop_index_;
+  const auto inverse_n_to = 1.0 / static_cast<double>(problem_.n_to);
+  const auto n_to = problem_.n_to;
+  const bool analytic = problem_.family == FieldFamily::field_analytic;
+  launch::parallel_for(
+      "solprop_native.plasma.statistics_pad",
+      Range2(execution_space_, {0, 0}, {problem_.n_columns(), problem_.n_omega}),
+      KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
+        const double analytic_scale =
+            analytic && index > 0 && 2 * crop(index) < n_to ? 2.0 : 1.0;
+        fine(column, crop(index)) =
+            analytic_scale * inverse_n_to * current(column, index);
+      });
+  if (problem_.family == FieldFamily::field_real)
+    graph::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
+                   KokkosFFT::Normalization::none);
+  else if (!retained_synthesis_)
+    graph::execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
+                   KokkosFFT::Normalization::none);
+}
+
+// solprop SEP 19's on-axis plasma populations, scanned natively (solprop SEP 47 phase
+// 4): the modal state on the fine grid (`statistics_modal_time`), contracted with
+// `matrix` -- one or two rows of `n_modes` columns, the pad scale and the taper in
+// them, as `solprop.backends.populations.axis_row_matrix` forms them -- into the first
+// node's buffer, and scanned there by the node scan itself, every channel with its
+// tables and running-integral rule. Returns each channel's final fraction and peak
+// rate, `(n_channels, 2)`. Two components on a one-component node buffer are the
+// field's magnitude, `hypot(E_x, E_y)`, which is all a field grid's scan reads; an
+// envelope's scan reads its polarisation ellipse, so it takes no such pair.
+std::vector<double>
+GeneralWorkspace::axis_populations(const std::vector<double>& matrix,
+                                   const std::vector<double>& channel_preionisation) {
+  require_open();
+  if (!initialized_)
+    throw std::logic_error("no initial field has been loaded");
+  if (!problem_.plasma || problem_.n_channels == 0)
+    throw std::invalid_argument(
+        "the on-axis plasma statistics need a compiled plasma response");
+  if (problem_.separable_geometry() || problem_.general_modal || retained_synthesis_)
+    throw std::invalid_argument(
+        "the on-axis plasma statistics read a resolved modal state");
+  const auto n_modes = problem_.n_modes;
+  const auto n_pol_state = problem_.n_pol_state;
+  const auto node_pol = problem_.effective_node_pol();
+  if (matrix.empty() || matrix.size() % n_modes != 0 || matrix.size() / n_modes > 2)
+    throw std::invalid_argument(
+        "an on-axis row needs one or two rows of n_modes columns");
+  auto rows = matrix.size() / n_modes;
+  // A y row of zeros on a one-component node scan is dropped: `hypot(E_x, 0)` is
+  // `|E_x|`, and an envelope's ellipse with no y axis is its x component's.
+  if (rows == 2 && n_pol_state == 1 && node_pol == 1 &&
+      std::all_of(matrix.begin() + static_cast<std::ptrdiff_t>(n_modes), matrix.end(),
+                  [](const double value) { return value == 0.0; }))
+    rows = 1;
+  const auto components = rows * n_pol_state;
+  const bool combine = components == 2 && node_pol == 1;
+  if (components != node_pol && !combine)
+    throw std::invalid_argument(
+        "an on-axis row has one component on each of the node scan's");
+  if (combine && problem_.envelope_plasma)
+    throw std::invalid_argument("an envelope's on-axis row with a y component needs "
+                                "the node scan's two components");
+  require_extent(channel_preionisation.size(), problem_.n_channels,
+                 "on-axis channel preionisation");
+  for (const double value : channel_preionisation)
+    if (!std::isfinite(value) || value < 0.0 || value > 1.0)
+      throw std::invalid_argument("on-axis channel preionisation must be in [0, 1]");
+  auto initial_host = Kokkos::create_mirror_view(stage_channel_preionisation_);
+  for (std::size_t channel = 0; channel < problem_.n_channels; ++channel)
+    initial_host(0, channel) = channel_preionisation[channel];
+  graph::deep_copy(execution_space_, stage_channel_preionisation_, initial_host);
+  const std::vector<double> held(
+      matrix.begin(), matrix.begin() + static_cast<std::ptrdiff_t>(rows * n_modes));
+  copy_vector(
+      execution_space_,
+      Kokkos::subview(statistics_on_axis_, std::make_pair<std::size_t>(0, held.size())),
+      held);
+  statistics_modal_time();
+  const auto weights = statistics_on_axis_;
+  const auto modal_real = modal_real_;
+  const auto modal_complex = modal_complex_;
+  const auto node_real = node_real_;
+  const auto node_complex = node_complex_;
+  const bool real_family = problem_.family == FieldFamily::field_real;
+  const auto written = combine ? std::size_t{1} : components;
+  launch::parallel_for(
+      "solprop_native.statistics.axis_row",
+      Range2(execution_space_, {0, 0}, {written, problem_.n_to}),
+      KOKKOS_LAMBDA(const std::size_t component, const std::size_t time) {
+        // Component `row * n_pol_state + pol`, `passes.synthesise`'s layout.
+        const auto sum_real = [&](const std::size_t row, const std::size_t pol) {
+          double value = 0.0;
+          for (std::size_t mode = 0; mode < n_modes; ++mode)
+            value += weights(row * n_modes + mode) *
+                     modal_real(mode * n_pol_state + pol, time);
+          return value;
+        };
+        const auto sum_complex = [&](const std::size_t row, const std::size_t pol) {
+          Complex value{};
+          for (std::size_t mode = 0; mode < n_modes; ++mode)
+            value += weights(row * n_modes + mode) *
+                     modal_complex(mode * n_pol_state + pol, time);
+          return value;
+        };
+        const auto row = component / n_pol_state;
+        const auto pol = component % n_pol_state;
+        if (combine) {
+          // Both rows on a scalar state: the magnitude the scan would form.
+          if (real_family)
+            node_real(0, time) = Kokkos::hypot(sum_real(0, 0), sum_real(1, 0));
+          else
+            node_complex(0, time) = Complex(
+                Kokkos::hypot(sum_complex(0, 0).real(), sum_complex(1, 0).real()), 0.0);
+        } else if (real_family) {
+          node_real(component, time) = sum_real(row, pol);
+        } else {
+          node_complex(component, time) = sum_complex(row, pol);
+        }
+      });
+  const auto source = plasma_statistics_scratch_;
+  scan_plasma_statistics(0, 1, source, false, channel_preionisation[0]);
+  const auto channels = problem_.n_channels;
+  const auto packed_size = 2 * channels;
+  if (statistics_packed_.size() < packed_size) {
+    execution_space_.fence("solprop_native statistics output resize");
+    statistics_packed_ = RealView("solprop_native.statistics.packed", packed_size);
+  }
+  const auto packed = statistics_packed_;
+  const bool envelope = problem_.envelope_plasma;
+  const auto initial = stage_channel_preionisation_;
+  // `statistics`' own packing of a node's populations.
+  launch::parallel_for(
+      "solprop_native.statistics.pack_axis_populations",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, channels),
+      KOKKOS_LAMBDA(const std::size_t channel) {
+        packed(2 * channel) =
+            envelope ? envelope_fraction(source(0, 2 * channel), initial(0, channel))
+                     : ionised_fraction(source(0, 2 * channel), initial(0, channel));
+        packed(2 * channel + 1) = source(0, 2 * channel + 1);
+      });
+  const auto filled =
+      Kokkos::subview(packed, std::make_pair<std::size_t>(0, packed_size));
+  auto host = Kokkos::create_mirror_view(filled);
+  graph::deep_copy(execution_space_, host, filled);
+  execution_space_.fence("solprop_native on-axis populations boundary");
+  std::vector<double> result(packed_size);
+  for (std::size_t index = 0; index < packed_size; ++index)
+    result[index] = host(index);
   return result;
 }
 
@@ -17812,6 +17955,12 @@ std::vector<double> GeneralState::plane_fluence_trace(
 std::vector<Complex> GeneralState::axis_spectrum(const std::vector<double>& matrix) {
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->axis_spectrum(matrix);
+}
+std::vector<double>
+GeneralState::axis_populations(const std::vector<double>& matrix,
+                               const std::vector<double>& channel_preionisation) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->axis_populations(matrix, channel_preionisation);
 }
 std::vector<double> GeneralState::aperture_statistics(
     const std::uint64_t flags, const std::vector<double>& apertures, const int exponent,

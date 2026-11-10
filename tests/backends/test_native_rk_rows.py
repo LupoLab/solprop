@@ -191,22 +191,14 @@ def test_the_native_norm_is_the_host_s_to_rounding(slots, atol):
             assert found == expected
 
 
-class _Scaled(PIController):
-    """A controller whose scale is its own."""
-
-    def scale(self, norm_y, norm_y_new):
-        return 2.0 * super().scale(norm_y, norm_y_new)
-
-
-@pytest.mark.parametrize(
-    "controller",
-    [
-        _Scaled(rtol=1e-6, atol=0.0),
-        PIController(rtol=1e-6, atol=0.0, weights=None),
-    ],
-    ids=["own_scale", "stock"],
-)
-def test_only_solprop_s_weak_scale_is_reduced_natively(controller, monkeypatch):
+@pytest.mark.parametrize("host_rows", [True, False], ids=["host_rows", "staged"])
+def test_the_weak_scale_is_reduced_natively_but_on_host_rows(host_rows, monkeypatch):
+    # A controller with a scale of its own is refused where the backend is built
+    # (solprop SEP 47 section 6.3, `test_native_rk_admission`), so the host's
+    # reduction serves the test interface's host rows alone, by PIController's scale.
+    controller = PIController(rtol=1e-6, atol=0.0, weights=None)
+    if host_rows:
+        monkeypatch.setattr(backend_module, "_RK_ROWS", "host")
     backend, problem = runge_kutta("gnlse", controller)
     calls: list[int] = []
     score = core.rk_score
@@ -221,9 +213,9 @@ def test_only_solprop_s_weak_scale_is_reduced_natively(controller, monkeypatch):
         partials = backend._prepare_trial(z, dz)
         norm = backend._score_trial(partials)
         expected = _host_norm(np.asarray(partials), 1e-6, 0.0)
-        if isinstance(controller, _Scaled):
+        if host_rows:
             assert not calls
-            assert norm == expected / 2.0
+            assert norm == expected
         else:
             assert calls
             assert norm == pytest.approx(expected, rel=1e-14)

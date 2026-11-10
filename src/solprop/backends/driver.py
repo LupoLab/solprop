@@ -52,7 +52,12 @@ from solprop.backends.protocol import (
     TimingProbe,
 )
 from solprop.backends.rk_core import rk_policy
-from solprop.backends.session import ExecutionOptions, PreparedExecution, Start
+from solprop.backends.session import (
+    ExecutionOptions,
+    PreparedExecution,
+    PreparedGroup,
+    Start,
+)
 from solprop.exceptions import BackendError, BoundaryError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter, StopFlag
@@ -602,6 +607,40 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # supplies the rest of the protocol (`memory_ledger`, `close`). They are not
         # abstract here, so that a batch's protocol check can refuse a driver without.
         return DriverPrepared(cast("Backend", self), problem, request)
+
+    def prepare_group(
+        self,
+        members: Sequence[Backend],
+        problems: Sequence[PropagationProblem],
+        requests: Sequence[RunRequest],
+    ) -> PreparedGroup:
+        """Prepare a group of compatible members of this backend (SEP 47 section 6.7).
+
+        Every driver's group is the transitional group over its backend's lockstep
+        runner (:class:`~solprop.backends.driver_session.DriverGroupSession`, chosen by
+        :func:`solprop.backends.registry.select_batch`), which SEP 47 phase 5 deletes
+        with this driver; the native backend runs its own group first where it admits
+        one.
+
+        Parameters
+        ----------
+        members : sequence of solprop.backends.protocol.Backend
+            One constructed backend per member, this one first.
+        problems : sequence of solprop.translate.problem.PropagationProblem
+            Each member's independently translated problem.
+        requests : sequence of solprop.translate.run_request.RunRequest
+            Each member's run request.
+
+        Returns
+        -------
+        solprop.backends.session.PreparedGroup
+            The prepared group.
+        """
+        from solprop.backends.driver_session import (  # noqa: PLC0415 - it builds on this module
+            DriverPreparedGroup,
+        )
+
+        return DriverPreparedGroup(members, problems, requests)
 
     @property
     def request(self) -> RunRequest:

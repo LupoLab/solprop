@@ -94,7 +94,7 @@ def _native(problem, request, start, **controls) -> Any:
     solprop_native.session.NativeSession
         The session.
     """
-    skip_device_refused(problem, request)
+    skip_device_refused(problem)
     return native_session.NativeSession(
         problem, request, start, grid=window(), modes=[fibre().mode], **controls
     )
@@ -562,7 +562,7 @@ def test_a_noisy_run_is_the_drivers(noise, check, march):
     run_request = simulation._run_request()
     assert problem.initial.noise_model == noise
     request = run_request.for_run(monitor=simulation._boundary_monitor())
-    skip_device_refused(problem, request)
+    skip_device_refused(problem)
     assert native_session.refusal(problem, request) is None
     context = {"grid": simulation.grid, "modes": simulation.modes}
     phases: dict[str, list[np.ndarray]] = {"driver": [], "native": []}
@@ -648,7 +648,7 @@ def test_a_noisy_run_on_a_z_table_is_the_drivers(noise, march):
     assert problem.linear.phi_representation == "table"
     assert problem.initial.noise_model == noise
     request = simulation._run_request()
-    skip_device_refused(problem, request)
+    skip_device_refused(problem)
     assert native_session.refusal(problem, request) is None
     context = {"grid": simulation.grid, "modes": simulation.modes}
     phases: dict[str, list[np.ndarray]] = {"driver": [], "native": []}
@@ -696,7 +696,7 @@ def test_a_z_table_s_noise_phase_needs_a_pending_ticket():
     simulation = _walkoff("modified", Multistep())
     problem = simulation.translate()
     request = simulation._run_request()
-    skip_device_refused(problem, request)
+    skip_device_refused(problem)
     context = {"grid": simulation.grid, "modes": simulation.modes}
     start = Start(field=problem.initial.field0, z=float(problem.initial.z))
     session = native_session.NativeSession(problem, request, start, **context)
@@ -809,7 +809,7 @@ def test_production_selects_the_session_and_a_field_restart_continues_as_the_dri
     """
     problem, run_request = _case(step_planes=0, **RESTARTED[case])
     request = run_request
-    skip_device_refused(problem, request)
+    skip_device_refused(problem)
     backend = select(
         "native", problem, run_request, grid=window(), modes=[fibre().mode]
     )

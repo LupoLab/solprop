@@ -58,6 +58,7 @@ from solprop.backends.events import (
     ServiceKind,
     ServiceRequired,
     Terminal,
+    emit_warning,
     join_attempts,
 )
 from solprop.backends.session import (
@@ -847,6 +848,24 @@ def test_an_allowed_warning_changes_nothing(start_scripted):
         run = drive(start_scripted(soliton(step_planes=3), warn_at=6), export=IDENTITY)
     assert [warning.category for warning in caught] == [ScriptedWarning]
     assert_same_run(run, baseline)
+
+
+def test_only_a_warning_barrier_is_emitted_as_a_warning():
+    """SEP 47 section 5.5: a consumer emits a warning barrier's warning, nothing else.
+
+    A snapshot request is serviced, never warned of: emitting one is the caller's
+    error, refused before anything reaches the warning filters.
+    """
+    snapshot = ServiceRequired(ServiceKind.SNAPSHOT, 0.01, "snapshot")
+    warning = ServiceRequired(ServiceKind.WARNING, 0.01, "edge", ScriptedWarning)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises(ValueError, match="a snapshot request is not a warning"):
+            emit_warning(snapshot)
+        emit_warning(warning)
+    assert [(item.category, str(item.message)) for item in caught] == [
+        (ScriptedWarning, "edge")
+    ]
 
 
 def test_rejected_trials_are_recorded_and_not_kept(start_scripted):

@@ -968,6 +968,15 @@ public:
    */
   [[nodiscard]] std::vector<Complex> axis_spectrum(const std::vector<double>& matrix);
   /**
+   * solprop SEP 19's on-axis plasma populations of the accepted state: `matrix`'s row
+   * (as `axis_spectrum` takes it, the pad scale and the taper in it) on the fine time
+   * grid, scanned by the node scan with each channel's preionisation. Returns each
+   * channel's final ionised fraction and peak rate, `(n_channels, 2)`.
+   */
+  [[nodiscard]] std::vector<double>
+  axis_populations(const std::vector<double>& matrix,
+                   const std::vector<double>& channel_preionisation);
+  /**
    * solprop SEP 23's far-field statistics of the accepted state on a Cartesian or line
    * grid, one banded pass; see `FarFieldPass::run` (`far_field.hpp`) for the tables,
    * the flags (from 32) and the packed order.

@@ -621,7 +621,7 @@ def test_a_noisy_edge_or_z_table_member_runs_in_the_native_group(kind):
         one._run_request().for_run(monitor=one._boundary_monitor())
         for one in simulations
     ]
-    skip_device_refused(problems[0], requests[0])
+    skip_device_refused(problems[0])
     assert group_module.refusal(problems, requests, starts) is None
     found: list[list[dict[str, Any]]] = [[], []]
     with ExitStack() as cleanup:

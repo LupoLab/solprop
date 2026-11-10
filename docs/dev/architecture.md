@@ -675,8 +675,10 @@ started by `solprop.backends.sessions.start_group`; SEP 47 section 6.7): a seque
 independently translated single-trajectory member problems — no problem carries a batch
 axis — each started from its own `Start`, advanced
 one common window (save plane) at a time, each member reporting its own events. The
-batched scan's loop (`driver/_scan_batch.py`) is the group's service loop. Two groups
-serve it:
+batched scan's loop (`driver/_scan_batch.py`) is the group's service loop. A backend
+chooses its own group: `start_group` asks the first member to prepare it,
+`members[0].prepare_group(members, problems, requests)`, and starts the returned
+`PreparedGroup`, naming no backend. Two groups serve it:
 
 - **The native group session** (`solprop_native.group.NativeGroupSession`) serves
   native members, on a CPU or a device build, whenever it admits the group. It owns
@@ -694,9 +696,11 @@ serve it:
   native session refuses, an adaptive member, step or interpolated planes, or members
   that do not share the schedule, save planes, method, field shape and statistics
   request.
-- **The transitional group** (`solprop.backends.driver_session.DriverGroupSession`)
-  serves every other group: the reference's, and native groups the native group
-  refuses. It runs over the lockstep runners (`BatchBackend`, `select_batch`), which
+- **The transitional group** (`solprop.backends.driver_session.DriverGroupSession`,
+  prepared by `DriverPreparedGroup`) serves every other group: the reference's, and
+  native groups the native group refuses (`solprop_native.group.NativePreparedGroup`
+  falls back to it). It runs over the lockstep runners (`BatchBackend`, `select_batch`,
+  which builds the runner its registry row names), which
   adopt the loaded member backends, each with its own tables, state and noise. On the
   native backend the accepted update is fused (`NativeBatchBackend`), while response
   and transform work remains member-owned. `observe_members` preserves each member's

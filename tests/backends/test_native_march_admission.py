@@ -4,16 +4,15 @@
 
 """Which march steps a native Adams run (solprop SEP 39 section 6.6).
 
-The native march steps ``Multistep()`` in either formulation, and the one-order-higher
-PEC comparisons, adaptive or replayed, on the routes whose trial is one bundle of stage
-rows; any other configuration runs solprop's Python march on the same
-resident engine, with a ``HostMarchWarning`` that names the reason, and the run's
-metadata records which march stepped it. The backend's test interface
-(``solprop_native.backend._ADAMS_MARCH``, no longer an environment variable or a
-constructor keyword: solprop SEP 47 section 6.3) selects the Python march without a
-warning. The other comparison variants are the
-reference's alone (solprop SEP 47 section 6.3): the backend refuses them by name before
-it allocates anything.
+The native march steps ``Multistep()`` in either formulation, adaptive or replayed, on
+the routes whose trial is one bundle of stage rows; any other configuration runs
+solprop's Python march on the same resident engine, with a ``HostMarchWarning`` that
+names the reason, and the run's metadata records which march stepped it. The backend's
+test interface (``solprop_native.backend._ADAMS_MARCH``, no longer an environment
+variable or a constructor keyword: solprop SEP 47 section 6.3) selects the Python march
+without a warning. The comparison family, ``ComparisonMultistep``, is benchmark-only and
+the reference's alone (solprop SEP 47 section 6.3): the backend refuses every variant by
+name before it allocates anything.
 """
 
 import copy
@@ -76,21 +75,10 @@ def test_the_default_march_is_native_without_a_warning(route):
         backend.close()
 
 
-@pytest.mark.parametrize(
-    "integrator",
-    [
-        Multistep(formulation="interaction"),
-        ComparisonMultistep(corrector="pec", order=4, corrector_order=5),
-        ComparisonMultistep(
-            corrector="pec", order=4, corrector_order=5, interpolant="hermite"
-        ),
-    ],
-    ids=["interaction", "pec4/5", "pec4/5 hermite"],
-)
-def test_the_fused_methods_are_native(integrator):
+def test_the_fused_method_is_native():
     with warnings.catch_warnings():
         warnings.simplefilter("error", HostMarchWarning)
-        backend = built(on_route("gnlse", integrator))
+        backend = built(on_route("gnlse", Multistep(formulation="interaction")))
     try:
         assert backend._adams.native
     finally:
@@ -125,21 +113,45 @@ def test_a_replayed_schedule_is_native():
         ComparisonMultistep(corrector="none", order=3),
         ComparisonMultistep(corrector="pec", order=4),
         ComparisonMultistep(corrector="pec", order=4, corrector_order=4),
+        # The one-order-higher PEC variants, the selected recurrence under the
+        # comparison family's name, are benchmark-only too.
+        ComparisonMultistep(corrector="pec", order=4, corrector_order=5),
+        ComparisonMultistep(
+            corrector="pec", order=4, corrector_order=5, interpolant="hermite"
+        ),
+        ComparisonMultistep(
+            corrector="pec", order=4, corrector_order=5, variable_order=True
+        ),
     ],
-    ids=["pece4", "pece4/5", "ab3", "pec4 matched", "pec4/4"],
+    ids=[
+        "pece4",
+        "pece4/5",
+        "ab3",
+        "pec4 matched",
+        "pec4/4",
+        "pec4/5",
+        "pec4/5 hermite",
+        "pec4/5 variable",
+    ],
 )
-def test_a_comparison_variant_s_general_path_is_refused_before_allocation(
-    integrator, monkeypatch
+@pytest.mark.parametrize("device", [False, True], ids=["cpu", "device"])
+def test_every_comparison_variant_is_refused_before_allocation(
+    integrator, device, monkeypatch
 ):
-    # solprop SEP 47 section 6.3: reference-only, refused by name at admission. The
-    # native state, the first allocation, is never built.
+    # solprop SEP 47 section 6.3: benchmark-only and reference-only, refused by name
+    # at admission on CPU and device builds alike (the device patched in: the
+    # decision is the method's alone). The native state, the first allocation, is
+    # never built.
+    monkeypatch.setattr(backend_module, "_on_device", lambda: device)
     built_states = []
     monkeypatch.setattr(
         backend_module._core, "State", lambda *args: built_states.append(args)
     )
     with pytest.raises(BackendError, match="reference-only") as refused:
         built(on_route("gnlse", integrator))
-    assert f"comparison variant {integrator.name} " in str(refused.value)
+    message = str(refused.value)
+    assert f"comparison variant {integrator.name}: " in message
+    assert "backend='numpy_ref'" in message
     assert built_states == []
 
 

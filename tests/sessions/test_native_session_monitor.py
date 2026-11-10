@@ -170,7 +170,7 @@ def _start(
     if kind == "driver":
         driver = select("native", problem, request, **context)
         return DriverSession(driver, problem, request, start)
-    skip_device_refused(problem, request)
+    skip_device_refused(problem)
     return native_session.NativeSession(problem, request, start, **context)
 
 

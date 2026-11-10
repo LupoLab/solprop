@@ -94,6 +94,22 @@ that record it still load. `metadata()` says what the execution *was* — the na
 resolved propagator mode, and whatever pools, plans and digests the backend has — and the
 driver writes it into the run's `RunMetadata.backend`, outside the resume key.
 
+**Registration.** A backend is one row of `registry.BACKENDS`, a `BackendEntry` that
+names by import path (`"module:attribute"`) everything selection reads of it, so
+`select`, `select_batch` and the policy checks read the row and never branch on the
+name: the modules it `requires` and the `extras` or `install` text that supply them;
+its `factory`, called as `factory(problem, request, *, grid, modes, profiles, options)`;
+the transitional lockstep runner `batch(owners)` (`select_batch`, deleted in SEP 47
+phase 5); and the native policies, each `None` on a row without it: `first_use`, called
+before each construction (SEP 46's first-use calibration), `device`, the build
+description that `SOLPROP_REQUIRE_DEVICE` reads (a row without one is refused a required
+device by name), and `far_field`, the far-field statistics the installed build declares
+(`statistics_refusal`). `auto` is `registry.AUTO`, `native`, with no fallback. Nothing
+is imported until selection needs it, and only after `requires` is found. A new
+backend (Tier 3, ADR-061) in another distribution registers with one row, and runs and groups through its
+own `prepare` and `prepare_group` (**Selection** below); there is no entry-point
+discovery, so the row is added to `BACKENDS` in this repository.
+
 **Periodic-statistics storage hooks.** The seam carries three storage hooks for the
 periodic statistics — `_reset_step_stats`, `_record_step_stats`, `_drain_step_stats` — so
 that a device backend can keep its rows resident and copy them once per plane; the shared
@@ -546,10 +562,25 @@ on a gas capillary (`beta_2` is a finite difference), and a pressure gradient ov
 resolved to about 5e-7 within the fit's budget. Where the session's request fixes every position the statistic is taken at -- its start and save planes, with no step or interpolated plane -- and there are no more than `_ZDW_PLANE_LIMIT` (34), a z-varying mode's root is instead searched once at exactly those positions before the run and held in a table constant about each (`source: "save planes"`, error zero): the reference's own roots, at planes times modes searches. Native refuses by name, before anything is allocated, the metric
 statistics of a general modal basis whose metric varies inside an interval
 (`_statistics.metric_refusal`): the plan's metric root is exact only on a metric constant on each
-interval. The native session's own statistics refusal then names only the on-axis plasma
-statistics (`solprop_native._statistics.PLANE_ONLY`), which the transitional session still finishes
-on the host. Groups start through
-`start_group`. The
+interval. The four on-axis plasma statistics are the plan's too: the axis row the mode profiles
+synthesise on the axis (`populations.axis_row_matrix`, the taper and the pad scale in it) is formed
+from the modal state on the fine grid and scanned natively in the first node's buffer by the node
+scan's own pass, its tables, preionisation and running-integral rule, or a Radau rule's axis node is
+read when the evaluation scans the nodes anyway; the species reduction is finished natively. A
+one-component scan of a field grid reads both rows' magnitude, `hypot(E_x, E_y)`; an envelope grid
+whose one-component transform has modes with a y field on the axis is the one row it cannot hold, and
+the session leaves it to the transitional session (`_statistics.axis_row_refusal`). The native row
+agrees with the host's scan to the node scans' parity tolerance (`1e-10`), and is the same bits where
+both read a Radau rule's axis node. A group starts through the same shape (SEP 47 §6.7):
+`start_group` checks the group (`check_group`) and asks its first member,
+`members[0].prepare_group(members, problems, requests)`, for a `PreparedGroup` whose
+`start(starts, *, stop)` opens the backend's `GroupSession`, so it names no backend
+either. The native backend's (`solprop_native.group.NativePreparedGroup`) opens
+`NativeGroupSession` where `solprop_native.group.refusal` admits the group and the
+transitional `DriverGroupSession` otherwise, logging the reason at debug level; every
+other driver's (`driver_session.DriverPreparedGroup`), the reference's among them,
+opens `DriverGroupSession` over the lockstep runner its registry row names. A backend
+that runs no group raises `BackendError` from `prepare_group`. The
 three keyword arguments are what `stats()` needs and the kernel contract does not carry.
 
 **Spatial statistics measure the medium's flux** ([SEP 34](seps/archive/sep-0034-medium-flux.md)).
@@ -1849,8 +1880,7 @@ A test asserts which entries are field-sized, that everything is named even when
 that the total is within the documented budget for the standard cases.
 
 **The native Adams march** (ADR-060, [SEP 39](seps/archive/sep-0039-native-adams-march.md)).
-`native` steps `Multistep()` itself, in either formulation, the one-order-higher PEC
-comparisons and replayed schedules: `_NativeAdamsMarch` hands the native state
+`native` steps `Multistep()` itself, in either formulation, and replayed schedules: `_NativeAdamsMarch` hands the native state
 solprop's `MarchPolicy` (and a replay's schedule) once, then each call runs attempts on
 the resident engine -- stage scalars and tables evaluated natively from the run's
 uploaded expansions, the trial, the decision, the accept, and the boundary monitor's
@@ -1942,11 +1972,14 @@ that execution space.
 | coupled flow: `"cf4"` sections | yes | refused | refused |
 | the dispersive electronic response (`responses.dispersive_kerr`) | every route | every route | qualified on one AMD Instinct device (HIP) and one NVIDIA Hopper device (CUDA) |
 | the low-call Adams integrator (`StepperSettings.integrator`), both formulations | yes | every route, the history resident; beside a coupled flow the exponential formulation alone, on constant-Schur and frozen-residual sections, the history resident at any width and on either route of each bin (the eigenbasis or the augmented exponential), in the native session | beside a coupled flow the history resident at any width, in the native session, when every bin takes the flow's eigenbasis (past 16 channels run on an NVIDIA A40, not yet qualified), and otherwise solprop's march with a `HostMarchWarning`; qualified |
+| the Adams comparison methods (`ComparisonMultistep`, benchmark-only: PEC, PECE, explicit Adams–Bashforth, the matched pairs) | yes | refused by name (SEP 47 §6.3) | refused by name (SEP 47 §6.3) |
+| a `PIController` subclass overriding a decision or the norm (`scale`, `accepts`, `propose`, `rejection_factor`, `start_factor`, `equivalent_norm`) | yes | refused by name (SEP 47 §6.3) | refused by name (SEP 47 §6.3) |
 | the Adams carrier frame (`Multistep(carrier_frame="scalar")`, SEP 35) | every guided route; free space refused | CPU builds, resident, on every representation of the operator (a z table's chord carried as its own scalar table, #255); device builds refused | refused by name |
 | the low-storage RK4IP march (`LowStorageRungeKutta`), replay-only | every diagonal-flow route | every diagonal-flow route, a resident engine whose step is one native call | flows recomputed per element; qualified under HIP, not under CUDA |
 | moving solid guide (moving maps beside a frozen-residual flow) | yes | yes | qualified |
 | fixed-schedule lockstep batches (no coupled flow) | fibre and general guides | fibre and general guides | fibre and general guides |
-| periodic statistics between planes | yes | yes | yes, host rows, one packed transfer per row |
+| the native execution session and group session (SEP 47) | its own session (`HostSession`) | every run and group they admit | admitted on CUDA and HIP as on the CPU build (SEP 47 phase 4): beyond the modal route with planes, rows, the temporal monitor and the Adams history (phase 3), the spatial routes (radial, Cartesian, line, planar) with their fluence widths, a transverse edge and a collar's current, the noise models, dense output, the low-storage replay, a coupled flow wider than 16 channels and the native group session; run on an NVIDIA A40 against the bridge on the same device (bitwise, but for the bounded transverse sums and dense Runge-Kutta planes), not yet qualified on either vendor; a coupled flow off its eigenbasis route goes to the bridge |
+| periodic statistics between planes | yes | yes | yes: the native session takes each row natively and keeps it in a resident buffer until the next observation, with no return to Python (SEP 47 §6.4) |
 | Adams snapshots and a resume that continues the history (`MarchSnapshot`) | yes | yes: the resident engine copies its rows (`store`, and `states`, `rates`, `applied` where kept) to the host at a kept save and back on a resume | compiles; not qualified |
 | field-free observation (`observe(field=False)`), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | not qualified |

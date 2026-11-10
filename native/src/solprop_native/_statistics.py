@@ -32,7 +32,8 @@ statistics of a basis whose metric varies inside one of its intervals are refuse
 name (:func:`metric_refusal`).
 
 The native evaluation finishes every statistic (the half-maximum widths, a spatial
-route's fluence widths, the species reduction, the integration ratios);
+route's fluence widths, the species reduction, the integration ratios, the on-axis
+plasma statistics' scan of the axis row);
 :meth:`StatisticsLowering.unpack` only names and shapes the packed values. A native
 refusal is translated into the exception the reference raises for the same condition
 (:func:`translated`).
@@ -48,6 +49,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, TypedDict, cast
 
 import numpy as np
+from solprop.backends.populations import axis_node, axis_refusal
 from solprop.constants import EPS0, C
 from solprop.exceptions import BackendError, GridError, OutputError, TranslationError
 from solprop.modes.quadrature import mode_matrix, on_axis_rule
@@ -58,6 +60,7 @@ from solprop.spatial import (
 from solprop.stats import (
     FAR_FIELD_STATISTICS,
     METRIC_WEIGHTED_STATISTICS,
+    ON_AXIS_PLASMA_STATISTICS,
     inband_wavelengths,
 )
 from solprop.translate.chebyshev import PiecewiseChebyshev
@@ -78,11 +81,11 @@ __all__ = [
     "ADMITTED_SPATIAL_STATISTICS",
     "ADMITTED_STATISTICS",
     "NODE_POPULATIONS",
-    "PLANE_ONLY",
     "PROFILE_TOLERANCE",
     "STATISTIC_IDS",
     "ZDW_TOLERANCE",
     "StatisticsLowering",
+    "axis_row_refusal",
     "lower",
     "metric_refusal",
     "translated",
@@ -91,8 +94,8 @@ __all__ = [
 
 NODE_POPULATIONS = "_node_populations"
 """The plan's per-node channel populations, ``(n_nodes, n_channels, 2)``: each node's
-final fraction and peak rate, which a host on-axis statistic reuses on a Radau rule
-(SEP 19). Not a catalogue statistic."""
+final fraction and peak rate, which the transitional session's host on-axis statistics
+reuse on a Radau rule (SEP 19). Not a catalogue statistic."""
 
 STATISTIC_IDS: Mapping[str, int] = {
     name: index
@@ -135,29 +138,11 @@ STATISTIC_IDS: Mapping[str, int] = {
             "beam_radius",
             "fwhm_r",
             "zdw",
+            *ON_AXIS_PLASMA_STATISTICS,
         )
     )
 }
 """Each output the native plan evaluates, by its id (``statistics::Stat``)."""
-
-PLANE_ONLY = (
-    "on_axis_electron_density",
-    "on_axis_peak_ionisation_rate",
-    "on_axis_species_electron_density",
-    "on_axis_species_peak_ionisation_rate",
-)
-"""The plane-only statistics the plan does not evaluate.
-
-The four on-axis plasma statistics scan the axis row in time on the host
-(:func:`solprop.backends.populations.axis_row_populations`). None is
-periodic-capable (``StatDefinition.between_planes`` false). The plan evaluates the
-other plane-only statistics: a spatial route's fluence widths (``beam_radius``,
-``fwhm_r``), finished natively from the native fluence passes as
-:func:`solprop.backends.spatial.signed_fluence_widths` and
-:func:`~solprop.backends.spatial.plane_fluence_widths` finish them, and ``zdw``,
-read from a table of each mode's root along z lowered at preparation
-(:func:`_zdw_tables`).
-"""
 
 _RESPONSE = (
     "electron_density",
@@ -207,8 +192,15 @@ ADMITTED_STATISTICS = (
     "peak_intensity",
     "zdw",
     *_RESPONSE,
+    *ON_AXIS_PLASMA_STATISTICS,
 )
-"""The statistics the native plan evaluates on a modal or mode-averaged route."""
+"""The statistics the native plan evaluates on a modal or mode-averaged route.
+
+The four on-axis plasma statistics (SEP 19) are a resolved modal route's: the
+mode-averaged route refuses them by name
+(:func:`solprop.backends.populations.axis_refusal`). The plan scans the axis row
+natively, the node scan's own pass on the row the mode profiles synthesise on the axis,
+or reads a Radau rule's axis node when the evaluation scans the nodes anyway."""
 
 ADMITTED_SPATIAL_STATISTICS = (
     "energy",
@@ -286,12 +278,14 @@ _TRANSLATED: tuple[tuple[str, type[SolpropError]], ...] = (
     ("fluence widths require", GridError),
     ("fluence axes must be uniformly increasing", GridError),
     ("fluence moments are not representable", GridError),
+    ("on-axis statistics require", BackendError),
 )
 """Native refusals and the exceptions the reference raises for the same condition:
 the species reduction's domain (``species_statistics``), a position outside a table
 (``PiecewiseChebyshev.interval_containing``), a metric with no root, and the fluence
 widths' refusals (:func:`solprop.backends.spatial.signed_fluence_widths`,
-:func:`solprop.spatial.radial_fluence_widths`, ``cartesian_fluence_widths``)."""
+:func:`solprop.spatial.radial_fluence_widths`, ``cartesian_fluence_widths``) and the
+axis populations' domain (:func:`solprop.backends.populations.axis_statistics`)."""
 
 
 def translated(error: BaseException) -> BaseException:
@@ -367,9 +361,9 @@ def uncovered(problem: PropagationProblem, names: Sequence[str]) -> tuple[str, .
     Returns
     -------
     tuple of str
-        The names the plan leaves, in request order: the on-axis plasma statistics,
-        a statistic of another route and, on a basis whose metric varies inside an
-        interval, its metric statistics (:func:`metric_refusal`).
+        The names the plan leaves, in request order: a statistic of another route
+        and, on a basis whose metric varies inside an interval, its metric
+        statistics (:func:`metric_refusal`).
     """
     route = _route(problem)
     admitted = _ADMITTED[route]
@@ -853,6 +847,8 @@ def _shape(
         "species_ionisation": (species, nodes),
         "species_electron_density": (species,),
         "species_peak_ionisation_rate": (species,),
+        "on_axis_species_electron_density": (species,),
+        "on_axis_species_peak_ionisation_rate": (species,),
         "species_density": (species,),
         "species_ionisation_energy": (species,),
         "spectral_flux": (n_omega,),
@@ -865,6 +861,70 @@ def _shape(
         NODE_POPULATIONS: (nodes, channels, 2),
     }
     return shapes.get(name, ())
+
+
+def _on_axis(modes: Sequence[Mode]) -> np.ndarray:
+    """Return the mode set's synthesis on the axis at the reference position.
+
+    ``StepDriver._on_axis_synthesis`` before its taper: the single node ``r = 0`` of
+    :func:`~solprop.modes.quadrature.on_axis_rule`, rows x and y.
+
+    Parameters
+    ----------
+    modes : sequence of Mode
+        The mode set.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(2, n_modes)``.
+    """
+    rule = on_axis_rule(modes[0].dimlimits(0.0)[0])
+    return mode_matrix(modes, rule, 0.0, components=("x", "y")).synthesis
+
+
+def axis_row_refusal(
+    problem: PropagationProblem, names: Sequence[str], modes: Sequence[Mode] | None
+) -> str | None:
+    """Return why the plan cannot scan a problem's axis row, naming it, or ``None``.
+
+    The native scan reads the axis row through the node scan's buffers, whose
+    components are the transform's. A one-component scan on a field grid takes the
+    magnitude ``hypot(E_x, E_y)`` of both rows, which is all it reads, and a y row of
+    zeros is dropped; an envelope's scan reads the polarisation ellipse, so an envelope
+    grid whose one-component transform has modes with a y field on the axis is
+    refused (the transitional session scans it on the host).
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The problem.
+    names : sequence of str
+        The statistics asked for.
+    modes : sequence of Mode or None
+        The mode set; without it :func:`lower` refuses the statistics itself.
+
+    Returns
+    -------
+    str or None
+        The refusal, or ``None``.
+    """
+    asked = [name for name in names if name in ON_AXIS_PLASMA_STATISTICS]
+    if (
+        not asked
+        or modes is None
+        or problem.responses.envelope_plasma is None
+        or problem.shape[1] != 1
+        or problem.transform.n_pol != 1
+        or axis_refusal(problem, asked) is not None
+    ):
+        return None
+    if not np.any(_on_axis(modes)[1]):
+        return None
+    return (
+        f"the on-axis plasma statistics {asked!r} of an envelope grid whose "
+        "one-component transform has modes with a y field on the axis"
+    )
 
 
 def metric_refusal(problem: PropagationProblem, names: Sequence[str]) -> str | None:
@@ -1317,17 +1377,18 @@ def lower(
     grid : solprop.grid.TimeGrid or None
         The time grid; the widths and the general spectral flux read it.
     modes : sequence of Mode or None, optional
-        The mode set; ``peak_intensity`` on a modal route reads its axis synthesis.
+        The mode set; ``peak_intensity`` and the on-axis plasma statistics on a modal
+        route read its axis synthesis.
     profiles : mapping or None, optional
         The z profiles the profile statistics read (:func:`_profile_table`).
     apertures : tuple or None, optional
         A spatial route's far-field tables packed for the native pass (the adapter's
         ``_aperture_payload``): the apertures, the regions and the exponent.
-    z_end : float
-        The run's last plane, m, which a profile statistic's table must reach.
     on_axis : numpy.ndarray or None, optional
         The mode set's synthesis on the axis at the reference position, when the
         caller already built it (``StepDriver._on_axis``); built here otherwise.
+    z_end : float
+        The run's last plane, m, which a profile statistic's table must reach.
     planes : sequence of float or None, optional
         Every position the plane statistics will be taken at, when the run fixes
         them all before it starts; ``zdw`` is then searched exactly there
@@ -1372,6 +1433,8 @@ def lower(
         "weight_table": None,
         "on_axis": np.empty(0),
         "taper": _table(transform.taper_scale),
+        "pad_scale": float(problem.grids.pad_scale),
+        "axis_node": -1,
         "plasma_density": None,
         "plasma_preionisation": None,
         "channel_preionisation": [],
@@ -1444,15 +1507,26 @@ def lower(
         elif linear.power_weight is not None:
             plan["weight_kind"] = 3
             plan["weight_table"] = _table(linear.power_weight)
-    if route == "modal" and "peak_intensity" in asked:
+    axis = asked & set(ON_AXIS_PLASMA_STATISTICS)
+    if axis:
+        refused = axis_refusal(problem, sorted(axis))
+        if refused is not None:
+            raise BackendError(refused)
+    if route == "modal" and ("peak_intensity" in asked or axis):
         if modes is None:
-            msg = "the peak on-axis intensity needs the mode set at construction"
+            msg = (
+                "the on-axis plasma statistics need the mode set at construction"
+                if axis
+                else "the peak on-axis intensity needs the mode set at construction"
+            )
             raise BackendError(msg)
         if on_axis is None:
-            rule = on_axis_rule(modes[0].dimlimits(0.0)[0])
-            on_axis = mode_matrix(modes, rule, 0.0, components=("x", "y")).synthesis
+            on_axis = _on_axis(modes)
         plan["on_axis"] = np.ascontiguousarray(on_axis, dtype=np.float64).reshape(-1)
-    if asked & (_PLASMA | _SPECIES | {NODE_POPULATIONS}):
+        if axis:
+            node = axis_node(problem, on_axis)
+            plan["axis_node"] = -1 if node is None else node
+    if asked & (_PLASMA | _SPECIES | {NODE_POPULATIONS}) or axis:
         if len(channels) == 1:
             plan["plasma_density"] = _table(channels[0].density)
             plan["plasma_preionisation"] = _table(channels[0].preionisation)
