@@ -2259,3 +2259,28 @@ Withdrawn (development-process record, not a design decision).
   (#610), physics, floating-point policy or required numerical validation. Future bridge
   versions may relax the restriction only after the failing probes and full lifecycle
   tests pass; a version change alone is not evidence of safety.
+
+## ADR-078 — Supervise forced termination of embedded Julia
+
+- **Status:** accepted by the maintainer, 2026-11-10; qualification deferred while
+  SEP 48's numerical core is implemented.
+- **Context:** Julia 1.13.3 can intercept SIGTERM despite restored Python handlers.
+  During GC its asynchronous fatal-exit path may also stall. The macOS arm64 packaged
+  runtime probe observed a 180-second stall, and a bounded control reproduced one
+  with solprop's Python owner-cleanup hook unregistered. A second SIGTERM ended that
+  control. Julia's [pinned signal listener](https://github.com/JuliaLang/julia/blob/v1.13.3/src/signals-unix.c#L1097-L1119)
+  explicitly anticipates a first fatal exit stalling; this is not evidence that
+  removing solprop's ownership hooks fixes it.
+- **Decision:** keep the embedded Julia 1.13.3 runtime and its required signal
+  machinery. Accept fatal SIGTERM and intermittent stalled fatal shutdown. A process
+  supervisor requiring bounded termination must enforce a deadline outside the Julia
+  process and escalate to SIGKILL. Normal cancellation remains cooperative through the
+  lifetime-owned atomic stop flag; actual Python SIGINT handling remains required.
+- **Consequences:** SIGTERM cannot promise final output or a checkpoint, and closing
+  the Julia session does not remove the process-wide limitation. A second SIGTERM is
+  not the promised hard bound. The maintainer directs numerical implementation to
+  proceed before further runtime investigation. Existing failed probes remain visible;
+  no timeout is relabelled as a passed first-signal-exit test. The eventual supervisor
+  tests must distinguish prompt exit from explicit forced termination and verify child
+  cleanup. [Issue #610](https://github.com/LupoLab/solprop/issues/610) remains open for
+  a supported improvement with stable Julia 1.14 and compatible packages.

@@ -444,6 +444,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # SEP 47 section 6.5: the node chunk is an execution choice, planned from the
         # problem and the options.
         self._options = ExecutionOptions() if options is None else options
+        self._options.check_backend_options(self.name)
         self._chunk_plan: NodeChunkPlan = plan_node_chunk(problem, self._options)
         self._adams: HostAdamsMarch | None = None
         # The low-storage march (SEP 24), set at construction by a backend that

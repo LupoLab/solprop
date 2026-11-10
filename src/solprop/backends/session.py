@@ -217,13 +217,15 @@ class ExecutionOptions:
         setting. A backend takes at most every node, and on the planar kind whole
         transverse rows.
     backend_options : collections.abc.Mapping
-        Backend-specific execution options, passed through untouched (for example a
-        native CPU execution record).
+        Backend-specific execution choices, copied into an owned mapping. A backend
+        validates its keys and values before allocation. Outside scientific and
+        restart identities; recorded as execution metadata.
 
     Raises
     ------
     solprop.exceptions.BackendError
-        If `node_budget` or `node_chunk` is given and is not a positive integer.
+        If `node_budget` or `node_chunk` is given and is not a positive integer,
+        or a backend option key is not a string.
 
     Examples
     --------
@@ -248,6 +250,32 @@ class ExecutionOptions:
             value = getattr(self, name)
             if value is not None:
                 object.__setattr__(self, name, positive_count(name, value))
+        if any(not isinstance(key, str) for key in self.backend_options):
+            raise BackendError("backend_options keys must be strings")
+        object.__setattr__(self, "backend_options", dict(self.backend_options))
+
+    def check_backend_options(
+        self, backend: str, supported: Sequence[str] | frozenset[str] = ()
+    ) -> None:
+        """Refuse unrecognized backend options before constructing a workspace.
+
+        Parameters
+        ----------
+        backend : str
+            The concrete backend name, for the diagnostic.
+        supported : sequence of str or frozenset of str, optional
+            Supported keys. The backend separately validates their values.
+
+        Raises
+        ------
+        BackendError
+            Naming every unsupported key.
+        """
+        unsupported = set(self.backend_options) - set(supported)
+        if unsupported:
+            raise BackendError(
+                f"{backend} does not support backend_options {sorted(unsupported)}"
+            )
 
     @property
     def budget(self) -> int | None:

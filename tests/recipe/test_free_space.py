@@ -495,6 +495,24 @@ def test_the_registered_settings_and_controller_leave_out_what_is_not_a_recipe_s
         assert REGISTRY[name].fill == ("gas", "pressure", "temperature"), name
 
 
+def test_settings_backend_options_survive_recipe_round_trip_without_hashing():
+    recipe = Recipe.loads(RADIAL)
+    original = recipe.build().metadata().configuration_hash()
+    options = {"wide": "df32", "setup_id": "published-identity"}
+    recipe.set("settings.backend_options", options)
+    restored = Recipe.loads(recipe.to_text())
+    simulation = restored.build()
+    assert simulation.settings.backend_options == options
+    assert simulation.settings.execution_options().backend_options == options
+    assert simulation.metadata().configuration_hash() == original
+    assert "backend_options={'wide': 'df32', 'setup_id': 'published-identity'}" in (
+        restored.to_python()
+    )
+    entry = parameters("SimulationSettings")["backend_options"]
+    assert entry.default == {}
+    assert entry.forms[0].kind == "mapping"
+
+
 # ------------------------------------------------------------------- export
 
 

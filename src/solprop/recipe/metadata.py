@@ -3435,6 +3435,12 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
             "The backend that executes the run.",
         ),
         _keyword(
+            "backend_options",
+            _MAPPING,
+            "advanced",
+            "Options checked by the selected backend, outside scientific identity.",
+        ),
+        _keyword(
             "integrator",
             _object("Multistep", "RungeKutta", "LowStorageRungeKutta"),
             "advanced",

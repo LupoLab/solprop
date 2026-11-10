@@ -1417,8 +1417,28 @@ exception graph and unwound frames are cleared on main. Public exports own Pytho
 storage. ADR-077 records the durable design. Qualification is still in progress; this
 amendment does not declare phase 1 complete or claim any numerical/session parity.
 
+### Signal supervision and implementation order — 2026-11-10
+
+The maintainer accepted a further SIGTERM limitation: Julia's fatal shutdown may stall
+during GC, so an external supervisor must enforce a SIGKILL deadline when bounded
+termination is required. A macOS arm64 probe stalled for 180 seconds, and an independent
+bounded control reproduced a stall with the Python owner-cleanup hook unregistered.
+Neither SIGTERM nor SIGKILL promises final output. Cooperative cancellation and actual
+Python SIGINT handling retain their requirements. ADR-078 and
+[issue #610](https://github.com/LupoLab/solprop/issues/610) record the policy and follow-up.
+
+The maintainer subsequently directed core implementation to proceed from the
+experiment's numerical kernels, deferring remaining runtime investigation until after
+implementation. This explicitly removes the incomplete subprocess gate from the
+critical path for phase 2; it does not claim that the gate passed. Existing failures
+and the passing 36-case macOS non-SIGTERM matrix remain recorded. Independent numerical
+review, integration, short reference witnesses and required accuracy checks continue.
+
 ## Part III — History
 
+- 2026-11-10: The maintainer accepted external hard-kill supervision for stalled Julia
+  SIGTERM shutdown and directed numerical implementation to proceed before further
+  runtime investigation; Part II and ADR-078 record both decisions.
 - 2026-11-10: The maintainer accepted main-thread-only Python entry into Julia after
   the phase 1 probes reproduced a worker-thread GC deadlock. Part II and ADR-077 record
   the amendment and ownership requirements; Part I remains the accepted historical text.

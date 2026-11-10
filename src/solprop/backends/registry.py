@@ -73,10 +73,14 @@ class BackendEntry:
         nothing beyond the package's own dependencies.
     extras : tuple of str
         The optional-dependency groups that supply ``requires``, for the error message.
+    options : frozenset of str
+        Supported execution-option keys; empty when none are admitted. Values are
+        checked by the backend before allocating its workspace.
     """
 
     requires: tuple[str, ...]
     extras: tuple[str, ...]
+    options: frozenset[str] = frozenset()
 
 
 BACKENDS: Mapping[str, BackendEntry] = {
@@ -464,6 +468,9 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
     ['native', 'numpy_ref']
     """
     name = resolve_name(name)
+    entry = BACKENDS.get(name)
+    if entry is not None and options is not None:
+        options.check_backend_options(name, entry.options)
     if name == "native":
         # SEP 46: a first native workspace in an allocation with no profile row runs
         # the quick calibration first, before the extension's runtime starts if it

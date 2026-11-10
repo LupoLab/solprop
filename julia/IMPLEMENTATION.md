@@ -10,8 +10,8 @@ The completed implementation is left ready for maintainer review, not auto-merge
 | Phase | Status | Evidence or prerequisite |
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
-| 1: package and runtime | Setup/package integrated; accepted main-thread boundary under qualification | macOS and Linux package gates pass; revised subprocess gate remains |
-| 2: CPU binary64 session | Pending | Runtime gate; final SEP 47 signatures available in updated handoff |
+| 1: package and runtime | Setup/package integrated; remaining runtime qualification deferred | Maintainer directs core implementation to proceed; failures remain tracked |
+| 2: CPU binary64 session | In progress | SEP 47 Part B integrated; disjoint numerical packages and shared owner integration |
 | 3: CPU binary32 | Pending | Phase 2 and source-checked DF32 bounds |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
@@ -36,26 +36,27 @@ receive disjoint files in separate worktrees after these rules are committed.
 Assignments and ownership handoffs are recorded here before overlapping work begins.
 An independent reviewer reviews each package they did not author before integration.
 
-Phase 1 divides into three packages: the Julia package, environments and installer
-script; Python setup, identity, artifact preflight and commands; and the master's
-runtime, cancellation, wheel/CLI integration and CI. Session implementations wait
-for the runtime probes. Numerical source review may proceed independently.
+The maintainer explicitly moved remaining runtime investigation off the critical path
+on 2026-11-10. Continue core implementation using the experiment's numerical work,
+retaining the accepted main-thread boundary and visible runtime failures. This changes
+the work order, not the accuracy requirements or a claim of completed qualification.
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Julia package agent | `tests/backends/julia/runtime_probe.py`, `test_runtime_subprocess.py` | Real packaged subprocess qualification; package ownership returned to master |
-| Distribution agent | Private Linux campaign checkout, environment and its own Slurm jobs | DMOG runtime qualification; reviewed CI ownership returned to master |
-| Master | Rules, this record, integrated Julia package/setup, runtime/session/transfer, CI, wheel hooks, CLI and documentation | Integration and phase 2 shared interfaces |
-| Independent reviewer | Read-only reviews and isolated lifecycle/numerical probes | Main-thread ownership boundary review; donor audit complete |
+| Numerical transform agent | `julia/src/execution.jl`, `transforms.jl`, `operators.jl`, `tables.jl`; corresponding new Julia tests | CPU execution, transforms and represented operators; separate worktree |
+| Numerical response agent | `julia/src/responses.jl`, `raman.jl`, `plasma.jl`; corresponding new Julia tests | Kerr, Raman and plasma kernels; separate worktree |
+| Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
+| Independent reviewer | Read-only reviews and numerical probes | Reviews each implementation package and shared interfaces |
 
 The foundation is committed at `540794bd`. Setup commits `6c569742`, `fadae531` and
 `52269788` were independently reviewed and integrated as `9fe74c26`, `5cec895c` and
 `5264160b`. Julia package commits `28fb628e` and `201d91d5` were independently reviewed
 and integrated as `ea847fcd` and `773bd539`. Updated main is merged at `e2df6c7c`.
 Issue [#610](https://github.com/LupoLab/solprop/issues/610)
-tracks the accepted signal-handler limitation. A newly observed SIGTERM-during-GC
-shutdown hang is under investigation and remains a qualification blocker; no timeout
-has been accepted as a passing result.
+tracks the accepted signal-handler limitation and intermittent SIGTERM-during-GC
+shutdown hang. The maintainer accepted an external hard-kill deadline and then deferred
+further runtime investigation until after core implementation. Existing failing results
+remain preserved; the old first-SIGTERM-exit tests have not been changed or passed.
 
 ## Decisions
 
@@ -72,9 +73,10 @@ has been accepted as a passing result.
   Preserve actual Python
   SIGINT without restoring Julia's SIGINT thread mask. The maintainer accepts that,
   after Julia starts, SIGTERM may terminate the whole process without final output,
-  including with custom or ignored handlers and while no session advances. Keep
-  Julia 1.13.3; revisit a supported solution with stable 1.14 in #610. Threaded GC,
-  bounded Ctrl-C, cooperative cancellation and lifecycle probes remain blocking.
+  including with custom or ignored handlers and while no session advances. Fatal
+  shutdown may stall; supervisors must enforce an external SIGKILL deadline. Keep
+  Julia 1.13.3; revisit a supported solution with stable 1.14 in #610. Normal
+  cooperative cancellation and actual SIGINT handling retain their strict contracts.
 - The ordered project stack and effective preferences are immutable setup identity.
   Adding a device publishes another identity. Only that stack and standard libraries
   enter `LOAD_PATH`; user startup files and artifact overrides cannot alter it.
@@ -119,12 +121,13 @@ has been accepted as a passing result.
 
 ## Next actions
 
-1. Finish independent review and the real subprocess matrix for the accepted main-thread
-   ownership boundary; retain the original failed worker evidence in #620.
-2. Run the same accepted runtime gate on the DMOG Linux checkout.
-3. Integrate reviewed subprocess tests and publish a batch for the full CI gates.
-4. Pass the phase 1 probes before implementing the complete numerical session against
-   the final SEP 47 signatures; integrate its subsequent CI corrections.
+1. Integrate owned execution options and their recipe metadata after independent review.
+2. Implement and review CPU transforms/operators and response kernels in parallel;
+   the shared boundaries are recorded in `SESSION_DESIGN.md`.
+3. Build the complete Julia-owned session against SEP 47 Part B and integrate its CI
+   corrections. Reuse reviewed experimental kernels without its Python march adapter.
+4. Revisit deferred runtime issues after core implementation; preserve all failed
+   evidence and complete the accepted supervisor qualification before claiming it passed.
 
 ## Verification log
 
@@ -231,6 +234,20 @@ has been accepted as a passing result.
   subprocess probes `2fedad6b` were integrated as `a01efd1f`; their 48-case matrix keeps
   every requirement active. The first revised macOS run passed 18 cases before a
   one-thread, ignored-SIGTERM-during-GC case hung for 180 seconds and needed supervisor
-  SIGKILL. The failure remains visible while plain-JuliaCall and Linux controls run.
+  SIGKILL. The original failure remains visible.
   Julia's pinned fatal-signal source explicitly anticipates asynchronous shutdown
-  stalls; this has not silently extended the maintainer's accepted signal policy.
+  stalls. A control with the Python owner-cleanup hook unregistered also stalled and
+  exited after a second SIGTERM; five companion controls exited on the first signal.
+  The maintainer explicitly accepted external hard-kill supervision (ADR-078), then
+  deferred further runtime investigation until after the core implementation.
+- The revised main-thread macOS non-SIGTERM matrix passed all 36 cases, with no skips,
+  in 163.40 seconds. It covers one/two threads, cancellation during Julia and Python GC,
+  owner destruction, sanitized failures, shutdown, exact SIGINT counts, native loading
+  in both orders, actual Metal import, offline preflight and spawned workers. This does
+  not qualify numerical parity or the revised SIGTERM supervisor policy.
+- Owned backend-option transport and recipe metadata pass 483 directly affected
+  tests, including spawn/pickle, post-translation replacement, unchanged scientific
+  hashes, early unsupported-option refusal and recipe/Python export. Targeted types,
+  ruff, formatting, changed-file spelling and diff checks pass. SEP consistency passes
+  349 tests with three expected process-SEP skips; the incremental Sphinx build passes.
+  This does not clear the separately recorded whole-package dependency failures.

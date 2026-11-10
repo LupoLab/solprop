@@ -30,6 +30,7 @@ import pytest
 from solprop.backends import Backend, available, registry, resolve_name, select
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import BACKENDS, REMOVED_BACKENDS, _construct
+from solprop.backends.session import ExecutionOptions
 from solprop.driver import SimulationSettings
 from solprop.exceptions import BackendError
 from solprop.stepper import PIController, RungeKutta
@@ -146,6 +147,40 @@ def test_select_builds_the_reference_backend(linear_problem, narrow_grid, caplog
     assert (backend.name, backend.max_batch) == ("numpy_ref", 1)
     backend.close()
     assert caplog.messages == ["Using numpy_ref backend"]
+
+
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
+def test_unsupported_options_refuse_before_backend_construction(
+    name, linear_problem, narrow_grid, monkeypatch
+):
+    problem, request = linear_problem(narrow_grid, save_planes=[LENGTH])
+
+    def forbidden(*_arguments, **_keywords):
+        pytest.fail("unsupported options reached backend construction")
+
+    monkeypatch.setattr(registry, "_construct", forbidden)
+    with pytest.raises(BackendError, match=f"{name} does not support backend_options"):
+        select(
+            name,
+            problem,
+            request,
+            options=ExecutionOptions(backend_options={"wide": "df32"}),
+        )
+
+
+def test_direct_reference_construction_also_refuses_unsupported_options(
+    linear_problem, narrow_grid
+):
+    problem, request = linear_problem(narrow_grid, save_planes=[LENGTH])
+    with pytest.raises(
+        BackendError, match="numpy_ref does not support backend_options"
+    ):
+        NumpyRefBackend(
+            problem,
+            request,
+            grid=narrow_grid,
+            options=ExecutionOptions(backend_options={"wide": "df32"}),
+        )
 
 
 def test_select_builds_the_installed_native_backend(linear_problem, narrow_grid):

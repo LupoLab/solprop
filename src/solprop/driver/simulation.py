@@ -493,6 +493,7 @@ def _held_budget(value: SupportsIndex | None) -> int | None:
 
 _EXECUTION_SETTINGS = (
     "backend",
+    "backend_options",
     "node_budget",
     "resume_history",
     "tdse_execution",
@@ -746,6 +747,11 @@ class SimulationSettings(Displayed):
         is refused (`precision`).
         The stored name is concrete, including in scan workers. A backend's import or
         construction errors never trigger a fallback.
+    backend_options : collections.abc.Mapping
+        Backend-specific execution choices, copied into an owned mapping, empty by
+        default. They may change after translation and are forwarded when the backend
+        is prepared, including in spawned workers. They stay outside scientific and
+        resume hashes. The selected backend refuses unsupported keys before allocation.
     precision : {'double', 'single'}
         The arithmetic the run is held in (SEP 33,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
@@ -860,6 +866,7 @@ class SimulationSettings(Displayed):
     stats: StatsSpec | None = None
     polarisation_taper: bool = False
     backend: str = "auto"
+    backend_options: Mapping[str, object] = dataclasses.field(default_factory=dict)
     integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None
     precision: PrecisionName = "double"
     resume_history: bool | None = None
@@ -1011,6 +1018,7 @@ class SimulationSettings(Displayed):
             raise DriverError(refusal, parameter=("fields", "field_planes"))
         object.__setattr__(self, "field_planes", tuple(self.field_planes))
         object.__setattr__(self, "node_budget", _held_budget(self.node_budget))
+        object.__setattr__(self, "backend_options", dict(self.backend_options))
         precision = _precision(self.precision)
         self._resolve_defaults(precision)
         # A backend "auto" chose is marked, so a copy in the other precision chooses
@@ -1146,14 +1154,15 @@ class SimulationSettings(Displayed):
     def execution_options(self) -> ExecutionOptions:
         """Return the execution options a backend is prepared with (SEP 47).
 
-        The node budget is an execution choice, not part of the scientific problem:
+        The node budget and backend options are execution choices, not scientific data:
         the translation records none, and the backend plans its node chunk from it
         when it is prepared (:func:`solprop.backends.node_chunk.plan_node_chunk`).
 
         Returns
         -------
         solprop.backends.session.ExecutionOptions
-            The explicit :attr:`node_budget`, or the backend's automatic choice.
+            The explicit :attr:`node_budget` and an owned copy of
+            :attr:`backend_options`.
 
         Examples
         --------
@@ -1164,7 +1173,9 @@ class SimulationSettings(Displayed):
         >>> settings.execution_options().node_budget
         67108864
         """
-        return ExecutionOptions(node_budget=self.node_budget)
+        return ExecutionOptions(
+            node_budget=self.node_budget, backend_options=self.backend_options
+        )
 
     def defaults_resolution(self) -> DefaultsResolution:
         """Return which stepping choices took the route's default (#87, SEP 41).
@@ -2360,7 +2371,8 @@ class Simulation(Displayed):
         Assigning a new :class:`SimulationSettings` before the first :meth:`translate`
         (or :meth:`run`) takes effect. After it the translated problem is cached, so an
         assignment that changes anything the translation consumed is refused, because
-        it could no longer change the run; the ``backend`` and ``tdse_execution``
+        it could no longer change the run; the ``backend``, ``backend_options`` and
+        ``tdse_execution``
         resources, which are read when the run executes, may still change.
 
         Returns
@@ -2383,7 +2395,8 @@ class Simulation(Displayed):
         ------
         DriverError
             If the simulation has already been translated and the replacement changes
-            a setting other than ``backend``, ``resume_history``, ``fields``,
+            a setting other than ``backend``, ``backend_options``, ``node_budget``,
+            ``resume_history``, ``fields``,
             ``field_planes``, ``tdse_execution`` or ``boundary_check``, naming them.
         """
         if self._problem is not None:
@@ -2401,7 +2414,8 @@ class Simulation(Displayed):
                     f"this Simulation is already translated, so a new "
                     f"{', '.join(changed)} would be ignored; set the settings before "
                     "the first translate() or run(), or build a new Simulation (only "
-                    "the backend, resume_history, fields, field_planes, the TDSE "
+                    "the backend, backend_options, node_budget, resume_history, "
+                    "fields, field_planes, the TDSE "
                     "execution resources and boundary_check may change after "
                     "translation)"
                 )

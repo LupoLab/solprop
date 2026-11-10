@@ -63,6 +63,16 @@ identity. Selection without an explicit identity requires exactly one compatible
 ambiguity reports the available IDs. The forthcoming session interface will select an
 identity through the `setup_id` backend option and record it as execution metadata.
 
+`SimulationSettings.backend_options` carries backend-specific execution choices. It
+defaults to an independently owned empty mapping, and preparation takes another owned
+copy through `settings.execution_options()`. These choices survive spawned workers and
+may be replaced after translation without changing the scientific configuration or
+restart identity. The selected backend refuses unsupported keys before constructing a
+workspace. The Julia adapter will admit `setup_id` and `wide`; the existing native and
+NumPy reference backends accept no backend-specific keys.
+Recipes that construct `SimulationSettings` carry this mapping under
+`build.settings.backend_options`; TOML round trips and Python export preserve it.
+
 The first preparation fixes the process's runtime, depot and installed environment
 stack. A different setup, another depot, or a device installed after initialization
 requires a fresh process. Every Julia-facing operation must run on Python's main thread
@@ -111,6 +121,9 @@ without altering published inputs.
 Once Julia initializes, SIGTERM may terminate the entire process without delivering
 pending output or writing a final checkpoint. This also applies to custom or ignored
 Python SIGTERM handlers, while the process is idle, and after a Julia session closes.
+Fatal shutdown can also stall during garbage collection. A supervisor that needs a
+bounded process lifetime must enforce an external deadline and send SIGKILL if the
+process has not exited. Neither signal guarantees a final checkpoint.
 ```
 
 Graceful cancellation uses cooperative stop tokens. The bridge preserves the
@@ -118,7 +131,9 @@ application's actual SIGINT handler, including an ignored handler, for Python Ct
 handling. Julia keeps the signal machinery needed by its threaded garbage
 collector; disabling that machinery is not a supported workaround.
 
-The maintainer accepted this limitation for Julia 1.13.3.
+The maintainer accepted both limitations for Julia 1.13.3. A second SIGTERM ended one
+diagnostic stall, but it is not the hard deadline mechanism. Use cooperative stop tokens
+for normal cancellation and an external process supervisor for forced termination.
 [Issue #610](https://github.com/LupoLab/solprop/issues/610) tracks revisiting it with stable
 Julia 1.14 and compatible device packages. An upgrade alone is not evidence that signal
 preservation is fixed.
