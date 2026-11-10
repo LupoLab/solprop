@@ -45,7 +45,7 @@ import itertools
 import math
 import weakref
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import numpy as np
 from solprop.constants import EPS0, C
@@ -914,7 +914,16 @@ times 1e-8 of the wavelength between neighbouring positions on a gas capillary
 and a pressure gradient over a decade is resolved to about 5e-7 within the fit's
 budget (:data:`_ZDW_FIT`)."""
 
-_ZDW_FIT = {"tol": 1e-7, "n_max": 16, "max_intervals": 16}
+
+class _FitOptions(TypedDict):
+    """Builder options for :func:`solprop.translate.chebyshev.build`."""
+
+    tol: float
+    n_max: int
+    max_intervals: int
+
+
+_ZDW_FIT: _FitOptions = {"tol": 1e-7, "n_max": 16, "max_intervals": 16}
 """The ``zdw`` fit's builder options (:func:`solprop.translate.chebyshev.build`): each
 sample is a root search of about 0.2 s, so the degree and the intervals are capped
 (at most a few hundred searches) rather than refined to a rounding level the root

@@ -2967,7 +2967,7 @@ def host_rows_refusal(problem: PropagationProblem) -> str | None:
     if stage_tables_available(problem):
         return None
     linear, responses = problem.linear, problem.responses
-    parts = []
+    parts: list[str] = []
     if not (
         (not problem.device_ready and linear.phi_representation == "table")
         or linear.separable is not None
