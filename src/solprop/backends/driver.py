@@ -606,7 +606,10 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             DriverPrepared,
         )
 
-        return DriverPrepared(self, problem, request)
+        # A concrete driver is a backend: this base is the march, and the subclass
+        # supplies the rest of the protocol (`memory_ledger`, `close`). They are not
+        # abstract here, so that a batch's protocol check can refuse a driver without.
+        return DriverPrepared(cast("Backend", self), problem, request)
 
     def start_group(
         self,

@@ -415,8 +415,8 @@ def far_field_partials(problem: PropagationProblem, spec: StatsSpec) -> tuple[in
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     spec : solprop.stats.StatsSpec
-        The run's statistics (:attr:`solprop.translate.run_request.
-        ObservationRequest.stats`).
+        The run's statistics
+        (:attr:`solprop.translate.run_request.ObservationRequest.stats`).
 
     Returns
     -------

@@ -133,12 +133,12 @@ def test_dense_planes_match_landed_ones_at_fewer_steps(narrow_grid, soliton_prob
     landed, landed_attempts = run(
         NumpyRefBackend,
         *soliton_problem(narrow_grid, 2, **common),
-        narrow_grid,
+        grid=narrow_grid,
     )
     dense, dense_attempts = run(
         NumpyRefBackend,
         *soliton_problem(narrow_grid, 2, interpolate_planes=True, **common),
-        narrow_grid,
+        grid=narrow_grid,
     )
     assert dense_attempts < landed_attempts
     # The end is landed on in both, so it is the same march's to the tolerance; the

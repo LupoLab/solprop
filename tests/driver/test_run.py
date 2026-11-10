@@ -35,6 +35,7 @@ from solprop.pulses import SechPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import assemble
+from solprop.translate.run_request import RunRequest
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
 # hold more than a millionth of the energy in their guards or collar: the boundary
@@ -133,11 +134,24 @@ class NullBackend:
     in_flight = None
     closed = False
 
-    def __init__(self, failure=None, *, shape=(1, 1, 8), request=None):
+    def __init__(
+        self, failure=None, *, shape=(1, 1, 8), request: RunRequest | None = None
+    ):
         self.failure = failure
         self.shape = shape
-        # The run's request, which ``run_problem`` reads first (SEP 47 section 5.2).
-        self.request = request
+        self._request = request
+
+    @property
+    def request(self) -> RunRequest:
+        """Return the run's request, which ``run_problem`` reads first (SEP 47 5.2).
+
+        Returns
+        -------
+        solprop.translate.run_request.RunRequest
+            The request the double was built with; one built without is a test error.
+        """
+        assert self._request is not None, "this null backend was built without one"
+        return self._request
 
     def prepare(self, problem, request):
         # The transitional session over this driver, as any driver prepares one.

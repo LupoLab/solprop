@@ -362,6 +362,15 @@ def _run_request(simulation: Any) -> Any:
     return None if request is None else request()
 
 
+def _before_request(problem: object) -> Any:
+    """Return `problem` untyped, as a build from before SEP 47's run request has it.
+
+    There the problem carried the stepping policy and the statistics, and the
+    functions that read them took the problem; this build's types describe neither.
+    """
+    return problem
+
+
 def _stepper(simulation: Any, problem: Any) -> Any:
     """Return the run's stepper settings: its request's, or before it its problem's."""
     request = _run_request(simulation)
@@ -524,7 +533,7 @@ def warm_up(engine: Backend, problem: PropagationProblem, until: float) -> None:
         if until > problem.initial.z:
             engine.propagate_to(until)
         engine.observe(field=True)
-        engine.stats(problem.stats_spec)
+        engine.stats(_before_request(problem).stats_spec)
         return
     from solprop.backends.events import ObservationReady  # noqa: PLC0415
     from solprop.backends.export import ExportRecipe  # noqa: PLC0415
@@ -536,7 +545,7 @@ def warm_up(engine: Backend, problem: PropagationProblem, until: float) -> None:
     if request is None:
         from solprop.translate.run_request import describe_run  # noqa: PLC0415
 
-        request = describe_run(problem)
+        request = describe_run(_before_request(problem))
     session = start_session(
         engine, problem, request, Start.entrance(problem), owns=False
     )
@@ -634,7 +643,7 @@ def measure(
     backend_seconds = time.perf_counter() - started
     retention = (
         field_retention(
-            problem if request is None else request,
+            _before_request(problem) if request is None else request,
             simulation.settings.fields,
             simulation.settings.field_planes,
         )

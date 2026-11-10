@@ -142,25 +142,23 @@ def free_problem(*, responses, n_pol=1, mode="auto"):
         0.8,
         jones=(1,) if n_pol == 1 else (1, 0.35j),
     )
-    return (
-        *assemble(
-            grid,
-            None,
-            responses,
-            pulse.build(grid, space, medium=SpatialMedium()),
-            spatial_grid=space,
-            medium=SpatialMedium(),
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[STEP],
-            dz_max=STEP,
-            dz_init=STEP,
-            schedule=FixedSchedule.uniform(0.0, STEP, STEP * 1.0000001),
-            integrator=MARCH,
-            propagator_mode=mode,  # pyright: ignore[reportArgumentType]
-            absorber_scheme="nonlinear",
-        ),
+    problem, run_request = assemble(
         grid,
+        None,
+        responses,
+        pulse.build(grid, space, medium=SpatialMedium()),
+        spatial_grid=space,
+        medium=SpatialMedium(),
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[STEP],
+        dz_max=STEP,
+        dz_init=STEP,
+        schedule=FixedSchedule.uniform(0.0, STEP, STEP * 1.0000001),
+        integrator=MARCH,
+        propagator_mode=mode,  # pyright: ignore[reportArgumentType]
+        absorber_scheme="nonlinear",
     )
+    return problem, run_request, grid
 
 
 def slab_problem(*, responses, mode="auto", collar=False, integrator=MARCH):
@@ -175,26 +173,24 @@ def slab_problem(*, responses, mode="auto", collar=False, integrator=MARCH):
         offset_x=10e-6,
     )
     field = pulse.build(grid, space, medium=SpatialMedium())
-    return (
-        *assemble(
-            grid,
-            None,
-            responses,
-            field,
-            spatial_grid=space,
-            medium=SpatialMedium(),
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[STEP],
-            dz_max=STEP,
-            dz_init=STEP,
-            schedule=FixedSchedule.uniform(0.0, STEP, STEP * 1.0000001),
-            integrator=integrator,
-            propagator_mode=mode,  # pyright: ignore[reportArgumentType]
-            absorber=absorber(grid, boundary_length=1.0) if collar else None,
-            absorber_scheme="nonlinear",
-        ),
+    problem, run_request = assemble(
         grid,
+        None,
+        responses,
+        field,
+        spatial_grid=space,
+        medium=SpatialMedium(),
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[STEP],
+        dz_max=STEP,
+        dz_init=STEP,
+        schedule=FixedSchedule.uniform(0.0, STEP, STEP * 1.0000001),
+        integrator=integrator,
+        propagator_mode=mode,  # pyright: ignore[reportArgumentType]
+        absorber=absorber(grid, boundary_length=1.0) if collar else None,
+        absorber_scheme="nonlinear",
     )
+    return problem, run_request, grid
 
 
 def on_leaf(problem, leaf, *, seed=3):

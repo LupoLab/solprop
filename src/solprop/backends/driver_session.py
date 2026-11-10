@@ -88,7 +88,13 @@ if TYPE_CHECKING:
     from solprop.backends.driver import StepDriver
     from solprop.backends.protocol import Backend
 
-__all__ = ["AttemptListener", "DriverGroupSession", "DriverPrepared", "DriverSession"]
+__all__ = [
+    "AttemptListener",
+    "DriverGroupSession",
+    "DriverPrepared",
+    "DriverSession",
+    "foreign_request",
+]
 
 AttemptListener = Callable[[float, float, bool], None]
 """Called with each attempt's end, length and acceptance, for a progress reporter."""

@@ -197,7 +197,7 @@ def test_exponential_converges_at_its_order_on_a_schedule(
             save_planes=[length],
             controller=PIController(rtol=1e-12, atol=1e-18),
         ),
-        narrow_grid,
+        grid=narrow_grid,
     )[0]
     # The populated bins, above 1e-8 of the peak power. The weak wings below hold
     # free radiation under the soliton's cross-phase modulation, a source linear in
@@ -240,7 +240,7 @@ def test_the_default_leaves_its_excess_error_in_the_dark_wings(
             save_planes=[length],
             controller=PIController(rtol=1e-12, atol=1e-18),
         ),
-        narrow_grid,
+        grid=narrow_grid,
     )[0]
     field, march, _ = run(
         *soliton_problem(
@@ -250,7 +250,7 @@ def test_the_default_leaves_its_excess_error_in_the_dark_wings(
             controller=PIController(rtol=1e-8, atol=1e-18),
             integrator=Multistep(),
         ),
-        narrow_grid,
+        grid=narrow_grid,
     )
     power = np.abs(reference) ** 2
     lit = power >= 1e-10 * power.max()
@@ -275,7 +275,7 @@ def test_both_formulations_agree_with_runge_kutta(narrow_grid, soliton_problem, 
             save_planes=planes,
             controller=PIController(rtol=1e-11, atol=1e-18),
         ),
-        narrow_grid,
+        grid=narrow_grid,
     )[0]
     field, march, _ = run(
         *soliton_problem(
@@ -285,7 +285,7 @@ def test_both_formulations_agree_with_runge_kutta(narrow_grid, soliton_problem, 
             controller=PIController(rtol=1e-8, atol=1e-18),
             integrator=method,
         ),
-        narrow_grid,
+        grid=narrow_grid,
     )
     error = np.linalg.norm(field - reference) / np.linalg.norm(reference)
     # A local tolerance of 1e-8 over a few hundred steps of an N = 3 soliton: the
@@ -317,7 +317,7 @@ def test_one_call_per_step_and_the_budget(narrow_grid, soliton_problem, method):
                 controller=PIController(rtol=1e-5, atol=1e-18),
                 integrator=budget,
             ),
-            narrow_grid,
+            grid=narrow_grid,
         )
     assert caught.value.calls <= ledger.total // 2
 
@@ -441,7 +441,7 @@ def test_a_schedule_is_replayed_exactly_and_reports_its_norms(
             integrator=integrator,
         )
 
-    _, march, steps = run(*problem_of(method), narrow_grid)
+    _, march, steps = run(*problem_of(method), grid=narrow_grid)
     # The steps are the schedule's, every one accepted, one call each after startup:
     # accounting for a prescribed schedule, exact.
     np.testing.assert_array_equal(steps, schedule.steps)
@@ -449,8 +449,8 @@ def test_a_schedule_is_replayed_exactly_and_reports_its_norms(
     assert ledger_of(march).total == schedule.n_steps + 1
     # A replay at a fixed order is repeatable to its rounding.
     matched = problem_of(fixed(method))
-    first, _, _ = run(*matched, narrow_grid)
-    second, _, _ = run(*matched, narrow_grid)
+    first, _, _ = run(*matched, grid=narrow_grid)
+    second, _, _ = run(*matched, grid=narrow_grid)
     assert_within(second, first, replay_bound(matched.request, schedule.n_steps))
 
 
@@ -472,7 +472,7 @@ def test_a_lockstep_batch_steps_each_member_with_its_own_history(
             integrator=fixed(method),
         )
 
-    singles = [run(*problem_of(order), narrow_grid)[0] for order in (1, 2)]
+    singles = [run(*problem_of(order), grid=narrow_grid)[0] for order in (1, 2)]
     members = []
     for order in (1, 2):
         problem, run_request = problem_of(order)
@@ -516,7 +516,7 @@ def test_a_rejected_trial_is_charged_and_leaves_the_history(
             save_planes=planes,
             controller=PIController(rtol=1e-11, atol=1e-18),
         ),
-        narrow_grid,
+        grid=narrow_grid,
     )
     # As in test_both_formulations_agree_with_runge_kutta, a tighter tolerance.
     assert np.linalg.norm(field - reference) / np.linalg.norm(reference) < 1e-6

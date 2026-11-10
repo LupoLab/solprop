@@ -563,7 +563,9 @@ def test_native_is_the_reference_under_either_propagator_mode(
     """
     native = pytest.importorskip("solprop_native")
     problems = _both_propagator_modes(soliton_problem, soliton_grid)
-    backend, reference = run_to(NumpyRefBackend, *problems[0], soliton_grid, LENGTH)
+    backend, reference = run_to(
+        NumpyRefBackend, *problems[0], grid=soliton_grid, z=LENGTH
+    )
     backend.close()
     for (problem, run_request), mode in zip(
         problems, ("tabulate", "recompute"), strict=True
@@ -681,7 +683,7 @@ def test_a_z_table_runs_on_native_and_the_oracle(tabulated_problem, field_grid):
     """The native backend's own tables follow the oracle on an adaptive run."""
     native = pytest.importorskip("solprop_native")
     departure, bound, compiled = z_table_departure_and_bound(
-        native.NativeBackend, *tabulated_problem, field_grid
+        native.NativeBackend, *tabulated_problem, grid=field_grid
     )
     compiled.close()
     assert departure < bound
