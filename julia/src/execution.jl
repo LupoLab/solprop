@@ -88,8 +88,8 @@ end
 end
 
 function _has_packed_capture(type, visited)
-    type <: BitArray && return true
-    isconcretetype(type) && !isbitstype(type) || return false
+    (type <: BitArray || type <: StrideArraysCore.BitPtrArray) && return true
+    isconcretetype(type) || return false
     type in visited && return false
     push!(visited, type)
     return any(field -> _has_packed_capture(field, visited), fieldtypes(type))

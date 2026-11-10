@@ -66,17 +66,22 @@ end
             check_body in (false, true)
         execution = SolpropJulia.KernelExecution(backend, tasks, check_body)
         packed = BitArray([isodd(row + column) for row in 1:3, column in 1:3])
+        pointer = SolpropJulia.StrideArraysCore.PtrArray(packed)
         variants = (
             packed, view(packed, 1:2:3, :), reshape(vec(packed), 3, 3),
             transpose(packed), PermutedDimsArray(packed, (2, 1)),
+            pointer, view(pointer, 1:2:3, :), reshape(pointer, 1, 9),
+            transpose(pointer), PermutedDimsArray(pointer, (2, 1)),
         )
-        for input in variants
-            output = fill(false, size(input))
-            @test_throws ArgumentError execution_copy!(output, input, execution)
-            @test_throws ArgumentError execution_copy_columns!(output, input, execution)
-            @test iszero(output)
-            @test_throws ArgumentError execution_copy!(input, output, execution)
-            @test_throws ArgumentError execution_copy_columns!(input, output, execution)
+        GC.@preserve packed begin
+            for input in variants
+                output = fill(false, size(input))
+                @test_throws ArgumentError execution_copy!(output, input, execution)
+                @test_throws ArgumentError execution_copy_columns!(output, input, execution)
+                @test iszero(output)
+                @test_throws ArgumentError execution_copy!(input, output, execution)
+                @test_throws ArgumentError execution_copy_columns!(input, output, execution)
+            end
         end
         owned = SolpropJulia.upload(execution, packed)
         @test owned isa Matrix{Bool}
