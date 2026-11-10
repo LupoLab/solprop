@@ -1215,6 +1215,7 @@ TABLEAU = (
 
 SEAM_METHODS = (
     ("prepare", "bind a problem and its run request; each start opens a session"),
+    ("prepare_group", "bind compatible members; the start opens their group"),
     ("set_initial", "the state and the noise realisation, host to device, once"),
     ("set_progress", "the observer each attempted step reports to; never an input"),
     ("set_stop", "the flag polled between trials, or none"),
