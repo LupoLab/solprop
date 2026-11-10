@@ -99,8 +99,8 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="203.8" y="313.5" font-size="12" class="dim">why the march cannot carry its history, or None</text>
 <text x="42.0" y="329.0" font-size="12" class="bold ink-b">restore_march</text>
 <text x="203.8" y="329.0" font-size="12" class="dim">continue the history, or say why it starts afresh</text>
-<text x="42.0" y="344.5" font-size="12" class="bold ink-b">timed_step</text>
-<text x="203.8" y="344.5" font-size="12" class="dim">one step of the march, for an estimate to time</text>
+<text x="42.0" y="344.5" font-size="12" class="bold ink-b">timing_probe</text>
+<text x="203.8" y="344.5" font-size="12" class="dim">single trials from a start, committing nothing, for timing</text>
 <text x="42.0" y="360.0" font-size="12" class="bold ink-b">stats</text>
 <text x="203.8" y="360.0" font-size="12" class="dim">one fused pass, a dict of small host arrays</text>
 <text x="42.0" y="375.5" font-size="12" class="bold ink-b">metadata</text>
