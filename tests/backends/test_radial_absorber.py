@@ -108,7 +108,9 @@ def absorber_case(request):
     responses = (
         [KerrResponse(chi3=0.0, thg=False)] if family == "field_analytic" else []
     )
-    design = transverse_of(assembled(grid, space, boundary, start, responses, 8).route)
+    design = transverse_of(
+        assembled(grid, space, boundary, start, responses, 8).problem.route
+    )
     assert design is not None and design.has_collar
     # Direct Fourier-Bessel forward and inverse formulas, independent of the
     # backend's composed matrix and with no temporal pad/crop factors.
@@ -126,7 +128,7 @@ def absorber_case(request):
 
 
 def assembled(grid, space, boundary, start, responses, steps, **options):
-    """The case's problem on a fixed schedule of `steps`, with the collar requested."""
+    """The case's problem and request on a schedule of `steps`, with the collar."""
     options.setdefault("spatial_absorber", COLLAR)
     return assemble(
         grid,
@@ -166,7 +168,7 @@ def test_spatial_absorber_derivative_matches_independent_bessel_operator(
         np.max((np.abs(absorption) + temporal) @ np.abs(start[:, :, index]))
     )
     expected = (absorption - temporal) @ start[:, :, index]
-    problem = problem_for(absorber_case, 8)
+    problem, run_request = problem_for(absorber_case, 8)
     rate = np.full(grid.n_to, temporal_rate)
     rate.setflags(write=False)
     # The case's collar has zero temporal rates, which translate to no temporal
@@ -179,7 +181,7 @@ def test_spatial_absorber_derivative_matches_independent_bessel_operator(
             problem.responses, temporal_absorber=coarse, temporal_absorber_fine=rate
         ),
     )
-    backend = spatial_backend_class(problem, grid=grid)
+    backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         if isinstance(backend, NumpyRefBackend):
@@ -225,8 +227,8 @@ def test_spatial_absorber_step_refinement_matches_matrix_exponential(
     scale = float(np.max(np.abs(start)))
     measured_errors = []
     for count, bound in zip(steps, bounds, strict=True):
-        problem = problem_for(absorber_case, count)
-        backend = spatial_backend_class(problem, grid=grid)
+        problem, run_request = problem_for(absorber_case, count)
+        backend = spatial_backend_class(problem, run_request, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)
@@ -257,7 +259,7 @@ def test_spatial_collar_diagnostic_reports_the_measured_fraction(
     absorber_case, spatial_backend_class, illumination
 ):
     grid, space, _, _, _, _, _, _ = absorber_case
-    problem = problem_for(absorber_case, 8)
+    problem, run_request = problem_for(absorber_case, 8)
     field = problem.initial.field0.copy()
     if illumination == "extended":
         # A highest-order Bessel column fills the disk and deliberately lights
@@ -274,9 +276,9 @@ def test_spatial_collar_diagnostic_reports_the_measured_fraction(
     measured = collar_field_fraction(problem, field)
     assert_allclose(measured, expected, rtol=bound, atol=0)
     if illumination == "extended":
-        assert expected > problem.stepper.controller.rtol
+        assert expected > run_request.stepper.controller.rtol
     else:
-        assert expected < problem.stepper.controller.rtol
+        assert expected < run_request.stepper.controller.rtol
     # The end-of-plane log of this share is retired (SEP 40 section 5.3): the
     # monitor's transverse edge judges the boundary instead.
     del spatial_backend_class
@@ -297,8 +299,8 @@ def test_spatial_rate_stability_refusal_is_not_lifted_by_temporal_split(
 
 
 def test_the_ledger_counts_the_composed_absorber_matrix(absorber_case):
-    problem = problem_for(absorber_case, 8)
-    backend = NumpyRefBackend(problem, grid=absorber_case[0])
+    problem, run_request = problem_for(absorber_case, 8)
+    backend = NumpyRefBackend(problem, run_request, grid=absorber_case[0])
     try:
         matrix = backend.memory_ledger()["spatial_absorber_matrix"]
     finally:

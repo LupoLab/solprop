@@ -71,7 +71,7 @@ def soliton_problem(envelope_grid, gnlse, soliton):
         density=1.0,
         shock=False,
         prefactor_index=1.0,
-    )
+    ).problem
 
 
 def scaffold_nonlinear(problem, grid, state):

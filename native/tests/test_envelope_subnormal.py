@@ -41,6 +41,7 @@ from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend
 from bounds import fft_bound
@@ -59,7 +60,9 @@ WIDE_RADIUS = 1.1e-2
 """A core radius, m, whose mode's weight makes one quantum a node field of 1e-320."""
 
 
-def host_case(radius: float = 125e-6) -> tuple[PropagationProblem, EnvelopeGrid]:
+def host_case(
+    radius: float = 125e-6,
+) -> tuple[PropagationProblem, RunRequest, EnvelopeGrid]:
     """Return the original's case: argon, two components, 10 % preionised."""
     grid = EnvelopeGrid.from_limits(0.001, 800e-9, (500e-9, 1.2e-6), 80e-15)
     mode = MarcatiliMode(radius, "Ar", 1.0, loss=False)
@@ -67,7 +70,7 @@ def host_case(radius: float = 125e-6) -> tuple[PropagationProblem, EnvelopeGrid]
     field = pulse * np.array([1.0, 0.35j])[None, :, None] / np.sqrt(1 + 0.35**2)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             mode,
             [EnvelopePlasmaResponse("Ar", OptmatRate("Ar", 800e-9), preionisation=0.1)],
@@ -78,7 +81,7 @@ def host_case(radius: float = 125e-6) -> tuple[PropagationProblem, EnvelopeGrid]
             dz_init=1e-6,
             ionisation_field_range=(1e9, 1e11),
         )
-    return dataclasses.replace(problem, stats_spec=StatsSpec(names=NAMES)), grid
+    return problem, run_request.for_run(stats=StatsSpec(names=NAMES)), grid
 
 
 def constant_launch(
@@ -98,13 +101,14 @@ def constant_launch(
 def evaluate(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
     problem: PropagationProblem,
+    run_request: RunRequest,
     grid: EnvelopeGrid,
 ) -> tuple[npt.NDArray[np.complex128], dict[str, np.ndarray]]:
     """Return the first stage on the launch and the launch's statistics."""
-    backend = implementation(problem, grid=grid)
+    backend = implementation(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        statistics = backend.stats(problem.stats_spec)
+        statistics = backend.stats(run_request.observation.stats)
         if implementation is NativeBackend:
             # A zero-length trial exposes the first stage, N(E, z = 0).
             backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
@@ -123,9 +127,11 @@ def evaluate(
         backend.close()
 
 
-def node_magnitude(problem: PropagationProblem, grid: EnvelopeGrid) -> float:
+def node_magnitude(
+    problem: PropagationProblem, run_request: RunRequest, grid: EnvelopeGrid
+) -> float:
     """Return the largest node field the reference synthesises, V/m."""
-    reference = NumpyRefBackend(problem, grid=grid)
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
         state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
@@ -144,12 +150,12 @@ def test_a_subnormal_zero_rate_field_has_finite_sources() -> None:
     underflows. Its value here is an exact zero on both, and its rate an exact zero.
     """
     # The node field is the state over ``n_to``, in quanta, times the mode's weight.
-    base, grid = host_case(WIDE_RADIUS)
+    base, run_request, grid = host_case(WIDE_RADIUS)
     problem, _ = constant_launch(base, grid.n_to * QUANTUM)
-    field = node_magnitude(problem, grid)
+    field = node_magnitude(problem, run_request, grid)
     assert 0.0 < field < 2e-320
-    expected, expected_stats = evaluate(NumpyRefBackend, problem, grid)
-    actual, actual_stats = evaluate(NativeBackend, problem, grid)
+    expected, expected_stats = evaluate(NumpyRefBackend, problem, run_request, grid)
+    actual, actual_stats = evaluate(NativeBackend, problem, run_request, grid)
     assert np.all(np.isfinite(actual))
     assert np.all(np.abs(actual - expected) <= 4 * EPS * np.abs(expected) + 2 * QUANTUM)
     np.testing.assert_array_equal(expected_stats["peak_ionisation_rate"], 0.0)
@@ -174,16 +180,16 @@ def test_a_source_going_through_gradual_underflow_is_the_reference_s(
     of the pair's levels and the two product's, carried by the stage's gain over the
     field. No reciprocal of the field may enter, which a NaN or a jump would show.
     """
-    base, grid = host_case()
+    base, run_request, grid = host_case()
     problem, _ = constant_launch(base, value)
-    field = node_magnitude(problem, grid)
+    field = node_magnitude(problem, run_request, grid)
     assert field > 0.0
-    expected, _ = evaluate(NumpyRefBackend, problem, grid)
-    actual, _ = evaluate(NativeBackend, problem, grid)
+    expected, _ = evaluate(NumpyRefBackend, problem, run_request, grid)
+    actual, _ = evaluate(NativeBackend, problem, run_request, grid)
     assert np.all(np.isfinite(actual))
     unit_problem, _ = constant_launch(base, 1.0)
-    unit, _ = evaluate(NumpyRefBackend, unit_problem, grid)
-    gain = float(np.max(np.abs(unit))) / node_magnitude(unit_problem, grid)
+    unit, _ = evaluate(NumpyRefBackend, unit_problem, run_request, grid)
+    gain = float(np.max(np.abs(unit))) / node_magnitude(unit_problem, run_request, grid)
     levels = 2 * math.ceil(math.log2(grid.n_to)) + 2
     bound = (fft_bound(grid.n_to) + 4 * EPS) * np.abs(expected) + (
         levels * QUANTUM * max(1.0, gain)

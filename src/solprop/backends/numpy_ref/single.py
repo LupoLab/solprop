@@ -80,6 +80,7 @@ from solprop.translate.responses import (
     PlasmaChannel,
     ResponseStage,
 )
+from solprop.translate.run_request import RunRequest
 from solprop.translate.stage import StageScalars
 from solprop.translate.tdse import TDSEBinding
 
@@ -123,6 +124,8 @@ class NumpySingleBackend(NumpyRefBackend):
     ----------
     problem : solprop.translate.problem.PropagationProblem
         A validated problem with ``precision.single``.
+    request : solprop.translate.run_request.RunRequest
+        The run's policies.
     grid : solprop.grid.TimeGrid, optional
         The grid the state lives on, needed only by :meth:`stats`.
     modes : collections.abc.Sequence, optional
@@ -147,9 +150,10 @@ class NumpySingleBackend(NumpyRefBackend):
     # The observed field is the state widened into a new array (`_observed_field`).
     observes_fresh_field: ClassVar[bool] = True
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - the problem, its request and the host context
         self,
         problem: PropagationProblem,
+        request: RunRequest,
         *,
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
@@ -163,7 +167,7 @@ class NumpySingleBackend(NumpyRefBackend):
         # The settings admit a run through the same function, but a problem built or
         # replaced past them (``registry.select`` on a translated problem) reaches the
         # backend unadmitted; the refusals are the backend's own too.
-        stepper = problem.stepper
+        stepper = request.stepper
         try:
             admit_precision(
                 problem.precision,
@@ -175,6 +179,7 @@ class NumpySingleBackend(NumpyRefBackend):
             raise BackendError(str(error)) from error
         super().__init__(
             problem,
+            request,
             grid=grid,
             modes=modes,
             profiles=profiles,
@@ -221,7 +226,7 @@ class NumpySingleBackend(NumpyRefBackend):
         self._lab_frame = np.broadcast_to(
             np.ones((), dtype=self._complex), (1, *problem.shape)
         )
-        controller = problem.stepper.controller
+        controller = stepper.controller
         self._controller = dataclasses.replace(
             controller, atol=controller.atol / self._scale
         )

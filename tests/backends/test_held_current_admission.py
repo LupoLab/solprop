@@ -27,7 +27,7 @@ pytestmark = [
 
 
 def test_node_admission_counts_all_held_histories_together():
-    grid, problem = case("mode_averaged")
+    grid, problem, _ = case("mode_averaged")
     transform, responses = problem.transform, problem.responses
     with pytest.raises(BackendError, match="held plasma current history"):
         _held_current_chunk(1, transform, responses, 1, grid.n_to, 1)
@@ -40,7 +40,7 @@ def test_node_admission_counts_all_held_histories_together():
 
 
 def test_planar_admission_reserves_a_whole_transverse_row():
-    grid, problem = case("planar")
+    grid, problem, _ = case("planar")
     transform = problem.transform
     assert transform.geometry is not None
     n_x = transform.geometry.shape[0]
@@ -56,7 +56,7 @@ def test_planar_admission_reserves_a_whole_transverse_row():
 
 
 def test_planar_chunks_stay_whole_rows_when_balanced():
-    _, problem = case("planar")
+    _, problem, _ = case("planar")
     transform = problem.transform
     assert transform.geometry is not None
     n_x = transform.geometry.shape[0]
@@ -71,7 +71,7 @@ def test_planar_chunks_stay_whole_rows_when_balanced():
 def test_budget_chunks_spread_the_nodes_evenly_over_their_passes():
     # A budget that admits all but one node must not leave a one-node tail pass:
     # nine nodes under a limit of eight take two passes of five and four.
-    _, problem = case("multimode")
+    _, problem, _ = case("multimode")
     transform = problem.transform
     assert transform.geometry is None
     n_nodes = transform.n_nodes

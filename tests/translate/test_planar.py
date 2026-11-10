@@ -26,7 +26,7 @@ from solprop.translate.planar import (
     planar_operators,
     planar_transform,
 )
-from solprop.translate.problem import assemble
+from solprop.translate.problem import assemble, validate_run
 from solprop.translate.routes import transverse_of
 from solprop.translate.spatial import (
     SeparableOperator,
@@ -69,11 +69,23 @@ def assembled(space, **options):
 
 
 @pytest.fixture(scope="module")
-def problem(space):
+def translation(space):
     return assembled(space)
 
 
-def test_the_geometry_is_the_slab_kind_with_columns_and_nodes_apart(space, problem):
+@pytest.fixture(scope="module")
+def problem(translation):
+    return translation.problem
+
+
+@pytest.fixture(scope="module")
+def run_request(translation):
+    return translation.request
+
+
+def test_the_geometry_is_the_slab_kind_with_columns_and_nodes_apart(
+    space, problem, run_request
+):
     geometry = problem.transform.geometry
     assert geometry is not None
     assert geometry.kind == "slab"
@@ -99,7 +111,7 @@ def test_the_geometry_is_the_slab_kind_with_columns_and_nodes_apart(space, probl
     assert transverse_of(problem.route) is None
     assert not np.any(geometry.absorber_rate)
     assert geometry.inverse_scale == 1 / 16
-    assert problem.stepper.propagator_mode == "auto"
+    assert run_request.stepper.propagator_mode == "auto"
 
 
 def test_a_requested_collar_sets_the_y_rate_outside_the_window():
@@ -107,7 +119,7 @@ def test_a_requested_collar_sets_the_y_rate_outside_the_window():
     # 25 above the floor 22.3, lies below the safety ramp.
     modes = [SlabMode(HALF_GAP, "Ar", 1.0, order=p) for p in (1, 3)]
     roomy = PlanarGrid(modes, 1e-3, 40, collar_fraction=1.0)
-    problem = assembled(roomy, spatial_absorber=SpatialAbsorber(kappa=2.5e4))
+    problem = assembled(roomy, spatial_absorber=SpatialAbsorber(kappa=2.5e4)).problem
     design = transverse_of(problem.route)
     geometry = problem.transform.geometry
     assert design is not None and design.has_collar and geometry is not None
@@ -219,33 +231,43 @@ def test_the_leaf_refuses_a_malformed_wall_term(problem):
         dataclasses.replace(separable, kappa_sq=spoiled)
 
 
-def test_the_problem_refuses_a_slab_geometry_without_its_own_operator(problem):
+def test_the_problem_refuses_a_slab_geometry_without_its_own_operator(
+    problem, run_request
+):
     separable = problem.linear.separable
     assert separable is not None
     spoiled = dataclasses.replace(separable, kappa_sq=None)
     with pytest.raises(TranslationError, match="requires separable kappa_sq"):
-        dataclasses.replace(
-            problem,
-            linear=dataclasses.replace(problem.linear, separable=spoiled),
-            responses=dataclasses.replace(problem.responses, separable=spoiled),
-        ).validate()
+        validate_run(
+            dataclasses.replace(
+                problem,
+                linear=dataclasses.replace(problem.linear, separable=spoiled),
+                responses=dataclasses.replace(problem.responses, separable=spoiled),
+            ),
+            run_request,
+        )
     spoiled = dataclasses.replace(separable, kperp_sq=separable.kperp_sq[::-1].copy())
     with pytest.raises(TranslationError, match="k_y\\*\\*2 per column"):
-        dataclasses.replace(
-            problem,
-            linear=dataclasses.replace(problem.linear, separable=spoiled),
-            responses=dataclasses.replace(problem.responses, separable=spoiled),
-        ).validate()
+        validate_run(
+            dataclasses.replace(
+                problem,
+                linear=dataclasses.replace(problem.linear, separable=spoiled),
+                responses=dataclasses.replace(problem.responses, separable=spoiled),
+            ),
+            run_request,
+        )
     with pytest.raises(TranslationError, match="slab propagation refuses"):
-        dataclasses.replace(
+        validate_run(
             problem,
-            stepper=dataclasses.replace(problem.stepper, propagator_mode="tabulate"),
-        ).validate()
+            run_request.with_stepper(
+                dataclasses.replace(run_request.stepper, propagator_mode="tabulate")
+            ),
+        )
 
 
 def test_a_free_geometry_refuses_a_wall_term():
     space = FreeGrid(1e-3, 4, 1e-3, 4, collar_fraction=0.0)
-    free = assemble(
+    free, free_request = assemble(
         GRID,
         None,
         [],
@@ -264,11 +286,14 @@ def test_a_free_geometry_refuses_a_wall_term():
         separable, kappa_sq=np.zeros((1, separable.k_squared.size), complex)
     )
     with pytest.raises(TranslationError, match="belongs to the slab geometry alone"):
-        dataclasses.replace(
-            free,
-            linear=dataclasses.replace(free.linear, separable=spoiled),
-            responses=dataclasses.replace(free.responses, separable=spoiled),
-        ).validate()
+        validate_run(
+            dataclasses.replace(
+                free,
+                linear=dataclasses.replace(free.linear, separable=spoiled),
+                responses=dataclasses.replace(free.responses, separable=spoiled),
+            ),
+            free_request,
+        )
 
 
 def test_the_translation_refuses_two_components_and_a_gas_path(space):

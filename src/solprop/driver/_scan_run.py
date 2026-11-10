@@ -61,7 +61,6 @@ from solprop.output.schema import (
 from solprop.processing.scans import Reduction, ScanOutput, _Builtin, _provenance
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import tdse_of
-from solprop.translate.run_request import describe_run
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +124,7 @@ def launch_statistics(
         The launch's own failure, when its statistics could not be evaluated.
     """
     session = start_session(
-        backend, problem, describe_run(problem), Start.entrance(problem), owns=False
+        backend, problem, backend.request, Start.entrance(problem), owns=False
     )
     try:
         launch = session.advance().events[-1]
@@ -730,7 +729,7 @@ class _Work:
             name_seed(self.scan_name, point.index) if point.seed is None else point.seed
         )
         requested = self.options.stats
-        available = simulation.translate().stats_spec.names
+        available = simulation._run_request().observation.stats.names
         if not isinstance(requested, str) and set(requested) - set(available):
             raise DriverError(
                 "requested scan statistics are not collected by the simulation"
@@ -775,6 +774,7 @@ class _Work:
         backend = select(
             simulation.settings.backend,
             simulation.translate(),
+            simulation._run_request(),
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -846,8 +846,9 @@ class _Work:
             for name, value in statistics.items()
             if keep == "all" or (not isinstance(keep, str) and name in keep)
         )
-        spec = simulation.translate().stats_spec
-        schedule = simulation.translate().stepper.schedule
+        request = simulation._run_request()
+        spec = request.observation.stats
+        schedule = request.stepper.schedule
         periodic_bytes = 0
         if keep != "none" and schedule is not None and spec.periodic:
             rows = schedule.n_steps // spec.period

@@ -63,10 +63,21 @@ class AnalyticRate:
         )
 
 
-def mixture_case(
+def mixture_case(**options):
+    """Construct a small field problem with two independent synthetic populations.
+
+    ``preionisation`` replaces the two components' initial fractions (numbers or paths
+    along z) and ``schedule`` gives the run a fixed schedule
+    (:func:`mixture_translation`, whose problem this returns in place of the pair).
+    """
+    mixture, grid, mode, responses, (problem, _) = mixture_translation(**options)
+    return mixture, grid, mode, responses, problem
+
+
+def mixture_translation(
     *, exponent=2, kerr=True, density_scale=1.0, preionisation=None, schedule=None
 ):
-    """Construct a small field problem with two independent synthetic populations.
+    """Return :func:`mixture_case`'s parts with its problem's translation, the pair.
 
     ``preionisation`` replaces the two components' initial fractions (numbers or paths
     along z) and ``schedule`` gives the run a fixed schedule.
@@ -123,7 +134,7 @@ def mixture_case(
             )
         )
     initial = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-9).build(grid)
-    problem = assemble(
+    translation = assemble(
         grid,
         mode,
         responses,
@@ -134,4 +145,4 @@ def mixture_case(
         dz_init=1e-5,
         schedule=schedule,
     )
-    return mixture, grid, mode, tuple(responses), problem
+    return mixture, grid, mode, tuple(responses), translation

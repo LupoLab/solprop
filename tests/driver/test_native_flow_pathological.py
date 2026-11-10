@@ -61,9 +61,9 @@ native_backend = pytest.importorskip("solprop_native.backend")
 
 
 def scalar_case():
-    """Return the scalar coherent wall's problem and grid: three modes, ten steps."""
+    """Return the scalar wall's problem, request and grid: three modes, ten steps."""
     simulation = build("scalar")
-    return simulation.translate(), simulation.grid
+    return simulation.translate(), simulation._run_request(), simulation.grid
 
 
 def with_factors(held, triangular):
@@ -84,14 +84,14 @@ def with_factors(held, triangular):
     )
 
 
-def formed(monkeypatch, problem, grid, held, dz):
+def formed(monkeypatch, problem, run_request, grid, held, dz):
     """Return native's whole-step actions and measurement from the factors `held`."""
     monkeypatch.setattr(native_backend, "_host_flow", lambda _: held)
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         native = backend._native_state
         n_modes = held.vectors.shape[-1]
-        tableau = problem.stepper.tableau
+        tableau = run_request.stepper.tableau
         fractions = np.array([*(float(node) for node in tableau.nodes), 1.0])
         measured = np.asarray(native.form_flow_actions(0, dz, fractions)[0])
         shape = (fractions.size, -1, n_modes, n_modes)
@@ -112,7 +112,7 @@ def test_a_nearly_degenerate_nonnormal_bin_is_formed_by_scaling_and_squaring(
     without a warning (warnings are errors here). Both are then formed by native's
     scaling and squaring, within twice the reference's squaring bound of its action.
     """
-    problem, grid = scalar_case()
+    problem, run_request, grid = scalar_case()
     held = native_backend._host_flow(problem)
     triangular = held.triangular[0].copy()
     spread = abs(triangular[:2, 0, 0] - triangular[:2, 1, 1])
@@ -125,7 +125,7 @@ def test_a_nearly_degenerate_nonnormal_bin_is_formed_by_scaling_and_squaring(
     assert not route[1]
     assert np.all(route[2:])
     dz = flow_parity.LENGTH / STEPS
-    forward, inverse, _ = formed(monkeypatch, problem, grid, crafted, dz)
+    forward, inverse, _ = formed(monkeypatch, problem, run_request, grid, crafted, dz)
     reference = _coupled_flow_maps(problem)
     assert reference is not None
     expected = _flow_action(replace(reference, triangular=crafted.triangular), 0, dz)
@@ -139,7 +139,7 @@ def test_a_nearly_degenerate_nonnormal_bin_is_formed_by_scaling_and_squaring(
 
 def test_an_empty_measurement_is_not_refused():
     """A flow with no active bin measures nothing and passes the certificate."""
-    problem, _ = scalar_case()
+    problem, _, _ = scalar_case()
     dz = flow_parity.LENGTH / STEPS
     held = native_backend._host_flow(problem)
     native_backend._check_flow_conditioning(held, 0, np.empty(0), dz)
@@ -163,7 +163,7 @@ def test_the_spectral_norm_bounds_the_singular_value_to_its_rounding(monkeypatch
     bound compares native's measurement with the singular values of the very matrices
     native formed, so its operands are the same: ``16 n u`` on the product.
     """
-    problem, grid = scalar_case()
+    problem, run_request, grid = scalar_case()
     held = native_backend._host_flow(problem)
     dz = flow_parity.LENGTH / STEPS
     triangular = held.triangular[0].copy()
@@ -181,7 +181,9 @@ def test_the_spectral_norm_bounds_the_singular_value_to_its_rounding(monkeypatch
     vectors[0, :8] = np.eye(3)
     crafted = with_factors(replace(held, vectors=vectors), triangular)
     # Sections after the first keep their own: only section 0 is formed here.
-    forward, inverse, measured = formed(monkeypatch, problem, grid, crafted, dz)
+    forward, inverse, measured = formed(
+        monkeypatch, problem, run_request, grid, crafted, dz
+    )
     # The zero pivot's Gram matrix, and the diagonal's, as the docstring says.
     gram = np.conj(forward[6].T) @ forward[6]
     assert gram[0, 1] == 0.0
@@ -202,7 +204,7 @@ def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_a
     formed from the state each side reached, so they are within twice the ten-step bound
     of ``flow_parity`` on one step, the squares of quantities within it.
     """
-    problem, grid = scalar_case()
+    problem, run_request, grid = scalar_case()
     dz = flow_parity.LENGTH / STEPS
     field = np.asarray(problem.initial.field0)
     held = native_backend._host_flow(problem)
@@ -215,7 +217,7 @@ def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_a
     mask[masked] = False
     problem = replace(problem, grids=replace(problem.grids, norm_mask=mask))
 
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(field, None)
         partials = np.asarray(backend._prepare_trial(0.0, dz))
@@ -234,7 +236,7 @@ def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_a
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(reference_passes, "error_norm", capture)
-        reference = NumpyRefBackend(problem, grid=grid)
+        reference = NumpyRefBackend(problem, run_request, grid=grid)
         try:
             reference.set_initial(field, None)
             reference._trial_step(0.0, dz)
@@ -251,8 +253,8 @@ def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_a
     # Vacuous unless the mask moves it by far more than the bound.
     whole = float(np.sum(np.abs(expected_state) ** 2))
     assert abs(whole - old) > 1e3 * sum_bound * whole
-    expected = flow_parity.run(NumpyRefBackend, problem, grid)
-    scales = flow_parity.flow_scales(problem, grid, expected)
+    expected = flow_parity.run(NumpyRefBackend, problem, run_request, grid)
+    scales = flow_parity.flow_scales(problem, run_request, grid, expected)
     bound = 2.0 * flow_parity.ten_step_bound(scales)
     assert new == pytest.approx(captured["partials"][1], rel=bound)
     assert error == pytest.approx(captured["partials"][2], rel=bound)

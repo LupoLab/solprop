@@ -26,15 +26,15 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import assemble
-from vector_raman_cases import CHUNK, vector_problem
+from vector_raman_cases import CHUNK, vector_translation
 
 envelope_mixture = plasma_cases.envelope_mixture
 
 
-def run(backend_class, problem, grid, options=None):
+def run(backend_class, problem, run_request, grid, options=None):
     """Return one source evaluation and a complete fixed-schedule run."""
-    rhs = derivative(backend_class, problem, grid, options)
-    owner = backend_class(problem, grid=grid, options=options)
+    rhs = derivative(backend_class, problem, run_request, grid, options)
+    owner = backend_class(problem, run_request, grid=grid, options=options)
     try:
         owner.set_initial(problem.initial.field0, None)
         summary = owner.propagate_to(grid.length)
@@ -44,9 +44,9 @@ def run(backend_class, problem, grid, options=None):
         owner.close()
 
 
-def check_run(backend_class, problem, grid, options=None):
-    reference = run(NumpyRefBackend, problem, grid, options)
-    actual = run(backend_class, problem, grid, options)
+def check_run(backend_class, problem, run_request, grid, options=None):
+    reference = run(NumpyRefBackend, problem, run_request, grid, options)
+    actual = run(backend_class, problem, run_request, grid, options)
     # Temporal transforms, Cartesian contraction and transverse reductions per
     # stage; 14 stages cover the two-step complete run and both compared paths.
     bound = 256 * (grid.n_to + problem.transform.n_nodes) * 14 * np.finfo(float).eps
@@ -75,7 +75,7 @@ def test_spatial_vector_raman_and_actual_width_tails(
         80e-6,
         jones=(1, 0.35j),
     ).build(grid, space, medium=SpatialMedium())
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [
@@ -96,6 +96,7 @@ def test_spatial_vector_raman_and_actual_width_tails(
     check_run(
         spatial_equivalence_backend_class,
         problem,
+        run_request,
         grid,
         ExecutionOptions(node_chunk=3),
     )
@@ -106,29 +107,30 @@ def test_spatial_vector_raman_and_actual_width_tails(
 def test_raman_acts_on_synthesised_position_dependent_direction(
     kind, n, spatial_equivalence_backend_class
 ):
-    original, grid, _ = vector_problem(steps=2)
+    original, original_request, grid, _ = vector_translation(steps=2)
     modes = [
         MarcatiliMode(125e-6, kind=kind, n=n, phi=0.37, cladding=1.45, loss=False),
         MarcatiliMode(125e-6, phi=0.19, cladding=1.45, loss=False),
     ]
     initial = original.initial.field0.transpose(1, 0, 2).copy()
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         modes,
         [former_response(FORMER_H2, thg=False)],
         initial,
         density=1e25,
         quadrature=transverse_quadrature(modes, n_r=4, n_theta=8),
-        controller=original.stepper.controller,
+        controller=original_request.stepper.controller,
         save_planes=[grid.length],
         dz_max=grid.length / 2,
         dz_init=grid.length / 2,
-        schedule=original.stepper.schedule,
+        schedule=original_request.stepper.schedule,
     )
     assert problem.transform.n_pol * problem.shape[1] == 2
     check_run(
         spatial_equivalence_backend_class,
         problem,
+        run_request,
         grid,
         ExecutionOptions(node_chunk=5),
     )
@@ -137,8 +139,8 @@ def test_raman_acts_on_synthesised_position_dependent_direction(
 @pytest.mark.medium
 @pytest.mark.parametrize("family", ["field_real", "field_analytic", "envelope"])
 def test_vector_fixed_batches_preserve_modified_noise_members(family, backend_class):
-    problem, grid, _ = vector_problem(family, steps=2)
-    compare(problem, grid, backend_class.name, options=CHUNK)
+    problem, run_request, grid, _ = vector_translation(family, steps=2)
+    compare(problem, run_request, grid, backend_class.name, options=CHUNK)
 
 
 @pytest.mark.medium
@@ -177,8 +179,12 @@ def test_vector_raman_with_two_envelope_plasma_populations(
         ):
             geometry_case((mixture, responses), geometry, 2)
         return
-    problem, grid = geometry_case((mixture, responses), geometry, 2)
+    problem, run_request, grid = geometry_case((mixture, responses), geometry, 2)
     assert len(problem.responses.raman_terms) == 2
     check_run(
-        spatial_equivalence_backend_class, problem, grid, geometry_options(geometry)
+        spatial_equivalence_backend_class,
+        problem,
+        run_request,
+        grid,
+        geometry_options(geometry),
     )

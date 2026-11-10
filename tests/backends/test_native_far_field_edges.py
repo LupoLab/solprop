@@ -103,8 +103,8 @@ def test_the_radius_is_the_reference_radius_to_the_bit():
             spec = StatsSpec(names=("aperture_spectrum",), apertures=_holes(diameters))
             field = np.zeros((space.n_columns, 1, grid.n_omega), complex)
             field[column, 0, bins] = 1e3
-            problem = problem_of(grid, space, field, spec)
-            values, held = native_stats(problem, grid, field, spec.names)
+            problem, run_request = problem_of(grid, space, field, spec)
+            values, held = native_stats(problem, run_request, grid, field, spec.names)
             here = aperture_tables(spec, problem.grids, problem.transform.geometry)
             assert here is not None
             expected = reference(spec.names, grid, problem, held, here)
@@ -160,8 +160,8 @@ def test_a_half_plane_and_a_rectangle_decide_as_the_reference_to_the_bit():
                 shapes=(shape,) * min(rows, HOLES_PER_SET),
             )
             spec = StatsSpec(names=("aperture_spectrum",), apertures=apertures)
-            problem = problem_of(grid, space, field, spec)
-            values, held = native_stats(problem, grid, field, spec.names)
+            problem, run_request = problem_of(grid, space, field, spec)
+            values, held = native_stats(problem, run_request, grid, field, spec.names)
             here = aperture_tables(spec, problem.grids, problem.transform.geometry)
             assert here is not None
             expected = reference(spec.names, grid, problem, held, here)
@@ -215,8 +215,8 @@ def test_a_rectangle_and_an_ellipse_decide_as_the_reference_at_their_edges():
         )
         field = np.zeros((space.n_columns, 1, grid.n_omega), complex)
         field[column, 0, bin_] = 1e3
-        problem = problem_of(grid, space, field, spec)
-        values, held = native_stats(problem, grid, field, spec.names)
+        problem, run_request = problem_of(grid, space, field, spec)
+        values, held = native_stats(problem, run_request, grid, field, spec.names)
         here = aperture_tables(spec, problem.grids, problem.transform.geometry)
         assert here is not None
         oracle = reference(spec.names, grid, problem, held, here)["aperture_spectrum"]
@@ -291,12 +291,12 @@ def test_a_problem_at_the_band_cap_is_the_reference_s():
     shape = (space.n_columns, 1, grid.n_omega)
     field = 1e3 * (rng.standard_normal(shape) + 1j * rng.standard_normal(shape))
     field[..., 0] = field[..., -1] = 0.0
-    problem = problem_of(grid, space, field, spec)
-    n_slots, n_bands = far_field_partials(problem)
+    problem, run_request = problem_of(grid, space, field, spec)
+    n_slots, n_bands = far_field_partials(problem, run_request.observation.stats)
     # The cap is what decides, not the rows.
     assert n_bands == FAR_FIELD_BAND_BUDGET // (8 * n_slots * grid.n_omega)
     assert 1 < n_bands < space.n_y
-    actual, held = native_stats(problem, grid, field, FAR_FIELD_STATISTICS)
+    actual, held = native_stats(problem, run_request, grid, field, FAR_FIELD_STATISTICS)
     tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
     assert tables is not None
     expected = reference(FAR_FIELD_STATISTICS, grid, problem, held, tables)

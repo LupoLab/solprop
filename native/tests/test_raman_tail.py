@@ -79,7 +79,7 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
     )
     # optmat's H2 index holds from 112 nm to the static limit, past this grid's
     # collar, and 2 bar is above H2's Dicke cutoff: SEP 3 qualifies no warning here.
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         [mode],
         [KerrResponse(chi3=1e-51, thg=thg), raman],
@@ -90,19 +90,18 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
         dz_init=grid.length / 8,
         dz_max=grid.length / 8,
     )
-    problem = dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(
-            problem.stepper,
+    run_request = run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
             schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / 8),
-        ),
+        )
     )
     if chunk > 1:
         assert problem.transform.n_nodes % chunk != 0
     fields: list[ComplexArray] = []
     for backend_class in (NumpyRefBackend, NativeBackend):
         backend = backend_class(
-            problem, grid=grid, options=ExecutionOptions(node_chunk=chunk)
+            problem, run_request, grid=grid, options=ExecutionOptions(node_chunk=chunk)
         )
         try:
             backend.set_initial(problem.initial.field0, None)
@@ -160,6 +159,7 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
                 for peer_chunk in (1, 4):
                     peer = NativeBackend(
                         problem,
+                        run_request,
                         grid=grid,
                         options=ExecutionOptions(node_chunk=peer_chunk),
                     )
@@ -215,7 +215,7 @@ def test_raman_modal_products_match_reference(
         np.repeat(initial, n_modes, axis=0)
         * np.linspace(1.0, 0.4, n_modes)[:, None, None]
     )
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         modes,
         [KerrResponse(chi3=1e-51, thg=thg), raman],
@@ -226,17 +226,16 @@ def test_raman_modal_products_match_reference(
         dz_init=grid.length / 8,
         dz_max=grid.length / 8,
     )
-    problem = dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(
-            problem.stepper,
+    run_request = run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
             schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / 8),
-        ),
+        )
     )
     assert problem.transform.n_nodes == n_r
     fields: list[ComplexArray] = []
     for backend_class in (NumpyRefBackend, NativeBackend):
-        backend = backend_class(problem, grid=grid)
+        backend = backend_class(problem, run_request, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(grid.length)

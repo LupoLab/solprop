@@ -82,8 +82,9 @@ def test_a_refinement_is_stored_and_a_later_run_applies_it(
     assert any("validating" in line for line in lines)
     # A later backend of the same execution finds and applies it.
     problem = simulation.translate()
+    run_request = simulation._run_request()
     backend = solprop_native.backend.NativeBackend(
-        problem, grid=simulation.grid, modes=simulation.modes
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
         record = backend.metadata()["calibration"]
@@ -95,7 +96,7 @@ def test_a_refinement_is_stored_and_a_later_run_applies_it(
     # Another execution (another grid) has another descriptor and applies none.
     other = problems.build("gnlse", 2.0)
     backend = solprop_native.backend.NativeBackend(
-        other.translate(), grid=other.grid, modes=other.modes
+        other.translate(), other._run_request(), grid=other.grid, modes=other.modes
     )
     try:
         record = backend.metadata()["calibration"]
@@ -116,7 +117,10 @@ def test_a_refinement_of_another_machine_record_is_not_applied(
     changed = solprop_native.EXECUTION.updated({"compact_threads": 3})
     monkeypatch.setattr(solprop_native, "EXECUTION", changed)
     backend = solprop_native.backend.NativeBackend(
-        simulation.translate(), grid=simulation.grid, modes=simulation.modes
+        simulation.translate(),
+        simulation._run_request(),
+        grid=simulation.grid,
+        modes=simulation.modes,
     )
     try:
         record = backend.metadata()["calibration"]

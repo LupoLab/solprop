@@ -64,9 +64,11 @@ def simulation(index, backend, noise=None):
 
 def loaded(simulation, cleanup):
     problem = simulation.translate()
+    run_request = simulation._run_request()
     owner = select(
         simulation.settings.backend,
         problem,
+        run_request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
@@ -164,7 +166,7 @@ def test_lockstep_preserves_member_physics_noise_and_statistics(
         independent = tuple(loaded(one, cleanup) for one in simulations)
         runner = runner_factory(members)
         cleanup.callback(runner.close)
-        spec = simulations[0].translate().stats_spec
+        spec = simulations[0]._run_request().observation.stats
         rtol = cast("PIController", simulations[0].settings.controller).rtol
         for target in (0.0, 0.0005, 0.001):
             runner.propagate_to(target)

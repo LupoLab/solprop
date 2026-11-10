@@ -32,6 +32,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.run_request import RunRequest
 from solprop.translate.stage import terms
 from thread_sizing import Sizing, assert_threaded
 
@@ -125,7 +126,7 @@ def test_envelope_fields_and_all_populations_agree_across_cpu_threads(
     one, four = runs
     assert one.keys() == four.keys()
     for route in ROUTES:
-        problem, grid = envelope_case(route, 2)
+        problem, _, grid = envelope_case(route, 2)
         bound = native_bound(problem, grid)
         expected = one[f"{route}_field"]
         np.testing.assert_allclose(
@@ -150,7 +151,7 @@ def test_envelope_current_streams_use_large_radial_projection() -> None:
     initial = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-3), 1e-4
     ).build(grid, space, medium=SpatialMedium())
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [
@@ -170,8 +171,8 @@ def test_envelope_current_streams_use_large_radial_projection() -> None:
     )
     assert plan_node_chunk(problem).chunk == space.n_r
     reference, actual = (
-        NumpyRefBackend(problem, grid=grid),
-        NativeBackend(problem, grid=grid),
+        NumpyRefBackend(problem, run_request, grid=grid),
+        NativeBackend(problem, run_request, grid=grid),
     )
     try:
         for owner in (reference, actual):
@@ -206,7 +207,7 @@ def test_envelope_current_streams_use_large_radial_projection() -> None:
 
 def envelope_case(
     route: str, n_pol: int, *, mixture: bool = True
-) -> tuple[PropagationProblem, EnvelopeGrid]:
+) -> tuple[PropagationProblem, RunRequest, EnvelopeGrid]:
     fill = Mixture.fill({"Ar": 0.5, "He": 0.5} if mixture else {"Ar": 1.0}, 0.5)
     fill = replace(
         fill,
@@ -242,7 +243,7 @@ def envelope_case(
         initial = SpatialPulse(pulse, 80e-6, jones=jones).build(
             grid, space, medium=SpatialMedium(fill)
         )
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             None,
             responses,
@@ -267,7 +268,7 @@ def envelope_case(
         )
         if route == "rows":
             initial = initial.transpose(1, 0, 2).copy()
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             modes,
             responses,
@@ -281,7 +282,7 @@ def envelope_case(
             stats_spec=spec,
             ionisation_field_range=(1e7, 1e11),
         )
-    return problem, grid
+    return problem, run_request, grid
 
 
 def envelope_options(route: str) -> ExecutionOptions:
@@ -304,13 +305,13 @@ def envelope_options(route: str) -> ExecutionOptions:
 def test_envelope_currents_steps_statistics_and_repeatability(
     route: str, n_pol: int
 ) -> None:
-    problem, grid = envelope_case(route, n_pol)
+    problem, run_request, grid = envelope_case(route, n_pol)
     options = envelope_options(route)
     reference, actual = (
-        NumpyRefBackend(problem, grid=grid, options=options),
-        NativeBackend(problem, grid=grid, options=options),
+        NumpyRefBackend(problem, run_request, grid=grid, options=options),
+        NativeBackend(problem, run_request, grid=grid, options=options),
     )
-    repeat = NativeBackend(problem, grid=grid, options=options)
+    repeat = NativeBackend(problem, run_request, grid=grid, options=options)
     try:
         for owner in (reference, actual, repeat):
             owner.set_initial(problem.initial.field0, None)
@@ -340,8 +341,8 @@ def test_envelope_currents_steps_statistics_and_repeatability(
                 atol=repeat_bound * np.max(np.abs(got)),
             )
             wanted, observed = (
-                reference.stats(problem.stats_spec),
-                actual.stats(problem.stats_spec),
+                reference.stats(run_request.observation.stats),
+                actual.stats(run_request.observation.stats),
             )
             for name in NAMES:
                 np.testing.assert_allclose(
@@ -362,9 +363,12 @@ def test_envelope_currents_steps_statistics_and_repeatability(
     ["field", "shape", "nan", "weight", "inactive", "sign", "thg", "stash"],
 )
 def test_envelope_native_payload_rejects_inconsistent_inputs(corruption: str) -> None:
-    problem, _ = envelope_case("modal", 1, mixture=False)
+    problem, run_request, _ = envelope_case("modal", 1, mixture=False)
     payload = _native_problem(
-        problem, terms(problem), node_chunk=envelope_options("modal").chunk
+        problem,
+        run_request,
+        terms(problem),
+        node_chunk=envelope_options("modal").chunk,
     )
     if corruption in ("field", "thg", "stash"):
         key, value = {
@@ -405,9 +409,12 @@ def test_envelope_angular_failure_is_a_solprop_convergence_error(
 
     import solprop_native.backend as adapter
 
-    problem, grid = envelope_case(geometry, n_pol, mixture=False)
+    problem, run_request, grid = envelope_case(geometry, n_pol, mixture=False)
     payload = _native_problem(
-        problem, terms(problem), node_chunk=envelope_options(geometry).chunk
+        problem,
+        run_request,
+        terms(problem),
+        node_chunk=envelope_options(geometry).chunk,
     )
     nodes = cast(npt.NDArray[np.float64], payload["envelope_rule_nodes"]).copy()
     # Sorted interior nodes and normalized positive weights still satisfy native
@@ -421,7 +428,9 @@ def test_envelope_angular_failure_is_a_solprop_convergence_error(
         return payload
 
     monkeypatch.setattr(adapter, "_native_problem", corrupt_payload)
-    owner = NativeBackend(problem, grid=grid, options=envelope_options(geometry))
+    owner = NativeBackend(
+        problem, run_request, grid=grid, options=envelope_options(geometry)
+    )
     try:
         # Spatial pulses need enough local field to enter the angular rule; a
         # below-threshold sample correctly bypasses refinement even with bad nodes.
@@ -453,7 +462,7 @@ def test_envelope_native_batch_keeps_noisy_members_and_statistics_independent() 
 
     from solprop_native import NativeBatchBackend
 
-    problem, grid = envelope_case("modal", 2)
+    problem, run_request, grid = envelope_case("modal", 2)
     bound = native_bound(problem, grid)
     with ExitStack() as cleanup:
         members: list[NativeBackend] = []
@@ -472,7 +481,9 @@ def test_envelope_native_batch_keeps_noisy_members_and_statistics_independent() 
                 problem, initial=initial, flags=replace(problem.flags, has_noise=True)
             )
             for destination in (members, singletons):
-                owner = NativeBackend(one, grid=grid, options=envelope_options("modal"))
+                owner = NativeBackend(
+                    one, run_request, grid=grid, options=envelope_options("modal")
+                )
                 cleanup.callback(owner.close)
                 owner.set_initial(initial.field0, draw)
                 destination.append(owner)
@@ -480,7 +491,7 @@ def test_envelope_native_batch_keeps_noisy_members_and_statistics_independent() 
         cleanup.callback(batch.close)
         for target in (grid.length / 8, grid.length):
             batch.propagate_to(target)
-            got = batch.stats(problem.stats_spec)
+            got = batch.stats(run_request.observation.stats)
             for index, singleton in enumerate(singletons):
                 singleton.propagate_to(target)
                 field = singleton.observe().require_field()
@@ -490,7 +501,7 @@ def test_envelope_native_batch_keeps_noisy_members_and_statistics_independent() 
                     rtol=bound,
                     atol=bound * np.max(np.abs(field)),
                 )
-                expected = singleton.stats(problem.stats_spec)
+                expected = singleton.stats(run_request.observation.stats)
                 for name in NAMES:
                     np.testing.assert_allclose(
                         got[name][index], expected[name], rtol=bound, atol=1e-30
@@ -503,7 +514,7 @@ def test_envelope_native_batch_keeps_noisy_members_and_statistics_independent() 
                 assert right is not None
                 # Exact: the prescribed schedule's positions.
                 np.testing.assert_array_equal(left.z, right.z)
-                for name in problem.stats_spec.periodic:
+                for name in run_request.observation.stats.periodic:
                     np.testing.assert_allclose(
                         left.values[name], right.values[name], rtol=bound, atol=1e-30
                     )

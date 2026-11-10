@@ -62,7 +62,7 @@ in-stage term as the whole derivative.
 
 
 def planar_case(name, *, steps=None):
-    """Return ``(grid, space, problem)`` for one case, on a replayed schedule.
+    """Return ``(grid, space, problem, run_request)`` for one case, replayed.
 
     Parameters
     ----------
@@ -130,16 +130,17 @@ def planar_case(name, *, steps=None):
     # A collar case is translated on a zero launch, whose design check is pending,
     # and then given its launch, which translation keeps as it is: the parity cases
     # compare the backends' arithmetic on the collar, not the design's return.
-    problem = Simulation.from_planar(
+    planar = Simulation.from_planar(
         grid,
         space,
         responses,
         np.zeros_like(field0) if collar else field0,
         settings=settings,
         spatial_absorber=COLLAR if collar else None,
-    ).translate()
+    )
+    problem = planar.translate()
     if collar:
         problem = dataclasses.replace(
             problem, initial=dataclasses.replace(problem.initial, field0=field0)
         )
-    return grid, space, problem
+    return grid, space, problem, planar._run_request()

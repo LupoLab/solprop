@@ -26,7 +26,7 @@ import numpy as np
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
-from mixture_cases import mixture_case
+from mixture_cases import mixture_translation
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.grid import RadialGrid
 from solprop.pulses import GaussianPulse, SpatialPulse
@@ -46,7 +46,7 @@ def launch_case(kerr, n_pol):
     With ``kerr`` the columns read the analytic signal (a Kerr response without its
     harmonic); without it they are the real field's.
     """
-    mixture, grid, _, responses, original = mixture_case(kerr=kerr)
+    mixture, grid, _, responses, (_, original_request) = mixture_translation(kerr=kerr)
     space = RadialGrid(6e-4, 8, collar_fraction=0.0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-9),
@@ -54,20 +54,20 @@ def launch_case(kerr, n_pol):
         jones=(1,) if n_pol == 1 else (1, 0.5j),
     )
     medium = SpatialMedium(mixture)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         responses,
         pulse.build(grid, space, medium=medium),
         spatial_grid=space,
         medium=medium,
-        controller=original.stepper.controller,
+        controller=original_request.stepper.controller,
         save_planes=[grid.length],
         dz_max=grid.length,
         dz_init=grid.length,
         schedule=FixedSchedule.uniform(0, grid.length, grid.length),
     )
-    reference = NumpyRefBackend(problem, grid=grid)
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)
@@ -76,22 +76,25 @@ def launch_case(kerr, n_pol):
     finally:
         reference.close()
     assert peak > 0.0
-    return grid, dataclasses.replace(
-        problem,
-        initial=dataclasses.replace(
-            problem.initial, field0=problem.initial.field0 * (PEAK / peak)
+    return (
+        grid,
+        dataclasses.replace(
+            problem,
+            initial=dataclasses.replace(
+                problem.initial, field0=problem.initial.field0 * (PEAK / peak)
+            ),
         ),
-        stats_spec=StatsSpec(names=NAMES),
+        run_request.for_run(stats=StatsSpec(names=NAMES)),
     )
 
 
 def launch_statistics(backend_class, kerr, n_pol):
     """Return the launch's statistics on one backend."""
-    grid, problem = launch_case(kerr, n_pol)
-    backend = backend_class(problem, grid=grid)
+    grid, problem, run_request = launch_case(kerr, n_pol)
+    backend = backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        return backend.stats(problem.stats_spec)
+        return backend.stats(run_request.observation.stats)
     finally:
         backend.close()
 

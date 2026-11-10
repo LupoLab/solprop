@@ -74,10 +74,12 @@ def test_radial_circular_plasma_pays_for_electrons_in_the_area_measure(
     table = build_rate_table(EnergyRate(), (1e3, 1e11))
     derivatives = []
     for gas in ("He", "Ar"):
-        problem = make_problem(
+        problem, run_request = make_problem(
             grid, space, start, [PlasmaResponse(gas, table)], density=density
         )
-        derivatives.append(derivative(spatial_backend_class, problem, grid))
+        derivatives.append(
+            derivative(spatial_backend_class, problem, run_request, grid)
+        )
     difference = derivatives[0] - derivatives[1]
     assert np.all(difference[..., (0, -1)] == 0)
     work = (
@@ -106,8 +108,8 @@ LENGTH = 1e-4
 CHI3 = 1e-22
 
 
-def derivative(spatial_backend_class, problem, grid, options=None):
-    backend = spatial_backend_class(problem, grid=grid, options=options)
+def derivative(spatial_backend_class, problem, run_request, grid, options=None):
+    backend = spatial_backend_class(problem, run_request, grid=grid, options=options)
     try:
         backend.set_initial(problem.initial.field0, None)
         if isinstance(backend, NumpyRefBackend):
@@ -160,12 +162,12 @@ def test_radial_vector_raman_keeps_the_named_refusal(spatial_backend_class):
         make_problem(
             grid, space, np.zeros((space.n_r, 2, grid.n_omega), complex), [response]
         )
-    scalar = make_problem(
+    scalar, run_request = make_problem(
         grid, space, np.zeros((space.n_r, 1, grid.n_omega), complex), [response]
     )
     problem = dataclasses.replace(scalar, shape=(space.n_r, 2, grid.n_omega))
     with pytest.raises(BackendError, match="Raman"):
-        spatial_backend_class(problem, grid=grid)
+        spatial_backend_class(problem, run_request, grid=grid)
 
 
 @pytest.mark.parametrize("family", ["field_real", "field_analytic", "envelope"])
@@ -248,10 +250,10 @@ def test_monochromatic_kerr_uses_the_exact_spatial_prefactor(
         )
         * majorant
     )
-    problem = make_problem(
+    problem, run_request = make_problem(
         grid, space, start, [KerrResponse(CHI3, thg=family == "field_real")]
     )
-    actual = derivative(spatial_backend_class, problem, grid)
+    actual = derivative(spatial_backend_class, problem, run_request, grid)
     assert_allclose(actual, expected, rtol=0, atol=bound)
     record_metric(
         request,
@@ -342,12 +344,12 @@ def test_radial_nonlinear_ladder_matches_reference(
     bound = ladder_bound(
         spatial_backend_class.name, evaluations * per_call, grid.n_to, evaluations
     )
-    problem = make_problem(
+    problem, run_request = make_problem(
         grid, space, start, responses, steps=max(1, steps), density=density
     )
     if steps == 0:
-        reference = derivative(NumpyRefBackend, problem, grid)
-        actual = derivative(spatial_backend_class, problem, grid)
+        reference = derivative(NumpyRefBackend, problem, run_request, grid)
+        actual = derivative(spatial_backend_class, problem, run_request, grid)
         assert_allclose(
             actual, reference, rtol=0, atol=bound * np.max(np.abs(reference))
         )
@@ -364,7 +366,7 @@ def test_radial_nonlinear_ladder_matches_reference(
     statistics = []
     spec = StatsSpec(names=("energy", "on_axis_intensity", "peak_intensity"))
     for implementation in (NumpyRefBackend, spatial_backend_class):
-        backend = implementation(problem, grid=grid)
+        backend = implementation(problem, run_request, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             summary = backend.propagate_to(LENGTH)
@@ -463,10 +465,10 @@ def test_radial_field_envelope_and_scalar_vector_parity(
             spectrum = np.fft.fft(temporal)[grid.crop_index] * grid.crop_scale
         start = np.zeros((space.n_r, n_pol, grid.n_omega), complex)
         start[:, 0] = spatial[:, None] * spectrum
-        problem = make_problem(
+        problem, run_request = make_problem(
             grid, space, start, [KerrResponse(CHI3, thg=False)], steps=steps
         )
-        backend = spatial_backend_class(problem, grid=grid)
+        backend = spatial_backend_class(problem, run_request, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)
@@ -512,15 +514,19 @@ def test_radial_chunked_nonlinear_transform_matches_the_full_rule(
     nonlinear_case, spatial_backend_class, chunk, request
 ):
     _, grid, space, start, responses, density = nonlinear_case
-    problem = make_problem(grid, space, start, responses, density=density)
+    problem, run_request = make_problem(grid, space, start, responses, density=density)
     # Repartitioning changes the reduction association only; its two dense sums
     # and temporal transforms are bounded before either derivative is evaluated.
     bound = ladder_bound(
         spatial_backend_class.name, gamma(64 * space.n_r + 32 * grid.n_to), grid.n_to, 1
     )
-    reference = derivative(spatial_backend_class, problem, grid)
+    reference = derivative(spatial_backend_class, problem, run_request, grid)
     actual = derivative(
-        spatial_backend_class, problem, grid, ExecutionOptions(node_chunk=chunk)
+        spatial_backend_class,
+        problem,
+        run_request,
+        grid,
+        ExecutionOptions(node_chunk=chunk),
     )
     assert_allclose(actual, reference, rtol=0, atol=bound * np.max(np.abs(reference)))
     record_metric(

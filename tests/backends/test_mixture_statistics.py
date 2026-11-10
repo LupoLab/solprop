@@ -13,7 +13,7 @@ import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
 from bounds import assert_within, gamma
-from mixture_cases import mixture_case
+from mixture_cases import mixture_translation
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.populations import population_statistics
 from solprop.exceptions import BackendError, OutputError
@@ -86,8 +86,8 @@ def test_population_statistics_refuse_invalid_domains(quantity):
 
 
 def test_numpy_species_statistics_match_the_independent_node_scans():
-    mixture, grid, _, _, problem = mixture_case()
-    backend = NumpyRefBackend(problem, grid=grid)
+    mixture, grid, _, _, (problem, run_request) = mixture_translation()
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     names = (
         "species_ionisation",
@@ -122,7 +122,7 @@ def test_numpy_species_statistics_match_the_independent_node_scans():
 
 @pytest.mark.parametrize("channels", [0, 1])
 def test_inactive_components_keep_the_species_axis(backend_class, channels):
-    mixture, grid, mode, responses, original = mixture_case()
+    mixture, grid, mode, responses, (original, run_request) = mixture_translation()
     selected = tuple(
         response
         for response in responses
@@ -150,7 +150,7 @@ def test_inactive_components_keep_the_species_axis(backend_class, channels):
         "species_ionisation_energy",
         "species_peak_ionisation_rate",
     )
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         values = backend.stats(StatsSpec(names=names))
@@ -182,7 +182,7 @@ def test_inactive_components_keep_the_species_axis(backend_class, channels):
 @pytest.mark.parametrize("taper", [None, 2.0])
 def test_resolved_species_energy_uses_physical_weights_and_taper(taper):
 
-    _, grid, _, _, original = mixture_case()
+    _, grid, _, _, (original, _) = mixture_translation()
     weights = np.array([1e-12, 2e-12, 4e-12])
     transform = dataclasses.replace(
         original.transform,
@@ -220,7 +220,7 @@ def test_resolved_species_energy_uses_physical_weights_and_taper(taper):
 @pytest.mark.parametrize("geometry", ["radial", "free"])
 def test_spatial_species_energy_uses_the_geometry_measure(geometry):
 
-    _, grid, _, _, original = mixture_case()
+    _, grid, _, _, (original, _) = mixture_translation()
     transform = (
         radial_transform(RadialGrid(1e-3, 8), grid, z_max=grid.length)
         if geometry == "radial"
@@ -247,7 +247,7 @@ def test_spatial_species_energy_uses_the_geometry_measure(geometry):
 
 def test_population_mapping_refuses_wrong_channel_extents_and_missing_measure():
 
-    _, _, _, _, original = mixture_case()
+    _, _, _, _, (original, _) = mixture_translation()
     with pytest.raises(BackendError, match="channel arrays of shape"):
         population_statistics(original, 0.0, np.zeros((1, 1)), np.zeros((1, 1)))
     transform = dataclasses.replace(

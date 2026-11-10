@@ -70,6 +70,7 @@ def test_public_surface_is_exact() -> None:
         "MODAL_TABLES_FIELDS",
         "PROBLEM_FIELDS",
         "REGIONAL_RESPONSE_FIELDS",
+        "REQUEST_FIELDS",
         "RESPONSE_FIELDS",
         "ROUTE_FIELDS",
         "SEPARABLE_OPERATOR_FIELDS",
@@ -647,8 +648,8 @@ def test_the_process_pool_follows_the_affinity_mask(
 def test_initial_array_contract(
     phase_a_case: PhaseACase, writable_initial: ComplexArray
 ) -> None:
-    problem, grid = phase_a_case
-    backend = native.NativeBackend(problem, grid=grid)
+    problem, run_request, grid = phase_a_case
+    backend = native.NativeBackend(problem, run_request, grid=grid)
     try:
         with pytest.raises(TypeError, match="NumPy ndarray"):
             backend.set_initial(cast(ComplexArray, writable_initial.tolist()), None)
@@ -674,8 +675,8 @@ def test_initial_array_contract(
 def test_observation_owns_host_storage(
     phase_a_case: PhaseACase, writable_initial: ComplexArray
 ) -> None:
-    problem, grid = phase_a_case
-    backend = native.NativeBackend(problem, grid=grid)
+    problem, run_request, grid = phase_a_case
+    backend = native.NativeBackend(problem, run_request, grid=grid)
     backend.set_initial(writable_initial, None)
     first = backend.observe().require_field()
     expected = first.copy()
@@ -699,16 +700,15 @@ def test_repeated_and_concurrent_instances_are_independent(
     (:func:`bounds.step_bound`). State leaking between instances would move the
     field by far more.
     """
-    original, grid = phase_a_case
-    problem = dataclasses.replace(
-        original,
-        stepper=dataclasses.replace(
-            original.stepper, schedule=FixedSchedule.uniform(0.0, 1e-3, 2.5e-4)
-        ),
+    problem, run_request, grid = phase_a_case
+    run_request = run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper, schedule=FixedSchedule.uniform(0.0, 1e-3, 2.5e-4)
+        )
     )
 
     def run() -> ComplexArray:
-        backend = native.NativeBackend(problem, grid=grid)
+        backend = native.NativeBackend(problem, run_request, grid=grid)
         try:
             backend.set_initial(writable_initial, None)
             backend.propagate_to(1e-3)
@@ -749,8 +749,8 @@ def test_substantial_native_trial_releases_the_gil(
     trial takes, which one busy Linux host did in about half its runs;
     trials are now repeated, each bracketed, until a stamp lands inside one.
     """
-    problem, grid = phase_a_case
-    backend = native.NativeBackend(problem, grid=grid)
+    problem, run_request, grid = phase_a_case
+    backend = native.NativeBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     active = threading.Event()
     finished = threading.Event()
@@ -788,8 +788,8 @@ def test_substantial_native_trial_releases_the_gil(
 
 
 def test_close_is_idempotent_and_guards_use(phase_a_case: PhaseACase) -> None:
-    problem, grid = phase_a_case
-    backend = native.NativeBackend(problem, grid=grid)
+    problem, run_request, grid = phase_a_case
+    backend = native.NativeBackend(problem, run_request, grid=grid)
     backend.close()
     backend.close()
     with pytest.raises(Exception, match="closed"):
@@ -1053,9 +1053,9 @@ def test_the_reference_parts_time_what_they_are_asked_to() -> None:
 def test_operation_sizing_metadata_preserves_process_cap(
     phase_a_case: PhaseACase,
 ) -> None:
-    problem, grid = phase_a_case
+    problem, run_request, grid = phase_a_case
     info = native.build_info()
-    backend = native.NativeBackend(problem, grid=grid)
+    backend = native.NativeBackend(problem, run_request, grid=grid)
     try:
         sizing = cast(dict[str, dict[str, int]], backend.metadata()["execution_sizing"])
         assert sizing

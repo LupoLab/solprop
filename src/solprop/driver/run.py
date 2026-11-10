@@ -92,6 +92,7 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import tdse_descriptor, transverse_of
+from solprop.translate.run_request import HistoryPolicy, RunRequest
 from solprop.translate.tdse import TDSEBinding
 
 __all__ = [
@@ -349,7 +350,7 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     The plane at ``problem.initial.z`` is saved first, with an empty step history, and
     then each save plane in turn: propagate, observe, collect statistics, save. Steps
     land on the planes exactly, so a saved field is an exact step endpoint and there
-    is no interpolation (``docs/dev/stepper.md`` section 3), unless the problem asks
+    is no interpolation (``docs/dev/stepper.md`` section 3), unless the request asks
     for dense output. With ``stepper.step_planes`` the march also stops at the end of
     every ``step_planes``-th accepted step, which is saved too before the same plane
     is asked for again. A plane whose propagation did not meet its tolerance is logged
@@ -358,10 +359,14 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
-        The translated problem, whose ``stepper.save_planes`` is the itinerary.
+        The translated problem.
     backend : solprop.backends.protocol.Backend
-        The backend stepping it, constructed for `problem`. The run loads `start` into
-        it and leaves it open.
+        The backend stepping it, constructed for `problem` and its run's request
+        (:attr:`~solprop.backends.protocol.Backend.request`), whose save planes are
+        the itinerary; the run's own request is that one with this run's start,
+        retention, statistics, monitor and history
+        (:meth:`~solprop.translate.run_request.RunRequest.for_run`). The run loads
+        `start` into it and leaves it open.
     output : solprop.output.schema.Output
         Where the planes go. Closed when the loop ends, whether or not it succeeded.
     start : solprop.backends.session.Start
@@ -375,8 +380,8 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
         The record of the run, written when the handler opens.
         :func:`solprop.driver.simulation.metadata_for` builds one.
     stats_spec : solprop.stats.StatsSpec, optional
-        Which statistics to collect at each plane. Defaults to the contract's own
-        ``problem.stats_spec`` (section 8 of ``docs/dev/kernel-contract.md``).
+        Which statistics to collect at each plane. Defaults to the backend's request's
+        own (section 8 of ``docs/dev/kernel-contract.md``).
     progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None, optional
         Where progress goes. ``None`` takes the process default
         (:func:`solprop.log.default_progress`, ``"auto"`` unless
@@ -443,7 +448,7 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     Raises
     ------
     DriverError
-        If the statistics given here disagree with the problem's own about the
+        If the statistics given here disagree with the request's own about the
         between-planes channel; if the record and the problem disagree about
         whether this is a general modal run; if the start's ``plane_index`` is not a
         plane of this problem; or if the field retention is not valid, names a plane
@@ -467,30 +472,33 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     >>> gnlse = problem_from([0.0, 0.0, -1.183e-26], omega_ref=grid.omega0,
     ...                      gamma=0.11, shock=False)
     >>> start = SechPulse(wavelength=835e-9, width=100e-15, peak_power=9.8).build(grid)
-    >>> problem = assemble(grid, gnlse.mode, [gnlse.kerr], start,
+    >>> problem, request = assemble(grid, gnlse.mode, [gnlse.kerr], start,
     ...                    controller=PIController(rtol=1e-6, atol=1e-16),
     ...                    save_planes=[0.005, 0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0)
-    >>> backend = select("numpy_ref", problem, grid=grid, modes=[gnlse.mode])
+    >>> backend = select("numpy_ref", problem, request, grid=grid, modes=[gnlse.mode])
     >>> handler = MemoryOutput()
     >>> run_problem(problem, backend, handler, start=Start.entrance(problem),
-    ...             metadata=metadata_for(problem, grid, modes=[gnlse.mode]))
+    ...             metadata=metadata_for(problem, request, grid, modes=[gnlse.mode]))
     >>> backend.close()
     >>> handler.n_saved, handler["z"].tolist()
     (3, [0.0, 0.005, 0.01])
     """
-    spec = problem.stats_spec if stats_spec is None else stats_spec
-    planes = np.asarray(problem.stepper.save_planes, dtype=np.float64)
+    prepared = backend.request
+    spec = prepared.observation.stats if stats_spec is None else stats_spec
+    planes = np.asarray(prepared.observation.save_planes, dtype=np.float64)
     start_plane = start.plane_index
-    _refuse_unrunnable(problem, spec, start_plane, planes.size, metadata=metadata)
+    _refuse_unrunnable(
+        problem, prepared, spec, start_plane, planes.size, metadata=metadata
+    )
     # The backend's door for a spec handed here rather than the problem's own, which
     # `select` already checked (SEP 23: a backend without a statistic refuses it).
     refusal = statistics_refusal(backend.name, spec.names)
     if refusal is not None:
         raise DriverError(refusal)
-    retention = field_retention(problem, fields, field_planes)
+    retention = field_retention(prepared, fields, field_planes)
     _check_retainable(output, retention)
-    check_snapshot_request(problem, output, snapshots, resume_history, fields)
+    check_snapshot_request(prepared, output, snapshots, resume_history, fields)
     if tdse_descriptor(problem.route) is not None and not isinstance(
         output, CheckpointOutput
     ):
@@ -500,21 +508,16 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     reporter = resolve_reporter(
         progress,
         period=progress_period,
-        n_steps=_replayed_steps(problem, start_plane),
+        n_steps=_replayed_steps(prepared, start_plane),
         # The low-storage march records 0.0, "not estimated" (SEP 24 section 6.3).
-        estimated=not isinstance(problem.stepper.integrator, LowStorageRungeKutta),
+        estimated=not isinstance(prepared.integration.method, LowStorageRungeKutta),
     )
     # The session and its service loop (SEP 47): imported here, since the service
     # loop builds on this module's output transactions.
     from solprop.backends.sessions import start_session  # noqa: PLC0415
     from solprop.driver.service import ServiceContext, serve  # noqa: PLC0415
-    from solprop.translate.run_request import (  # noqa: PLC0415
-        HistoryPolicy,
-        describe_run,
-    )
 
-    request = describe_run(
-        problem,
+    request = prepared.for_run(
         stats=spec,
         retention=retention,
         start_plane=start_plane,
@@ -615,6 +618,7 @@ def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
     reporter: ProgressReporter,
     start: tuple[int, float],
     *,
+    request: RunRequest,
     boundary_check: BoundaryCheck | None = None,
 ) -> None:
     """Show the run's summary through the reporter and record it on a plane store.
@@ -635,12 +639,15 @@ def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
     start : tuple of int and float
         The first save plane beyond the loaded state, and the position the run starts
         from, m.
+    request : solprop.translate.run_request.RunRequest
+        The run's request.
     boundary_check : solprop.monitor.BoundaryCheck or None, optional
         The thresholds the window's edges are watched with, or ``None``.
     """
     start_plane, z_start = start
     summary = run_summary(
         problem,
+        request,
         metadata,
         backend=backend.name,
         execution=backend.metadata(),
@@ -662,7 +669,7 @@ def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
 
 
 def check_snapshot_request(
-    problem: PropagationProblem,
+    request: RunRequest,
     output: Output,
     snapshots: SnapshotController | None,
     resume_history: bool | None,
@@ -676,8 +683,8 @@ def check_snapshot_request(
 
     Parameters
     ----------
-    problem : PropagationProblem
-        Translated run and observation policy.
+    request : solprop.translate.run_request.RunRequest
+        The run's request, whose method decides what a snapshot needs.
     output : Output
         Requested optical writer.
     snapshots : SnapshotController or None
@@ -707,14 +714,14 @@ def check_snapshot_request(
     # never needs the step's extension to reconstruct a plane (SEP 47 section 5.5).
     if fields != "all":
         raise DriverError("snapshots require fields='all'")
-    if isinstance(problem.stepper.integrator, Multistep) and resume_history is False:
+    if isinstance(request.integration.method, Multistep) and resume_history is False:
         raise DriverError(
             "snapshots require Adams history; resume_history=False is incompatible"
         )
 
 
 def field_retention(
-    problem: PropagationProblem, fields: object, field_planes: Sequence[int]
+    request: RunRequest, fields: object, field_planes: Sequence[int]
 ) -> FieldRetention:
     """Return a run's field retention, resolved against its saved planes.
 
@@ -724,8 +731,8 @@ def field_retention(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem: its save planes, and the entrance, are the planes.
+    request : solprop.translate.run_request.RunRequest
+        The run's request: its save planes, and the entrance, are the planes.
     fields : object
         ``"all"``, ``"planes"`` or ``"none"``.
     field_planes : collections.abc.Sequence of int
@@ -751,13 +758,14 @@ def field_retention(
     ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
     ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
     ... )
-    >>> field_retention(simulation.translate(), "planes", [-1]).field_planes
+    >>> field_retention(simulation._run_request(), "planes", [-1]).field_planes
     (2,)
     """
     refusal = field_retention_refusal(fields, field_planes)
     if refusal is not None:
         raise DriverError(refusal)
-    if fields == "planes" and problem.stepper.step_planes:
+    observation = request.observation
+    if fields == "planes" and observation.step_planes:
         msg = (
             "fields='planes' names saved planes by index, and step_planes saves the "
             "march's own steps as well, so the plane count is not known in advance; "
@@ -767,7 +775,7 @@ def field_retention(
     try:
         return FieldRetention(
             cast("FieldsChoice", fields), tuple(int(index) for index in field_planes)
-        ).resolved(len(problem.stepper.save_planes) + 1)
+        ).resolved(observation.save_planes.size + 1)
     except OutputError as error:
         raise DriverError(str(error)) from error
 
@@ -823,6 +831,7 @@ def _resume_position(
     output: Output,
     checkpoint_output: CheckpointOutput | None,
     problem: PropagationProblem,
+    request: RunRequest,
 ) -> tuple[float, bool]:
     """Resolve the actual checkpoint position and any scheduled observation owed.
 
@@ -833,7 +842,9 @@ def _resume_position(
     checkpoint_output : CheckpointOutput or None
         Checkpoint-capable handler, if available, holding any terminal state.
     problem : PropagationProblem
-        Translated problem with absolute launch and scheduled save positions, m.
+        Translated problem with the absolute launch position, m.
+    request : solprop.translate.run_request.RunRequest
+        The run's request, with the scheduled save positions, m.
 
     Returns
     -------
@@ -850,7 +861,7 @@ def _resume_position(
     missing_current_save = (
         checkpoint_output is not None
         and checkpoint_output.terminal_checkpoint is not None
-        and bool(np.any(problem.stepper.save_planes == reached))
+        and bool(np.any(request.observation.save_planes == reached))
         and (output.n_saved == 0 or float(output["z"][-1]) < reached)
     )
     return reached, missing_current_save
@@ -1037,14 +1048,14 @@ unknown, never as a reason (``retention_at``).
 
 
 def _method_history(
-    problem: PropagationProblem,
+    request: RunRequest,
 ) -> Literal["adams", "rk", "low_storage"]:
-    """Return which kind of method history a problem's march keeps.
+    """Return which kind of method history a run's march keeps.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's request.
 
     Returns
     -------
@@ -1052,7 +1063,7 @@ def _method_history(
         An Adams history a resume can continue; Runge-Kutta controller memory (the
         proposal and the norm memory), which a resume resets; or no history at all.
     """
-    integrator = problem.stepper.integrator
+    integrator = request.integration.method
     if isinstance(integrator, Multistep):
         return "adams"
     if isinstance(integrator, LowStorageRungeKutta):
@@ -1455,7 +1466,7 @@ def _record_execution(  # noqa: PLR0913 - the record's parts
     )
 
 
-def _replayed_steps(problem: PropagationProblem, start_plane: int) -> int | None:
+def _replayed_steps(request: RunRequest, start_plane: int) -> int | None:
     """Return the step count a replayed schedule will take, when it is knowable.
 
     A fixed schedule knows how many steps are left, which is a better ETA than any rate
@@ -1467,9 +1478,8 @@ def _replayed_steps(problem: PropagationProblem, start_plane: int) -> int | None
 
     Parameters
     ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem, whose ``stepper.schedule`` is the schedule if there is
-        one.
+    request : solprop.translate.run_request.RunRequest
+        The run's request, whose ``replay`` is the schedule if there is one.
     start_plane : int
         Index of the first save plane to propagate to; above zero the run is a resume.
 
@@ -1478,10 +1488,9 @@ def _replayed_steps(problem: PropagationProblem, start_plane: int) -> int | None
     int or None
         The schedule's whole step count, or ``None`` for an adaptive or resumed run.
     """
-    schedule = problem.stepper.schedule
-    if schedule is None or start_plane > 0:
+    if request.replay is None or start_plane > 0:
         return None
-    return schedule.n_steps
+    return request.replay.schedule.n_steps
 
 
 def _refuse_a_record_that_misnames_the_basis(
@@ -1541,6 +1550,7 @@ def _refuse_a_record_that_misnames_the_basis(
 
 def _refuse_unrunnable(
     problem: PropagationProblem,
+    request: RunRequest,
     spec: StatsSpec,
     start_plane: int,
     n_planes: int,
@@ -1553,12 +1563,14 @@ def _refuse_unrunnable(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem about to be run.
+    request : solprop.translate.run_request.RunRequest
+        The request the backend was built for.
     spec : solprop.stats.StatsSpec
         The statistics asked for. A ``periodic`` subset is accepted -- the seam carries
         it, and a name no backend can evaluate between planes was refused by
         :class:`~solprop.stats.StatsSpec` when the spec was built -- but it must agree
-        with the problem's own, because the channel is armed when the backend is built
-        and reads the problem's spec, not this one.
+        with the request's own, because the channel is armed when the backend is built
+        and reads the request's spec, not this one.
     start_plane : int
         Index of the first save plane to propagate to.
     n_planes : int
@@ -1573,7 +1585,7 @@ def _refuse_unrunnable(
         Naming what cannot be done.
     """
     _refuse_a_record_that_misnames_the_basis(problem, metadata)
-    channel = problem.stats_spec
+    channel = request.observation.stats
     if (spec.periodic, spec.period) != (channel.periodic, channel.period):
         msg = (
             f"the statistics given to this loop ask for {list(spec.periodic)} every "

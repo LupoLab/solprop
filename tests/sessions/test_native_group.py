@@ -52,7 +52,6 @@ from solprop.monitor import BoundaryCheck, BoundaryMonitor
 from solprop.stepper import Multistep
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.run_request import describe_run
 
 group_module = pytest.importorskip("solprop_native.group")
 
@@ -111,7 +110,7 @@ def _started(
     owners = [constructed(one, cleanup) for one in simulations]
     for index, (after, stage) in (faults or {}).items():
         owners[index]._native_state.adams_march_fault(stage, after, "backend")
-    requests = [describe_run(problem) for problem in problems]
+    requests = [one._run_request() for one in simulations]
     starts = [Start.entrance(problem) for problem in problems]
     kind = DriverGroupSession if transitional else start_group
     group = kind(owners, problems, requests, starts)
@@ -420,7 +419,7 @@ def _requests(simulations: Sequence[Any]) -> tuple[list[Any], list[Any], list[An
     problems = [one.translate() for one in simulations]
     return (
         problems,
-        [describe_run(problem) for problem in problems],
+        [one._run_request() for one in simulations],
         [Start.entrance(problem) for problem in problems],
     )
 
@@ -446,10 +445,12 @@ def test_the_native_group_refuses_by_name_what_it_does_not_run():
         1,
         "native",
         schedule=FixedSchedule.uniform(0.0, PLANES[-1], STEP / 2, save_planes=PLANES),
-    ).translate()
+    )
     assert "member 1, which does not share member 0's schedule" in (
         group_module.refusal(
-            [problems[0], finer], [requests[0], describe_run(finer)], starts
+            [problems[0], finer.translate()],
+            [requests[0], finer._run_request()],
+            starts,
         )
     )
     with ExitStack() as cleanup:

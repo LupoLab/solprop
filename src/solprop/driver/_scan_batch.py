@@ -43,7 +43,6 @@ from solprop.exceptions import DriverError
 from solprop.output.scan import PointResult
 from solprop.output.schema import BackendRecord, RunMetadata, SavedPlane, StepStats
 from solprop.processing.scans import _provenance
-from solprop.translate.run_request import describe_run
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +78,7 @@ def _construct(simulation: Simulation, cleanup: ExitStack) -> Backend:
     owner = select(
         simulation.settings.backend,
         simulation.translate(),
+        simulation._run_request(),
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
@@ -408,8 +408,10 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
                 owners,
                 problems,
                 [
-                    describe_run(problem, monitor=member.simulation._boundary_monitor())
-                    for member, problem in zip(group, problems, strict=True)
+                    member.simulation._run_request().for_run(
+                        monitor=member.simulation._boundary_monitor()
+                    )
+                    for member in group
                 ],
                 [Start.entrance(problem) for problem in problems],
             )

@@ -69,10 +69,12 @@ with warnings.catch_warnings():
         noise=None,
     )
     problem = simulation.translate()
+    run_request = simulation._run_request()
 
 backend = select(
     "native",
     problem,
+    run_request,
     grid=simulation.grid,
     modes=simulation.modes,
     profiles=simulation.profiles,

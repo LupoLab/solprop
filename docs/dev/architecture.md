@@ -262,10 +262,11 @@ user script / prop_capillary(...)                                  (D)
    ▼
 Simulation(...)                                                    (D)
    │  .translate() → PropagationProblem  (validated arrays)                   (T)
-   │  .backend = backends.select(name, problem)                     (B)
+   │     beside it the RunRequest: stepper settings, planes, statistics
+   │  .backend = backends.select(name, problem, request)            (B)
    ▼
 run loop over save planes and stats periods                        (D)
-   │  session = start_session(backend, problem, request, start)
+   │  session = backend.prepare(problem, request.for_run(...)).start(start)
    │  backend.set_initial(field)  (by the session)                  host → device once
    │  for z_save in planes: backend.propagate_to(z_save)            the driver's marches
    │                        obs = backend.observe()                 small host arrays
@@ -469,8 +470,11 @@ shared groups are common to every route; what differs between routes is one vari
 closed union, `problem.route` (`translate/routes.py`: `ModalRoute`, `GeneralRoute` or
 `SpatialRoute` of kind radial, Cartesian, planar or line), each with the fields its
 executor needs, which every backend visits explicitly and refuses by name before it
-allocates ([SEP 47](seps/sep-0047-run-ownership.md) §6.2). What it computes, once per
-problem:
+allocates ([SEP 47](seps/sep-0047-run-ownership.md) §6.2). Beside the problem it
+returns the run's `RunRequest` (`translate/run_request.py`): the stepper settings with
+the route's defaults filled and the collars' limits applied, the save planes and the
+statistics, which are how the problem is run and not what it means (SEP 47 §5.2;
+`assemble` returns `Translation(problem, request)`). What it computes, once per problem:
 
 | product | from | representation |
 |---|---|---|
@@ -480,13 +484,14 @@ problem:
 | response spec | `nonlinear/responses.py` | compiled ordering of the fused pass, coefficients, ionisation-rate spline tables (log-spaced, converged, clip limits), Raman kernels on the doubled grid in the frequency domain, normalisation prefactors |
 | masks and rates | `grid.py`, `boundaries.py` | in-band mask, spectral rate (already in D), temporal rate, hard band mask, crop/pad scaling; analytic fine-grid collar derivative and steady-current certificate for field plasma |
 | initial state and noise realisation | `pulses.py`, `noise.py` | canonical layout |
-| stepper settings | `stepper/` | tableau, tolerances, controller parameters, schedule, save planes, caps |
-| statistics requests | `stats.py` | which statistics, which windows |
+| stepper settings (the request's) | `stepper/` | tableau, tolerances, controller parameters, schedule, save planes, caps |
+| statistics requests (the request's) | `stats.py` | which statistics, which windows |
 | spatial plane measure | `spatial.py`, `adiabatic.py`, `translate/flux.py` | the `FluxPlan`: separable coefficients whose root gives each column's axial admittance, the material square's z table for a varying radial medium, and its adiabatic admission (SEP 34) |
 | route | `translate/routes.py` | the variant, its transform and its own leaves: the TDSE source, the plane measure, the transverse boundary |
 
-Validation is not optional: a backend calls `problem.validate()` and refuses anything
-inconsistent. Tables are cached on the `Simulation` and rebuilt only when a physics object
+Validation is not optional: a backend calls `validate_run(problem, request)` where it is
+built, before it allocates, and refuses anything inconsistent; `problem.validate()` is the
+part of it that needs no request. Tables are cached on the `Simulation` and rebuilt only when a physics object
 changes.
 
 ## 8. The solver, in one page

@@ -48,8 +48,8 @@ from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.problem import PropagationProblem, assemble
-from solprop.translate.run_request import describe_run
+from solprop.translate.problem import PropagationProblem, Translation, assemble
+from solprop.translate.run_request import RunRequest
 
 native_session = pytest.importorskip("solprop_native.session")
 
@@ -84,7 +84,7 @@ def _one_thread() -> bool:
     }
 
 
-def _replayed(scale: float = 1.0) -> PropagationProblem:
+def _replayed(scale: float = 1.0) -> Translation:
     """Return the soliton replayed by the low-storage march, a row every step.
 
     Parameters
@@ -94,8 +94,8 @@ def _replayed(scale: float = 1.0) -> PropagationProblem:
 
     Returns
     -------
-    solprop.translate.problem.PropagationProblem
-        The problem.
+    solprop.translate.problem.Translation
+        The problem and its run's request.
     """
     grid = window()
     peak = scale * abs(BETA2) / (GAMMA * TAU0**2)
@@ -145,13 +145,17 @@ class _Faulted(native_session.NativeSession):
         return prepared
 
 
-def _native(problem: PropagationProblem, *, after: int | None = None) -> Any:
+def _native(
+    problem: PropagationProblem, run_request: RunRequest, *, after: int | None = None
+) -> Any:
     """Start a native session on a problem, failing partway through a step if asked.
 
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
+    run_request : solprop.translate.run_request.RunRequest
+        Its run's request.
     after : int or None, optional
         The steps that complete before a failing one; ``None`` for no failure.
 
@@ -163,11 +167,9 @@ def _native(problem: PropagationProblem, *, after: int | None = None) -> Any:
     context: dict[str, Any] = {"grid": window(), "modes": [fibre().mode]}
     if after is None:
         return native_session.NativeSession(
-            problem, describe_run(problem), entrance(problem), **context
+            problem, run_request, entrance(problem), **context
         )
-    return _Faulted(
-        problem, describe_run(problem), entrance(problem), after=after, **context
-    )
+    return _Faulted(problem, run_request, entrance(problem), after=after, **context)
 
 
 class _AbandonedError(RuntimeError):
@@ -175,7 +177,10 @@ class _AbandonedError(RuntimeError):
 
 
 def _driver(
-    problem: PropagationProblem, *, failing: int | None = None
+    problem: PropagationProblem,
+    run_request: RunRequest,
+    *,
+    failing: int | None = None,
 ) -> DriverSession:
     """Start the driver session over the native backend, failing a step if asked.
 
@@ -183,6 +188,8 @@ def _driver(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
+    run_request : solprop.translate.run_request.RunRequest
+        Its run's request.
     failing : int or None, optional
         The step whose native passes complete and whose engine then raises, as the
         native failure does; ``None`` for no failure.
@@ -192,13 +199,13 @@ def _driver(
     solprop.backends.driver_session.DriverSession
         The session.
     """
-    driver = select("native", problem, grid=window(), modes=[fibre().mode])
+    driver = select("native", problem, run_request, grid=window(), modes=[fibre().mode])
     if failing is not None:
         march = cast("StepDriver[Any]", driver)._low_storage
         assert march is not None
         engine = march.engine
         engine.step = _FailingStep(engine.step, failing)
-    return DriverSession(driver, problem, describe_run(problem), entrance(problem))
+    return DriverSession(driver, problem, run_request, entrance(problem))
 
 
 class _FailingStep:
@@ -247,14 +254,14 @@ def test_no_step_returns_to_python():
     and book it (the counters' ``low_storage_step``); the native session returns only
     at its observations and its end, its rows taken natively.
     """
-    problem = _replayed()
+    problem, run_request = _replayed()
     counters = _counters.enable()
     try:
-        _closed(_driver(problem))
+        _closed(_driver(problem, run_request))
     finally:
         _counters.disable()
     assert counters.record()["native_returns"] == {"low_storage_step": STEPS}
-    session = _native(problem)
+    session = _native(problem, run_request)
     counters = _counters.enable()
     try:
         run = drive(Started(session))
@@ -285,10 +292,10 @@ def test_a_failure_partway_through_a_step_poisons_the_session():
     the terminal event is poisoned, with no ticket, at the last committed endpoint,
     with the attempts before it, as the driver's in-flight failure is reported.
     """
-    problem = _replayed()
+    problem, run_request = _replayed()
     pending: list[Any] = []
     run = _closed(
-        _native(problem, after=FAILING - 1),
+        _native(problem, run_request, after=FAILING - 1),
         between=lambda session, batch: pending.append(session.pending_ticket()),
     )
     terminal = run.terminal
@@ -299,7 +306,7 @@ def test_a_failure_partway_through_a_step_poisons_the_session():
     assert "injected native failure" in str(terminal.error)
     assert run.status.attempts == FAILING - 1
     assert terminal.z == run.accepted_ends()[-1]
-    baseline = _closed(_driver(problem, failing=FAILING))
+    baseline = _closed(_driver(problem, run_request, failing=FAILING))
     assert isinstance(baseline.terminal.error, _AbandonedError)
     if _one_thread():
         assert trace(run) == trace(baseline)
@@ -311,8 +318,8 @@ def test_a_diverged_step_poisons_the_session_where_the_driver_s_does():
     The state was overwritten in place, so the terminal event is poisoned; the error
     is the low-storage march's own.
     """
-    problem = _replayed(1e3)
-    run = _closed(_native(problem))
+    problem, run_request = _replayed(1e3)
+    run = _closed(_native(problem, run_request))
     terminal = run.terminal
     assert terminal.outcome is Outcome.FAILED
     assert terminal.eligibility is Eligibility.POISONED
@@ -322,7 +329,7 @@ def test_a_diverged_step_poisons_the_session_where_the_driver_s_does():
     assert 0 < run.status.attempts < STEPS
     if not _one_thread():
         return
-    baseline = _closed(_driver(problem))
+    baseline = _closed(_driver(problem, run_request))
     assert trace(run) == trace(baseline)
     assert str(terminal.error) == str(baseline.terminal.error)
 

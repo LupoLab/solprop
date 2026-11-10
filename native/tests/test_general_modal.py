@@ -57,6 +57,7 @@ from solprop.stats import StatsSpec
 from solprop.stepper import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.run_request import RunRequest
 from thread_sizing import Sizing, assert_threaded
 
 from solprop_native import NativeBackend, NativeBatchBackend, build_info
@@ -170,6 +171,7 @@ class Case:
 
     simulation: Simulation
     problem: PropagationProblem
+    run_request: RunRequest
     state: ComplexArray
 
 
@@ -203,19 +205,19 @@ def _case(
         # numpy_ref (solprop issue #230); the route is the subject.
         simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
         problem = simulation.translate()
-    problem = _prescribed(problem, FixedSchedule(np.full(STEPS, Z_END / STEPS)))
+    run_request = _prescribed(
+        simulation._run_request(), FixedSchedule(np.full(STEPS, Z_END / STEPS))
+    )
     state = np.array(problem.initial.field0, copy=True)
     if mix is not None:
         # A second channel carrying part of the launch, so every cross term of the
         # cubic and of the delayed pair history is exercised.
         state[1] = mix * state[0]
-    return Case(simulation, problem, state)
+    return Case(simulation, problem, run_request, state)
 
 
-def _prescribed(
-    problem: PropagationProblem, schedule: FixedSchedule
-) -> PropagationProblem:
-    """Return `problem` on `schedule` with its method's order held fixed.
+def _prescribed(run_request: RunRequest, schedule: FixedSchedule) -> RunRequest:
+    """Return a request on `schedule` with its method's order held fixed.
 
     A prescribed schedule alone does not fix the discrete computation: a
     variable-order Adams march chooses its orders from error estimates, which rounding
@@ -223,21 +225,20 @@ def _prescribed(
     thread counts, a batch member and its solo run, a repeat -- the same discrete
     computation, compared by rounding budgets (solprop SEP 25 section 4.4).
     """
-    integrator = problem.stepper.integrator
+    integrator = run_request.stepper.integrator
     if isinstance(integrator, Multistep):
         integrator = dataclasses.replace(integrator, variable_order=False)
-    return dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(
-            problem.stepper, schedule=schedule, integrator=integrator
-        ),
+    return run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper, schedule=schedule, integrator=integrator
+        )
     )
 
 
 def _run(
     backend_class: type[NumpyRefBackend] | type[NativeBackend], case: Case
 ) -> tuple[ComplexArray, dict[str, int]]:
-    backend = backend_class(case.problem, grid=case.simulation.grid)
+    backend = backend_class(case.problem, case.run_request, grid=case.simulation.grid)
     try:
         backend.set_initial(case.state, None)
         backend.propagate_to(Z_END)
@@ -300,7 +301,7 @@ def _parity_bound(case: Case, reference: ComplexArray, linear: ComplexArray) -> 
         source += 2 * _fft_bound(2 * n_to) + _gamma(components**3)
     scale = float(np.max(np.abs(case.state)))
     rho = float(np.max(np.abs(reference - linear))) / scale / STEPS
-    stages = case.problem.stepper.tableau.n_stages
+    stages = case.run_request.stepper.tableau.n_stages
     per_step = 16 * EPS + stages * source * rho
     return STEPS * per_step * (1.0 + 3.0 * rho) ** STEPS * scale
 
@@ -386,7 +387,7 @@ def test_the_general_statistics_are_the_references() -> None:
     values: list[dict[str, npt.NDArray[np.float64]]] = []
     for backend_class in (NumpyRefBackend, NativeBackend):
         member: NumpyRefBackend | NativeBackend = backend_class(
-            case.problem, grid=case.simulation.grid
+            case.problem, case.run_request, grid=case.simulation.grid
         )
         try:
             member.set_initial(case.state, None)
@@ -401,7 +402,7 @@ def test_the_general_statistics_are_the_references() -> None:
         np.testing.assert_allclose(
             values[1][name], values[0][name], rtol=bound, atol=0.0, err_msg=name
         )
-    backend = NativeBackend(case.problem, grid=case.simulation.grid)
+    backend = NativeBackend(case.problem, case.run_request, grid=case.simulation.grid)
     try:
         backend.set_initial(case.state, None)
         with pytest.raises(BackendError, match="energy"):
@@ -470,7 +471,7 @@ def test_every_combination_the_reference_refuses_is_refused_by_name() -> None:
     }
     for match, one in spoiled.items():
         with pytest.raises(BackendError, match=match):
-            NativeBackend(one, grid=case.simulation.grid)
+            NativeBackend(one, case.run_request, grid=case.simulation.grid)
 
 
 def _probe(
@@ -566,7 +567,10 @@ def test_a_batch_of_general_members_agrees_with_its_members_alone() -> None:
         _parity_bound(one, single, _linear(one))
         for one, single in zip(cases, singles, strict=True)
     ]
-    members = [NativeBackend(case.problem, grid=case.simulation.grid) for _ in launches]
+    members = [
+        NativeBackend(case.problem, case.run_request, grid=case.simulation.grid)
+        for _ in launches
+    ]
     for member, state in zip(members, launches, strict=True):
         member.set_initial(state, None)
     batch = NativeBatchBackend(members)
@@ -582,7 +586,7 @@ def test_a_batch_of_general_members_agrees_with_its_members_alone() -> None:
             member.close()
 
 
-def _moving_grin() -> tuple[Simulation, PropagationProblem]:
+def _moving_grin() -> tuple[Simulation, PropagationProblem, RunRequest]:
     """Build solprop's graded-index sector on a 10 % taper over the millimetre.
 
     Solprop's moving solid guide: the core radius follows
@@ -628,8 +632,12 @@ def _moving_grin() -> tuple[Simulation, PropagationProblem]:
         )
         simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
         problem = simulation.translate()
-    return simulation, _prescribed(
-        problem, FixedSchedule(np.full(STEPS, FIBRE / STEPS))
+    return (
+        simulation,
+        problem,
+        _prescribed(
+            simulation._run_request(), FixedSchedule(np.full(STEPS, FIBRE / STEPS))
+        ),
     )
 
 
@@ -637,9 +645,10 @@ def _moving_run(
     backend_class: type[NumpyRefBackend] | type[NativeBackend],
     simulation: Simulation,
     problem: PropagationProblem,
+    run_request: RunRequest,
     field0: ComplexArray | None = None,
 ) -> tuple[ComplexArray, dict[str, int]]:
-    backend = backend_class(problem, grid=simulation.grid)
+    backend = backend_class(problem, run_request, grid=simulation.grid)
     try:
         backend.set_initial(problem.initial.field0 if field0 is None else field0, None)
         backend.propagate_to(FIBRE)
@@ -651,7 +660,10 @@ def _moving_run(
 
 
 def _moving_bound(
-    problem: PropagationProblem, expected: ComplexArray, linear: ComplexArray
+    problem: PropagationProblem,
+    run_request: RunRequest,
+    expected: ComplexArray,
+    linear: ComplexArray,
 ) -> float:
     """Return the ten-step bound relative to the launch; fixed before the first run.
 
@@ -680,7 +692,9 @@ def _moving_bound(
     rho = float(np.max(np.abs(expected - linear))) / scale / STEPS
     residual = float(np.max(flow.residual_norm_bound)) * dz
     terms = int(flow.generator.shape[0] * flow.generator.shape[1])
-    carry = 2 * channels * kappa * EPS + kappa * _formation_bound(problem, dz)
+    carry = 2 * channels * kappa * EPS + kappa * _formation_bound(
+        problem, run_request, dz
+    )
     nodes = int(tables.region_index.size)
     source = (
         2 * 512 * EPS * math.log2(problem.grids.n_to)
@@ -706,7 +720,7 @@ def _moving_bound(
         * _gamma(n_deg)
         * (3 * conditioning(tables.synthesis) + conditioning(tables.projection))
     )
-    stages = problem.stepper.tableau.n_stages
+    stages = run_request.stepper.tableau.n_stages
     per_step = 16 * EPS + 2 * carry
     per_stage = (
         rho * (source + 2 * carry + combination)
@@ -724,24 +738,26 @@ def test_a_moving_guide_runs_ten_steps_as_the_reference_does() -> None:
     coefficient, the two evaluated maps and the trial's weights, and a second run of
     the same prescribed, fixed-order march agrees within the same bound.
     """
-    simulation, problem = _moving_grin()
+    simulation, problem, run_request = _moving_grin()
     tables = problem.transform.modal_tables
     assert tables is not None
     assert tables.synthesis is not None
     intervals, n_deg = tables.synthesis.shape[:2]
     assert intervals * n_deg > 1
-    expected, _ = _moving_run(NumpyRefBackend, simulation, problem)
-    actual, ledger = _moving_run(NativeBackend, simulation, problem)
-    again, _ = _moving_run(NativeBackend, simulation, problem)
+    expected, _ = _moving_run(NumpyRefBackend, simulation, problem, run_request)
+    actual, ledger = _moving_run(NativeBackend, simulation, problem, run_request)
+    again, _ = _moving_run(NativeBackend, simulation, problem, run_request)
     small = np.asarray(problem.initial.field0 * 1e-3, dtype=np.complex128)
-    linear = 1e3 * _moving_run(NumpyRefBackend, simulation, problem, small)[0]
+    linear = (
+        1e3 * _moving_run(NumpyRefBackend, simulation, problem, run_request, small)[0]
+    )
     scale = float(np.max(np.abs(problem.initial.field0)))
     assert float(np.max(np.abs(expected - linear))) / scale / STEPS > 1e-4
-    bound = _moving_bound(problem, expected, linear)
+    bound = _moving_bound(problem, run_request, expected, linear)
     assert float(np.max(np.abs(actual - expected))) / scale <= bound
     assert float(np.max(np.abs(again - actual))) / scale <= bound
     one = int(tables.synthesis[0, 0].nbytes)
-    stages = problem.stepper.tableau.n_stages
+    stages = run_request.stepper.tableau.n_stages
     assert ledger["general_synthesis"] == intervals * n_deg * one
     assert ledger["general_projection"] == intervals * n_deg * one
     assert ledger["general_stage_maps"] == 2 * one
@@ -773,4 +789,4 @@ def test_moving_maps_without_their_connection_are_refused_by_name() -> None:
     with pytest.raises(
         BackendError, match=r"native executes a moving guide.s maps.*no coupled flow"
     ):
-        NativeBackend(spoiled, grid=case.simulation.grid)
+        NativeBackend(spoiled, case.run_request, grid=case.simulation.grid)

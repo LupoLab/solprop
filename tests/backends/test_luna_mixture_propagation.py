@@ -108,7 +108,7 @@ def problem_for(tag, steps):
     mode = MarcatiliMode(
         p["radius"], mixture=mixture, cladding=1.45, loss=False, model="full"
     )
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         mode,
         responses,
@@ -173,7 +173,7 @@ def problem_for(tag, steps):
         route=dataclasses.replace(problem.route, transform=transform),
     )
     problem.validate()
-    return problem, grid
+    return problem, run_request, grid
 
 
 @pytest.mark.parametrize("tag", ["SINGLE", "SPLIT"])
@@ -190,7 +190,7 @@ def test_luna_plasma_witness_retains_the_historical_gated_equation():
 
 def check_luna_mixture_field_witness(tag, backend_class):
     steps = 64
-    problem, grid = problem_for(tag, steps)
+    problem, run_request, grid = problem_for(tag, steps)
     channels = max(1, problem.flags.n_channels)
     # This coefficient and refinement formula were recorded before Luna ran.
     # The finest DOPRI5 remainder is estimated from the preceding refinement;
@@ -210,7 +210,7 @@ def check_luna_mixture_field_witness(tag, backend_class):
     refinement = np.linalg.norm(reference - spectrum(f"{tag}_FINAL_32") * root) / 31
     bound = rounding + 2 * refinement / np.linalg.norm(reference)
     assert bound > 0.0
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         summary = backend.propagate_to(grid.length)

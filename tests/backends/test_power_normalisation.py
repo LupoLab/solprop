@@ -49,7 +49,8 @@ def test_constant_fill_internal_trajectory_is_unchanged(backend_class):
     # 32 eps a level and the plasma column's gamma(12 n_to) (the band-rule ladder's
     # count with one tap).
     simulation = constant_fill_m2()
-    problem = fixed_order(simulation.translate())
+    problem = simulation.translate()
+    run_request = fixed_order(simulation._run_request())
     grid = simulation.grid
     root_weight = np.ones(problem.shape)
     for mode_index, mode in enumerate(simulation.modes):
@@ -101,13 +102,13 @@ def test_constant_fill_internal_trajectory_is_unchanged(backend_class):
         ),
     )
     histories = []
-    assert problem.stepper.schedule is not None
+    assert run_request.stepper.schedule is not None
     for source in (problem, reference):
-        owner = backend_class(source, grid=grid, modes=simulation.modes)
+        owner = backend_class(source, run_request, grid=grid, modes=simulation.modes)
         try:
             owner.set_initial(source.initial.field0, None)
             history = [owner.observe().require_field().copy()]
-            for position in problem.stepper.schedule.edges[1:11]:
+            for position in run_request.stepper.schedule.edges[1:11]:
                 summary = owner.propagate_to(float(position))
                 assert summary.n_steps == 1
                 assert summary.n_rejected == 0
@@ -117,7 +118,7 @@ def test_constant_fill_internal_trajectory_is_unchanged(backend_class):
             owner.close()
     n_to = grid.n_to
     per_evaluation = 32 * EPS * math.ceil(math.log2(n_to)) + gamma(12 * n_to)
-    bound = 10 * step_evaluations(problem) * per_evaluation
+    bound = 10 * step_evaluations(run_request) * per_evaluation
     for index, (ours, theirs) in enumerate(zip(*histories, strict=True)):
         assert_within(ours, theirs, bound, what=f"edge {index}")
 
@@ -135,7 +136,7 @@ def test_gnlse_route_is_unchanged(backend_class):
         [0.0, 0.0, -1.2e-26], omega_ref=grid.omega0, gamma=0.11, shock=False
     )
     field = SechPulse(wavelength=835e-9, width=30e-15, peak_power=1000.0).build(grid)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         gnlse.mode,
         [gnlse.kerr],
@@ -166,7 +167,7 @@ def test_gnlse_route_is_unchanged(backend_class):
     spec = StatsSpec(names=("energy", "peak_power", "fwhm_t"))
     results = []
     for source in (problem, reference):
-        backend = backend_class(source, grid=grid, modes=(gnlse.mode,))
+        backend = backend_class(source, run_request, grid=grid, modes=(gnlse.mode,))
         try:
             backend.set_initial(source.initial.field0, None)
             backend.propagate_to(grid.length)
@@ -191,7 +192,7 @@ def test_backend_temporal_statistics_use_the_hermitian_flux(backend_class, grid_
     mode = MarcatiliMode(125e-6, "Ar", 20.0, cladding=1.45, loss=False)
     field = GaussianPulse(wavelength=800e-9, fwhm=12e-15, energy=1e-9).build(grid)
     spec = StatsSpec(names=("peak_power", "peak_power_total", "peak_intensity"))
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         mode,
         [],
@@ -201,7 +202,7 @@ def test_backend_temporal_statistics_use_the_hermitian_flux(backend_class, grid_
         dz_max=0.01,
         dz_init=0.001,
     )
-    backend = backend_class(problem, grid=grid, modes=(mode,))
+    backend = backend_class(problem, run_request, grid=grid, modes=(mode,))
     try:
         backend.set_initial(problem.initial.field0, None)
         values = backend.stats(spec)
@@ -251,7 +252,7 @@ def test_true_energy_is_conserved_along_a_lossless_gradient(backend_class, grid_
     field = np.zeros((1, 1, grid.n_omega), complex)
     frequency = np.flatnonzero(grid.active_mask)[3]
     field[0, 0, frequency] = 1.0
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         mode,
         [],
@@ -261,7 +262,7 @@ def test_true_energy_is_conserved_along_a_lossless_gradient(backend_class, grid_
         dz_max=grid.length / 10,
         dz_init=grid.length / 10,
     )
-    backend = backend_class(problem, grid=grid, modes=(mode,))
+    backend = backend_class(problem, run_request, grid=grid, modes=(mode,))
     spec = StatsSpec(names=("energy",))
     try:
         backend.set_initial(problem.initial.field0, None)
@@ -302,7 +303,7 @@ def test_energy_statistics_equal_the_weighted_sum(backend_class, grid_class):
             [[float(grid.omega.min()) - 1.0, float(grid.omega.max()) + 1e10]]
         ),
     )
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         mode,
         [],
@@ -313,7 +314,7 @@ def test_energy_statistics_equal_the_weighted_sum(backend_class, grid_class):
         dz_init=0.001,
         stats_spec=spec,
     )
-    backend = backend_class(problem, grid=grid, modes=(mode,))
+    backend = backend_class(problem, run_request, grid=grid, modes=(mode,))
     try:
         backend.set_initial(problem.initial.field0, None)
         actual = backend.stats(spec)

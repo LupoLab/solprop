@@ -71,9 +71,16 @@ CHUNK = ExecutionOptions(node_chunk=5)
 
 
 def vector_problem(family="envelope", material="H2", route="axis", steps=8):
+    """Return :func:`vector_translation`'s problem, grid and modes."""
+    problem, _, grid, modes = vector_translation(family, material, route, steps)
+    return problem, grid, modes
+
+
+def vector_translation(family="envelope", material="H2", route="axis", steps=8):
     """Build a short constant-density run with a delayed oblique weak probe.
 
-    :func:`result` runs it in :data:`CHUNK`'s partial chunks.
+    :func:`result` runs it in :data:`CHUNK`'s partial chunks. Returns the problem, its
+    run's request (SEP 47 section 5.2), the grid and the modes.
     """
     grid_class = EnvelopeGrid if family == "envelope" else FieldGrid
     grid = grid_class.from_limits(LENGTH, 800e-9, (300e-9, 2e-6), 100e-15)
@@ -94,7 +101,7 @@ def vector_problem(family="envelope", material="H2", route="axis", steps=8):
         initial = np.sqrt(2) * polarised[:, :1] if route == "scalar" else polarised
     thg = family == "field_real"
     responses = [KerrResponse(chi3=1e-50, thg=thg), raman_response(material, thg=thg)]
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         modes,
         responses,
@@ -108,12 +115,14 @@ def vector_problem(family="envelope", material="H2", route="axis", steps=8):
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / steps),
         stats_spec=StatsSpec(names=("energy", "peak_power_total", "peak_intensity")),
     )
-    return problem, grid, modes
+    return problem, run_request, grid, modes
 
 
-def result(backend_class, problem, grid, modes, options=CHUNK):
+def result(backend_class, problem, run_request, grid, modes, options=CHUNK):
     """Return the first stage, final state, statistics and buffer ledger."""
-    backend = backend_class(problem, grid=grid, modes=modes, options=options)
+    backend = backend_class(
+        problem, run_request, grid=grid, modes=modes, options=options
+    )
     try:
         backend.set_initial(problem.initial.field0, None)
         if backend.name == "numpy_ref":
@@ -135,7 +144,7 @@ def result(backend_class, problem, grid, modes, options=CHUNK):
         return (
             rhs.reshape(2, -1),
             backend.observe().require_field().copy().reshape(2, -1),
-            backend.stats(problem.stats_spec),
+            backend.stats(run_request.observation.stats),
             backend.memory_ledger(),
         )
     finally:

@@ -151,7 +151,7 @@ def test_an_explicit_density_path_kinks_phi_too():
         density=density,
         shock=False,
         prefactor_index=1.0,
-    )
+    ).problem
     np.testing.assert_array_equal(problem.linear.hard_kinks, [0.007, 0.02])
 
 

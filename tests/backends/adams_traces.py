@@ -211,7 +211,7 @@ class _Engine:
 
 
 class _Problem:
-    """The parts of a kernel problem the march reads."""
+    """The parts of a kernel problem, and of its run's stepper, the march reads."""
 
     def __init__(self, scenario: Scenario) -> None:
         breakpoints = scenario.breakpoints or [scenario.z0, scenario.z_end]
@@ -272,6 +272,8 @@ class _Scripted:
     def __init__(self, scenario: Scenario) -> None:
         self.scenario = scenario
         self._problem = _Problem(scenario)
+        # The run's stepper section, which the march reads off the backend.
+        self._stepper = self._problem.stepper
         self._z = scenario.z0
         self._proposal = scenario.proposal
         self._collar_quiet = scenario.quiet.get(0, False)

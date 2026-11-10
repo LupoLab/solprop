@@ -77,44 +77,42 @@ def evaluation_bound(name, grid, space):
     return bound
 
 
-def ladder_bound(name, grid, space, problem, steps, length):
+def ladder_bound(name, grid, space, problem, run_request, steps, length):  # noqa: PLR0913, PLR0917 - the case, its run and the window
     """Return the bound of ``steps`` replayed steps over ``length``."""
-    evaluations = max(1.0, step_evaluations(problem) * steps)
+    evaluations = max(1.0, step_evaluations(run_request) * steps)
     operator = operator_bound(problem, length)
-    method = problem.stepper.integrator
+    method = run_request.stepper.integrator
     if method is not None:
         operator *= 2 * (method.order + 1)
     return operator + evaluations * evaluation_bound(name, grid, space)
 
 
-def on_march(problem, march):
-    """Return the problem on Runge-Kutta, or on the fixed-order Adams method."""
+def on_march(run_request, march):
+    """Return the request on Runge-Kutta, or on the fixed-order Adams method."""
     if march == "runge_kutta":
-        assert problem.stepper.integrator is None
-        return problem
-    return dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(
-            problem.stepper, integrator=Multistep(variable_order=False)
-        ),
+        assert run_request.stepper.integrator is None
+        return run_request
+    return run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper, integrator=Multistep(variable_order=False)
+        )
     )
 
 
-def with_steps(problem, steps, length):
-    """Return the problem on ``steps`` equal replayed steps, saved at ``length``."""
-    return dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(
-            problem.stepper,
+def with_steps(run_request, steps, length):
+    """Return the request on ``steps`` equal replayed steps, saved at ``length``."""
+    return run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
             schedule=FixedSchedule.uniform(0.0, length, length / steps),
             save_planes=np.array([length]),
-        ),
+        )
     )
 
 
-def run(backend_class, problem, grid, length):
+def run(backend_class, problem, run_request, grid, length):
     """Propagate the problem's launch and return the state and the summary."""
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         summary = backend.propagate_to(length)
@@ -155,17 +153,17 @@ def test_a_step_and_a_run_are_the_reference_s(
     The field families' whole schedule of 80 steps became ten of the same length, for
     the limit on a test's length: the bound is restated from those ten.
     """
-    grid, space, problem = cases(name)
-    problem = on_march(problem, march)
-    schedule = problem.stepper.schedule
+    grid, space, problem, run_request = cases(name)
+    run_request = on_march(run_request, march)
+    schedule = run_request.stepper.schedule
     assert schedule is not None
     count = min(schedule.steps.size, RUN_STEPS) if steps is None else steps
     # One step is the family's own step.
     length = grid.length * count / schedule.steps.size
-    problem = with_steps(problem, count, length)
-    bound = ladder_bound(name, grid, space, problem, count, length)
-    reference, summary = run(NumpyRefBackend, problem, grid, length)
-    actual, ours = run(native.NativeBackend, problem, grid, length)
+    run_request = with_steps(run_request, count, length)
+    bound = ladder_bound(name, grid, space, problem, run_request, count, length)
+    reference, summary = run(NumpyRefBackend, problem, run_request, grid, length)
+    actual, ours = run(native.NativeBackend, problem, run_request, grid, length)
     assert ours.n_steps == summary.n_steps == count
     measured = relative(actual, reference)
     record_property("measured", measured)
@@ -178,22 +176,21 @@ def test_a_step_and_a_run_are_the_reference_s(
 @pytest.mark.parametrize("name", ["kerr", "raman", "field-plasma", "field-kerr"])
 def test_the_responses_are_exercised(cases, name):
     """The runs above are nonlinear: removing the responses moves the state."""
-    grid, space, problem = cases(name)
+    grid, space, problem, run_request = cases(name)
     linear = dataclasses.replace(
         problem,
         responses=dataclasses.replace(
             problem.responses, response_order=problem.responses.response_order[:1]
         ),
     )
-    schedule = problem.stepper.schedule
+    schedule = run_request.stepper.schedule
     assert schedule is not None
     count = min(schedule.steps.size, RUN_STEPS)
     length = grid.length * count / schedule.steps.size
-    bound = ladder_bound(name, grid, space, problem, count, length)
+    bound = ladder_bound(name, grid, space, problem, run_request, count, length)
     # On the oracle, which reads ``response_order``: a run within the bound of it is
     # then the nonlinear run, and not a linear one.
-    nonlinear, _ = run(
-        NumpyRefBackend, with_steps(problem, count, length), grid, length
-    )
-    plain, _ = run(NumpyRefBackend, with_steps(linear, count, length), grid, length)
+    stepped = with_steps(run_request, count, length)
+    nonlinear, _ = run(NumpyRefBackend, problem, stepped, grid, length)
+    plain, _ = run(NumpyRefBackend, linear, stepped, grid, length)
     assert relative(plain, nonlinear) > 1e3 * bound

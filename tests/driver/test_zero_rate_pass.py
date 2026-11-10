@@ -54,8 +54,10 @@ def today(problem):
     )
 
 
-def run(simulation, problem):
-    backend = select(simulation.settings.backend, problem, grid=simulation.grid)
+def run(simulation, problem, run_request):
+    backend = select(
+        simulation.settings.backend, problem, run_request, grid=simulation.grid
+    )
     output = MemoryOutput()
     try:
         run_problem(
@@ -76,12 +78,12 @@ def run(simulation, problem):
 @pytest.mark.parametrize("scheme", ["nonlinear", "split_step"])
 def test_a_spectral_only_collar_runs_as_today_without_the_pass(backend, scheme):
     simulation = spectral_only(backend, scheme)
-    problem = simulation.translate()
+    problem, run_request = simulation.translate(), simulation._run_request()
     assert problem.responses.temporal_absorber is None
     assert problem.responses.temporal_absorber_fine is None
     bound = replay_bound(simulation)
-    elided = run(simulation, problem)
-    before = run(simulation, today(problem))
+    elided = run(simulation, problem, run_request)
+    before = run(simulation, today(problem), run_request)
     if backend == "numpy_ref" and scheme == "nonlinear":
         # Exact zeros were added in every stage: the reference's run is unchanged
         # bit for bit, the structural contract SEP 22 section 7 asks for.

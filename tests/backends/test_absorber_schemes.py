@@ -111,8 +111,8 @@ def biting_case(grid, scheme, n_steps):
 
 def exit_field(grid, scheme, n_steps):
     """Propagate the case on a fixed schedule and return the exit spectrum."""
-    problem = biting_case(grid, scheme, n_steps)
-    backend = NumpyRefBackend(problem, grid=grid)
+    problem, run_request = biting_case(grid, scheme, n_steps)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(LENGTH)
@@ -149,7 +149,7 @@ def relative(got, want):
 @pytest.mark.medium
 def test_the_collar_bites_on_this_case(grid, exits):
     """Otherwise every comparison below would be about a boundary that does nothing."""
-    problem = biting_case(grid, "nonlinear", 400)
+    problem = biting_case(grid, "nonlinear", 400).problem
     start = energy_of(grid, problem.initial.field0[0, 0])
     left = energy_of(grid, exits[("nonlinear", 400)])
     # A third of the pulse walks into the boundary and is absorbed over this distance
@@ -305,8 +305,8 @@ def test_a_collar_with_no_response_is_still_absorbed(grid, backend_class):
     """
     energies = {}
     for scheme in SCHEMES:
-        problem = collar_only(grid, scheme)
-        backend = backend_class(problem, grid=grid)
+        problem, run_request = collar_only(grid, scheme)
+        backend = backend_class(problem, run_request, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)
@@ -333,7 +333,7 @@ def capillary_in_its_collar(scheme):
     delay = 0.4 * (grid.t[-1] - grid.t[0])
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             mode,
             [KerrResponse(chi3=2.2e-52, thg=True)],
@@ -348,12 +348,12 @@ def capillary_in_its_collar(scheme):
             absorber=absorber(grid, boundary_N=BOUNDARY_N),
             absorber_scheme=scheme,
         )
-    return grid, problem, BAND_LENGTH
+    return grid, problem, run_request, BAND_LENGTH
 
 
 def soliton_in_its_collar(grid, scheme):
     """The envelope soliton of :func:`biting_case`, on five fixed steps."""
-    return grid, biting_case(grid, scheme, BAND_STEPS), LENGTH
+    return grid, *biting_case(grid, scheme, BAND_STEPS), LENGTH
 
 
 @pytest.mark.parametrize("kind", ["field", "envelope"])
@@ -370,10 +370,12 @@ def test_the_split_step_absorber_leaves_nothing_outside_the_active_band(
     reference kept a DC of 1 % of the spectral peak on the field case below.
     """
     if kind == "field":
-        run_grid, problem, length = capillary_in_its_collar("split_step")
+        run_grid, problem, run_request, length = capillary_in_its_collar("split_step")
     else:
-        run_grid, problem, length = soliton_in_its_collar(grid, "split_step")
-    backend = backend_class(problem, grid=run_grid)
+        run_grid, problem, run_request, length = soliton_in_its_collar(
+            grid, "split_step"
+        )
+    backend = backend_class(problem, run_request, grid=run_grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(length)
@@ -406,8 +408,8 @@ def test_the_split_step_absorber_agrees_with_the_reference(equivalence_backend_c
     """
     fields = []
     for backend_class in (NumpyRefBackend, equivalence_backend_class):
-        run_grid, problem, length = capillary_in_its_collar("split_step")
-        backend = backend_class(problem, grid=run_grid)
+        run_grid, problem, run_request, length = capillary_in_its_collar("split_step")
+        backend = backend_class(problem, run_request, grid=run_grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(length)

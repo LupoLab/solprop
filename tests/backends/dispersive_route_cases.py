@@ -44,8 +44,9 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
 from solprop.translate.general import general_modal_route
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.problem import PropagationProblem, Translation, assemble
 from solprop.translate.responses import KerrForm
+from solprop.translate.run_request import RunRequest
 
 EPS = np.finfo(float).eps
 STEPS = 10
@@ -84,8 +85,9 @@ def free_problem(
     line: bool = False,
     medium: SpatialMedium | None = None,
     adams: bool = True,
-) -> PropagationProblem:
-    """Return a Cartesian (or line) free-space problem of ten fixed steps.
+) -> Translation:
+    """Return a Cartesian (or line) free-space problem of ten fixed steps, and its
+    request.
 
     Vacuum optics and argon's density, or a gas mixture's own medium.
     """
@@ -124,7 +126,7 @@ def planar_problem(
     integrator: Multistep | RungeKutta | None = None,
     steps: int = STEPS,
     absorbed: bool = False,
-) -> tuple[PropagationProblem, TimeGrid]:
+) -> tuple[PropagationProblem, RunRequest, TimeGrid]:
     """Return a hybrid planar run: TE1 and TE3 of a lossless argon gap, four k_y.
 
     `absorbed` adds a temporal collar in the in-stage scheme, whose term reads the
@@ -164,7 +166,7 @@ def planar_problem(
             settings=settings,
             materials=MaterialSelection(),
         )
-        return simulation.translate(), simulation.grid
+        return simulation.translate(), simulation._run_request(), simulation.grid
 
 
 def raman(thg: bool) -> object:
@@ -184,11 +186,12 @@ def raman(thg: bool) -> object:
 def source(
     backend_class: type,
     problem: PropagationProblem,
+    run_request: RunRequest,
     grid: TimeGrid,
     options: ExecutionOptions | None = None,
 ) -> np.ndarray:
     """Return one evaluation of the source at the launch, in the lab frame."""
-    backend = backend_class(problem, grid=grid, options=options)
+    backend = backend_class(problem, run_request, grid=grid, options=options)
     try:
         backend.set_initial(problem.initial.field0, None)
         return np.array(backend._adams_lab_source(problem.initial.field0[None], 0.0))
@@ -197,13 +200,17 @@ def source(
 
 
 def run(
-    backend_class: type, problem: PropagationProblem, grid: TimeGrid, **options: object
+    backend_class: type,
+    problem: PropagationProblem,
+    run_request,
+    grid: TimeGrid,
+    **options: object,
 ) -> tuple[np.ndarray, Any]:
     """Propagate to the last save plane and return the field and the summary."""
-    backend = backend_class(problem, grid=grid, **options)
+    backend = backend_class(problem, run_request, grid=grid, **options)
     try:
         backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(float(problem.stepper.save_planes[-1]))
+        summary = backend.propagate_to(float(run_request.stepper.save_planes[-1]))
         return backend.observe().require_field().copy(), summary
     finally:
         backend.close()
@@ -283,7 +290,7 @@ ARGON_FILL = Mixture.fill({"Ar": 1.0}, 2.0)
 
 def general_problem(
     guide: ModalGuide, evaluator: str, form: KerrForm, *, adams: bool = True
-) -> tuple[PropagationProblem, TimeGrid]:
+) -> tuple[PropagationProblem, RunRequest, TimeGrid]:
     """Return a general modal problem launching 2 nJ into HE11, ten fixed steps."""
     grid = general_grid()
     route = general_modal_route(
@@ -296,7 +303,7 @@ def general_problem(
     )
     state = np.zeros((1, 1, grid.n_omega), complex)
     state[0, 0] = GaussianPulse(wavelength=835e-9, fwhm=40e-15, energy=2e-9).build(grid)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         list(guide.mode_collection),
         [],
@@ -309,7 +316,7 @@ def general_problem(
         integrator=Multistep() if adams else None,
         general=route,
     )
-    return problem, grid
+    return problem, run_request, grid
 
 
 CORE_CHI3 = 2.2e-22

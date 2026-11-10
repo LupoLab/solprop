@@ -51,8 +51,12 @@ if __name__ == "__main__":
     warnings.simplefilter("ignore")
     fields = {}
     for index, name in enumerate(sys.argv[2:]):
-        grid, space, problem = planar_case(name)
+        grid, space, problem, run_request = planar_case(name)
         fields[f"case{index}"], _ = propagate(
-            with_steps(problem, 10), grid, native_class(), options=chunked(space)
+            problem,
+            with_steps(run_request, 10),
+            grid,
+            native_class(),
+            options=chunked(space),
         )
     np.savez(sys.argv[1], runtime_threads=_runtime_threads(), **fields)

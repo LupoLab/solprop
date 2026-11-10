@@ -212,9 +212,11 @@ def fibre(index, backend):
 def loaded(simulation, cleanup):
     """Return the simulation's backend, loaded at the entrance and closed at exit."""
     problem = simulation.translate()
+    run_request = simulation._run_request()
     owner = select(
         simulation.settings.backend,
         problem,
+        run_request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,

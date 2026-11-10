@@ -20,6 +20,7 @@ from solprop.backends.protocol import StepSummary
 from solprop.grid import EnvelopeGrid
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend, build_info
 
@@ -66,20 +67,27 @@ def test_phase_d_roundoff_formulas_are_fixed_before_device_measurement() -> None
 def _loaded(
     backend_class: type[NumpyRefBackend],
     problem: PropagationProblem,
+    run_request: RunRequest,
     grid: EnvelopeGrid,
 ) -> NumpyRefBackend: ...
 
 
 @overload
 def _loaded(
-    backend_class: type[NativeBackend], problem: PropagationProblem, grid: EnvelopeGrid
+    backend_class: type[NativeBackend],
+    problem: PropagationProblem,
+    run_request: RunRequest,
+    grid: EnvelopeGrid,
 ) -> NativeBackend: ...
 
 
 def _loaded(
-    backend_class: PhaseBackendClass, problem: PropagationProblem, grid: EnvelopeGrid
+    backend_class: PhaseBackendClass,
+    problem: PropagationProblem,
+    run_request: RunRequest,
+    grid: EnvelopeGrid,
 ) -> PhaseBackend:
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     return backend
 
@@ -87,9 +95,9 @@ def _loaded(
 def test_one_trial_matches_numpy_within_sixteen_epsilon(
     phase_a_case: PhaseACase,
 ) -> None:
-    problem, grid = phase_a_case
-    reference = _loaded(NumpyRefBackend, problem, grid)
-    backend = _loaded(NativeBackend, problem, grid)
+    problem, run_request, grid = phase_a_case
+    reference = _loaded(NumpyRefBackend, problem, run_request, grid)
+    backend = _loaded(NativeBackend, problem, run_request, grid)
     try:
         # The numerical seam test intentionally bypasses the shared march.
         _, expected = reference._trial_step(  # pyright: ignore[reportPrivateUsage]
@@ -113,15 +121,17 @@ def test_one_trial_matches_numpy_within_sixteen_epsilon(
 def test_eight_fixed_steps_match_within_128_epsilon(
     phase_a_case: PhaseACase,
 ) -> None:
-    problem, grid = phase_a_case
+    problem, run_request, grid = phase_a_case
     schedule = FixedSchedule(np.full(8, 1.25e-4))
-    fixed = dataclasses.replace(
+    fixed, fixed_request = (
         problem,
-        stepper=dataclasses.replace(problem.stepper, schedule=schedule),
+        run_request.with_stepper(
+            dataclasses.replace(run_request.stepper, schedule=schedule)
+        ),
     )
     fields: list[ComplexArray] = []
     for backend_class in (NumpyRefBackend, NativeBackend):
-        backend = _loaded(backend_class, fixed, grid)
+        backend = _loaded(backend_class, fixed, fixed_request, grid)
         backend.propagate_to(1e-3)
         fields.append(backend.observe().require_field())
         backend.close()
@@ -131,21 +141,27 @@ def test_eight_fixed_steps_match_within_128_epsilon(
     np.testing.assert_allclose(fields[1], fields[0], rtol=0.0, atol=bound)
 
 
-def _tight_reference(problem: PropagationProblem, grid: EnvelopeGrid) -> ComplexArray:
+def _tight_reference(
+    problem: PropagationProblem, run_request: RunRequest, grid: EnvelopeGrid
+) -> ComplexArray:
     """Return the case's field at 1 mm from ``numpy_ref`` at a much tighter tolerance.
 
     ``rtol`` 1e-12 against the cases' 1e-8, and steps of at most 10 um against the
     cases' millimetre cap (their steps are set by the cap and the growth limit, not by
     the error estimate): the reference's own error is far below the runs' it judges.
     """
-    controller = dataclasses.replace(problem.stepper.controller, rtol=1e-12, atol=1e-20)
-    tight = dataclasses.replace(
+    controller = dataclasses.replace(
+        run_request.stepper.controller, rtol=1e-12, atol=1e-20
+    )
+    tight, tight_request = (
         problem,
-        stepper=dataclasses.replace(
-            problem.stepper, controller=controller, dz_max=1e-5, dz_init=1e-5
+        run_request.with_stepper(
+            dataclasses.replace(
+                run_request.stepper, controller=controller, dz_max=1e-5, dz_init=1e-5
+            )
         ),
     )
-    backend = _loaded(NumpyRefBackend, tight, grid)
+    backend = _loaded(NumpyRefBackend, tight, tight_request, grid)
     try:
         backend.propagate_to(1e-3)
         return np.array(backend.observe().require_field(), copy=True)
@@ -154,9 +170,12 @@ def _tight_reference(problem: PropagationProblem, grid: EnvelopeGrid) -> Complex
 
 
 def _run_adaptively(
-    backend_class: PhaseBackendClass, problem: PropagationProblem, grid: EnvelopeGrid
+    backend_class: PhaseBackendClass,
+    problem: PropagationProblem,
+    run_request: RunRequest,
+    grid: EnvelopeGrid,
 ) -> tuple[StepSummary, ComplexArray]:
-    backend = _loaded(backend_class, problem, grid)  # pyright: ignore[reportArgumentType]
+    backend = _loaded(backend_class, problem, run_request, grid)  # pyright: ignore[reportArgumentType]
     try:
         summary = backend.propagate_to(1e-3)
         return summary, np.array(backend.observe().require_field(), copy=True)
@@ -179,10 +198,10 @@ def test_adaptive_propagation_meets_the_reference_s_accuracy_envelope(
     reference, times four; each Kokkos run must be as accurate, and its step count
     within a quarter of the reference run's.
     """
-    problem, grid = phase_a_case
-    reference = _tight_reference(problem, grid)
+    problem, run_request, grid = phase_a_case
+    reference = _tight_reference(problem, run_request, grid)
     results = [
-        _run_adaptively(backend_class, problem, grid)
+        _run_adaptively(backend_class, problem, run_request, grid)
         for backend_class in (NumpyRefBackend, NativeBackend, NativeBackend)
     ]
     error = departure(results[0][1], reference)
@@ -203,7 +222,7 @@ def test_a_kerr_leaf_density_path_scales_the_single_column_response(
     a much tighter reference, within the factor of four of the adaptive envelope
     (solprop SEP 25 section 4.4).
     """
-    problem, grid = phase_a_case
+    problem, run_request, grid = phase_a_case
     kerr = problem.responses.kerr_coefficients
     assert kerr is not None
     density = problem.responses.density if kerr.density is None else kerr.density
@@ -220,9 +239,9 @@ def test_a_kerr_leaf_density_path_scales_the_single_column_response(
             ),
         ),
     )
-    reference = _tight_reference(problem, grid)
+    reference = _tight_reference(problem, run_request, grid)
     results = [
-        _run_adaptively(backend_class, case, grid)
+        _run_adaptively(backend_class, case, run_request, grid)
         for backend_class, case in (
             (NumpyRefBackend, problem),
             (NumpyRefBackend, split),
@@ -237,25 +256,27 @@ def test_a_kerr_leaf_density_path_scales_the_single_column_response(
 
 
 def test_resume_matches_an_uninterrupted_replay(phase_a_case: PhaseACase) -> None:
-    problem, grid = phase_a_case
+    problem, run_request, grid = phase_a_case
     schedule = FixedSchedule(np.full(8, 1.25e-4))
-    fixed = dataclasses.replace(
+    fixed, fixed_request = (
         problem,
-        stepper=dataclasses.replace(
-            problem.stepper,
-            schedule=schedule,
-            save_planes=(5e-4, 1e-3),
+        run_request.with_stepper(
+            dataclasses.replace(
+                run_request.stepper,
+                schedule=schedule,
+                save_planes=(5e-4, 1e-3),
+            )
         ),
     )
-    whole = _loaded(NativeBackend, fixed, grid)
+    whole = _loaded(NativeBackend, fixed, fixed_request, grid)
     whole.propagate_to(1e-3)
     expected = whole.observe().require_field()
     whole.close()
-    first = _loaded(NativeBackend, fixed, grid)
+    first = _loaded(NativeBackend, fixed, fixed_request, grid)
     first.propagate_to(5e-4)
     halfway = first.observe().require_field()
     first.close()
-    resumed = NativeBackend(fixed, grid=grid)
+    resumed = NativeBackend(fixed, fixed_request, grid=grid)
     resumed.set_initial(halfway, None, z=5e-4)
     resumed.propagate_to(1e-3)
     actual = resumed.observe().require_field()
@@ -267,8 +288,8 @@ def test_resume_matches_an_uninterrupted_replay(phase_a_case: PhaseACase) -> Non
 def test_fsal_is_promoted_after_acceptance_and_cleared_at_a_load(
     phase_a_case: PhaseACase,
 ) -> None:
-    problem, grid = phase_a_case
-    backend = _loaded(NativeBackend, problem, grid)
+    problem, run_request, grid = phase_a_case
+    backend = _loaded(NativeBackend, problem, run_request, grid)
     assert backend.metadata()["fsal_ready"] is False
     backend.propagate_to(5e-4)
     assert backend.metadata()["fsal_ready"] is True
@@ -283,9 +304,9 @@ def test_one_complete_raman_response_matches_the_reference(
     raman_case: RamanCase,
 ) -> None:
     """The native doubled-grid convolution matches the independent NumPy path."""
-    problem, grid = raman_case
-    reference = _loaded(NumpyRefBackend, problem, grid)
-    backend = _loaded(NativeBackend, problem, grid)
+    problem, run_request, grid = raman_case
+    reference = _loaded(NumpyRefBackend, problem, run_request, grid)
+    backend = _loaded(NativeBackend, problem, run_request, grid)
     try:
         dz = 1e-6
         _, expected = reference._trial_step(  # pyright: ignore[reportPrivateUsage]

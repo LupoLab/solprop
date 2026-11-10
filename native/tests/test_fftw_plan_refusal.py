@@ -28,7 +28,7 @@ grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12)
 model = problem_from(
     [0.0, 0.0, -11.83e-27], omega_ref=grid.omega0, gamma=0.11, shock=False
 )
-problem = assemble(
+problem, run_request = assemble(
     grid,
     model.mode,
     [model.kerr],
@@ -41,7 +41,7 @@ problem = assemble(
     dz_max=1e-3,
     dz_init=1e-4,
 )
-solprop_native.NativeBackend(problem, grid=grid).close()
+solprop_native.NativeBackend(problem, run_request, grid=grid).close()
 """
 
 

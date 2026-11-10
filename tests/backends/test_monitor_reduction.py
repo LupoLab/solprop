@@ -188,7 +188,8 @@ def test_a_reading_needs_a_monitor(backend: str) -> None:
     _require(backend)
     simulation = probe("gnlse", "nonlinear")
     problem = simulation.translate()
-    made = select(backend, problem, grid=simulation.grid)
+    run_request = simulation._run_request()
+    made = select(backend, problem, run_request, grid=simulation.grid)
     try:
         driver = as_driver(made)
         driver.set_initial(problem.initial.field0, None)
@@ -205,9 +206,10 @@ def test_a_monitor_for_another_grid_is_refused(backend: str) -> None:
     _require(backend)
     simulation = probe("gnlse", "nonlinear")
     problem = simulation.translate()
+    run_request = simulation._run_request()
     other = probe("capillary (envelope)", "nonlinear")._boundary_monitor()
     assert other is not None
-    made = select(backend, problem, grid=simulation.grid)
+    made = select(backend, problem, run_request, grid=simulation.grid)
     try:
         driver = as_driver(made)
         driver.set_initial(problem.initial.field0, None)

@@ -13,7 +13,6 @@ exact because they are identities of the protocol -- event order, cursor account
 lossless copies and yields that must be transport no-ops (sections 5.1 and 7.1).
 """
 
-import dataclasses
 import itertools
 import threading
 import time
@@ -68,7 +67,6 @@ from solprop.exceptions import BackendError, BoundaryError, StopRequested
 from solprop.monitor import BoundaryCheck
 from solprop.stats import StatsSpec
 from solprop.stepper.multistep import Multistep
-from solprop.translate.run_request import describe_run
 
 # The soliton's 1 ps window is tight for a monitor's guards; the window is not tested.
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
@@ -350,7 +348,7 @@ def test_events_follow_the_committed_order(start, executor):
     executor.require(MONITOR)
     log: list[tuple[str, float]] = []
     problem = soliton(step_planes=3, period=2)
-    started = start(problem, describe_run(problem, monitor=spy_monitor(log)))
+    started = start(problem, problem.request.for_run(monitor=spy_monitor(log)))
     session = started.session
     launch = session.advance()
     (first,) = launch.events
@@ -430,7 +428,7 @@ def test_a_transverse_edge_is_read_in_the_committed_order(
     edge = record["transverse"]
     assert edge["launch_energy"] is not None and edge["reads"] > 0
     assert run.terminal.outcome is outcome
-    length = problem.stepper.save_planes[-1]
+    length = request.stepper.save_planes[-1]
     if outcome is Outcome.COMPLETED:
         # A replayed uniform schedule's steps are longer than the edge's read spacing,
         # which the edge reports as coarse (SEP 40 section 5.3); adaptive steps are
@@ -444,7 +442,7 @@ def test_a_transverse_edge_is_read_in_the_committed_order(
         gap = max(length / 4, longest) if replayed else length / 4
         assert edge["largest_gap"] <= gap * (1 + 1e-9)
         planes = [e for e in run.observations if e.kind is ObservationKind.PLANE]
-        assert [event.z for event in planes] == list(problem.stepper.save_planes)
+        assert [event.z for event in planes] == list(request.stepper.save_planes)
     else:
         assert edge["transverse_status"] == "stopped"
         assert isinstance(run.terminal.error, BoundaryError)
@@ -510,8 +508,8 @@ def test_every_periodic_statistic_s_row_is_its_plane_s(start, executor):
         period=1,
         energy_windows=np.array([[0.99 * grid.omega0, 1.01 * grid.omega0]]),
     )
-    problem = dataclasses.replace(soliton(step_planes=1), stats_spec=spec)
-    run = drive(start(problem, describe_run(problem)))
+    problem, run_request = soliton(step_planes=1)
+    run = drive(start(problem, run_request.for_run(stats=spec)))
     coincident = 0
     for event in run.observations[1:]:
         rows = event.step_stats
@@ -1140,7 +1138,7 @@ def test_dense_planes_follow_the_committed_order(start, executor, method):
     problem = soliton(
         step_planes=3, period=2, interpolate=True, integrator=DENSE_METHODS[method]
     )
-    started = start(problem, describe_run(problem, monitor=spy_monitor(log)))
+    started = start(problem, problem.request.for_run(monitor=spy_monitor(log)))
     run = drive(started)
     _assert_committed_order(run)
     assert _assert_inside_crossing_steps(run) > 0, "no plane was interpolated"

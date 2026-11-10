@@ -77,7 +77,7 @@ def ionising_capillary(grid):
     start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=200e-6).build(grid)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             mode,
             [
@@ -91,21 +91,24 @@ def ionising_capillary(grid):
             dz_max=0.01,
             dz_init=1e-4,
         )
-    return dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(problem.stepper, integrator=None),
-        stats_spec=StatsSpec(names=NAMES, periodic=NAMES, period=1),
-    )
+    return problem, rows_on_the_runge_kutta_march(run_request)
 
 
-def stash_and_fresh(problem, grid, length):
+def rows_on_the_runge_kutta_march(run_request):
+    """Return `run_request` on the Runge-Kutta march, with the plasma rows on."""
+    return run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, integrator=None)
+    ).for_run(stats=StatsSpec(names=NAMES, periodic=NAMES, period=1))
+
+
+def stash_and_fresh(problem, run_request, grid, length):
     """Return the stash's last row and fresh scans of the accepted state on both."""
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(length)
         observed = backend.observe()
-        assert observed.step_stats.n_rows == problem.stepper.schedule.n_steps
+        assert observed.step_stats.n_rows == run_request.stepper.schedule.n_steps
         stashed = {
             name: np.asarray(observed.step_stats.values[name])[-1] for name in NAMES
         }
@@ -114,7 +117,7 @@ def stash_and_fresh(problem, grid, length):
         backend.close()
     fresh = {}
     for implementation in (NativeBackend, NumpyRefBackend):
-        scanning = implementation(problem, grid=grid)
+        scanning = implementation(problem, run_request, grid=grid)
         try:
             # A new backend has no stash, so its statistics scan afresh.
             scanning.set_initial(accepted, None, z=length)
@@ -142,8 +145,8 @@ def assert_stash_is_the_fresh_scan(stashed, fresh, rate, field_range, n_to):
 def test_the_stashed_plasma_scan_is_the_synthesised_one():
     """The ionising capillary, as the original took it, at ``stash_bound``."""
     grid = field_grid()
-    problem = ionising_capillary(grid)
-    stashed, fresh = stash_and_fresh(problem, grid, 2e-3)
+    problem, run_request = ionising_capillary(grid)
+    stashed, fresh = stash_and_fresh(problem, run_request, grid, 2e-3)
     rate = OptmatRate(Gas.Ar, 800e-9, model="ppt_ilkov")
     assert_stash_is_the_fresh_scan(stashed, fresh, rate, (1e9, 2e11), grid.n_to)
 
@@ -151,13 +154,9 @@ def test_the_stashed_plasma_scan_is_the_synthesised_one():
 @pytest.mark.medium
 def test_the_stash_on_the_planar_route_is_the_fresh_scan():
     """The planar field-plasma case: the original's second family, at the same bound."""
-    grid, _, problem = planar_case("field-plasma")
-    problem = dataclasses.replace(
-        problem,
-        stats_spec=StatsSpec(names=NAMES, periodic=NAMES, period=1),
-        stepper=dataclasses.replace(problem.stepper, integrator=None),
-    )
-    stashed, fresh = stash_and_fresh(problem, grid, grid.length)
+    grid, _, problem, run_request = planar_case("field-plasma")
+    run_request = rows_on_the_runge_kutta_march(run_request)
+    stashed, fresh = stash_and_fresh(problem, run_request, grid, grid.length)
     rate = problem.responses.plasma_coefficients.rate  # pyright: ignore[reportOptionalMemberAccess]
     assert float(np.max(stashed["electron_density"])) > 0.0
     assert_stash_is_the_fresh_scan(
@@ -194,7 +193,7 @@ def test_the_saving_does_not_change_the_answer():
     start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-6).build(grid)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             mode,
             [KerrResponse(chi3=2.2e-52, thg=True)],
@@ -206,12 +205,12 @@ def test_the_saving_does_not_change_the_answer():
             absorber=absorber(grid),
             schedule=FixedSchedule.uniform(0.0, 0.2, 0.0005, save_planes=[0.1, 0.2]),
         )
-    problem = dataclasses.replace(
-        problem, stepper=dataclasses.replace(problem.stepper, integrator=None)
+    run_request = run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, integrator=None)
     )
 
     def run(implementation):
-        backend = implementation(problem, grid=grid)
+        backend = implementation(problem, run_request, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             summary = backend.propagate_to(0.1)
@@ -226,7 +225,7 @@ def test_the_saving_does_not_change_the_answer():
     with_it, taken, evaluated = run(NativeBackend)
     without, alone, unsaved = run(WithoutTheSaving)
     assert taken == alone == 200
-    stages = problem.stepper.tableau.n_stages
+    stages = run_request.stepper.tableau.n_stages
     assert unsaved == stages * taken
     assert evaluated == (stages - 1) * taken + 1
     peak = float(np.max(np.abs(without)))

@@ -81,7 +81,7 @@ from solprop.translate.general import (
     general_modal_route,
     modal_identity,
 )
-from solprop.translate.problem import assemble
+from solprop.translate.problem import Translation, assemble
 from solprop.translate.responses import KerrForm, dispersive_terms
 
 pytestmark = [
@@ -129,19 +129,23 @@ def caught(monkeypatch, module: object, name: str) -> list[tuple[Any, Any, Any]]
     return calls
 
 
-def unit_collar(problem):
-    """Return a problem whose temporal collar is one everywhere."""
-    return dataclasses.replace(
-        problem,
-        grids=dataclasses.replace(
-            problem.grids, t_window_fine=np.ones(problem.grids.n_to)
+def unit_collar(translation):
+    """Return a problem whose temporal collar is one everywhere, and its request."""
+    problem, run_request = translation
+    return Translation(
+        dataclasses.replace(
+            problem,
+            grids=dataclasses.replace(
+                problem.grids, t_window_fine=np.ones(problem.grids.n_to)
+            ),
         ),
+        run_request,
     )
 
 
-def stage_derivative(problem, grid):
+def stage_derivative(problem, run_request, grid):
     """Return ``numpy_ref``'s stage derivative at the launch."""
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend._hoist(0.0)
@@ -283,9 +287,9 @@ def test_the_free_route_evaluates_the_reference_at_a_node(monkeypatch, case, eva
     kind, thg = FREE_CASES[case]["kind"], FREE_CASES[case]["thg"]
     grid = free_grid(kind)
     response = DispersiveKerrResponse(ARGON, evaluator, thg=thg)
-    problem = free_problem(response, grid)
+    problem, run_request = free_problem(response, grid)
     calls = caught(monkeypatch, passes, "nonlinear_sources")
-    stage_derivative(problem, grid)
+    stage_derivative(problem, run_request, grid)
     args, kwargs, result = calls[0]
     field_t = args[0]
     node = int(np.argmax(np.max(np.abs(field_t), axis=(1, 2))))
@@ -323,7 +327,7 @@ def test_without_dispersion_the_free_derivative_is_the_constant_one(thg, geometr
     )
     band = sub_octave(grid)
     got = stage_derivative(
-        unit_collar(
+        *unit_collar(
             free_problem(
                 DispersiveKerrResponse(FLAT, "polynomial", thg=thg),
                 grid,
@@ -334,7 +338,7 @@ def test_without_dispersion_the_free_derivative_is_the_constant_one(thg, geometr
         grid,
     )
     expected = stage_derivative(
-        unit_collar(
+        *unit_collar(
             free_problem(
                 KerrResponse(FLAT.gamma3_static, thg=thg), grid, space, band=band
             )
@@ -452,8 +456,9 @@ def test_the_planar_route_evaluates_the_reference_at_a_node(
     response = DispersiveKerrResponse(ARGON, evaluator, thg=thg)
     simulation = planar_simulation(response)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     calls = caught(monkeypatch, passes, "nonlinear_sources")
-    stage_derivative(problem, simulation.grid)
+    stage_derivative(problem, run_request, simulation.grid)
     args, kwargs, result = calls[0]
     field_t = args[0]
     node = int(np.argmax(np.max(np.abs(field_t), axis=(1, 2))))
@@ -484,7 +489,8 @@ def test_without_dispersion_the_planar_derivative_is_the_constant_one(thg):
         simulation = planar_simulation(response)
         launch = simulation._field0 * sub_octave(simulation.grid)
         problem = simulation.with_input(launch).translate()
-        derivatives.append(stage_derivative(problem, simulation.grid))
+        run_request = simulation.with_input(launch)._run_request()
+        derivatives.append(stage_derivative(problem, run_request, simulation.grid))
     assert_same_derivative(*derivatives)
 
 
@@ -614,7 +620,7 @@ def test_a_gas_region_evaluates_the_reference_at_its_nodes(
     field the synthesis builds.
     """
     guide = strand(GasKerr(FILL), core=CORE_CHI3)
-    route, problem = general_problem(guide, POLICIES[evaluator], form)
+    route, (problem, run_request) = general_problem(guide, POLICIES[evaluator], form)
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None and leaf.regions is not None
     assert leaf.labels == ("cladding:Ar",) and list(leaf.regions) == [1]
@@ -622,7 +628,7 @@ def test_a_gas_region_evaluates_the_reference_at_its_nodes(
     regional = problem.responses.regional_responses
     assert regional is not None and list(regional.response_region) == [0]
     calls = caught(monkeypatch, general_modal, "dispersive_polarisation")
-    stage_derivative(problem, general_grid())
+    stage_derivative(problem, run_request, general_grid())
     (field, _, node_region, densities), _, result = calls[0]
     outside = np.flatnonzero(node_region == 1)
     node = int(outside[np.argmax(np.max(np.abs(field[outside]), axis=(1, 2)))])
@@ -651,7 +657,7 @@ def test_without_dispersion_a_gas_region_is_the_constant_region(form):
     is the real form's tensor and the conserving sector the analytic form's below an
     octave. Measured 1.2e-16 and 2.3e-16 of the largest bin.
     """
-    route, problem = general_problem(GAS_STRAND, "gas-polynomial", form)
+    route, (problem, _) = general_problem(GAS_STRAND, "gas-polynomial", form)
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None
     flat = dispersive_terms(
@@ -661,14 +667,14 @@ def test_without_dispersion_a_gas_region_is_the_constant_region(form):
         general_grid(),
         regions=leaf.regions,
     )
-    _, flat_problem = general_problem(GAS_STRAND, "gas-polynomial", form, leaf=flat)
+    _, flat_run = general_problem(GAS_STRAND, "gas-polynomial", form, leaf=flat)
     density = GasKerr(FILL).densities()[0]
     constant = strand(MaterialKerr(chi3=density * FLAT.gamma3_static))
     _, expected = general_problem(constant, "carrier-kerr", form)
-    assert expected.responses.dispersive_kerr is None
+    assert expected.problem.responses.dispersive_kerr is None
     assert_same_derivative(
-        stage_derivative(flat_problem, general_grid()),
-        stage_derivative(expected, general_grid()),
+        stage_derivative(*flat_run, general_grid()),
+        stage_derivative(*expected, general_grid()),
     )
     assert route.electronic[0].model == ARGON
 
@@ -686,7 +692,7 @@ def test_a_solid_region_and_a_gas_region_add():
     weak = 1e-29
     both, solid, gas = (
         stage_derivative(
-            general_problem(guide, "gas-polynomial", "real")[1], general_grid()
+            *general_problem(guide, "gas-polynomial", "real")[1], general_grid()
         )
         for guide in (
             strand(GasKerr(FILL), core=weak),
@@ -702,7 +708,7 @@ def test_a_solid_region_and_a_gas_region_add():
 
 def test_under_a_carrier_policy_a_gas_region_is_a_constant_cubic():
     """The Kerr coefficient at the run's carrier, times the fill's density."""
-    route, problem = general_problem(GAS_STRAND, "carrier-kerr", "real")
+    route, (problem, _) = general_problem(GAS_STRAND, "carrier-kerr", "real")
     assert problem.responses.dispersive_kerr is None and not route.electronic
     regional = problem.responses.regional_responses
     assert regional is not None and list(regional.response_region) == [1]
@@ -715,7 +721,7 @@ def test_under_a_carrier_policy_a_gas_region_is_a_constant_cubic():
 def test_a_mixture_region_has_one_channel_per_species():
     """Each population of the fill is its own channel, in the region's nodes."""
     mixture = strand(GasKerr(Mixture.fill({"He": 0.5, "Ar": 0.5}, 2.0)))
-    route, problem = general_problem(mixture, "symmetric-kerr", "analytic")
+    route, (problem, _) = general_problem(mixture, "symmetric-kerr", "analytic")
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None and leaf.regions is not None
     assert leaf.labels == ("cladding:He", "cladding:Ar")
@@ -733,11 +739,11 @@ def test_a_symmetric_mixture_region_takes_its_fills_mixture_filter(monkeypatch, 
     ``P = F G_mix[(G_mix E)^3]`` with ``F`` and ``g_mix`` built from the two channels'
     coefficients and densities by ``mixture_filter``; the solid core sees none of it.
     """
-    _, problem = general_problem(HELIUM_ARGON, "symmetric-kerr", form)
+    _, (problem, run_request) = general_problem(HELIUM_ARGON, "symmetric-kerr", form)
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None and leaf.groups() == ((0, 1),)
     calls = caught(monkeypatch, general_modal, "dispersive_polarisation")
-    stage_derivative(problem, general_grid())
+    stage_derivative(problem, run_request, general_grid())
     (field, _, node_region, densities), _, result = calls[0]
     total, curve = mixture_filter(
         leaf.filters,
@@ -776,7 +782,7 @@ def test_the_general_chunk_counts_the_dispersive_buffers(guide, policy, buffers)
     admits two nodes at twice a node's bytes and one a byte short, as the fused
     path's admission is tested.
     """
-    _, problem = general_problem(guide, policy, "real")
+    _, (problem, _) = general_problem(guide, policy, "real")
     leaf = problem.responses.dispersive_kerr
     assert general_modal.general_dispersive_buffers(leaf) == buffers
     assert general_modal.general_dispersive_buffers(None) == 0
@@ -808,7 +814,7 @@ def test_the_general_chunk_counts_the_dispersive_buffers(guide, policy, buffers)
 
 def test_the_route_records_the_gas_region_and_its_channels():
     """The guide's identity names the fill; the modal identity the dispersive law."""
-    route, problem = general_problem(GAS_STRAND, "gas-polynomial", "real")
+    route, (problem, _) = general_problem(GAS_STRAND, "gas-polynomial", "real")
     identity: Any = route.guide_identity
     gas = identity["regions"][1]["gas"]
     assert [one["species"] for one in gas["populations"]] == ["Ar"]
@@ -916,7 +922,7 @@ def test_a_gas_region_without_a_hyperpolarizability_model_is_refused_by_name():
     guide = strand(GasKerr(Mixture.fill({supplied: 1.0}, 1.0)))
     with pytest.raises(TranslationError, match=r"region 'cladding'.*'X'"):
         general_problem(guide, "gas-polynomial", "real")
-    _, problem = general_problem(guide, "carrier-kerr", "real")
+    _, (problem, _) = general_problem(guide, "carrier-kerr", "real")
     regional = problem.responses.regional_responses
     assert regional is not None and list(regional.response_region) == [1]
 
@@ -936,7 +942,7 @@ def test_a_gas_region_declares_one_constant_fill_and_no_other_cubic():
 
 
 def test_the_general_source_refuses_densities_that_do_not_match_its_channels():
-    _, problem = general_problem(GAS_STRAND, "symmetric-kerr", "real")
+    _, (problem, _) = general_problem(GAS_STRAND, "symmetric-kerr", "real")
     maps = _general_maps(problem)
     assert maps is not None and maps.dispersive is not None
     grids = problem.grids
@@ -960,7 +966,7 @@ def test_a_gas_fill_describes_itself_by_its_populations():
 
 
 def test_a_general_leaf_naming_an_undeclared_region_is_refused():
-    _, problem = general_problem(GAS_STRAND, "symmetric-kerr", "real")
+    _, (problem, _) = general_problem(GAS_STRAND, "symmetric-kerr", "real")
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None and leaf.regions is not None
     regions = np.array([7], dtype=np.int32)

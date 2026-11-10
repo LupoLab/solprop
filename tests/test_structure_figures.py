@@ -35,6 +35,7 @@ from solprop.stats import CATALOGUE
 from solprop.stepper import schedule as schedule_module
 from solprop.stepper.controller import PIController
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.run_request import ObservationRequest, RunRequest
 
 ROOT = Path(__file__).resolve().parents[1]
 FIGURES = ROOT / "docs" / "dev" / "figures"
@@ -105,9 +106,28 @@ def test_every_contract_section_names_fields_of_the_problem(section):
 
 
 def test_the_contract_figure_covers_every_field():
-    """Between them the eight sections account for all twelve fields."""
+    """Between them the eight sections account for all ten fields."""
     drawn = {name for section in build.CONTRACT_SECTIONS for name in section.fields}
     assert drawn == {field.name for field in dataclasses.fields(PropagationProblem)}
+
+
+@pytest.mark.parametrize("section", build.CONTRACT_SECTIONS)
+def test_every_contract_section_names_members_of_the_request(section):
+    """The run's policy a section documents is reached from `RunRequest` as named."""
+    fields = {field.name for field in dataclasses.fields(RunRequest)}
+    observation = {field.name for field in dataclasses.fields(ObservationRequest)}
+    for name in section.request:
+        owner, _, rest = name.partition(".")
+        # A field, or the stepper section the request gathers (`RunRequest.stepper`).
+        assert owner in fields or hasattr(RunRequest, owner)
+        if rest:
+            assert owner == "observation"
+            assert rest in observation
+
+
+def test_the_policy_sections_are_the_request_s():
+    """Sections 7 and 8, and they alone, document the run request (SEP 47 5.2)."""
+    assert {s.number for s in build.CONTRACT_SECTIONS if s.request} == {7, 8}
 
 
 def test_the_representations_are_the_ones_the_contract_offers():

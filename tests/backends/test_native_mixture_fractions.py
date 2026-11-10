@@ -50,8 +50,8 @@ PROBE = Path(__file__).parent / "native_mixture_launch_probe.py"
 
 def oracle(kerr, n_pol):
     """Return each channel's final fractions per node, peak rate, and their bound."""
-    grid, problem = launch_case(kerr, n_pol)
-    reference = NumpyRefBackend(problem, grid=grid)
+    grid, problem, run_request = launch_case(kerr, n_pol)
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)

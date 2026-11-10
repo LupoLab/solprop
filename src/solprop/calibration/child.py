@@ -131,6 +131,7 @@ class _Session:
             )
             backend = NativeBackend(
                 problem,
+                simulation._run_request(),
                 grid=simulation.grid,
                 modes=simulation.modes,
                 profiles=simulation.profiles,
@@ -306,6 +307,7 @@ class _Session:
                     break
             backend = NativeBackend(
                 problem,
+                simulation._run_request(),
                 grid=simulation.grid,
                 modes=simulation.modes,
                 profiles=simulation.profiles,

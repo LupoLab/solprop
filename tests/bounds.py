@@ -158,7 +158,7 @@ def dispersive_device_bound(cpu_bound: float, problem) -> float:
     return max(cpu_bound, device)
 
 
-def step_evaluations(problem) -> float:
+def step_evaluations(run_request) -> float:
     """Return how many source evaluations' rounding one replayed step carries.
 
     DOPRI5's stages for the Runge-Kutta march, and the low-storage march's four
@@ -170,7 +170,7 @@ def step_evaluations(problem) -> float:
     from solprop.stepper import DOPRI5, LowStorageRungeKutta  # noqa: PLC0415
     from solprop.stepper.multistep import integrated_weights  # noqa: PLC0415
 
-    method = problem.stepper.integrator
+    method = run_request.integration.method
     if method is None:
         return float(DOPRI5.n_stages)
     if isinstance(method, LowStorageRungeKutta):

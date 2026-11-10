@@ -89,7 +89,7 @@ def _dispersive_modal(evaluator, raman):
         dz_init=1e-3,
         quadrature=transverse_quadrature([mode], n_r=8),
         density=Constant(2.5e25),
-    )
+    ).problem
 
 
 def _dispersive_free(evaluator):
@@ -111,7 +111,7 @@ def _dispersive_free(evaluator):
         dz_max=1e-4,
         dz_init=1e-5,
         density=Constant(2.5e25),
-    )
+    ).problem
 
 
 def _held_plasma(kind):
@@ -137,7 +137,7 @@ def _held_plasma(kind):
         [PlasmaResponse("Ar", rate)],
         steps=2,
         density=1e22,
-    )
+    ).problem
 
 
 def _builders():
@@ -228,10 +228,16 @@ def test_the_plan_is_the_translation_s_former_chunk(name):
 
 
 @pytest.fixture(scope="module")
-def multimode():
+def multimode_run():
     """A three-mode capillary on nine nodes, with no response admission."""
     simulation = capillary(modes=3, plasma=False)
-    return simulation.translate()
+    return simulation.translate(), simulation._run_request()
+
+
+@pytest.fixture(scope="module")
+def multimode(multimode_run):
+    """The three-mode capillary's problem alone."""
+    return multimode_run[0]
 
 
 def test_a_small_problem_is_not_chunked(multimode):
@@ -327,10 +333,12 @@ def test_an_exact_chunk_overrides_the_budget_and_is_bounded_by_the_nodes(multimo
     assert plan.chunk == n_nodes and plan.requested == 10 * n_nodes
 
 
-def test_the_plan_is_recorded_as_execution_metadata(multimode):
+def test_the_plan_is_recorded_as_execution_metadata(multimode, multimode_run):
     """The backend's record names the chunk, its budget and what chose it."""
     budget = 2**20
-    backend = NumpyRefBackend(multimode, options=ExecutionOptions(node_budget=budget))
+    backend = NumpyRefBackend(
+        *multimode_run, options=ExecutionOptions(node_budget=budget)
+    )
     try:
         record = backend.metadata()
         expected = plan_node_chunk(multimode, ExecutionOptions(node_budget=budget))
@@ -348,9 +356,9 @@ def test_the_plan_is_recorded_as_execution_metadata(multimode):
     }
 
 
-def test_an_explicit_budget_wins_over_the_automatic_choice(multimode):
-    automatic = NumpyRefBackend(multimode)
-    explicit = NumpyRefBackend(multimode, options=ExecutionOptions(node_budget=1))
+def test_an_explicit_budget_wins_over_the_automatic_choice(multimode, multimode_run):
+    automatic = NumpyRefBackend(*multimode_run)
+    explicit = NumpyRefBackend(*multimode_run, options=ExecutionOptions(node_budget=1))
     try:
         assert automatic.node_chunk == multimode.transform.n_nodes
         assert explicit.node_chunk == 1
@@ -468,12 +476,13 @@ def test_the_native_backend_executes_and_records_its_lowered_chunk(native_backen
         NativeBackend,
     )
 
-    problem = BUILDERS["collar-planar"]()
+    simulation = collar._case("planar")
+    problem, run_request = simulation.translate(), simulation._run_request()
     geometry = problem.transform.geometry
     assert geometry is not None
     n_x = geometry.shape[0]
     options = ExecutionOptions(node_chunk=2 * n_x + 1)
-    backend = NativeBackend(problem, options=options)
+    backend = NativeBackend(problem, run_request, options=options)
     try:
         record = backend.metadata()
         assert backend.node_chunk == 2 * n_x
@@ -496,7 +505,7 @@ def test_a_general_guide_takes_the_plan_s_budget(native_backend):
         general_planned_chunk,
     )
 
-    problem, _ = general_problem(strand(ARGON_FILL), "symmetric", "real")
+    problem, run_request, _ = general_problem(strand(ARGON_FILL), "symmetric", "real")
     automatic = plan_node_chunk(problem)
     assert automatic.chunk == 1 and automatic.budget == DEFAULT_NODE_BUDGET
     small = plan_node_chunk(problem, ExecutionOptions(node_budget=1))
@@ -507,10 +516,14 @@ def test_a_general_guide_takes_the_plan_s_budget(native_backend):
     assert general_planned_chunk(problem, forced) == 2
     whole = _general_maps(problem, automatic)
     assert whole is not None and whole.node_chunk > 1
-    payload = native_backend._native_problem(problem, terms(problem), general_chunk=2)
+    payload = native_backend._native_problem(
+        problem, run_request, terms(problem), general_chunk=2
+    )
     assert payload["general_node_chunk"] == 2
     assert (
-        native_backend._native_problem(problem, terms(problem))["general_node_chunk"]
+        native_backend._native_problem(problem, run_request, terms(problem))[
+            "general_node_chunk"
+        ]
         == whole.node_chunk
     )
 

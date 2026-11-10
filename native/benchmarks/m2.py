@@ -160,11 +160,13 @@ def _worker(
             backend=backend_name,
         )
         problem = simulation.translate()
+        request = simulation._run_request()
 
     construction_started = time.perf_counter()
     backend: Any = select(
         backend_name,
         problem,
+        request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
@@ -179,7 +181,7 @@ def _worker(
     try:
         memory_ledger = backend.memory_ledger()
         backend.set_initial(problem.initial.field0, simulation.noise)
-        first_plane = float(problem.stepper.save_planes[0])
+        first_plane = float(request.stepper.save_planes[0])
         backend.propagate_to(min(first_plane, case["length"] * 1e-4))
         backend.set_initial(problem.initial.field0, simulation.noise)
         device_before = device_record(backend.metadata())
@@ -187,24 +189,24 @@ def _worker(
         started = time.perf_counter()
         if mode == "trial":
             for _ in range(trial_count):
-                backend._trial_step(0.0, problem.stepper.dz_init)
+                backend._trial_step(0.0, request.stepper.dz_init)
             seconds = time.perf_counter() - started
-            _, candidate = backend._trial_step(0.0, problem.stepper.dz_init)
-            backend._finish(candidate, problem.stepper.dz_init)
+            _, candidate = backend._trial_step(0.0, request.stepper.dz_init)
+            backend._finish(candidate, request.stepper.dz_init)
             attempts = 0
             rejected = 0
             trials = trial_count
         else:
             backend.observe()
-            backend.stats(problem.stats_spec)
+            backend.stats(request.stats)
             attempts = 0
             rejected = 0
-            for target in problem.stepper.save_planes:
+            for target in request.stepper.save_planes:
                 summary = backend.propagate_to(float(target))
                 attempts += summary.n_steps
                 rejected += summary.n_rejected
                 backend.observe()
-                backend.stats(problem.stats_spec)
+                backend.stats(request.stats)
             seconds = time.perf_counter() - started
             trials = attempts
         load_end = os.getloadavg()[0]

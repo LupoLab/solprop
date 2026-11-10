@@ -403,17 +403,20 @@ def far_field_bands(n_x: int, n_y: int, n_slots: int, n_omega: int) -> np.ndarra
     return np.minimum(units * unit, n_columns)
 
 
-def far_field_partials(problem: PropagationProblem) -> tuple[int, int]:
+def far_field_partials(problem: PropagationProblem, spec: StatsSpec) -> tuple[int, int]:
     """Return the slots and bands a compiled far-field pass holds for a problem.
 
-    Sized from the problem's own request at construction: its names, tables and
-    polarisations. A Cartesian or line problem whose request forms nothing in the pass
-    (and any other kind) holds none.
+    Sized from the run's own statistics at construction: their names and tables, and
+    the problem's polarisations. A Cartesian or line problem whose request forms
+    nothing in the pass (and any other kind) holds none.
 
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
+    spec : solprop.stats.StatsSpec
+        The run's statistics (:attr:`solprop.translate.run_request.
+        ObservationRequest.stats`).
 
     Returns
     -------
@@ -425,7 +428,6 @@ def far_field_partials(problem: PropagationProblem) -> tuple[int, int]:
     geometry = problem.transform.geometry
     if geometry is None or geometry.kind != "free":
         return 0, 0
-    spec = problem.stats_spec
     layout = far_field_layout(
         spec.names,
         n_apertures=spec.n_apertures,
@@ -443,29 +445,31 @@ class FarFieldTables:
     """Hold a problem's far-field tables, formed at construction, for its statistics.
 
     A backend builds one when it is constructed, which forms
-    :func:`solprop.translate.spatial.aperture_tables` for the problem's own spec --
+    :func:`solprop.translate.spatial.aperture_tables` for the run's own spec --
     refusing a geometry the far-field statistics do not admit before any step -- and
     hands :meth:`for_spec` the spec of each statistics call. The periodic channel and
-    the reference backend's filtered specs carry the problem's own apertures and
-    regions, and get the held tables; a different spec handed to the run loop gets
-    tables formed for it.
+    the reference backend's filtered specs carry the run's own apertures and regions,
+    and get the held tables; a different spec handed to the run loop gets tables
+    formed for it.
 
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem the backend executes.
+    spec : solprop.stats.StatsSpec
+        The statistics of the request it was built for.
 
     Raises
     ------
     OutputError
-        If the problem's spec names a far-field statistic its geometry does not
+        If the spec names a far-field statistic the problem's geometry does not
         admit (:func:`solprop.translate.spatial.aperture_tables`).
     """
 
-    def __init__(self, problem: PropagationProblem) -> None:
-        """Form the problem's own tables once."""
+    def __init__(self, problem: PropagationProblem, spec: StatsSpec) -> None:
+        """Form the run's own tables once."""
         self._problem = problem
-        self._spec = problem.stats_spec
+        self._spec = spec
         self._held = (
             None
             if problem.transform.geometry is None

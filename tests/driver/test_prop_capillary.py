@@ -798,8 +798,10 @@ def test_the_default_field_range_brackets_the_input_peak():
 def _peak_intensity(simulation):
     """Return the peak on-axis intensity of a simulation's input, in W/m^2."""
     problem = simulation.translate()
+    run_request = simulation._run_request()
     backend = NumpyRefBackend(
         problem,
+        run_request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
@@ -3567,15 +3569,19 @@ def reduced_m2_simulation(**overrides):
 
 @pytest.fixture(scope="module")
 def reduced_m2_channel():
-    """Return ``(simulation, plain, watched)``: one translation, two specs."""
+    """Return ``(simulation, problem, plain, watched)``: one translation, two specs.
+
+    ``plain`` and ``watched`` are the run's requests without and with the rows.
+    """
     simulation = reduced_m2_simulation()
     with warnings.catch_warnings():
         # Helium at this span is outside the published fit, which every test of this
         # case accepts; the warning is the subject of its own test elsewhere.
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        plain = simulation.translate()
+        problem = simulation.translate()
+    plain = simulation._run_request()
     spec = StatsSpec(names=PERIODIC_SUBSET, periodic=PERIODIC_SUBSET, period=1)
-    return simulation, plain, replace(plain, stats_spec=spec)
+    return simulation, problem, plain, plain.for_run(stats=spec)
 
 
 @pytest.mark.slow
@@ -3661,25 +3667,25 @@ def statistics_channel_measurement(reduced_m2_channel, selection):
     """Measure one warmed configuration with production imports."""
     assert Coverage.current() is None, "statistics timing requires an untraced worker"
     assert selection in ("plain", "watched")
-    simulation, plain, watched = reduced_m2_channel
-    problem = plain if selection == "plain" else watched
+    simulation, problem, plain, watched = reduced_m2_channel
+    run_request = plain if selection == "plain" else watched
     # The stash a row is read from is the Runge-Kutta march's last stage.
     target = 0.002
-    problem = replace(
-        problem,
-        stepper=replace(
-            problem.stepper,
+    run_request = run_request.with_stepper(
+        replace(
+            run_request.stepper,
             integrator=None,
             # The schedule includes the fixture's declared save planes, although
             # each measurement advances only its first ten steps, to 2 mm.
             schedule=FixedSchedule.uniform(0.0, simulation.grid.length, target / 10),
-        ),
+        )
     )
 
     def arm():
         backend = select(
             TEST_BACKEND,
             problem,
+            run_request,
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -3728,27 +3734,28 @@ def test_a_periodic_row_at_a_plane_is_the_plane_s_own_statistic_on_the_m2_case(
     threaded); they agree within both evaluations' rounding, the source evaluation's
     count (``tests/march_bounds.py``) taken as the statistic's.
     """
-    simulation, _, watched = reduced_m2_channel
+    simulation, problem, _, watched = reduced_m2_channel
     backend = select(
         TEST_BACKEND,
+        problem,
         watched,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
     try:
-        backend.set_initial(watched.initial.field0, None)
+        backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(0.06)
         observed = backend.observe()
-        at_plane = backend.stats(watched.stats_spec)
+        at_plane = backend.stats(watched.observation.stats)
     finally:
         backend.close()
     rows = observed.step_stats
     assert rows.step[-1] == observed.step_history.n_steps - 1
     bound = STATISTIC_FACTOR * evaluation_rounding(
-        watched.grids.n_to,
-        int(watched.transform.n_nodes),
-        int(watched.shape[0]),
+        problem.grids.n_to,
+        int(problem.transform.n_nodes),
+        int(problem.shape[0]),
         plasma=True,
     )
     for name in PERIODIC_SUBSET:

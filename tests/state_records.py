@@ -40,9 +40,9 @@ def record_bound(simulation, state) -> float:
     if flow is not None and flow.generator is not None:
         from flow_parity import RK_WEIGHTS, flow_scales, ten_step_bound  # noqa: PLC0415
 
-        scale = max(1.0, step_evaluations(problem) / RK_WEIGHTS)
+        scale = max(1.0, step_evaluations(simulation._run_request()) / RK_WEIGHTS)
         flow_bound = scale * ten_step_bound(
-            flow_scales(problem, simulation.grid, state)
+            flow_scales(problem, simulation._run_request(), simulation.grid, state)
         )
         bound = max(bound, flow_bound)
     return bound

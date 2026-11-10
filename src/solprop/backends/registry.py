@@ -40,6 +40,7 @@ from solprop.translate.plasma_source import _BENCHMARK_GATED
 from solprop.translate.precision import SINGLE_PRECISION_BACKENDS
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import tdse_descriptor
+from solprop.translate.run_request import RunRequest
 from solprop.translate.tdse import TDSEBinding
 
 if TYPE_CHECKING:
@@ -399,6 +400,7 @@ def _baseline_probe(source: Path) -> ModuleType:
 def select(  # noqa: PLR0913 - the problem, its host context and its execution
     name: str,
     problem: PropagationProblem,
+    request: RunRequest,
     *,
     grid: TimeGrid | None = None,
     modes: Sequence[Mode] | None = None,
@@ -406,7 +408,14 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
     tdse_binding: TDSEBinding | None = None,
     options: ExecutionOptions | None = None,
 ) -> Backend:
-    """Construct the named backend for a validated kernel problem.
+    """Construct the named backend for a validated problem and its run's request.
+
+    The backend receives the request where it is built (SEP 47 section 5.2): it
+    checks the pair (:func:`solprop.translate.problem.validate_run`) and refuses an
+    unsupported combination by name before it allocates, and it lowers the method,
+    the error control, the itinerary, the planes and the statistics once. A session
+    is then started on it with that request, adapted to one run
+    (:meth:`~solprop.translate.run_request.RunRequest.for_run`).
 
     Parameters
     ----------
@@ -414,7 +423,9 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
         The backend's registry name, for example ``"numpy_ref"``, or ``"auto"``
         for the native backend, with no fallback (:func:`resolve_name`).
     problem : solprop.translate.problem.PropagationProblem
-        The problem to step. The backend validates it again.
+        The problem to step.
+    request : solprop.translate.run_request.RunRequest
+        The run's policies. The backend validates it with the problem again.
     grid : solprop.grid.TimeGrid, optional
         The grid the state lives on. Statistics need it and the kernel contract does not
         carry it, so it is passed alongside rather than inside the problem.
@@ -467,7 +478,7 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
         tdse_descriptor(problem.route) is not None or tdse_binding is not None
     ) and name != "numpy_ref":
         raise BackendError(f"{name} does not execute TDSE responses; use numpy_ref")
-    refusal = statistics_refusal(name, problem.stats_spec.names)
+    refusal = statistics_refusal(name, request.observation.stats.names)
     if refusal is not None:
         raise BackendError(refusal)
     entry = BACKENDS.get(name)
@@ -494,6 +505,7 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
     backend = _construct(
         name,
         problem,
+        request,
         grid=grid,
         modes=modes,
         profiles=profiles,
@@ -584,6 +596,7 @@ def _satisfied(entry: BackendEntry) -> bool:
 def _construct(  # noqa: PLR0913 - as select
     name: str,
     problem: PropagationProblem,
+    request: RunRequest,
     *,
     grid: TimeGrid | None,
     modes: Sequence[Mode] | None,
@@ -599,6 +612,8 @@ def _construct(  # noqa: PLR0913 - as select
         The backend's registry name.
     problem : solprop.translate.problem.PropagationProblem
         The problem to step.
+    request : solprop.translate.run_request.RunRequest
+        The run's policies.
     grid : solprop.grid.TimeGrid or None
         The grid the state lives on.
     modes : collections.abc.Sequence or None
@@ -632,6 +647,7 @@ def _construct(  # noqa: PLR0913 - as select
 
             return NumpySingleBackend(
                 problem,
+                request,
                 grid=grid,
                 modes=modes,
                 profiles=profiles,
@@ -640,6 +656,7 @@ def _construct(  # noqa: PLR0913 - as select
             )
         return NumpyRefBackend(
             problem,
+            request,
             grid=grid,
             modes=modes,
             profiles=profiles,
@@ -656,7 +673,12 @@ def _construct(  # noqa: PLR0913 - as select
         return cast(
             Backend,
             NativeBackend(
-                problem, grid=grid, modes=modes, profiles=profiles, options=options
+                problem,
+                request,
+                grid=grid,
+                modes=modes,
+                profiles=profiles,
+                options=options,
             ),
         )
     raise AssertionError(f"unhandled backend registry entry {name!r}")

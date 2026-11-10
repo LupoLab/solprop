@@ -38,7 +38,7 @@ grid = EnvelopeGrid.from_limits(1.0, WAVELENGTH, (500e-9, 2e-6), 1e-12)
 model = problem_from([0.0, 0.0, BETA2], omega_ref=grid.omega0, gamma=GAMMA, shock=False)
 peak = 9 * abs(BETA2) / (GAMMA * TAU0**2)
 initial = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=peak).build(grid)
-problem = assemble(
+problem, run_request = assemble(
     grid,
     model.mode,
     [model.kerr],
@@ -52,7 +52,9 @@ problem = assemble(
     shock=False,
     prefactor_index=1.0,
 )
-backend = select(sys.argv[2] if len(sys.argv) > 2 else "native", problem, grid=grid)
+backend = select(
+    sys.argv[2] if len(sys.argv) > 2 else "native", problem, run_request, grid=grid
+)
 try:
     backend.set_initial(problem.initial.field0, None)
     summary = backend.propagate_to(LENGTH)

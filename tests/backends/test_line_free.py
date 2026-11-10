@@ -93,7 +93,7 @@ def line_case(request):
         ]
     else:
         responses = [KerrResponse(CHI3, thg=False)]
-    problem = make_problem(
+    problem, run_request = make_problem(
         grid,
         space,
         pulse.build(grid, space, medium=SpatialMedium()),
@@ -105,15 +105,14 @@ def line_case(request):
         if family.endswith("plasma")
         else ()
     )
-    problem = dataclasses.replace(
-        problem,
-        stats_spec=StatsSpec(names=plasma_names, periodic=plasma_names),
+    run_request = run_request.for_run(
+        stats=StatsSpec(names=plasma_names, periodic=plasma_names)
     )
-    return family, grid, space, problem
+    return family, grid, space, problem, run_request
 
 
 def test_line_problem_is_the_free_kind_with_one_y_column(line_case):
-    _, _, space, problem = line_case
+    _, _, space, problem, _ = line_case
     geometry = problem.transform.geometry
     assert geometry is not None
     assert geometry.kind == "free"
@@ -127,25 +126,26 @@ def test_line_problem_is_the_free_kind_with_one_y_column(line_case):
 
 @pytest.mark.parametrize("steps", STEPS)
 def test_line_nonlinear_ladder(line_case, spatial_backend_class, steps):
-    family, grid, space, problem = line_case
+    family, grid, space, problem, run_request = line_case
     bound = amplitude_bound(family, grid, space, spatial_backend_class.name, steps)
     assert bound > 0
     if steps == 0:
-        reference = derivative(NumpyRefBackend, problem, grid, REMAINDER)
-        actual = derivative(spatial_backend_class, problem, grid, REMAINDER)
+        reference = derivative(NumpyRefBackend, problem, run_request, grid, REMAINDER)
+        actual = derivative(
+            spatial_backend_class, problem, run_request, grid, REMAINDER
+        )
     else:
-        schedule = problem.stepper.schedule
+        schedule = run_request.stepper.schedule
         assert schedule is not None
-        problem = dataclasses.replace(
-            problem,
-            stepper=dataclasses.replace(
-                problem.stepper,
+        run_request = run_request.with_stepper(
+            dataclasses.replace(
+                run_request.stepper,
                 schedule=type(schedule).uniform(0, LENGTH, LENGTH / steps),
-            ),
+            )
         )
         values = []
         for implementation in (NumpyRefBackend, spatial_backend_class):
-            backend = implementation(problem, grid=grid, options=REMAINDER)
+            backend = implementation(problem, run_request, grid=grid, options=REMAINDER)
             try:
                 backend.set_initial(problem.initial.field0, None)
                 backend.propagate_to(LENGTH)
@@ -160,7 +160,7 @@ def test_line_nonlinear_ladder(line_case, spatial_backend_class, steps):
 
 @pytest.mark.parametrize("steps", [0, 10])
 def test_line_statistics_fresh_and_cached(line_case, spatial_backend_class, steps):
-    family, grid, space, problem = line_case
+    family, grid, space, problem, run_request = line_case
     # The plane's statistics bound (test_free_ladders): twice the amplitude ladder
     # for squared fields, plus the column and temporal reductions.
     bound = 2 * amplitude_bound(family, grid, space, spatial_backend_class.name, steps)
@@ -178,7 +178,7 @@ def test_line_statistics_fresh_and_cached(line_case, spatial_backend_class, step
     spec = StatsSpec(names=names)
     rows = []
     for implementation in (NumpyRefBackend, spatial_backend_class):
-        backend = implementation(problem, grid=grid, options=REMAINDER)
+        backend = implementation(problem, run_request, grid=grid, options=REMAINDER)
         try:
             backend.set_initial(problem.initial.field0, None)
             if steps:

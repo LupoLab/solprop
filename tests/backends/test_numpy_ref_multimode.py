@@ -98,9 +98,9 @@ def build(grid, modes, field0, **overrides):
         return assemble(grid, modes, responses, field0, **request)
 
 
-def propagate(backend_class, problem, grid, distance=LENGTH, options=None):
+def propagate(backend_class, problem, run_request, grid, distance=LENGTH, options=None):
     """Run a problem to a position and return the plane and the backend."""
-    backend = backend_class(problem, grid=grid, options=options)
+    backend = backend_class(problem, run_request, grid=grid, options=options)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(distance)
     return backend.observe(), backend
@@ -136,12 +136,14 @@ def test_a_one_mode_multimode_run_reproduces_the_mode_averaged_one(
     what is left is the quadrature's own error.
     """
     start = pulse(grid)
-    averaged, _ = propagate(backend_class, build(grid, capillary, start), grid)
+    averaged, _ = propagate(backend_class, *build(grid, capillary, start), grid)
     rule = transverse_quadrature(
         [capillary], n_r=CONVERGED_N_R, radial_rule="gauss_kronrod"
     )
     multimode, _ = propagate(
-        backend_class, build(grid, [capillary], start, quadrature=rule), grid
+        backend_class,
+        *build(grid, [capillary], start, quadrature=rule),
+        grid,
     )
     # Measured 1.3e-16 at n_r = 24, against 1.1e-11 at n_r = 8: by this order the rule
     # is exact on the quartic and what is left is the round-off of two different
@@ -156,10 +158,12 @@ def test_the_quadrature_converges_towards_the_mode_averaged_answer(
 ):
     """Coarse rules are wrong by the rule's error and by nothing systematic."""
     start = pulse(grid)
-    averaged, _ = propagate(backend_class, build(grid, capillary, start), grid)
+    averaged, _ = propagate(backend_class, *build(grid, capillary, start), grid)
     rule = transverse_quadrature([capillary], n_r=n_r, radial_rule="gauss_kronrod")
     multimode, _ = propagate(
-        backend_class, build(grid, [capillary], start, quadrature=rule), grid
+        backend_class,
+        *build(grid, [capillary], start, quadrature=rule),
+        grid,
     )
     # Measured 1.1e-11, 2.9e-18 and 1.3e-16 at n_r = 8, 16 and 24: the rule converges
     # spectrally and is already at round-off by 16. The bound is the coarsest of them
@@ -186,7 +190,7 @@ def test_the_pipeline_with_a_zero_coefficient_changes_nothing(
     schedule = {"dz_max": LENGTH / 4, "dz_init": LENGTH / 4}
     running, _ = propagate(
         backend_class,
-        build(
+        *build(
             grid,
             [capillary],
             start,
@@ -198,7 +202,7 @@ def test_the_pipeline_with_a_zero_coefficient_changes_nothing(
     )
     empty, _ = propagate(
         backend_class,
-        build(grid, [capillary], start, quadrature=rule, responses=[], **schedule),
+        *build(grid, [capillary], start, quadrature=rule, responses=[], **schedule),
         grid,
     )
     assert np.array_equal(running.field, empty.field)
@@ -210,14 +214,14 @@ def test_modes_with_a_zero_coefficient_propagate_independently_and_exactly(
     """Two modes, the pipeline running, and nothing coupling them: the linear flow."""
     modes = modes_of(capillary, 2)
     rule = transverse_quadrature(modes, n_r=16, radial_rule="gauss_kronrod")
-    problem = build(
+    problem, run_request = build(
         grid,
         modes,
         pulse(grid, 2),
         quadrature=rule,
         responses=[KerrResponse(chi3=0.0, thg=True)],
     )
-    plane, _ = propagate(backend_class, problem, grid)
+    plane, _ = propagate(backend_class, problem, run_request, grid)
     exact = np.exp(delta_phi(problem.linear, 0.0, LENGTH)) * problem.initial.field0
     # The operator reaches a large phase over this length at the top of the band, so
     # the bound is that exponent times the machine epsilon times the step count;
@@ -246,14 +250,14 @@ def test_the_transform_pair_loses_no_energy(backend_class, grid, capillary):
     rule = transverse_quadrature(
         modes, n_r=CONVERGED_N_R_SET, radial_rule="gauss_kronrod"
     )
-    problem = build(
+    problem, run_request = build(
         grid,
         modes,
         pulse(grid, 2),
         quadrature=rule,
         responses=[KerrResponse(chi3=0.0, thg=True)],
     )
-    plane, _ = propagate(backend_class, problem, grid)
+    plane, _ = propagate(backend_class, problem, run_request, grid)
     before = total_energy(grid, problem.initial.field0)
     after = total_energy(grid, plane.field)
     # Measured 4.4e-16, which is the machine epsilon times the 257-bin reduction.
@@ -278,8 +282,10 @@ def test_a_kerr_run_keeps_the_energy_the_medium_does_not_hold(
     )
 
     def drift_at(energy):
-        problem = build(grid, modes, pulse(grid, 2, energy), quadrature=rule)
-        plane, _ = propagate(backend_class, problem, grid)
+        problem, run_request = build(
+            grid, modes, pulse(grid, 2, energy), quadrature=rule
+        )
+        plane, _ = propagate(backend_class, problem, run_request, grid)
         before = total_energy(grid, problem.initial.field0)
         return abs(total_energy(grid, plane.field) / before - 1.0)
 
@@ -298,12 +304,20 @@ def test_a_chunk_of_one_node_agrees_with_all_of_them(backend_class, grid, capill
     modes = modes_of(capillary, 2)
     rule = transverse_quadrature(modes, n_r=16, radial_rule="gauss_kronrod")
     start = pulse(grid, 2)
-    problem = build(grid, modes, start, quadrature=rule)
+    problem, run_request = build(grid, modes, start, quadrature=rule)
     whole, backend = propagate(
-        backend_class, problem, grid, options=ExecutionOptions(node_budget=1 << 30)
+        backend_class,
+        problem,
+        run_request,
+        grid,
+        options=ExecutionOptions(node_budget=1 << 30),
     )
     chunked, small = propagate(
-        backend_class, problem, grid, options=ExecutionOptions(node_budget=1)
+        backend_class,
+        problem,
+        run_request,
+        grid,
+        options=ExecutionOptions(node_budget=1),
     )
     assert backend.node_chunk == rule.n_nodes
     assert small.node_chunk == 1
@@ -319,12 +333,18 @@ def test_the_memory_ledger_sizes_the_node_buffers_by_the_chunk(
     modes = modes_of(capillary, 2)
     rule = transverse_quadrature(modes, n_r=16, radial_rule="gauss_kronrod")
     start = pulse(grid, 2)
-    problem = build(grid, modes, start, quadrature=rule)
+    problem, run_request = build(grid, modes, start, quadrature=rule)
     whole = backend_class(
-        problem, grid=grid, options=ExecutionOptions(node_budget=1 << 30)
+        problem,
+        run_request,
+        grid=grid,
+        options=ExecutionOptions(node_budget=1 << 30),
     ).memory_ledger()
     chunked = backend_class(
-        problem, grid=grid, options=ExecutionOptions(node_budget=1)
+        problem,
+        run_request,
+        grid=grid,
+        options=ExecutionOptions(node_budget=1),
     ).memory_ledger()
     named = ("node_field", "node_polarisation")
     for name in named:
@@ -343,9 +363,9 @@ def test_the_alarm_fires_on_a_rule_too_coarse_for_the_field(
     """A statistic and a logged warning, never a controller input."""
     modes = modes_of(capillary, 3)
     rule = transverse_quadrature(modes, n_r=8, radial_rule="gauss_kronrod")
-    problem = build(grid, modes, pulse(grid, 3), quadrature=rule)
+    problem, run_request = build(grid, modes, pulse(grid, 3), quadrature=rule)
     with caplog.at_level(logging.WARNING, logger="solprop.backends.numpy_ref.backend"):
-        _, backend = propagate(backend_class, problem, grid)
+        _, backend = propagate(backend_class, problem, run_request, grid)
     # Measured 1.6e-1: nine radial nodes cannot integrate the quartic of three Bessel
     # profiles, and no step size can fix that.
     assert quadrature_alarm(backend) > 1e-6
@@ -361,9 +381,9 @@ def test_the_alarm_is_silent_on_a_rule_that_resolves_the_field(
     rule = transverse_quadrature(
         modes, n_r=CONVERGED_N_R_SET, radial_rule="gauss_kronrod"
     )
-    problem = build(grid, modes, pulse(grid, 3), quadrature=rule)
+    problem, run_request = build(grid, modes, pulse(grid, 3), quadrature=rule)
     with caplog.at_level(logging.WARNING, logger="solprop.backends.numpy_ref.backend"):
-        _, backend = propagate(backend_class, problem, grid)
+        _, backend = propagate(backend_class, problem, run_request, grid)
     # Measured 7.2e-9, two orders below the alarm and falling by three orders for every
     # eight nodes added.
     assert 0.0 < quadrature_alarm(backend) < 1e-6
@@ -430,8 +450,8 @@ def test_the_alarm_falls_with_the_radial_order_on_a_three_mode_set(
     alarms = {}
     for n_r in orders:
         rule = transverse_quadrature(modes, n_r=n_r, radial_rule="gauss_kronrod")
-        problem = build(grid, modes, pulse(grid, 3), quadrature=rule)
-        _, backend = propagate(DEFAULT_BACKEND, problem, grid)
+        problem, run_request = build(grid, modes, pulse(grid, 3), quadrature=rule)
+        _, backend = propagate(DEFAULT_BACKEND, problem, run_request, grid)
         alarms[n_r] = float(backend._alarm)
     # The ladder is monotone and spans more than ten orders, and the threshold lands
     # where the two constants at the top of this file say it does.
@@ -456,9 +476,9 @@ def test_a_rule_with_no_embedded_pair_reports_nothing_rather_than_zero(
     """The difference of a rule with itself is zero, which is not convergence."""
     modes = modes_of(capillary, 2)
     rule = transverse_quadrature(modes, n_r=8, radial_rule="gauss")
-    problem = build(grid, modes, pulse(grid, 2), quadrature=rule)
+    problem, run_request = build(grid, modes, pulse(grid, 2), quadrature=rule)
     with caplog.at_level(logging.WARNING, logger="solprop.backends.numpy_ref.backend"):
-        _, backend = propagate(backend_class, problem, grid)
+        _, backend = propagate(backend_class, problem, run_request, grid)
     assert math.isnan(quadrature_alarm(backend))
     assert not caplog.records
 
@@ -469,8 +489,8 @@ def test_the_alarm_is_not_a_number_where_the_polarisation_vanishes(grid, capilla
     rule = transverse_quadrature(
         modes, n_r=CONVERGED_N_R_SET, radial_rule="gauss_kronrod"
     )
-    problem = build(grid, modes, pulse(grid, 2), quadrature=rule)
-    _, backend = propagate(NumpyRefBackend, problem, grid)
+    problem, run_request = build(grid, modes, pulse(grid, 2), quadrature=rule)
+    _, backend = propagate(NumpyRefBackend, problem, run_request, grid)
     assert backend._alarm > 0.0
     backend._last_projected = np.zeros_like(backend._last_projected)
     backend._last_coarse = np.zeros_like(backend._last_coarse)
@@ -494,11 +514,11 @@ def test_a_linearly_polarised_run_is_the_scalar_one_rotated(
     pipeline.
     """
     start = pulse(grid)
-    scalar, _ = propagate(backend_class, build(grid, capillary, start), grid)
+    scalar, _ = propagate(backend_class, *build(grid, capillary, start), grid)
     components = np.concatenate(
         [math.cos(angle) * start, math.sin(angle) * start], axis=1
     )
-    vector, _ = propagate(backend_class, build(grid, capillary, components), grid)
+    vector, _ = propagate(backend_class, *build(grid, capillary, components), grid)
     assert vector.field.shape[1] == 2
     peak = np.max(np.abs(scalar.field))
     for index, cosine in enumerate((math.cos(angle), math.sin(angle))):
@@ -548,7 +568,7 @@ def test_the_two_routes_to_a_vector_run_agree_on_a_uniformly_polarised_pair(
     resolved_rule = transverse_quadrature(
         pair, n_r=CONVERGED_N_R, radial_rule="gauss_kronrod"
     )
-    resolved = build(
+    resolved, resolved_request = build(
         grid,
         pair,
         np.concatenate([jones[0] * start, jones[1] * start], axis=0),
@@ -556,7 +576,7 @@ def test_the_two_routes_to_a_vector_run_agree_on_a_uniformly_polarised_pair(
         components=("x", "y"),
         **fixed,
     )
-    product = build(
+    product, product_request = build(
         grid,
         [capillary],
         np.concatenate([jones[0] * start, jones[1] * start], axis=1),
@@ -571,8 +591,8 @@ def test_the_two_routes_to_a_vector_run_agree_on_a_uniformly_polarised_pair(
     rows = resolved.transform.synthesis.reshape(-1, 2, 2)
     assert np.all(rows[:, 1, 0] == 0.0)
     assert np.all(rows[:, 0, 1] == 0.0)
-    by_rows, _ = propagate(NumpyRefBackend, resolved, grid)
-    by_state, _ = propagate(NumpyRefBackend, product, grid)
+    by_rows, _ = propagate(NumpyRefBackend, resolved, resolved_request, grid)
+    by_state, _ = propagate(NumpyRefBackend, product, product_request, grid)
     k = 2 * resolved_rule.n_nodes + 2
     unit = np.finfo(float).eps / 2
     bound = steps * 7 * k * unit / (1 - k * unit)
@@ -630,8 +650,8 @@ def test_the_peak_intensity_is_taken_on_the_axis(backend_class, grid, capillary)
     """The axis is not a quadrature node, so the mode fields are evaluated there."""
     modes = modes_of(capillary, 2)
     rule = transverse_quadrature(modes, n_r=16, radial_rule="gauss_kronrod")
-    problem = build(grid, modes, pulse(grid, 2), quadrature=rule)
-    backend = backend_class(problem, grid=grid, modes=modes)
+    problem, run_request = build(grid, modes, pulse(grid, 2), quadrature=rule)
+    backend = backend_class(problem, run_request, grid=grid, modes=modes)
     backend.set_initial(problem.initial.field0, None)
     plane = backend.observe()
     got = backend.stats(StatsSpec(names=("peak_intensity",)))["peak_intensity"]
@@ -646,8 +666,8 @@ def test_the_on_axis_intensity_needs_the_mode_set(backend_class, grid, capillary
     """The mode fields at the axis are not in the kernel contract."""
     modes = modes_of(capillary, 2)
     rule = transverse_quadrature(modes, n_r=16, radial_rule="gauss_kronrod")
-    problem = build(grid, modes, pulse(grid, 2), quadrature=rule)
-    backend = backend_class(problem, grid=grid)
+    problem, run_request = build(grid, modes, pulse(grid, 2), quadrature=rule)
+    backend = backend_class(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     with pytest.raises(BackendError, match="needs the mode set"):
         backend.stats(StatsSpec(names=("peak_intensity",)))
@@ -659,8 +679,8 @@ def test_the_alarm_is_reported_as_a_statistic(backend_class, grid, capillary):
     rule = transverse_quadrature(
         modes, n_r=CONVERGED_N_R_SET, radial_rule="gauss_kronrod"
     )
-    problem = build(grid, modes, pulse(grid, 3), quadrature=rule)
-    _, backend = propagate(backend_class, problem, grid)
+    problem, run_request = build(grid, modes, pulse(grid, 3), quadrature=rule)
+    _, backend = propagate(backend_class, problem, run_request, grid)
     values = backend.stats(StatsSpec(names=("quadrature_error", "energy")))
     assert float(values["quadrature_error"]) == quadrature_alarm(backend)
     assert values["quadrature_error"].shape == ()

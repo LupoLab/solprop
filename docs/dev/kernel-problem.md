@@ -1,11 +1,14 @@
 # The kernel problem
 
 Before a run takes its first step, everything solprop knows about it — the grid, the
-modes, the gas, the frame, the responses, the pulse, the noise, the stepper settings — is
-translated once into a single frozen object of plain NumPy arrays, a
-{class}`~solprop.translate.problem.PropagationProblem`. That object is the only thing a
-backend ever sees, so it is exactly what the run computes: every choice the physics pages
-describe has been made by the time it exists, and nothing a backend does can change them.
+modes, the gas, the frame, the responses, the pulse, the noise — is translated once into a
+single frozen object of plain NumPy arrays, a
+{class}`~solprop.translate.problem.PropagationProblem`, and how it is run — the stepper
+settings, the planes, the statistics — into the immutable
+{class}`~solprop.translate.run_request.RunRequest` beside it. Those two are the only
+things a backend ever sees, so they are exactly what the run computes: every choice the
+physics pages describe has been made by the time they exist, and nothing a backend does
+can change them.
 
 You rarely need to handle it, but it is the place to look when you want to know what a
 run will actually do.
@@ -57,9 +60,18 @@ shares, one per section of the contract, and a `route`:
 | `linear` | the cumulative operator $\Phi(\omega, z)$ as a Chebyshev expansion in the mode set's scalar paths, or as a table along z where that is not available, plus its hard kinks and the frame quantities |
 | `responses` | the compiled nonlinear term: the Kerr coefficients, the ionisation table, the plasma and Raman leaves, the density path, the prefactor, the temporal absorber |
 | `initial` | the initial state and the noise realisation of the one trajectory the problem describes |
-| `stepper` | the tableau, the controller, the step caps, the save planes and any fixed schedule |
-| `stats_spec` | which statistics to collect |
 | `route` | what differs between routes, as exactly one variant of a closed union ({mod}`solprop.translate.routes`): a {class}`~solprop.translate.routes.ModalRoute` (mode-averaged or resolved modes, with the TDSE response as its reference-only extension), a {class}`~solprop.translate.routes.GeneralRoute` (a general modal guide) or a {class}`~solprop.translate.routes.SpatialRoute` (radial, Cartesian, planar or line free space, with its plane measure and transverse boundary). Each carries the transform — synthesis and projection between modal amplitudes and the field at quadrature nodes, and their rescaling along z — which `problem.transform` reads |
+
+How the problem is *run* is not part of it. The tableau, the controller, the step caps,
+the save planes, any fixed schedule and the statistics to collect are the run's policy,
+held by an immutable {class}`~solprop.translate.run_request.RunRequest` that
+{func}`~solprop.translate.problem.assemble` returns beside the problem
+({class}`~solprop.translate.problem.Translation`); a backend is built from the two
+together ([SEP 47](seps/sep-0047-run-ownership.md) §5.2; the
+[kernel contract](kernel-contract.md), §§7 and 8). So the same problem can be run with
+another request -- an interior launch's remaining planes, another start or retention --
+without being translated again, and a run's configuration record reads its stepper
+settings, planes and statistics from the request.
 
 Each variant has exactly the fields its executor needs and checks them when it is built.
 A backend visits the variant explicitly and refuses one it does not execute by name,
@@ -154,13 +166,15 @@ debug.
 
 ## Validation is the backend's defence
 
-A backend calls {meth}`solprop.translate.problem.PropagationProblem.validate` and refuses
-anything inconsistent. Most of the contract's promises are kept by construction — each group
+A backend calls {func}`solprop.translate.problem.validate_run` on the problem and its
+request before it allocates, and refuses anything inconsistent;
+{meth}`~solprop.translate.problem.PropagationProblem.validate` is the part of it that needs
+no request. Most of the contract's promises are kept by construction — each group
 freezes and checks its own arrays, so a writeable array or a mismatched interval count
 cannot be built in the first place — and what `validate` adds is everything that spans
-groups: the shapes against the canonical state shape; finiteness; that
-the $\Phi$ table covers the run; that every table along z spans the same range; and that a
-replayed fixed schedule lands on every save plane and every hard kink. A failure raises
+groups: the shapes against the canonical state shape; finiteness; that every table along z
+spans the same range; and, with the request, that the $\Phi$ table covers the run and that
+a replayed fixed schedule lands on every save plane and every hard kink. A failure raises
 {class}`solprop.exceptions.TranslationError` naming the field.
 
 ## What is compiled
@@ -233,7 +247,7 @@ mask.
    peak = 11.83e-27 / (0.11 * 100e-15 ** 2)      # the fundamental soliton, 10.75 W
    start = SechPulse(wavelength=835e-9, width=100e-15, peak_power=peak).build(grid)
 
-   problem = assemble(
+   problem, request = assemble(
        grid, gnlse.mode, [gnlse.kerr], start,
        controller=PIController(rtol=1e-8, atol=1e-14),
        save_planes=[0.5, 1.0], dz_max=0.05, dz_init=1e-4,

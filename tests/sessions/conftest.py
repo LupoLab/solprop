@@ -17,8 +17,8 @@ import pytest
 
 from sessions.executors import EXECUTORS, Executor, Started, entrance
 from solprop.backends.session import RunSession
-from solprop.translate.problem import PropagationProblem
-from solprop.translate.run_request import RunRequest, describe_run
+from solprop.translate.problem import PropagationProblem, Translation
+from solprop.translate.run_request import RunRequest
 
 Starter = Callable[..., Started]
 
@@ -69,21 +69,25 @@ def _starter(chosen: Executor) -> Iterator[Starter]:
     Yields
     ------
     callable
-        ``(problem, request=None, *, stop=None, listener=None, **script) -> Started``.
+        ``(problem, request=None, *, stop=None, listener=None, **script) -> Started``,
+        where `problem` is a translation, whose request is used unless one is given,
+        or a bare problem beside its request.
     """
     opened: list[RunSession] = []
 
     def start(
-        problem: PropagationProblem,
+        problem: PropagationProblem | Translation,
         request: RunRequest | None = None,
         **controls: Any,
     ) -> Started:
-        started = chosen.start(
-            problem,
-            describe_run(problem) if request is None else request,
-            entrance(problem),
-            **controls,
-        )
+        # A translation brings its own request, which an explicit one replaces.
+        if isinstance(problem, Translation):
+            problem, translated = problem
+            request = translated if request is None else request
+        if request is None:
+            msg = "a bare problem starts with its run's request"
+            raise TypeError(msg)
+        started = chosen.start(problem, request, entrance(problem), **controls)
         opened.append(started.session)
         return started
 

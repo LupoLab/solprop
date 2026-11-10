@@ -236,7 +236,7 @@ def test_a_declared_raman_stage_without_a_spectrum_is_refused(raman_capillary):
     """The order and the spectrum come from one caller and can only disagree in a
     hand-built problem; the pass says which is missing rather than reading a
     ``None``."""
-    problem, _, _ = raman_capillary()
+    problem, _, _, _ = raman_capillary()
     with pytest.raises(BackendError, match="no kernel spectrum"):
         passes.nonlinear_polarisation(
             np.zeros((1, 1, problem.grids.n_to)),
@@ -277,7 +277,7 @@ def raman_capillary(raman_field_grid):
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", MaterialRangeWarning)
-            problem = assemble(
+            problem, run_request = assemble(
                 raman_field_grid,
                 [mode] if modal else mode,
                 [kerr, raman] if responses is None else responses,
@@ -288,7 +288,7 @@ def raman_capillary(raman_field_grid):
                 dz_init=1e-4,
                 quadrature=quadrature,
             )
-        return problem, kerr, raman
+        return problem, run_request, kerr, raman
 
     return build
 
@@ -343,8 +343,8 @@ def test_one_stage_matches_the_responses_composed_by_hand(
     raman_capillary, raman_field_grid, z
 ):
     """The whole chain against the two oracles, at three densities of the gradient."""
-    problem, kerr, raman = raman_capillary()
-    backend = NumpyRefBackend(problem)
+    problem, run_request, kerr, raman = raman_capillary()
+    backend = NumpyRefBackend(problem, run_request)
     backend.set_initial(problem.initial.field0, None)
     state = problem.initial.field0[None]
     got = backend._nonlinear(state, backend._stage_scalars(0.0, z), np.ones_like(state))
@@ -422,8 +422,8 @@ def test_the_kernel_is_transformed_once_per_change_of_the_decay_rates(
         if material == "H2"
         else response_for("SiO2", amplitude=1e-22, thg=True),
     ]
-    problem, _, _ = raman_capillary(responses)
-    backend = backend_class(problem)
+    problem, run_request, _, _ = raman_capillary(responses)
+    backend = backend_class(problem, run_request)
     for z in (0.0, 0.05, 0.05, 0.15, 0.15):
         rates = backend._stage_scalars(0.0, z).raman_rates
         backend._raman_spectrum(rates)
@@ -435,8 +435,8 @@ def test_the_kernel_is_transformed_once_per_change_of_the_decay_rates(
 def test_a_problem_without_a_raman_kernel_has_no_spectrum(
     backend_class, raman_capillary
 ):
-    problem, _, _ = raman_capillary([KerrResponse(chi3=1.0e-51, thg=True)])
-    backend = backend_class(problem)
+    problem, run_request, _, _ = raman_capillary([KerrResponse(chi3=1.0e-51, thg=True)])
+    backend = backend_class(problem, run_request)
     assert backend._raman_spectrum(backend._stage_scalars(0.0, 0.0).raman_rates) is None
     backend.close()
 
@@ -444,14 +444,16 @@ def test_a_problem_without_a_raman_kernel_has_no_spectrum(
 def test_the_ledger_names_the_doubled_buffers(backend_class, raman_capillary):
     """The drive and its spectrum live on the doubled grid and are sized by the chunk
     (``architecture.md`` section 13); the kernel spectrum is one per stage."""
-    with_raman, _, _ = raman_capillary()
-    without, _, _ = raman_capillary([KerrResponse(chi3=1.0e-51, thg=True)])
+    with_raman, raman_request, _, _ = raman_capillary()
+    without, bare_request, _, _ = raman_capillary(
+        [KerrResponse(chi3=1.0e-51, thg=True)]
+    )
     n_to = with_raman.grids.n_to
-    owner = backend_class(with_raman)
+    owner = backend_class(with_raman, raman_request)
     chunk = owner.node_chunk * with_raman.transform.n_pol
     ledger = owner.memory_ledger()
     owner.close()
-    owner = backend_class(without)
+    owner = backend_class(without, bare_request)
     bare = owner.memory_ledger()
     owner.close()
     assert ledger["node_raman_drive"] == chunk * 2 * n_to * 8
@@ -477,9 +479,11 @@ def test_a_zero_weight_raman_response_is_the_exact_linear_flow(
     """
     length = 0.05
     zero = response_for("SiO2", amplitude=0.0)
-    problem = linear_problem(narrow_grid, save_planes=[length], responses=[zero])
+    problem, run_request = linear_problem(
+        narrow_grid, save_planes=[length], responses=[zero]
+    )
     assert problem.flags.has_raman
-    backend = backend_class(problem, grid=narrow_grid)
+    backend = backend_class(problem, run_request, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     summary = backend.propagate_to(length)
     final = backend.observe().require_field()
@@ -556,7 +560,7 @@ class GainSetup:
         self.field[0, 0, self.stokes] = self.grid.n_t * GAIN_SEED * np.sqrt(GAIN_PUMP)
 
     def problem(self, responses, *, beta2=GAIN_BETA2, length=0.1, rtol=1e-9):
-        """Assemble the propagation problem with the given responses."""
+        """Assemble the propagation problem and its request with the given responses."""
         mode = SpecifiedMode.from_taylor(
             [0.0, 0.0, beta2], omega_ref=self.grid.omega0, aeff=GAIN_AEFF
         )
@@ -639,9 +643,9 @@ def test_the_small_signal_gain_matches_minus_the_imaginary_kernel(trange, bound)
     """
     setup = GainSetup(trange)
     on = stage_derivative(
-        setup.problem([setup.kerr, setup.raman]), setup.grid, setup.field
+        setup.problem([setup.kerr, setup.raman]).problem, setup.grid, setup.field
     )
-    off = stage_derivative(setup.problem([setup.kerr]), setup.grid, setup.field)
+    off = stage_derivative(setup.problem([setup.kerr]).problem, setup.grid, setup.field)
     kappa = -float(np.imag(off[0] / setup.field[0, 0, 0]))
     growth = float(np.real(on[setup.stokes] / setup.field[0, 0, setup.stokes]))
     bare = float(np.real(off[setup.stokes] / setup.field[0, 0, setup.stokes]))
@@ -689,8 +693,8 @@ def test_a_short_propagation_grows_the_stokes_at_the_predicted_rate(backend_clas
     length = 0.02
 
     def run(responses):
-        problem = setup.problem(responses, length=length, rtol=1e-10)
-        backend = backend_class(problem, grid=setup.grid)
+        problem, run_request = setup.problem(responses, length=length, rtol=1e-10)
+        backend = backend_class(problem, run_request, grid=setup.grid)
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(length)
         final = backend.observe().require_field()[0, 0].copy()
@@ -876,7 +880,7 @@ def test_a_vector_state_with_a_raman_kernel_is_refused_by_name(
     The translation layer refuses it first, so the flags have to be declared by hand
     here -- which is exactly the case a backend's own refusal exists for.
     """
-    base = soliton_problem(narrow_grid, 1, save_planes=[0.01])
+    base, run_request = soliton_problem(narrow_grid, 1, save_planes=[0.01])
     two = dataclasses.replace(base.transform, _n_pol=2, kind="modal")
     problem = substitute(
         base,
@@ -885,13 +889,13 @@ def test_a_vector_state_with_a_raman_kernel_is_refused_by_name(
         route=dataclasses.replace(base.route, transform=two),
     )
     with pytest.raises(BackendError, match="tensor-capable"):
-        backend_class(problem)
+        backend_class(problem, run_request)
 
 
 def test_a_raman_run_steps_and_shifts_a_capillary_pulse(backend_class, raman_capillary):
     """A propagation with the convolution in the loop, end to end."""
-    problem, _, _ = raman_capillary()
-    backend = backend_class(problem, grid=None)
+    problem, run_request, _, _ = raman_capillary()
+    backend = backend_class(problem, run_request, grid=None)
     backend.set_initial(problem.initial.field0, None)
     summary = backend.propagate_to(0.1)
     plane = backend.observe()
@@ -909,7 +913,7 @@ def test_the_drive_form_comes_from_the_leaf_and_not_from_the_kerr_flag(
     raman_capillary,
 ):
     """The answer is carried by the leaf, and it is the one the compiler enforces."""
-    problem, _, _ = raman_capillary()
+    problem, _, _, _ = raman_capillary()
     responses = problem.responses
     leaf = responses.raman_coefficients
     kerr = responses.kerr_coefficients
@@ -922,7 +926,7 @@ def test_the_drive_form_comes_from_the_leaf_and_not_from_the_kerr_flag(
 
 
 def test_the_raman_stage_refuses_a_problem_with_no_leaf(raman_capillary):
-    problem, _, _ = raman_capillary()
+    problem, _, _, _ = raman_capillary()
     stripped = dataclasses.replace(problem.responses, raman_terms=())
     with pytest.raises(BackendError, match=r"no responses\.raman_coefficients"):
         passes._raman_thg(stripped)

@@ -46,14 +46,16 @@ def _run(output: Output, progress: object = "none") -> None:
     progress : object, optional
         The reporter.
     """
-    problem = soliton()
-    backend = select("numpy_ref", problem, grid=window(), modes=[fibre().mode])
+    problem, run_request = soliton()
+    backend = select(
+        "numpy_ref", problem, run_request, grid=window(), modes=[fibre().mode]
+    )
     try:
         run_problem(
             problem,
             backend,
             output,
-            metadata=metadata_for(problem, window(), modes=[fibre().mode]),
+            metadata=metadata_for(problem, run_request, window(), modes=[fibre().mode]),
             progress=progress,  # pyright: ignore[reportArgumentType]
             start=entrance(problem),
         )
@@ -205,14 +207,16 @@ def test_assembled_planes_and_checkpoints_do_not_depend_on_chunking(
         _yield_every_attempt(monkeypatch)
     reporter = _StoppingReporter(at=7)
     output = _FailingStore(fails=False)
-    problem = soliton()
-    backend = select("numpy_ref", problem, grid=window(), modes=[fibre().mode])
+    problem, run_request = soliton()
+    backend = select(
+        "numpy_ref", problem, run_request, grid=window(), modes=[fibre().mode]
+    )
     try:
         run_problem(
             problem,
             backend,
             output,
-            metadata=metadata_for(problem, window(), modes=[fibre().mode]),
+            metadata=metadata_for(problem, run_request, window(), modes=[fibre().mode]),
             progress=reporter,
             start=entrance(problem),
             stop=reporter.token,

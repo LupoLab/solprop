@@ -102,15 +102,15 @@ def _prepare(name: str, fraction: float, *, admitted: bool) -> tuple[Any, Any, A
     from benchmarks.registry import CASES  # noqa: PLC0415
     from solprop.driver.run import field_retention  # noqa: PLC0415
     from solprop.stats import StatsSpec  # noqa: PLC0415
-    from solprop.translate.run_request import describe_run  # noqa: PLC0415
 
     configuration = CASES[name].configuration(
         "default", 1, fraction=fraction, noise="none" if admitted else "case"
     )
     simulation = build(configuration)
     problem = simulation.translate()
+    request = simulation._run_request()
     retention = field_retention(
-        problem, simulation.settings.fields, simulation.settings.field_planes
+        request, simulation.settings.fields, simulation.settings.field_planes
     )
     stats = None
     if admitted:
@@ -119,7 +119,7 @@ def _prepare(name: str, fraction: float, *, admitted: bool) -> tuple[Any, Any, A
             ADMITTED_STATISTICS,
         )
 
-        spec = problem.stats_spec
+        spec = request.observation.stats
         allowed = (
             ADMITTED_STATISTICS
             if problem.transform.geometry is None
@@ -135,7 +135,7 @@ def _prepare(name: str, fraction: float, *, admitted: bool) -> tuple[Any, Any, A
             period=spec.period,
             energy_windows=spec.energy_windows,
         )
-    return simulation, problem, describe_run(problem, retention=retention, stats=stats)
+    return simulation, problem, request.for_run(retention=retention, stats=stats)
 
 
 def _start(
@@ -168,6 +168,7 @@ def _start(
     backend: Any = select(
         "native",
         problem,
+        request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,

@@ -51,6 +51,7 @@ from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
 from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.run_request import RunRequest
 
 from legacy_geometry import LEGACY_GRID
 from bounds import fft_bound
@@ -111,7 +112,9 @@ class QuadraticRate:
         )
 
 
-def evaluation_bound(problem: PropagationProblem, grid: FieldGrid) -> float:
+def evaluation_bound(
+    problem: PropagationProblem, run_request: RunRequest, grid: FieldGrid
+) -> float:
     """Bound one evaluation relative to its largest value, fixed before it runs.
 
     The transforms, the Kerr term and the pointwise products take the predeclared
@@ -120,11 +123,13 @@ def evaluation_bound(problem: PropagationProblem, grid: FieldGrid) -> float:
     transform's ``l1 -> linf`` (:mod:`plasma_bounds`), at this machine's thread count.
     """
     return fft_bound(grid.n_to) + plasma_stage_bound(
-        problem, grid, INFO.runtime_threads
+        problem, run_request, grid, INFO.runtime_threads
     )
 
 
-def march_bound(problem: PropagationProblem, grid: FieldGrid, steps: int) -> float:
+def march_bound(
+    problem: PropagationProblem, run_request: RunRequest, grid: FieldGrid, steps: int
+) -> float:
     """Bound `steps` fixed steps of a seven-stage explicit pair.
 
     Each stage's departure is at most :func:`evaluation_bound` of its value; the cases'
@@ -132,7 +137,7 @@ def march_bound(problem: PropagationProblem, grid: FieldGrid, steps: int) -> flo
     to their loss, so a stage's contribution is at most that fraction of the field and
     the stages' contributions add.
     """
-    return max(1, 7 * steps) * evaluation_bound(problem, grid)
+    return max(1, 7 * steps) * evaluation_bound(problem, run_request, grid)
 
 
 def banded(problem: PropagationProblem, rule: RunningIntegral) -> PropagationProblem:
@@ -143,7 +148,7 @@ def banded(problem: PropagationProblem, rule: RunningIntegral) -> PropagationPro
 
 def modal(
     kind: str, integration: IntegrationPolicy = "band", *, averaged: bool = False
-) -> tuple[FieldGrid, PropagationProblem]:
+) -> tuple[FieldGrid, PropagationProblem, RunRequest]:
     """Return a cheap capillary over two fixed steps: argon, or a helium-argon mix.
 
     `averaged` drops the radial quadrature and the vector components: one node and one
@@ -191,10 +196,12 @@ def modal(
         problem = simulation.translate()
     grid = simulation.grid
     assert isinstance(grid, FieldGrid)
-    return grid, problem
+    return grid, problem, simulation._run_request()
 
 
-def spatial(kind: str, steps: int = STEPS) -> tuple[FieldGrid, PropagationProblem]:
+def spatial(
+    kind: str, steps: int = STEPS
+) -> tuple[FieldGrid, PropagationProblem, RunRequest]:
     """Return argon on a radial or Cartesian route, two components, the band rule."""
     grid = FieldGrid.from_limits(
         LENGTH, 800e-9, (600e-9, 1.2e-6), 200e-15, **LEGACY_GRID
@@ -209,7 +216,7 @@ def spatial(kind: str, steps: int = STEPS) -> tuple[FieldGrid, PropagationProble
         80e-6,
         jones=(1, 0.5j),
     )
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [PlasmaResponse("Ar", build_rate_table(QuadraticRate(), (1e3, 1e10)))],
@@ -223,7 +230,7 @@ def spatial(kind: str, steps: int = STEPS) -> tuple[FieldGrid, PropagationProble
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / steps),
         density=1e22,
     )
-    return grid, banded(problem, design_running_integral(grid, "band"))
+    return grid, banded(problem, design_running_integral(grid, "band")), run_request
 
 
 def options_for(name: str) -> ExecutionOptions | None:
@@ -237,25 +244,28 @@ def options_for(name: str) -> ExecutionOptions | None:
 CASES = ("mode_averaged", "analytic", "multimode", "mixture", "radial", "free")
 
 
-def case(name: str) -> tuple[FieldGrid, PropagationProblem]:
-    """Return the banded ``(grid, problem)`` of one case, asking every statistic."""
-    grid, problem = spatial(name) if name in {"radial", "free"} else modal(name, "band")
-    return grid, dataclasses.replace(problem, stats_spec=StatsSpec(names=STATISTICS))
+def case(name: str) -> tuple[FieldGrid, PropagationProblem, RunRequest]:
+    """Return the banded ``(grid, problem, request)`` of one case, every statistic."""
+    grid, problem, run_request = (
+        spatial(name) if name in {"radial", "free"} else modal(name, "band")
+    )
+    return grid, problem, run_request.for_run(stats=StatsSpec(names=STATISTICS))
 
 
 def march(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
     problem: PropagationProblem,
+    run_request: RunRequest,
     grid: FieldGrid,
     options: ExecutionOptions | None = None,
 ) -> tuple[ComplexArray, dict[str, np.ndarray]]:
     """Return the field and the statistics after the problem's fixed steps."""
-    backend = implementation(problem, grid=grid, options=options)
+    backend = implementation(problem, run_request, grid=grid, options=options)
     try:
         backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(problem.stepper.save_planes[-1]))
+        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
         return backend.observe().require_field().copy(), backend.stats(
-            problem.stats_spec
+            run_request.observation.stats
         )
     finally:
         backend.close()
@@ -293,11 +303,13 @@ def assert_statistics_agree(
 @pytest.mark.parametrize("chunk", [19, 20, 44])
 def test_response_column_boundary_preserves_full_and_tail_windows(chunk: int) -> None:
     """Check full/tail chunks across the width boundary within SEP 25 bounds."""
-    grid, problem = case("free")
+    grid, problem, run_request = case("free")
     options = ExecutionOptions(node_chunk=chunk)
-    bound = march_bound(problem, grid, STEPS)
-    expected, expected_stats = march(NumpyRefBackend, problem, grid, options)
-    backend = NativeBackend(problem, grid=grid, options=options)
+    bound = march_bound(problem, run_request, grid, STEPS)
+    expected, expected_stats = march(
+        NumpyRefBackend, problem, run_request, grid, options
+    )
+    backend = NativeBackend(problem, run_request, grid=grid, options=options)
     try:
         sizing = cast(dict[str, dict[str, int]], backend.metadata()["execution_sizing"])
         columns = 2 * chunk
@@ -317,9 +329,9 @@ def test_response_column_boundary_preserves_full_and_tail_windows(chunk: int) ->
             else INFO.thread_count
         )
         backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(problem.stepper.save_planes[-1]))
+        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
         actual = backend.observe().require_field()
-        actual_stats = backend.stats(problem.stats_spec)
+        actual_stats = backend.stats(run_request.observation.stats)
         scale = float(np.max(np.abs(expected)))
         assert scale > 0.0
         assert float(np.max(np.abs(actual - expected))) <= bound * scale
@@ -331,13 +343,15 @@ def test_response_column_boundary_preserves_full_and_tail_windows(chunk: int) ->
 @pytest.mark.gpu
 @pytest.mark.parametrize("name", CASES)
 def test_the_band_rule_matches_the_reference_on_every_route(name: str) -> None:
-    grid, problem = case(name)
+    grid, problem, run_request = case(name)
     assert problem.responses.plasma_integral.policy == "band"
     assert problem.responses.plasma_integral.half_width >= 1
     options = options_for(name)
-    expected, expected_stats = march(NumpyRefBackend, problem, grid, options)
-    actual, actual_stats = march(NativeBackend, problem, grid, options)
-    bound = march_bound(problem, grid, STEPS)
+    expected, expected_stats = march(
+        NumpyRefBackend, problem, run_request, grid, options
+    )
+    actual, actual_stats = march(NativeBackend, problem, run_request, grid, options)
+    bound = march_bound(problem, run_request, grid, STEPS)
     scale = float(np.max(np.abs(expected)))
     assert float(np.max(np.abs(actual - expected))) <= bound * scale
     assert_regression_guard(actual, expected, f"route {name} {STEPS} steps")
@@ -395,8 +409,8 @@ def test_overlapping_stencil_windows_refuse_uncertified_collar(
 def test_the_band_cases_ionise() -> None:
     """The cases are not vacuous: their plasma moves the field and frees electrons."""
     for name in ("mode_averaged", "mixture", "radial"):
-        grid, problem = case(name)
-        _, stats = march(NativeBackend, problem, grid)
+        grid, problem, run_request = case(name)
+        _, stats = march(NativeBackend, problem, run_request, grid)
         assert float(stats["electron_density"]) > 0.0, name
         assert float(stats["plasma_work_defect"]) < 1e-4, name
 
@@ -404,8 +418,8 @@ def test_the_band_cases_ionise() -> None:
 @pytest.mark.gpu
 def test_one_evaluation_matches_the_reference() -> None:
     """The first stage's nonlinear derivative, two components on the radial route."""
-    grid, problem = spatial("radial")
-    reference = NumpyRefBackend(problem, grid=grid)
+    grid, problem, run_request = spatial("radial")
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
@@ -416,7 +430,7 @@ def test_one_evaluation_matches_the_reference() -> None:
         )[0]
     finally:
         reference.close()
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         # A zero-length trial exposes the first stage, N(E, z = 0).
@@ -430,7 +444,7 @@ def test_one_evaluation_matches_the_reference() -> None:
     assert scale > 0.0
     assert (
         float(np.max(np.abs(actual - expected)))
-        <= evaluation_bound(problem, grid) * scale
+        <= evaluation_bound(problem, run_request, grid) * scale
     )
     assert_regression_guard(actual, expected, "radial evaluation")
 
@@ -455,9 +469,9 @@ def test_every_stage_of_a_trial_matches_the_reference(
     stages before it, scaled by ``dz`` times the tableau and the response's gain, which
     the cases' small nonlinear phases keep below one: ``k + 1`` evaluation bounds.
     """
-    grid, problem = modal(kind, integration, averaged=averaged)
-    dz = float(problem.stepper.save_planes[-1]) / STEPS
-    reference = NumpyRefBackend(problem, grid=grid)
+    grid, problem, run_request = modal(kind, integration, averaged=averaged)
+    dz = float(run_request.stepper.save_planes[-1]) / STEPS
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._trial_step(0.0, dz)  # pyright: ignore[reportPrivateUsage] - oracle
@@ -467,7 +481,7 @@ def test_every_stage_of_a_trial_matches_the_reference(
         ]
     finally:
         reference.close()
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         if averaged and not DEVICE_BUILD:
@@ -481,7 +495,7 @@ def test_every_stage_of_a_trial_matches_the_reference(
         ]
     finally:
         backend.close()
-    bound = evaluation_bound(problem, grid)
+    bound = evaluation_bound(problem, run_request, grid)
     for stage, (got, want) in enumerate(zip(actual, expected, strict=True)):
         scale = float(np.max(np.abs(want)))
         assert scale > 0.0, stage
@@ -505,8 +519,8 @@ def test_a_modal_stage_transforms_its_forward_rows_as_one_batch() -> None:
     """
 
     def rows(kind: str) -> set[int]:
-        grid, problem = modal(kind)
-        backend = NativeBackend(problem, grid=grid)
+        grid, problem, run_request = modal(kind)
+        backend = NativeBackend(problem, run_request, grid=grid)
         try:
             sizing = cast(
                 dict[str, dict[str, int]], backend.metadata()["execution_sizing"]
@@ -534,20 +548,19 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
     rounding budgets when both projection norms are comparable. Accumulate the
     existing seven-stage, two-step plasma budget before either backend runs.
     """
-    grid, original = modal(kind)
-    problem = dataclasses.replace(
-        original,
-        stepper=dataclasses.replace(original.stepper, integrator=None),
+    grid, problem, run_request = modal(kind)
+    run_request = run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, integrator=None)
     )
     options = ExecutionOptions(node_chunk=chunk)
-    bound = march_bound(problem, grid, STEPS)
+    bound = march_bound(problem, run_request, grid, STEPS)
     score_bound = 8 * bound
     assert bound > 0.0
     specification = StatsSpec(names=("quadrature_error", "electron_density"))
-    reference = NumpyRefBackend(problem, grid=grid, options=options)
-    backend = NativeBackend(problem, grid=grid, options=options)
+    reference = NumpyRefBackend(problem, run_request, grid=grid, options=options)
+    backend = NativeBackend(problem, run_request, grid=grid, options=options)
     state = backend._native_state  # pyright: ignore[reportPrivateUsage] - score lifetime
-    dz = float(problem.stepper.save_planes[-1]) / STEPS
+    dz = float(run_request.stepper.save_planes[-1]) / STEPS
     try:
         for engine in (reference, backend):
             engine.set_initial(problem.initial.field0, None)
@@ -602,12 +615,12 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
 @pytest.mark.gpu
 def test_a_trapezoid_problem_reports_the_run_diagnostics() -> None:
     """The trapezoid answers the diagnostics from the band scan with its one tap."""
-    grid, problem = modal("mixture", "trapezoid")
-    problem = dataclasses.replace(problem, stats_spec=StatsSpec(names=STATISTICS))
+    grid, problem, run_request = modal("mixture", "trapezoid")
+    run_request = run_request.for_run(stats=StatsSpec(names=STATISTICS))
     assert problem.responses.plasma_integral.policy == "trapezoid"
-    expected, expected_stats = march(NumpyRefBackend, problem, grid)
-    actual, actual_stats = march(NativeBackend, problem, grid)
-    bound = march_bound(problem, grid, STEPS)
+    expected, expected_stats = march(NumpyRefBackend, problem, run_request, grid)
+    actual, actual_stats = march(NativeBackend, problem, run_request, grid)
+    bound = march_bound(problem, run_request, grid, STEPS)
     assert float(np.max(np.abs(actual - expected))) <= bound * float(
         np.max(np.abs(expected))
     )
@@ -624,18 +637,18 @@ def test_a_band_rule_of_one_tap_is_the_trapezoid() -> None:
     two columns differ only in the band column's unfused products and, for the team
     column, its scans' association.
     """
-    grid, problem = spatial("radial")
+    grid, problem, run_request = spatial("radial")
     single = RunningIntegral(
         "band", np.ones(1), dt=grid.dt_fine, band_edge=float(np.max(grid.omega))
     )
     fields: list[ComplexArray] = []
     for rule in (RunningIntegral.trapezoid(), single):
-        field, _ = march(NativeBackend, banded(problem, rule), grid)
+        field, _ = march(NativeBackend, banded(problem, rule), run_request, grid)
         fields.append(field)
     scale = float(np.max(np.abs(fields[0])))
     assert (
         float(np.max(np.abs(fields[1] - fields[0])))
-        <= march_bound(problem, grid, STEPS) * scale
+        <= march_bound(problem, run_request, grid, STEPS) * scale
     )
 
 
@@ -677,8 +690,10 @@ def test_the_band_rows_are_in_the_ledger() -> None:
     """The column's rows, by slot: rate, exposure, filtered, guard, and per component
     the integrand. Total current has its own ledger row. A device keeps its
     trapezoid column's rows, and the tiled column also keeps its tiles' totals."""
-    grid, problem = spatial("free")
-    backend = NativeBackend(problem, grid=grid, options=options_for("free"))
+    grid, problem, run_request = spatial("free")
+    backend = NativeBackend(
+        problem, run_request, grid=grid, options=options_for("free")
+    )
     try:
         ledger = backend.memory_ledger()
         slots = band_slots(problem, backend)
@@ -698,8 +713,8 @@ def test_the_band_rows_are_in_the_ledger() -> None:
 @pytest.mark.skipif(DEVICE_BUILD, reason="a device keeps every row of its column")
 def test_a_trapezoid_problem_keeps_only_the_statistics_rows() -> None:
     """The trapezoid's run diagnostics need the band statistics' three rows alone."""
-    grid, problem = modal("mixture", "trapezoid")
-    backend = NativeBackend(problem, grid=grid)
+    grid, problem, run_request = modal("mixture", "trapezoid")
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         ledger = backend.memory_ledger()
         slots = band_slots(problem, backend, False)
@@ -710,11 +725,12 @@ def test_a_trapezoid_problem_keeps_only_the_statistics_rows() -> None:
 
 @pytest.mark.parametrize("damage", ["too_many", "nonfinite", "empty", "identity"])
 def test_native_taps_are_validated(damage: str) -> None:
-    grid, problem = modal("mode_averaged", "band")
-    backend = NativeBackend(problem, grid=grid)
+    grid, problem, run_request = modal("mode_averaged", "band")
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         payload = _native_problem(
             problem,
+            run_request,
             backend._terms,  # pyright: ignore[reportPrivateUsage] - fixed payload
         )
     finally:
@@ -735,8 +751,8 @@ def test_native_taps_are_validated(damage: str) -> None:
 
 
 def test_the_diagnostics_need_a_field_plasma_column(phase_a_case: PhaseACase) -> None:
-    problem, grid = phase_a_case
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = phase_a_case
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         with pytest.raises(BackendError, match="field-grid plasma column"):
@@ -784,13 +800,13 @@ def test_the_band_column_agrees_across_thread_counts(tmp_path: Path) -> None:
     one, four = runs
     from test_band_stress import case
 
-    for label, (grid, problem), steps in (
+    for label, (grid, problem, run_request), steps in (
         ("radial", spatial("radial"), STEPS),
         ("mixture", modal("mixture", "band"), STEPS),
         ("long_quiet", case("preionised_quiet", 10), 10),
         ("long_mixture", case("mixture_edge", 10), 10),
     ):
-        bound = march_bound(problem, grid, steps)
+        bound = march_bound(problem, run_request, grid, steps)
         expected = one[f"{label}_field"]
         scale = float(np.max(np.abs(expected)))
         assert scale > 0.0
@@ -810,10 +826,10 @@ def test_the_band_column_repeats_to_rounding(name: str) -> None:
     Both are the same discrete computation, so they differ by rounding at most
     (solprop SEP 25): the reference comparison's own bounds hold them.
     """
-    grid, problem = case(name)
-    first, first_stats = march(NativeBackend, problem, grid)
-    second, second_stats = march(NativeBackend, problem, grid)
-    bound = march_bound(problem, grid, STEPS)
+    grid, problem, run_request = case(name)
+    first, first_stats = march(NativeBackend, problem, run_request, grid)
+    second, second_stats = march(NativeBackend, problem, run_request, grid)
+    bound = march_bound(problem, run_request, grid, STEPS)
     scale = float(np.max(np.abs(first)))
     assert scale > 0.0
     assert float(np.max(np.abs(second - first))) <= bound * scale
@@ -822,7 +838,7 @@ def test_the_band_column_repeats_to_rounding(name: str) -> None:
 
 def test_the_rate_bound_preserves_the_exact_lower_clip() -> None:
     """A zero rate must not acquire subnormal loss work at zero field."""
-    _, problem = case("mode_averaged")
+    _, problem, _ = case("mode_averaged")
     coefficients = problem.responses.plasma_coefficients
     assert coefficients is not None
     table = coefficients.rate

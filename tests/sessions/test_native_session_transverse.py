@@ -25,7 +25,6 @@ step with no return to Python.
 
 from __future__ import annotations
 
-import dataclasses
 import math
 from typing import Any
 
@@ -44,7 +43,6 @@ from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.monitor import BoundaryCheck
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, Multistep, RungeKutta
-from solprop.translate.run_request import describe_run
 from test_transverse_reads import REREVIEW, packet_run
 
 native_session = pytest.importorskip("solprop_native.session")
@@ -69,8 +67,9 @@ MARCHES = {"rk": RungeKutta, "adams": Multistep}
 
 def _prepared(simulation: Simulation) -> tuple[Any, Any]:
     """Return a simulation's problem, without statistics, and its monitored request."""
-    problem = dataclasses.replace(simulation.translate(), stats_spec=StatsSpec())
-    return problem, describe_run(problem, monitor=simulation._boundary_monitor())
+    return simulation.translate(), simulation._run_request().for_run(
+        stats=StatsSpec(), monitor=simulation._boundary_monitor()
+    )
 
 
 def _start(
@@ -92,7 +91,7 @@ def _start(
     }
     if kind == "driver":
         return DriverSession(
-            select("native", problem, **context), problem, request, start
+            select("native", problem, request, **context), problem, request, start
         )
     return native_session.NativeSession(problem, request, start, **context)
 

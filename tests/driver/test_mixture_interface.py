@@ -167,7 +167,7 @@ def test_analytic_plasma_with_temporal_collar_matches_the_reference(material_gri
         # One exposure/current pair and the temporal absorber enter each step
         # through its evaluations' weights. Allocate 64 eps per fine sample and 128
         # per radial node, following the channel ladder.
-        evaluations = step_evaluations(simulation.translate())
+        evaluations = step_evaluations(simulation._run_request())
         bound = (64 * grid.n_to + 128 * 8) * evaluations * steps * np.finfo(float).eps
         outputs.append(simulation.run())
     fields = [output.fields("fft") for output in outputs]
@@ -434,7 +434,7 @@ def test_envelope_mixture_temporal_collar_matches_reference(material_grid):
             stats=StatsSpec(names=("energy",)),
             schedule=FixedSchedule(np.full(steps, grid.length / steps)),
         )
-        evaluations = step_evaluations(simulation.translate())
+        evaluations = step_evaluations(simulation._run_request())
         bound = (64 * grid.n_to + 128 * 8) * evaluations * steps * np.finfo(float).eps
         fields.append(simulation.run().fields("fft"))
     assert np.linalg.norm(fields[1] - fields[0]) / np.linalg.norm(fields[0]) < bound

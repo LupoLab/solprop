@@ -21,18 +21,18 @@ from solprop.spatial import cartesian_fluence_widths
 def free_backend_problem():
     grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
     space = FreeGrid(3e-4, 4, 4e-4, 6, collar_fraction=0)
-    problem = make_problem(
+    problem, run_request = make_problem(
         grid,
         space,
         np.zeros((space.n_columns, 1, grid.n_omega), complex),
         [KerrResponse(1e-22, thg=False)],
     )
-    return grid, problem
+    return grid, problem, run_request
 
 
 def test_cartesian_reference_stage_names_missing_geometry(free_backend_problem):
-    grid, problem = free_backend_problem
-    backend = NumpyRefBackend(problem, grid=grid)
+    grid, problem, run_request = free_backend_problem
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend._hoist(0.0)

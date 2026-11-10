@@ -27,9 +27,9 @@ from solprop.stepper import FixedSchedule, PIController, observed_order
 # what ``backend="auto"`` selects: native when it is installed.
 
 
-def propagate(backend_class, problem, grid, distance):
+def propagate(backend_class, problem, run_request, grid, distance):
     """Run a problem to a distance and return the masked input and the final state."""
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     summary = backend.propagate_to(distance)
     final = backend.observe().require_field()[0, 0]
@@ -130,7 +130,7 @@ def test_the_fundamental_soliton_is_stationary(
 ):
     """Ten dispersion lengths, and only the phase ``-z/2L_D`` changes."""
     distance = 10 * scales.dispersion_length
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         soliton_grid,
         1,
         save_planes=[distance],
@@ -138,7 +138,9 @@ def test_the_fundamental_soliton_is_stationary(
         dz_max=scales.dispersion_length,
         dz_init=1e-4,
     )
-    summary, start, final = propagate(backend_class, problem, soliton_grid, distance)
+    summary, start, final = propagate(
+        backend_class, problem, run_request, soliton_grid, distance
+    )
     # Measured 1.3e-11 over 929 steps; the bound is 1e-9. What is left is the
     # local error the controller was asked for, accumulated over the run, not the grid.
     assert recurrence_error(final, start, -5.0) < 1e-9
@@ -168,7 +170,7 @@ def test_the_third_order_soliton_recurs_at_the_scheme_s_order(
     """Three levels and an order gate, because a two-level extrapolant cannot fire."""
     errors = []
     for n_steps in (200, 400, 800):
-        problem = soliton_problem(
+        problem, run_request = soliton_problem(
             soliton_grid,
             3,
             save_planes=[scales.period],
@@ -177,7 +179,7 @@ def test_the_third_order_soliton_recurs_at_the_scheme_s_order(
             schedule=FixedSchedule.uniform(0.0, scales.period, scales.period / n_steps),
         )
         _, start, final = propagate(
-            selected_backend_class, problem, soliton_grid, scales.period
+            selected_backend_class, problem, run_request, soliton_grid, scales.period
         )
         errors.append(recurrence_error(final, start, scales.recurrence_phase))
     orders = [
@@ -213,7 +215,7 @@ def test_the_third_order_soliton_recurs_with_its_phase(
     soliton_problem, soliton_grid, scales, selected_backend_class
 ):
     """Adaptively, at a tolerance that gets the recurrence to ten digits."""
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         soliton_grid,
         3,
         save_planes=[scales.period],
@@ -222,7 +224,7 @@ def test_the_third_order_soliton_recurs_with_its_phase(
         dz_init=1e-4,
     )
     _, start, final = propagate(
-        selected_backend_class, problem, soliton_grid, scales.period
+        selected_backend_class, problem, run_request, soliton_grid, scales.period
     )
     # Measured 1.70e-10 over 2755 steps, and the phase to nine decimals.
     assert recurrence_error(final, start, scales.recurrence_phase) < 1e-9
@@ -255,7 +257,7 @@ def test_the_reference_backend_and_the_scaffold_agree(
     the gap between the two integrators *is* the scaffold's distance from the analytic
     answer and nothing else.
     """
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         soliton_grid,
         3,
         save_planes=[scales.period],
@@ -263,7 +265,9 @@ def test_the_reference_backend_and_the_scaffold_agree(
         dz_max=scales.period / 20,
         dz_init=1e-4,
     )
-    _, start, final = propagate(backend_class, problem, soliton_grid, scales.period)
+    _, start, final = propagate(
+        backend_class, problem, run_request, soliton_grid, scales.period
+    )
     scaffold = propagate_fixed_rk4(
         gnlse, soliton_grid, start, scales.period, AGREEMENT_STEPS
     )[1][-1]
@@ -302,7 +306,7 @@ def test_the_sixth_order_soliton_converges_on_the_scaffold_s_grid(
     """
     errors = []
     for n_steps in (8000, 16000):
-        problem = soliton_problem(
+        problem, run_request = soliton_problem(
             soliton_grid,
             6,
             save_planes=[scales.period],
@@ -310,7 +314,9 @@ def test_the_sixth_order_soliton_converges_on_the_scaffold_s_grid(
             dz_init=scales.period / n_steps,
             schedule=FixedSchedule.uniform(0.0, scales.period, scales.period / n_steps),
         )
-        _, start, final = propagate(backend_class, problem, soliton_grid, scales.period)
+        _, start, final = propagate(
+            backend_class, problem, run_request, soliton_grid, scales.period
+        )
         errors.append(recurrence_error(final, start, scales.recurrence_phase))
         assert realised_phase(final, start) == pytest.approx(
             scales.recurrence_phase, abs=1e-4
@@ -335,7 +341,7 @@ def test_the_sixth_order_soliton_converges_at_the_scheme_s_order_on_a_wide_band(
     """
     errors = []
     for n_steps in (8000, 16000):
-        problem = soliton_problem(
+        problem, run_request = soliton_problem(
             wide_grid,
             6,
             save_planes=[scales.period],
@@ -344,7 +350,7 @@ def test_the_sixth_order_soliton_converges_at_the_scheme_s_order_on_a_wide_band(
             schedule=FixedSchedule.uniform(0.0, scales.period, scales.period / n_steps),
         )
         _, start, final = propagate(
-            selected_backend_class, problem, wide_grid, scales.period
+            selected_backend_class, problem, run_request, wide_grid, scales.period
         )
         errors.append(recurrence_error(final, start, scales.recurrence_phase))
     assert realised_phase(final, start) == pytest.approx(
@@ -393,7 +399,7 @@ def test_the_wide_band_ladder_at_every_rung_and_with_the_taper_on(
     ):
         errors = []
         for n_steps in counts:
-            problem = soliton_problem(
+            problem, run_request = soliton_problem(
                 wide_grid,
                 6,
                 save_planes=[scales.period],
@@ -405,7 +411,7 @@ def test_the_wide_band_ladder_at_every_rung_and_with_the_taper_on(
                 polarisation_taper=taper,
             )
             _, start, final = propagate(
-                selected_backend_class, problem, wide_grid, scales.period
+                selected_backend_class, problem, run_request, wide_grid, scales.period
             )
             errors.append(recurrence_error(final, start, scales.recurrence_phase))
         # Each ladder is monotone and each ends on a floor rather than on truncation.

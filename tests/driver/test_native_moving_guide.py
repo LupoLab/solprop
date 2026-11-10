@@ -112,7 +112,7 @@ def _case(simulation: Simulation, length=LENGTH) -> Case:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         problem = simulation.translate()
-    return Case(problem, simulation.grid, length)
+    return Case(problem, simulation._run_request(), simulation.grid, length)
 
 
 def grin_kinked() -> Case:
@@ -250,7 +250,7 @@ def moving_parity_bound(case: Case, expected: np.ndarray, linear: np.ndarray) ->
     rho = float(np.max(np.abs(expected - linear))) / scale / STEPS
     residual = float(np.max(flow.residual_norm_bound)) * dz
     growth = (1 + 3 * rho + residual) ** STEPS
-    stages = problem.stepper.tableau.n_stages
+    stages = case.run_request.stepper.tableau.n_stages
     combination = STEPS * stages * rho * combination_bound(problem) * growth * scale
     return parity_bound(case, expected, linear) + combination
 
@@ -308,9 +308,9 @@ def test_the_moving_maps_are_combined_per_stage_not_frozen(monkeypatch):
     evaluates the source once, at the step's end.
     """
     built = grin_kinked()
-    stepper = dataclasses.replace(built.problem.stepper, integrator=None)
+    stepper = dataclasses.replace(built.run_request.stepper, integrator=None)
     case = dataclasses.replace(
-        built, problem=dataclasses.replace(built.problem, stepper=stepper)
+        built, run_request=built.run_request.with_stepper(stepper)
     )
     expected = propagate(case, NumpyRefBackend)
     linear = 1e3 * propagate(case, NumpyRefBackend, case.problem.initial.field0 * 1e-3)
@@ -319,7 +319,7 @@ def test_the_moving_maps_are_combined_per_stage_not_frozen(monkeypatch):
     backend_module = pytest.importorskip("solprop_native.backend")
     monkeypatch.setattr(backend_module, "_RK_MARCH", "host")
     monkeypatch.setattr(backend_module, "_RK_ROWS", "host")
-    backend = native_class()(case.problem, grid=case.grid)
+    backend = native_class()(case.problem, case.run_request, grid=case.grid)
     original = backend._stage_bundles
     single = backend._stage_scalars
 

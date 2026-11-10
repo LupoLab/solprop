@@ -139,6 +139,7 @@ __all__ = [
     "MODAL_TABLES_FIELDS",
     "PROBLEM_FIELDS",
     "REGIONAL_RESPONSE_FIELDS",
+    "REQUEST_FIELDS",
     "RESPONSE_FIELDS",
     "ROUTE_FIELDS",
     "SEPARABLE_OPERATOR_FIELDS",
@@ -462,8 +463,6 @@ PROBLEM_FIELDS: tuple[str, ...] = (
     "linear",
     "responses",
     "initial",
-    "stepper",
-    "stats_spec",
     "route",
     "precision",
     "split_crossing",
@@ -471,7 +470,24 @@ PROBLEM_FIELDS: tuple[str, ...] = (
 """``PropagationProblem`` fields this backend reads (solprop SEP 47 section 6.2).
 
 The descriptor's shared components and its route: a solprop that renamed or removed
-one fails at :func:`check_build` naming it, rather than inside the adapter."""
+one fails at :func:`check_build` naming it, rather than inside the adapter. The run's
+policy is the request's (:data:`REQUEST_FIELDS`)."""
+
+REQUEST_FIELDS: tuple[str, ...] = (
+    "integration",
+    "error_control",
+    "replay",
+    "observation",
+    "boundary",
+    "history",
+    "snapshots",
+    "stepper",
+)
+"""``RunRequest`` members this backend reads (solprop SEP 47 section 5.2).
+
+The method, error control, itinerary, observation, boundary and history policies a
+backend is built and a session started with, and ``stepper``, the stepping policy
+gathered into one record, which the march reads."""
 
 ROUTE_FIELDS: dict[str, tuple[str, ...]] = {
     "ModalRoute": ("transform", "tdse"),
@@ -989,7 +1005,7 @@ def check_build() -> None:
         (:data:`DRIVER_SURFACE`, :data:`ADAMS_MARCH_SURFACE`,
         :data:`MARCH_POLICY_FIELDS`, :data:`STAGE_TERMS_FIELDS`,
         :data:`STAGE_SCALARS_FIELDS`, :data:`SEPARABLE_OPERATOR_FIELDS`,
-        :data:`PROBLEM_FIELDS`, :data:`ROUTE_FIELDS`,
+        :data:`PROBLEM_FIELDS`, :data:`REQUEST_FIELDS`, :data:`ROUTE_FIELDS`,
         :data:`LINEAR_OPERATOR_FIELDS`, :data:`TRANSFORM_FIELDS`,
         :data:`RESPONSE_FIELDS`, or the leaves' members in :data:`MODAL_TABLES_FIELDS`,
         :data:`REGIONAL_RESPONSE_FIELDS`, :data:`COUPLED_FLOW_FIELDS` and
@@ -1086,6 +1102,7 @@ def _check_seam(info: BuildInfo, error: type[Exception]) -> None:
         DispersiveKerrTerms,
         RegionalResponseTables,
     )
+    from solprop.translate.run_request import RunRequest
     from solprop.translate.spatial import SeparableOperator
     from solprop.translate.stage import StageScalars, StageTerms
 
@@ -1120,6 +1137,12 @@ def _check_seam(info: BuildInfo, error: type[Exception]) -> None:
         f"PropagationProblem.{name}"
         for name in PROBLEM_FIELDS
         if name not in descriptor
+    )
+    request = {field.name for field in _dataclasses.fields(RunRequest)}
+    missing.extend(
+        f"RunRequest.{name}"
+        for name in REQUEST_FIELDS
+        if name not in request and not hasattr(RunRequest, name)
     )
     for variant, wanted in ROUTE_FIELDS.items():
         route = getattr(routes, variant, None)

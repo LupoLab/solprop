@@ -423,7 +423,7 @@ class HostLowStorage:
         backend._stage_bundles(end, [end])
         if table:
             if self._keys is None:
-                schedule = backend._problem.stepper.schedule
+                schedule = backend._stepper.schedule
                 assert schedule is not None  # the translation refused it without one
                 self._keys = (table_steps(schedule), schedule.edges)
             key = schedule_key(*self._keys, z, dz)

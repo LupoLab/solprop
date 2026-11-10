@@ -133,11 +133,12 @@ def test_the_response_pass_is_the_reference_evaluation(case, evaluator):
     policy = "gas-polynomial" if evaluator == "polynomial" else "symmetric-kerr"
     simulation = capillary(policy, **GRID_CASES[case])
     problem = simulation.translate()
+    run_request = simulation._run_request()
     assert ResponseStage.DISPERSIVE_KERR in problem.responses.response_order
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None and leaf.evaluator == evaluator
     assert (problem.grids.carrier_2w0 is not None) == (case == "envelope full")
-    backend = NumpyRefBackend(problem, grid=simulation.grid)
+    backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
         bundle = backend._stage_scalars(0.0, 0.0)
     finally:
@@ -166,10 +167,11 @@ def test_a_polynomial_mixture_is_the_sum_of_its_species():
     """Each species is its own channel with its own bound: the exact per-species sum."""
     simulation = capillary(gas={"He": 0.6, "Ar": 0.4})
     problem = simulation.translate()
+    run_request = simulation._run_request()
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None
     assert leaf.n_channels == 2
-    backend = NumpyRefBackend(problem, grid=simulation.grid)
+    backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
         bundle = backend._stage_scalars(0.0, 0.0)
     finally:
@@ -206,9 +208,10 @@ def test_a_symmetric_mixture_is_one_cubic_under_its_mixture_filter():
     """
     simulation = capillary("symmetric-kerr", gas={"He": 0.6, "Ar": 0.4})
     problem = simulation.translate()
+    run_request = simulation._run_request()
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None and leaf.n_channels == 2
-    backend = NumpyRefBackend(problem, grid=simulation.grid)
+    backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
         bundle = backend._stage_scalars(0.0, 0.0)
     finally:
@@ -229,9 +232,9 @@ def test_a_symmetric_mixture_is_one_cubic_under_its_mixture_filter():
     assert_within(got[0], expected, bound, what="polarisation")
 
 
-def stage_derivative(problem, grid):
+def stage_derivative(problem, run_request, grid):
     """Return ``numpy_ref``'s stage derivative at the launch."""
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend._hoist(0.0)
@@ -256,6 +259,7 @@ def test_without_dispersion_the_mode_averaged_derivative_is_the_constant_one(thg
     """
     simulation = capillary("gas-polynomial", thg=thg)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     flat = dataclasses.replace(
         problem,
         responses=dataclasses.replace(
@@ -279,8 +283,8 @@ def test_without_dispersion_the_mode_averaged_derivative_is_the_constant_one(thg
             ),
         ),
     )
-    got = stage_derivative(flat, simulation.grid)
-    expected = stage_derivative(constant, simulation.grid)
+    got = stage_derivative(flat, run_request, simulation.grid)
+    expected = stage_derivative(constant, run_request, simulation.grid)
     scale = float(np.abs(expected).max())
     np.testing.assert_allclose(got, expected, rtol=0, atol=1e-12 * scale)
 
@@ -310,8 +314,8 @@ def test_the_radial_route_executes_the_leaf():
             density=2.5e25,
         )
 
-    got = stage_derivative(problem(DispersiveKerrResponse(FLAT, "symmetric")), grid)
-    expected = stage_derivative(problem(KerrResponse(FLAT.gamma3_static)), grid)
+    got = stage_derivative(*problem(DispersiveKerrResponse(FLAT, "symmetric")), grid)
+    expected = stage_derivative(*problem(KerrResponse(FLAT.gamma3_static)), grid)
     scale = float(np.abs(expected).max())
     np.testing.assert_allclose(got, expected, rtol=0, atol=1e-12 * scale)
 
@@ -373,16 +377,18 @@ def test_a_lossless_run_conserves_energy(evaluator):
 def test_native_admits_the_leaf_on_the_fused_path():
     simulation = capillary("symmetric-kerr")
     problem = simulation.translate()
-    NativeBackend(problem, grid=simulation.grid).close()  # pyright: ignore[reportOptionalCall]
+    run_request = simulation._run_request()
+    NativeBackend(problem, run_request, grid=simulation.grid).close()  # pyright: ignore[reportOptionalCall]
 
 
 def test_the_pass_refuses_stage_inputs_that_do_not_match_the_leaf():
     """The densities, the harmonic carrier and the stage scalars are the leaf's own."""
     simulation = capillary("gas-polynomial", **GRID_CASES["envelope full"])
     problem = simulation.translate()
+    run_request = simulation._run_request()
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None and leaf.carrier
-    backend = NumpyRefBackend(problem, grid=simulation.grid)
+    backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
         bundle = backend._stage_scalars(0.0, 0.0)
     finally:

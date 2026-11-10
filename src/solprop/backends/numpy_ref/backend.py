@@ -107,7 +107,12 @@ from solprop.translate.coupled import (
 )
 from solprop.translate.linop import power_weight_at
 from solprop.translate.plasma_source import _BENCHMARK_GATED
-from solprop.translate.problem import MAX_N_POL, PropagationProblem
+from solprop.translate.problem import (
+    MAX_N_POL,
+    PropagationProblem,
+    StepperSettings,
+    validate_run,
+)
 from solprop.translate.routes import (
     GeneralRoute,
     ModalRoute,
@@ -117,6 +122,7 @@ from solprop.translate.routes import (
     tdse_descriptor,
     tdse_of,
 )
+from solprop.translate.run_request import RunRequest
 from solprop.translate.spatial import separable_values
 from solprop.translate.stage import StageScalars, combine
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding, TDSEPurpose
@@ -172,8 +178,12 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
-        The validated kernel problem. :meth:`~.PropagationProblem.validate` is called
-        again here: validation is the backend's defence, not the caller's courtesy.
+        The validated kernel problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's policies: method, error control, itinerary, planes and statistics.
+        :func:`~solprop.translate.problem.validate_run` checks the pair again here,
+        before anything is allocated: validation is the backend's defence, not the
+        caller's courtesy.
     grid : solprop.grid.TimeGrid, optional
         The grid the state lives on, needed only by :meth:`stats`.
     modes : collections.abc.Sequence, optional
@@ -204,11 +214,11 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     >>> gnlse = problem_from([0.0, 0.0, -1.183e-26], omega_ref=grid.omega0,
     ...                      gamma=0.11, shock=False)
     >>> start = SechPulse(wavelength=835e-9, width=100e-15, peak_power=9.8).build(grid)
-    >>> problem = assemble(grid, gnlse.mode, [gnlse.kerr], start,
+    >>> problem, request = assemble(grid, gnlse.mode, [gnlse.kerr], start,
     ...                    controller=PIController(rtol=1e-8, atol=1e-16),
     ...                    save_planes=[0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0)
-    >>> backend = NumpyRefBackend(problem, grid=grid)
+    >>> backend = NumpyRefBackend(problem, request, grid=grid)
     >>> backend.set_initial(problem.initial.field0, None)
     >>> summary = backend.propagate_to(0.01)
     >>> summary.z, summary.n_rejected, summary.met_tolerance
@@ -230,9 +240,10 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     # not on a backend that takes both signs from one transcendental.
     propagator_default = "tabulate"
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - the problem, its request and the host context
         self,
         problem: PropagationProblem,
+        request: RunRequest,
         *,
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
@@ -240,9 +251,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         tdse_binding: TDSEBinding | None = None,
         options: ExecutionOptions | None = None,
     ) -> None:
-        """Adopt a validated problem, refuse what this backend does not execute."""
-        _refuse_unsupported(problem)
-        problem.validate()
+        """Adopt a validated problem and request; refuse what is not executed here."""
+        _refuse_unsupported(problem, request.stepper)
+        validate_run(problem, request)
         if (tdse_descriptor(problem.route) is None) != (tdse_binding is None):
             raise BackendError(
                 "TDSE problems require an explicit host response binding"
@@ -252,14 +263,14 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         self._tdse_last_z: float | None = None
         self._tdse_last_projection: dict[str, object] | None = None
         super().__init__(
-            problem, grid=grid, modes=modes, profiles=profiles, options=options
+            problem, request, grid=grid, modes=modes, profiles=profiles, options=options
         )
         self._statistics_power_weight = np.empty(
             problem.shape if problem.transform.geometry is None else (0,)
         )
         # Formed once, so a geometry the far-field statistics refuse is refused here,
         # before any step (SEP 23 section 6).
-        self._far_field = FarFieldTables(problem)
+        self._far_field = FarFieldTables(problem, request.observation.stats)
         self._gated_plasma = _BENCHMARK_GATED.get()
         self._last_plasma: (
             tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None] | None
@@ -308,7 +319,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         geometry = problem.transform.geometry
         if geometry is not None and geometry.kind in ("free", "slab"):
             self._in_stage_absorber |= bool(np.any(geometry.absorber_rate))
-        integrator = problem.stepper.integrator
+        integrator = self._stepper.integrator
         self._adams = None
         if isinstance(integrator, Multistep):
             # The march's engine reads this package's passes, so it is imported when
@@ -335,7 +346,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 problem.shape,
                 problem.linear.n_intervals,
                 self._propagator_mode,
-                "replayed" if problem.stepper.schedule is not None else "adaptive",
+                "replayed" if self._stepper.schedule is not None else "adaptive",
             )
 
     def _propagator(
@@ -440,7 +451,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             state,
             advanced,
             self._problem.grids.norm_mask,
-            self._problem.stepper.controller,
+            self._stepper.controller,
         )
 
     def _rounded(
@@ -1053,7 +1064,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             msg = (
                 "the peak on-axis intensity needs the mode set, which the kernel "
                 "contract does not carry; construct the backend with "
-                "NumpyRefBackend(problem, modes=modes)"
+                "NumpyRefBackend(problem, request, modes=modes)"
             )
             raise BackendError(msg)
         analytic = analytic_field(self._require_grid(), field)
@@ -1158,17 +1169,18 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             Buffer name to bytes.
         """
         problem = self._problem
-        distinct = int(np.unique(np.append(problem.stepper.tableau.nodes, 1.0)).size)
+        distinct = int(np.unique(np.append(self._stepper.tableau.nodes, 1.0)).size)
         general: dict[str, int] = dict.fromkeys(_GENERAL_LEDGER_ROWS, 0)
         if self._general is not None:
             # The route exists exactly when the tables do (`_general_maps`).
             tables = problem.transform.modal_tables
             assert tables is not None
             general = general_memory(self._general, tables, problem.grids.n_to)
-        ledger = adams_memory(problem) | {
+        ledger = adams_memory(problem, self._stepper) | {
             # The rows' one definition, in `solprop.backends.memory`.
             **reference_base_memory(
                 problem,
+                self._stepper,
                 tabulating=self._propagator_mode == "tabulate",
                 embedded=self._embedded is not None,
                 noise=self._noise is not None,
@@ -1508,7 +1520,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         """
         state = self._require_state()
         self._hoist(z)
-        tableau = self._problem.stepper.tableau
+        tableau = self._stepper.tableau
         # The whole step and every stage, read together: each table once.
         self._stage_bundles(
             z, [z + dz, *(z + float(node) * dz for node in tableau.nodes)]
@@ -2888,7 +2900,7 @@ class SourceTables:
         )
 
 
-def _refuse_adams(problem: PropagationProblem) -> None:
+def _refuse_adams(problem: PropagationProblem, stepper: StepperSettings) -> None:
     """Refuse what the Adams march does not execute (SEP 13 sections 2 and 6.2).
 
     Its history is of source samples along a diagonal flow, so a coupled flow is
@@ -2908,13 +2920,15 @@ def _refuse_adams(problem: PropagationProblem) -> None:
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem to check.
+    stepper : solprop.translate.problem.StepperSettings
+        The run's stepper section, whose method is checked.
 
     Raises
     ------
     BackendError
         Naming what is unsupported.
     """
-    integrator = problem.stepper.integrator
+    integrator = stepper.integrator
     if not isinstance(integrator, Multistep):
         return
     if (
@@ -2929,18 +2943,20 @@ def _refuse_adams(problem: PropagationProblem) -> None:
             "Runge-Kutta march"
         )
         raise BackendError(msg)
-    refuse_formulation(problem, "numpy_ref")
+    refuse_formulation(problem, stepper, "numpy_ref")
     # SEP 35: the scalar shift, on the guided routes.
-    refuse_carrier_frame(problem, "numpy_ref", delivered=frozenset({"scalar"}))
+    refuse_carrier_frame(problem, stepper, "numpy_ref", delivered=frozenset({"scalar"}))
 
 
-def _refuse_unsupported(problem: PropagationProblem) -> None:
+def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -> None:
     """Refuse, by name, every problem this backend does not execute.
 
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem to check.
+    stepper : solprop.translate.problem.StepperSettings
+        The run's stepper section, whose method is checked.
 
     Raises
     ------
@@ -2959,7 +2975,7 @@ def _refuse_unsupported(problem: PropagationProblem) -> None:
         case route:
             msg = f"numpy_ref does not execute the {route_name(route)} route"
             raise BackendError(msg)
-    _refuse_adams(problem)
+    _refuse_adams(problem, stepper)
     # One list for every backend: the coupled flow first, then the
     # general modal route, each refusal naming this backend.
     refuse_general_route(problem, backend="numpy_ref", moving_maps=True)

@@ -48,6 +48,7 @@ from solprop.stepper import FixedSchedule, PIController, RungeKutta
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
 from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend
 from legacy_geometry import LEGACY_GRID
@@ -92,7 +93,7 @@ CASES = (
 
 def capillary(
     kind: str, steps: int, energy: float = 10e-6
-) -> tuple[FieldGrid, PropagationProblem]:
+) -> tuple[FieldGrid, PropagationProblem, RunRequest]:
     """Return a mode-averaged argon (or helium-argon) capillary under the band rule.
 
     One node and ``n_to = 4096``: four threads give it a team of two, which splits
@@ -146,10 +147,11 @@ def capillary(
         problem = simulation.translate()
     grid = simulation.grid
     assert isinstance(grid, FieldGrid)
-    return grid, dataclasses.replace(problem, stats_spec=StatsSpec(names=STATISTICS))
+    statistics = StatsSpec(names=STATISTICS)
+    return grid, problem, simulation._run_request().for_run(stats=statistics)
 
 
-def vector(steps: int) -> tuple[FieldGrid, PropagationProblem]:
+def vector(steps: int) -> tuple[FieldGrid, PropagationProblem, RunRequest]:
     """Return two-component argon on the radial route, its pulse at the window's end."""
     length = 1e-4
     # Resolve the analytic collar derivative without moving the pulse or the
@@ -169,7 +171,7 @@ def vector(steps: int) -> tuple[FieldGrid, PropagationProblem]:
         80e-6,
         jones=(1, 0.5j),
     )
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [PlasmaResponse("Ar", build_rate_table(QuadraticRate(), (1e3, 1e10)))],
@@ -184,12 +186,14 @@ def vector(steps: int) -> tuple[FieldGrid, PropagationProblem]:
         density=1e22,
     )
     problem = banded(problem, design_running_integral(grid, "band"))
-    return grid, dataclasses.replace(problem, stats_spec=StatsSpec(names=STATISTICS))
+    return grid, problem, run_request.for_run(stats=StatsSpec(names=STATISTICS))
 
 
-def node_fields(problem: PropagationProblem, grid: FieldGrid) -> np.ndarray:
+def node_fields(
+    problem: PropagationProblem, run_request: RunRequest, grid: FieldGrid
+) -> np.ndarray:
     """Return the reference's node fields at the launch plane, (nodes, n_pol, n_to)."""
-    reference = NumpyRefBackend(problem, grid=grid)
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
         state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
@@ -200,7 +204,7 @@ def node_fields(problem: PropagationProblem, grid: FieldGrid) -> np.ndarray:
         reference.close()
 
 
-def case(kind: str, steps: int) -> tuple[FieldGrid, PropagationProblem]:
+def case(kind: str, steps: int) -> tuple[FieldGrid, PropagationProblem, RunRequest]:
     """Return the stress case `kind` marching `steps` fixed steps."""
     if kind == "vector_edge":
         return vector(steps)
@@ -211,23 +215,24 @@ def case(kind: str, steps: int) -> tuple[FieldGrid, PropagationProblem]:
         return capillary(kind, steps)
     # Scale the energy so the peak field is 5 % above threshold: a few cycle peaks
     # ionise, and the exposure is tiny.
-    grid, problem = capillary(kind, steps)
-    peak = float(np.max(np.abs(node_fields(problem, grid))))
+    grid, problem, run_request = capillary(kind, steps)
+    peak = float(np.max(np.abs(node_fields(problem, run_request, grid))))
     return capillary(kind, steps, energy=10e-6 * (1.05 * THRESHOLD / peak) ** 2)
 
 
 def march(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
     problem: PropagationProblem,
+    run_request: RunRequest,
     grid: FieldGrid,
 ) -> tuple[ComplexArray, dict[str, np.ndarray]]:
     """Return the field and the statistics after the problem's fixed steps."""
-    backend = implementation(problem, grid=grid)
+    backend = implementation(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(problem.stepper.save_planes[-1]))
+        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
         return backend.observe().require_field().copy(), backend.stats(
-            problem.stats_spec
+            run_request.observation.stats
         )
     finally:
         backend.close()
@@ -236,22 +241,23 @@ def march(
 def launch_statistics(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
     problem: PropagationProblem,
+    run_request: RunRequest,
     grid: FieldGrid,
 ) -> dict[str, np.ndarray]:
     """Return the statistics of the launch field, before any step."""
-    backend = implementation(problem, grid=grid)
+    backend = implementation(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        return backend.stats(problem.stats_spec)
+        return backend.stats(run_request.observation.stats)
     finally:
         backend.close()
 
 
 def assert_is_stressing(
-    kind: str, problem: PropagationProblem, grid: FieldGrid
+    kind: str, problem: PropagationProblem, run_request: RunRequest, grid: FieldGrid
 ) -> None:
     """The case exercises what it is named for, so a pass is not vacuous."""
-    fields = node_fields(problem, grid)
+    fields = node_fields(problem, run_request, grid)
     peak = float(np.max(np.abs(fields)))
     half = problem.responses.plasma_integral.half_width
     if kind == "preionised_quiet":
@@ -267,9 +273,9 @@ def assert_is_stressing(
 
 @pytest.mark.parametrize("kind", CASES)
 def test_one_evaluation_matches_the_reference(kind: str) -> None:
-    grid, problem = case(kind, 1)
-    assert_is_stressing(kind, problem, grid)
-    reference = NumpyRefBackend(problem, grid=grid)
+    grid, problem, run_request = case(kind, 1)
+    assert_is_stressing(kind, problem, run_request, grid)
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
@@ -280,7 +286,7 @@ def test_one_evaluation_matches_the_reference(kind: str) -> None:
         )[0]
     finally:
         reference.close()
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         # A zero-length trial exposes the first stage, N(E, z = 0).
@@ -293,17 +299,17 @@ def test_one_evaluation_matches_the_reference(kind: str) -> None:
     scale = float(np.max(np.abs(expected)))
     assert scale > 0.0
     error = float(np.max(np.abs(actual - expected)))
-    assert error <= evaluation_bound(problem, grid) * scale
+    assert error <= evaluation_bound(problem, run_request, grid) * scale
     assert_regression_guard(actual, expected, f"stress {kind} evaluation")
 
 
 @pytest.mark.parametrize("steps", [1, 10])
 @pytest.mark.parametrize("kind", CASES)
 def test_fixed_steps_match_the_reference(kind: str, steps: int) -> None:
-    grid, problem = case(kind, steps)
-    expected, expected_stats = march(NumpyRefBackend, problem, grid)
-    actual, actual_stats = march(NativeBackend, problem, grid)
-    bound = march_bound(problem, grid, steps)
+    grid, problem, run_request = case(kind, steps)
+    expected, expected_stats = march(NumpyRefBackend, problem, run_request, grid)
+    actual, actual_stats = march(NativeBackend, problem, run_request, grid)
+    bound = march_bound(problem, run_request, grid, steps)
     scale = float(np.max(np.abs(expected)))
     assert float(np.max(np.abs(actual - expected))) <= bound * scale
     assert_regression_guard(actual, expected, f"stress {kind} {steps} steps")
@@ -321,12 +327,12 @@ def test_the_launch_exposure_is_within_its_scan_bound(kind: str) -> None:
     final fraction (a mixture's partial densities sum to the total), and a maximum moves
     by at most the largest of its arguments' moves.
     """
-    grid, problem = case(kind, 1)
+    grid, problem, run_request = case(kind, 1)
     responses = problem.responses
     rule = responses.plasma_integral
     assert rule.policy == "band"
     dt = grid.dt_fine
-    reference = NumpyRefBackend(problem, grid=grid)
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
@@ -366,8 +372,8 @@ def test_the_launch_exposure_is_within_its_scan_bound(kind: str) -> None:
             -np.maximum(exposure - exposure_error, 0.0)
         ) * exposure_error + 2 * UNIT_ROUNDOFF * (4 * survival + fraction)
         worst = max(worst, float(np.max(fraction_error)))
-    expected = launch_statistics(NumpyRefBackend, problem, grid)
-    actual = launch_statistics(NativeBackend, problem, grid)
+    expected = launch_statistics(NumpyRefBackend, problem, run_request, grid)
+    actual = launch_statistics(NativeBackend, problem, run_request, grid)
     neutral = float(responses.density(0.0))
     density = float(expected["electron_density"])
     error = abs(float(actual["electron_density"]) - density)

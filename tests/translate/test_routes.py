@@ -198,11 +198,12 @@ class _Unknown:
 def test_validation_and_each_backend_refuse_an_unknown_route_by_name(modal_problem):
     spoiled = dataclasses.replace(modal_problem)
     object.__setattr__(spoiled, "route", _Unknown(modal_problem.transform))
+    run_request = gnlse()._run_request()
     with pytest.raises(BackendError, match="numpy_ref does not execute the"):
-        NumpyRefBackend(spoiled)
+        NumpyRefBackend(spoiled, run_request)
     native = pytest.importorskip("solprop_native")
     with pytest.raises(BackendError, match="solprop-native does not execute the"):
-        native.NativeBackend(spoiled)
+        native.NativeBackend(spoiled, run_request)
 
 
 def test_assembly_gives_each_leaf_to_the_route_that_carries_it(

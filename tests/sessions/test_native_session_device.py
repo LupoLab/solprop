@@ -39,7 +39,6 @@ from sessions.test_native_session import (
 from solprop.backends.driver_session import DriverSession
 from solprop.backends.registry import select
 from solprop.backends.sessions import start_session
-from solprop.translate.run_request import describe_run
 
 native_session = pytest.importorskip("solprop_native.session")
 
@@ -67,8 +66,7 @@ def test_the_device_session_gives_the_drivers_trace_and_fields(case, recipe):
     statistic, and every exported field, against the driver session on the same
     device; the session's field reaches the host only as its exports.
     """
-    problem = _case(**CASES[case])
-    request = describe_run(problem)
+    problem, request = _case(**CASES[case])
     baseline = drive(_driver_session(problem, request), export=recipe)
     session = _make_native(problem, request)
     run = drive(Started(session), export=recipe)
@@ -92,17 +90,18 @@ def test_the_device_session_gives_the_drivers_trace_and_fields(case, recipe):
 def test_the_production_door_serves_the_device_path_natively():
     """SEP 47 phase 3: on a device build ``start_session`` serves an admitted run in
     the native session and a refused one in the driver session, on the device."""
-    problem = _case()
-    backend = select("native", problem, grid=window(), modes=[fibre().mode])
-    session = start_session(backend, problem, describe_run(problem), entrance(problem))
+    problem, run_request = _case()
+    backend = select(
+        "native", problem, run_request, grid=window(), modes=[fibre().mode]
+    )
+    session = start_session(backend, problem, run_request, entrance(problem))
     try:
         assert isinstance(session, native_session.NativeSession)
     finally:
         session.close()
-    dense = _case(interpolate=True)
-    request = describe_run(dense)
+    dense, request = _case(interpolate=True)
     assert "on a device build" in (native_session.refusal(dense, request) or "")
-    backend = select("native", dense, grid=window(), modes=[fibre().mode])
+    backend = select("native", dense, request, grid=window(), modes=[fibre().mode])
     session = start_session(backend, dense, request, entrance(dense))
     try:
         assert isinstance(session, DriverSession)

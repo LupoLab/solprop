@@ -229,7 +229,7 @@ def _same_group(
         and np.array_equal(
             request.observation.save_planes, first.observation.save_planes
         )
-        and problem.stepper.integrator == first_problem.stepper.integrator
+        and request.integration.method == first.integration.method
         and problem.shape == first_problem.shape
         and (spec.names, spec.periodic, spec.period)
         == (reference_spec.names, reference_spec.periodic, reference_spec.period)

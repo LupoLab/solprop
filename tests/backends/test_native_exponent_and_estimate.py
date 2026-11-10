@@ -42,7 +42,7 @@ def test_a_separable_exponent_is_the_host_volume():
     of the largest exponent, on the launch's own scale, plus the exponential's rounding.
     Weaker in that a phase error on a bin the launch leaves empty is not seen.
     """
-    _, problem = route_adams_problem("cartesian", "exponential")
+    _, problem, run_request = route_adams_problem("cartesian", "exponential")
     end = 3e-6
     problem = dataclasses.replace(
         problem,
@@ -54,14 +54,16 @@ def test_a_separable_exponent_is_the_host_volume():
             temporal_absorber=None,
             temporal_absorber_fine=None,
         ),
-        stepper=dataclasses.replace(
-            problem.stepper,
+    )
+    run_request = run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
             schedule=FixedSchedule(np.array([end])),
             save_planes=np.array([end]),
-        ),
+        )
     )
-    grid_simulation, _ = route_adams_problem("cartesian", "exponential")
-    backend = NativeBackend(problem, grid=grid_simulation.grid)
+    grid_simulation, _, _ = route_adams_problem("cartesian", "exponential")
+    backend = NativeBackend(problem, run_request, grid=grid_simulation.grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         loaded = backend.observe().require_field().copy()
@@ -89,9 +91,13 @@ def test_a_varying_operator_holds_its_pair_or_none():
     """
     simulation = varying_capillary()
     for mode, held in (("tabulate", 2), ("recompute", 0)):
-        problem = with_mode(simulation.translate(), mode)
+        problem, run_request = with_mode(
+            simulation.translate(), simulation._run_request(), mode
+        )
         field = 16 * math.prod(problem.shape)
-        backend = NativeBackend(problem, grid=simulation.grid, modes=simulation.modes)
+        backend = NativeBackend(
+            problem, run_request, grid=simulation.grid, modes=simulation.modes
+        )
         try:
             ledger = backend.memory_ledger()
             chunk = backend.node_chunk
@@ -100,6 +106,7 @@ def test_a_varying_operator_holds_its_pair_or_none():
         assert ledger["propagators"] == held * field
         reference = reference_base_memory(
             problem,
+            run_request.stepper,
             tabulating=mode == "tabulate",
             embedded=not np.array_equal(
                 problem.transform.projection, problem.transform.projection_coarse

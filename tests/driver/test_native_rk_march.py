@@ -22,7 +22,7 @@ import pytest
 from tests.driver.test_native_z_table import walk_off
 
 from capability_routes import ROUTES
-from solprop.backends import available, sessions
+from solprop.backends import available
 from solprop.exceptions import BoundaryWarning, HostMarchWarning
 from solprop.monitor import BoundaryCheck
 from solprop.stepper.controller import PIController
@@ -119,14 +119,15 @@ def test_a_z_table_s_staged_trial_is_the_host_packed_trial(monkeypatch):
     """The z table's positions load into other slots, holding the same values."""
     simulation = walk_off("native", RungeKutta())
     problem = simulation.translate()
+    run_request = simulation._run_request()
     assert problem.linear.phi_representation == "table"
     backend = backend_module.NativeBackend(
-        problem, grid=simulation.grid, modes=simulation.modes
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
         backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
         assert backend._staged_rows()
-        end = float(problem.stepper.z_end)
+        end = float(run_request.stepper.z_end)
         for z in (0.0, 0.37 * end, 0.8 * end):
             dz = 0.01 * end
             staged = np.asarray(backend._prepare_trial(z, dz))
@@ -148,7 +149,9 @@ def test_a_z_table_s_march_is_the_host_loop_s(dense, monkeypatch):
     extension to rounding, not bitwise (``tests/sessions`` holds it to the driver).
     """
     if dense:
-        monkeypatch.setattr(sessions, "_native_session", lambda *_, **__: None)
+        monkeypatch.setattr(
+            "solprop_native.session.session_refusal", lambda *_: "the test's bridge"
+        )
     build = lambda: walk_off(  # noqa: E731
         "native", RungeKutta(), n_save=7, interpolate_planes=dense
     )
@@ -157,7 +160,7 @@ def test_a_z_table_s_march_is_the_host_loop_s(dense, monkeypatch):
 
 def _replayed(route: str, steps: int) -> Any:
     simulation = _route(route)
-    stepper = simulation.translate().stepper
+    stepper = simulation._run_request().stepper
     end = float(stepper.z_end)
     schedule = FixedSchedule.uniform(
         0.0, end, end / steps, save_planes=np.asarray(stepper.save_planes).tolist()

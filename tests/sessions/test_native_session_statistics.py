@@ -48,7 +48,6 @@ from solprop.stats import (
 )
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import assemble
-from solprop.translate.run_request import describe_run
 
 native_session = pytest.importorskip("solprop_native.session")
 native_statistics = pytest.importorskip("solprop_native._statistics")
@@ -91,13 +90,17 @@ def _periodic(names):
     return tuple(name for name in names if CATALOGUE[name].between_planes)
 
 
-def _run(problem, names, *, grid, modes=None, profiles=None, windows=None):
+def _run(  # noqa: PLR0913 - the problem, its request and the backend's context
+    problem, run_request, names, *, grid, modes=None, profiles=None, windows=None
+):
     """Run the native session with a plane and a row at every accepted step.
 
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
+    run_request : solprop.translate.run_request.RunRequest
+        Its run's request, whose statistics are replaced.
     names : tuple of str
         The plane statistics; their periodic-capable subset is periodic.
     grid : solprop.grid.TimeGrid
@@ -121,7 +124,7 @@ def _run(problem, names, *, grid, modes=None, profiles=None, windows=None):
         period=1,
         energy_windows=np.empty((0, 2)) if windows is None else windows,
     )
-    request = describe_run(problem, stats=spec)
+    request = run_request.for_run(stats=spec)
     request = dataclasses.replace(
         request, observation=dataclasses.replace(request.observation, step_planes=1)
     )
@@ -153,13 +156,17 @@ def _run(problem, names, *, grid, modes=None, profiles=None, windows=None):
     return seen, status, counters, lowering, spec
 
 
-def _reference(problem, spec, seen, *, grid, modes=None, profiles=None):
+def _reference(  # noqa: PLR0913 - the problem, its request and the backend's context
+    problem, run_request, spec, seen, *, grid, modes=None, profiles=None
+):
     """Return the NumPy reference's plane statistics on each observed field.
 
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
+    run_request : solprop.translate.run_request.RunRequest
+        Its run's request.
     spec : solprop.stats.StatsSpec
         The plane statistics.
     seen : list of Seen
@@ -172,7 +179,9 @@ def _reference(problem, spec, seen, *, grid, modes=None, profiles=None):
     list of dict
         The reference's statistics, without a batch axis, one per observation.
     """
-    backend = select("numpy_ref", problem, grid=grid, modes=modes, profiles=profiles)
+    backend = select(
+        "numpy_ref", problem, run_request, grid=grid, modes=modes, profiles=profiles
+    )
     start = float(problem.initial.z)
     out = []
     try:
@@ -280,7 +289,7 @@ def _soliton():
 
     grid = window()
     peak = abs(BETA2) / (GAMMA * TAU0**2)
-    return grid, assemble(
+    return grid, *assemble(
         grid,
         fibre().mode,
         [fibre().kerr],
@@ -298,15 +307,15 @@ def _soliton():
 
 def test_the_temporal_statistics_are_the_reference_s_and_rows_are_planes():
     """Widths finished natively; every temporal statistic, plane and row."""
-    grid, problem = _soliton()
+    grid, problem, run_request = _soliton()
     windows = np.array([[0.99 * grid.omega0, 1.01 * grid.omega0]])
     seen, status, counters, _, spec = _run(
-        problem, TEMPORAL, grid=grid, windows=windows
+        problem, run_request, TEMPORAL, grid=grid, windows=windows
     )
     _check_rows(seen, TEMPORAL)
     _check_structure(seen, status, counters)
     for record, want in zip(
-        seen, _reference(problem, spec, seen, grid=grid), strict=True
+        seen, _reference(problem, run_request, spec, seen, grid=grid), strict=True
     ):
         for name in TEMPORAL:
             if name.startswith("fwhm"):
@@ -404,7 +413,7 @@ def _capillary():
     mode = MarcatiliMode(125e-6, "Ar", gradient, cladding=1.45)
     table = build_rate_table(OptmatRate(Gas.Ar, 800e-9, model="ppt_ilkov"), (1e9, 2e11))
     start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=100e-6).build(grid)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         mode,
         [
@@ -423,21 +432,21 @@ def _capillary():
         "density": mode.density,
         "core_radius": Constant(125e-6),
     }
-    return grid, problem, [mode], profiles
+    return grid, problem, run_request, [mode], profiles
 
 
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
 def test_the_plasma_and_weight_statistics_are_native():
     """Tables read natively at each row: the weight and the plasma."""
-    grid, problem, modes, profiles = _capillary()
+    grid, problem, run_request, modes, profiles = _capillary()
     assert problem.linear.power_weight_constant is None
     seen, status, counters, _, spec = _run(
-        problem, CAPILLARY, grid=grid, modes=modes, profiles=profiles
+        problem, run_request, CAPILLARY, grid=grid, modes=modes, profiles=profiles
     )
     _check_rows(seen, CAPILLARY)
     _check_structure(seen, status, counters)
     reference = _reference(
-        problem, spec, seen, grid=grid, modes=modes, profiles=profiles
+        problem, run_request, spec, seen, grid=grid, modes=modes, profiles=profiles
     )
     for record, want in zip(seen, reference, strict=True):
         for name in CAPILLARY:
@@ -472,7 +481,7 @@ def test_the_profile_statistics_read_tables_with_a_recorded_error(radius):
     """
     from solprop.profiles import Constant, PiecewiseLinear  # noqa: PLC0415
 
-    grid, problem, modes, profiles = _capillary()
+    grid, problem, run_request, modes, profiles = _capillary()
     profiles["core_radius"] = (
         Constant(125e-6)
         if radius == "constant"
@@ -481,7 +490,7 @@ def test_the_profile_statistics_read_tables_with_a_recorded_error(radius):
         )
     )
     seen, status, counters, lowering, spec = _run(
-        problem, PROFILES, grid=grid, modes=modes, profiles=profiles
+        problem, run_request, PROFILES, grid=grid, modes=modes, profiles=profiles
     )
     _check_rows(seen, PROFILES)
     _check_structure(seen, status, counters)
@@ -491,7 +500,7 @@ def test_the_profile_statistics_read_tables_with_a_recorded_error(radius):
         assert record["relative_error"] <= native_statistics.PROFILE_TOLERANCE, name
         assert record["check_points"] > 4000, name
     reference = _reference(
-        problem, spec, seen, grid=grid, modes=modes, profiles=profiles
+        problem, run_request, spec, seen, grid=grid, modes=modes, profiles=profiles
     )
     for record, want in zip(seen, reference, strict=True):
         for name in ("density", "pressure", "core_radius"):
@@ -513,10 +522,10 @@ def test_the_profile_statistics_read_tables_with_a_recorded_error(radius):
                 <= tables["core_radius"]["max_error"]
             )
     # The record reaches the session's execution record.
-    skip_device_refused(problem, describe_run(problem, stats=spec))
+    skip_device_refused(problem, run_request.for_run(stats=spec))
     session = native_session.NativeSession(
         problem,
-        describe_run(problem, stats=spec),
+        run_request.for_run(stats=spec),
         entrance(problem),
         grid=grid,
         modes=modes,
@@ -533,12 +542,12 @@ def test_a_native_plan_refusal_is_the_reference_s_exception():
     """A position outside the plasma tables: native refuses as the reference's table
     does, with the solprop exception the reference raises. A state cannot be loaded
     there, so the backend's position is moved past the tables directly."""
-    grid, problem, modes, _ = _capillary()
-    far = 100.0 * float(problem.stepper.z_end)
+    grid, problem, run_request, modes, _ = _capillary()
+    far = 100.0 * float(run_request.stepper.z_end)
     channel = problem.responses.population_channels[0]
     with pytest.raises(SolpropError) as reference:
         channel.density(far)
-    backend = select("native", problem, grid=grid, modes=modes)
+    backend = select("native", problem, run_request, grid=grid, modes=modes)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend._z = far  # pyright: ignore[reportAttributeAccessIssue]
@@ -566,16 +575,18 @@ SPECIES = (
 
 def test_two_populations_are_reduced_natively():
     """The species reduction over two channels, finished natively."""
-    from mixture_cases import mixture_case  # noqa: PLC0415
+    from mixture_cases import mixture_translation  # noqa: PLC0415
 
-    _, grid, mode, _, problem = mixture_case(
+    _, grid, mode, _, (problem, run_request) = mixture_translation(
         schedule=FixedSchedule.uniform(0.0, 1e-3, 1.25e-4)
     )
     assert len(problem.responses.population_channels) == 2
-    seen, status, counters, _, spec = _run(problem, SPECIES, grid=grid, modes=[mode])
+    seen, status, counters, _, spec = _run(
+        problem, run_request, SPECIES, grid=grid, modes=[mode]
+    )
     _check_rows(seen, SPECIES)
     _check_structure(seen, status, counters)
-    reference = _reference(problem, spec, seen, grid=grid, modes=[mode])
+    reference = _reference(problem, run_request, spec, seen, grid=grid, modes=[mode])
     for record, want in zip(seen, reference, strict=True):
         for name in SPECIES:
             if name == "energy":
@@ -613,7 +624,7 @@ def test_a_general_modal_basis_s_flux_statistics_are_native():
         wavelength=2 * np.pi * 299792458.0 / grid.omega0, fwhm=30e-15, energy=1e-12
     ).build(grid)
     state = np.concatenate([pulse, 0.3j * pulse], axis=0)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         list(case.guide.mode_collection),
         [],
@@ -627,13 +638,15 @@ def test_a_general_modal_basis_s_flux_statistics_are_native():
     )
     metric = problem.linear.modal_metric
     assert metric is not None and metric.kind == "dense"
-    seen, status, counters, lowering, spec = _run(problem, GENERAL, grid=grid)
+    seen, status, counters, lowering, spec = _run(
+        problem, run_request, GENERAL, grid=grid
+    )
     # The root is formed exactly, interval by interval, from the metric's own values.
     assert lowering.values["root"]["n_terms"] == 1
     _check_rows(seen, GENERAL)
     _check_structure(seen, status, counters)
     for record, want in zip(
-        seen, _reference(problem, spec, seen, grid=grid), strict=True
+        seen, _reference(problem, run_request, spec, seen, grid=grid), strict=True
     ):
         whitened = _whitened(record.field, metric_at(metric, record.z))
         for name in GENERAL:
@@ -668,12 +681,12 @@ def test_a_beam_s_flux_and_far_field_statistics_are_native():
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 100e-6
     )
     start = pulse.build(grid, space, medium=SpatialMedium()) * grid.active_mask
-    problem = make_problem(grid, space, start, [])
-    seen, status, counters, _, spec = _run(problem, SPATIAL, grid=grid)
+    problem, run_request = make_problem(grid, space, start, [])
+    seen, status, counters, _, spec = _run(problem, run_request, SPATIAL, grid=grid)
     _check_rows(seen, SPATIAL)
     _check_structure(seen, status, counters)
     for record, want in zip(
-        seen, _reference(problem, spec, seen, grid=grid), strict=True
+        seen, _reference(problem, run_request, spec, seen, grid=grid), strict=True
     ):
         for name in SPATIAL:
             relative = gamma(256 * (space.n_columns + grid.n_to))
@@ -689,9 +702,9 @@ def test_rows_of_every_family_cause_no_return_to_python():
     """SEP 47 section 7.3: a period-one run of the richest family returns to Python
     only at its observations and its end, whatever statistics its rows take: each row
     is taken and finished natively and arrives in bulk with its plane."""
-    grid, problem, modes, profiles = _capillary()
+    grid, problem, run_request, modes, profiles = _capillary()
     spec = StatsSpec(names=CAPILLARY, periodic=_periodic(CAPILLARY), period=1)
-    request = describe_run(problem, stats=spec)
+    request = run_request.for_run(stats=spec)
     skip_device_refused(problem, request)
     session = native_session.NativeSession(
         problem, request, entrance(problem), grid=grid, modes=modes, profiles=profiles
@@ -714,7 +727,7 @@ def test_rows_of_every_family_cause_no_return_to_python():
         if isinstance(event, ObservationReady)
     ]
     # The launch and the two planes, then the end: nothing in between.
-    assert len(observations) == 1 + len(problem.stepper.save_planes)
+    assert len(observations) == 1 + len(run_request.stepper.save_planes)
     assert len(batches) == len(observations) + 1 == status.batches
     rows = sum(event.step_stats.n_rows for event in observations)
     accepted = sum(int(event.history.accepted.sum()) for event in observations)

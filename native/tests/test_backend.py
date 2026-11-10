@@ -56,16 +56,16 @@ def test_rk_source_dispatch_counter_resets_and_excludes_fsal_reuse(
     phase_a_case: PhaseACase,
 ) -> None:
     """SEP 30 counts executed stages rather than inferred accepted-step work."""
-    problem, grid = phase_a_case
-    target = float(problem.stepper.save_planes[-1])
+    problem, run_request, grid = phase_a_case
+    target = float(run_request.stepper.save_planes[-1])
     stepper = dataclasses.replace(
-        problem.stepper,
+        run_request.stepper,
         integrator=None,
         auto_init=False,
         schedule=FixedSchedule.uniform(0.0, target, target / 2),
     )
-    configured = dataclasses.replace(problem, stepper=stepper)
-    backend = NativeBackend(configured, grid=grid)
+    configured, configured_request = problem, run_request.with_stepper(stepper)
+    backend = NativeBackend(configured, configured_request, grid=grid)
     try:
         backend.set_initial(configured.initial.field0, None)
         assert backend.metadata()["source_evaluations"] == 0
@@ -84,8 +84,8 @@ def test_native_modal_payload_requires_both_fixed_coefficient_arrays(
     phase_a_case: PhaseACase, missing: str
 ) -> None:
     """The separable representation must not relax ordinary modal validation."""
-    problem, grid = phase_a_case
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = phase_a_case
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         terms = backend._terms  # pyright: ignore[reportPrivateUsage]
         damaged = dataclasses.replace(
@@ -94,15 +94,15 @@ def test_native_modal_payload_requires_both_fixed_coefficient_arrays(
             prefactor=None if missing == "prefactor" else terms.prefactor,
         )
         with pytest.raises(BackendError, match="device-ready fixed-term problem"):
-            _native_problem(problem, damaged)
+            _native_problem(problem, run_request, damaged)
     finally:
         backend.close()
 
 
 def test_spatial_statistics_require_geometry(phase_a_case: PhaseACase) -> None:
     """Refuse a spatial reduction on an ordinary modal state before native entry."""
-    problem, grid = phase_a_case
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = phase_a_case
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         with pytest.raises(BackendError, match="require spatial geometry"):
             backend._spatial_statistics({"energy"})  # pyright: ignore[reportPrivateUsage]
@@ -114,20 +114,21 @@ def test_spatial_statistics_refuse_a_malformed_native_result(
     phase_a_case: PhaseACase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Check the native packed-result boundary independently of native reductions."""
-    original, grid = phase_a_case
-    problem = assemble(
+    original_request = phase_a_case[1]
+    grid = phase_a_case[2]
+    problem, run_request = assemble(
         grid,
         None,
         [],
         np.zeros((8, 1, grid.n_omega), complex),
         spatial_grid=RadialGrid(1e-3, 8),
         medium=SpatialMedium(),
-        controller=original.stepper.controller,
+        controller=original_request.stepper.controller,
         save_planes=[1e-3],
         dz_max=1e-3,
         dz_init=1e-4,
     )
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
 
@@ -168,8 +169,8 @@ def test_stage_observation_owns_its_host_copy_and_checks_lifetime(
     phase_a_case: PhaseACase,
 ) -> None:
     """A stage derivative is observed directly without exposing persistent views."""
-    problem, grid = phase_a_case
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = phase_a_case
+    backend = NativeBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     state = backend._native_state  # pyright: ignore[reportPrivateUsage]
     with pytest.raises(RuntimeError, match="stage"):
@@ -184,7 +185,7 @@ def test_stage_observation_owns_its_host_copy_and_checks_lifetime(
     # Exact: a second host copy of the same device stage, not a recomputation.
     np.testing.assert_array_equal(state.stage_to_host(0), saved)
     with pytest.raises(IndexError, match="stage"):
-        state.stage_to_host(problem.stepper.tableau.n_stages)
+        state.stage_to_host(run_request.stepper.tableau.n_stages)
     backend.close()
     with pytest.raises(RuntimeError, match="closed"):
         state.stage_to_host(0)
@@ -219,7 +220,7 @@ def test_a_march_policy_field_either_way_is_refused_by_name(
 def test_the_solprop_version_is_recorded_and_never_compared(
     phase_a_case: PhaseACase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    problem, grid = phase_a_case
+    problem, run_request, grid = phase_a_case
 
     def elsewhere(name: str) -> str:
         return f"{name}-elsewhere"
@@ -232,7 +233,7 @@ def test_the_solprop_version_is_recorded_and_never_compared(
         solprop_native.backend, "_build_facts", functools.cache(facts.__wrapped__)
     )
     assert check_build() is None
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         record = backend.metadata()
     finally:
@@ -247,19 +248,19 @@ def test_the_low_storage_march_steps_as_the_reference(
 ) -> None:
     # solprop SEP 24 phase 3: the resident engine, one native call a step, against
     # the reference's host engine on the same schedule.
-    problem, grid = phase_a_case
-    target = float(problem.stepper.save_planes[-1])
+    problem, run_request, grid = phase_a_case
+    target = float(run_request.stepper.save_planes[-1])
     steps = 4
     stepper = dataclasses.replace(
-        problem.stepper,
+        run_request.stepper,
         integrator=LowStorageRungeKutta(),
         schedule=FixedSchedule.uniform(0.0, target, target / steps),
         propagator_mode=mode,
     )
-    marched = dataclasses.replace(problem, stepper=stepper)
+    marched, marched_request = problem, run_request.with_stepper(stepper)
     found: list[npt.NDArray[np.complex128]] = []
     for backend_class in (NumpyRefBackend, NativeBackend):
-        backend = backend_class(marched, grid=grid)
+        backend = backend_class(marched, marched_request, grid=grid)
         backend.set_initial(marched.initial.field0, None)
         backend.propagate_to(target)
         found.append(backend.observe().require_field())
@@ -283,13 +284,11 @@ def test_the_record_names_the_propagators_a_run_used(
 ) -> None:
     # #464: only the low-storage march holds flows. Under Runge-Kutta every request
     # holds the one whole-step propagator, so the record says recompute for each.
-    problem, grid = phase_a_case
+    problem, run_request, grid = phase_a_case
     held = {}
     for mode in ("recompute", asked):
-        stepper = dataclasses.replace(problem.stepper, propagator_mode=mode)
-        backend = NativeBackend(
-            dataclasses.replace(problem, stepper=stepper), grid=grid
-        )
+        stepper = dataclasses.replace(run_request.stepper, propagator_mode=mode)
+        backend = NativeBackend(problem, run_request.with_stepper(stepper), grid=grid)
         try:
             held[mode] = backend.memory_ledger()["propagators"]
             assert backend.metadata()["propagator_mode"] == "recompute"
@@ -302,15 +301,15 @@ def test_the_record_names_the_propagators_a_run_used(
 def test_the_record_names_the_low_storage_march_s_flows(
     phase_a_case: PhaseACase, asked: str
 ) -> None:
-    problem, grid = phase_a_case
-    target = float(problem.stepper.save_planes[-1])
+    problem, run_request, grid = phase_a_case
+    target = float(run_request.stepper.save_planes[-1])
     stepper = dataclasses.replace(
-        problem.stepper,
+        run_request.stepper,
         integrator=LowStorageRungeKutta(),
         schedule=FixedSchedule.uniform(0.0, target, target / 4),
         propagator_mode=asked,
     )
-    backend = NativeBackend(dataclasses.replace(problem, stepper=stepper), grid=grid)
+    backend = NativeBackend(problem, run_request.with_stepper(stepper), grid=grid)
     try:
         assert backend.metadata()["propagator_mode"] == asked
     finally:
@@ -322,7 +321,7 @@ def test_an_order_that_omits_a_held_response_is_refused(
 ) -> None:
     # Native reads each response's own leaf, not the order, so the omitted Kerr term
     # would still run. Removing the response as well is a consistent, linear problem.
-    problem, grid = phase_a_case
+    problem, run_request, grid = phase_a_case
     responses = problem.responses
     accumulate_only = responses.response_order[-1:]
     omitted = dataclasses.replace(
@@ -330,14 +329,14 @@ def test_an_order_that_omits_a_held_response_is_refused(
         responses=dataclasses.replace(responses, response_order=accumulate_only),
     )
     with pytest.raises(BackendError, match="response_order omits kerr"):
-        NativeBackend(omitted, grid=grid)
+        NativeBackend(omitted, run_request, grid=grid)
     linear = dataclasses.replace(
         problem,
         responses=dataclasses.replace(
             responses, response_order=accumulate_only, kerr_coefficients=None
         ),
     )
-    NativeBackend(linear, grid=grid).close()
+    NativeBackend(linear, run_request, grid=grid).close()
 
 
 def test_a_low_storage_table_never_built_is_refused(phase_a_case: PhaseACase) -> None:
@@ -345,16 +344,16 @@ def test_a_low_storage_table_never_built_is_refused(phase_a_case: PhaseACase) ->
     # operator's table it has not built since the field was loaded, rather than step
     # with unwritten flows. solprop's engine keys the table from NaN after every load,
     # so only a stale key reaches it: forged here.
-    problem, grid = phase_a_case
-    target = float(problem.stepper.save_planes[-1])
+    problem, run_request, grid = phase_a_case
+    target = float(run_request.stepper.save_planes[-1])
     stepper = dataclasses.replace(
-        problem.stepper,
+        run_request.stepper,
         integrator=LowStorageRungeKutta(),
         schedule=FixedSchedule.uniform(0.0, target, target / 4),
         propagator_mode="tabulate",
     )
-    marched = dataclasses.replace(problem, stepper=stepper)
-    backend = NativeBackend(marched, grid=grid)
+    marched, marched_request = problem, run_request.with_stepper(stepper)
+    backend = NativeBackend(marched, marched_request, grid=grid)
     try:
         backend.set_initial(marched.initial.field0, None)
         march = backend._low_storage  # pyright: ignore[reportPrivateUsage]
@@ -377,13 +376,13 @@ def test_an_adams_integrator_steps_as_the_reference(phase_a_case: PhaseACase) ->
     # solprop's shared Adams march (SEP 13, SEP 14 phase 2) with this backend's one
     # source evaluation a step: the reference's steps and calls, and its field to the
     # rounding of the two evaluation orders.
-    problem, grid = phase_a_case
-    stepper = dataclasses.replace(problem.stepper, integrator=Multistep())
-    adams = dataclasses.replace(problem, stepper=stepper)
-    target = float(adams.stepper.save_planes[-1])
+    problem, run_request, grid = phase_a_case
+    stepper = dataclasses.replace(run_request.stepper, integrator=Multistep())
+    adams, adams_request = problem, run_request.with_stepper(stepper)
+    target = float(adams_request.stepper.save_planes[-1])
     found: list[tuple[npt.NDArray[np.complex128], int]] = []
     for backend_class in (NumpyRefBackend, NativeBackend):
-        backend = backend_class(adams, grid=grid)
+        backend = backend_class(adams, adams_request, grid=grid)
         backend.set_initial(adams.initial.field0, None)
         summary = backend.propagate_to(target)
         found.append((backend.observe().require_field(), summary.n_steps))
@@ -400,17 +399,17 @@ def test_an_adams_integrator_observes_densely_as_the_reference(
 ) -> None:
     # An interpolated plane (solprop ADR-036, ADR-039) lies inside a step and is loaded
     # natively for the observation; the march resumes from its own host state.
-    problem, grid = phase_a_case
+    problem, run_request, grid = phase_a_case
     stepper = dataclasses.replace(
-        problem.stepper, integrator=Multistep(), interpolate_planes=True
+        run_request.stepper, integrator=Multistep(), interpolate_planes=True
     )
-    adams = dataclasses.replace(problem, stepper=stepper)
+    adams, adams_request = problem, run_request.with_stepper(stepper)
     found: list[npt.NDArray[np.complex128]] = []
     for backend_class in (NumpyRefBackend, NativeBackend):
-        backend = backend_class(adams, grid=grid)
+        backend = backend_class(adams, adams_request, grid=grid)
         backend.set_initial(adams.initial.field0, None)
         fields: list[npt.NDArray[np.complex128]] = []
-        for plane in adams.stepper.save_planes:
+        for plane in adams_request.stepper.save_planes:
             backend.propagate_to(float(plane))
             fields.append(backend.observe().require_field())
         found.append(np.stack(fields))
@@ -431,7 +430,7 @@ def test_tdse_is_refused_by_name_before_integrator_or_native_setup(
     dense_output: bool,
 ) -> None:
     """Refuse TDSE before native setup or either supported march is selected."""
-    problem, grid = phase_a_case
+    problem, run_request, grid = phase_a_case
     # This deliberately bypasses scientific validation to isolate the adapter's
     # earliest refusal. Neither a valid atomic basis nor an optional provider is
     # needed to reject a route that this backend never executes.
@@ -439,14 +438,12 @@ def test_tdse_is_refused_by_name_before_integrator_or_native_setup(
     route = copy.copy(problem.route)
     object.__setattr__(route, "tdse", SimpleNamespace(source_filter=source_filter))
     object.__setattr__(requested, "route", route)
-    object.__setattr__(
-        requested,
-        "stepper",
+    requested_request = run_request.with_stepper(
         dataclasses.replace(
-            problem.stepper,
+            run_request.stepper,
             integrator=Multistep() if with_adams else None,
             interpolate_planes=dense_output,
-        ),
+        )
     )
 
     def forbidden(*_arguments: object, **_keywords: object) -> NoReturn:
@@ -455,7 +452,7 @@ def test_tdse_is_refused_by_name_before_integrator_or_native_setup(
     monkeypatch.setattr(solprop_native.backend, "require_device_ready", forbidden)
     monkeypatch.setattr(_core, "State", forbidden)
     with pytest.raises(BackendError, match=r"TDSEGasResponse.*SEP 12"):
-        NativeBackend(requested, grid=grid)
+        NativeBackend(requested, requested_request, grid=grid)
 
 
 @pytest.mark.parametrize(
@@ -473,8 +470,8 @@ def test_the_build_requires_each_kind_of_driver_member_the_adapter_uses(
 def test_runge_kutta_native_resume_keeps_no_logical_ledger(
     phase_a_case: PhaseACase,
 ) -> None:
-    problem, grid = phase_a_case
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = phase_a_case
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend.restore_call_ledgers({}, {})
         # A Runge-Kutta march keeps no logical ledger: the counts stay with the
@@ -515,7 +512,7 @@ def test_every_schema_14_general_modal_leaf_is_refused_by_name(
     record replaces, so a ``replace`` never reaches this adapter at all. What is
     under test here is the adapter's refusal, not solprop's.
     """
-    problem, grid = phase_a_case
+    problem, run_request, grid = phase_a_case
     assert getattr(getattr(problem, group), leaf) is None
     spoiled_group = copy.copy(getattr(problem, group))
     object.__setattr__(spoiled_group, leaf, _leaf_value(problem, leaf))
@@ -535,7 +532,7 @@ def test_every_schema_14_general_modal_leaf_is_refused_by_name(
         "regional_responses": r"native executes responses\.regional_responses",
     }[leaf]
     with pytest.raises(BackendError, match=expected):
-        NativeBackend(spoiled, grid=grid)
+        NativeBackend(spoiled, run_request, grid=grid)
 
 
 def _leaf_value(problem: PropagationProblem, leaf: str) -> object:
@@ -571,11 +568,11 @@ def _leaf_value(problem: PropagationProblem, leaf: str) -> object:
 def test_unsupported_contracts_are_refused_by_name(
     phase_a_case: PhaseACase, flags: dict[str, bool], message: str
 ) -> None:
-    problem, grid = phase_a_case
+    problem, run_request, grid = phase_a_case
     changed = dataclasses.replace(problem.flags, **flags)
     spoiled = dataclasses.replace(problem, flags=changed)
     with pytest.raises(BackendError, match=message):
-        NativeBackend(spoiled, grid=grid)
+        NativeBackend(spoiled, run_request, grid=grid)
 
 
 @pytest.mark.parametrize(
@@ -595,26 +592,26 @@ def test_the_dispersive_electronic_leaf_runs_on_the_free_space_route(
     its products. solprop's ``test_native_dispersive_routes.py`` holds the route to
     its reference.
     """
-    original, grid = phase_a_case
+    _, base_request, grid = phase_a_case
     space = FreeGrid(1e-3, 4, 1.5e-3, 6, collar_fraction=0)
     response = DispersiveKerrResponse(
         OptmatKerr("Ar").dispersive_model(), evaluator, thg=False
     )
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [response],
         np.zeros((24, 1, grid.n_omega), complex),
         spatial_grid=space,
         medium=SpatialMedium(),
-        controller=original.stepper.controller,
+        controller=base_request.stepper.controller,
         save_planes=[1e-3],
         dz_max=1e-3,
         dz_init=1e-4,
         density=4.9e25,
     )
     assert problem.responses.dispersive_kerr is not None
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         assert backend.metadata()["dispersive_path"] == path
         ledger = backend.memory_ledger()
@@ -628,8 +625,8 @@ def test_statistics_do_not_observe_the_full_field(
     phase_a_case: PhaseACase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The statistics seam transfers reductions, not the protected state."""
-    problem, grid = phase_a_case
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = phase_a_case
+    backend = NativeBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
 
     def fail_if_observed(state: object) -> NoReturn:
@@ -651,8 +648,8 @@ def test_raman_metadata_memoization_and_conditional_ledger(
     raman_case: RamanCase,
 ) -> None:
     """Raman plans are persistent and the exact ordered rate tuple is memoized."""
-    problem, grid = raman_case
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = raman_case
+    backend = NativeBackend(problem, run_request, grid=grid)
     coefficients = problem.responses.raman_coefficients
     assert coefficients is not None
     rates = tuple(float(table(0.0)) for table in coefficients.decay_rates)
@@ -680,11 +677,12 @@ def test_raman_metadata_memoization_and_conditional_ledger(
 
 
 def _raman_native_payload(raman_case: RamanCase) -> dict[str, object]:
-    problem, grid = raman_case
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = raman_case
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         return _native_problem(  # pyright: ignore[reportPrivateUsage]
             problem,
+            run_request,
             backend._terms,  # pyright: ignore[reportPrivateUsage]
         )
     finally:
@@ -739,13 +737,13 @@ def test_native_raman_rates_refuse_wrong_dtype_and_shape(
 def test_metadata_and_memory_ledger_are_self_consistent(
     phase_a_case: PhaseACase,
 ) -> None:
-    problem, grid = phase_a_case
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = phase_a_case
+    backend = NativeBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     metadata = backend.metadata()
     ledger = backend.memory_ledger()
     n = problem.shape[-1]
-    stages = problem.stepper.tableau.n_stages
+    stages = run_request.stepper.tableau.n_stages
     assert metadata["backend"] == "native"
     assert metadata["source_digest"] == build_info().source_digest
     assert metadata["openmp_wait_policy"] == solprop_native.WAIT_POLICY
@@ -815,6 +813,8 @@ def test_build_refuses_a_missing_separable_residual(
         ("REGIONAL_RESPONSE_FIELDS", "RegionalResponseTables"),
         ("COUPLED_FLOW_FIELDS", "CoupledFlowTables"),
         ("DISPERSIVE_KERR_FIELDS", "DispersiveKerrTerms"),
+        ("PROBLEM_FIELDS", "PropagationProblem"),
+        ("REQUEST_FIELDS", "RunRequest"),
     ],
 )
 def test_build_refuses_a_renamed_general_modal_leaf(
@@ -866,25 +866,25 @@ def test_temporal_statistics_are_refused_on_a_spatial_problem(
     """Mirror numpy_ref before native entry: a peak power has no meaning on Hankel
     or DFT columns, and the Cartesian native statistics buffers hold one node
     chunk."""
-    original, grid = phase_a_case
+    _, base_request, grid = phase_a_case
     space: RadialGrid | FreeGrid = (
         RadialGrid(1e-3, 8)
         if kind == "radial"
         else FreeGrid(1e-3, 4, 1.5e-3, 6, collar_fraction=0)
     )
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [],
         np.zeros((space.n_columns, 1, grid.n_omega), complex),
         spatial_grid=space,
         medium=SpatialMedium(),
-        controller=original.stepper.controller,
+        controller=base_request.stepper.controller,
         save_planes=[1e-3],
         dz_max=1e-3,
         dz_init=1e-4,
     )
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         for name in ("peak_power", "fwhm_t", "energy_window", "omega0"):
@@ -908,7 +908,7 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
     start = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 1e-4
     ).build(grid, space, medium=SpatialMedium())
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [KerrResponse(1e-22, thg=False)],
@@ -928,7 +928,7 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
     bound = 16 * eps * math.ceil(math.log2(grid.n_to)) + 2 * (
         space.n_r * eps / (1 - space.n_r * eps)
     )
-    reference = NumpyRefBackend(problem, grid=grid)
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage]
@@ -941,7 +941,7 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
         )
     finally:
         reference.close()
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         info = build_info()
@@ -971,15 +971,14 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
 
 def test_schema_seven_periodic_rows_drain_and_reset(phase_a_case: PhaseACase) -> None:
     """Inherited storage owns rows across observations and a fresh initial load."""
-    original, grid = phase_a_case
-    problem = dataclasses.replace(
-        original,
-        stats_spec=StatsSpec(names=("energy",), periodic=("energy",), period=1),
+    problem, run_request, grid = phase_a_case
+    run_request = run_request.for_run(
+        stats=StatsSpec(names=("energy",), periodic=("energy",), period=1)
     )
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(problem.stepper.save_planes[-1]))
+        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
         observed = backend.observe()
         rows = observed.step_stats
         assert rows.n_rows > 0
@@ -1006,12 +1005,11 @@ def test_envelope_raman_ignores_field_beat_flag(raman_case: RamanCase) -> None:
     each a transform round trip and the Raman convolution's on the doubled axis.
     Honouring the flag would drop the drive's quadrature and move the field by far more.
     """
-    original, grid = raman_case
-    problem = dataclasses.replace(
-        original,
-        stepper=dataclasses.replace(
-            original.stepper, schedule=FixedSchedule.uniform(0.0, 1e-5, 1e-5)
-        ),
+    problem, run_request, grid = raman_case
+    run_request = run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper, schedule=FixedSchedule.uniform(0.0, 1e-5, 1e-5)
+        )
     )
     leaf = problem.responses.raman_terms[0]
     changed_leaf = dataclasses.replace(leaf, thg=True)
@@ -1024,7 +1022,7 @@ def test_envelope_raman_ignores_field_beat_flag(raman_case: RamanCase) -> None:
     )
     fields: list[np.ndarray] = []
     for candidate in (problem, changed):
-        backend = NativeBackend(candidate, grid=grid)
+        backend = NativeBackend(candidate, run_request, grid=grid)
         try:
             backend.set_initial(candidate.initial.field0, None)
             backend.propagate_to(1e-5)
@@ -1073,7 +1071,7 @@ def test_the_plasma_stash_is_off_under_modified_noise(
     problem = simulation.translate()
     assert problem.responses.plasma_channels
     payload = _native_problem(  # pyright: ignore[reportPrivateUsage]
-        problem, terms(problem)
+        problem, simulation._run_request(), terms(problem)
     )
     assert payload["stash_plasma"] is stashed
 
@@ -1111,7 +1109,7 @@ def test_the_plasma_stash_is_off_under_the_split_step_absorber() -> None:
         )
         problem = simulation.translate()
         payloads[scheme] = _native_problem(  # pyright: ignore[reportPrivateUsage]
-            problem, terms(problem)
+            problem, simulation._run_request(), terms(problem)
         )
     assert payloads["nonlinear"]["stash_plasma"] is True
     assert payloads["split_step"]["split_step_absorber"] is True

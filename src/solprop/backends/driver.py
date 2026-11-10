@@ -51,7 +51,7 @@ from solprop.backends.protocol import (
     TimingProbe,
 )
 from solprop.backends.rk_core import rk_policy
-from solprop.backends.session import ExecutionOptions, Start
+from solprop.backends.session import ExecutionOptions, PreparedExecution, Start
 from solprop.exceptions import BackendError, BoundaryError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter, StopFlag
@@ -72,6 +72,7 @@ from solprop.translate.masks import noise_spectrum
 from solprop.translate.plasma_source import plasma_source_record
 from solprop.translate.problem import PropagationProblem, PropagatorMode
 from solprop.translate.routes import transverse_of
+from solprop.translate.run_request import RunRequest
 from solprop.translate.stage import (
     StageScalars,
     anchor,
@@ -347,13 +348,13 @@ class _TrialProbe:
         start = self._z if z is None else float(z)
         march = driver._low_storage
         if march is not None:
-            schedule = driver._problem.stepper.schedule
+            schedule = driver._stepper.schedule
             assert schedule is not None  # the translation refuses the march without one
             index = min(self._index, schedule.n_steps - 1)
             length = float(schedule.steps[index]) if dz is None else float(dz)
             march.engine.step(start, length)
             return
-        length = float(driver._problem.stepper.dz_init) if dz is None else float(dz)
+        length = float(driver._stepper.dz_init) if dz is None else float(dz)
         _, state = driver._trial_step(start, length)
         self._trial = (state, length)
 
@@ -421,6 +422,13 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     problem : solprop.translate.problem.PropagationProblem
         The validated problem to step. The subclass refuses what it cannot execute
         before calling this constructor.
+    request : solprop.translate.run_request.RunRequest
+        The run's policies: the method, the error control, the itinerary, the planes
+        and the statistics (SEP 47 section 5.2). The subclass checks it with the
+        problem (:func:`solprop.translate.problem.validate_run`) before calling this
+        constructor; a session started on this backend serves a request that differs
+        from it only in one run's start, retention, monitor and history
+        (:meth:`~solprop.translate.run_request.RunRequest.for_run`).
     grid : solprop.grid.TimeGrid, optional
         The grid the state lives on, which the statistics need and the contract does not
         carry.
@@ -473,14 +481,18 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     def __init__(
         self,
         problem: PropagationProblem,
+        request: RunRequest,
         *,
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
         profiles: Mapping[str, ZProfile] | None = None,
         options: ExecutionOptions | None = None,
     ) -> None:
-        """Adopt a validated problem and start the run at the entrance."""
+        """Adopt a validated problem and request and start the run at the entrance."""
         self._problem = problem
+        self._request = request
+        # The stepping policy as one record, read by the march at every step.
+        self._stepper = request.stepper
         # SEP 47 section 6.5: the node chunk is an execution choice, planned from the
         # problem and the options; a backend lowers it further (`node_chunk`).
         self._options = ExecutionOptions() if options is None else options
@@ -512,14 +524,14 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._state: _StateT | None = None
         self._noise: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None
         self._z = 0.0
-        self._proposal = problem.stepper.dz_init
+        self._proposal = self._stepper.dz_init
         self._clean_columns: Float[np.ndarray, " n_columns"] | None = None
         self._schedule_index = 0
         self._closed = False
         # The controller reads one norm a fixed lag back, and the one before it
         # (`PIController.propose`): a run keeps only those, not one per step.
         self._accepted_norms: deque[float] = deque(
-            maxlen=problem.stepper.controller.lag + 2
+            maxlen=self._stepper.controller.lag + 2
         )
         # Dense output (SEP 14 phase 3): the last accepted step that crossed a plane,
         # as its anchor, length and extension coefficients, and the march's own
@@ -541,7 +553,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # The statistics channel between planes. The spec a row is evaluated with is
         # the periodic subset promoted to `names`, so the row goes through the very
         # same `stats` the save planes use and is bitwise what a plane would record.
-        spec = problem.stats_spec
+        spec = request.observation.stats
         self._row_spec: StatsSpec | None = (
             None
             if not spec.periodic
@@ -555,6 +567,49 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # Physical RK source dispatches, including rejected trials and excluding
         # recycled stages. SEP 30 records work rather than estimating it from steps.
         self._rk_source_evaluations = 0
+
+    def prepare(
+        self, problem: PropagationProblem, request: RunRequest
+    ) -> PreparedExecution:
+        """Prepare a run of this backend for one problem and request (SEP 47 5.2).
+
+        The backend lowered the method, the error control, the itinerary, the planes
+        and the statistics where it was built; preparing binds the problem and the
+        request a run serves -- this backend's own, or one run's adaptation of it
+        (:meth:`~solprop.translate.run_request.RunRequest.for_run`) -- and each start
+        of the result opens the transitional session over this driver
+        (:class:`~solprop.backends.driver_session.DriverSession`).
+
+        Parameters
+        ----------
+        problem : solprop.translate.problem.PropagationProblem
+            The translated problem: this backend's, or one derived from it with
+            another input (:func:`solprop.driver.simulation.check_derived_problem`).
+        request : solprop.translate.run_request.RunRequest
+            The run's request.
+
+        Returns
+        -------
+        solprop.backends.session.PreparedExecution
+            The prepared execution.
+        """
+        from solprop.backends.driver_session import (  # noqa: PLC0415 - it builds on this module
+            DriverPrepared,
+        )
+
+        return DriverPrepared(self, problem, request)
+
+    @property
+    def request(self) -> RunRequest:
+        """Return the request this backend was built for.
+
+        Returns
+        -------
+        solprop.translate.run_request.RunRequest
+            Its method, error control, itinerary, planes and statistics; a run adapts
+            it with :meth:`~solprop.translate.run_request.RunRequest.for_run`.
+        """
+        return self._request
 
     @property
     def node_chunk(self) -> int:
@@ -932,7 +987,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         solprop.stepper.controller.PIController
             The controller.
         """
-        return self._problem.stepper.controller
+        return self._stepper.controller
 
     def _observed_field(
         self, state: _StateT
@@ -1038,7 +1093,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             ``"tabulate"`` or ``"recompute"``, with the contract's ``"auto"`` resolved
             to :attr:`propagator_default`.
         """
-        asked = self._problem.stepper.propagator_mode
+        asked = self._stepper.propagator_mode
         if asked == "auto" and self._low_storage is not None:
             # One volume of exp(h D / 2) reused while the step holds is the cheaper
             # flow on a CPU; a varying operator changes it every step (SEP 24
@@ -1438,7 +1493,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # reads it as the vacuum floor beneath the light it judges (SEP 21, Q24).
         self._input_floor = drawn if model == "input" else None
         self._z = position
-        self._proposal = self._problem.stepper.dz_init
+        self._proposal = self._stepper.dz_init
         self._schedule_index = self._schedule_index_at(position)
         self._accepted_norms.clear()
         self._history = []
@@ -1556,7 +1611,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # moment at which the run is actually about to cost anything.
         if not self._progress_started:
             self._progress_started = True
-            settings = self._problem.stepper
+            settings = self._stepper
             self._progress.started(self._z, settings.z_end, len(settings.save_planes))
         started = time.perf_counter()
         first = len(self._history)
@@ -1568,7 +1623,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             self._reset_step_stats(release=False)
             self._begin_plane()
         self._halted = False
-        schedule = self._problem.stepper.schedule
+        schedule = self._stepper.schedule
         if self._low_storage is not None:
             # The low-storage march replays only (SEP 24); the translation refused
             # it without a schedule.
@@ -1590,7 +1645,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             self._natural_due = False
         taken = self._history[first:]
         record = ControlRecord.from_norms(
-            self._problem.stepper.controller,
+            self._stepper.controller,
             [entry[2] for entry in taken if entry[3]],
             n_rejected=sum(1 for entry in taken if not entry[3]),
         )
@@ -1614,7 +1669,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             # The run's integrator, not this driver's march: a lockstep runner holds
             # none of its own while its members each hold one.
             NOT_ESTIMATED
-            if isinstance(self._problem.stepper.integrator, LowStorageRungeKutta)
+            if isinstance(self._stepper.integrator, LowStorageRungeKutta)
             else f"{record.tolerance_ratio:.3e}",
         )
         if not self._halted:
@@ -1749,7 +1804,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         target : float
             Position to reach, m.
         """
-        settings = self._problem.stepper
+        settings = self._stepper
         policy = self._controller_policy()
         dense = settings.interpolate_planes
         if dense and self._dense_ahead is not None:
@@ -1855,7 +1910,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             (1, *self._problem.shape)
         )
         coefficients = extension_coefficients(
-            self._problem.stepper.tableau, start, self._dense_stages(), dz
+            self._stepper.tableau, start, self._dense_stages(), dz
         )
         return z, dz, coefficients
 
@@ -1915,7 +1970,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         solprop.backends.rk_core.RungeKuttaPolicy
             The run's controller, floor, cap and start-up flag.
         """
-        return rk_policy(self._problem.stepper)
+        return rk_policy(self._stepper)
 
     def _start_up(self, norm: float) -> None:
         """Take the step after the first from the first step's own estimate.
@@ -2024,7 +2079,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         bool
             Whether the march stops here, short of `target`.
         """
-        every = self._problem.stepper.step_planes
+        every = self._stepper.step_planes
         self._natural_count += 1
         if every == 0 or self._natural_count % every:
             return self._halted_short(target)
@@ -2205,7 +2260,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         edge = monitor.transverse
         if edge is not None:
             floor = self._input_floor
-            schedule = self._problem.stepper.schedule
+            schedule = self._stepper.schedule
             state = self._require_state()
             edge.launch(
                 self._edge_reading(
@@ -2356,7 +2411,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             The schedule's next step on a replay, zero past its end, and otherwise the
             controller's proposal.
         """
-        schedule = self._problem.stepper.schedule
+        schedule = self._stepper.schedule
         if schedule is None:
             return self._proposal
         if self._schedule_index >= schedule.n_steps:
@@ -2556,7 +2611,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         BoundaryError
             Naming the cap and the step.
         """
-        schedule = self._problem.stepper.schedule
+        schedule = self._stepper.schedule
         first = self._schedule_index if cursor is None else cursor
         position = self._z if z is None else z
         if schedule is None or first >= schedule.n_steps:
@@ -2909,7 +2964,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             msg = (
                 "the on-axis plasma statistics need the mode set, which the kernel "
                 "contract does not carry; construct the backend with "
-                f"select({self.name!r}, problem, modes=modes)"
+                f"select({self.name!r}, problem, request, modes=modes)"
             )
             raise BackendError(msg)
         from solprop.backends.populations import (  # noqa: PLC0415 - a cycle
@@ -3020,7 +3075,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             msg = (
                 "statistics need the grid the state lives on, which the kernel "
                 f"contract does not carry; construct the backend with select("
-                f"{self.name!r}, problem, grid=grid)"
+                f"{self.name!r}, problem, request, grid=grid)"
             )
             raise BackendError(msg)
         return self._grid
@@ -3142,7 +3197,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             so this fires only for a position the run never stopped at -- from which a
             replay could not continue in step.
         """
-        schedule = self._problem.stepper.schedule
+        schedule = self._stepper.schedule
         if schedule is None:
             return 0
         edges = schedule.edges

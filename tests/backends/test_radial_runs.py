@@ -90,7 +90,7 @@ def test_radial_operator_and_prefactor_match_vacuum_dispersion(radial_case):
         save_planes=[grid.length],
         dz_max=grid.length,
         dz_init=grid.length,
-    )
+    ).problem
     assert problem.transform.geometry is not None
     assert problem.transform.geometry.kind == "radial"
     assert not problem.flags.mode_averaged
@@ -128,7 +128,7 @@ def test_radial_linear_propagation_on_each_backend(
     )
     bound = 64 * EPS * (float(wave.max()) * grid.length + steps)
     expected = start * np.exp(phase)[:, None, :] * grid.active_mask
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [],
@@ -141,7 +141,7 @@ def test_radial_linear_propagation_on_each_backend(
         dz_init=grid.length / steps,
         schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / steps),
     )
-    backend = spatial_backend_class(problem, grid=grid)
+    backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         summary = backend.propagate_to(grid.length)

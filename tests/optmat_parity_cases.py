@@ -68,6 +68,7 @@ from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.run_request import RunRequest
 
 SELECTION = MaterialSelection()
 """The curated selection every case runs under."""
@@ -123,7 +124,9 @@ class Case:
     simulation : Simulation or None
         The driver's run, or ``None`` for a case assembled directly.
     problem : PropagationProblem
-        The translated problem, on its fixed schedule.
+        The translated problem.
+    run_request : RunRequest
+        Its run's request, on its fixed schedule.
     grid : FieldGrid or EnvelopeGrid
         The time grid.
     modes : tuple or None
@@ -133,6 +136,7 @@ class Case:
     name: str
     simulation: Simulation | None
     problem: PropagationProblem
+    run_request: RunRequest
     grid: Any
     modes: tuple[Any, ...] | None
 
@@ -222,7 +226,12 @@ def _vector_launch(grid, energy: float) -> np.ndarray:
 def _from_simulation(name: str, simulation: Simulation) -> Case:
     """Translate a driver's run."""
     return Case(
-        name, simulation, simulation.translate(), simulation.grid, simulation.modes
+        name,
+        simulation,
+        simulation.translate(),
+        simulation._run_request(),
+        simulation.grid,
+        simulation.modes,
     )
 
 
@@ -331,7 +340,7 @@ def _bundle_vector() -> Case:
     modes = [mode, mode.rotated(math.pi / 2)]
     launch = _vector_launch(grid, 2e-9)
 
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         modes,
         [KerrResponse(chi3=chi3, thg=True), raman],
@@ -345,7 +354,7 @@ def _bundle_vector() -> Case:
         schedule=FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
         stats_spec=StatsSpec(names=("energy", "peak_power_total", "peak_intensity")),
     )
-    return Case("bundle_vector", None, problem, grid, tuple(modes))
+    return Case("bundle_vector", None, problem, run_request, grid, tuple(modes))
 
 
 @functools.cache

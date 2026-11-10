@@ -26,11 +26,11 @@ ionising_capillary = plasma_fixtures.ionising_capillary
 def test_benchmark_identity_and_both_resume_doors(
     ionising_capillary, field_grid, tmp_path
 ):
-    problem, _, _ = ionising_capillary()
-    production = metadata_for(problem, field_grid)
+    problem, run_request, _, _ = ionising_capillary()
+    production = metadata_for(problem, run_request, field_grid)
     with _gated_source():
-        historical = metadata_for(problem, field_grid)
-        backend = NumpyRefBackend(problem)
+        historical = metadata_for(problem, run_request, field_grid)
+        backend = NumpyRefBackend(problem, run_request)
         source_metadata = backend.metadata()["plasma_source"]
         assert isinstance(source_metadata, dict)
         assert source_metadata["form"] == "gated_benchmark"
@@ -62,20 +62,20 @@ def test_benchmark_identity_and_both_resume_doors(
 def test_gated_hook_refuses_compiled_execution_and_resets_after_exception(
     ionising_capillary,
 ):
-    problem, _, _ = ionising_capillary()
+    problem, run_request, _, _ = ionising_capillary()
     with pytest.raises(BackendError, match="requires numpy_ref"), _gated_source():
-        registry.select("native", problem)
+        registry.select("native", problem, run_request)
     assert not _BENCHMARK_GATED.get()
 
 
 def test_metadata_and_memory_name_the_source(ionising_capillary, field_grid):
-    problem, _, _ = ionising_capillary()
-    backend = NumpyRefBackend(problem)
+    problem, run_request, _, _ = ionising_capillary()
+    backend = NumpyRefBackend(problem, run_request)
     record = plasma_source_record(problem.grids)
     assert backend.metadata()["plasma_source"] == record
-    assert metadata_for(problem, field_grid).configuration["plasma_source"] == {
-        key: value for key, value in record.items() if key != "certificate"
-    }
+    assert metadata_for(problem, run_request, field_grid).configuration[
+        "plasma_source"
+    ] == {key: value for key, value in record.items() if key != "certificate"}
     ledger = backend.memory_ledger()
     assert ledger["held_current_streams"] > 0
     assert ledger["held_current_spectra"] > 0
@@ -86,7 +86,7 @@ def test_metadata_and_memory_name_the_source(ionising_capillary, field_grid):
 def test_certificate_refuses_zero_gate_and_nonpositive_active_frequency(
     ionising_capillary,
 ):
-    problem, _, _ = ionising_capillary()
+    problem, _, _, _ = ionising_capillary()
     masks = problem.grids
     empty = dataclasses.replace(masks, t_window_fine=np.zeros(masks.n_to))
     with pytest.raises(TranslationError, match="nonzero temporal collar"):
@@ -103,7 +103,7 @@ def test_certificate_refuses_zero_gate_and_nonpositive_active_frequency(
 def test_private_historical_collar_cannot_bypass_production_admission(
     ionising_capillary, field_grid
 ):
-    problem, _, _ = ionising_capillary()
+    problem, run_request, _, _ = ionising_capillary()
     legacy = np.ones(problem.grids.n_to)
     legacy[0] = 0.0
     historical = dataclasses.replace(
@@ -114,12 +114,12 @@ def test_private_historical_collar_cannot_bypass_production_admission(
         historical.validate()
     with _gated_source():
         historical.validate()
-        metadata = metadata_for(historical, field_grid)
+        metadata = metadata_for(historical, run_request, field_grid)
         assert metadata.configuration["plasma_source"] == {
             "form": "gated_benchmark",
             "resumable": False,
         }
         with pytest.raises(BackendError, match="requires numpy_ref"):
-            registry.select("native", historical)
+            registry.select("native", historical, run_request)
     with pytest.raises(TranslationError, match="collar certificate"):
         historical.validate()

@@ -2,22 +2,26 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Which run session serves a loaded backend (SEP 47 phases 2 and 3).
+"""The run layer's one door to a backend's sessions (SEP 47 phases 2 and 3).
 
-The NumPy reference runs in its own session
+:func:`start_session` starts a run through the backend's own preparation shape (SEP
+47 section 5.2), ``backend.prepare(problem, request).start(start, ...)``, so a backend
+chooses its session and nothing here names one. The NumPy reference's prepared
+execution opens its own session
 (:class:`solprop.backends.host.session.HostSession`, over
-:class:`solprop.backends.host.driver.HostDriver`); a native backend runs in the native
-execution session (``solprop_native.session.NativeSession``) whenever it admits
-the run, before the start is loaded -- on a device build, SEP 47 phase 3's
-representative device path (``solprop_native.session.device_refusal``); what it
-refuses by name, and every other
-backend, runs in the transitional session over the inherited driver
-(:class:`solprop.backends.driver_session.DriverSession`). :func:`start_session` chooses,
-so the run layer has one door. :func:`start_group` is the door
-for a group of compatible members (SEP 47 section 6.7): native CPU members run in the
-native group session (``solprop_native.group.NativeGroupSession``, one native
-session per member) whenever it admits the group; any other group runs in the
-transitional group over the lockstep runners
+:class:`solprop.backends.host.driver.HostDriver`); a native backend's
+(``solprop_native.session.NativePrepared``) opens the native execution session
+(``solprop_native.session.NativeSession``) whenever it admits the run, before the
+start is loaded -- on a device build, SEP 47 phase 3's representative device path
+(``solprop_native.session.device_refusal``) -- and the transitional session over the
+inherited driver (:class:`solprop.backends.driver_session.DriverSession`) for what it
+refuses by name, the reason recorded; any other driver's opens the transitional one.
+
+:func:`start_group` is the door for a group of compatible members (SEP 47 section
+6.7): native CPU members run in the native group session
+(``solprop_native.group.NativeGroupSession``, one native session per member)
+whenever it admits the group; any other group runs in the transitional group over the
+lockstep runners
 (:class:`solprop.backends.driver_session.DriverGroupSession`), the reference's and the
 native groups the native group refuses by name (``solprop_native.group.refusal``).
 """
@@ -31,10 +35,7 @@ from typing import TYPE_CHECKING, cast
 from solprop.backends.driver_session import (
     AttemptListener,
     DriverGroupSession,
-    DriverSession,
 )
-from solprop.backends.host.driver import HostDriver
-from solprop.backends.host.session import HostSession
 from solprop.backends.session import GroupSession, RunSession, Start, check_group
 from solprop.log import StopFlag
 from solprop.translate.problem import PropagationProblem
@@ -85,34 +86,16 @@ def start_session(  # noqa: PLR0913 - the session context
     Returns
     -------
     solprop.backends.session.RunSession
-        The native session (``solprop_native.session.NativeSession``) for a
-        native backend whenever it admits the run; a
-        :class:`~solprop.backends.host.session.HostSession` for a reference backend;
-        otherwise the transitional session over the legacy driver, which serves what
-        the native session does not run yet (SEP 47 Part II).
+        The session the backend's prepared execution opens: the native session
+        (``solprop_native.session.NativeSession``) for a native backend whenever
+        it admits the run; a :class:`~solprop.backends.host.session.HostSession` for
+        a reference backend; otherwise the transitional session over the legacy
+        driver, which serves what the native session does not run yet (SEP 47 Part
+        II).
     """
-    native = _native_session(
-        backend,
-        problem,
-        request,
-        start,
-        listener=listener,
-        started=started,
-        stop=stop,
-        owns=owns,
-    )
-    if native is not None:
-        return native
-    session = HostSession if isinstance(backend, HostDriver) else DriverSession
-    return session(
-        backend,
-        problem,
-        request,
-        start,
-        listener=listener,
-        started=started,
-        stop=stop,
-        owns=owns,
+    prepared = backend.prepare(problem, request)
+    return prepared.start(
+        start, listener=listener, started=started, stop=stop, owns=owns
     )
 
 
@@ -171,75 +154,3 @@ def start_group(
             refused,
         )
     return DriverGroupSession(members, problems, requests, starts, stop=stop)
-
-
-def _native_session(  # noqa: PLR0913 - the session context
-    backend: Backend,
-    problem: PropagationProblem,
-    request: RunRequest,
-    start: Start,
-    *,
-    listener: AttemptListener | None,
-    started: Callable[[float, float, int], None] | None,
-    stop: StopFlag | None,
-    owns: bool,
-) -> RunSession | None:
-    """Return the native session for `backend`, or ``None`` when it does not serve it.
-
-    The native distribution is imported only for its own backend, so a reference run
-    loads none of it.
-
-    Parameters
-    ----------
-    backend : solprop.backends.protocol.Backend
-        The loaded backend.
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
-    request : solprop.translate.run_request.RunRequest
-        The run's policies.
-    start : solprop.backends.session.Start
-        Where the run starts.
-    listener : callable or None
-        Called with each attempt as it is made; the native session then yields after
-        every attempt, so the service loop reports progress from the delivered
-        attempts instead.
-    started : callable or None
-        Called with the start, the end and the plane count when propagation begins.
-    stop : solprop.log.StopFlag or None
-        The run's stop token.
-    owns : bool
-        Whether closing the session closes the backend.
-
-    Returns
-    -------
-    solprop.backends.session.RunSession or None
-        The native session, or ``None`` for any other backend, a run the native
-        session refuses, or one the built backend would step on the host.
-    """
-    if type(backend).__module__ != "solprop_native.backend":
-        return None
-    from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        NativeBackend,
-    )
-    from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        NativeSession,
-        backend_refusal,
-        refusal,
-    )
-
-    if (
-        type(backend) is not NativeBackend
-        or refusal(problem, request, start)
-        or backend_refusal(backend)
-    ):
-        return None
-    return NativeSession(
-        problem,
-        request,
-        start,
-        stop=stop,
-        listener=listener,
-        backend=backend,
-        owns=owns,
-        started=started,
-    )

@@ -220,7 +220,7 @@ def test_registry_refuses_unknown_backend_without_taking_ownership(monkeypatch):
 )
 def test_batch_requires_complete_backend_protocol(runner, driver):
     simulation = fixtures.simulation(0, "numpy_ref")
-    owner = driver(simulation.translate())
+    owner = driver(simulation.translate(), simulation._run_request())
     try:
         owner.set_initial(simulation.translate().initial.field0, None)
         with pytest.raises(BackendError, match="backend protocol"):

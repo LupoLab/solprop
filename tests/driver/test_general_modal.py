@@ -1141,7 +1141,8 @@ def test_the_backend_refuses_an_inadmissible_name_on_its_own(guide, grid):
     """Asked directly, without the driver's loop (defence in depth)."""
     simulation = build(guide, grid)
     problem = simulation.translate()
-    backend = select("numpy_ref", problem, grid=grid)
+    run_request = simulation._run_request()
+    backend = select("numpy_ref", problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         with pytest.raises(BackendError, match="peak_intensity is unavailable"):
@@ -1171,17 +1172,18 @@ def test_a_record_that_misnames_the_basis_is_refused_at_the_run_loop(
     simulation = build(guide, grid)
     general = simulation.metadata()
     if direction == "record_is_silent":
-        problem = simulation.translate()
+        problem, run_request = simulation.translate(), simulation._run_request()
         metadata = dataclasses.replace(general, modal=None)
         expected = "carries transform.modal_tables and its run record carries"
     else:
-        problem = ordinary_simulation(("energy",)).translate()
+        ordinary = ordinary_simulation(("energy",))
+        problem, run_request = ordinary.translate(), ordinary._run_request()
         metadata = general
         expected = "carries a general modal identity and the problem"
     with pytest.raises(DriverError, match=expected):
         run_problem(
             problem,
-            NullBackend(shape=problem.shape),
+            NullBackend(shape=problem.shape, request=run_request),
             MemoryOutput(),
             start=Start.entrance(problem),
             metadata=metadata,
@@ -1267,8 +1269,9 @@ def test_a_general_guide_batch_is_what_its_members_run_alone(
         members, alone = [], []
         for simulation in simulations:
             problem = simulation.translate()
+            run_request = simulation._run_request()
             for bucket in (members, alone):
-                backend = select("numpy_ref", problem, grid=grid)
+                backend = select("numpy_ref", problem, run_request, grid=grid)
                 cleanup.callback(backend.close)
                 backend.set_initial(problem.initial.field0, simulation.noise)
                 bucket.append(backend)
@@ -1277,7 +1280,7 @@ def test_a_general_guide_batch_is_what_its_members_run_alone(
         runner.propagate_to(BATCH_Z)
         for owner in alone:
             owner.propagate_to(BATCH_Z)
-        spec = simulations[0].translate().stats_spec
+        spec = simulations[0]._run_request().observation.stats
         batched_stats = runner.stats(spec)
         bounds = [simulation_bound(simulation) for simulation in simulations]
         for index, (observed, owner) in enumerate(
@@ -1319,6 +1322,7 @@ def test_two_guides_never_share_a_batch_group(guide, grid):
     assert [len(group) for group in compatible_groups([one, other], 4)] == [1, 1]
     assert [len(group) for group in compatible_groups([one, same], 4)] == [2]
     problems = [member.simulation.translate() for member in (one, other)]
+    requests = [member.simulation._run_request() for member in (one, other)]
     with pytest.raises(DriverError, match="identical guide/table/gauge identity"):
         refuse_mixed_guides(problems)
     # And a general guide beside a run that is not one is named the same way.
@@ -1326,8 +1330,8 @@ def test_two_guides_never_share_a_batch_group(guide, grid):
         refuse_mixed_guides([problems[0], ordinary_simulation(("energy",)).translate()])
     with ExitStack() as cleanup:
         loaded = []
-        for problem in problems:
-            backend = select("numpy_ref", problem, grid=grid)
+        for problem, run_request in zip(problems, requests, strict=True):
+            backend = select("numpy_ref", problem, run_request, grid=grid)
             cleanup.callback(backend.close)
             backend.set_initial(problem.initial.field0, None)
             loaded.append(backend)
@@ -1338,14 +1342,15 @@ def test_two_guides_never_share_a_batch_group(guide, grid):
 def test_the_native_batch_refuses_two_guides_too(guide, grid):
     """The native batch, on the bridge's lockstep runner, refuses the same group."""
     pytest.importorskip("solprop_native")
-    problems = [
-        batched_run(one, grid).translate()
+    runs = [
+        batched_run(one, grid)
         for one in (guide, general_guide(grid=grid, radius=1.6e-6))
     ]
     with ExitStack() as cleanup:
         loaded = []
-        for problem in problems:
-            backend = select("native", problem, grid=grid)
+        for run in runs:
+            problem, run_request = run.translate(), run._run_request()
+            backend = select("native", problem, run_request, grid=grid)
             cleanup.callback(backend.close)
             backend.set_initial(problem.initial.field0, None)
             loaded.append(backend)

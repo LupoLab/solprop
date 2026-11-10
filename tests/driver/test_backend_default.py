@@ -195,10 +195,12 @@ def test_auto_runs_a_z_table_taper_on_the_native_cpu_build():
             taper, 1.0, "He", 1.5, taper_coupling=False, **{"noise": None, **arguments}
         )
         problem = simulation.translate()
+        run_request = simulation._run_request()
     assert problem.linear.phi_representation == "table"
     backend = select(
         "auto",
         problem,
+        run_request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
