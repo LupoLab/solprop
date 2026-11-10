@@ -159,8 +159,8 @@ them, which a memory ledger cannot report.
 The static maps ``S`` and ``Q``, the per-node tensor, the dense E/H reference, its
 reciprocal partners and the coefficient dual are whole-problem allocations, counted
 row by row by :func:`general_memory`; they do not shrink with the chunk, which is why
-the counts here and :data:`solprop.translate.modal.BUFFERS_PER_NODE` are different and
-neither reuses the other.
+the counts here and :data:`solprop.backends.node_chunk.BUFFERS_PER_NODE` are different
+and neither reuses the other.
 """
 
 

@@ -99,6 +99,7 @@ __all__ = [
     "RESTART_RECORD",
     "LogReporter",
     "ProgressReporter",
+    "SessionFacts",
     "check_snapshot_request",
     "field_retention",
     "open_run_record",
@@ -273,8 +274,9 @@ class SessionFacts:
         Returns
         -------
         solprop.output.schema.MarchSnapshot or None
-            The session's snapshot (:meth:`~solprop.backends.session.RunSession.
-            march_snapshot`), or ``None`` without one or with no batch pending.
+            The session's snapshot
+            (:meth:`~solprop.backends.session.RunSession.march_snapshot`), or
+            ``None`` without one or with no batch pending.
         """
         session = self._session
         if session.status().state is not SessionState.PENDING:

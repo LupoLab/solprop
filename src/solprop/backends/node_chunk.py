@@ -37,7 +37,7 @@ it bought before; counting a route's live buffers changes the chunk of every exp
 budget, which is the maintainer's decision under #349 and #89, not this move's.
 
 A device backend may choose differently when no budget is given (solprop issue #361);
-the native backend's rule is :func:`solprop_native.backend.device_node_chunk`, and an
+the native backend's rule is ``solprop_native.backend.device_node_chunk``, and an
 explicit budget or chunk is never overridden by it.
 """
 
@@ -126,7 +126,7 @@ class NodeChunkPlan:
     source : {'default', 'explicit', 'forced'}
         ``"default"`` without an explicit budget (the route's default budget),
         ``"explicit"`` with one, and ``"forced"`` for an exact chunk
-        (:attr:`ExecutionOptions.node_chunk`).
+        (:attr:`solprop.backends.session.ExecutionOptions.node_chunk`).
     requested : int or None
         The exact chunk asked for, before it was bounded by the node count; ``None``
         unless `source` is ``"forced"``. A general modal guide's route takes it in

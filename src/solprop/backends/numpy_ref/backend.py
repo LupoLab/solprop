@@ -1146,7 +1146,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         what the budget of ``docs/dev/architecture.md`` section 8 is measured against.
         Every buffer is named even when it is empty.
 
-        The space-domain entries are sized by :attr:`node_chunk` and not by the
+        The space-domain entries are sized by
+        :attr:`~solprop.backends.driver.StepDriver.node_chunk` and not by the
         node count, which is the whole point of the chunk loop (``architecture.md``
         section 13): holding ``(n_to, n_pol n_nodes)`` for every node at once would be
         210 MB against 45 MB on the comb-to-continuum target.

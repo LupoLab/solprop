@@ -7,7 +7,7 @@
 The NumPy reference runs in its own session
 (:class:`solprop.backends.host.session.HostSession`, over
 :class:`solprop.backends.host.driver.HostDriver`); a native backend runs in the native
-execution session (:class:`solprop_native.session.NativeSession`) whenever it admits
+execution session (``solprop_native.session.NativeSession``) whenever it admits
 the run, before the start is loaded -- on a device build, SEP 47 phase 3's
 representative device path (``solprop_native.session.device_refusal``); what it
 refuses by name, and every other
@@ -15,7 +15,7 @@ backend, runs in the transitional session over the inherited driver
 (:class:`solprop.backends.driver_session.DriverSession`). :func:`start_session` chooses,
 so the run layer has one door. :func:`start_group` is the door
 for a group of compatible members (SEP 47 section 6.7): native CPU members run in the
-native group session (:class:`solprop_native.group.NativeGroupSession`, one native
+native group session (``solprop_native.group.NativeGroupSession``, one native
 session per member) whenever it admits the group; any other group runs in the
 transitional group over the lockstep runners
 (:class:`solprop.backends.driver_session.DriverGroupSession`), the reference's and the
@@ -85,7 +85,7 @@ def start_session(  # noqa: PLR0913 - the session context
     Returns
     -------
     solprop.backends.session.RunSession
-        The native session (:class:`solprop_native.session.NativeSession`) for a
+        The native session (``solprop_native.session.NativeSession``) for a
         native backend whenever it admits the run; a
         :class:`~solprop.backends.host.session.HostSession` for a reference backend;
         otherwise the transitional session over the legacy driver, which serves what
