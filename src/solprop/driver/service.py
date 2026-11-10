@@ -41,7 +41,6 @@ from solprop.backends.events import (
     Progress,
     ServiceKind,
     ServiceRequired,
-    Terminal,
     emit_warning,
     join_attempts,
 )
@@ -90,7 +89,6 @@ from solprop.output.schema import (
     StoredField,
     TerminalCheckpoint,
     _adopted,
-    stored_spectrum,
 )
 from solprop.output.snapshots import SnapshotController
 from solprop.output.tdse_archive import TDSEArchiveWriter
@@ -277,7 +275,11 @@ class _Exports:
         return self._field
 
     def stored(self, ticket: ExportTicket, out: np.ndarray | None) -> np.ndarray:
-        """Return the stored form of a ticket's field, exported once into `out`.
+        """Export the stored form of a ticket's field into `out`.
+
+        The plane store is a plane's first consumer (:func:`_prepare_plane`), so its
+        export is the ticket's first; any consumer after it is given the consumer
+        field from it (:meth:`field`).
 
         Parameters
         ----------
@@ -293,15 +295,11 @@ class _Exports:
             Read-only output amplitudes in the optics convention: `out` when given.
         """
         self._hold(ticket)
-        if self._stored is None:
-            if self._field is not None:
-                # Exported already for another consumer: the store's own conversion.
-                stored = stored_spectrum(self._field, self._kind, out)
-            else:
-                stored = self._session.export(ticket, _STORED, out=out)
-            stored.setflags(write=False)
-            self._stored = stored
-        return self._stored
+        assert self._field is None and self._stored is None, "a plane's first export"
+        stored = self._session.export(ticket, _STORED, out=out)
+        stored.setflags(write=False)
+        self._stored = stored
+        return stored
 
     def release(self) -> None:
         """Drop the exports once their batch is acknowledged."""
@@ -702,7 +700,8 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                         pending_ticket = event.ticket
                         terminal_rows = chunks.joined()
                         emit_warning(event)
-                    elif event.kind is ServiceKind.SNAPSHOT and snapshots is not None:
+                    else:
+                        # A snapshot, which a session yields only at the request above.
                         assert isinstance(output, HDF5Output)
                         _service_snapshot(
                             event,
@@ -717,7 +716,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                             adams=adams,
                             base=base,
                         )
-                elif isinstance(event, Terminal):
+                else:
                     chunks.add(event.history, event.step_stats)
                     if event.outcome is Outcome.COMPLETED:
                         with committing():

@@ -37,7 +37,7 @@ from solprop.backends.node_chunk import (
     plan_node_chunk,
 )
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.session import ExecutionOptions
+from solprop.backends.session import ExecutionOptions, positive_count
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.interface import prop_capillary, prop_waveguide
 from solprop.exceptions import BackendError, DriverError
@@ -262,6 +262,17 @@ def test_a_budget_that_is_not_a_positive_integer_is_refused(budget):
         ExecutionOptions(node_budget=budget)
     with pytest.raises(BackendError, match="node_chunk must be a positive"):
         ExecutionOptions(node_chunk=budget)
+
+
+@pytest.mark.parametrize("value", [2.0**20, "1048576", None])
+def test_a_count_that_is_not_integral_is_refused_by_name(value):
+    """Only an integral value (``operator.index``) is a count: a float, even a whole
+    one, or a numeric string is refused naming the option. The annotations refuse
+    them first under a runtime type check; the count refuses them without one."""
+    with pytest.raises(BackendError, match="node_budget must be a positive number of"):
+        positive_count("node_budget", value)
+    with pytest.raises(BackendError, match="node_chunk must be a positive number, got"):
+        positive_count("node_chunk", value)
 
 
 @pytest.mark.parametrize("integral", [np.int64(2**20), np.uint32(2**20), 2**20])

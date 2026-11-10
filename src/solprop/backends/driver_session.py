@@ -760,17 +760,6 @@ class DriverSession:
         """
         return None if self._monitor is None else self._monitor.summary()
 
-    @property
-    def monitor(self) -> BoundaryMonitor | None:
-        """Return the session's own boundary monitor, for transitional reporting.
-
-        Returns
-        -------
-        solprop.monitor.BoundaryMonitor or None
-            The monitor, or ``None``.
-        """
-        return self._monitor
-
     def close(self) -> None:
         """Release the driver; idempotent."""
         if self._ledger.close():
