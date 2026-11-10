@@ -960,7 +960,7 @@ function TransverseTables(
         length(column_weights) == length(kappa) ==
         length(order) == length(ramp_rates) > 0 ||
         throw(DimensionMismatch("transverse monitor table dimensions disagree"))
-    1 <= N <= 4 && sort(collect(face_ranks)) == collect(1:N) &&
+    1 <= N <= 4 && sort(collect(Int, face_ranks)) == collect(1:N) &&
         sort(collect(order)) == collect(1:length(order)) &&
         all(index -> kappa[order[index]] >= kappa[order[index - 1]], 2:length(order)) ||
         throw(ArgumentError("transverse face ranks or kappa order are invalid"))

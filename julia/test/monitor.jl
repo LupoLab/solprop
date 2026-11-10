@@ -665,6 +665,10 @@ end
 
 @testset "Transverse face metadata must match the prepared state" begin
     two = _transverse_tables()
+    @test_throws ArgumentError SolpropJulia.TransverseTables(
+        two.faces, two.clip, two.totals, two.column_weights, two.kappa, two.order,
+        two.ramp_rates; face_ranks = (), noise_face_share = 0.25, noise_modes = 16,
+    )
     faces = copy(two.faces)
     faces[:, 2] .= 0.0
     one = SolpropJulia.TransverseTables(
