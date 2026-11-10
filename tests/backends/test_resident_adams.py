@@ -9,12 +9,14 @@ formulation on the modal routes: the history's rows, the trial arithmetic, the n
 adoption, transport and dense observation stay in the native state. These tests pin
 which engine each case takes and check the resident one against the reference
 host engine over the same backend's hooks, so that only the engine differs, on the
-paths the shared parity suites do not reach: both dense interpolants, a budget stop and
-a replayed schedule. The parity of either against the reference backend is the shared
-suites' (``test_exponential_routes.py``, ``test_compiled_multistep.py``).
+paths the shared parity suites do not reach: dense observation, a budget stop and a
+replayed schedule. The generic Hermite interpolant is a comparison method's
+(``ComparisonMultistep``), which native refuses (solprop SEP 47 section 6.3); the
+reference steps it (``test_multistep_march.py``). The parity of either against the
+reference backend is the shared suites' (``test_exponential_routes.py``,
+``test_compiled_multistep.py``).
 """
 
-import dataclasses
 import math
 from typing import cast
 
@@ -26,7 +28,7 @@ from solprop.backends import available
 from solprop.backends.multistep import HostHistory
 from solprop.exceptions import ResponseBudgetError
 from solprop.stepper import FixedSchedule, PIController
-from solprop.stepper.multistep import ComparisonMultistep, Multistep
+from solprop.stepper.multistep import Multistep
 
 pytestmark = [
     pytest.mark.medium,
@@ -37,6 +39,7 @@ pytestmark = [
 ]
 
 NativeBackend = pytest.importorskip("solprop_native").NativeBackend
+backend_module = pytest.importorskip("solprop_native.backend")
 
 # The soliton fixture's period (tests/backends/conftest.py).
 SOLITON_PERIOD = math.pi / 2 * (100e-15) ** 2 / 11.83e-27
@@ -197,16 +200,9 @@ def assert_same_run(first, second, *, steps_rtol=1e-6, fields_atol=1e-12):
     ("integrator", "steps_rtol", "fields_atol"),
     [
         (Multistep(formulation="interaction"), 1e-6, 1e-12),
-        (
-            ComparisonMultistep(
-                corrector="pec", order=4, corrector_order=5, interpolant="hermite"
-            ),
-            1e-3,
-            2e-10,
-        ),
         (Multistep(formulation="exponential"), 1e-6, 1e-12),
     ],
-    ids=["adams", "hermite", "exponential"],
+    ids=["adams", "exponential"],
 )
 def test_resident_dense_observation_follows_the_host_engine(
     narrow_grid, soliton_problem, integrator, steps_rtol, fields_atol, monkeypatch
@@ -215,12 +211,7 @@ def test_resident_dense_observation_follows_the_host_engine(
     # launch's sech tails at 3.4e-3 of its peak, with no collar declared (4.0e-4 on
     # the 1.70 ps, 1024 bins it had before SEP 21). The Adams formulations agree on it
     # as on the former grid (steps 3.3e-9 and 4.0e-10 apart, fields 7.7e-15 and
-    # 5.3e-15 of the peak), but the comparison PEC method's run is sensitive to
-    # rounding there: the host engine against itself, with its launch changed by
-    # 1e-16 relative, parts by 2.0e-4 in steps and 4.8e-11 of the peak in fields at
-    # equal calls (1.7e-8 and 3.9e-15 on the former grid). The engines' rounding
-    # orders part it by 8.9e-5 and 2.2e-11 (Apple M5 Max); its bounds are five and
-    # four times that control's.
+    # 5.3e-15 of the peak).
     problem, run_request = soliton_problem(
         narrow_grid,
         2,
@@ -407,20 +398,65 @@ def test_the_compensated_reference_follows_the_host_engine(dense, monkeypatch):
     np.testing.assert_allclose(fields, host, rtol=0, atol=1e-8 * scale)
 
 
-class HostScaleController(PIController):
-    """solprop's controller with its scale overridden: formed on the host."""
+_TRIALS = frozenset(
+    {
+        "adams_fused_trial",
+        "adams_fused_trial_at",
+        "adams_exponential_trial",
+        "adams_exponential_trial_at",
+    }
+)
+"""The native trials that take the norm's divisor, empty when they form it."""
 
-    def scale(self, norm_y, norm_y_new):
-        """Return the inherited scale, from this subclass's own method."""
-        return super().scale(norm_y, norm_y_new)
+
+class _HostDivisor:
+    """The native state, its trials handed the divisor formed on the host.
+
+    An identical-input control for the native scale: each trial that would form the
+    divisor itself (``_NO_DIVISOR``) is handed instead ``PIController.scale`` of the
+    accepted state's magnitude, which the engine reduces natively and the host reads,
+    as the engine formed it for a controller of its own before solprop SEP 47 refused
+    those at admission. Everything else is the native state's own.
+    """
+
+    def __init__(self, native, controller, n_omega):
+        self._native = native
+        self._controller = controller
+        self._n_omega = n_omega
+        self.trials = 0
+
+    def __getattr__(self, name):
+        found = getattr(self._native, name)
+        return _HostDivisorTrial(self, found) if name in _TRIALS else found
 
 
-def test_a_divisor_formed_on_the_host_takes_the_same_steps():
-    # solprop's own controller has the norm's divisor formed in the exponential
-    # trial's last pass, from the accepted state's magnitude its first pass reduces; a
-    # controller that overrides `scale` has it formed on the host from the engine's
-    # magnitude and uploaded. The same formula on the same magnitude: on a pressure
-    # gradient, whose compensation joins every defect, both take the same steps.
+class _HostDivisorTrial:
+    """One trial of :class:`_HostDivisor`, its empty divisor replaced."""
+
+    def __init__(self, owner, trial):
+        self._owner = owner
+        self._trial = trial
+
+    def __call__(self, *args):
+        owner = self._owner
+        empty = backend_module._NO_DIVISOR
+        assert sum(arg is empty for arg in args) == 1
+        magnitude = owner._native.adams_magnitude()
+        scale = owner._controller.scale(magnitude, magnitude)
+        divisor = np.ascontiguousarray(
+            np.broadcast_to(np.asarray(scale, dtype=np.float64), (owner._n_omega,))
+        )
+        owner.trials += 1
+        return self._trial(*(divisor if arg is empty else arg for arg in args))
+
+
+def test_a_divisor_formed_on_the_host_takes_the_same_steps(monkeypatch):
+    # solprop's controller has the norm's divisor formed in the exponential trial's
+    # last pass, from the accepted state's magnitude its first pass reduces. The same
+    # trials handed the divisor formed on the host from the engine's magnitude, the
+    # same formula on the same magnitude, on solprop's march over the same engine (the
+    # test interface's): on a pressure gradient, whose compensation joins every
+    # defect, both take the same steps.
     from backends.test_exponential_varying import LENGTH, gradient  # noqa: PLC0415
 
     simulation = gradient(
@@ -428,39 +464,38 @@ def test_a_divisor_formed_on_the_host_takes_the_same_steps():
     )
     problem = simulation.translate()
     run_request = simulation._run_request()
-    own = run_request.stepper.controller
-    assert type(own) is PIController
-    hosted = HostScaleController(
-        **{
-            field.name: getattr(own, field.name)
-            for field in dataclasses.fields(own)
-            if field.init
-        }
-    )
-    on_host = run_request.with_stepper(
-        dataclasses.replace(run_request.stepper, controller=hosted)
-    )
+    assert type(run_request.stepper.controller) is PIController
 
-    def march(run_request):
-        backend = NativeBackend(
-            problem, run_request, grid=simulation.grid, modes=simulation.modes
-        )
+    def march(on_host):
+        with monkeypatch.context() as patch:
+            if on_host:
+                patch.setattr(backend_module, "_ADAMS_MARCH", "host")
+            backend = NativeBackend(
+                problem, run_request, grid=simulation.grid, modes=simulation.modes
+            )
         try:
             backend.set_initial(problem.initial.field0, None)
-            fields = []
-            for plane in run_request.stepper.save_planes:
-                backend.propagate_to(float(plane))
-                fields.append(backend.observe().require_field().copy())
             march = backend._adams
             assert march is not None
             engine = march._engine
             assert type(engine).__name__ == "_ResidentAdams"
-            return np.array(fields), march.ledger.total, engine._device_scale
+            assert march.native is not on_host
+            proxy = None
+            if on_host:
+                proxy = _HostDivisor(
+                    engine.native, engine.controller, problem.grids.n_omega
+                )
+                engine.native = proxy
+            fields = []
+            for plane in run_request.stepper.save_planes:
+                backend.propagate_to(float(plane))
+                fields.append(backend.observe().require_field().copy())
+            return np.array(fields), march.ledger.total, proxy
         finally:
             backend.close()
 
-    fields, calls, device = march(run_request)
-    host, host_calls, host_device = march(on_host)
-    assert (device, host_device) == (True, False)
+    fields, calls, _ = march(on_host=False)
+    host, host_calls, proxy = march(on_host=True)
+    assert proxy is not None and proxy.trials > 0
     assert calls == host_calls
     np.testing.assert_allclose(fields, host, rtol=0, atol=1e-12 * np.max(np.abs(host)))

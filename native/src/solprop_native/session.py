@@ -68,7 +68,9 @@ It admits a subset and refuses every other feature by name before allocating any
   native monitor and the draw's readings by the native transverse edge, and the noise
   phase at each plane, formed on the host or, for a z table's propagator phase, read
   from its slot in the leased state;
-- no comparison method, custom controller, group or TDSE.
+- no group; and no comparison method, controller that overrides a decision or TDSE
+  response, which the backend refuses by name where it is built, before it allocates
+  (SEP 47 section 6.3), so that no session, native or transitional, runs them.
 """
 
 from __future__ import annotations
@@ -126,12 +128,11 @@ from solprop.output.capability import (
     withheld_accessors,
 )
 from solprop.output.schema import MarchSnapshot
-from solprop.stepper.controller import ControlRecord, PIController
+from solprop.stepper.controller import ControlRecord
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.stepper.multistep import ComparisonMultistep, Multistep
+from solprop.stepper.multistep import Multistep
 from solprop.stepper.tableau import continuous_extension
 from solprop.translate.linop import power_weight_at
-from solprop.translate.routes import tdse_descriptor
 
 from . import _core, _counters, _transverse, _watch
 from ._statistics import (
@@ -214,14 +215,6 @@ _OUTCOMES = (None, Outcome.COMPLETED, Outcome.STOPPED, Outcome.FAILED)
 _OBSERVATION, _PROGRESS, _SNAPSHOT, _TERMINAL, _WARNING = range(5)
 _EVENT_NAMES = ("observation", "progress", "snapshot", "terminal", "warning")
 """The native event kinds by name, as the benchmark counters report a batch."""
-_OVERRIDES = (
-    "scale",
-    "accepts",
-    "propose",
-    "rejection_factor",
-    "start_factor",
-    "equivalent_norm",
-)
 _EMPTY = np.empty(0, dtype=np.float64)
 _NO_ORDERS = 1 << 62
 """An order index past any run's, to read the march's state without its orders."""
@@ -245,7 +238,9 @@ def refusal(
 
     Decided from the problem, the request and the start alone, before anything is
     allocated. A march the backend itself would step on the host is refused once the
-    backend is built (:class:`NativeSession`).
+    backend is built (:class:`NativeSession`). What native runs on no session -- a
+    comparison method, a controller that overrides a decision, a TDSE response -- the
+    backend refuses where it is built (``NativeBackend``), so it never reaches here.
 
     Parameters
     ----------
@@ -265,24 +260,7 @@ def refusal(
         refused = device_refusal(problem, request)
         if refused is not None:
             return refused
-    method = request.integration.method
-    if isinstance(method, ComparisonMultistep):
-        return f"the comparison method {method.name}"
-    # A request built by hand may hold a method its annotation does not name.
-    unnamed = not isinstance(method, Multistep | LowStorageRungeKutta)  # pyright: ignore[reportUnnecessaryIsInstance]
-    if method is not None and unnamed:
-        return f"the method {type(method).__name__}"
-    controller = request.error_control.controller
-    overridden = [
-        name
-        for name in _OVERRIDES
-        if getattr(type(controller), name) is not getattr(PIController, name)
-    ]
-    if overridden:
-        return "a controller with its own " + ", ".join(overridden)
-    if tdse_descriptor(problem.route) is not None:
-        return "a TDSE response"
-    if not isinstance(method, LowStorageRungeKutta):
+    if not isinstance(request.integration.method, LowStorageRungeKutta):
         march = native_march_refusal(problem, request.stepper)
         if march is not None:
             return march
