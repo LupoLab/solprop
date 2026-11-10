@@ -420,8 +420,17 @@ def test_a_transverse_edge_is_read_in_the_committed_order(
     assert run.terminal.outcome is outcome
     length = problem.stepper.save_planes[-1]
     if outcome is Outcome.COMPLETED:
-        assert edge["transverse_status"] == "clear"
-        assert edge["largest_gap"] <= length / 4 * (1 + 1e-9)
+        # A replayed uniform schedule's steps are longer than the edge's read spacing,
+        # which the edge reports as coarse (SEP 40 section 5.3); adaptive steps are
+        # held to the spacing.
+        replayed = executor.name.endswith("low-storage")
+        assert edge["transverse_status"] == ("coarse" if replayed else "clear")
+        # Read at most a quarter of the run apart, or a replayed step apart.
+        longest = max(
+            float(history.dz.max()) for history, _ in run.chunks if history.n_steps
+        )
+        gap = max(length / 4, longest) if replayed else length / 4
+        assert edge["largest_gap"] <= gap * (1 + 1e-9)
         planes = [e for e in run.observations if e.kind is ObservationKind.PLANE]
         assert [event.z for event in planes] == list(problem.stepper.save_planes)
     else:
