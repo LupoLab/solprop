@@ -38,6 +38,7 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import math
+import weakref
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
@@ -50,6 +51,7 @@ from solprop.stats import FAR_FIELD_STATISTICS
 from solprop.translate.chebyshev import PiecewiseChebyshev
 
 from . import _core
+from ._helpers import NATIVE
 
 if TYPE_CHECKING:
     from solprop.exceptions import SolpropError
@@ -582,7 +584,11 @@ def _measured(
         magnitude of the profile on the check set.
     """
     exact = np.asarray(profile(check), dtype=np.float64)
-    tabulated = np.asarray(table.at_positions(check), dtype=np.float64).reshape(-1)
+    # The compiled Clenshaw pass: the same operations in the same order as the plain
+    # one (solprop.translate.chebyshev), thousands of positions at C speed.
+    tabulated = np.asarray(
+        table.at_positions(check, helpers=NATIVE), dtype=np.float64
+    ).reshape(-1)
     scale = float(np.max(np.abs(exact), initial=0.0))
     return float(np.max(np.abs(tabulated - exact), initial=0.0)), scale
 
@@ -635,7 +641,46 @@ def _covers(table: PiecewiseChebyshev, start: float, end: float) -> bool:
     )
 
 
+_PROFILE_TABLES: weakref.WeakKeyDictionary[
+    KernelProblem,
+    dict[str, tuple[ZProfile, PiecewiseChebyshev, dict[str, object]]],
+] = weakref.WeakKeyDictionary()
+"""Each problem's profile tables and their records, by statistic, while it lives.
+
+A table and its measured error depend only on the problem and the profile, so a run
+repeated on one problem (a runner, ``with_input``, a scan's reused translation) lowers
+them once.
+"""
+
+
 def _profile_table(
+    problem: KernelProblem, name: str, profile: ZProfile
+) -> tuple[PiecewiseChebyshev, dict[str, object]]:
+    """Return a profile statistic's table and its record, lowered once per problem.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem.
+    name : str
+        The statistic.
+    profile : solprop.profiles.ZProfile
+        The path it reads.
+
+    Returns
+    -------
+    tuple
+        The table, and its record for ``statistics_tables`` (a copy).
+    """
+    held = _PROFILE_TABLES.setdefault(problem, {})
+    cached = held.get(name)
+    if cached is None or cached[0] is not profile:
+        table, record = _lowered_profile_table(problem, name, profile)
+        cached = held[name] = (profile, table, record)
+    return cached[1], dict(cached[2])
+
+
+def _lowered_profile_table(
     problem: KernelProblem, name: str, profile: ZProfile
 ) -> tuple[PiecewiseChebyshev, dict[str, object]]:
     """Return a profile statistic's table and the record of its measured error.
