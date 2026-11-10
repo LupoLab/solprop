@@ -291,7 +291,9 @@ specific to a `Simulation`; it is the piece a batch runner or a scan calls. What
 driver does not do is as much a part of the design as what it does:
 
 - It **never conjugates a spectrum**. The backend works in the FFT convention, the output
-  layer converts on the way to disk, and those are the only two places a sign changes.
+  layer's recipe converts on the way to disk -- applied by the session as it exports a kept
+  field into the store ([backends.md §1](backends.md#1-the-seam), "Export into a
+  destination") -- and those are the only two places a sign changes.
 - It **never touches the state between planes**. Everything between two save planes
   happens inside the backend's march.
 - It **never computes physics**. The mapping from `gamma` to a susceptibility is
@@ -611,10 +613,17 @@ A TDSE run may also write its raw provider evaluations to a separate archive
 (`output/tdse_archive.py`, schema `solprop.tdse-archive.v1`), which the optical record
 references and never needs ([the archive page](../guide/media/tdse.md)).
 
+A kept field reaches a store once, already converted ([SEP 47](seps/sep-0047-run-ownership.md)
+§5.4): the run's session exports it in the stored form straight into the room the store
+gives (`PlaneStore.field_destination`) -- `MemoryOutput`'s own block row, or a new array
+that `HDF5Output` writes as it is -- and `PlaneStore.save_exported` stores the plane. The
+conversion is the one `save` makes, so the stored bits do not depend on the route.
+
 `CallbackOutput` (`output/callback.py`) stores nothing: it implements `Output` and
-`RetainingOutput` and hands each plane to a callable, unconverted. It is deliberately not a
-`PlaneStore`, whose save path converts the field into a new volume, and not a
-`CheckpointOutput`, which promises a state a resume can continue.
+`RetainingOutput` and hands each plane to a callable, unconverted, its field a fresh array
+in the internal convention that the callable may keep. It is deliberately not a
+`PlaneStore`, whose readers would have nothing to read, and not a `CheckpointOutput`,
+which promises a state a resume can continue.
 
 `output/snapshots.py` coordinates optional immutable disk snapshots at the existing
 accepted-step commit boundary. It persists retained march state and execution facts,
@@ -713,6 +722,10 @@ otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native 
 - `HDF5Output` never holds more than the current plane, in datasets preallocated for the
   planned planes with an `n_saved` count; `MemoryOutput` is allocated for the planned
   planes and grows by doubling past them.
+- A kept plane's field is exported once, in the stored form, and shared by every consumer
+  of that plane (the store, a plane observer, a terminal checkpoint): into
+  `MemoryOutput`'s block row with no host volume of its own, or into one new array for
+  `HDF5Output` ([backends.md §1](backends.md#1-the-seam), "Export into a destination").
 - A run keeps its fields on every plane, the named planes or none
   (`FieldRetention`,
   [SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md)): a plane without its field is not copied, converted or

@@ -206,6 +206,21 @@ and the file itself carry the attribute `spectral_convention = "optics"` to say 
 {py:meth}`~solprop.output.schema.PlaneStore.fields` with `convention="fft"` converts
 back, to the form a backend works in.
 
+A run makes that conversion only once per kept plane, and where the field is kept. Rather
+than handing a store a plane with its field and having the store convert it into a second
+volume, the run's session converts the field straight into the stored form, into the room
+the store gives it ({py:meth}`~solprop.output.schema.PlaneStore.field_destination`):
+`MemoryOutput`'s own row for the plane, so the field is written once, where it stays, or a
+new array that `HDF5Output` writes into the plane's chunk without a copy. The store then
+takes the plane with
+{py:meth}`~solprop.output.schema.PlaneStore.save_exported`, its field beside it as a
+{py:class}`~solprop.output.schema.StoredField`. What is stored is bit for bit what
+{py:meth}`~solprop.output.schema.PlaneStore.save` stores for the same field. A store
+subclass that overrides `save` is still given every plane, with its field in the internal
+convention, through its `save`
+({py:attr}`~solprop.output.schema.PlaneStore.takes_exports`); so is any output that is not
+a `PlaneStore`.
+
 Two things stay internal, and are marked so rather than converted: the **noise
 realisation** in {py:class}`~solprop.output.schema.NoiseRecord` and the per-plane
 **noise phase**. Neither is a user-facing spectrum — they are the object the stepper adds

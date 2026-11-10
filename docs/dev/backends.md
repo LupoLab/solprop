@@ -288,6 +288,41 @@ reads the state's energy per walk-off bucket at each check, in the same reductio
 histogram per thread and no atomics, which is why its bucket count has a compiled limit. The
 input-noise floor is read on the host, once, at the launch.
 
+**Export into a destination** ([SEP 47](seps/sep-0047-run-ownership.md) §5.4) is how a
+session's field reaches the output. A session's `export(ticket, recipe, out=None)` fills a
+host destination with the pending observation's field converted by an `ExportRecipe`
+(`backends/export.py`): the true-power weight's square root on a modal route (a spatial
+route's field measure is already the stored quantity), then `(-1)^k conj(.)` into the optics
+convention. The output layer owns that definition (ADR-017); the sessions only evaluate it,
+the reference by `apply_recipe` and `NativeSession` in one fused native pass whose complex
+products keep NumPy's zero terms, so every route's stored bits are those of the two-step
+`power_amplitude` then `spectrum_to_optics` path, signed zeros included. `apply_recipe`
+writes each step straight into the destination (no copy first) and converts a large field's
+rows in threads, as `stored_spectrum` does. A destination is validated by one rule,
+`destination_refusal`, which names what is wrong: the shape, the dtype, the layout (one whose
+elements overlap one another is not contiguous) or a read-only array.
+
+The service loop (`driver/service.py`, `_Exports`) asks for one export per pending ticket
+and shares it among the plane's consumers. A plane store that `takes_exports` gives the
+export its own room with `field_destination`: `MemoryOutput` the block row the plane will
+occupy, allocated with the reserved planes, so a kept field is written once, where it is
+kept; `HDF5Output` none, so the session allocates a new array, which h5py writes into the
+plane's chunk as it is. `save_exported` then stores the plane, which carries no field of
+its own (its noise phase rides beside the field in a `StoredField`). A plane observer reads
+the stored field with no fetch, and a terminal checkpoint at the same plane takes the
+internal convention from it by the exact inverse (`spectrum_to_internal`, the store's own
+reader), with no second export or amplitude conversion. An output that is not a plane
+store, or a store subclass that overrides `save`, is handed the consumer field
+(`ExportRecipe(power=True, optics=False)`) on the plane, as before. A field-free plane
+exports nothing. The room is never recycled: no other plane is given it and nothing writes
+to it once the plane is stored, and an array a consumer retains is never written again.
+
+A device session fills the same host destination: the recipe runs where the state is, into
+the device's scratch, and one copy crosses into `out`; whether the conversion runs before or
+after the crossing is the device's to measure. The CPU-only session prototype refuses device
+builds, so this is phase 4's; the interface needs no change for it, and no device array
+crosses it.
+
 ## 2. `numpy_ref`: the oracle
 
 Plain NumPy and `scipy.fft`, one function per pass, no fusion, no in-place tricks, no
