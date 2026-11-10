@@ -143,7 +143,6 @@ from ._statistics import (
     lower,
     metric_refusal,
     translated,
-    uncovered,
 )
 from .backend import (
     _BUDGET,  # pyright: ignore[reportPrivateUsage]
@@ -179,6 +178,7 @@ __all__ = [
     "NativeSession",
     "backend_refusal",
     "device_refusal",
+    "modes_refusal",
     "refusal",
     "session_refusal",
 ]
@@ -447,13 +447,8 @@ def _statistics_refusal(problem: PropagationProblem, spec: StatsSpec) -> str | N
     refused = metric_refusal(problem, (*names, *spec.periodic))
     if refused is not None:
         return refused
-    refused = axis_refusal(problem, names)
-    if refused is not None:
-        return refused
-    left = uncovered(problem, names)
-    if left:
-        return f"the statistics {left!r}, which the native plan does not evaluate here"
-    return None
+    # Every other name the backend admits is the plan's on its route.
+    return axis_refusal(problem, names)
 
 
 class NativeSession:
@@ -625,7 +620,9 @@ class NativeSession:
         try:
             # The built backend's own admission, before the start's field is taken: a
             # march it would step on the host.
-            refused = backend_refusal(backend)
+            refused = backend_refusal(backend) or modes_refusal(
+                backend, problem, request
+            )
             if refused is not None:
                 msg = f"the native session does not run {refused}"
                 raise BackendError(msg)
@@ -2190,11 +2187,38 @@ def session_refusal(
     return (
         refusal(problem, request, start)
         or backend_refusal(backend)
-        or axis_row_refusal(
-            problem,
-            request.observation.stats.names,
-            backend._modes,  # pyright: ignore[reportPrivateUsage] - the set it was built with
-        )
+        or modes_refusal(backend, problem, request)
+    )
+
+
+def modes_refusal(
+    backend: NativeBackend, problem: PropagationProblem, request: RunRequest
+) -> str | None:
+    """Return why the session refuses a run for its backend's mode set, or ``None``.
+
+    What only the mode set decides, so neither :func:`refusal` nor
+    :func:`backend_refusal` can: an axis row the plan cannot scan
+    (:func:`~solprop_native._statistics.axis_row_refusal`). Every door that admits a
+    native session or group asks it, so such a run keeps the transitional session.
+
+    Parameters
+    ----------
+    backend : solprop_native.backend.NativeBackend
+        The built backend.
+    problem : solprop.translate.problem.PropagationProblem
+        The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's request.
+
+    Returns
+    -------
+    str or None
+        The reason, or ``None``.
+    """
+    return axis_row_refusal(
+        problem,
+        request.observation.stats.names,
+        backend._modes,  # pyright: ignore[reportPrivateUsage] - the set it was built with
     )
 
 

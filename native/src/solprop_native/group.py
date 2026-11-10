@@ -98,7 +98,7 @@ from solprop.exceptions import BackendError, BoundaryError, StopRequested
 
 from . import _counters
 from .backend import NativeBackend, _on_device  # pyright: ignore[reportPrivateUsage]
-from .session import NativeSession
+from .session import NativeSession, modes_refusal
 from .session import refusal as member_session_refusal
 
 if TYPE_CHECKING:
@@ -235,7 +235,11 @@ class NativePreparedGroup:
         solprop.backends.session.GroupSession
             The started group.
         """
-        refused = refusal(self._problems, self._requests, starts)
+        refused = refusal(self._problems, self._requests, starts) or _modes_refusal(
+            cast("Sequence[NativeBackend]", self._members),
+            self._problems,
+            self._requests,
+        )
         if refused is None:
             return NativeGroupSession(
                 cast("Sequence[NativeBackend]", self._members),
@@ -251,6 +255,39 @@ class NativePreparedGroup:
         return DriverGroupSession(
             self._members, self._problems, self._requests, starts, stop=stop
         )
+
+
+def _modes_refusal(
+    members: Sequence[NativeBackend],
+    problems: Sequence[PropagationProblem],
+    requests: Sequence[RunRequest],
+) -> str | None:
+    """Return why a member's mode set keeps the group transitional, or ``None``.
+
+    :func:`solprop_native.session.modes_refusal` of each member, which only its built
+    backend can decide.
+
+    Parameters
+    ----------
+    members : collections.abc.Sequence of solprop_native.backend.NativeBackend
+        The members' backends.
+    problems : collections.abc.Sequence of solprop.translate.problem.PropagationProblem
+        Each member's problem.
+    requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
+        Each member's run request.
+
+    Returns
+    -------
+    str or None
+        The reason, naming the member, or ``None``.
+    """
+    for index, (member, problem, request) in enumerate(
+        zip(members, problems, requests, strict=True)
+    ):
+        refused = modes_refusal(member, problem, request)
+        if refused is not None:
+            return f"{refused} (member {index})"
+    return None
 
 
 def _member_refusal(request: RunRequest) -> str | None:
@@ -421,7 +458,9 @@ class NativeGroupSession:
         ):
             msg = "the native group session takes native backends"
             raise BackendError(msg)
-        refused = refusal(problems, requests, starts)
+        refused = refusal(problems, requests, starts) or _modes_refusal(
+            members, problems, requests
+        )
         if refused is not None:
             msg = f"the native group session does not run {refused}"
             raise BackendError(msg)

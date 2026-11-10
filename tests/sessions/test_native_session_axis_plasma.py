@@ -18,19 +18,25 @@ reference on the session's exported field at every observation.
 import dataclasses
 import math
 import warnings
-from contextlib import closing
+from contextlib import ExitStack, closing
 from typing import Any, cast
 
 import numpy as np
 import pytest
 
 from rate_oracles import adk_oracle
-from sessions.executors import EXECUTORS, entrance, skip_device_refused
-from solprop.backends.driver_session import DriverSession
+from sessions.executors import (
+    DEVICE_GROUP,
+    EXECUTORS,
+    device_build,
+    entrance,
+    skip_device_refused,
+)
+from solprop.backends.driver_session import DriverGroupSession, DriverSession
 from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
 from solprop.backends.registry import select
-from solprop.exceptions import MaterialRangeWarning
+from solprop.exceptions import BackendError, MaterialRangeWarning
 from solprop.grid import FieldGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
@@ -212,6 +218,35 @@ def test_the_mode_averaged_route_is_still_refused_by_name():
     expected = axis_refusal(problem, ON_AXIS_PLASMA_STATISTICS)
     assert expected is not None
     assert native_session.refusal(problem, run, entrance(problem)) == expected
+    # The plan's own refusal, for a caller that lowers it directly.
+    from solprop_native._statistics import lower  # noqa: PLC0415
+
+    with pytest.raises(BackendError, match="mode-averaged route is not qualified"):
+        lower(
+            problem,
+            run.observation.stats,
+            ON_AXIS_PLASMA_STATISTICS,
+            grid=grid,
+            z_end=LENGTH,
+        )
+
+
+def test_the_plan_needs_the_mode_set_for_them():
+    """Without the mode set there is no axis synthesis to scan."""
+    from solprop_native._statistics import lower  # noqa: PLC0415
+
+    grid, _, problem, request = _capillary("gauss_kronrod", 32)
+    spec = request.for_run(stats=StatsSpec(names=ON_AXIS_PLASMA_STATISTICS))
+    with pytest.raises(
+        BackendError, match="on-axis plasma statistics need the mode set"
+    ):
+        lower(
+            problem,
+            spec.observation.stats,
+            ON_AXIS_PLASMA_STATISTICS,
+            grid=grid,
+            z_end=LENGTH,
+        )
 
 
 @pytest.mark.parametrize("case", list(CASES))
@@ -263,7 +298,7 @@ def test_the_session_s_axis_statistics_are_the_bridge_s_and_the_reference_s(
 # --- the plan's axis row at the entrance, on every kind of row ----------------------
 
 
-def _entrance_problem(kind):
+def _entrance_problem(kind, schedule=None):
     """An argon capillary of one or two modes at its entrance, built for one row kind.
 
     ``rotated-x`` carries modes with a y field on the axis on a transform resolving x
@@ -310,6 +345,7 @@ def _entrance_problem(kind):
             save_planes=[0.02],
             dz_max=0.002,
             dz_init=1e-4,
+            schedule=schedule,
             quadrature=transverse_quadrature(
                 modes, n_r=32, radial_rule="gauss_kronrod"
             ),
@@ -379,3 +415,36 @@ def test_an_envelope_s_y_row_on_a_one_component_scan_is_left_to_the_bridge():
         state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
         with pytest.raises(ValueError, match="needs the node scan's two components"):
             state.planned_statistics(lowering.plan, 0.0)
+
+
+@pytest.mark.skipif(device_build(), reason=DEVICE_GROUP)
+def test_an_envelope_s_y_row_keeps_a_group_transitional():
+    """The mode set decides it, so every door asks: a group of such members falls back
+    to the transitional group, and the native group refuses it by name."""
+    from solprop.backends.session import Start  # noqa: PLC0415
+    from solprop.backends.sessions import start_group  # noqa: PLC0415
+
+    group_module = pytest.importorskip("solprop_native.group")
+    names = ON_AXIS_PLASMA_STATISTICS
+    built = [
+        _entrance_problem(
+            "envelope-rotated-x", schedule=FixedSchedule.uniform(0.0, 0.02, 0.005)
+        )
+        for _ in range(2)
+    ]
+    problems = [problem for _, _, problem, _ in built]
+    requests = [request.for_run(stats=StatsSpec(names=names)) for *_, request in built]
+    starts = [Start.entrance(problem) for problem in problems]
+    with ExitStack() as cleanup:
+        owners = [
+            cleanup.enter_context(
+                closing(select("native", problem, run, grid=grid, modes=modes))
+            )
+            for (grid, modes, problem, _), run in zip(built, requests, strict=True)
+        ]
+        assert group_module.refusal(problems, requests, starts) is None
+        group = start_group(owners, problems, requests, starts)
+        cleanup.callback(group.close)
+        assert type(group) is DriverGroupSession
+        with pytest.raises(BackendError, match=r"y field on the axis.*\(member 0\)"):
+            group_module.NativeGroupSession(owners, problems, requests, starts)
