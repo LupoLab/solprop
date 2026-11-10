@@ -78,10 +78,12 @@ The listing is abbreviated; `solprop/backends/protocol.py` holds the exact signa
 docstrings, in the order of [architecture.md §9](architecture.md#9-backends-in-one-page).
 
 Rules: a backend is constructed from a validated `PropagationProblem`
-([kernel-contract.md](kernel-contract.md)) and host arrays and returns host arrays; its
+([kernel-contract.md](kernel-contract.md)), the `RunRequest` that carries the run's
+policy ([SEP 47](seps/sep-0047-run-ownership.md) §5.2; it checks the two with
+`validate_run` before it allocates) and host arrays, and returns host arrays; its
 buffers, layout and plans are private; the state is never a parameter of `propagate_to` or
 `observe`; the numbers are the contract — a backend is correct when it reproduces the
-reference to the stated bound. Selection is by name (`backends.select(name, problem)`);
+reference to the stated bound. Selection is by name (`backends.select(name, problem, request)`);
 availability is detected with `importlib.util.find_spec` (importing an accelerator package
 can initialise a device runtime), never cached; an unknown name raises `ValueError` listing
 what is usable, a known name whose dependencies are missing raises `ImportError` saying
@@ -508,9 +510,21 @@ cases, and a single-precision history resumes in binary32 (`HostHistory.load_row
 problem by name.
 
 **Selection.** `backends/registry.py`: `available()` detects with
-`importlib.util.find_spec` and never caches; `select(name, problem, *, grid, modes,
-profiles)` builds one. The three keyword arguments are what `stats()` needs and the kernel
-contract does not carry.
+`importlib.util.find_spec` and never caches; `select(name, problem, request, *, grid,
+modes, profiles)` builds one, for the problem and the request it is run with: the
+request's method, error control, itinerary, planes and statistics are lowered once, here,
+and a run's session serves that request adapted to one run (`RunRequest.for_run`). A run
+starts through the backend's own preparation shape (SEP 47 §5.2):
+`backend.prepare(problem, request)` returns a `PreparedExecution` whose
+`start(start, *, listener, started, stop, owns)` opens the backend's session, and
+`backends.sessions.start_session` does nothing else, so a backend chooses its session
+without the run layer naming it. The reference's opens `HostSession`; the native
+backend's (`solprop_native.session.NativePrepared`) opens `NativeSession` where it admits
+the run and the transitional `DriverSession` otherwise, keeping the reason
+(`session_refusal`, which a test replaces to force the bridge); any other driver's
+(`backends.driver_session.DriverPrepared`) opens `DriverSession`. Groups start through
+`start_group`. The
+three keyword arguments are what `stats()` needs and the kernel contract does not carry.
 
 **Spatial statistics measure the medium's flux** ([SEP 34](seps/archive/sep-0034-medium-flux.md)).
 The shared spatial statistics, `backends.spatial.collect_spatial`, read the plane's
