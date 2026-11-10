@@ -985,7 +985,7 @@ records each decision where it applies:
 - 2026-11-10: Drafted by Opus 5.5 for John Travers, after a feasibility analysis of
   PR #559. The maintainer chose an explicit setup over a first-use install, all three
   GPU vendors and binary32 at merge, and Runic, Aqua and JET as the blocking Julia tools.
-  The tracking issue is still to be opened.
+  Tracking issue: [#608](https://github.com/LupoLab/solprop/issues/608).
 - 2026-11-10: The maintainer settled Q1–Q7 (§12). Q2 changed the design: the device is
   a per-run setting, with GPU packages loaded on demand from stacked environments of
   one joint resolution, in place of a process-wide variable.
