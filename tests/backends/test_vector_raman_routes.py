@@ -91,7 +91,12 @@ def test_spatial_vector_raman_and_actual_width_tails(
         dz_init=length / 2,
         schedule=FixedSchedule.uniform(0.0, length, length / 2),
     )
-    problem = replace(problem, transform=replace(problem.transform, node_chunk=3))
+    problem = replace(
+        problem,
+        route=replace(
+            problem.route, transform=replace(problem.transform, node_chunk=3)
+        ),
+    )
     assert problem.transform.n_nodes % 3 != 0
     check_run(spatial_equivalence_backend_class, problem, grid)
 
@@ -106,7 +111,7 @@ def test_raman_acts_on_synthesised_position_dependent_direction(
         MarcatiliMode(125e-6, kind=kind, n=n, phi=0.37, cladding=1.45, loss=False),
         MarcatiliMode(125e-6, phi=0.19, cladding=1.45, loss=False),
     ]
-    initial = original.initial.field0[0].transpose(1, 0, 2).copy()
+    initial = original.initial.field0.transpose(1, 0, 2).copy()
     problem = assemble(
         grid,
         modes,
@@ -120,8 +125,13 @@ def test_raman_acts_on_synthesised_position_dependent_direction(
         dz_init=grid.length / 2,
         schedule=original.stepper.schedule,
     )
-    assert problem.transform.n_pol * problem.shape[2] == 2
-    problem = replace(problem, transform=replace(problem.transform, node_chunk=5))
+    assert problem.transform.n_pol * problem.shape[1] == 2
+    problem = replace(
+        problem,
+        route=replace(
+            problem.route, transform=replace(problem.transform, node_chunk=5)
+        ),
+    )
     check_run(spatial_equivalence_backend_class, problem, grid)
 
 

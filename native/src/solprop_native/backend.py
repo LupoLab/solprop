@@ -114,6 +114,7 @@ from solprop.stats import (
 from solprop.stepper.controller import START_GROWTH, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import (
+    ComparisonMultistep,
     Multistep,
     integrated_weights,
     lagrange_coefficients,
@@ -137,8 +138,15 @@ from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_source import (
     _BENCHMARK_GATED,  # pyright: ignore[reportPrivateUsage] - refuse the private NumPy benchmark hook
 )
-from solprop.translate.problem import KernelProblem, PropagatorMode
+from solprop.translate.problem import PropagationProblem, PropagatorMode
 from solprop.translate.responses import CompiledResponses, ResponseStage
+from solprop.translate.routes import (
+    GeneralRoute,
+    ModalRoute,
+    SpatialRoute,
+    flux_of,
+    transverse_of,
+)
 from solprop.translate.stage import (
     StageScalars,
     StageTerms,
@@ -163,6 +171,7 @@ from . import (
     WATCH_POLICY_FIELDS,
     WATCH_STATE_FIELDS,
     _core,
+    _counters,
     _host_blas,
     _wisdom,
     build_info,
@@ -320,13 +329,19 @@ class NativeBackend(StepDriver[_core.State]):
     solprop's registry admits them on this backend by this attribute and refuses
     them, by name, on a build without it.
     """
+    observes_fresh_field: ClassVar[bool] = True
+    """Each observation is a new host array (``field_to_host``) that nothing here keeps.
+
+    So solprop converts an observed field to output units where it is (solprop SEP 47
+    section 5.4).
+    """
     reads_transverse_edge = True
     """The transverse edge is read on the host from the native state (solprop SEP 40
     section 5.3); the Adams march stops at each read."""
 
     def __init__(
         self,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         *,
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
@@ -453,6 +468,16 @@ class NativeBackend(StepDriver[_core.State]):
             acquire=acquire_host_blas,
         )
 
+    @property
+    def _layout(self) -> tuple[int, int, int, int]:
+        """Return the build's state layout: the shape behind a unit axis.
+
+        The C++ kernels keep their four-axis layouts; a single trajectory crosses the
+        Python seam without the axis (solprop SEP 47 section 6.2).
+        """
+        n_modes, n_pol, n_omega = self._problem.shape
+        return (1, n_modes, n_pol, n_omega)
+
     def _apply_mask(self, state: ComplexArray) -> _core.State:
         flat = np.ascontiguousarray(state.reshape(-1))
         if self._loading:
@@ -491,8 +516,12 @@ class NativeBackend(StepDriver[_core.State]):
             self._host_state = (
                 None
                 if self._resident is not None
-                else self._native_state.field_to_host().reshape(self._problem.shape)
+                else self._native_state.field_to_host().reshape(self._layout)
             )
+            if self._host_state is not None and (
+                (counters := _counters.active) is not None
+            ):
+                counters.crossing("load", self._host_state.nbytes)
             self._adams.reset()
 
     def _march_to(self, target: float) -> None:
@@ -545,7 +574,7 @@ class NativeBackend(StepDriver[_core.State]):
         """
         self._require_state()
         if self._resident is not None:
-            return self._native_state.field_to_host().reshape(self._problem.shape)
+            return self._native_state.field_to_host().reshape(self._layout)
         return cast("ComplexArray", self._host_state)
 
     def _adams_engine(
@@ -567,8 +596,7 @@ class NativeBackend(StepDriver[_core.State]):
         if flow is not None and (
             method.formulation != "exponential"
             or not bool(np.all(flow.route))
-            or self._problem.shape[1] > ADAMS_MAX_CHANNELS
-            or self._problem.shape[0] != 1
+            or self._problem.shape[0] > ADAMS_MAX_CHANNELS
         ):
             return None
         # A varying operator's exponential formulation carries the transported
@@ -596,7 +624,7 @@ class NativeBackend(StepDriver[_core.State]):
             hoist=self._hoist,
             adopted=self._resident_adopted,
             rate=self._rate_weights,
-            shape=tuple(self._problem.shape),
+            shape=self._layout,
             helpers=self.helpers,
             compensated=compensated,
             interpolate=self._problem.stepper.interpolate_planes,
@@ -847,16 +875,16 @@ class NativeBackend(StepDriver[_core.State]):
         """Adopt an Adams step through the native finish; keep its host copy."""
         self._native_state.adopt(np.ascontiguousarray(advanced.reshape(-1)), dz)
         self._state = self._native_state
-        self._host_state = self._native_state.field_to_host().reshape(
-            self._problem.shape
-        )
+        self._host_state = self._native_state.field_to_host().reshape(self._layout)
+        if (counters := _counters.active) is not None:
+            counters.crossing("step", self._host_state.nbytes)
         return self._host_state
 
     def _dense_stages(self) -> list[ComplexArray]:
         """Return the accepted trial's stage derivatives from the engine (SEP 14)."""
         stages = self._problem.stepper.tableau.n_stages
         return [
-            self._native_state.stage_to_host(index).reshape(self._problem.shape)
+            self._native_state.stage_to_host(index).reshape(self._layout)
             for index in range(stages)
         ]
 
@@ -915,7 +943,7 @@ class NativeBackend(StepDriver[_core.State]):
                 *arrays,
                 material,
             )
-        return source.reshape(self._problem.shape), propagator
+        return source.reshape(self._layout), propagator
 
     def _adams_lab_source(
         self,
@@ -1159,14 +1187,14 @@ class NativeBackend(StepDriver[_core.State]):
         if tables is not None and tables.phi:
             here = tables.values("phi", bundle.z1)
             anchored = tables.values("phi", bundle.z0)
-            return (here - anchored).reshape(self._problem.shape)
+            return (here - anchored).reshape(self._layout)
         return super()._delta_phi(bundle)
 
     def _unitary_phase(self, bundle: StageScalars) -> RealArray:
         """Return ``Im Phi`` at the stage's position, a z table's from its slot."""
         tables = self._z_tables
         if tables is not None and tables.phi:
-            return np.imag(tables.values("phi", bundle.z1)).reshape(self._problem.shape)
+            return np.imag(tables.values("phi", bundle.z1)).reshape(self._layout)
         return super()._unitary_phase(bundle)
 
     def _flow_trial(
@@ -1356,9 +1384,9 @@ class NativeBackend(StepDriver[_core.State]):
         int
             The bytes of a `transverse_edge` ledger row, from the grid alone.
         """
-        _, _, n_pol, n_omega = self._problem.shape
+        _, n_pol, n_omega = self._problem.shape
         return _transverse_edge_bytes(
-            cast("Any", space), self._problem.transverse, n_pol, n_omega
+            cast("Any", space), transverse_of(self._problem.route), n_pol, n_omega
         )
 
     def _edge_reading(
@@ -1393,6 +1421,8 @@ class NativeBackend(StepDriver[_core.State]):
         """
         if state is not self._native_state:
             raise BackendError("the read state does not belong to this backend")
+        if (counters := _counters.active) is not None:
+            counters.transverse_reads += 1
         collar = edge.every_step
         sums, columns, strip, rate = state.edge_reading(
             faces, full, collar, faces and collar, current
@@ -1449,6 +1479,8 @@ class NativeBackend(StepDriver[_core.State]):
         # or a dense observation reloads the state, which clears it.
         self._alarm = math.nan
         self._alarm_reported = False
+        if (counters := _counters.active) is not None:
+            counters.planes += 1
 
     def _on_accepted_step(self) -> None:
         # The step's quadrature score stays on the device; `_check_quadrature` reads
@@ -1486,7 +1518,10 @@ class NativeBackend(StepDriver[_core.State]):
     def _observed_field(self, state: _core.State) -> ComplexArray:
         if state is not self._native_state:
             raise BackendError("the observed state does not belong to this backend")
-        return state.field_to_host().reshape(self._problem.shape)
+        field = state.field_to_host().reshape(self._layout)
+        if (counters := _counters.active) is not None:
+            counters.crossing("plane", field.nbytes)
+        return field
 
     def _raman_spectrum(
         self, rates: tuple[float, ...], densities: tuple[float, ...] = ()
@@ -1505,8 +1540,22 @@ class NativeBackend(StepDriver[_core.State]):
         return int(self._native_state.raman_kernel_transforms)
 
     def stats(self, spec: StatsSpec) -> dict[str, np.ndarray]:
-        """Collect field and response statistics without observing the full field."""
+        """Collect field and response statistics without observing the full field.
+
+        The native evaluators lay each statistic out with the leading axis of one of
+        the build's state layout; the trajectory's cross without it (solprop SEP 47
+        section 6.2).
+        """
+        return {
+            name: np.asarray(value[0])
+            for name, value in self._stacked_statistics(spec).items()
+        }
+
+    def _stacked_statistics(self, spec: StatsSpec) -> dict[str, np.ndarray]:
+        """Collect the statistics with the leading axis of one of the state layout."""
         self._require_state()
+        if (counters := _counters.active) is not None:
+            counters.statistics_evaluations += 1
         grid_value = self._require_grid()
         # The accessor whitelist comes first, as on every CPU backend: a caller may ask
         # a backend directly, and a spatial run is refused rather than answered.
@@ -1790,7 +1839,7 @@ class NativeBackend(StepDriver[_core.State]):
                 offset += count
         if names & {"beam_radius", "fwhm_r"}:
             n_terms = (
-                self._problem.shape[2] * self._problem.grids.n_t
+                self._problem.shape[1] * self._problem.grids.n_t
                 + self._problem.transform.n_modes
             )
             if plane:
@@ -1895,8 +1944,7 @@ class NativeBackend(StepDriver[_core.State]):
     ) -> dict[str, np.ndarray]:
         """Unpack the native fixed-order scalar transfer into catalogue shapes."""
         requested = set(names)
-        modes = self._problem.shape[1]
-        polarisations = self._problem.shape[2]
+        modes, polarisations, _ = self._problem.shape
         columns = modes * polarisations
         offset = 0
         values: dict[str, np.ndarray] = {}
@@ -2177,8 +2225,8 @@ def _require_initial_array(field: object, shape: tuple[int, ...]) -> None:
     array = cast(npt.NDArray[np.generic], field)
     if array.dtype != np.dtype(np.complex128):
         raise TypeError(f"field must have dtype complex128, got {array.dtype}")
-    if array.ndim != 4:
-        raise ValueError(f"field must have rank 4, got rank {array.ndim}")
+    if array.ndim != 3:
+        raise ValueError(f"field must have rank 3, got rank {array.ndim}")
     if array.shape != shape:
         raise BackendError(
             f"the initial state has shape {array.shape}, expected {shape}"
@@ -2219,7 +2267,7 @@ class _ResidentAdams:
     rate: Callable[..., RealArray]
     """``(z, *, before=False) -> D(z)``'s weights over the native ``Phi`` terms."""
     shape: tuple[int, ...]
-    """The state's shape, ``(n_batch, n_modes, n_pol, n_omega)``."""
+    """The state layout, ``(1, n_modes, n_pol, n_omega)``."""
     helpers: Helpers
     """The backend's Chebyshev and Adams-basis helpers (``NativeBackend.helpers``)."""
     interpolate: bool
@@ -2705,7 +2753,7 @@ prefactor (``stage::Terms``)."""
 
 
 def _section_tables(
-    problem: KernelProblem, *, moving: bool, residual: bool
+    problem: PropagationProblem, *, moving: bool, residual: bool
 ) -> dict[str, object]:
     """Return a coupled flow's and a moving guide's sections as the stage tables take
     them: their edges, degrees and the edges' slack (`flow_edge_slack`,
@@ -2764,7 +2812,9 @@ def _on_device() -> bool:
     return _build_facts().info["device_backend"] != "none"
 
 
-def _low_storage_payload(problem: KernelProblem, *, device: bool) -> dict[str, object]:
+def _low_storage_payload(
+    problem: PropagationProblem, *, device: bool
+) -> dict[str, object]:
     """Return the native problem's low-storage rows (solprop kernel schema 32).
 
     The march's own allocation: its registers in place of the Runge-Kutta views, the
@@ -2809,6 +2859,21 @@ _MARCH_COUNTERS = (
 )
 """The call ledger's counters the native march keeps."""
 
+_REASONS = (
+    "reached",
+    "host_step",
+    "monitor",
+    "bound",
+    "budget",
+    "floor",
+    "error",
+    "diverged",
+    "watch",
+    "capacity",
+    "dense",
+)
+"""Why a native march call returned (``march::Reason``), by name, in its order; the
+benchmark counters (:mod:`solprop_native._counters`) report these names."""
 (
     _REACHED,
     _HOST_STEP,
@@ -2821,10 +2886,9 @@ _MARCH_COUNTERS = (
     _WATCH,
     _CAPACITY,
     _DENSE,
-) = range(11)
+) = range(len(_REASONS))
 _VERDICTS = ("none", "stop", "warning", "quiet verdict", "refused crossing", "error")
 """A watch return's verdicts, by ``watch::Verdict`` (solprop SEP 45 section 4.8)."""
-"""Why a native march call returned (``march::Reason``)."""
 
 _CONVERGENCE, _BACKEND, _VALUE, _REFUSED = 1, 2, 3, 4
 """Which error a native failure maps to (``march::Category``)."""
@@ -2836,6 +2900,36 @@ class _MarchRunner(Protocol):
     def run(
         self, state: dict[str, object], bounds: dict[str, object]
     ) -> dict[str, Any]: ...
+
+
+def _reason_name(reason: int) -> str:
+    """Name a native march call's return reason, for the benchmark counters."""
+    return _REASONS[reason] if 0 <= reason < len(_REASONS) else f"reason_{reason}"
+
+
+def _host_due(backend: Any, watching: bool) -> dict[str, int]:
+    """Return the accepted steps to each piece of the driver's work, by its name.
+
+    A native march call returns after the first accepted step on which any falls due
+    (the ``host_step`` bound each march's ``_bounds`` forms from the same work):
+    a periodic statistics row, a natural stop, the boundary monitor's check by steps,
+    and a collar's per-step current beside a transverse edge. Formed only while the
+    benchmark counters are on, which attribute a ``host_step`` return to these names.
+    """
+    due: dict[str, int] = {}
+    if backend._row_spec is not None:
+        period = backend._row_period
+        due["statistics"] = period - backend._accepted_steps % period
+    every = backend._problem.stepper.step_planes
+    if every:
+        due["step_planes"] = every - backend._natural_count % every
+    monitor = backend._monitor
+    if monitor is not None and not watching:
+        due["monitor"] = monitor.steps_to_check()
+        edge = monitor.transverse
+        if edge is not None and edge.every_step:
+            due["transverse"] = 1
+    return due
 
 
 def _watch_policy_of(monitor: BoundaryMonitor) -> dict[str, object]:
@@ -2970,15 +3064,6 @@ class _NativeAdamsMarch(AdamsMarch):
         if march == "host" or _ADAMS_MARCH == "host":
             return "the private switch asked for it", False
         engine = self._engine
-        reasons = (
-            (
-                self._general is not None,
-                "a comparison method's general path (PECE, explicit or matched pairs)",
-            ),
-        )
-        for failed, reason in reasons:
-            if failed:
-                return reason, True
         if self._runner is not None:
             return None, False
         if not isinstance(engine, _ResidentAdams):
@@ -3042,6 +3127,8 @@ class _NativeAdamsMarch(AdamsMarch):
             ):
                 if self._call(target, slack):
                     return
+                # A bounded yield due between calls returns after the next step.
+                backend.poll_halt()
             if backend._z < target - slack:
                 msg = (
                     f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
@@ -3052,6 +3139,8 @@ class _NativeAdamsMarch(AdamsMarch):
         while not reached(backend._z, target):
             if self._call(target):
                 return
+            # A bounded yield due between calls returns after the next step.
+            backend.poll_halt()
         if self._interpolate and backend._z > target:
             self._ahead = (backend._z, self._engine.hold())
             backend._state = cast("Any", self._observe(target))
@@ -3111,6 +3200,9 @@ class _NativeAdamsMarch(AdamsMarch):
         every = backend._problem.stepper.step_planes
         if every:
             steps.append(every - backend._natural_count % every)
+        if backend._halt_requested:
+            # A pending snapshot latch (solprop SEP 47): return after every step.
+            steps.append(1)
         monitor = backend._monitor
         checked = None
         read_at = None
@@ -3188,6 +3280,8 @@ class _NativeAdamsMarch(AdamsMarch):
         backend = self._driver
         backend._poll_stop()
         watching = self._watching()
+        counters = _counters.active
+        due = None if counters is None else _host_due(backend, watching)
         bounds = self._bounds(target, slack, watching)
         started = time.perf_counter() - backend._clock
         cursor = int(backend._schedule_index)
@@ -3197,6 +3291,14 @@ class _NativeAdamsMarch(AdamsMarch):
             self._synchronise(result)
             rows = np.asarray(result["rows"], dtype=np.float64).reshape(-1, 6)
             reason = int(result["reason"])
+            if counters is not None and due is not None:
+                counters.march(
+                    "adams_march",
+                    _reason_name(reason),
+                    rows,
+                    due,
+                    cast("float | None", bounds["read_at"]),
+                )
             readings = self._readings(result) if watching else {}
             # Only the last accepted row of an event can have the driver's work; the
             # others are accounted, each once, with any reading the march took
@@ -3484,6 +3586,8 @@ class _NativeRungeKuttaMarch:
         while not reached(backend._z, target):
             if self._call(target):
                 return
+            # A bounded yield due between calls returns after the next step.
+            backend.poll_halt()
         if dense and not reached(target, backend._z):
             backend._observe_inside(target)
 
@@ -3516,6 +3620,8 @@ class _NativeRungeKuttaMarch:
         ):
             if self._call(target, slack):
                 return
+            # A bounded yield due between calls returns after the next step.
+            backend.poll_halt()
         if backend._z < target - slack:
             msg = (
                 f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
@@ -3535,6 +3641,9 @@ class _NativeRungeKuttaMarch:
         every = backend._problem.stepper.step_planes
         if every:
             steps.append(every - backend._natural_count % every)
+        if backend._halt_requested:
+            # A pending snapshot latch (solprop SEP 47): return after every step.
+            steps.append(1)
         monitor = backend._monitor
         checked = None
         read_at = None
@@ -3591,6 +3700,8 @@ class _NativeRungeKuttaMarch:
         backend = self._driver
         backend._poll_stop()
         watching = self._watching()
+        counters = _counters.active
+        due = None if counters is None else _host_due(backend, watching)
         bounds = self._bounds(target, watching, slack)
         started = time.perf_counter() - backend._clock
         cursor = int(backend._schedule_index)
@@ -3607,6 +3718,14 @@ class _NativeRungeKuttaMarch:
             backend._accepted_norms.extend(float(norm) for norm in state["norms"])
             rows = np.asarray(result["rows"], dtype=np.float64).reshape(-1, 6)
             reason = int(result["reason"])
+            if counters is not None and due is not None:
+                counters.march(
+                    "rk_march",
+                    _reason_name(reason),
+                    rows,
+                    due,
+                    cast("float | None", bounds["read_at"]),
+                )
             readings = _readings_of(backend._monitor, result) if watching else {}
             # Beside a transverse edge the march returns at a check due by distance,
             # which solprop takes on the event step (`_take_step_stats`).
@@ -3807,6 +3926,8 @@ class _ResidentLowStorage:
             treatments.
         """
         backend = self._backend
+        if (counters := _counters.active) is not None:
+            counters.low_storage_steps += 1
         midpoint, end = z + 0.5 * dz, z + dz
         # The engine reads its owner's tables, as solprop's engines read theirs.
         hoist = backend._hoist  # pyright: ignore[reportPrivateUsage]
@@ -3890,7 +4011,7 @@ class _ZTables:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         A problem that took the z table for ``Phi``, the prefactor or both.
 
     Attributes
@@ -3903,7 +4024,7 @@ class _ZTables:
         The ``Phi`` term that holds the rate, or ``None`` when no march reads it.
     """
 
-    def __init__(self, problem: KernelProblem) -> None:
+    def __init__(self, problem: PropagationProblem) -> None:
         """Size the slots from the problem; nothing crosses until :meth:`upload`."""
         self._problem = problem
         self.phi = problem.linear.phi_representation == "table"
@@ -4052,12 +4173,26 @@ class ControllerLike(Protocol):
         ...
 
 
-def _refuse_adams(problem: KernelProblem) -> None:
+def _refuse_adams(problem: PropagationProblem) -> None:
     integrator = problem.stepper.integrator
     # The low-storage march (solprop SEP 24 phase 3) runs on every route the
     # translation admits it on: no coupled flow and no TDSE response.
     if integrator is None or isinstance(integrator, LowStorageRungeKutta):
         return
+    # solprop SEP 47 section 6.3: the benchmark-only comparison variants off the
+    # selected one-order-higher PEC family -- PECE, explicit Adams-Bashforth and the
+    # matched pairs, which solprop's general Adams path steps -- are the reference's
+    # alone. The PEC variant with corrector_order = order + 1 is the selected method.
+    if isinstance(integrator, ComparisonMultistep) and (
+        integrator.corrector != "pec"
+        or integrator.corrector_nodes(integrator.order) != integrator.order + 1
+    ):
+        raise BackendError(
+            f"solprop-native does not step the comparison variant {integrator.name} "
+            "(ComparisonMultistep's general path: PECE, explicit Adams-Bashforth and "
+            "the matched pairs are reference-only, solprop SEP 47); use "
+            "backend='numpy_ref' for it, or Multistep()"
+        )
     # solprop SEP 16 phase 3: every route's stage source serves both formulations,
     # with the modified noise. A coupled flow is stepped by the exponential
     # formulation only (phase 5), as solprop's reference does; its CF4 sections are
@@ -4114,18 +4249,35 @@ def _refuse_omitted_stages(responses: CompiledResponses) -> None:
         )
 
 
-def _refuse_unsupported(problem: KernelProblem) -> None:
+def _refuse_unsupported(problem: PropagationProblem) -> None:
     _refuse_omitted_stages(problem.responses)
     if problem.precision.single:
         raise BackendError(
             "solprop-native computes in binary64 only and refuses precision='single' "
             "(solprop SEP 33); use backend='numpy_ref', the single-precision oracle"
         )
-    if problem.tdse is not None:
-        raise BackendError(
-            "solprop-native does not execute TDSEGasResponse (solprop SEP 12); "
-            "use backend='numpy_ref' with the independent solprop-tdse atomic engine"
-        )
+    # The route by its variant (solprop SEP 47 section 6.2), refused by name before
+    # anything is allocated: every route of the union but the modal route's TDSE
+    # extension, which is the reference's alone.
+    # Read as any object: a variant this build does not know is refused by name too.
+    route = cast("object", problem.route)
+    match route:
+        case ModalRoute(tdse=tdse) if tdse is not None:
+            raise BackendError(
+                "solprop-native does not execute TDSEGasResponse (solprop SEP 12); "
+                "use backend='numpy_ref' with the independent solprop-tdse atomic "
+                "engine"
+            )
+        case (
+            ModalRoute()
+            | GeneralRoute()
+            | SpatialRoute(kind="radial" | "cartesian" | "planar" | "line")
+        ):
+            pass
+        case _:
+            raise BackendError(
+                f"solprop-native does not execute the {type(route).__name__} route"
+            )
     # Schema 16's low-call Adams integrator (solprop SEP 13) runs here on the modal
     # fibre route (SEP 14 phase 2), its source evaluated by the general engine's stage
     # pipeline; elsewhere it is refused by name rather than stepped by this backend's
@@ -4148,21 +4300,16 @@ def _refuse_unsupported(problem: KernelProblem) -> None:
     )
     _refuse_native_route(problem)
     flags = problem.flags
-    if not flags.single_batch:
-        raise BackendError(
-            "NativeBackend owns one member (max_batch = 1, n_batch == 1); "
-            "use NativeBatchBackend for fixed-schedule batches"
-        )
-    if problem.transform.n_pol * problem.shape[2] > 2:
+    if problem.transform.n_pol * problem.shape[1] > 2:
         raise BackendError(
             "the polarisation components must belong to one of the two supported "
             "representations; Kokkos supports at most two effective node "
             "components, but the transform and state request "
-            f"{problem.transform.n_pol * problem.shape[2]}"
+            f"{problem.transform.n_pol * problem.shape[1]}"
         )
     if (
         flags.has_raman
-        and problem.transform.n_pol * problem.shape[2] != 1
+        and problem.transform.n_pol * problem.shape[1] != 1
         and (
             not problem.responses.raman_terms
             or not all(term.tensor_capable for term in problem.responses.raman_terms)
@@ -4191,7 +4338,7 @@ refuses it here by name.
 """
 
 
-def _refuse_native_route(problem: KernelProblem) -> None:
+def _refuse_native_route(problem: PropagationProblem) -> None:
     """Refuse what solprop's shared list admits and this backend has not built.
 
     The general modal route and the coupled flow are admitted by solprop's one list,
@@ -4265,7 +4412,7 @@ def _host_residual(
     return drive
 
 
-def _host_flow(problem: KernelProblem) -> _HostFlow | None:
+def _host_flow(problem: PropagationProblem) -> _HostFlow | None:
     """Decompose an admitted coupled flow once, or return ``None`` without one."""
     flow: CoupledFlowTables | None = problem.linear.coupled_flow
     if flow is None:
@@ -4462,7 +4609,7 @@ def _aperture_payload(
 
 
 def _refined_record(
-    problem: KernelProblem, state: _core.State
+    problem: PropagationProblem, state: _core.State
 ) -> tuple[ExecutionRecord, str] | None:
     """Return a stored stage-2 refinement of this execution, or ``None``.
 
@@ -4475,7 +4622,10 @@ def _refined_record(
     from ._store import refinement, stores
 
     key = descriptor(
-        shape=problem.shape,
+        # The store's key keeps the four-axis shape it has always been written with,
+        # so that refinements recorded before the batch axis left the problem (solprop
+        # SEP 47 section 6.2) are found again.
+        shape=(1, *problem.shape),
         grid_kind=problem.grid_kind,
         integrator=type(problem.stepper.integrator).__name__,
         sizing=state.execution_sizing,
@@ -4571,7 +4721,7 @@ def _planning_record(state: _core.State) -> dict[str, object]:
 
 
 def _native_problem(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     fixed: StageTerms,
     flow: _HostFlow | None = None,
     tables: _ZTables | None = None,
@@ -4729,8 +4879,8 @@ def _native_problem(
         "n_t": problem.grids.n_t,
         "n_to": problem.grids.n_to,
         "n_stages": problem.stepper.tableau.n_stages,
-        "n_modes": problem.shape[1],
-        "n_pol_state": problem.shape[2],
+        "n_modes": problem.shape[0],
+        "n_pol_state": problem.shape[1],
         "n_pol_transform": problem.transform.n_pol,
         "n_nodes": problem.transform.n_nodes,
         "node_chunk": node_chunk,
@@ -4837,7 +4987,7 @@ def _native_problem(
     }
 
 
-def _dispersive_payload(problem: KernelProblem) -> dict[str, object]:
+def _dispersive_payload(problem: PropagationProblem) -> dict[str, object]:
     """Lay out solprop SEP 6's dispersive response for the native engine.
 
     The structure the native response takes on every route: the channels grouped as the
@@ -4959,7 +5109,7 @@ def _dispersive_payload(problem: KernelProblem) -> dict[str, object]:
     }
 
 
-def _flux_payload(problem: KernelProblem) -> dict[str, object]:
+def _flux_payload(problem: PropagationProblem) -> dict[str, object]:
     """Pack the plane measure of solprop SEP 34 (kernel schema 35).
 
     A separable run (Cartesian, line, planar) is measured by its own operator's root,
@@ -4969,7 +5119,7 @@ def _flux_payload(problem: KernelProblem) -> dict[str, object]:
     (:func:`_upload_flux_table`); the admission record is not read. ``flux_closure``
     sizes the magnetic closure's buffers for the problem's own local statistics.
     """
-    flux = problem.flux
+    flux = flux_of(problem.route)
     if flux is None:
         return {}
     closure = bool(set(problem.stats_spec.names) & LOCAL_FLUX_STATISTICS)
@@ -4993,9 +5143,9 @@ def _flux_payload(problem: KernelProblem) -> dict[str, object]:
     }
 
 
-def _upload_flux_table(native: _core.State, problem: KernelProblem) -> None:
+def _upload_flux_table(native: _core.State, problem: PropagationProblem) -> None:
     """Make a radial plane measure's material z table resident, once (SEP 34)."""
-    flux = problem.flux
+    flux = flux_of(problem.route)
     if flux is None or flux.material is None:
         return
     table = flux.material
@@ -5013,7 +5163,7 @@ def _upload_flux_table(native: _core.State, problem: KernelProblem) -> None:
     )
 
 
-def _slab_payload(problem: KernelProblem) -> dict[str, object]:
+def _slab_payload(problem: PropagationProblem) -> dict[str, object]:
     """Pack the hybrid planar kind's channels, wall terms and per-column collar rate.
 
     Schema 15's ``SeparableOperator.kappa_sq`` is ``(n_channels, n_omega)``, column
@@ -5037,7 +5187,7 @@ def _slab_payload(problem: KernelProblem) -> dict[str, object]:
     }
 
 
-def _general_payload(problem: KernelProblem) -> dict[str, object]:
+def _general_payload(problem: PropagationProblem) -> dict[str, object]:
     """Pack the general modal route's maps, derived as ``numpy_ref`` derives them.
 
     The per-node tensor, the form and the delayed maps come from solprop's own
@@ -5102,7 +5252,7 @@ def _general_payload(problem: KernelProblem) -> dict[str, object]:
     }
 
 
-def _envelope_payload(problem: KernelProblem) -> dict[str, object]:
+def _envelope_payload(problem: PropagationProblem) -> dict[str, object]:
     """Pack the accepted cycle rules and already masked spectral factors."""
     assembly = problem.responses.envelope_plasma
     if assembly is None:
@@ -5122,7 +5272,7 @@ def _envelope_payload(problem: KernelProblem) -> dict[str, object]:
     }
 
 
-def _channel_payload(problem: KernelProblem) -> dict[str, object]:
+def _channel_payload(problem: PropagationProblem) -> dict[str, object]:
     """Pack independent rate tables without resampling their coefficients."""
     parameters: list[list[float]] = []
     coefficients: list[np.ndarray] = []

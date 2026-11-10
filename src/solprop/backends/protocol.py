@@ -13,10 +13,10 @@ out-of-place transforms, separate scaling passes, materialised stages, one reduc
 statistic — and that structure is precisely what a fast backend exists to change.
 
 A backend is constructed from a validated
-:class:`solprop.translate.problem.KernelProblem`, takes host arrays and returns host
-arrays; its buffers, layout and plans are private, and the state is never a parameter of
-:meth:`Backend.propagate_to` or :meth:`Backend.observe`. Selection by name and the
-availability rules are in :mod:`solprop.backends.registry`.
+:class:`solprop.translate.problem.PropagationProblem`, takes host arrays and returns
+host arrays; its buffers, layout and plans are private, and the state is never a
+parameter of :meth:`Backend.propagate_to` or :meth:`Backend.observe`. Selection by name
+and the availability rules are in :mod:`solprop.backends.registry`.
 
 **Sign convention.** Every complex array crossing this seam, in either direction, is in
 the **FFT convention** of ``docs/dev/conventions.md`` section 2, with the phase origin
@@ -27,9 +27,9 @@ never conjugate.
 
 import dataclasses
 import logging
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
@@ -42,6 +42,10 @@ from solprop.noise import NoiseRealisation
 from solprop.output.schema import MarchSnapshot
 from solprop.stats import StatsSpec
 
+if TYPE_CHECKING:
+    # The session module builds on this one's records, so its start is a forward name.
+    from solprop.backends.session import Start
+
 __all__ = [
     "Backend",
     "BackendHistory",
@@ -49,6 +53,7 @@ __all__ = [
     "Observation",
     "StepStats",
     "StepSummary",
+    "TimingProbe",
 ]
 
 logger = logging.getLogger(__name__)
@@ -214,8 +219,7 @@ class StepStats:
         The history counts rejected attempts too, so this is not ``row * period``.
     values : collections.abc.Mapping
         The statistics, keyed by catalogue name, each with a leading row axis and then
-        the leading batch axis every statistic crossing this seam carries:
-        ``(n_rows, n_batch, *shape)``.
+        the statistic's own shape, with no batch axis: ``(n_rows, *shape)``.
 
     Raises
     ------
@@ -228,7 +232,7 @@ class StepStats:
     >>> import numpy as np
     >>> from solprop.backends.protocol import StepStats
     >>> rows = StepStats(np.array([0.1, 0.2]), np.array([0, 1]),
-    ...                  {"energy": np.ones((2, 1, 1, 1))})
+    ...                  {"energy": np.ones((2, 1, 1))})
     >>> rows.n_rows, rows.names
     (2, ('energy',))
     >>> StepStats.empty().n_rows
@@ -375,8 +379,8 @@ class Observation:
     z : float
         Position of the plane, m.
     field : numpy.ndarray or None
-        The state, complex128, shape ``(n_batch, n_modes, n_pol, n_omega)``, in the
-        square root of watts; ``None`` for an observation that asked for no field
+        The state, complex128, shape ``(n_modes, n_pol, n_omega)``, in the square root
+        of watts; ``None`` for an observation that asked for no field
         (``observe(field=False)``, SEP 22 section 5.1).
     noise_phase : numpy.ndarray or None
         ``Im Phi(omega, z)`` in radians, same shape, when a noise model is active and
@@ -393,11 +397,21 @@ class Observation:
         and this one, empty unless the run asked for one. Separate from
         ``step_history`` because the two are sampled differently: the history is every
         attempt, these are every ``period``-th accepted step.
+    field_owned : bool
+        Whether the backend made `field` for this observation alone and keeps no
+        reference to it: a copy from a device or a widened single-precision state,
+        made fresh at each call. ``False`` where the field may be the backend's own
+        state array, frozen and left behind by the next step, and always ``False``
+        without a field. The session that observed it, its only holder, converts an
+        owned field to output units where it is, rather than into a new array
+        (:meth:`solprop.backends.driver_session.DriverSession.export`); for any other
+        field that conversion is what detaches it from the backend (SEP 47
+        section 5.4).
 
     Raises
     ------
     BackendError
-        If a field is not four-dimensional and finite, a noise phase is given without
+        If a field is not finite, a noise phase is given without
         a field or does not match it, the step counts disagree with the history, or a
         statistics row points past the history it indexes.
 
@@ -407,20 +421,21 @@ class Observation:
     >>> from solprop.backends.protocol import Observation, BackendHistory
     >>> history = BackendHistory(np.array([1.0]), np.array([1.0]), np.array([0.3]),
     ...                       np.array([True]), np.array([0.02]))
-    >>> plane = Observation(1.0, np.zeros((1, 1, 1, 8), complex), None, history, 1, 0)
+    >>> plane = Observation(1.0, np.zeros((1, 1, 8), complex), None, history, 1, 0)
     >>> plane.z, plane.field.flags.writeable
     (1.0, False)
     """
 
     z: float
-    field: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None
-    noise_phase: Float[np.ndarray, "n_batch_p n_modes_p n_pol_p n_omega_p"] | None
+    field: Complex[np.ndarray, "n_modes n_pol n_omega"] | None
+    noise_phase: Float[np.ndarray, "n_modes_p n_pol_p n_omega_p"] | None
     step_history: BackendHistory
     n_steps: int
     n_rejected: int
     # `dataclasses.field` qualified, because this class has an attribute called
     # `field` and a bare name would read as that one.
     step_stats: StepStats = dataclasses.field(default_factory=StepStats.empty)
+    field_owned: bool = False
 
     def __post_init__(self) -> None:
         """Freeze the arrays, as given when already contiguous, and check the plane.
@@ -434,6 +449,7 @@ class Observation:
             if self.noise_phase is not None:
                 msg = "a noise_phase is given without a field"
                 raise BackendError(msg)
+            object.__setattr__(self, "field_owned", False)
             self._check_counts()
             return
         state = np.ascontiguousarray(self.field, dtype=np.complex128)
@@ -458,13 +474,13 @@ class Observation:
                 raise BackendError(msg)
         self._check_counts()
 
-    def require_field(self) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    def require_field(self) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Return the observed field, refusing an observation that asked for none.
 
         Returns
         -------
         numpy.ndarray
-            The read-only field, shape ``(n_batch, n_modes, n_pol, n_omega)``.
+            The read-only field, shape ``(n_modes, n_pol, n_omega)``.
 
         Raises
         ------
@@ -477,9 +493,9 @@ class Observation:
         >>> from solprop.backends.protocol import Observation, BackendHistory
         >>> empty = BackendHistory(np.empty(0), np.empty(0), np.empty(0),
         ...                     np.empty(0, bool), np.empty(0))
-        >>> Observation(0.0, np.ones((1, 1, 1, 2), complex), None, empty, 0, 0
+        >>> Observation(0.0, np.ones((1, 1, 2), complex), None, empty, 0, 0
         ...             ).require_field().shape
-        (1, 1, 1, 2)
+        (1, 1, 2)
         """
         if self.field is None:
             msg = (
@@ -588,12 +604,63 @@ class StepSummary:
 
 
 @runtime_checkable
+class TimingProbe(Protocol):
+    """Single trials of a loaded run, for an estimate or a calibration to time.
+
+    Returned by :meth:`Backend.timing_probe` (SEP 47 section 6.6). A trial is one
+    step's arithmetic from the loaded state, and commits nothing: the backend's
+    state, position and step history stay those of the load, though a work counter
+    may count the trial's evaluations. It is a supported internal operation for
+    :meth:`solprop.driver.simulation.Simulation.estimate` and the SEP 46 calibration,
+    not a propagation executor: a run is driven through a session
+    (:mod:`solprop.backends.session`).
+
+    The low-storage march (SEP 24) has no separate trial: its step accepts in place, so
+    a probe's trial advances the discarded registers the load put there, and it has no
+    trial field to read back. A backend probed so is closed afterwards.
+    """
+
+    def trial(self, z: float | None = None, dz: float | None = None) -> None:
+        """Take one trial step and keep its end state for :meth:`field`.
+
+        Parameters
+        ----------
+        z : float or None, optional
+            Where the trial starts, m; the loaded position by default.
+        dz : float or None, optional
+            Its length, m, positive; the problem's ``dz_init`` by default, or the
+            scheduled step at `z` for the low-storage march.
+        """
+        ...
+
+    def field(self) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Return the last trial's end state on the host, as a kept step would be.
+
+        The state after the accepted-step boundary treatments, read once per trial. A
+        backend that can read it back only by finishing the step in its own state
+        loads the loaded state again afterwards, so the probe still commits nothing.
+
+        Returns
+        -------
+        numpy.ndarray
+            An owning copy in internal units and the FFT convention.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            With no trial since the last readback, or for the low-storage march, which
+            has no trial state.
+        """
+        ...
+
+
+@runtime_checkable
 class Backend(Protocol):
     """What every execution backend provides, and nothing more.
 
     ``docs/dev/backends.md`` section 1. A backend is constructed from a validated
-    :class:`solprop.translate.problem.KernelProblem`; the numbers are the contract, and
-    a backend is correct when it reproduces the ``numpy_ref`` oracle to the stated
+    :class:`solprop.translate.problem.PropagationProblem`; the numbers are the contract,
+    and a backend is correct when it reproduces the ``numpy_ref`` oracle to the stated
     bound.
 
     Attributes
@@ -601,8 +668,8 @@ class Backend(Protocol):
     name : str
         The registry name, for example ``"numpy_ref"``.
     max_batch : int
-        Largest batch axis this backend steps at once; 1 for a backend that steps one
-        problem.
+        Trajectories this backend steps at once: 1 for a backend that steps one
+        problem, the member count for a group runner.
     reads_transverse_edge : bool
         Whether it reads a free-space run's transverse edge (SEP 40 section 5.3), which
         a run with a requested real-space collar needs.
@@ -620,7 +687,7 @@ class Backend(Protocol):
     >>> names[12:16]
     ['propagate_to', 'restore_call_ledgers', 'restore_march', 'set_initial']
     >>> names[16:]
-    ['set_progress', 'set_stop', 'stats', 'timed_step']
+    ['set_progress', 'set_stop', 'stats', 'timing_probe']
     """
 
     name: str
@@ -629,7 +696,7 @@ class Backend(Protocol):
 
     def set_initial(
         self,
-        field: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
         noise: NoiseRealisation | None,
         *,
         z: float = 0.0,
@@ -640,7 +707,7 @@ class Backend(Protocol):
         Parameters
         ----------
         field : numpy.ndarray
-            The state in the canonical layout, FFT convention.
+            The state, shape ``(n_modes, n_pol, n_omega)``, FFT convention.
         noise : solprop.noise.NoiseRealisation or None
             The realisation to carry along the run, or ``None``.
         z : float, optional
@@ -758,7 +825,7 @@ class Backend(Protocol):
         Returns
         -------
         dict
-            Small host arrays keyed by statistic name, each with a leading batch axis.
+            Small host arrays keyed by statistic name, without a batch axis.
         """
         ...
 
@@ -860,14 +927,24 @@ class Backend(Protocol):
         """
         ...
 
-    def timed_step(self) -> Callable[[], object]:
-        """Return one step of this run's march, for an estimate to time.
+    def timing_probe(
+        self,
+        start: "Start",  # noqa: UP037 - the session module imports this one
+    ) -> TimingProbe:
+        """Load a start and return single trials of this run's march from it.
+
+        The start's field, noise, position and resume flag are loaded as a session
+        loads them; its method history, ledgers and monitor continuation are not read.
+
+        Parameters
+        ----------
+        start : solprop.backends.session.Start
+            Where the trials start; its field is taken.
 
         Returns
         -------
-        collections.abc.Callable
-            Takes one step from the loaded state. It may advance that state, so the
-            caller closes the backend afterwards.
+        TimingProbe
+            The probe (SEP 47 section 6.6).
         """
         ...
 

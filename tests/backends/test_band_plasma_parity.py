@@ -101,7 +101,11 @@ def spatial(kind):
     if kind != "radial":
         # A remainder chunk, so the band column meets a partial block.
         problem = dataclasses.replace(
-            problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
+            problem,
+            route=dataclasses.replace(
+                problem.route,
+                transform=dataclasses.replace(problem.transform, node_chunk=7),
+            ),
         )
     return grid, problem
 

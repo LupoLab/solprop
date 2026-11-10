@@ -166,15 +166,14 @@ def test_a_transform_and_a_state_cannot_both_carry_the_components(
         _n_pol=2,
         kind="modal",
     )
-    spoiled = substitute(problem, transform=transform, validate=False)
-    object.__setattr__(spoiled, "shape", (1, 1, 2, narrow_grid.n_omega))
+    spoiled = substitute(
+        problem,
+        validate=False,
+        route=dataclasses.replace(problem.route, transform=transform),
+    )
+    object.__setattr__(spoiled, "shape", (1, 2, narrow_grid.n_omega))
     with pytest.raises(BackendError, match=r"belong to one of the two"):
         backend_class(spoiled)
-
-
-def test_a_batch_larger_than_one_is_refused(backend_class, batched_problem):
-    with pytest.raises(BackendError, match=r"max_batch = 1"):
-        backend_class(batched_problem)
 
 
 def test_both_absorber_schemes_run_on_both_backends(
@@ -220,7 +219,7 @@ def test_the_initial_state_must_match_the_contract(
     problem = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
     backend = backend_class(problem)
     with pytest.raises(BackendError, match="expected"):
-        backend.set_initial(np.zeros((1, 1, 1, 3), dtype=complex), None)
+        backend.set_initial(np.zeros((1, 1, 3), dtype=complex), None)
     backend.close()
 
 
@@ -302,7 +301,7 @@ def test_the_memory_ledger_names_every_buffer(
     assert ledger["noise"] == 0
     # One float64 weight per column and none per batch member: the members of one
     # problem share the fibre, so they share `Re n_eff` (kernel-contract.md §5).
-    columns = int(np.prod(problem.shape[1:]))
+    columns = int(np.prod(problem.shape))
     assert ledger["statistics_power_weight"] == columns * 8
     assert all(value >= 0 for value in ledger.values())
     backend.close()
@@ -481,17 +480,17 @@ def test_statistics_reproduce_the_reference(
         energy_windows=np.array([[2.0e15, 2.5e15]]),
     )
     got = backend.stats(spec)
-    want = collect(spec, narrow_grid, SavedPlane(z=plane.z, field=plane.field[0]))
+    want = collect(spec, narrow_grid, SavedPlane(z=plane.z, field=plane.field))
     assert set(got) == set(want)
     for name, value in want.items():
         np.testing.assert_allclose(
-            got[name][0],
+            got[name],
             value,
             rtol=16 * narrow_grid.n_t * EPS,
             atol=0.0,
             equal_nan=True,
         )
-        assert got[name].shape == (1, *value.shape)
+        assert got[name].shape == value.shape
     backend.close()
 
 

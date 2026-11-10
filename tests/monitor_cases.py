@@ -8,8 +8,7 @@ Each probe is a route's tiny case (``tests/capability_routes.py``) launched with
 of its pulse near the window's edge, so that every region the monitor weighs holds
 light, under an absorber scheme and, with a march, on a fixed schedule. The reference's
 reading of it is the oracle the compiled backends are held to in
-``tests/backends/test_monitor_reduction.py``, and the single-precision oracle's the one
-``mlx`` is held to in ``tests/backends/test_mlx.py``.
+``tests/backends/test_monitor_reduction.py``.
 """
 
 from __future__ import annotations
@@ -21,6 +20,7 @@ import numpy as np
 
 from capability_routes import LENGTH, ROUTES
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import select
 from solprop.driver import Simulation
@@ -29,7 +29,7 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 ROUTE_NAMES = (
     "gnlse",
@@ -99,14 +99,18 @@ def with_copy(field: np.ndarray, n_t: int) -> np.ndarray:
     return field * (1.0 + COPY_SHARE * phase)
 
 
-def as_driver(backend: Backend) -> StepDriver[Any]:
-    """Return a backend as the step driver every registered backend is."""
-    assert isinstance(backend, StepDriver)
-    return cast("StepDriver[Any]", backend)
+def as_driver(backend: Backend) -> StepDriver[Any] | HostDriver[Any]:
+    """Return a backend as the step driver every registered backend is.
+
+    The reference's own (:class:`~solprop.backends.host.driver.HostDriver`) or the
+    native bridge's inherited one (SEP 47 phase 2).
+    """
+    assert isinstance(backend, (StepDriver, HostDriver))
+    return cast("StepDriver[Any] | HostDriver[Any]", backend)
 
 
 def watched(
-    simulation: Simulation, name: str, problem: KernelProblem | None = None
+    simulation: Simulation, name: str, problem: PropagationProblem | None = None
 ) -> Backend:
     """Return a backend loaded with the edge-reaching launch and watched."""
     problem = simulation.translate() if problem is None else problem
@@ -132,7 +136,7 @@ def reading(backend: Backend) -> BoundaryEnergies:
 
 
 def record_after_march(
-    simulation: Simulation, name: str, problem: KernelProblem | None = None
+    simulation: Simulation, name: str, problem: PropagationProblem | None = None
 ) -> dict[str, Any]:
     """Return a backend's monitor record after the probe's fixed steps, with the split
     collar's crossing cap the last check read (``step_cap``)."""

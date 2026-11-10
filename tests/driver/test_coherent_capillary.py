@@ -936,12 +936,12 @@ def test_the_reference_refuses_a_problem_the_flow_cannot_sit_beside():
     # The block is scalar and its action contracts the channel axis alone, so a
     # second polarisation would be mixed by it as though it described both. The
     # refusal is taken on the check itself, because a state whose polarisation axis
-    # disagrees with the rest of the problem is refused by `KernelProblem.validate`
+    # disagrees with the rest of the problem is refused by `PropagationProblem.validate`
     # before any backend sees it -- which is exactly why this one is defence in
     # depth rather than the only door.
-    batch, channels, _, bins = problem.shape
+    channels, _, bins = problem.shape
     with pytest.raises(BackendError, match="only for a scalar state") as refused:
-        refuse_coupled_flow(replace(problem, shape=(batch, channels, 2, bins)))
+        refuse_coupled_flow(replace(problem, shape=(channels, 2, bins)))
     assert "not the state's polarisation axis" in str(refused.value)
     # It names the state's two components, the product route, and not the
     # synthesis, which may resolve two.
@@ -1128,7 +1128,7 @@ def linear_launch(problem, grid, channel=0):
     """
     index = int(np.argmin(abs(grid.omega - grid.omega0)))
     state = np.zeros_like(problem.initial.field0)
-    state[0, channel, 0, index] = 1e-9
+    state[channel, 0, index] = 1e-9
     return index, replace(
         problem, initial=replace(problem.initial, field0=state, noise0=None)
     )
@@ -1155,8 +1155,8 @@ def test_ten_steps_apply_the_block_the_translation_layer_declared():
     assert flow.generator is not None
     rate = complex(flow.generator[0, 0, 0, 0, index])
     expected = 1e-9 * np.exp(carrier + rate * LENGTH)
-    assert abs(final[0, 0, 0, index]) == pytest.approx(abs(expected), rel=1e-9)
-    assert np.angle(final[0, 0, 0, index]) == pytest.approx(
+    assert abs(final[0, 0, index]) == pytest.approx(abs(expected), rel=1e-9)
+    assert np.angle(final[0, 0, index]) == pytest.approx(
         float(np.angle(expected)), rel=1e-9
     )
 
@@ -1177,8 +1177,8 @@ def test_the_propagated_single_channel_loss_is_marcatili_to_its_derived_bound():
     without = capillary(modes=1)
     index, walled = linear_launch(with_wall.translate(), with_wall.grid)
     _, plain = linear_launch(without.translate(), without.grid)
-    ratio = abs(propagated(walled, with_wall.grid)[0, 0, 0, index]) / abs(
-        propagated(plain, without.grid)[0, 0, 0, index]
+    ratio = abs(propagated(walled, with_wall.grid)[0, 0, index]) / abs(
+        propagated(plain, without.grid)[0, 0, index]
     )
 
     mode = MarcatiliMode(RADIUS, "He", 1.0, m=1)
@@ -1213,11 +1213,8 @@ def test_each_channel_keeps_its_own_rate_in_the_weakly_coupled_limit():
     assert flow.generator is not None
     rate = complex(flow.generator[0, 0, 0, 0, index])
     expected = abs(1e-9 * np.exp(carrier + rate * LENGTH))
-    assert abs(final[0, 0, 0, index]) == pytest.approx(expected, rel=1e-4)
-    leaked = (
-        float(np.sum(abs(final[0, 1:, 0, index]) ** 2))
-        / abs(final[0, 0, 0, index]) ** 2
-    )
+    assert abs(final[0, 0, index]) == pytest.approx(expected, rel=1e-4)
+    leaked = float(np.sum(abs(final[1:, 0, index]) ** 2)) / abs(final[0, 0, index]) ** 2
     assert 0.0 < leaked < 1e-4
 
 
@@ -1241,8 +1238,8 @@ def test_the_wall_moves_power_between_channels_and_a_diagonal_loss_cannot():
     # Not exactly zero: the capillary's Kerr response couples the channels through
     # their transverse overlap, and at this amplitude that leaves 1e-38 of the
     # launched power there. The wall puts thirty orders of magnitude more.
-    leaked = float(np.sum(abs(plain[0, 1:, 0, index]) ** 2)) / 1e-18
-    moved = float(np.sum(abs(walled[0, 1:, 0, index]) ** 2)) / 1e-18
+    leaked = float(np.sum(abs(plain[1:, 0, index]) ** 2)) / 1e-18
+    moved = float(np.sum(abs(walled[1:, 0, index]) ** 2)) / 1e-18
     assert leaked < 1e-30
     assert moved > 1e-10
 
@@ -1288,13 +1285,13 @@ def test_the_transmission_of_one_physical_launch_converges_with_the_channel_coun
         # The **same physical launch** at every N: the raw projection coefficients
         # of one Gaussian, not renormalised inside the retained block, so that what
         # the block does not represent stays missing rather than being scaled up.
-        state[0, :, 0, index] = 1e-9 * overlaps
+        state[:, 0, index] = 1e-9 * overlaps
         launched = replace(
             problem, initial=replace(problem.initial, field0=state, noise0=None)
         )
         final = propagated(launched, simulation.grid)
         carrier = float(np.real(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, 0, index]))
-        transmissions[count] = float(np.sum(abs(final[0, :, 0, index]) ** 2)) / (
+        transmissions[count] = float(np.sum(abs(final[:, 0, index]) ** 2)) / (
             1e-18 * total * math.exp(2.0 * carrier)
         )
     assert deficits[2] > deficits[4] > deficits[8] > 0.0
@@ -1527,8 +1524,8 @@ SMOOTH_STAGES = (0.0, 6e-5, 1.4e-4, 2e-4)
 """Where a taper of this qualification case starts and stops varying, m.
 
 The stages land on multiples of `LENGTH / STEPS`, so the fixed schedule can contain
-every hard kink of the radius, which `KernelProblem.validate` requires of any schedule
-(`_check_schedule`).
+every hard kink of the radius, which `PropagationProblem.validate` requires of any
+schedule (`_check_schedule`).
 """
 
 NARROW = 40e-6
@@ -1908,9 +1905,9 @@ def _routed_true_power(block, index, steps=None, rtol=1e-10):
     )
     problem = varying(wall=CoherentWall(), **stepping).translate()
     state = np.zeros_like(problem.initial.field0)
-    state[0, 0, 0, index] = 1e-9
+    state[0, 0, index] = 1e-9
     launched = replace(problem, initial=replace(problem.initial, field0=state))
-    internal = propagated(launched, GRID)[0, :, 0, index]
+    internal = propagated(launched, GRID)[:, 0, index]
     omega = GRID.omega[index : index + 1]
     weight = np.array([float(np.real(mode.neff(omega, LENGTH))[0]) for mode in block])
     # The internal amplitude is the FFT convention's: conjugated, it is the optics
@@ -2920,7 +2917,7 @@ def test_ten_steps_of_mixed_family_propagation_match_an_independent_solve():
     start = np.zeros(4, dtype=complex)
     start[0] = 1e-9
     expected = np.exp(carrier) * (expm(LENGTH * block) @ start)
-    measured = final[0, :, 0, index]
+    measured = final[:, 0, index]
     # The channel **ratios** are what the collar cannot touch: it is a temporal mask,
     # identical on every channel, and a single excited bin of a field grid is the
     # continuous wave it eats -- 2.1e-7 of the modulus over this length, which is the
@@ -3242,9 +3239,9 @@ def test_a_vector_taper_matches_a_true_power_solve_with_a_measured_connection():
         )
         problem = varying(wall=VECTOR_WALL, modes=block, **stepping).translate()
         state = np.zeros_like(problem.initial.field0)
-        state[0, 0, 0, index] = 1e-9
+        state[0, 0, index] = 1e-9
         launched = replace(problem, initial=replace(problem.initial, field0=state))
-        internal = propagated(launched, GRID)[0, :, 0, index]
+        internal = propagated(launched, GRID)[:, 0, index]
         omega = GRID.omega[index : index + 1]
         weight = np.array(
             [float(np.real(mode.neff(omega, LENGTH))[0]) for mode in block]
@@ -3760,12 +3757,9 @@ def test_a_cf4_wall_refuses_every_declaration_the_frozen_one_refuses():
         varying(wall=CF4_WALL, schedule=FixedSchedule(np.diff(edges))).translate()
     simulation = varying(wall=CF4_WALL)
     problem = simulation.translate()
-    batch, channels, n_pol, bins = problem.shape
-    widened = replace(problem, shape=(2, channels, n_pol, bins))
-    with pytest.raises(BackendError, match="max_batch = 1"):
-        NumpyRefBackend(widened, grid=simulation.grid)
+    channels, _, bins = problem.shape
     with pytest.raises(BackendError, match="only for a scalar state") as refused:
-        refuse_coupled_flow(replace(problem, shape=(batch, channels, 2, bins)))
+        refuse_coupled_flow(replace(problem, shape=(channels, 2, bins)))
     assert "not the state's polarisation axis" in str(refused.value)
     # It names the state's two components, the product route, and not the
     # synthesis, which may resolve two.

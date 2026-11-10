@@ -59,16 +59,22 @@ def test_the_corpus_was_generated_before_the_refactor():
 
 UNCHANGED = [entry for entry in ENTRIES if entry["scenario"]["name"] not in CHANGED]
 
+MARCHES = pytest.mark.parametrize("host", [True, False], ids=["host", "bridge"])
+"""The reference's own march and the native bridge's copy (SEP 47 phase 2): both
+reproduce the corpus, so the reference's decisions stay the native march's."""
+
 
 @pytest.mark.parametrize(
     "entry", UNCHANGED, ids=[entry["scenario"]["name"] for entry in UNCHANGED]
 )
-def test_the_march_reproduces_its_trace(entry):
+@MARCHES
+def test_the_march_reproduces_its_trace(entry, host):
     scenario = Scenario.from_json(entry["scenario"])
-    assert run_scenario(scenario) == entry["trace"]
+    assert run_scenario(scenario, host=host) == entry["trace"]
 
 
-def test_a_floor_after_an_accepted_landing_is_raised_once_the_step_is_committed():
+@MARCHES
+def test_a_floor_after_an_accepted_landing_is_raised_once_the_step_is_committed(host):
     # Two planes 4e-7 m apart with a floor of 1e-6 m: the landing between them is
     # accepted, and its next proposal (at most twice the step) is below the floor.
     # Before the fix the march raised with the state adopted at the plane and the
@@ -80,7 +86,7 @@ def test_a_floor_after_an_accepted_landing_is_raised_once_the_step_is_committed(
     scenario = Scenario.from_json(entry["scenario"])
     oracle = entry["trace"]
     assert oracle["end"]["stop"] == "ConvergenceError"
-    trace = run_scenario(scenario)
+    trace = run_scenario(scenario, host=host)
     plane = scenario.save_planes[1]
     flight = oracle["end"]["in_flight"]
     state = {key: value for key, value in trace["end"].items() if key in STATE}

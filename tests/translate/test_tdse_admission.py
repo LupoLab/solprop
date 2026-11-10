@@ -4,6 +4,7 @@
 
 """Refuse unsupported TDSE declarations and tampered seam records before setup."""
 
+import copy
 import dataclasses
 
 import numpy as np
@@ -26,12 +27,13 @@ from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
 from solprop.translate.masks import AbsorberScheme
-from solprop.translate.problem import assemble
+from solprop.translate.problem import _route, assemble
 from solprop.translate.responses import (
     ResponseStage,
     compile_responses,
     kerr_coefficients,
 )
+from solprop.translate.routes import route_name, tdse_descriptor, tdse_of
 from solprop.translate.tdse import TDSEDescriptor, refine_response_grid
 from solprop.translate.tdse_source import admit_tdse
 
@@ -97,8 +99,12 @@ def test_legacy_helium_mode_refuses_a_separate_nonlinear_density(declaration):
 
 def test_admitted_native_problem_needs_no_optional_provider(admitted):
     admitted.validate()
-    assert admitted.tdse is not None
-    assert admitted.tdse.shadow_order == 1
+    assert admitted.route.tdse is not None
+    assert admitted.route.tdse.descriptor.shadow_order == 1
+    # The TDSE response is the modal route's reference-only extension.
+    assert tdse_of(admitted.route) is admitted.route.tdse
+    assert tdse_descriptor(admitted.route) is admitted.route.tdse.descriptor
+    assert route_name(admitted.route) == "modal with TDSE"
     assert admitted.responses.kerr_coefficients is None
 
 
@@ -106,12 +112,6 @@ def test_admitted_native_problem_needs_no_optional_provider(admitted):
 def test_initial_seam_refuses_invalid_absolute_positions(admitted, z):
     with pytest.raises(TranslationError, match=r"initial.z.*non-negative"):
         dataclasses.replace(admitted.initial, z=z)
-
-
-@pytest.mark.parametrize("missing", ["tdse", "current_numerator"])
-def test_seam_requires_both_atomic_descriptor_and_current_factor(admitted, missing):
-    with pytest.raises(TranslationError, match="must coexist"):
-        dataclasses.replace(admitted, **{missing: None}).validate()
 
 
 @pytest.mark.parametrize("periodic", [False, True])
@@ -124,12 +124,19 @@ def test_manual_atomic_seam_refuses_legacy_plasma_statistics(admitted, periodic)
         dataclasses.replace(admitted, stats_spec=stats).validate()
 
 
+def _with_source(problem, **fields):
+    """Return `problem` with fields of its modal route's TDSE source replaced."""
+    route = problem.route
+    source = dataclasses.replace(route.tdse, **fields)
+    return dataclasses.replace(problem, route=dataclasses.replace(route, tdse=source))
+
+
 def test_current_factor_must_be_read_only_even_when_numerically_correct(admitted):
-    assert admitted.current_numerator is not None
-    current = admitted.current_numerator.copy()
+    assert admitted.route.tdse.current_numerator is not None
+    current = admitted.route.tdse.current_numerator.copy()
     assert current.flags.writeable
     with pytest.raises(TranslationError, match="frozen finite source row"):
-        dataclasses.replace(admitted, current_numerator=current).validate()
+        _with_source(admitted, current_numerator=current).validate()
 
 
 @pytest.mark.parametrize("offset", [0.0, 1e-5])
@@ -176,18 +183,18 @@ def test_seam_rejects_a_descriptor_resolved_on_another_refinement(
         refined,
     )
     with pytest.raises(TranslationError, match="sampling differs"):
-        dataclasses.replace(admitted, tdse=descriptor).validate()
+        _with_source(admitted, descriptor=descriptor).validate()
 
 
 @pytest.mark.parametrize("scale", [0.0, 0.5, -1.0])
 def test_seam_rejects_a_changed_current_sign_or_crop_factor(admitted, scale):
-    assert admitted.current_numerator is not None
-    changed = admitted.current_numerator * scale
+    assert admitted.route.tdse.current_numerator is not None
+    changed = admitted.route.tdse.current_numerator * scale
     changed.setflags(write=False)
-    with pytest.raises(
-        TranslationError, match=r"current numerator.*physical coefficient"
-    ):
-        dataclasses.replace(admitted, current_numerator=changed).validate()
+    # A positive row is refused by the source itself, a frozen but rescaled one by
+    # validation against the physical coefficient.
+    with pytest.raises(TranslationError, match=r"current numerator"):
+        _with_source(admitted, current_numerator=changed).validate()
 
 
 @pytest.mark.parametrize("flag", ["has_plasma", "has_raman", "mode_averaged"])
@@ -261,8 +268,7 @@ def test_atomic_cubic_models_refuse_an_extra_compiled_kerr(
         response_order=(ResponseStage.KERR, ResponseStage.ACCUMULATE),
     )
     damaged = dataclasses.replace(
-        admitted,
-        tdse=TDSEDescriptor.from_response(response, grid),
+        _with_source(admitted, descriptor=TDSEDescriptor.from_response(response, grid)),
         responses=ordinary,
     )
     with pytest.raises(TranslationError, match=r"cubic|Kerr"):
@@ -274,9 +280,8 @@ def test_optmat_closure_refuses_an_absent_compiled_cubic(admitted, declaration):
     replacement = dataclasses.replace(
         response, kerr_model="optmat_cubic", remainder_scale=2.0
     )
-    damaged = dataclasses.replace(
-        admitted,
-        tdse=TDSEDescriptor.from_response(replacement, grid),
+    damaged = _with_source(
+        admitted, descriptor=TDSEDescriptor.from_response(replacement, grid)
     )
     with pytest.raises(TranslationError, match=r"cubic|Kerr"):
         damaged.validate()
@@ -286,7 +291,7 @@ def test_optmat_closure_refuses_an_absent_compiled_cubic(admitted, declaration):
     ("change", "message"),
     [
         ({"responses": "duplicate"}, "owns"),
-        ({"shape": (2, 1, 1, 16)}, "unbatched"),
+        ({"shape": (2, 1, 16)}, "scalar one-mode"),
         ({"modes": "multiple"}, "resolved HE_11"),
         ({"modes": "rotated"}, "x-polarised"),
         ({"modes": "tapered"}, "tapered"),
@@ -310,7 +315,7 @@ def test_unsupported_physical_routes_fail_before_operator_setup(
         "responses": (response,),
         "grid": grid,
         "modes": (mode,),
-        "shape": (1, 1, 1, grid.n_omega),
+        "shape": (1, 1, grid.n_omega),
         "quadrature": transverse_quadrature([mode], n_r=4),
         "integrator": Multistep(formulation="interaction"),
         "modified_noise": False,
@@ -364,7 +369,7 @@ def test_admission_preserves_the_selected_cubic_ownership(declaration, model):
         declarations,
         grid,
         [mode],
-        shape=(1, 1, 1, grid.n_omega),
+        shape=(1, 1, grid.n_omega),
         quadrature=transverse_quadrature([mode], n_r=4),
         integrator=Multistep(formulation="interaction"),
         modified_noise=False,
@@ -411,3 +416,13 @@ def test_a_dispersive_kerr_response_beside_the_tdse_is_refused(admitted, declara
     )
     with pytest.raises(TranslationError, match="refuses a dispersive Kerr response"):
         damaged.validate()
+
+
+def test_the_tdse_source_is_the_modal_route_s_alone(admitted):
+    """Assembly refuses it beside a transform that belongs to another route."""
+    source = admitted.route.tdse
+    assert source is not None
+    general = copy.copy(admitted.transform)
+    object.__setattr__(general, "modal_tables", object())
+    with pytest.raises(TranslationError, match="scalar resolved modal Adams"):
+        _route(general, tdse=source, flux=None, transverse=None)

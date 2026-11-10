@@ -39,8 +39,8 @@ from benchmarks.system import (
     thread_environment,
 )
 
-BACKENDS = ("numpy_ref", "native", "mlx")
-"""The backends a benchmark can name; ``mlx`` only on an Apple GPU."""
+BACKENDS = ("numpy_ref", "native")
+"""The backends a benchmark can name."""
 
 REPEAT_TOLERANCE = 1e-9
 """The relative L2 difference two repeats' final fields may have: rounding only."""
@@ -82,13 +82,13 @@ def selection_options(parser: argparse.ArgumentParser) -> None:
         "--backend",
         choices=BACKENDS,
         default="native",
-        help="mlx runs in single precision, noiselessly; the others in double",
+        help="every backend runs in double precision",
     )
     parser.add_argument(
         "--noise",
         choices=("case", "none"),
         default="case",
-        help="none drops each case's noise, to match an mlx run's workload",
+        help="none drops each case's noise",
     )
     parser.add_argument(
         "--fft-size",
@@ -102,6 +102,12 @@ def selection_options(parser: argparse.ArgumentParser) -> None:
         help="run each case once on the GPU of a native device build",
     )
     parser.add_argument("--repeats", type=int, default=3, help="timed runs per case")
+    parser.add_argument(
+        "--counters",
+        action="store_true",
+        help="one more, separately reported run per worker with the native "
+        "adapter's structural counters on (SEP 47 section 7.3)",
+    )
     parser.add_argument(
         "--threading",
         choices=tuple(THREADING),
@@ -158,8 +164,11 @@ def summarise(
     """Reduce one worker's receipt to the tracked statistics.
 
     A row is consistent when its repeats took the same steps and reached the same
-    final field to rounding, and the native backend ran the threads it was given.
-    A device row's width is ``device``: its host threads do not set its pace.
+    final field to rounding, its last repeat's field (or, field-free, its
+    statistics) is finite, and the native backend ran the threads it was given. A
+    repeat that counted no steps or kept nothing to compare leaves the row unchecked,
+    which is not consistent. A device row's width is ``device``: its host threads do
+    not set its pace.
     """
     values = row["configuration"]
     device = bool(values.get("device"))
@@ -180,7 +189,11 @@ def summarise(
     last = result["repetitions"][-1]
     build = (result.get("provenance") or {}).get("build_info") or {}
     native_threads = build.get("runtime_threads")
-    same_steps = len({(r["accepted"], r["rejected"]) for r in result["repetitions"]})
+    steps = {(r["accepted"], r["rejected"]) for r in result["repetitions"]}
+    # A repetition that counted no steps, or kept no field to compare or check, is
+    # unchecked: no evidence of consistency, never a pass.
+    same_steps = None if any(None in pair for pair in steps) else len(steps) == 1
+    difference = result["repeat_difference"]
     return {
         **base,
         "median_s": statistics.median(times),
@@ -189,11 +202,13 @@ def summarise(
         "repeats": len(times),
         "accepted": last["accepted"],
         "rejected": last["rejected"],
-        "same_steps": same_steps == 1,
+        "same_steps": same_steps,
         "repeat_difference": result["repeat_difference"],
         "native_threads": native_threads,
-        "consistent": same_steps == 1
-        and result["repeat_difference"] <= REPEAT_TOLERANCE
+        "consistent": same_steps is True
+        and difference is not None
+        and difference <= REPEAT_TOLERANCE
+        and result["finite"] is True
         and (device or native_threads in (None, values["threads"])),
         "source_evaluations": last["source_evaluations"],
         "peak_rss_gib": result["peak_rss_bytes"] / 2**30,
@@ -208,6 +223,7 @@ def summarise(
         "noise": result["noise"],
         "finite": result["finite"],
         "solprop_path": (result.get("provenance") or {}).get("solprop_path"),
+        "counted": result.get("counted"),
     }
 
 
@@ -226,7 +242,7 @@ def show_results(rows: list[Record]) -> None:
         spread = 100 * (row["max_s"] - row["min_s"]) / row["median_s"]
         print(
             f"{row['case']:26} {row['integrator']:28} {row['threads']!s:>3} "
-            f"{row['median_s']:9.2f} {spread:8.1f} {row['accepted']:7d} "
+            f"{row['median_s']:9.2f} {spread:8.1f} {row['accepted'] or '-':>7} "
             f"{row['device_gib'] or row['peak_rss_gib']:6.2f}"
             + ("" if row["consistent"] else "  (repeats or threads inconsistent)")
             + ("  (busy)" if row["busy"] else "")
@@ -405,7 +421,11 @@ def track(args: argparse.Namespace) -> int:
         width = row["configuration"]["threads"]
         events, elapsed = launch_worker(
             sys.executable,
-            {"configuration": row["configuration"], "repeats": args.repeats},
+            {
+                "configuration": row["configuration"],
+                "repeats": args.repeats,
+                "counters": args.counters,
+            },
             thread_environment(width, dict(os.environ), args.threading)
             | worker_calibration(dict(os.environ)),
             output / "raw" / row["id"],

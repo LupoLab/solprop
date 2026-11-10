@@ -240,11 +240,11 @@ def test_assemble_divides_true_power_launch_and_noise():
     root[grid.active_mask] = np.sqrt(np.real(mode.neff(grid.omega[grid.active_mask])))
     # Division and the independently evaluated square root each round once.
     np.testing.assert_allclose(
-        result.initial.field0[0], field / root, rtol=2 * np.finfo(float).eps, atol=0
+        result.initial.field0, field / root, rtol=2 * np.finfo(float).eps, atol=0
     )
     assert result.initial.noise0 is not None
     np.testing.assert_allclose(
-        result.initial.noise0[0],
+        result.initial.noise0,
         noise.spectrum / root,
         rtol=2 * np.finfo(float).eps,
         atol=0,
@@ -383,7 +383,7 @@ def test_a_dispersion_specified_mode_needs_the_prefactor_index():
     # is exactly one everywhere and the launch is untouched.
     problem = assemble(grid, mode, [], launch, prefactor_index=1.0, **settings)
     np.testing.assert_array_equal(power_weight_at(problem, 0.0), 1.0)
-    np.testing.assert_array_equal(problem.initial.field0[0], launch)
+    np.testing.assert_array_equal(problem.initial.field0, launch)
 
 
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
@@ -419,11 +419,11 @@ def test_the_entrance_conversion_reads_the_weight_row(representation):
     # round trip through the same row cannot be worse than 2 eps, and is not.
     bound = 2 * np.finfo(float).eps
     np.testing.assert_allclose(
-        power_amplitude(problem.initial.field0[0], weight), launch, rtol=bound, atol=0
+        power_amplitude(problem.initial.field0, weight), launch, rtol=bound, atol=0
     )
     assert problem.initial.noise0 is not None
     np.testing.assert_allclose(
-        power_amplitude(problem.initial.noise0[0], weight),
+        power_amplitude(problem.initial.noise0, weight),
         noise.spectrum,
         rtol=bound,
         atol=0,

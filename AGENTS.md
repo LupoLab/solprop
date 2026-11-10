@@ -29,7 +29,7 @@ rather than style, ask rather than guess.
 | Python | 3.14 — equal to `requires-python` in `pyproject.toml` |
 | Platforms | solprop runs where solprop-native installs: wheels for osx-arm64, linux-64, linux-aarch64, win-64 and win-arm64; from source on Linux and macOS (GPU builds on Linux), with no support promise elsewhere; the Queue and Slurm scan executors POSIX-only |
 | Type checker | `basedpyright`, pinned exactly in the dev group |
-| Backends | The native backend (`native`, the `solprop-native` distribution built from `native/`, a required dependency): what `auto` selects, with no fallback, and the GPU path. The NumPy reference (`numpy_ref`, the oracle): the numerical reference, and the executor of the short list of supported features in SEP 43 §5. `mlx`: experimental, single precision on Apple GPUs. `numba_cpu` is retired: naming it raises `BackendError` |
+| Backends | The native backend (`native`, the `solprop-native` distribution built from `native/`, a required dependency): what `auto` selects, with no fallback, and the GPU path. The NumPy reference (`numpy_ref`, the oracle): the numerical reference, and the executor of the short list of supported features in SEP 43 §5, and the one backend that runs single precision. `numba_cpu` (SEP 43) and `mlx` (SEP 47) are retired: naming either raises `BackendError` |
 | Materials | [optmat](https://github.com/LupoLab/optmat), the curated optical-materials package |
 | Design docs | `docs/dev/` — architecture, conventions, stepper, algorithms, backends, kernel contract, decisions, roadmap, open questions, testing, accuracy, benchmarks, benchmarking, dependencies, tooling |
 | Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues): open work goes in an issue, not on the roadmap, which lists only SEPs (ADR-062). [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write an issue and how to label an issue or a pull request |
@@ -93,9 +93,7 @@ The full gate, `uv run poe check`, runs in this order (CI runs the same steps):
 
 Report what passed, failed or remains deferred. The
 coverage lane requires 100 % of statements and branches of the whole package
-(`fail_under = 100`) but the experimental `mlx` backend, a recorded omission
-(`docs/dev/testing.md`, "The `mlx` omission"); it stays outside `poe check` only
-because it takes longer. `# pragma: no cover` needs a reason on the same line.
+(`fail_under = 100`); it stays outside `poe check` only because it takes longer. `# pragma: no cover` needs a reason on the same line.
 
 **CI** (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request:
 `poe check` split into parallel jobs (the static checks and the documentation on Linux;
@@ -218,8 +216,7 @@ The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
   that needs no run has `[skip ci]` in its head commit's message. The branch may start on
   top of another agent's open pull request, when the SEP needs that work first. Within
   each phase: `numpy_ref` and native CPU in `native/`, in either order (ADR-068), with
-  tests and the manual page; `mlx` only where the SEP says so (the backend rules, below). A
-  backend without the feature refuses it by name, never falls back silently; `Final`
+  tests and the manual page. A backend without the feature refuses it by name, never falls back silently; `Final`
   needs parity on `numpy_ref` and native CPU, or an exception written into the accepted
   SEP.
 - **Reporting.** Each phase appends its report to Part II of the SEP: delivered paths,
@@ -243,7 +240,7 @@ to it; a function that departs from it says so in the first line of its docstrin
 | Fourier sign | **Optics convention at the interface**: `Ẽ(ω) = ∫ E(t) e^{+iωt} dt`, plane wave `e^{i(βz − ωt)}`, delay `e^{+iωτ}`. **FFT convention inside the seam**: raw forward DFTs, `e^{i(ωt − βz)}`. The boundary is a conjugation in exactly three named places (`fourier.to_optics`/`to_internal`); HDF5 files are optics-convention (`conventions.md §2`) |
 | Linear operator (internal) | `D = −i(β − β₀ − β₁(ω − ω₀)) − α/2`, `Im n_eff > 0` is loss |
 | Amplitudes | interface modal amplitude `b = sqrt(Re n_eff) a` in true √W; the internal `a` is vacuum-normalised (`conventions.md §4`) |
-| Kernel state layout | `(n_batch, n_modes, n_pol, n_omega)` complex128, ω contiguous; saved fields `(n_z, n_modes, n_pol, n_omega)` |
+| Kernel state layout | `(n_modes, n_pol, n_omega)` complex128, ω contiguous, one trajectory (a group is a sequence of problems); saved fields `(n_z, n_modes, n_pol, n_omega)` |
 | Axis names | `n_batch n_modes n_pol n_omega n_omega_fine n_t n_to n_nodes n_z n_intervals n_deg n_windows`, reused verbatim in annotations |
 
 ## Guiding principles
@@ -320,8 +317,7 @@ The long form is [`backends.md`](docs/dev/backends.md).
 
 - **Where features land** (ADR-061, ADR-064, ADR-068, `backends.md §10`). `native` is the
   primary backend. `numpy_ref` and `native`: every new feature lands on both, in either
-  order, and `native` may shape the contract. `mlx`: experimental; keep it runnable and
-  correct, add nothing as part of other work. A backend without a feature refuses it by
+  order, and `native` may shape the contract. A backend without a feature refuses it by
   name.
 - The **NumPy reference backend is the oracle** for numbers. Every other backend is
   validated against it (one linear application, one nonlinear evaluation, one step, eight
@@ -357,10 +353,10 @@ The long form is [`backends.md`](docs/dev/backends.md).
 - **In-place and `out=`** only inside the backends, wrapped by the seam; every buffer is
   listed by `memory_ledger()`, which is tested.
 - Device arrays never cross the `Backend` protocol, whose methods take and return host
-  arrays. Between `StepDriver` and its subclass the state is an opaque handle (an MLX
-  array, a native state), and the shared code reads it only through `_observed_field`,
+  arrays. Between `StepDriver` and its subclass the state is an opaque handle (a native
+  state), and the shared code reads it only through `_observed_field`,
   which copies it to the host.
-- **The seam has no version number** (ADR-068). A change to the `KernelProblem` fields,
+- **The seam has no version number** (ADR-068). A change to the `PropagationProblem` fields,
   the protected `StepDriver` surface or the stage bundles of `translate/stage.py` rewrites
   the frozen tables in `tests/backends/test_driver.py` in the same commit and adds a
   release-note fragment. solprop and solprop-native are released together and pinned to

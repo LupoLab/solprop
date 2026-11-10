@@ -75,7 +75,7 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
         expected = reference._nonlinear(
             rotated[None],
             reference._stage_scalars(position, position),
-            np.ones(problem.shape, complex),
+            np.ones((1, *problem.shape), complex),
         )[0]
         backend.set_initial(problem.initial.field0, noise)
         # Zero distance isolates one nonlinear evaluation while still exercising

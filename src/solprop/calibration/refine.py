@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 
+from solprop.backends.session import Start
 from solprop.calibration import _native, grain, selection
 from solprop.exceptions import CalibrationError
 
@@ -132,7 +133,7 @@ class _Windows:
             if record is None
             else ExecutionRecord.from_native(record),
         )
-        self.backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        self.probe = self.backend.timing_probe(Start.entrance(problem))
         start = float(problem.initial.z)
         end = float(max(problem.stepper.save_planes, default=start))
         self.dz = float(problem.stepper.dz_init)
@@ -160,8 +161,8 @@ class _Windows:
         for z in self.positions:
             if self.low_storage:
                 return []
-            _, state = self.backend._trial_step(z, self.dz)  # pyright: ignore[reportPrivateUsage]
-            found.append(np.asarray(self.backend._observed_field(state)))  # pyright: ignore[reportPrivateUsage]
+            self.probe.trial(z, self.dz)
+            found.append(self.probe.field())
         return found
 
     def time(self, repeats: int) -> float:
@@ -178,12 +179,9 @@ class _Windows:
             Seconds per step.
         """
         steps: list[Callable[[], object]] = (
-            [self.backend.timed_step()]
+            [self.probe.trial]
             if self.low_storage
-            else [
-                (lambda z=z: self.backend._trial_step(z, self.dz))  # pyright: ignore[reportPrivateUsage]
-                for z in self.positions
-            ]
+            else [(lambda z=z: self.probe.trial(z, self.dz)) for z in self.positions]
         )
         for step in steps:
             step()
@@ -268,7 +266,7 @@ def _candidates(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem, for its shape.
     sizing : Mapping[str, object]
         Its workspace's ``execution_sizing`` under the base record.
@@ -410,7 +408,10 @@ def _refine(
     try:
         sizing = cast(dict[str, object], base.backend.metadata()["execution_sizing"])
         key = native._profile.descriptor(  # pyright: ignore[reportPrivateUsage]
-            shape=problem.shape,
+            # The store's key keeps the four-axis shape it has always been written
+            # with, so that refinements recorded before the batch axis left the
+            # problem (SEP 47 section 6.2) are found again.
+            shape=(1, *problem.shape),
             grid_kind=problem.grid_kind,
             integrator=type(problem.stepper.integrator).__name__,
             sizing=sizing,

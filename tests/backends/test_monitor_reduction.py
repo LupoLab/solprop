@@ -13,8 +13,7 @@ reading drains the sum, beside the energies of what the last step's split found.
 (:meth:`solprop.monitor.BoundaryMonitor.energies`, ``split_sums``), the oracle every
 other backend is held to here, on the probes of ``tests/monitor_cases.py``: each route's
 tiny case launched with a copy of its pulse near the window's edge, so that every
-region holds light. ``mlx``, single precision only, is held to the single-precision
-oracle on the same probes in ``tests/backends/test_mlx.py``.
+region holds light.
 """
 
 from __future__ import annotations
@@ -45,7 +44,7 @@ from monitor_cases import (
 from solprop.backends.registry import available, select
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 COMPILED = ("native",)
 
@@ -73,7 +72,7 @@ def _checkreading(
     backend: str,
     route: str,
     scheme: str,
-    problem: Callable[[Simulation], KernelProblem] | None = None,
+    problem: Callable[[Simulation], PropagationProblem] | None = None,
 ) -> None:
     """Compare a backend's reading of the edge-reaching launch with the reference's."""
     simulation = probe(route, scheme)
@@ -215,15 +214,19 @@ def test_a_monitor_for_another_grid_is_refused(backend: str) -> None:
         made.close()
 
 
-def _chunked(simulation: Simulation) -> KernelProblem:
+def _chunked(simulation: Simulation) -> PropagationProblem:
     """Return the Cartesian case's problem with node chunks that leave a partial one."""
     problem = simulation.translate()
     return dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=50)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=50),
+        ),
     )
 
 
-def _bare(simulation: Simulation) -> KernelProblem:
+def _bare(simulation: Simulation) -> PropagationProblem:
     """Return a route's problem without its temporal collar."""
     simulation.settings = dataclasses.replace(
         simulation.settings, absorber=bare_absorber(simulation.grid)
@@ -238,7 +241,7 @@ def _bare(simulation: Simulation) -> KernelProblem:
 )
 @pytest.mark.parametrize("backend", COMPILED)
 def test_a_check_reads_the_reference_s_numbers_at_the_edges(
-    backend: str, route: str, problem: Callable[[Simulation], KernelProblem]
+    backend: str, route: str, problem: Callable[[Simulation], PropagationProblem]
 ) -> None:
     # A last chunk shorter than the rest, and a run with no collar, for which the
     # backends plan their own coarse transform at the first attach.
@@ -348,7 +351,7 @@ def test_an_occupancy_outside_its_reduction_is_refused(count: int) -> None:
     try:
         driver = cast("Any", as_driver(made))
         table = np.zeros(
-            math.prod(driver._problem.shape[1:2]) * simulation.grid.n_omega
+            math.prod(driver._problem.shape[0:1]) * simulation.grid.n_omega
         )
         with pytest.raises(ValueError, match="between 1 and 128 buckets"):
             driver._native_state.bind_occupancy(table.astype(np.uint8), count)

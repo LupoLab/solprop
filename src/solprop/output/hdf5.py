@@ -228,7 +228,11 @@ def _write_march(group: h5py.Group, snapshot: MarchSnapshot) -> None:
         The snapshot.
     """
     group.attrs["z"] = math.nan
-    _overwrite(group, "state", np.asarray(snapshot.state, dtype=np.complex128))
+    # The dataset keeps the leading axis of one it has always had, so that every
+    # reader of the format reads it (SEP 47 section 6.7).
+    _overwrite(
+        group, "state", np.asarray(snapshot.state, dtype=np.complex128)[np.newaxis]
+    )
     _overwrite(group, "positions", np.asarray(snapshot.positions, dtype=np.float64))
     _overwrite(group, "slots", np.asarray(snapshot.slots, dtype=np.int64))
     rows = group.require_group("rows")
@@ -276,7 +280,7 @@ def _read_march(file: h5py.File, z: float) -> MarchSnapshot | None:
         rows = _group(group, "rows")
         return MarchSnapshot(
             z=stored,
-            state=np.asarray(_dataset(group, "state")[()]),
+            state=_trajectory_state(np.asarray(_dataset(group, "state")[()])),
             proposal=float(np.asarray(group.attrs["proposal"])),
             method=str(group.attrs["method"]),
             order=int(np.asarray(group.attrs["order"])),
@@ -298,6 +302,39 @@ def _read_march(file: h5py.File, z: float) -> MarchSnapshot | None:
     except (KeyError, ValueError, OutputError) as error:
         logger.warning("ignoring the unreadable march snapshot in the file: %s", error)
         return None
+
+
+def _trajectory_state(
+    stored: Complex[np.ndarray, "*shape"],
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+    """Return a stored march state without the leading axis of one its file keeps.
+
+    Parameters
+    ----------
+    stored : numpy.ndarray
+        The ``state`` dataset: ``(1, n_modes, n_pol, n_omega)`` as every file has
+        written it, or ``(n_modes, n_pol, n_omega)``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The trajectory's state, ``(n_modes, n_pol, n_omega)``.
+
+    Raises
+    ------
+    OutputError
+        If the state has neither layout: a leading axis longer than one is a stacked
+        group, which a single trajectory's snapshot never is, and is never squeezed.
+    """
+    if stored.ndim == 4 and stored.shape[0] == 1:
+        return stored[0]
+    if stored.ndim == 3:
+        return stored
+    msg = (
+        f"the march snapshot's state has shape {stored.shape}, expected one "
+        "trajectory's (1, n_modes, n_pol, n_omega)"
+    )
+    raise OutputError(msg)
 
 
 def _write_checkpoint(
@@ -747,6 +784,67 @@ def _read_json(file: h5py.File) -> str:
         raise OutputError(msg)
     stored = _dataset(file, _METADATA_KEY)[()]
     return stored.decode("utf-8") if isinstance(stored, bytes) else str(stored)
+
+
+def _current_checkpoint(
+    file: h5py.File,
+    checkpoint: TerminalCheckpoint | None,
+    outcome: RunOutcome | None,
+    *,
+    refuse: bool,
+) -> TerminalCheckpoint | None:
+    """Return a file's checkpoint, setting aside a running one a cut-short write left.
+
+    Saving a plane appends it before removing the running checkpoint it supersedes,
+    and a new checkpoint is moved into place before the outcome naming it is rewritten
+    (SEP 47 section 5.5): a process killed between the two leaves a checkpoint behind
+    the last plane, or one the ``running`` outcome does not name. That state is stale,
+    not inconsistent, and is ignored. A closing (non-running) record that disagrees
+    with its checkpoint is refused, as before.
+
+    Parameters
+    ----------
+    file : h5py.File
+        The open file.
+    checkpoint : solprop.output.schema.TerminalCheckpoint or None
+        The checkpoint it holds.
+    outcome : solprop.output.schema.RunOutcome or None
+        Its outcome.
+    refuse : bool
+        Whether to refuse an inconsistent state rather than keep it as read.
+
+    Returns
+    -------
+    solprop.output.schema.TerminalCheckpoint or None
+        The checkpoint to resume from, or ``None``.
+
+    Raises
+    ------
+    OutputError
+        If `refuse` and a checkpoint precedes the last plane or is unnamed by a
+        closing outcome.
+    """
+    if checkpoint is None:
+        return None
+    n_saved = _stored_counts(file)[0] if "z" in file else 0
+    behind = n_saved > 0 and checkpoint.plane.z < float(
+        _dataset(file, "z")[n_saved - 1]
+    )
+    unnamed = outcome is None or checkpoint.plane.z != outcome.z
+    if not (behind or unnamed):
+        return checkpoint
+    if outcome is not None and outcome.status == "running":
+        logger.info(
+            "ignoring the checkpoint at z = %.6e m, left %s by a write cut short",
+            checkpoint.plane.z,
+            "behind the last saved plane" if behind else "unnamed by the outcome",
+        )
+        return None
+    if not refuse:
+        return checkpoint
+    if behind:
+        raise OutputError("terminal checkpoint precedes the last saved plane")
+    raise OutputError("terminal checkpoint has no matching execution outcome")
 
 
 @dataclass(frozen=True, eq=False)
@@ -1255,9 +1353,13 @@ class HDF5Output(PlaneStore):
         metadata = _read_record(file)
         self._outcome = _read_outcome(file)
         self._resume_outcome_pending = self._append_mode and self._outcome is not None
-        self._terminal_checkpoint = _read_checkpoint(file, metadata)
-        self._checkpoint_pending = (
-            self._append_mode and self._terminal_checkpoint is not None
+        self._terminal_checkpoint = _current_checkpoint(
+            file, _read_checkpoint(file, metadata), self._outcome, refuse=False
+        )
+        self._carried = (
+            self._terminal_checkpoint.plane
+            if self._append_mode and self._terminal_checkpoint is not None
+            else None
         )
         if "z" not in file:
             return
@@ -2173,8 +2275,10 @@ def resume(path: Path | str | Output) -> ResumeState:
     The last plane comes back in the **internal** FFT convention, through
     :func:`solprop.fourier.spectrum_to_internal`, so a driver can hand it straight to a
     backend without conjugating anything itself.
-    A separate terminal checkpoint contributes no regular observation but supplies
-    its actual position, pending attempt history and cumulative call ledgers.
+    A separate terminal checkpoint, or a running checkpoint written between saved
+    planes beside a ``running`` outcome at its position (SEP 47 section 5.5),
+    contributes no regular observation but supplies its actual position, pending
+    attempt history and cumulative call ledgers.
     Reading preserves its landing classification; the driver requires explicit
     ``resume="interpolated"`` consent before restarting from an interpolated field.
 
@@ -2236,8 +2340,10 @@ def resume(path: Path | str | Output) -> ResumeState:
     metadata, _ = _stored_metadata(path)
     _check_plasma_benchmark(metadata)
     with h5py.File(path, "r") as file:
-        checkpoint = _read_checkpoint(file, metadata)
         outcome = _read_outcome(file)
+        checkpoint = _current_checkpoint(
+            file, _read_checkpoint(file, metadata), outcome, refuse=True
+        )
         n_saved = _stored_counts(file)[0] if "z" in file else 0
         if n_saved:
             plane, whole = _regular_resume_plane(file, metadata, n_saved - 1)
@@ -2247,12 +2353,6 @@ def resume(path: Path | str | Output) -> ResumeState:
             msg = f"{path} holds no saved plane, so there is nothing to resume from"
             raise OutputError(msg)
         if checkpoint is not None:
-            if n_saved and checkpoint.plane.z < plane.z:
-                raise OutputError("terminal checkpoint precedes the last saved plane")
-            if outcome is None or checkpoint.plane.z != outcome.z:
-                raise OutputError(
-                    "terminal checkpoint has no matching execution outcome"
-                )
             plane = checkpoint.plane
             whole = StepHistory(
                 **{

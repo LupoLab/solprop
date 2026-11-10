@@ -45,6 +45,7 @@ __all__ = [
     "arm_environment",
     "arm_order",
     "field_difference",
+    "same_work",
     "show_summary",
     "summarise",
 ]
@@ -105,12 +106,8 @@ def arm_environment(settings: list[str]) -> dict[str, str]:
 
 
 def arm_configuration(configuration: Record, backend: str) -> Record:
-    """Return one arm's configuration: its backend and that backend's precision."""
-    return {
-        **configuration,
-        "backend": backend,
-        "precision": "single" if backend == "mlx" else "double",
-    }
+    """Return one arm's configuration: its backend, in double precision."""
+    return {**configuration, "backend": backend, "precision": "double"}
 
 
 def arm_order(round_index: int) -> tuple[str, ...]:
@@ -137,6 +134,20 @@ def field_difference(baseline: Path, candidate: Path) -> float | None:
     return difference / scale if scale else difference
 
 
+def same_work(
+    baseline: set[tuple[int | None, int | None]],
+    candidate: set[tuple[int | None, int | None]],
+) -> bool | None:
+    """Whether both builds took one and the same (accepted, rejected) steps.
+
+    ``None`` when a repetition did not count its steps (a group on ``Batch``, which
+    watches no point's run): nothing was compared, which is not a match.
+    """
+    if any(None in steps for steps in baseline | candidate):
+        return None
+    return baseline == candidate and len(baseline) == 1
+
+
 def summarise(rows: list[Record], samples: list[Record], fields: Path) -> list[Record]:
     """Pair each round's medians and summarise the candidate/baseline ratios."""
     result = []
@@ -145,9 +156,14 @@ def summarise(rows: list[Record], samples: list[Record], fields: Path) -> list[R
         mine = [item for item in samples if item["id"] == row["id"]]
         failures = [item for item in mine if item["status"] != "ok"]
         medians: dict[str, dict[int, float]] = {arm: {} for arm in ARMS}
-        work: dict[str, set[tuple[int, int]]] = {arm: set() for arm in ARMS}
+        work: dict[str, set[tuple[int | None, int | None]]] = {
+            arm: set() for arm in ARMS
+        }
+        counters: dict[str, Record | None] = dict.fromkeys(ARMS)
         for item in mine:
             if item["status"] == "ok":
+                if counters[item["arm"]] is None and item.get("counted"):
+                    counters[item["arm"]] = item["counted"].get("counters")
                 times = [rep["seconds"] for rep in item["repetitions"]]
                 medians[item["arm"]][item["round"]] = statistics.median(times)
                 work[item["arm"]].update(
@@ -172,14 +188,16 @@ def summarise(rows: list[Record], samples: list[Record], fields: Path) -> list[R
                 "ratio_min": min(ratios, default=None),
                 "ratio_max": max(ratios, default=None),
                 "ratios": ratios,
-                "same_work": work["baseline"] == work["candidate"]
-                and len(work["baseline"]) == 1,
-                "work": {arm: sorted(work[arm]) for arm in ARMS},
+                "same_work": same_work(work["baseline"], work["candidate"]),
+                "work": {arm: sorted(work[arm], key=str) for arm in ARMS},
                 "field_difference": field_difference(
                     fields / "baseline" / f"{row['id']}.npy",
                     fields / "candidate" / f"{row['id']}.npy",
                 ),
                 "failures": [item.get("error") for item in failures],
+                # Each arm's structural counters, from its first counted run
+                # (--counters): what each build returned to Python for.
+                "counters": counters,
             }
         )
     return result
@@ -210,10 +228,17 @@ def show_summary(summary: list[Record]) -> None:
             f"{seconds(row['baseline_seconds']):>9} "
             f"{seconds(row['candidate_seconds']):>9} "
             f"{ratio:>7} {spread:>13} {field:>10} "
-            f"{'same' if row['same_work'] else 'differs'}"
+            + {True: "same", False: "differs", None: "unchecked"}[row["same_work"]]
         )
         for error in row["failures"]:
             print(f"  failed: {error}")
+        for arm in ARMS:
+            found = (row.get("counters") or {}).get(arm)
+            if found:
+                returns = ", ".join(
+                    f"{name} {count}" for name, count in found["native_returns"].items()
+                )
+                print(f"  {arm} returns to Python: {returns or 'none'}")
     ratios = [row["ratio"] for row in summary if row["ratio"] is not None]
     if ratios:
         mean = math.exp(statistics.fmean(math.log(value) for value in ratios))
@@ -238,8 +263,7 @@ def ab(args: argparse.Namespace) -> int:
         steppers(args.stepper),
         args.threads,
         args.production or physical_cores(),
-        # A configuration either arm cannot run is left out for both.
-        backend="mlx" if "mlx" in backends.values() else args.backend,
+        backend=args.backend,
         fraction=args.length,
         device=args.device,
         noise=args.noise,
@@ -299,6 +323,7 @@ def ab(args: argparse.Namespace) -> int:
                             row["configuration"], backends[arm]
                         ),
                         "repeats": args.repeats,
+                        "counters": args.counters,
                         "fields": str(
                             (output / "fields" / arm / f"{row['id']}.npy").resolve()
                         )

@@ -392,7 +392,7 @@ def test_a_derived_run_carries_the_redraw_on_its_shared_translation(derive):
 
 def test_explicit_noise_and_no_noise_are_not_carried():
     parent = fibre()
-    field = parent.translate().initial.field0[0]
+    field = parent.translate().initial.field0
     replaced = parent.with_input(field, noise=fibre(noise="input", seed=5).noise)
     assert not replaced._reseed(11)
     assert drawn(replaced).seed == 5
@@ -436,7 +436,7 @@ def test_a_spatial_update_draws_on_the_new_mediums_flux():
 
 def test_a_derived_run_resumes_from_its_file_after_a_new_draw(tmp_path):
     path = tmp_path / "run.h5"
-    field = fibre().translate().initial.field0[0]
+    field = fibre().translate().initial.field0
     first = fibre().with_input(field)
     first.run(path, progress="none")
     seed = drawn(first).seed
@@ -450,7 +450,7 @@ def test_a_derived_run_resumes_from_its_file_after_a_new_draw(tmp_path):
 def test_an_explicit_realisation_is_still_refused_by_a_resume(tmp_path):
     path = tmp_path / "run.h5"
     parent = fibre()
-    field = parent.translate().initial.field0[0]
+    field = parent.translate().initial.field0
     parent.with_input(field).run(path, progress="none")
     other = parent.with_input(field, noise=fibre(noise="input", seed=5).noise)
     with pytest.raises(OutputError, match=r"these fields changed: noise"):

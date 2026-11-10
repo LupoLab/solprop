@@ -369,7 +369,7 @@ def test_one_stage_matches_the_responses_composed_by_hand(
     problem, kerr, plasma = ionising_capillary(preionisation)
     backend = NumpyRefBackend(problem)
     backend.set_initial(problem.initial.field0, None)
-    state = problem.initial.field0
+    state = problem.initial.field0[None]
     ones = np.ones_like(state)
     got = backend._nonlinear(state, backend._stage_scalars(0.0, 0.05), ones)
     want = reference_nonlinear(problem, kerr, plasma, state, 0.05)
@@ -457,18 +457,16 @@ def test_the_backend_reports_the_plasma_it_made(ionised_backend):
     )
     values = backend.stats(spec)
     assert sorted(values) == sorted(spec.names)
-    for name in spec.names:
-        assert values[name].shape[0] == 1
-    # The catalogue's shapes, with the leading batch axis the protocol promises.
+    # The catalogue's shapes: a scalar per channel, the energy per mode and pol.
     for name in ("electron_density", "peak_ionisation_rate", "peak_intensity"):
-        assert values[name].shape == (1,)
-    assert values["energy"].shape == (1, 1, 1)
+        assert values[name].shape == ()
+    assert values["energy"].shape == (1, 1)
     # A 200 uJ pulse in two bar of argon ionises a measurable fraction of it, and the
     # density it leaves cannot exceed the gas it came from.
     density = float(problem.responses.density(0.1))
-    assert 0.0 < float(values["electron_density"][0]) < density
-    assert float(values["peak_ionisation_rate"][0]) > 0.0
-    assert float(values["peak_intensity"][0]) > 0.0
+    assert 0.0 < float(values["electron_density"]) < density
+    assert float(values["peak_ionisation_rate"]) > 0.0
+    assert float(values["peak_intensity"]) > 0.0
 
 
 def test_the_electron_density_is_the_fraction_the_pulse_leaves(ionised_backend):
@@ -485,7 +483,7 @@ def test_the_electron_density_is_the_fraction_the_pulse_leaves(ionised_backend):
         1.0 if transform.taper_scale is None else float(transform.taper_scale(plane.z))
     )
     modal = passes.to_time(
-        plane.field[0],
+        plane.field,
         problem.grids.crop_index,
         problem.grids.n_to,
         kind=problem.grid_kind,
@@ -506,8 +504,8 @@ def test_the_electron_density_is_the_fraction_the_pulse_leaves(ionised_backend):
     expected = float(problem.responses.density(0.1)) * float(fraction[densest, -1])
     # The backend and this independently re-synthesised reference cross FFT, GEMM and
     # scalar/vector libm paths. Use the existing 1e-10 propagated-statistic contract.
-    assert float(values["electron_density"][0]) == pytest.approx(expected, rel=1e-10)
-    assert float(values["peak_ionisation_rate"][0]) == pytest.approx(
+    assert float(values["electron_density"]) == pytest.approx(expected, rel=1e-10)
+    assert float(values["peak_ionisation_rate"]) == pytest.approx(
         float(np.max(rate[densest])), rel=1e-10
     )
 
@@ -528,20 +526,14 @@ def test_the_peak_intensity_of_a_mode_averaged_run_is_taken_on_its_mode_s_axis(
         mode.normalisation(plane.z)
     )
     expected = (
-        0.5
-        * EPS0
-        * C
-        * float(np.sum(profile**2))
-        * float(values["peak_power_total"][0])
+        0.5 * EPS0 * C * float(np.sum(profile**2)) * float(values["peak_power_total"])
     )
     # The profile at one point and the peak power: a two-factor product, so round-off.
-    assert float(values["peak_intensity"][0]) == pytest.approx(expected, rel=1e-14)
+    assert float(values["peak_intensity"]) == pytest.approx(expected, rel=1e-14)
     # For HE_11 the on-axis intensity is int J0^2 / int J0^4 = 1.768 times the average
     # over the effective area, which is what the mode-averaged form reports.
-    average = float(values["peak_power_total"][0]) / float(
-        problem.transform.aeff(plane.z)
-    )
-    assert 1.75 < float(values["peak_intensity"][0]) / average < 1.79
+    average = float(values["peak_power_total"]) / float(problem.transform.aeff(plane.z))
+    assert 1.75 < float(values["peak_intensity"]) / average < 1.79
 
 
 def test_the_quadrature_error_is_reported_and_is_not_a_number_without_a_rule(
@@ -550,7 +542,7 @@ def test_the_quadrature_error_is_reported_and_is_not_a_number_without_a_rule(
     """A one-node transform has no embedded pair: the estimate is nan, not zero."""
     _, backend = ionised_backend
     values = backend.stats(StatsSpec(names=("quadrature_error",)))
-    assert np.isnan(values["quadrature_error"][0])
+    assert np.isnan(values["quadrature_error"])
 
 
 def test_a_plasma_statistic_without_a_plasma_is_refused(backend_class, field_grid):
@@ -664,7 +656,7 @@ def test_the_plasma_statistics_are_the_same_between_planes_as_at_one(
     # The channel is a trace, not one number repeated. It is not asserted to rise:
     # this fixture's fill is a *falling* two-point gradient, 2.0 bar to 0.2 bar, so
     # the gas density and the plasma it leaves behind both fall along z.
-    density = rows.values["electron_density"][:, 0]
+    density = rows.values["electron_density"]
     assert np.all(density > 0.0)
     assert float(np.ptp(density)) > 0.0
 
@@ -679,6 +671,7 @@ def test_the_on_axis_matrix_is_built_once_and_rescaled(
     many rows builds it exactly once, and the row at the plane is the plane's own.
     """
     import solprop.backends.driver as driver_module  # noqa: PLC0415 - patched here
+    import solprop.backends.host.driver as host_module  # noqa: PLC0415 - patched here
 
     names = ("peak_intensity",)
     problem, _, _ = ionising_capillary()
@@ -690,11 +683,13 @@ def test_the_on_axis_matrix_is_built_once_and_rescaled(
     )
     builds = []
     real = driver_module.mode_matrix
-    monkeypatch.setattr(
-        driver_module,
-        "mode_matrix",
-        lambda *args, **kwargs: builds.append(args) or real(*args, **kwargs),
-    )
+    # The reference's driver and the native bridge's each build it in their own module.
+    for module in (driver_module, host_module):
+        monkeypatch.setattr(
+            module,
+            "mode_matrix",
+            lambda *args, **kwargs: builds.append(args) or real(*args, **kwargs),
+        )
     backend = backend_class(problem, grid=field_grid, modes=[mode])
     try:
         backend.set_initial(problem.initial.field0, None)
@@ -711,7 +706,7 @@ def test_the_on_axis_matrix_is_built_once_and_rescaled(
         at_plane["peak_intensity"],
         rtol=scan_bound(field_grid.n_to),
     )
-    assert float(np.ptp(rows.values["peak_intensity"][:, 0])) > 0.0
+    assert float(np.ptp(rows.values["peak_intensity"])) > 0.0
 
 
 def test_the_on_axis_matrix_follows_a_taper(field_grid, backend_class):

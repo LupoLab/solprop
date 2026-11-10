@@ -14,9 +14,9 @@ cross-backend and within-backend agreement alike are held to rounding budgets.
 
 The GNLSE soliton problems are the ones ``tests/driver/test_scaffold.py`` propagates,
 so the two integrators can be compared directly. The synthetic problems substitute one
-group of an assembled :class:`~solprop.translate.problem.KernelProblem` -- normally the
-linear operator, sometimes the density path -- which is how a closed-form ``Phi`` or a
-prescribed ``gamma(z)`` reaches a backend without the physics layer having to be able
+group of an assembled :class:`~solprop.translate.problem.PropagationProblem` -- normally
+the linear operator, sometimes the density path -- which is how a closed-form ``Phi`` or
+a prescribed ``gamma(z)`` reaches a backend without the physics layer having to be able
 to express it.
 """
 
@@ -51,7 +51,7 @@ from solprop.translate.chebyshev import PiecewiseChebyshev, build
 from solprop.translate.expansion import ParameterExpansion
 from solprop.translate.linop import LinearOperator, delta_phi
 from solprop.translate.masks import DEFAULT_ABSORBER_SCHEME, AbsorberScheme
-from solprop.translate.problem import Flags, KernelProblem, assemble
+from solprop.translate.problem import Flags, PropagationProblem, assemble
 from solprop.translate.responses import prefactor_at
 
 # The GNLSE soliton of tests/driver/test_scaffold.py and docs/tutorials, so that the
@@ -208,7 +208,7 @@ def soliton_field(grid, order):
 
 @pytest.fixture(scope="session")
 def soliton_problem(gnlse):
-    """Return ``(grid, order, **overrides) -> KernelProblem`` for an N-soliton run."""
+    """Return ``(grid, order, **overrides) -> PropagationProblem``, an N-soliton run."""
 
     def build_problem(grid, order, *, save_planes, **overrides):
         settings = {
@@ -231,7 +231,7 @@ def soliton_problem(gnlse):
 
 @pytest.fixture(scope="session")
 def linear_problem(gnlse):
-    """Return ``(grid, **overrides) -> KernelProblem`` with the Kerr term switched off.
+    """Return ``(grid, **overrides) -> PropagationProblem``, the Kerr term switched off.
 
     Two ways of switching it off are wanted: ``chi3 = 0`` keeps every pass in the step
     and multiplies by nothing, and an empty response list removes the nonlinear
@@ -265,7 +265,7 @@ def zero_kerr():
 
 @pytest.fixture(scope="session")
 def substitute():
-    """Return ``(base, **groups) -> KernelProblem`` replacing whole contract groups.
+    """Return ``(base, **groups) -> PropagationProblem``, replacing contract groups.
 
     The flags are re-derived from the substituted content by
     :meth:`solprop.translate.problem.Flags.from_content`, so they cannot disagree with
@@ -278,23 +278,25 @@ def substitute():
         parts = {
             "grids": base.grids,
             "linear": base.linear,
-            "transform": base.transform,
             "responses": base.responses,
             "initial": base.initial,
             "stepper": base.stepper,
+            "route": base.route,
         } | groups
         derived = flags or Flags.from_content(
             base.shape,
             parts["linear"],
-            parts["transform"],
+            parts["route"].transform,
             parts["responses"],
             parts["initial"],
         )
-        problem = KernelProblem(
+        problem = PropagationProblem(
             grid_kind=base.grid_kind,
             shape=base.shape,
             flags=derived,
             stats_spec=base.stats_spec,
+            precision=base.precision,
+            split_crossing=base.split_crossing,
             **parts,
         )
         if validate:
@@ -338,7 +340,7 @@ def synthetic_expansion():
     """
 
     def build_operator(
-        base: KernelProblem,
+        base: PropagationProblem,
         terms: Sequence[np.ndarray],
         weights_of: Callable[[np.ndarray], np.ndarray],
         *,
@@ -411,24 +413,6 @@ def expanded_prefactor():
 
 
 @pytest.fixture(scope="session")
-def batched_problem(gnlse, narrow_grid):
-    """A two-member batch, which the reference backend refuses (``max_batch = 1``)."""
-    start = soliton_field(narrow_grid, 1)
-    return assemble(
-        narrow_grid,
-        gnlse.mode,
-        [gnlse.kerr],
-        np.concatenate([start[np.newaxis], start[np.newaxis]]),
-        controller=PIController(rtol=1e-8, atol=1e-18),
-        save_planes=[0.01],
-        dz_max=0.01,
-        dz_init=1e-4,
-        batch_params={"member": np.array([0.0, 1.0])},
-        **GNLSE_SETTINGS,
-    )
-
-
-@pytest.fixture(scope="session")
 def thg_grid():
     """An envelope grid oversampled six times, which resolves the third harmonic."""
     return EnvelopeGrid.from_limits(1.0, WAVELENGTH, (500e-9, 2e-6), 1e-12, thg=True)
@@ -436,7 +420,7 @@ def thg_grid():
 
 @pytest.fixture(scope="session")
 def thg_problem(thg_grid):
-    """Return ``(*, thg) -> KernelProblem`` on the oversampled envelope grid."""
+    """Return ``(*, thg) -> PropagationProblem`` on the oversampled envelope grid."""
     fibre = problem_from(
         [0.0, 0.0, BETA2], omega_ref=thg_grid.omega0, gamma=GAMMA, shock=False
     )
@@ -459,7 +443,7 @@ def thg_problem(thg_grid):
 
 @pytest.fixture(scope="session")
 def capillary_problem(field_grid):
-    """Return ``(*, scheme) -> KernelProblem`` for the gradient capillary.
+    """Return ``(*, scheme) -> PropagationProblem`` for the gradient capillary.
 
     The fixture of ``tests/translate/test_problem.py``: a Marcatili HE11 capillary with
     a two-point pressure gradient, so the operator varies along z, the prefactor is a

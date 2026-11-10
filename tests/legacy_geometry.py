@@ -18,7 +18,7 @@ import numpy as np
 
 from solprop.boundaries import Absorber, no_absorber
 from solprop.grid import TimeGrid
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 LEGACY_GRID = {
     "fft_size": "pow2",
@@ -47,7 +47,7 @@ def bare_absorber(grid: TimeGrid) -> Absorber:
     return no_absorber(grid)
 
 
-def with_collar_rate(problem: KernelProblem, peak: float) -> KernelProblem:
+def with_collar_rate(problem: PropagationProblem, peak: float) -> PropagationProblem:
     """Return `problem` carrying an in-stage real-space collar of peak rate `peak`.
 
     The collar's rate is ``peak * (1 - W)`` on the geometry's nodes, as a requested
@@ -56,14 +56,14 @@ def with_collar_rate(problem: KernelProblem, peak: float) -> KernelProblem:
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         A translated spatial problem.
     peak : float
         The collar's peak power rate, 1/m.
 
     Returns
     -------
-    KernelProblem
+    PropagationProblem
         The problem with the rate on its geometry.
     """
     geometry = problem.transform.geometry
@@ -73,4 +73,6 @@ def with_collar_rate(problem: KernelProblem, peak: float) -> KernelProblem:
         problem.transform,
         geometry=dataclasses.replace(geometry, absorber_rate=rate),
     )
-    return dataclasses.replace(problem, transform=transform)
+    return dataclasses.replace(
+        problem, route=dataclasses.replace(problem.route, transform=transform)
+    )

@@ -137,8 +137,10 @@ __all__ = [
     "LINEAR_OPERATOR_FIELDS",
     "MARCH_POLICY_FIELDS",
     "MODAL_TABLES_FIELDS",
+    "PROBLEM_FIELDS",
     "REGIONAL_RESPONSE_FIELDS",
     "RESPONSE_FIELDS",
+    "ROUTE_FIELDS",
     "SEPARABLE_OPERATOR_FIELDS",
     "STAGE_SCALARS_FIELDS",
     "STAGE_TERMS_FIELDS",
@@ -338,6 +340,7 @@ _DRIVER_CLASS_MEMBERS: tuple[str, ...] = (
     "far_field_statistics",
     "helpers",
     "name",
+    "observes_fresh_field",
     "reads_transverse_edge",
 )
 """The ``StepDriver`` attributes and properties of the class this backend sets or reads,
@@ -448,6 +451,37 @@ this backend holds resident and evaluates natively.
 Naming them here makes a solprop that renamed one fail at :func:`check_build` with a
 message naming the member, rather than as an ``AttributeError`` raised from inside the
 adapter on the first problem it is handed."""
+
+PROBLEM_FIELDS: tuple[str, ...] = (
+    "grid_kind",
+    "shape",
+    "flags",
+    "grids",
+    "linear",
+    "responses",
+    "initial",
+    "stepper",
+    "stats_spec",
+    "route",
+    "precision",
+    "split_crossing",
+)
+"""``PropagationProblem`` fields this backend reads (solprop SEP 47 section 6.2).
+
+The descriptor's shared components and its route: a solprop that renamed or removed
+one fails at :func:`check_build` naming it, rather than inside the adapter."""
+
+ROUTE_FIELDS: dict[str, tuple[str, ...]] = {
+    "ModalRoute": ("transform", "tdse"),
+    "GeneralRoute": ("transform",),
+    "SpatialRoute": ("kind", "transform", "flux", "transverse"),
+}
+"""The route variants this backend visits, each with the fields it reads.
+
+``solprop.translate.routes`` holds the closed union; the adapter visits
+``problem.route`` with a ``match`` statement, prepares these variants and refuses the
+modal route's TDSE extension, and any variant it does not know, by name before it
+allocates (solprop SEP 47 section 6.2)."""
 
 TRANSFORM_FIELDS: tuple[str, ...] = ("modal_tables",)
 """``Transform`` rows this backend relies on.
@@ -953,6 +987,7 @@ def check_build() -> None:
         (:data:`DRIVER_SURFACE`, :data:`ADAMS_MARCH_SURFACE`,
         :data:`MARCH_POLICY_FIELDS`, :data:`STAGE_TERMS_FIELDS`,
         :data:`STAGE_SCALARS_FIELDS`, :data:`SEPARABLE_OPERATOR_FIELDS`,
+        :data:`PROBLEM_FIELDS`, :data:`ROUTE_FIELDS`,
         :data:`LINEAR_OPERATOR_FIELDS`, :data:`TRANSFORM_FIELDS`,
         :data:`RESPONSE_FIELDS`, or the leaves' members in :data:`MODAL_TABLES_FIELDS`,
         :data:`REGIONAL_RESPONSE_FIELDS`, :data:`COUPLED_FLOW_FIELDS` and
@@ -1037,11 +1072,13 @@ def _check_seam(info: BuildInfo, error: type[Exception]) -> None:
     from solprop.backends.multistep import AdamsMarch
     from solprop.backends.protocol import BatchBackend
     from solprop.stepper.multistep import MarchPolicy
+    from solprop.translate import routes
     from solprop.translate.coupled import CoupledFlowTables
     from solprop.translate.linop import LinearOperator
     from solprop.translate.masks import Grids
     from solprop.translate.modal import Transform
     from solprop.translate.modal_tables import ModalTransformTables
+    from solprop.translate.problem import PropagationProblem
     from solprop.translate.responses import (
         CompiledResponses,
         DispersiveKerrTerms,
@@ -1076,6 +1113,19 @@ def _check_seam(info: BuildInfo, error: type[Exception]) -> None:
         for name in ("observe_members", "member_metadata", "available_device_memory")
         if not callable(getattr(BatchBackend, name, None))
     )
+    descriptor = {field.name for field in _dataclasses.fields(PropagationProblem)}
+    missing.extend(
+        f"PropagationProblem.{name}"
+        for name in PROBLEM_FIELDS
+        if name not in descriptor
+    )
+    for variant, wanted in ROUTE_FIELDS.items():
+        route = getattr(routes, variant, None)
+        if route is None:
+            missing.append(f"solprop.translate.routes.{variant}")
+            continue
+        present = {field.name for field in _dataclasses.fields(route)}
+        missing.extend(f"{variant}.{name}" for name in wanted if name not in present)
     for bundle, wanted in (
         (Grids, ("t_window_fine_derivative",)),
         (LinearOperator, LINEAR_OPERATOR_FIELDS),

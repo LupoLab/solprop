@@ -23,7 +23,7 @@ from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
 from solprop.stepper.controller import PIController
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 LENGTH = 1e-3
 SPACE = RadialGrid(6e-4, 32)
@@ -51,7 +51,7 @@ def _run(  # noqa: PLR0913 - one case's physics and its numerical settings
     field_range: tuple[float, float] | None = None,
     space: RadialGrid = SPACE,
     steps: int | None = None,
-) -> tuple[dict[str, np.ndarray], KernelProblem]:
+) -> tuple[dict[str, np.ndarray], PropagationProblem]:
     """Run 1 mm of `medium`; return the stored statistics, exit field and problem."""
     grid = _grid()
     settings = SimulationSettings(

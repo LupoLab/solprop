@@ -44,6 +44,7 @@ from solprop.stepper import (
     PIController,
     RungeKutta,
 )
+from solprop.translate.routes import transverse_of
 from solprop.transverse_monitor import TransverseEdge
 
 pytestmark = pytest.mark.skipif(
@@ -223,11 +224,11 @@ def test_native_reads_a_collars_strip_and_current_as_the_host_does(
         native = backend._edge_reading(
             backend._require_state(), edge, current=True, full=True
         )
-        host = edge.reduction.reading(state[0], current=True, full=True)
+        host = edge.reduction.reading(state, current=True, full=True)
     finally:
         backend.close()
     # Rounding of one transform round trip and a sum of non-negative terms, each side.
-    budget = 4 * fft_bound(state.shape[1] * state.shape[3])
+    budget = 4 * fft_bound(state.shape[0] * state.shape[2])
     assert native.strip.shape == host.strip.shape
     assert np.all(host.strip[:, 1] > 0.0)
     np.testing.assert_allclose(native.strip, host.strip, rtol=budget)
@@ -245,7 +246,7 @@ def test_native_reads_a_collars_strip_and_current_as_the_host_does(
         backend.close()
     assert read.totals[1] > 0.0
     assert read.totals[1] == pytest.approx(
-        edge.reduction.reading(state[0]).totals[1], rel=budget
+        edge.reduction.reading(state).totals[1], rel=budget
     )
 
 
@@ -268,7 +269,7 @@ def test_a_plane_wave_reads_its_exact_current() -> None:
     wave = np.exp(1j * kappa * x)
     active = np.nonzero(np.asarray(problem.grids.active_mask))[0]
     state = np.zeros(problem.shape, dtype=np.complex128)
-    state[0, :, 0, active[3]] = np.fft.fft(wave)
+    state[:, 0, active[3]] = np.fft.fft(wave)
     backend, edge = _attached(simulation, state)
     try:
         native = backend._edge_reading(
@@ -297,8 +298,8 @@ def test_the_current_is_rectified_per_row_and_not_after_summing() -> None:
     kappa = 2 * math.pi * mode / (space.n_x * h)
     active = np.nonzero(np.asarray(problem.grids.active_mask))[0]
     state = np.zeros(problem.shape, dtype=np.complex128)
-    state[0, :, 0, active[3]] = np.fft.fft(np.exp(1j * kappa * x))
-    state[0, :, 0, active[5]] = np.fft.fft(np.exp(-1j * kappa * x))
+    state[:, 0, active[3]] = np.fft.fft(np.exp(1j * kappa * x))
+    state[:, 0, active[5]] = np.fft.fft(np.exp(-1j * kappa * x))
     backend, edge = _attached(simulation, state)
     try:
         native = backend._edge_reading(
@@ -339,7 +340,7 @@ def test_the_strip_tells_a_packets_direction(kappa: float, reads_inward: bool) -
     centre = float(np.mean(x[bounds.strip]))
     active = np.nonzero(np.asarray(problem.grids.active_mask))[0]
     state = np.zeros(problem.shape, dtype=np.complex128)
-    state[0, :, 0, active[3]] = _packet(space, centre, kappa)
+    state[:, 0, active[3]] = _packet(space, centre, kappa)
     backend, edge = _attached(simulation, state)
     try:
         native = backend._edge_reading(backend._require_state(), edge, full=True)
@@ -372,7 +373,7 @@ def test_a_small_batch_reads_what_one_batch_reads(
         small = backend._edge_reading(backend._require_state(), edge, full=True)
     finally:
         backend.close()
-    budget = 4 * fft_bound(state.shape[1] * state.shape[3])
+    budget = 4 * fft_bound(state.shape[0] * state.shape[2])
     np.testing.assert_allclose(small.strip, whole.strip, rtol=budget)
 
 
@@ -383,7 +384,7 @@ def test_a_collars_memory_is_its_row(route: str) -> None:
     state = _noise(problem, 73)
     backend, edge = _attached(simulation, state)
     try:
-        _, _, n_pol, n_omega = problem.shape
+        _, n_pol, n_omega = problem.shape
         expected = transverse_monitor._transverse_edge_bytes(
             edge.space, edge.design, n_pol, n_omega
         )
@@ -481,7 +482,7 @@ def test_a_collar_run_brings_no_state_to_the_host(
 
     monkeypatch.setattr(NativeBackend, "_observed_field", refused)
     simulation = _case(route, fields="none")
-    field = np.asarray(simulation.translate().initial.field0)[0]
+    field = np.asarray(simulation.translate().initial.field0)
     with simulation.runner() as runner, warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
         output = runner.run(field, progress="none")
@@ -511,7 +512,7 @@ def test_a_lit_node_reads_the_collars_rate_from_its_design() -> None:
     phase = np.exp(-2j * np.pi * np.arange(space.n_x) * node / space.n_x)
     active = np.nonzero(np.asarray(problem.grids.active_mask))[0]
     state = np.zeros(problem.shape, dtype=np.complex128)
-    state[0, :, 0, active[3]] = phase
+    state[:, 0, active[3]] = phase
     backend, edge = _attached(simulation, state)
     try:
         read = backend._edge_reading(backend._require_state(), edge)
@@ -537,7 +538,7 @@ def test_a_standing_wave_reads_almost_no_current() -> None:
     kappa = 2 * math.pi * 40 / (space.n_x * h)
     active = np.nonzero(np.asarray(problem.grids.active_mask))[0]
     state = np.zeros(problem.shape, dtype=np.complex128)
-    state[0, :, 0, active[3]] = np.fft.fft(np.cos(kappa * x).astype(np.complex128))
+    state[:, 0, active[3]] = np.fft.fft(np.cos(kappa * x).astype(np.complex128))
     backend, edge = _attached(simulation, state)
     try:
         native = backend._edge_reading(
@@ -655,7 +656,7 @@ def test_the_smallest_node_chunk_reads_what_the_default_reads(route: str) -> Non
         )
     finally:
         backend.close()
-    budget = 20 * 16 * problem.shape[2] * problem.grids.n_to
+    budget = 20 * 16 * problem.shape[1] * problem.grids.n_to
     small = _case(route, node_budget=budget)
     assert node_chunk(small.translate()) < node_chunk(problem)
     backend, edge = _attached(small, state)
@@ -715,7 +716,7 @@ def test_a_collar_run_matches_numpy_ref_on_a_matched_schedule(
 def _unmasked(problem: Any, seed: int) -> NoiseRealisation:
     """Return a hand-built input draw with energy outside the active band."""
     rng = np.random.default_rng(seed)
-    shape = problem.shape[1:]
+    shape = problem.shape
     spectrum = 1e-9 * (rng.standard_normal(shape) + 1j * rng.standard_normal(shape))
     return NoiseRealisation(spectrum=spectrum, seed=None, model="input")
 
@@ -739,7 +740,7 @@ def test_a_supplied_unmasked_draw_judges_as_the_host_does_with_no_transfer(
     def launch() -> tuple[dict[str, Any], int]:
         simulation = _case(route, noise="input")
         problem = simulation.translate()
-        assert problem.transverse is not None
+        assert transverse_of(problem.route) is not None
         backend = cast(
             "Any",
             select(
@@ -833,8 +834,8 @@ def test_a_strip_of_too_few_nodes_reads_nothing_on_either_side(
     backend, edge = _attached(simulation, state)
     try:
         read = backend._edge_reading(backend._require_state(), edge, full=True)
-        held = edge.reduction.reading(state[0], full=True)
-        _, _, n_pol, n_omega = problem.shape
+        held = edge.reduction.reading(state, full=True)
+        _, n_pol, n_omega = problem.shape
         assert backend.memory_ledger()["transverse_edge"] == (
             transverse_monitor._transverse_edge_bytes(
                 edge.space, edge.design, n_pol, n_omega

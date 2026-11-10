@@ -177,7 +177,7 @@ def test_prescribed_density_drude_conserves_energy_with_fifth_order_steps():
         try:
             owner.set_initial(problem.initial.field0, None)
             owner.propagate_to(grid.length)
-            actual = owner.observe().require_field()[0]
+            actual = owner.observe().require_field()
         finally:
             owner.close()
         error = np.linalg.norm(actual - exact) / norm

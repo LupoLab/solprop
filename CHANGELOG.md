@@ -11,6 +11,7 @@ All notable changes to solprop are recorded here. The format follows
 
 - Performance-history rows for 0.2.0 (`benchmarks/history/`) on the same nine hardware sets
   as 0.1.0.
+- The benchmark harness has a `sep47` set of short windows for SEP 47's performance matrix: statistics rows at every step under `Multistep()` and `RungeKutta()`, snapshot controllers idle, sparse and at every endpoint, repeated `with_input` runs, a four-point scan on `Local` and the same points on `Batch(4)`, saved and field-free radial and Cartesian planes in memory and in HDF5, and coupled flows of 4 and 17 channels. `track --counters` and `ab --counters` add one separately reported run per worker with structural counters from the native backend: its returns to Python by cause, attempts, planes, statistics rows, transverse-edge reads and the field bytes copied to the host.
 - The desktop front end runs every simulation and scan as a process of its own, which outlives the window and is followed from its record, and runs them on other machines over SSH too: a
   workstation, a Slurm cluster or a rented machine, picked on the Runs on line. Each run
   keeps its record in its folder there, so it survives a closed window or a dropped network
@@ -38,15 +39,70 @@ All notable changes to solprop are recorded here. The format follows
   that only runs simulations for the desktop front end needs solprop alone, without Qt. It is
   front-end support, not part of the user interface, and may change without notice.
 - A run's fixed host cost is smaller ([#347](https://github.com/LupoLab/solprop/issues/347)): the first statistics no longer import `scipy.signal` (0.7 s), opening a run's output no longer serialises and digests its configuration a second time, and package versions are read once per process. A large free-space launch builds and translates faster, its column energies summed and its admittance copied in threads.
+- The native backend refuses the benchmark-only Adams comparison variants off the selected family, by name and before it allocates anything: `ComparisonMultistep` with PECE, explicit Adams–Bashforth (`corrector="none"`) or a matched pair (`corrector_order = order`). They ran on solprop's Python march with a `HostMarchWarning`; they are now the NumPy reference's alone (SEP 47 section 6.3), so run them with `backend="numpy_ref"`. `ComparisonMultistep(corrector="pec", corrector_order=order + 1)`, the selected method, still runs natively. The native bridge's copy of the general Adams path is removed with them.
 - The native backend's idle OpenMP threads now spin briefly within native work instead of sleeping at once: `GOMP_SPINCOUNT=10000` on GNU's runtime and, on LLVM's (macOS and Windows), a 1 ms block time inside native calls only. Waking sleeping threads cost 16 to 72 µs for each of a step's many short parallel regions; benchmark windows ran in about 0.8 of the time on an Apple M5 Max, two Intel Xeon Gold 6240 and a shared AMD EPYC 7763 node, and in 0.87 of it on an AMD EPYC 9B45 under Windows (ADR-071). Teams wider than a chip's fastest cores keep sleeping at once. Set `OMP_WAIT_POLICY=passive` to restore the previous behaviour.
 - Single-mode problems on the native backend now run their synthesis and projection on the response team with Apple's Accelerate too, as they already did with OpenBLAS: on an Apple M5 Max at six threads the argon blueshift window ran 0.96 of its time.
 - Host passes too small to thread no longer read the CPU topology first, which took up to a sixth of a short window's host statistics on Linux (#556).
 - The native backend's transverse-edge reads on radial grids synthesise the rows they use in one matrix product, once for every table, rather than one sum per sample per table: on an Apple M5 Max the 256- and 512-node radial filaments ran 0.83 and 0.75 of their one-thread windows, and 0.92 and 0.87 at six threads, with the same steps.
+- A saved plane makes fewer field-sized copies, with the same stored bits. A field the backend made for the observation alone (the native backend's host copy, the reference's widened single-precision state) is converted to true-power amplitudes where it is, so a modal plane on `native` makes two field-sized arrays where it made three, and a unit-weight one no longer copies the field at all before storing it. The reference's single-precision observation scales its widened state in place, one array fewer, and a plane observer and a failure checkpoint at a plane that kept no field now share one fetch of it. This partly addresses [#346](https://github.com/LupoLab/solprop/issues/346), as SEP 47's early copy elisions; a large spatial plane on `native` still makes its host copy and its stored copy.
 - The native backend's Adams march takes the boundary monitor's checks inside its compiled loop: a run whose monitor is busy, as when light lingers near the time window's edge, no longer returns to Python at every step. The monitor's record, its warning and a stop are unchanged, at the same step ([SEP 45](docs/dev/seps/archive/sep-0045-native-rk-march.md)). The split collar's crossing limit sums its bucket occupancies in one sequential order, so that the compiled march reproduces it exactly (Q7); in a near-tie its bucket can move one place, which changes a split-scheme run's steps at rounding level. The native backend also steps the adaptive Runge–Kutta loop of `RungeKutta()` in compiled code, from the stage tables it already holds, taking each trial's stage rows and its error norm natively: a run's metadata says which loop stepped it (`rk_march`), including interpolated planes, replayed schedules, coupled flows, z tables, the transverse edge and a weighted error norm, on CPU and GPU builds; a controller with its own methods runs solprop's loop with a `HostMarchWarning` naming the reason. The norm, weighted or not, now sums in one sequential order in both loops, which moves native Runge–Kutta runs once at rounding level.
 - A scan's workers ask for passive waiting instead of setting `OMP_WAIT_POLICY=passive` themselves, so that a user's own `OMP_WAIT_POLICY`, `GOMP_SPINCOUNT` or `KMP_BLOCKTIME` now reaches them, and so does a machine calibration's row for the workers' allocation ([SEP 46](docs/dev/seps/archive/sep-0046-machine-calibration.md)); without either they wait as before. Their recorded `openmp_wait_policy` reads `passive`.
+- Each execution record now states what a restart keeps and restores, under `outcome.execution["restart"]`: whether a plane's or checkpoint's method history was `retained`, `omitted` or is `not_applicable`, with a reason (`explicit_policy`, `automatic_policy`, `automatic_size_limit`, `snapshot_required`, `unavailable_history`, `output_cannot_store`, `write_failed`, `incompatible_representation`, `unsupported_method`, `no_method_history`), and in a resumed execution what it `restored`, `reset` (a Runge–Kutta resume's proposal and norm memory, an Adams history set aside) or found `not_applicable` (low-storage), and that the boundary monitor was reconstructed from its persisted records. A resume now warns once (`SolpropWarning`) when an Adams history it expected was omitted by the automatic 256 MiB limit, was not exportable, or cannot be read back (including a write cut short); `resume_history=False` is recorded without a warning. Files written before the record read as unknown, and resume as before ([SEP 47](docs/dev/seps/sep-0047-run-ownership.md)).
+- Snapshots no longer require `step_planes=1`: a requested snapshot is taken at the next accepted endpoint, and where no plane is saved there the run writes a running checkpoint, in the existing terminal-checkpoint record with a matching `running` outcome, from which the snapshot and `resume=True` continue. The attempts and periodic rows since the last plane stay with that plane, once, and a later saved plane supersedes the checkpoint. A low-storage step abandoned in flight now falls back to the latest running checkpoint, or to the checkpoint the run resumed from, rather than to the last saved plane. Interpolated output with snapshots is still refused ([SEP 47](docs/dev/seps/sep-0047-run-ownership.md)).
 - Building a graded-index guide and run, and a large free-space launch, take less time: a mode solve evaluates its material once instead of once per finite element, a free-space launch forms each distinct column's admittance once, and neither repeats a table evaluation or a pass over the beam it already made. On the `grin_nonlinear` benchmark the build and translation go from 24 s to 16 s on one core, and on `kerr_beam_384` the launch's build from 12.6 s to 7.1 s. Every number of the translated problem is unchanged.
 - On macOS arm64 the native backend's CPU kernels now take SLEEF's 1-ulp AdvSIMD vector `exp`, `log` and `sincos` by default (`SOLPROP_NATIVE_VECTOR_MATH=AUTO`), as x86-64 builds do: on an Apple M5 Max the comb-to-continuum case ran 0.84 of its time at one thread, and the tracking cases 0.93 on geometric mean, with none slower beyond its spread (ADR-072, #339). Linux aarch64 keeps the system libm, where SLEEF measured level (1.00 on a Neoverse V2).
 - On Apple silicon, where the native backend's idle threads spin within native calls on the top-tier cores, it threads smaller passes: every size threshold is divided by 16, since a parallel region there costs about a microsecond and the cluster shares its L2 cache. On an Apple M5 Max at six threads the Raman GNLSE ran 0.70 of its time and the comb-to-continuum 0.91, none slower (ADR-073). Other platforms keep the previous thresholds, which measured faster there.
+
+### Changed (breaking)
+
+- The backend seam's problem descriptor is now one trajectory's typed description
+  ([SEP 47](docs/dev/seps/sep-0047-run-ownership.md) sections 6.2 and 6.7).
+  `solprop.translate.problem.KernelProblem` is renamed `PropagationProblem`, with no
+  alias. The nominal leading batch axis is gone: `PropagationProblem.shape`,
+  `initial.field0` and `initial.noise0`, `Backend.set_initial`, `Observation.field` and
+  `noise_phase`, `Backend.stats()`, the periodic rows of `StepStats` and
+  `ResponseBudgetError.field` are all `(n_modes, n_pol, n_omega)`-shaped with no batch
+  axis, `Initial.batch_params`, `Flags.single_batch` and `assemble(batch_params=...)` are
+  removed, `assemble` refuses a stacked field, and `RunEstimate.shape` has three entries. A
+  group of trajectories is a sequence of member problems, as a batched scan already runs
+  them; `solprop.driver.batch.split_observation` and `plane_from_observation(member=...)`
+  are removed. A march snapshot's stored state keeps its leading axis of one on disk, and
+  existing files stay readable. The route-specific optional fields `transform`, `flux`,
+  `transverse`, `tdse` and `current_numerator` move into a closed union, `problem.route`,
+  from the new module `solprop.translate.routes`: a `ModalRoute`, a `GeneralRoute` or a
+  `SpatialRoute` of kind radial, Cartesian, planar or line, each with the fields its
+  executor needs; the TDSE response is the modal route's reference-only `TDSESource`.
+  `problem.transform` still reads the route's transform, and `tdse_of`, `flux_of` and
+  `transverse_of` read a route's own leaves. Both backends refuse a route they do not
+  execute by name before they allocate. The public `Simulation` and `SimulationSettings`
+  interfaces are unchanged, and every result is bitwise the same.
+- A run now starts from an explicit start rather than from a backend its caller loaded
+  ([SEP 47](docs/dev/seps/sep-0047-run-ownership.md) section 5.2):
+  `solprop.driver.run.run_problem` takes a required `start=`, a
+  `solprop.backends.session.Start` (`Start.entrance(problem)` for a fresh run), and loads
+  it into the backend through the run's session; its `start_plane=` argument is removed,
+  the start's `plane_index` taking its place. A caller no longer calls
+  `backend.set_initial` before `run_problem`. `Simulation.run`, `SimulationRunner`, scans
+  and the benchmark suite start their runs this way, and a resumed run's call ledgers
+  and Adams history travel in the start, a history the backend cannot install being
+  warned about and recorded as reset as before. A batched scan's points run as one group
+  through the group protocol (`solprop.backends.session.GroupSession`, SEP 47 section
+  6.7): each point keeps its own planes, statistics and outcome, a boundary stop still
+  fails its point alone, and a group-wide failure now reports each member's actual
+  position.
+- The backend seam's `timed_step()` is replaced by an explicit timing probe
+  ([SEP 47](docs/dev/seps/sep-0047-run-ownership.md) section 6.6):
+  `Backend.timing_probe(start)` loads a `solprop.backends.session.Start` and returns a
+  `solprop.backends.protocol.TimingProbe`, whose `trial(z, dz)` takes one trial step that
+  commits nothing and whose `field()` reads that trial's end state back on the host.
+  `Simulation.estimate` and the SEP 46 calibration time and compare trials through it,
+  instead of loading the backend themselves and reaching private driver members; the
+  calibration's plan comparison on the native backend now compares the trial fields,
+  where it read the unchanged launch field before.
+
+### Removed
+
+- The experimental `mlx` backend for Apple GPUs is retired ([SEP 47](docs/dev/seps/sep-0047-run-ownership.md) §6.6): `backend="mlx"`, in a call or a recipe, raises `BackendError` and never runs on another backend, and output that records it still opens. The `solprop[mlx]` extra, the front end's MLX choice and the `metal` entry of the kernel's run options are gone; the front end shows a recipe's unavailable backend as it is named, and picking a binary64 backend for a single-precision recipe returns it to double precision. Single precision runs on `numpy_ref`, named explicitly; `precision="single"` with `backend="auto"` is refused. With MLX's transform costs gone, the `transforms` keyword of `FieldGrid.from_limits` and `EnvelopeGrid.from_limits` (a recipe grid that gives it is refused, naming SEP 47), the `library` argument of `solprop.grid.fft_cost`, `solprop.grid.TransformLibrary` and `TRANSFORM_LIBRARIES`, `solprop.backends.registry.metal_available` and `SINGLE_ONLY`, and the `mlx_*` and `single_precision_rows` sizes of `solprop.backends.memory` are removed.
 
 ### Fixed
 

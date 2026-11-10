@@ -209,7 +209,7 @@ def test_a_wall_beside_a_two_component_set_resolves_both_components(caplog):
         )
         problem = simulation.translate()
     assert simulation.settings.components is None
-    assert (problem.transform.n_pol, problem.shape[2]) == (2, 1)
+    assert (problem.transform.n_pol, problem.shape[1]) == (2, 1)
     assert problem.linear.coupled_flow is not None
     walled = _capillary(_family("HE", 1), wall=CoherentWall(), plasma=False)
     assert walled.settings.components is None

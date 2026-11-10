@@ -25,7 +25,7 @@ from solprop.exceptions import DriverError
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.noise import modified_noise
 from solprop.stepper import PIController
-from solprop.stepper.multistep import ComparisonMultistep, Multistep
+from solprop.stepper.multistep import Multistep
 from solprop.translate.linop import delta_phi
 
 COMPILED: list[type] = []
@@ -59,16 +59,10 @@ def run(backend_class, problem, grid):
     [
         Multistep(formulation="interaction"),
         Multistep(order=3, variable_order=False, formulation="interaction"),
-        # The general path runs solprop's march on native, with its warning (SEP 39).
-        pytest.param(
-            ComparisonMultistep(corrector="pece", order=4),
-            marks=pytest.mark.filterwarnings(
-                "ignore::solprop.exceptions.HostMarchWarning"
-            ),
-        ),
+        # The comparison variants' general path is the reference's alone (SEP 47).
         "interpolated",
     ],
-    ids=["selected", "pec3/4", "pece4", "dense"],
+    ids=["selected", "pec3/4", "dense"],
 )
 @pytest.mark.parametrize("backend_class", COMPILED, ids=lambda one: one.name)
 def test_a_compiled_backend_follows_the_reference_trajectory(
@@ -143,7 +137,7 @@ def test_the_settings_admit_the_compiled_backends():
         **common,
     )
     assert settings.backend == "native"
-    with pytest.raises(DriverError, match="numpy_ref, native and mlx only"):
+    with pytest.raises(DriverError, match="numpy_ref and native only"):
         SimulationSettings(
             control,
             backend="cuda",
@@ -226,7 +220,7 @@ def assert_sources_the_reference(backend_class, route):
     for evaluating in (NumpyRefBackend, backend_class):
         backend = evaluating(problem, grid=simulation.grid, modes=simulation.modes)
         backend.set_initial(start, None)
-        source, back = backend._adams_source(lab, 0.0, 1e-3)
+        source, back = backend._adams_source(lab[None], 0.0, 1e-3)
         found.append((np.array(source), np.array(back)))
         backend.close()
     (reference, reference_back), (source, back) = found

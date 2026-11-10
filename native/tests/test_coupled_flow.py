@@ -40,7 +40,7 @@ from solprop.grid import FieldGrid
 from solprop.modes import CoherentWall
 from solprop.profiles import PiecewiseLinear
 from solprop.stepper import FixedSchedule
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 from solprop_native import NativeBackend, NativeBatchBackend
 from solprop_native.backend import (
@@ -120,7 +120,7 @@ CASES = {
 
 def run(
     backend: type[NumpyRefBackend] | type[NativeBackend],
-    problem: KernelProblem,
+    problem: PropagationProblem,
     grid: FieldGrid,
     field0: ComplexArray | None = None,
 ) -> ComplexArray:
@@ -134,7 +134,7 @@ def run(
         driver.close()
 
 
-def _formation_bound(problem: KernelProblem, dz: float) -> float:
+def _formation_bound(problem: PropagationProblem, dz: float) -> float:
     """Return the actions' formation bound, relative to each action; before any run.
 
     solprop's derivation (``tests/flow_parity.py``), restated: each
@@ -208,7 +208,7 @@ def _formation_bound(problem: KernelProblem, dz: float) -> float:
 
 
 def _parity_bound(
-    problem: KernelProblem, expected: ComplexArray, linear: ComplexArray
+    problem: PropagationProblem, expected: ComplexArray, linear: ComplexArray
 ) -> float:
     """Return the ten-step bound relative to the launch; fixed before the first run.
 
@@ -225,7 +225,7 @@ def _parity_bound(
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
-    _, channels, _, _ = problem.shape
+    channels, _, _ = problem.shape
     kappa = float(np.max(flow.inverse_condition_bound))
     scale = float(np.max(np.abs(problem.initial.field0)))
     rho = float(np.max(np.abs(expected - linear))) / scale / STEPS
@@ -312,7 +312,7 @@ def test_the_flow_ledger_counts_its_views() -> None:
         ledger = backend.memory_ledger()
     finally:
         backend.close()
-    _, channels, _, bins = problem.shape
+    channels, _, bins = problem.shape
     active = int(np.count_nonzero(np.any(flow.generator != 0.0, axis=(0, 1, 2, 3))))
     block = active * channels * channels * 16
     stages = problem.stepper.tableau.n_stages

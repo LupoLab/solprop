@@ -24,5 +24,6 @@ Backend and storage interfaces below are mainly for contributors extending an ex
 - {mod}`solprop.driver.batch`: grouping compatible points into a batch and splitting its
   output back into one run per point;
 - {mod}`solprop.driver.executors.batch`: the controls of a fixed-schedule batch;
-- {mod}`solprop.backends.batch`: the backend side of a batch, in which every member
-  takes the same fixed steps and is observed on its own.
+- {mod}`solprop.backends.host.group` and {mod}`solprop.backends.batch`: the backend
+  side of a batch — the NumPy reference's group and the native backend's lockstep
+  runner — in which every member takes the same fixed steps and is observed on its own.

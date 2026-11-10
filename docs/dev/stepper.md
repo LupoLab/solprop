@@ -174,6 +174,17 @@ order conditions are checked for both weight vectors and the propagated solution
 fifth-order one, and the FSAL stage is not recycled before anything that depends on the
 completed step (irrelevant without dense output, but tested).
 
+**Two copies of the Python control** ([SEP 47](seps/sep-0047-run-ownership.md) phase 2).
+The NumPy reference runs its own step driver and marches in `backends/host/`:
+`HostDriver`, `HostAdamsMarch`, `HostGeneralPath`, `HostLowStorageMarch` and the
+fixed-schedule group `HostGroup`. The native backend runs the inherited `StepDriver`,
+`AdamsMarch`, `LowStorageMarch` and `LockstepRunner` in `backends/`, the
+native bridge's temporary copies, removed with SEP 47's native session. The copies
+started identical and the decision corpora hold both to the same decisions; where this
+page names a member of one, the other's is the same. The general Adams path of the
+comparison variants is the reference's alone: the native backend refuses them by name
+(SEP 47 section 6.3).
+
 **FSAL, the evidence.** The rebasing identity `k₁ⁿ⁺¹ = exp(ΔΦⁿ)·k₇ⁿ` and the condition it
 needs (nothing changes the state after the last stage) are algorithms.md §2. **The hard
 band mask satisfies it:** the prefactor is exactly zero outside the active mask, so no stage
@@ -277,11 +288,11 @@ position) and one fold:
 | 3 | `F3` at `z_m` | `B <- B + h/3 S`; `C <- Q (A + h S)` |
 | 4 | `F4` at `z_n + h` | `A <- Q B + h/6 S` |
 
-`LowStorageMarch` replays a schedule and nothing else, mirroring `AdamsMarch`'s replay:
-each step calls the engine (`LowStorageEngine.step`, the host one `HostLowStorage`, or a
-backend's own from `_low_storage_engine`), applies `_finish` and moves the position in
-one commit. There is no estimate: the history's norm is 0.0, "not estimated". The step
-is **in flight** from its start to its commit (`StepDriver._in_flight`), and every entry
+`HostLowStorageMarch` replays a schedule and nothing else, mirroring `HostAdamsMarch`'s
+replay: each step calls the host engine (`HostLowStorage.step`), applies `_finish` and
+moves the position in one commit; the native bridge's `LowStorageMarch` does the same
+with the backend's resident engine from `_low_storage_engine`, one native call per step. There is no estimate: the history's norm is 0.0, "not estimated". The step
+is **in flight** from its start to its commit (`HostDriver._in_flight`), and every entry
 that reads or advances the state refuses it until `set_initial`; divergence is detected
 on the accepted state's squared norm, which pass 4 reduces over the norm mask. The
 stiffness indicator `h rho = 2 ||F3 - F2|| / ||F2 - g1||` (exactly `|h lambda|` for
@@ -437,14 +448,16 @@ edge keeps returning at each check. The run's stop flag is polled before each ca
 and a signal's handler runs after it, so the call's bound, 256 attempts or 0.1 s, is
 what either waits for. The driver books the call's attempts through
 `_record_attempt` and `_account_step`, inside one commit, replaying each buffered
-reading through the monitor at its own step. `AdamsMarch` is the reference
-and steps every configuration the native march does not cover (the comparison
+reading through the monitor at its own step. The Python march is the reference --
+`HostAdamsMarch` for `numpy_ref` -- and its bridge copy `AdamsMarch` steps every
+configuration the native march does not cover (the comparison
 methods' general path, a coupled flow on the host engine (off the eigenbasis route or
 wider than 16 channels), a norm scale other than `PIController`'s, and a z table's
 carrier frame), with a `HostMarchWarning` naming the reason. Lockstep batches replay on the host (`replay_step`).
 
 **Resume** (ADR-046): an engine that can export its rows (`snapshot_rows`, and
-`load_rows` to install them) lets `AdamsMarch.snapshot` return a `MarchSnapshot` -- the
+`load_rows` to install them) lets `HostAdamsMarch.snapshot` (and `AdamsMarch.snapshot`
+on the bridge) return a `MarchSnapshot` -- the
 accepted state, the rows, each history entry's position, kind and row, the order, the
 rejection count and the proposed step -- which the run loop keeps beside every save
 plane and terminal checkpoint through an output's `save_march`, and which
@@ -457,17 +470,18 @@ weights (`weights_<row>`). Each engine refuses rows it does not keep, so those t
 histories do not cross; every other history does. The engines' trial and dense-step
 bookkeeping is not exported: a load forgets it (`reset`), as the next step is a new
 trial. Both methods are part of the `AdamsEngine` protocol. A march that cannot carry
-its history (`AdamsMarch.export_refusal`: the general path), or one whose saved rows the engine
+its history (the reference's general path), or one whose saved rows the engine
 refuses (another engine's rows, another build's shapes), resumes afresh, and the driver
 warns.
 Nothing in the trial lifecycle reads a held trial across the snapshot: it is taken
 only at an accepted position with nothing ahead of it.
 
 **Prescribed schedules**: with a schedule the march replays its steps
-(`AdamsMarch._replay_to`), accepting each whatever its estimate, which is recorded as
+(`HostAdamsMarch._replay_to`), accepting each whatever its estimate, which is recorded as
 the Runge–Kutta replay records it; a hard kink on an edge restarts the history.
-`AdamsMarch.replay_step` is also the unit a lockstep batch advances each member by
-(`LockstepRunner._replay_to`), each member keeping its own history and ledger.
+`HostAdamsMarch.replay_step` is also the unit a lockstep batch advances each member by
+(`HostGroup._replay_to`; `LockstepRunner._replay_to` on the native bridge), each member
+keeping its own history and ledger.
 
 The derivation, the stability limits and the measured comparison are in
 [SEP 13](seps/archive/sep-0013-expensive-response-steppers.md) and on the manual page

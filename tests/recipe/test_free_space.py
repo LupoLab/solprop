@@ -626,7 +626,7 @@ def test_the_planar_preview_carries_the_coupled_energy_on_its_nodes():
     assert isinstance(space, PlanarGrid)
     assert medium is not None
     flux = SpatialFlux.resolve(simulation.grid, space, medium)
-    modal = planar_mode_energy(np.asarray(problem.initial.field0)[0], flux)
+    modal = planar_mode_energy(np.asarray(problem.initial.field0), flux)
     # The modes' energies sum to the beam's, to the rounding of the two sums.
     assert preview.energy == pytest.approx(float(np.sum(modal)), rel=1e-12)
     assert 0.0 < preview.energy < 1e-4

@@ -50,6 +50,7 @@ from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
+from solprop.translate.routes import flux_of
 
 RADIUS = 75e-6
 PRESSURE = 3.0
@@ -1113,7 +1114,7 @@ def test_a_source_path_certificate_is_carried_beside_the_coupling(port):
         ),
         noise=None,
     )
-    flux = gradient.translate().flux
+    flux = flux_of(gradient.translate().route)
     assert flux is not None and flux.admission is not None
     plane = dataclasses.replace(
         FieldPlane.from_analytic(

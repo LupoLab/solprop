@@ -222,7 +222,7 @@ class Arithmetic(TypedDict, total=False):
 
 
 SINGLE: Arithmetic = {"precision": "single", "backend": "numpy_ref"}
-"""Single precision on the oracle, which every machine has (MLX is a Mac's alone)."""
+"""Single precision on the oracle, the one backend that runs it."""
 
 PLANAR = EnvelopeGrid.from_limits(1e-3, 800e-9, (650e-9, 1000e-9), 600e-15)
 SPATIAL = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
@@ -442,17 +442,16 @@ def test_the_single_precision_tolerance_rule():
 
 def test_single_precision_admits_the_adams_method():
     # #342: binary32 Adams agrees with binary64 Adams to the method's own truncation.
-    for backend in ("numpy_ref", "mlx"):
-        settings = SimulationSettings(
-            PIController(rtol=1e-6, atol=0.0),
-            save_planes=[1.0],
-            dz_max=1.0,
-            dz_init=1e-3,
-            precision="single",
-            backend=backend,
-            integrator=Multistep(),
-        )
-        assert isinstance(settings.integrator, Multistep)
+    settings = SimulationSettings(
+        PIController(rtol=1e-6, atol=0.0),
+        save_planes=[1.0],
+        dz_max=1.0,
+        dz_init=1e-3,
+        precision="single",
+        backend="numpy_ref",
+        integrator=Multistep(),
+    )
+    assert isinstance(settings.integrator, Multistep)
 
 
 def test_a_tdse_run_s_refusals_name_the_precision_and_the_integrator():
@@ -729,13 +728,10 @@ def test_a_named_tolerance_is_kept_in_the_other_precision():
     assert not replaced.controller_defaulted
 
 
-def test_a_copy_in_single_precision_resolves_auto_again(monkeypatch):
+def test_a_copy_in_single_precision_resolves_auto_again():
     double = _gnlse_settings()
-    monkeypatch.setattr("solprop.driver.simulation.metal_available", lambda: True)
-    assert dataclasses.replace(double, precision="single").backend == "mlx"
-    monkeypatch.setattr("solprop.driver.simulation.metal_available", lambda: False)
-    # Without a Metal device, single precision's "auto" is refused by design.
-    with pytest.raises(DriverError, match="backend='auto' resolves to the mlx"):
+    # Single precision's "auto" is refused by design, not kept as the binary64 choice.
+    with pytest.raises(DriverError, match="backend='auto' does not choose it"):
         dataclasses.replace(double, precision="single")
     # A named backend is not resolved again: binary32 refuses it by name.
     named = _gnlse_settings(backend="numpy_ref")

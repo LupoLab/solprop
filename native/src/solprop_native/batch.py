@@ -13,7 +13,7 @@ from solprop.backends.batch import LockstepRunner
 from solprop.backends.driver import StepDriver
 from solprop.exceptions import BackendError, HostMarchWarning
 
-from . import _core, check_build
+from . import _core, _counters, check_build
 from ._helpers import NATIVE
 from .backend import (
     NativeBackend,
@@ -87,6 +87,8 @@ class NativeBatchBackend(LockstepRunner):
 
     def _trial_step(self, z: float, dz: float) -> tuple[float, tuple[object, ...]]:
         """Evaluate member stages and one native update without merging their norms."""
+        if (counters := _counters.active) is not None:
+            counters.group_step(len(self._native_members))
         for member in self._native_members:
             member._prepare_trial(z, dz, defer_update=True)  # pyright: ignore[reportPrivateUsage] - split internal trial around the fused update
         partials = self._batch_native.accept(dz)

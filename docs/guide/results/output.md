@@ -190,7 +190,7 @@ that reduces each plane to a few numbers and drops it costs one field volume on 
 that plane, the one the observation already crossed with, and a handler may equally keep
 `plane.field` for as long as it likes. A `SavedPlane` you construct yourself copies what it
 is given. On a free-space run the boundary check reads the transverse edge at that plane too:
-`native` does it where the state lives, and `numpy_ref` and `mlx` on their host copy, which
+`native` does it where the state lives, and `numpy_ref` on its host copy, which
 [costs more](../setup/running.md#many-inputs-one-backend-the-runner) than the plane does.
 
 The handler converts the field on the way out, because the file is where the internal
@@ -260,7 +260,7 @@ For a modal run:
   step_stats/<name>     already available periodic statistics
 /march_snapshot/       optional; attrs: z (NaN while being written), method, order,
                        rejections, last_rejected, proposal, identities (JSON)
-  state                 (n_batch, n_modes, n_pol, n_omega)  the accepted state, internal
+  state                 (1, n_modes, n_pol, n_omega)        the accepted state, internal
   positions, slots      (n_entries,)                        the history's entries
   rows/<name>           (n_slots, ...)                      the engine's rows
 ```
@@ -527,8 +527,10 @@ function. The default, `None`, leaves the run unchanged. This is an execution po
 outside the scientific configuration hash; `SimulationRunner`'s restriction on
 reusing TDSE across inputs still applies.
 
-A snapshot requires an unbatched HDF5 run with `step_planes=1`,
-`fields="all"` and `interpolate_planes=False`. Adams runs must allow retained
+A snapshot requires an unbatched HDF5 run with `fields="all"` and
+`interpolate_planes=False`; it no longer needs `step_planes`
+([SEP 47](../../dev/seps/sep-0047-run-ownership.md)). Interpolated output stays
+refused until a snapshot can first commit the planes its step crossed. Adams runs must allow retained
 history: explicit `resume_history=False` is refused, and a requested snapshot keeps
 history even above the automatic retention-size cutoff. Every backend's Adams history
 is supported, the native backend's resident one included: its engine copies the
@@ -537,9 +539,13 @@ injection and fresh-process resumes on NumPy, on native CPU Adams and
 Runge–Kutta runs and on short native TDSE windows; resuming a haCC snapshot in a fresh
 process has not been qualified.
 
-A request is serviced after an accepted endpoint, its archive trial decision,
-optical observation, march state and cumulative execution record have committed.
-It neither adds a save landing nor performs another observation or atomic evaluation,
+A request is serviced at the next accepted endpoint, after its archive trial
+decision, optical observation, march state and cumulative execution record have
+committed. Where no plane is saved there, the endpoint's field is written as a
+*running checkpoint*: the existing terminal-checkpoint record, beside a `running`
+outcome at the same position, holding the attempts and periodic rows since the last
+plane without taking them from it; the next saved plane still receives them and
+supersedes the checkpoint. A snapshot adds no save landing and no atomic evaluation,
 and it does not change adaptive stepping. A request at the final endpoint still
 records `running`; completion is recorded only when the live run finishes.
 
@@ -562,7 +568,6 @@ simulation = Simulation.from_gnlse(
     width=100e-15,
     peak_power=9.8,
     shape="sech",
-    step_planes=1,
     dz_init=1e-4,
     dz_max=1e-4,
 )

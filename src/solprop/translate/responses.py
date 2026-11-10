@@ -1845,7 +1845,7 @@ class CompiledResponses:
         Which representation carries the prefactor, following section 3's choice for
         ``Phi`` and made the same way. The first two are the device form; the z table is
         the oracle's general representation
-        (:attr:`solprop.translate.problem.KernelProblem.device_ready`).
+        (:attr:`solprop.translate.problem.PropagationProblem.device_ready`).
     prefactor : solprop.translate.chebyshev.PiecewiseChebyshev or None
         The UPPE or envelope prefactor times the crop scale, as a table along z with
         value shape ``(n_modes, n_pol, n_omega)``, complex128, in m/(V s) per unit
@@ -1935,8 +1935,8 @@ class CompiledResponses:
         """Adopt a read-only constant prefactor and check the pairs.
 
         Whether the constant is present at all is checked against the flags by
-        :meth:`solprop.translate.problem.KernelProblem.validate`, which is where the two
-        meet; here only its shape against the table's can be seen.
+        :meth:`solprop.translate.problem.PropagationProblem.validate`, which is where
+        the two meet; here only its shape against the table's can be seen.
 
         Raises
         ------

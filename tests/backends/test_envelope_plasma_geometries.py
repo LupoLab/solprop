@@ -103,7 +103,7 @@ def test_vector_mode_rows_match_state_polarisation(
     results = []
     for layout in ("state", "rows"):
         modes = ModeCollection([mode])
-        initial = original.initial.field0[0]
+        initial = original.initial.field0
         if layout == "rows":
             modes = ModeCollection.with_polarisations([mode])
             initial = initial.transpose(1, 0, 2).copy()
@@ -120,7 +120,12 @@ def test_vector_mode_rows_match_state_polarisation(
             dz_max=grid.length / 2,
             schedule=original.stepper.schedule,
         )
-        problem = replace(problem, transform=replace(problem.transform, node_chunk=3))
+        problem = replace(
+            problem,
+            route=replace(
+                problem.route, transform=replace(problem.transform, node_chunk=3)
+            ),
+        )
         result, _ = run(backend_class, problem, grid)
         results.append(result.reshape(2, -1))
     # The two representations sum identical Cartesian sources with different
@@ -159,7 +164,7 @@ def test_taper_and_density_paths_reach_each_envelope_population(
         grid,
         mode,
         responses,
-        original.initial.field0[0],
+        original.initial.field0,
         controller=original.stepper.controller,
         save_planes=[grid.length],
         dz_max=grid.length / 2,
@@ -240,7 +245,7 @@ def test_envelope_population_scan_matches_independent_response(envelope_mixture)
     assembly = problem.responses.envelope_plasma
     assert assembly is not None
     modal = passes.to_time(
-        problem.initial.field0[0],
+        problem.initial.field0,
         problem.grids.crop_index,
         grid.n_to,
         kind="envelope",

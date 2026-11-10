@@ -28,11 +28,11 @@ from runtime_types import unchecked
 from solprop.backends.multistep import CallLedger
 from solprop.backends.registry import available
 from solprop.constants import C
-from solprop.driver import Simulation, SimulationSettings, prop_gnlse
+from solprop.driver import Simulation, SimulationSettings, _scan_batch, prop_gnlse
 from solprop.driver.executors import Batch, Local
 from solprop.driver.run import _earlier_execution
 from solprop.driver.scan import Scan, ScanPoint, run_scan
-from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
+from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning, OutputError
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.log import NullReporter
 from solprop.monitor import (
@@ -721,6 +721,38 @@ def test_a_batched_scan_fails_the_point_a_lone_run_fails(tmp_path: Path) -> None
         error = str(read_point(path, 1)["error"])
         assert "BoundaryError" in error, name
         assert "could not be persisted" not in error, name
+
+
+def test_a_batched_point_keeps_its_first_failure_when_its_boundary_stops_it_later(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The walking point's capture fails at its launch plane; its boundary stop later
+    # in the same group is a second failure, and the point keeps the first.
+    original = _scan_batch._Capture.save
+    order: list[int] = []
+
+    def capture(self: Any, plane: Any) -> None:
+        if id(self) not in order:
+            order.append(id(self))
+        if order.index(id(self)) == 1:
+            raise OutputError("member capture unavailable")
+        original(self, plane)
+
+    monkeypatch.setattr(_scan_batch._Capture, "save", capture)
+    path = tmp_path / "batch.h5"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        output = run_scan(
+            Scan("walk", drift=[0.0, 0.9]),
+            _walking_point,
+            executor=Batch(2),
+            output=path,
+            progress="none",
+        )
+    assert output.status.tolist() == ["done", "failed"]
+    error = str(read_point(path, 1)["error"])
+    assert "member capture unavailable" in error
+    assert "BoundaryError" not in error
 
 
 def test_without_a_check_nothing_is_watched() -> None:

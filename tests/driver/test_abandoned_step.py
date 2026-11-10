@@ -14,16 +14,19 @@ import logging
 import threading
 from typing import cast
 
+import numpy as np
 import pytest
 
+from march_bounds import assert_matched, march_bound
 from solprop.backends.driver import StepDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
+from solprop.backends.session import Start
 from solprop.driver import Simulation
 from solprop.driver.run import run_problem
 from solprop.exceptions import DriverError, StopRequested
 from solprop.log import NullReporter
-from solprop.output import MemoryOutput, open_file
+from solprop.output import MemoryOutput, SnapshotController, open_file, resume
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta
 
 # A soliton in a tight window, without a collar: its edges are not what is tested here.
@@ -182,11 +185,11 @@ def test_a_stop_without_a_checkpoint_does_not_say_one_was_written(caplog):
         simulation.runner() as runner,
     ):
         backend = runner.backend
-        backend.set_initial(simulation.translate().initial.field0, None)
         run_problem(
             simulation.translate(),
             backend,
             _NoCheckpoints(),
+            start=Start.entrance(simulation.translate()),
             metadata=simulation.metadata(),
             progress=StopAtTheFirstPlane(),
             fields="none",
@@ -194,3 +197,45 @@ def test_a_stop_without_a_checkpoint_does_not_say_one_was_written(caplog):
         )
     assert "no state was written there" in caplog.text
     assert "resume=True continues" not in caplog.text
+
+
+def test_a_step_abandoned_after_a_running_checkpoint_falls_back_to_it(
+    monkeypatch, tmp_path
+):
+    """SEP 47 section 5.5: the latest running checkpoint, not the last saved plane.
+
+    A snapshot due before the first step is serviced at its end, between the launch
+    and the first plane, as a running checkpoint; the third step is abandoned.
+    """
+    whole, path = tmp_path / "whole.h5", tmp_path / "run.h5"
+    built(fields="all").run(whole, progress="none")
+    controller = SnapshotController(tmp_path / "snapshots")
+    controller.request()
+    _abandon_a_step(monkeypatch, after=4 * 2 + 2)
+    with pytest.raises(AbandonedError) as caught:
+        built(fields="all").run(path, progress="none", snapshots=controller)
+    notes = " ".join(caught.value.__notes__)
+    assert "falls back to its latest checkpoint" in notes
+    with open_file(path) as stored:
+        checkpoint = stored.terminal_checkpoint
+        assert checkpoint is not None and checkpoint.plane.z == LENGTH / STEPS
+        assert stored.outcome is not None and stored.outcome.status == "failed"
+        assert stored.outcome.z == checkpoint.plane.z
+        assert stored["z"].tolist() == [0.0]
+    monkeypatch.undo()
+    built(fields="all").run(path, progress="none", resume=True)
+    # The schedule is prescribed: its steps agree exactly, once each, and the field to
+    # the matched march's rounding budget (SEP 25).
+    for name in ("z", "h", "accepted"):
+        assert np.array_equal(
+            getattr(resume(path).history, name), getattr(resume(whole).history, name)
+        ), name
+    with open_file(path) as stored, open_file(whole) as reference:
+        assert stored.terminal_checkpoint is None
+        assert stored["z"].tolist() == reference["z"].tolist()
+        assert_matched(
+            np.asarray(stored["field"]),
+            np.asarray(reference["field"]),
+            march_bound(built().translate()),
+            what="field",
+        )

@@ -341,10 +341,8 @@ as good as what it names, a group assembled by hand is refused by name at the dr
 again at the backend: *general-guide batch requires identical guide/table/gauge
 identity*. The source pass is unchanged by batching: the lockstep runner hands each
 member its own singleton row, and a batched run is what its members are alone, to
-rounding.
-A **fused** batch axis — one problem of shape `(n_batch, ...)` carrying modal tables — is
-refused by the reference backend, because the stage evaluates one member's
-polarisation.
+rounding. A problem is always one trajectory, so there is no fused batch axis to
+refuse.
 
 The file stores channel amplitudes, not fields. {py:mod}`solprop.processing.modal` is the
 way back — given the run's own tables, rebuilt from the guide the record names, it

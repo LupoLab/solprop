@@ -7,7 +7,7 @@
 Every case is a run under :class:`~solprop.physdata.selection.MaterialSelection`,
 built through the driver that a user would call -- ``Simulation.from_capillary`` and
 ``Simulation.from_gnlse`` -- and translated to the
-:class:`~solprop.translate.problem.KernelProblem` the backends receive. Each takes
+:class:`~solprop.translate.problem.PropagationProblem` the backends receive. Each takes
 :data:`STEPS` fixed steps over a short guide: the qualification compares the
 backends' arithmetic on the arrays optmat's models produce, not the physics of a
 long run (``AGENTS.md``, qualification scope).
@@ -67,7 +67,7 @@ from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 
 SELECTION = MaterialSelection()
 """The curated selection every case runs under."""
@@ -122,7 +122,7 @@ class Case:
         The case's name in :data:`CASES`.
     simulation : Simulation or None
         The driver's run, or ``None`` for a case assembled directly.
-    problem : KernelProblem
+    problem : PropagationProblem
         The translated problem, on its fixed schedule.
     grid : FieldGrid or EnvelopeGrid
         The time grid.
@@ -132,7 +132,7 @@ class Case:
 
     name: str
     simulation: Simulation | None
-    problem: KernelProblem
+    problem: PropagationProblem
     grid: Any
     modes: tuple[Any, ...] | None
 

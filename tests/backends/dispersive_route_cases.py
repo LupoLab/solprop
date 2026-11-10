@@ -43,7 +43,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
 from solprop.translate.general import general_modal_route
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 from solprop.translate.responses import KerrForm
 
 EPS = np.finfo(float).eps
@@ -83,7 +83,7 @@ def free_problem(
     line: bool = False,
     medium: SpatialMedium | None = None,
     adams: bool = True,
-) -> KernelProblem:
+) -> PropagationProblem:
     """Return a Cartesian (or line) free-space problem of ten fixed steps.
 
     Vacuum optics and argon's density, or a gas mixture's own medium.
@@ -123,7 +123,7 @@ def planar_problem(
     integrator: Multistep | RungeKutta | None = None,
     steps: int = STEPS,
     absorbed: bool = False,
-) -> tuple[KernelProblem, TimeGrid]:
+) -> tuple[PropagationProblem, TimeGrid]:
     """Return a hybrid planar run: TE1 and TE3 of a lossless argon gap, four k_y.
 
     `absorbed` adds a temporal collar in the in-stage scheme, whose term reads the
@@ -180,18 +180,20 @@ def raman(thg: bool) -> object:
 # --- the measurements ------------------------------------------------------------
 
 
-def source(backend_class: type, problem: KernelProblem, grid: TimeGrid) -> np.ndarray:
+def source(
+    backend_class: type, problem: PropagationProblem, grid: TimeGrid
+) -> np.ndarray:
     """Return one evaluation of the source at the launch, in the lab frame."""
     backend = backend_class(problem, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        return np.array(backend._adams_lab_source(problem.initial.field0, 0.0))
+        return np.array(backend._adams_lab_source(problem.initial.field0[None], 0.0))
     finally:
         backend.close()
 
 
 def run(
-    backend_class: type, problem: KernelProblem, grid: TimeGrid, **options: object
+    backend_class: type, problem: PropagationProblem, grid: TimeGrid, **options: object
 ) -> tuple[np.ndarray, Any]:
     """Propagate to the last save plane and return the field and the summary."""
     backend = backend_class(problem, grid=grid, **options)
@@ -211,14 +213,14 @@ def disagreement(ours: np.ndarray, theirs: np.ndarray) -> float:
     return float(np.linalg.norm(ours - theirs) / scale)
 
 
-def evaluation_bound(problem: KernelProblem) -> float:
+def evaluation_bound(problem: PropagationProblem) -> float:
     """Bound one evaluation's rounding on a spatial or general route (the docstring)."""
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None
     groups = len({row.tobytes() for row in np.ascontiguousarray(leaf.filters)})
     products = leaf.n_channels if leaf.evaluator == "symmetric" else 1 + 2 * groups
     temporal = 8 * EPS * math.ceil(math.log2(problem.grids.n_to))
-    columns = problem.shape[1] * problem.shape[2]
+    columns = problem.shape[0] * problem.shape[1]
     transverse = 8 * EPS * math.ceil(math.log2(max(2, columns)))
     sums = gamma(max(2, problem.transform.n_nodes))
     response = products * (2 * temporal + 2 * sums)
@@ -277,7 +279,7 @@ ARGON_FILL = Mixture.fill({"Ar": 1.0}, 2.0)
 
 def general_problem(
     guide: ModalGuide, evaluator: str, form: KerrForm, *, adams: bool = True
-) -> tuple[KernelProblem, TimeGrid]:
+) -> tuple[PropagationProblem, TimeGrid]:
     """Return a general modal problem launching 2 nJ into HE11, ten fixed steps."""
     grid = general_grid()
     route = general_modal_route(
@@ -288,10 +290,8 @@ def general_problem(
         kerr_form=form,
         selection=MaterialSelection(electronic=POLICIES[evaluator]),
     )
-    state = np.zeros((1, 1, 1, grid.n_omega), complex)
-    state[0, 0, 0] = GaussianPulse(wavelength=835e-9, fwhm=40e-15, energy=2e-9).build(
-        grid
-    )
+    state = np.zeros((1, 1, grid.n_omega), complex)
+    state[0, 0] = GaussianPulse(wavelength=835e-9, fwhm=40e-15, energy=2e-9).build(grid)
     problem = assemble(
         grid,
         list(guide.mode_collection),

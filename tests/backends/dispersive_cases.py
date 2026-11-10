@@ -40,7 +40,7 @@ from solprop.physdata.nonlinear_data import OptmatKerr
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, Multistep, PIController
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 
 EPS = np.finfo(float).eps
 LENGTH = 2e-3
@@ -109,7 +109,7 @@ def grid_for(envelope: bool) -> FieldGrid | EnvelopeGrid:
 
 def averaged(
     evaluator: str, *, envelope: bool, thg: bool, vector: bool = False
-) -> tuple[KernelProblem, FieldGrid | EnvelopeGrid]:
+) -> tuple[PropagationProblem, FieldGrid | EnvelopeGrid]:
     """Return a mode-averaged argon problem, one node, or a two-component quadrature.
 
     The two-component field is the polarised route of ``test_polarised_runs.py``: one
@@ -147,7 +147,7 @@ def averaged(
 
 def radial(
     evaluator: str, *, envelope: bool, thg: bool
-) -> tuple[KernelProblem, FieldGrid | EnvelopeGrid]:
+) -> tuple[PropagationProblem, FieldGrid | EnvelopeGrid]:
     """Return a radial free-space problem: sixteen Hankel nodes, no embedded rule.
 
     On an envelope grid this is the backend's real radial GEMM.
@@ -191,7 +191,7 @@ class Evaluation:
     coarse: np.ndarray | None
 
 
-def reference_evaluation(problem: KernelProblem, grid: Any) -> Evaluation:
+def reference_evaluation(problem: PropagationProblem, grid: Any) -> Evaluation:
     """Evaluate the reference's source once at the launch: its projected spectra.
 
     The reference keeps both rules' projections of its last evaluation in time; their
@@ -202,7 +202,7 @@ def reference_evaluation(problem: KernelProblem, grid: Any) -> Evaluation:
     forward = np.fft.rfft if problem.grid_kind == "field" else np.fft.fft
     try:
         backend.set_initial(problem.initial.field0, None)
-        backend._adams_lab_source(problem.initial.field0, 0.0)
+        backend._adams_lab_source(problem.initial.field0[None], 0.0)
         coarse = backend._last_coarse
         return Evaluation(
             forward(np.asarray(backend._last_projected), axis=-1),
@@ -213,7 +213,7 @@ def reference_evaluation(problem: KernelProblem, grid: Any) -> Evaluation:
 
 
 def run(
-    backend_class: type, problem: KernelProblem, grid: Any, **options: object
+    backend_class: type, problem: PropagationProblem, grid: Any, **options: object
 ) -> tuple[np.ndarray, Any]:
     """Propagate to the last save plane and return the field and the summary."""
     backend = backend_class(problem, grid=grid, **options)
@@ -233,7 +233,7 @@ def disagreement(ours: np.ndarray, theirs: np.ndarray) -> float:
     return float(np.linalg.norm(ours - theirs) / scale)
 
 
-def evaluation_bound(problem: KernelProblem) -> float:
+def evaluation_bound(problem: PropagationProblem) -> float:
     """Bound one evaluation's rounding: transforms and node reductions, both backends.
 
     The constant cubic's two transforms at ``8 eps ceil(log2 n_to)`` each and its two

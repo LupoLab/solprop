@@ -83,7 +83,7 @@ def test_the_embedded_rule_is_finished_once_and_only_where_it_exists(evaluator):
     backend = NativeBackend(problem, grid=simulation.grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        backend._adams_lab_source(problem.initial.field0, 0.0)
+        backend._adams_lab_source(problem.initial.field0[None], 0.0)
         native = backend._native_state
         fine = np.array(native.projected_to_host(False))
         landed = np.array(native.projected_to_host(True))
@@ -97,7 +97,7 @@ def test_the_embedded_rule_is_finished_once_and_only_where_it_exists(evaluator):
     backend = NativeBackend(radial_problem, grid=grid)
     try:
         backend.set_initial(radial_problem.initial.field0, None)
-        backend._adams_lab_source(radial_problem.initial.field0, 0.0)
+        backend._adams_lab_source(radial_problem.initial.field0[None], 0.0)
         native = backend._native_state
         before = np.array(native.projected_to_host(False))
         assert np.any(before)

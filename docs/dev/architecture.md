@@ -137,7 +137,7 @@ kernel layout carries the transverse columns in its mode axis (see §12).
 | layer | contents | may import | performance rules |
 |---|---|---|---|
 | **P** physics / convenience | grids, materials, modes, profiles, pulses, noise, linear-operator assembly, response *definitions*, ionisation and Raman models, boundaries, normalisation, tools | numpy, scipy, standard library, other P modules | none: clarity first; never in a hot loop |
-| **T** translation | turns P objects into validated kernel-ready arrays and the `KernelProblem` contract | P, numpy, scipy | may be expensive once per problem; results cached and validated |
+| **T** translation | turns P objects into validated kernel-ready arrays and the `PropagationProblem` contract | P, numpy, scipy | may be expensive once per problem; results cached and validated |
 | **B** backends | state buffers, transform plans, kernels, the inner z-loop, statistics kernels | numpy; the native package in `native/` (Kokkos, Kokkos-FFT and nanobind); from P only the types and constants the seam names — never a physics object | all hot-path rules of [backends.md](backends.md); in-place and `out=` allowed here only |
 | **D** driver | `Simulation`, run loop over save planes, batch runners, `prop_capillary`/`prop_gnlse`, output handlers, statistics specs | P, T, B (through the seam only), h5py | none |
 | **X** processing / plotting | analysis of outputs, standard plots, design tools | numpy, scipy, matplotlib, D (outputs), T (reference tables and their identities, for `processing.modal`; the recorded plane measure, for `processing.mixtures` and `processing.planes`) — never B | none; may call backend statistics kernels through the D layer when a computation belongs on the device |
@@ -172,7 +172,7 @@ the table identity, the guide identity -- and not the reference's tens of megaby
 so the reference is rebuilt in **T** by `general_modal_route` and read in **X**, which
 checks it against the stored identity, path by path, before it synthesises anything.
 **X** takes the record type and the identity functions, never an execution map, never a
-`KernelProblem` and never a backend. Two further modules read what a file records the
+`PropagationProblem` and never a backend. Two further modules read what a file records the
 same way. `processing.mixtures` and `processing.planes` rebuild a spatial plane's
 measure from the record with `translate.flux.flux_from_record` and
 `translate.spatial.axial_admittance` (SEP 34), and `processing.planes` reuses
@@ -217,9 +217,10 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `physdata/` | Species, mixtures, equations of state, transport properties (viscosity, sound speed, mean free path), optical material data, metals, nonlinear and Raman data | P |
 | `modes/` | Mode protocols and derived quantities; capillary, antiresonant, tabulated, step-index, rectangular and planar (slab, uniform in y, per unit width) modes, with `PlanarGrid` for the planar guide resolved in y; shared gas fill, quadrature and collections; full-vector modal records, material laws and regions, bound step-index and radial graded-index providers, and the guide that pairs a provider with a mode collection, and the connection of a basis that moves along z | P |
 | `linear.py`, `boundaries.py`, `nonlinear/` | Linear assembly, absorbing rates, response definitions, ionisation, Raman, normalisation and the GNLSE mapping | P |
-| `translate/` | Validated `KernelProblem`; parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); response tables, masks and stage bundles | T |
+| `translate/` | Validated `PropagationProblem` and its route union (`translate/routes.py`); parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); response tables, masks and stage bundles | T |
 | `backends/` | Registry and protocols, shared step and batch drivers, scalar bodies, spatial and population statistics | B |
 | `backends/numpy_ref/` | Reference execution | B |
+| `backends/host/` | The reference's own step driver, Adams and low-storage marches, fixed-schedule group and run session ([SEP 47](seps/sep-0047-run-ownership.md) phase 2); the inherited drivers in `backends/` remain the native bridge's until its session replaces them | B |
 | `stepper/`, `log.py`, `stats.py` | Tableaux, controllers, schedules, progress reporters and statistics specifications | D |
 | `driver/`, `driver/executors/`, `scan.py` | Simulation and convenience interfaces, scan/batch orchestration, Local/Pool/Queue/Slurm execution and scan CLI | D |
 | `calibration/` | The native backend's machine calibration ([SEP 46](seps/archive/sep-0046-machine-calibration.md)): reading, showing, exporting, importing and clearing profiles in the per-user store, through solprop-native's standard-library modules loaded by path so that the native runtime never starts (`calibration/_native.py`), the measuring controller, its child processes, the synthetic problems they time, the operation-grain candidates and the selection rule (`calibration/controller.py`, `child.py`, `problems.py`, `grain.py`, `selection.py`), the refinement of one simulation (`calibration/refine.py`, stage 2, which `Simulation.calibrate` runs), and the `solprop calibrate` command (`calibration/command.py`) | D |
@@ -260,11 +261,12 @@ user script / prop_capillary(...)                                  (D)
    │  Boundaries, StepperSettings, Output
    ▼
 Simulation(...)                                                    (D)
-   │  .translate() → KernelProblem  (validated arrays)                   (T)
+   │  .translate() → PropagationProblem  (validated arrays)                   (T)
    │  .backend = backends.select(name, problem)                     (B)
    ▼
 run loop over save planes and stats periods                        (D)
-   │  backend.set_initial(field)                                    host → device once
+   │  session = start_session(backend, problem, request, start)
+   │  backend.set_initial(field)  (by the session)                  host → device once
    │  for z_save in planes: backend.propagate_to(z_save)            the driver's marches
    │                        obs = backend.observe()                 small host arrays
    │                        stats = backend.stats(spec)             one fused pass
@@ -273,14 +275,18 @@ run loop over save planes and stats periods                        (D)
 MemoryOutput / HDF5Output  ──►  processing / plotting               (X)
 ```
 
-The inner loop (many adaptive or scheduled steps between two save planes) is the
-shared Python `StepDriver`. NumPy evaluates reference passes, and the native backend executes each trial through one native
+The inner loop (many adaptive or scheduled steps between two save planes) is a Python
+step driver. The NumPy reference runs its own (`backends/host/`, SEP 47 phase 2) over
+its reference passes; the native backend runs the inherited `StepDriver`, a temporary
+bridge until its own session replaces it, and executes each trial through one native
 call. The outer driver visits save planes. Device arrays never cross the seam;
 `observe()` returns host arrays of the field at the plane
 and the step history; `stats()` returns a small dictionary of host scalars/vectors.
 
 The outer loop is `solprop.driver.run.run_problem`, which takes a translated problem, a
-backend that already holds its initial state, and an output handler. Nothing in it is
+constructed backend, an output handler and a `Start` -- the entrance, or a resumed
+state with its call ledgers and method history -- which the run's session loads into
+the backend (SEP 47). Nothing in it is
 specific to a `Simulation`; it is the piece a batch runner or a scan calls. What the
 driver does not do is as much a part of the design as what it does:
 
@@ -293,10 +299,10 @@ driver does not do is as much a part of the design as what it does:
   `solprop.output`; the driver is the wiring.
 
 A general modal guide adds a chain of host-side records in front of the
-`KernelProblem` ([vector fields and projection](../guide/waveguides/modal-projection.md)):
+`PropagationProblem` ([vector fields and projection](../guide/waveguides/modal-projection.md)):
 
 ```text
-ModalProvider  ->  DenseModalTable  ->  ModalTransformTables  ->  KernelProblem
+ModalProvider  ->  DenseModalTable  ->  ModalTransformTables  ->  PropagationProblem
  E, H, beta at      tracked knots in     S and Q on the run's      the three
  nodes, one         frequency, gated     coarse grid, the dense    general-modal
  (omega, z)         on its sampled       E/H and the node rule     leaves and the
@@ -454,13 +460,19 @@ circular limits. Circular launch still uses the existing real modal basis.
 
 ## 7. The translation layer (`translate/`)
 
-The translation layer produces the `KernelProblem` ([kernel-contract.md](kernel-contract.md)):
-plain arrays with fixed dtypes, shapes and axis names, validated (finite, contiguous, sizes
-consistent) and immutable, with no version number (ADR-068). What it computes, once per problem:
+The translation layer produces the `PropagationProblem` ([kernel-contract.md](kernel-contract.md)):
+one trajectory's plain arrays with fixed dtypes, shapes and axis names, validated (finite,
+contiguous, sizes consistent) and immutable, with no version number (ADR-068). Its
+shared groups are common to every route; what differs between routes is one variant of a
+closed union, `problem.route` (`translate/routes.py`: `ModalRoute`, `GeneralRoute` or
+`SpatialRoute` of kind radial, Cartesian, planar or line), each with the fields its
+executor needs, which every backend visits explicitly and refuses by name before it
+allocates ([SEP 47](seps/sep-0047-run-ownership.md) §6.2). What it computes, once per
+problem:
 
 | product | from | representation |
 |---|---|---|
-| Φ table | `linear.py` + `ZProfile`s | piecewise Chebyshev in z, coefficients `(n_intervals, n_deg, n_batch_or_1, n_modes, n_pol, n_omega)` as in `kernel-contract.md` §3, breakpoints, hard kinks; constant-D fast path (degree 1: one interval, or one per stretch between the kinks of a response path) |
+| Φ table | `linear.py` + `ZProfile`s | piecewise Chebyshev in z, coefficients `(n_intervals, n_deg, 1, n_modes, n_pol, n_omega)` as in `kernel-contract.md` §3, breakpoints, hard kinks; constant-D fast path (degree 1: one interval, or one per stretch between the kinks of a response path) |
 | unitary phase for noise | Im Φ | same table, imaginary part |
 | quadrature | `modes/quadrature.py` | nodes, weights, coarse weights, synthesis and projection matrices; taper scaling rule |
 | response spec | `nonlinear/responses.py` | compiled ordering of the fused pass, coefficients, ionisation-rate spline tables (log-spaced, converged, clip limits), Raman kernels on the doubled grid in the frequency domain, normalisation prefactors |
@@ -469,7 +481,7 @@ consistent) and immutable, with no version number (ADR-068). What it computes, o
 | stepper settings | `stepper/` | tableau, tolerances, controller parameters, schedule, save planes, caps |
 | statistics requests | `stats.py` | which statistics, which windows |
 | spatial plane measure | `spatial.py`, `adiabatic.py`, `translate/flux.py` | the `FluxPlan`: separable coefficients whose root gives each column's axial admittance, the material square's z table for a varying radial medium, and its adiabatic admission (SEP 34) |
-| batch parameters | `driver/batch.py` | per-member scalars or per-member table indices |
+| route | `translate/routes.py` | the variant, its transform and its own leaves: the TDSE source, the plane measure, the transverse boundary |
 
 Validation is not optional: a backend calls `problem.validate()` and refuses anything
 inconsistent. Tables are cached on the `Simulation` and rebuilt only when a physics object
@@ -509,7 +521,7 @@ planes and hard kinks (ADR-009). Where the linear flow couples channels (§16), 
 frozen-residual section adds its explicit residual to the stage source
 ([stepper.md](stepper.md) §2).
 
-**Memory budget** (field-sized unit `F = n_batch·n_modes·n_pol·n_omega·16 B`): state `y`,
+**Memory budget** (field-sized unit `F = n_modes·n_pol·n_omega·16 B`): state `y`,
 stages `k₁…k₆`, two accumulators, up to five propagator factors (tabulated) or none
 (recomputed) — 9–14 F by design, more when both propagator signs are tabulated
 (`recompute` halves that share); fine-grid spectral
@@ -598,7 +610,7 @@ dependency versions, git provenance of the running code when available, the nois
 realisation, the stepper settings and the step schedule actually taken (z, h, error norm,
 rejections, wall time), the statistics, and the rows a periodic subset of them recorded
 between planes. Fields are stored in the canonical layout
-`(n_z, n_modes, n_pol, n_omega)` (batch: leading `n_batch`), in the **optics** sign convention
+`(n_z, n_modes, n_pol, n_omega)` (a batched scan stores each member separately), in the **optics** sign convention
 with the attribute `spectral_convention = "optics"` (ADR-017: the output layer conjugates on
 save and on resume); processing accessors squeeze trivial axes and accept `convention="fft"`.
 A TDSE run may also write its raw provider evaluations to a separate archive
@@ -644,18 +656,26 @@ index, parameters and seed. `run_scan` selects an executor; `Local` is the API d
 `Pool` uses spawned processes for independent CPU runs, and `Queue`/`Slurm` provide
 durable distributed execution. A controller owns the collected HDF5 scan file.
 
-Fixed-schedule fibre batches use `BatchBackend` and `select_batch`.
-A batch adopts independently translated and loaded member backends, each with its
-own tables, state and noise; it advances them under one compatible explicit schedule.
-The accepted update is fused on compiled backends, while response and transform work
-remains member-owned. `observe_members` preserves each member's history and statistics.
-Admission uses memory ledgers and a free-device-memory query with headroom.
+Fixed-schedule fibre batches run as a group (`solprop.backends.session.GroupSession`,
+started by `solprop.backends.sessions.start_group`; SEP 47 section 6.7): a sequence of
+independently translated single-trajectory member problems — no problem carries a batch
+axis — each loaded from its own `Start`, advanced
+one common window (save plane) at a time, each member reporting its own events. The
+batched scan's loop (`driver/_scan_batch.py`) is the group's service loop. Until the
+native session lands the group is served over the lockstep runners (`BatchBackend`,
+`select_batch`), which adopt the loaded member backends, each with its own tables,
+state and noise. The accepted update is fused on compiled backends, while response and
+transform work remains member-owned. `observe_members` preserves each member's history
+and statistics. Admission uses memory ledgers and a free-device-memory query with
+headroom.
 
 Every backend has exact member-versus-singleton identity checks under the same
 schedule. That does not imply a throughput improvement on every workload: whether a
 batch beats independent runs depends on the problem size and the device. Adaptive
-lockstep is not implemented. A group-level failure fails every member of that group;
-recovering the surviving members is an open question ([#171](https://github.com/LupoLab/solprop/issues/171)).
+lockstep is not implemented. A boundary stop fails its member alone; a group-level
+failure (a non-finite norm, a step floor, a trial exception, an in-flight failure)
+fails every member of that group, each reporting its own committed position and
+checkpoint eligibility; recovering the surviving members is an open question ([#171](https://github.com/LupoLab/solprop/issues/171)).
 
 Independent simulations use spawned processes, normally one scientific thread per
 worker, rather than threads, because thread pools, FFTW plans and the OpenMP runtime are

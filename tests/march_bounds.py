@@ -115,7 +115,7 @@ def march_bound(
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         The translated problem; its grid, transform and integrator set the counts.
     steps : int, optional
         Steps taken; the prescribed schedule's by default.
@@ -145,7 +145,7 @@ def march_bound(
     per_evaluation = kappa * evaluation_rounding(
         n_to,
         int(problem.transform.n_nodes),
-        int(problem.shape[1]),
+        int(problem.shape[0]),
         raman=bool(problem.flags.has_raman),
         plasma=bool(problem.flags.has_plasma),
     )
@@ -175,7 +175,8 @@ def measured_scales(simulation) -> tuple[float, float]:
     problem = simulation.translate()
     backend = NumpyRefBackend(problem, grid=simulation.grid)
     try:
-        state = problem.initial.field0
+        # The backend's private state keeps its leading axis of one.
+        state = problem.initial.field0[np.newaxis]
         bundle = backend._stage_scalars(0.0, 0.0)
         source = backend._nonlinear(state, bundle, np.ones_like(state))
     finally:

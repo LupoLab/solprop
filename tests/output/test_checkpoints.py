@@ -5,6 +5,8 @@
 """Preserve terminal states and accounting independently of regular observations."""
 
 import dataclasses
+import json
+import logging
 from typing import Any, cast
 
 import h5py
@@ -24,7 +26,7 @@ from solprop.output import (
     open_file,
     resume,
 )
-from solprop.output.hdf5 import _dataset
+from solprop.output.hdf5 import _dataset, _write_checkpoint
 from solprop.output.schema import (
     StepStats,
     _example_metadata,
@@ -453,3 +455,218 @@ def test_storage_hook_can_clear_checkpoint_without_rewriting_outcome(
     with open_file(path) as stored:
         assert stored.terminal_checkpoint is None
         assert stored.outcome == outcome
+
+
+def _attempts(metadata, z, starts):
+    """Return a plane at `z` whose accepted attempts start at `starts`, 1/8 m each."""
+    starts = np.asarray(starts, dtype=float)
+    return SavedPlane(
+        z=z,
+        field=np.full((1, 1, metadata.grid.n_omega), 1 + 2j),
+        step_history=StepHistory(
+            z=starts,
+            h=np.full(starts.size, 0.125),
+            norm=np.full(starts.size, 0.25),
+            accepted=np.ones(starts.size, dtype=bool),
+            wall_time=np.full(starts.size, 0.01),
+        ),
+    )
+
+
+def _running(metadata, z, starts):
+    """Return a running checkpoint at `z` and its matching running outcome."""
+    return RunOutcome("running", z), TerminalCheckpoint(
+        _attempts(metadata, z, starts), 0
+    )
+
+
+@pytest.mark.parametrize("store", ["memory", "hdf5"])
+def test_a_running_checkpoint_is_superseded_by_the_next_plane(
+    metadata, tmp_path, store
+):
+    # SEP 47 section 5.5: a running checkpoint holds the attempts since the last plane
+    # without consuming them, so the plane beyond it receives them once.
+    handler = MemoryOutput() if store == "memory" else HDF5Output(tmp_path / "r.h5")
+    handler.open(metadata)
+    handler.save(plane(metadata, 0.0))
+    handler.record_outcome(*_running(metadata, 0.125, [0.0]))
+    handler.record_outcome(*_running(metadata, 0.25, [0.0, 0.125]))
+    checkpoint = handler.terminal_checkpoint
+    assert checkpoint is not None
+    assert_array_equal(checkpoint.plane.step_history.z, [0.0, 0.125])
+    handler.save(_attempts(metadata, 0.375, [0.0, 0.125, 0.25]))
+    handler.record_outcome(RunOutcome("running", 0.375))
+    assert handler.terminal_checkpoint is None
+    assert_array_equal(handler["step_history/z"], [0.0, 0.125, 0.25])
+    handler.close()
+    if store == "hdf5":
+        with h5py.File(tmp_path / "r.h5", "r") as file:
+            assert "terminal_checkpoint" not in file
+        assert resume(tmp_path / "r.h5").plane.z == 0.375
+
+
+def test_a_resume_from_a_running_checkpoint_neither_repeats_nor_loses_attempts(
+    metadata, tmp_path
+):
+    path = tmp_path / "running.h5"
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane(metadata, 0.0))
+        handler.record_outcome(*_running(metadata, 0.125, [0.0]))
+    # A snapshot copy, or a run killed after its running checkpoint.
+    state = resume(path)
+    assert state.checkpoint is not None and state.plane.z == 0.125
+    assert_array_equal(state.history.z, [0.0])
+    with HDF5Output(path, append=True) as handler:
+        handler.open(metadata)
+        handler.record_outcome(RunOutcome("running", 0.125))
+        # The resumed session holds only its own attempts; the store carries the
+        # checkpoint's before them, into a second running checkpoint and the plane.
+        handler.record_outcome(*_running(metadata, 0.25, [0.125]))
+        checkpoint = handler.terminal_checkpoint
+        assert checkpoint is not None
+        assert_array_equal(checkpoint.plane.step_history.z, [0.0, 0.125])
+        handler.save(_attempts(metadata, 0.375, [0.125, 0.25]))
+        handler.record_outcome(RunOutcome("complete", 0.375))
+    with open_file(path) as stored:
+        assert stored.terminal_checkpoint is None
+        assert_array_equal(stored["step_history/z"], [0.0, 0.125, 0.25])
+        assert_array_equal(stored["step_history/counts"], [0, 3])
+
+
+@pytest.mark.parametrize("copy", [False, True], ids=["held", "copy"])
+def test_a_failure_without_a_checkpoint_falls_back_to_the_running_one(
+    metadata, tmp_path, copy
+):
+    # An abandoned low-storage step records the held running checkpoint as its own,
+    # neither cleared nor preceded a second time by what a resume carried.
+    path = tmp_path / "fallback.h5"
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane(metadata, 0.0))
+        handler.record_outcome(*_running(metadata, 0.125, [0.0]))
+    with HDF5Output(path, append=True) as handler:
+        handler.open(metadata)
+        handler.record_outcome(RunOutcome("running", 0.125))
+        handler.record_outcome(*_running(metadata, 0.25, [0.125]))
+        held = handler.terminal_checkpoint
+        assert held is not None
+        if copy:
+            # An equal copy is recognised by its history, not its identity.
+            held = TerminalCheckpoint(
+                dataclasses.replace(held.plane), held.next_save_index, held.landed
+            )
+        handler.record_outcome(RunOutcome("failed", 0.25, "abandoned"), held)
+    state = resume(path)
+    assert state.outcome is not None and state.outcome.status == "failed"
+    assert state.checkpoint is not None and state.plane.z == 0.25
+    assert_array_equal(state.history.z, [0.0, 0.125])
+
+
+def test_a_closing_outcome_without_a_checkpoint_still_clears_the_running_one(
+    metadata, tmp_path
+):
+    path = tmp_path / "cleared.h5"
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane(metadata, 0.0))
+        handler.record_outcome(*_running(metadata, 0.125, [0.0]))
+        handler.record_outcome(RunOutcome("failed", 0.0, "no state"))
+    assert resume(path).checkpoint is None
+
+
+def _stale_running_file(metadata, path, *, window):
+    """Write a file a process killed inside a running-checkpoint transaction leaves.
+
+    ``"append"``: the plane beyond the running checkpoint was appended and the
+    checkpoint not yet removed. ``"move"``: a new checkpoint was moved into place and
+    the running outcome naming the old one not yet rewritten.
+    """
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane(metadata, 0.0))
+        handler.record_outcome(*_running(metadata, 0.125, [0.0]))
+        if window == "append":
+            handler.save(_attempts(metadata, 0.25, [0.0, 0.125]))
+            handler.record_outcome(RunOutcome("running", 0.25))
+    with h5py.File(path, "r+") as file:
+        if window == "append":
+            # The checkpoint and the outcome as they stood before the plane.
+            group = file.create_group("terminal_checkpoint")
+            _write_checkpoint(
+                group,
+                TerminalCheckpoint(_attempts(metadata, 0.125, [0.0]), 0),
+                metadata,
+            )
+            outcome = json.loads(str(_dataset(file, "meta/outcome").asstr()[()]))
+            outcome["z"] = 0.125
+            del file["meta/outcome"]
+            file.create_dataset(
+                "meta/outcome", data=json.dumps(outcome), dtype=h5py.string_dtype()
+            )
+        else:
+            file["terminal_checkpoint"].attrs["z"] = 0.1875
+
+
+@pytest.mark.parametrize("window", ["append", "move"])
+def test_a_stale_running_checkpoint_is_ignored_rather_than_refused(
+    metadata, tmp_path, caplog, window
+):
+    path = tmp_path / "stale.h5"
+    _stale_running_file(metadata, path, window=window)
+    with caplog.at_level(logging.INFO, logger="solprop.output.hdf5"):
+        state = resume(path)
+    assert "ignoring the checkpoint" in caplog.text
+    assert state.checkpoint is None
+    last = 0.25 if window == "append" else 0.0
+    assert state.plane.z == last
+    # Continuing it carries nothing from the stale checkpoint: no attempt twice.
+    with HDF5Output(path, append=True) as handler:
+        handler.open(metadata)
+        assert handler.terminal_checkpoint is None
+        handler.record_outcome(RunOutcome("running", last))
+        starts = [0.0, 0.125] if window == "move" else []
+        handler.save(_attempts(metadata, 0.375, [*starts, 0.25]))
+        handler.record_outcome(RunOutcome("complete", 0.375))
+    with open_file(path) as stored:
+        assert stored.terminal_checkpoint is None
+        assert_array_equal(stored["step_history/z"], [0.0, 0.125, 0.25])
+
+
+def test_an_appending_writer_keeps_a_disagreeing_closing_checkpoint_as_read(
+    metadata, tmp_path
+):
+    # Only a reader refuses the inconsistent state; a writer continuing the file keeps
+    # its checkpoint as read, and the next read still refuses it.
+    path = tmp_path / "closing-append.h5"
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane(metadata, 0.0))
+        handler.record_outcome(
+            RunOutcome("failed", 0.25), TerminalCheckpoint(plane(metadata, 0.25), 0)
+        )
+    with h5py.File(path, "r+") as file:
+        file["terminal_checkpoint"].attrs["z"] = 0.375
+    with HDF5Output(path, append=True) as handler:
+        handler.open(metadata)
+        kept = handler.terminal_checkpoint
+        assert kept is not None
+        assert kept.plane.z == 0.375
+    with pytest.raises(OutputError, match="no matching execution outcome"):
+        resume(path)
+
+
+def test_a_closing_record_disagreeing_with_its_checkpoint_is_still_refused(
+    metadata, tmp_path
+):
+    path = tmp_path / "closing.h5"
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane(metadata, 0.0))
+        handler.record_outcome(
+            RunOutcome("failed", 0.25), TerminalCheckpoint(plane(metadata, 0.25), 0)
+        )
+    with h5py.File(path, "r+") as file:
+        file["terminal_checkpoint"].attrs["z"] = 0.375
+    with pytest.raises(OutputError, match="no matching execution outcome"):
+        resume(path)

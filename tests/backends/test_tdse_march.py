@@ -27,6 +27,7 @@ from solprop.nonlinear.tdse import (
 )
 from solprop.stats import StatsSpec
 from solprop.stepper.multistep import Multistep
+from solprop.translate.routes import tdse_descriptor
 from solprop.translate.tdse import (
     AtomicCallBudget,
     AtomicCallLedger,
@@ -147,8 +148,10 @@ def march_problem(request):
 
 def opened_backend(case, limit, *, fail_at=None):
     problem, grid = case
-    assert problem.tdse is not None
-    binding = ManufacturedBinding(problem.tdse, limit, fail_at=fail_at)
+    assert tdse_descriptor(problem.route) is not None
+    binding = ManufacturedBinding(
+        tdse_descriptor(problem.route), limit, fail_at=fail_at
+    )
     backend = NumpyRefBackend(problem, grid=grid, tdse_binding=binding)
     backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
     return backend, binding
@@ -259,7 +262,7 @@ def test_a_binding_cannot_be_attached_to_an_ordinary_problem(
     march_problem, narrow_grid, linear_problem
 ):
     """The response ownership is explicit in both directions of the seam."""
-    binding = ManufacturedBinding(march_problem[0].tdse, 4)
+    binding = ManufacturedBinding(tdse_descriptor(march_problem[0].route), 4)
     problem = linear_problem(narrow_grid, save_planes=[1e-5], dz_init=1e-6)
     with pytest.raises(BackendError, match="explicit host response binding"):
         NumpyRefBackend(problem, grid=narrow_grid, tdse_binding=binding)

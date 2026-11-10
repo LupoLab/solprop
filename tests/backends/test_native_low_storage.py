@@ -300,7 +300,7 @@ def test_a_cartesian_kerr_beam_agrees(mode, collar, noisy):
             problem,
             initial=dataclasses.replace(
                 problem.initial,
-                field0=pulse.build(grid, space, medium=SpatialMedium())[None],
+                field0=pulse.build(grid, space, medium=SpatialMedium()),
             ),
         )
     assert_parity(problem, grid, noise=noise, transverse=problem.transform.n_nodes)
@@ -403,7 +403,11 @@ def test_a_line_beam_agrees(family):
             ),
         )
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=7),
+        ),
     )
     assert_parity(problem, grid, transverse=problem.transform.n_nodes, depth=depth)
 

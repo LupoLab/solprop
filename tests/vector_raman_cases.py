@@ -105,7 +105,10 @@ def vector_problem(
     )
     if chunk is not None:
         problem = replace(
-            problem, transform=replace(problem.transform, node_chunk=chunk)
+            problem,
+            route=replace(
+                problem.route, transform=replace(problem.transform, node_chunk=chunk)
+            ),
         )
     return problem, grid, modes
 
@@ -119,7 +122,9 @@ def result(backend_class, problem, grid, modes):
             backend._hoist(0.0)
             bundle = backend._stage_scalars(0.0, 0.0)
             rhs = backend._nonlinear(
-                problem.initial.field0, bundle, np.ones(problem.shape, complex)
+                problem.initial.field0[None],
+                bundle,
+                np.ones((1, *problem.shape), complex),
             )
         else:
             backend._trial_step(0.0, LENGTH / 8)

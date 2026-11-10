@@ -11,7 +11,7 @@ and thread counts offered are that machine's own.
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QStandardItemModel
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QToolButton, QWidget
 from solprop.service.machines import LOCAL, Machine
@@ -36,9 +36,11 @@ _NAMES: Final = {
     "auto": "Automatic",
     "native": "Native (CPU)",
     "numpy_ref": "NumPy reference (slow)",
-    "mlx": "MLX GPU, single precision",
 }
 """What a backend is called here."""
+
+_UNAVAILABLE_ROLE: Final = int(Qt.ItemDataRole.UserRole) + 1
+"""The item-data role that marks the recipe's backend where this machine lacks it."""
 
 
 def thread_choices(budget: int) -> list[int]:
@@ -136,6 +138,9 @@ class RunOptions(QWidget):
         row.addWidget(self.threads)
         row.addStretch(1)
         self._budget = 0
+        self.single: tuple[str, ...] = ()
+        """The backends here that compute in single precision."""
+        self._shown: tuple[object, bool] = ("auto", True)
 
     def set_options(self, options: Mapping[str, object], threads: int | None) -> None:
         """Offer what this machine has.
@@ -148,21 +153,11 @@ class RunOptions(QWidget):
             The count chosen before, or ``None`` for the default.
         """
         installed: Sequence[str] = options["double"]  # pyright: ignore[reportAssignmentType]
-        single: Sequence[str] = options["single"]  # pyright: ignore[reportAssignmentType]
+        self.single = tuple(options["single"])  # pyright: ignore[reportArgumentType]
         self.backend.clear()
         for name in ("auto", *installed):
             self.backend.addItem(_NAMES.get(name, name), name)
-        self.backend.addItem(_NAMES["mlx"], "mlx")
-        if "mlx" not in single or not options.get("metal"):
-            # Shown, and why it cannot be picked: it needs MLX and a Metal GPU.
-            model = self.backend.model()
-            assert isinstance(model, QStandardItemModel)  # a combo box's own
-            item = model.item(self.backend.count() - 1)
-            item.setEnabled(False)
-            item.setToolTip(
-                "Needs an Apple-silicon Mac and solprop's mlx extra "
-                "(pip install solprop[mlx])."
-            )
+        self.show_backend(self._shown[0], offered=self._shown[1])
         self._budget = int(options["threads"])  # pyright: ignore[reportArgumentType]
         self.threads.clear()
         for count in thread_choices(self._budget):
@@ -236,7 +231,11 @@ class RunOptions(QWidget):
         self.threads.setCurrentIndex(max(index, 0))
 
     def show_backend(self, name: object, *, offered: bool) -> None:
-        """Show the recipe's backend.
+        """Show the recipe's backend, as the recipe names it.
+
+        A name this machine does not offer, such as a retired backend's, is shown
+        as it is, in an entry that cannot be picked, until another is picked: the
+        line never shows a choice the recipe does not make.
 
         Parameters
         ----------
@@ -245,11 +244,28 @@ class RunOptions(QWidget):
         offered : bool
             Whether the route takes a backend at all.
         """
+        self._shown = (name, offered)
         self.backend.setEnabled(offered)
         self.backend.setToolTip(
             "" if offered else "This route runs on the native backend."
         )
-        index = self.backend.findData(name if isinstance(name, str) else "auto")
+        wanted = name if isinstance(name, str) else "auto"
+        for index in reversed(range(self.backend.count())):
+            if self.backend.itemData(index, _UNAVAILABLE_ROLE):
+                self.backend.removeItem(index)
+        index = self.backend.findData(wanted)
+        if index < 0 and self.backend.count():
+            self.backend.addItem(f"{wanted} (not available)", wanted)
+            index = self.backend.count() - 1
+            self.backend.setItemData(index, True, _UNAVAILABLE_ROLE)
+            model = self.backend.model()
+            assert isinstance(model, QStandardItemModel)  # a combo box's own
+            item = model.item(index)
+            item.setEnabled(False)
+            item.setToolTip(
+                f"The recipe names the backend {wanted!r}, which solprop here does "
+                "not offer; pick another to run it."
+            )
         self.backend.setCurrentIndex(max(index, 0))
 
     def _machine_picked(self, index: int) -> None:
