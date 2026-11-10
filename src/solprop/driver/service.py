@@ -68,6 +68,7 @@ from solprop.driver.run import (
 )
 from solprop.driver.summary import resources
 from solprop.exceptions import ResponseBudgetError, RunTerminated, StopRequested
+from solprop.fourier import GridKind, spectrum_to_internal
 from solprop.log import (
     InterruptibleReporter,
     ProgressReporter,
@@ -85,8 +86,10 @@ from solprop.output.schema import (
     SavedPlane,
     StepHistory,
     StepStats,
+    StoredField,
     TerminalCheckpoint,
     _adopted,
+    stored_spectrum,
 )
 from solprop.output.snapshots import SnapshotController
 from solprop.output.tdse_archive import TDSEArchiveWriter
@@ -100,9 +103,12 @@ __all__ = ["MONITOR_RECONSTRUCTED", "ServiceContext", "serve"]
 logger = logging.getLogger("solprop.driver.run")
 
 _CONSUMER = ExportRecipe(power=True, optics=False)
-"""The field a saved plane, a plane observer and a checkpoint record all hold: output
-amplitudes in the internal FFT convention (SEP 47 section 5.4). The plane store makes
-the optics conversion on its way to disk."""
+"""The field a plane observer, a checkpoint record and an output that is not a plane
+store hold: output amplitudes in the internal FFT convention (SEP 47 section 5.4)."""
+
+_STORED = ExportRecipe(power=True, optics=True)
+"""The field a plane store keeps: :data:`_CONSUMER` in the optics convention, which the
+store's own conversion makes (``PlaneStore.save``)."""
 
 
 @dataclass(frozen=True)
@@ -205,24 +211,46 @@ def _restart(base: Mapping[str, object], keeper: _MarchKeeper) -> dict[str, obje
 
 
 class _Exports:
-    """One detached export per pending ticket, shared by every consumer.
+    """One export per pending ticket, shared by every consumer.
 
     The output, a plane observer and a terminal checkpoint asking for the same field
-    share one array (SEP 47 section 5.4); a field-free plane fetches nothing unless a
-    consumer asks.
+    share one export (SEP 47 section 5.4); a field-free plane fetches nothing unless a
+    consumer asks. A plane store's field is exported straight into its stored form,
+    into the store's own room where it has one; a consumer that wants the internal
+    convention after that is given the exact inverse of the optics conversion
+    (:func:`solprop.fourier.spectrum_to_internal`), with no second export. An output
+    that is not a plane store is given the consumer field itself.
 
     Parameters
     ----------
     session : solprop.backends.session.RunSession
         The session whose tickets are exported.
+    kind : {'field', 'envelope'}
+        The grid's spectral layout.
     """
 
-    def __init__(self, session: RunSession) -> None:
+    def __init__(self, session: RunSession, kind: GridKind) -> None:
         """Start with nothing exported."""
         self._session = session
+        self._kind: GridKind = kind
         self._ticket: ExportTicket | None = None
         self._field: np.ndarray | None = None
+        self._stored: np.ndarray | None = None
         self._phase: np.ndarray | None = None
+        self._phased = False
+
+    def _hold(self, ticket: ExportTicket) -> None:
+        """Forget what another ticket exported.
+
+        Parameters
+        ----------
+        ticket : solprop.backends.events.ExportTicket
+            The ticket now asked for.
+        """
+        if self._ticket != ticket:
+            self._ticket = ticket
+            self._field = self._stored = self._phase = None
+            self._phased = False
 
     def field(self, ticket: ExportTicket) -> np.ndarray:
         """Return the consumer field for a ticket, exporting it once.
@@ -237,21 +265,50 @@ class _Exports:
         numpy.ndarray
             Read-only output amplitudes in the internal convention.
         """
-        if self._ticket != ticket or self._field is None:
-            field = self._session.export(ticket, _CONSUMER)
+        self._hold(ticket)
+        if self._field is None:
+            if self._stored is not None:
+                field = spectrum_to_internal(self._stored, kind=self._kind)
+            else:
+                field = self._session.export(ticket, _CONSUMER)
             field.setflags(write=False)
-            phase = self._session.noise_phase(ticket)
-            if phase is not None:
-                phase.setflags(write=False)
-            self._ticket, self._field, self._phase = ticket, field, phase
+            self._field = field
         return self._field
 
+    def stored(self, ticket: ExportTicket, out: np.ndarray | None) -> np.ndarray:
+        """Return the stored form of a ticket's field, exported once into `out`.
+
+        Parameters
+        ----------
+        ticket : solprop.backends.events.ExportTicket
+            A pending ticket.
+        out : numpy.ndarray or None
+            The plane store's room (``PlaneStore.field_destination``), or ``None``
+            for a new array.
+
+        Returns
+        -------
+        numpy.ndarray
+            Read-only output amplitudes in the optics convention: `out` when given.
+        """
+        self._hold(ticket)
+        if self._stored is None:
+            if self._field is not None:
+                # Exported already for another consumer: the store's own conversion.
+                stored = stored_spectrum(self._field, self._kind, out)
+            else:
+                stored = self._session.export(ticket, _STORED, out=out)
+            stored.setflags(write=False)
+            self._stored = stored
+        return self._stored
+
     def release(self) -> None:
-        """Drop the exported field once its batch is acknowledged."""
-        self._ticket = self._field = self._phase = None
+        """Drop the exports once their batch is acknowledged."""
+        self._ticket = self._field = self._stored = self._phase = None
+        self._phased = False
 
     def phase(self, ticket: ExportTicket) -> np.ndarray | None:
-        """Return the noise phase for a ticket, exported with its field.
+        """Return the noise phase for a ticket, read once.
 
         Parameters
         ----------
@@ -261,9 +318,14 @@ class _Exports:
         Returns
         -------
         numpy.ndarray or None
-            The phase, or ``None`` without a noise model.
+            The phase, read-only, or ``None`` without a noise model.
         """
-        self.field(ticket)
+        self._hold(ticket)
+        if not self._phased:
+            phase = self._session.noise_phase(ticket)
+            if phase is not None:
+                phase.setflags(write=False)
+            self._phase, self._phased = phase, True
         return self._phase
 
 
@@ -321,10 +383,9 @@ class _Chunks:
 
 def _plane(
     event: ObservationReady,
-    exports: _Exports,
     attempts: tuple[BackendHistory, BackendRows],
-    *,
-    keep: bool,
+    field: np.ndarray | None,
+    phase: np.ndarray | None,
 ) -> SavedPlane:
     """Build the plane an output stores from an observation.
 
@@ -332,20 +393,19 @@ def _plane(
     ----------
     event : solprop.backends.events.ObservationReady
         The observation.
-    exports : _Exports
-        Its field, when kept.
     attempts : tuple
         Its history and rows, assembled from the chunks since the previous plane.
-    keep : bool
-        Whether the plane keeps its field.
+    field : numpy.ndarray or None
+        Its field in the internal convention, or ``None``: a field-free plane, or one
+        whose field is exported straight into a plane store.
+    phase : numpy.ndarray or None
+        Its noise phase, where it keeps its field and a noise model runs.
 
     Returns
     -------
     solprop.output.schema.SavedPlane
         The plane.
     """
-    field = exports.field(event.ticket) if keep else None
-    phase = exports.phase(event.ticket) if keep else None
     return SavedPlane(
         z=event.z,
         field=None if field is None else _adopted(field),
@@ -354,6 +414,74 @@ def _plane(
         step_stats=_rows(attempts[1]),
         noise_phase=None if phase is None else _adopted(phase),
     )
+
+
+def _prepare_plane(
+    event: ObservationReady,
+    output: Output,
+    exports: _Exports,
+    attempts: tuple[BackendHistory, BackendRows],
+    shape: tuple[int, ...],
+    *,
+    keep: bool,
+) -> tuple[SavedPlane, StoredField | None]:
+    """Build an observation's plane, its kept field exported once for the output.
+
+    A plane store that :attr:`~solprop.output.schema.PlaneStore.takes_exports` is
+    given the field exported straight into its stored form, into its own room where it
+    has one (SEP 47 section 5.4), and the plane carries none; any other output is
+    given the consumer field on the plane (:func:`_save_plane`).
+
+    Parameters
+    ----------
+    event : solprop.backends.events.ObservationReady
+        The observation.
+    output : solprop.output.schema.Output
+        The run's output.
+    exports : _Exports
+        The pending ticket's exports.
+    attempts : tuple
+        Its history and rows.
+    shape : tuple of int
+        ``(n_modes, n_pol, n_omega)`` of the field.
+    keep : bool
+        Whether the plane keeps its field.
+
+    Returns
+    -------
+    tuple
+        The plane and, where its field was exported into a plane store, the stored
+        field (``None`` otherwise).
+    """
+    ticket = event.ticket
+    phase = exports.phase(ticket) if keep else None
+    if keep and isinstance(output, PlaneStore) and output.takes_exports:
+        plane = _plane(event, attempts, None, None)
+        room = output.field_destination(plane, shape)
+        stored = StoredField(
+            exports.stored(ticket, room), None if phase is None else _adopted(phase)
+        )
+        return plane, stored
+    return _plane(event, attempts, exports.field(ticket) if keep else None, phase), None
+
+
+def _save_plane(output: Output, plane: SavedPlane, stored: StoredField | None) -> None:
+    """Hand a prepared plane to the output (:func:`_prepare_plane`).
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        The run's output.
+    plane : solprop.output.schema.SavedPlane
+        The plane.
+    stored : solprop.output.schema.StoredField or None
+        Its field exported into the plane store's stored form, or ``None``.
+    """
+    if stored is None:
+        output.save(plane)
+    else:
+        assert isinstance(output, PlaneStore)
+        output.save_exported(plane, stored)
 
 
 def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
@@ -436,7 +564,8 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
         method=_method_history(problem),
         retention=None if earlier is None else retention_at(earlier.execution, reached),
     )
-    exports = _Exports(session)
+    exports = _Exports(session, context.metadata.grid.kind)
+    shape = tuple(context.problem.shape[1:])
     current: list[ObservationReady | None] = [None]
 
     def fetch() -> np.ndarray:
@@ -511,10 +640,12 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                     if event.kind is not ObservationKind.LAUNCH:
                         _warn_coarse(event, planes)
                     keep = context.retention.keeps(output.n_saved)
-                    pending = _plane(event, exports, attempts, keep=keep)
+                    pending, stored = _prepare_plane(
+                        event, output, exports, attempts, shape, keep=keep
+                    )
                     pending_save_count = output.n_saved
                     with committing():
-                        output.save(pending)
+                        _save_plane(output, pending, stored)
                         if event.kind is not ObservationKind.LAUNCH:
                             keeper.keep(pending.z)
                             reached = event.z
@@ -526,7 +657,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                             clock=clock,
                             restart=_restart(base, keeper),
                         )
-                    watch.show(pending, output.n_saved - 1)
+                    watch.show(pending, output.n_saved - 1, stored)
                     if event.kind is not ObservationKind.LAUNCH:
                         reporter.plane(event.z, event.summary)
                 elif isinstance(event, ServiceRequired):
