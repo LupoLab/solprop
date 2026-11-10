@@ -16,15 +16,17 @@ The completed implementation is left ready for maintainer review, not auto-merge
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
 
-SEP 47's contract milestone is merged at `2e2490c2`. The maintainer's updated handoff
-on 2026-11-10 confirms its finished native-session branch now contains the descriptor/
-request split and generic `Backend.prepare(problem, request).start(...)`. The maintainer
-authorizes proceeding against those final signatures while
-[#607](https://github.com/LupoLab/solprop/pull/607) completes its push and CI fixes.
-Read the actual code at that commit before adapter integration. `assemble` returns
+SEP 47's contract milestone is merged at `2e2490c2`. The completed Part B head,
+`e9105523` from [#607](https://github.com/LupoLab/solprop/pull/607), is integrated at
+`83da0ad5` under the maintainer's authorization to proceed before its CI fixes merge.
+Its actual interfaces have been read: the descriptor/request split and generic
+`Backend.prepare(problem, request).start(...)` are present. `assemble` returns
 `Translation(problem, request)`, validation is `validate_run`, and preparation checks
 `foreign_request`. Group preparation and the fixed registry still need generic Julia
 integration; no new backend-name branch belongs in the service/session dispatcher.
+The current whole-package type check reports 93 errors in 23 files identical to that
+dependency head; no Julia file is among them. Track and integrate #607's CI corrections
+before qualification; do not suppress those errors or duplicate its agent's fixes.
 
 ## Ownership
 
@@ -42,9 +44,9 @@ for the runtime probes. Numerical source review may proceed independently.
 | Assignment | Exclusive files | State |
 |---|---|---|
 | Julia package agent | `tests/backends/julia/runtime_probe.py`, `test_runtime_subprocess.py` | Real packaged subprocess qualification; package ownership returned to master |
-| Distribution agent | Julia jobs/change flag in `.github/workflows/ci.yml`; new Julia workflow, `tools/check_julia.py`, `tests/test_check_julia.py` | CI implementation and targeted runner tests |
-| Master | Rules, this record, integrated Julia package/setup, runtime/session/transfer, wheel hooks, CLI and documentation | Runtime/CLI foundation tested; opening draft implementation PR |
-| Independent reviewer | Read-only reviews and isolated lifecycle probes | Setup, Julia package, runtime and DF32 derivation reviewed; wheel boundary and CI review active |
+| Distribution agent | Private Linux campaign checkout, environment and its own Slurm jobs | DMOG runtime qualification; reviewed CI ownership returned to master |
+| Master | Rules, this record, integrated Julia package/setup, runtime/session/transfer, CI, wheel hooks, CLI and documentation | Integration and phase 2 shared interfaces |
+| Independent reviewer | Read-only reviews and isolated lifecycle/numerical probes | Wheel and CI approved; donor binary64 kernel and ownership audit |
 
 The foundation is committed at `540794bd`. Setup commits `6c569742`, `fadae531` and
 `52269788` were independently reviewed and integrated as `9fe74c26`, `5cec895c` and
@@ -105,11 +107,12 @@ remains a follow-up, not a blocker under the maintainer's revised signal policy.
 
 ## Next actions
 
-1. Integrate reviewed Julia CI and publish the packaging/documentation corrections.
-2. Qualify installed-wheel and editable identities and the packaged subprocess gate.
-3. Integrate independently reviewed Julia CI and run the Linux runtime gate.
+1. Resolve and independently review the foreign-thread package-load/GC deadlock before
+   qualifying worker use; retain the failed subprocess evidence.
+2. Run the same runtime gate on the DMOG Linux checkout.
+3. Integrate reviewed subprocess tests and publish a batch for the full CI gates.
 4. Pass the phase 1 probes before implementing the complete numerical session against
-   the final SEP 47 signatures; reconcile the actual pushed source before integration.
+   the final SEP 47 signatures; integrate its subsequent CI corrections.
 
 ## Verification log
 
@@ -158,6 +161,28 @@ remains a follow-up, not a blocker under the maintainer's revised signal policy.
   payloads. This smoke used an isolated no-dependency install with existing dependencies;
   fresh dependency resolution remains in CI. The public setup API page fixes three unresolved
   function references; Sphinx now passes with warnings as errors.
+- Julia CI commits `48714ac3` and `ebd239bf` were independently approved and integrated
+  as `8e584d24` and `90453af2`. Their runner tests, static checks, actionlint and change
+  selection scenarios passed. Existing device-filter robustness is tracked separately
+  in [#612](https://github.com/LupoLab/solprop/issues/612).
+- After integrating SEP 47 Part B, 268 targeted Julia/CI-runner/request tests passed.
+  A fresh native build completed; whole-package types remain blocked by the dependency
+  errors above, pending that PR's CI fixes.
+- Packaged macOS runtime gate: the first 12 subprocess cases pass with no skips,
+  covering main-thread startup, concurrent initialization, one/two-thread GC and GIL
+  progress, raw foreign-thread stopping, last-owner reclamation, shutdown and offline
+  preflight. A further 14 signal/spawn cases and four native-coexistence cases passed.
+  Native-before-Julia and Julia-before-native both retained real FFT plans at one and
+  two threads through clean shutdown against SEP 47 Part B.
+- Worker-first Metal loading timed out at 180 seconds. Native stack sampling places
+  the worker in Julia's package-image global safepoint while Python's main thread is
+  joining it. A GIL-free loader alone also hangs at one and two threads. This is a
+  blocking runtime qualification failure, separate from the accepted SIGTERM policy;
+  ordinary worker computation/GC and any proposed fix require independent probes.
+- Read-only donor audit reproduced a non-THG multimode Raman out-of-bounds padding
+  read under bounds checking. [#613](https://github.com/LupoLab/solprop/issues/613)
+  tracks its correction and regression in the production port; the prototype is not
+  accepted as proof of correctness.
 - Additional planning review requires conditioning-aware bounds near zeros of phi
   functions and corrects Metal's portable sine/cosine allowance to 4 ulp. Experimental
   witnesses remain measurements; algorithm and admission constants are not qualified.
