@@ -69,6 +69,7 @@ end
             (; landing_ulps = 0), (; quiet_interval = 0.0), (; carrier = true),
             (; real_intervals = (1.0,)), (; breakpoints = [0.0]),
             (; hard_kinks = [0.4, 0.4]), (; save_planes = [1.1]),
+            (; hard_kinks = [1.1]),
             (; interpolate = true),
         )
         @test_throws ArgumentError adams_control_policy(; invalid...)
@@ -278,4 +279,20 @@ end
     @test adams_control_allocations(
         quiet, stencil, positions, slots, [3, 2, 4], [0.3, 0.5, 0.1]
     ) == 0
+end
+
+@testset "shortened Adams runs retain future operator kinks" begin
+    kinks = [0.5]
+    policy = adams_control_policy(;
+        z_end = 0.25, save_planes = [0.25], hard_kinks = kinks,
+        breakpoints = [0.0, 1.0],
+    )
+    kinks[1] = 0.75
+    @test policy.hard_kinks == [0.5]
+    stop = SP.adams_landing(policy, 0.2, 0.1, 0.25)
+    @test stop.kind == SP.AdamsEnd && stop.z_target == 0.25
+    @test stop.dz == 0.25 - 0.2 && stop.landed && !stop.stretched
+    @test SP.adams_next_landing(policy, 0.2, 0.25) == 0.25
+    approach = SP.adams_approach(policy, 0.2, stop, 0.25)
+    @test approach.destination == 0.25 && !approach.hard_kink
 end

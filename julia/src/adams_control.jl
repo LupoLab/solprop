@@ -27,6 +27,9 @@ metres; `collar_rate` is the in-stage power-loss rate divided by two, in m⁻¹.
 integer or `nothing`. These two limits are retained for the session's policy, not
 enforced by numerical trials. Position arrays are copied and strictly increasing;
 `breakpoints` already embodies the translated interval-cap choice.
+Hard kinks cover that represented operator span and may follow a shortened run's
+`z_end`; saved planes lie inside the run. Keeping future operator kinks does not force
+a step beyond its current end.
 
 `carrier=true` refuses the carrier frame by name. No interaction formulation is
 implemented. Session state, numerical fields, callbacks and history are absent.
@@ -112,8 +115,8 @@ function AdamsControlPolicy(;
     edges = _adams_control_positions(breakpoints, :breakpoints, 2)
     first(edges) <= z_end <= last(edges) &&
         all(z -> first(edges) <= z <= z_end, planes) &&
-        all(z -> first(edges) <= z <= z_end, kinks) ||
-        throw(ArgumentError("Adams landing positions must lie inside the run"))
+        all(z -> first(edges) <= z <= last(edges), kinks) ||
+        throw(ArgumentError("Adams landing positions exceed their run or operator span"))
     interpolate && !isempty(planes) &&
         throw(ArgumentError("interpolated Adams policy has no forced save planes"))
     return AdamsControlPolicy(
