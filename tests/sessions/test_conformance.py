@@ -389,15 +389,16 @@ def test_events_follow_the_committed_order(start, executor):
 
 
 @pytest.mark.parametrize(
-    ("check", "outcome"),
+    ("check", "outcome", "noise"),
     [
-        (BoundaryCheck(transverse_budget=10.0), Outcome.COMPLETED),
-        (BoundaryCheck(), Outcome.FAILED),
+        (BoundaryCheck(transverse_budget=10.0), Outcome.COMPLETED, None),
+        (BoundaryCheck(), Outcome.FAILED, None),
+        (BoundaryCheck(transverse_budget=10.0), Outcome.COMPLETED, "input"),
     ],
-    ids=["relaxed", "stopped"],
+    ids=["relaxed", "stopped", "relaxed-noisy"],
 )
 def test_a_transverse_edge_is_read_in_the_committed_order(
-    start, executor, check, outcome
+    start, executor, check, outcome, noise
 ):
     """SEP 47 section 5.3 with SEP 40 section 5.3: a free-space run's transverse edge.
 
@@ -406,9 +407,16 @@ def test_a_transverse_edge_is_read_in_the_committed_order(
     record joins the monitor's. Relaxed, the re-review's packet is read to the end at
     most a quarter of the run apart (the backstop's largest); under the default budget
     the edge stops it at a read, a failure at that committed endpoint naming the edge.
+    With the input noise, the launch takes the draw's allowance, which the record keeps.
     """
     executor.require(TRANSVERSE)
-    problem, request, context = edged(check)
+    if noise is not None and executor.name.endswith("low-storage"):
+        pytest.skip(
+            "the replay's half-millimetre steps exceed the split collar's crossing "
+            "limit the input noise sets at the launch, which refuses the run there"
+        )
+    problem, request, context = edged(check, noise=noise)
+    assert problem.initial.noise_model == (noise or "none")
     started = start(problem, request, context=context)
     launch = started.session.advance()
     (first,) = launch.events
@@ -427,6 +435,7 @@ def test_a_transverse_edge_is_read_in_the_committed_order(
     assert record is not None
     edge = record["transverse"]
     assert edge["launch_energy"] is not None and edge["reads"] > 0
+    assert (edge["noise_allowance"] > 0.0) is (noise is not None)
     assert run.terminal.outcome is outcome
     length = request.stepper.save_planes[-1]
     if outcome is Outcome.COMPLETED:

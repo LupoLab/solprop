@@ -42,7 +42,7 @@ import os
 import warnings
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import numpy as np
 
@@ -608,7 +608,7 @@ CAPABILITIES = frozenset({MONITOR, STATISTICS, TRANSVERSE, DENSE})
 
 
 def edged(
-    check: BoundaryCheck,
+    check: BoundaryCheck, *, noise: Literal["input"] | None = None
 ) -> tuple[PropagationProblem, RunRequest, dict[str, Any]]:
     """Return the re-review's tilted packet, edged, with its context.
 
@@ -620,6 +620,9 @@ def edged(
     ----------
     check : solprop.monitor.BoundaryCheck
         The run's thresholds.
+    noise : {"input", None}, optional
+        The input noise launched beside the packet, seeded, whose allowance the edge
+        judges above; none by default.
 
     Returns
     -------
@@ -634,6 +637,7 @@ def edged(
         check=check,
         planes=[REREVIEW.length / 2, REREVIEW.length],
         backend="numpy_ref",
+        noise=noise,
     )
     problem = simulation.translate()
     request = simulation._run_request().for_run(

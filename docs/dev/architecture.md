@@ -684,7 +684,8 @@ serve it:
   scan built), so each member's march, events, attempts, statistics rows, tickets and
   boundary monitor are its own session's, and the group only orders the members'
   advances. Within a window the members take turns in rounds of at most 256 common
-  steps (`ROUND_STEPS`), each turn native from end to end. The running members stand
+  steps (`ROUND_STEPS`), each turn native from end to end, and each member's noise
+  realisation and the noise phase its planes store are its own session's. The running members stand
   at one common step between rounds, and a group-wide stop is polled there. A member's
   trajectory is its lone native session's, bit for bit at one thread, and so is the
   transitional lockstep group's. The members share the schedule and nothing mutable: no

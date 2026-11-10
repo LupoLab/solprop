@@ -152,12 +152,8 @@ def refusal(
     for index, (problem, request, start) in enumerate(
         zip(problems, requests, starts, strict=True)
     ):
-        refused = (
-            # The group exports no noise phase, which a noisy plane stores.
-            f"the {problem.initial.noise_model!r} noise model"
-            if problem.initial.noise_model != "none"
-            else member_session_refusal(problem, request, start)
-            or _member_refusal(request)
+        refused = member_session_refusal(problem, request, start) or _member_refusal(
+            request
         )
         if refused is not None:
             return f"{refused} (member {index})"
@@ -467,6 +463,56 @@ class NativeGroupSession:
         """
         self._ledger.check_ticket(ticket)
         check_member_ticket(ticket, self._member(member))
+        return self._sessions[member].export(self._held(member, ticket), recipe, out)
+
+    def noise_phase(self, member: int, ticket: ExportTicket) -> np.ndarray | None:
+        """Return one member's noise phase at a pending ticket, which its session forms.
+
+        Each member carries its own realisation and its own propagator, so its phase
+        is its native session's (:meth:`NativeSession.noise_phase`).
+
+        Parameters
+        ----------
+        member : int
+            The member's position.
+        ticket : solprop.backends.events.ExportTicket
+            A ticket of the pending batch, for this member.
+
+        Returns
+        -------
+        numpy.ndarray or None
+            The phase, shape ``(n_modes, n_pol, n_omega)``, or ``None`` without a
+            noise model.
+
+        Raises
+        ------
+        solprop.backends.session.SessionError
+            If the ticket expired, or is not one of this member's.
+        """
+        self._ledger.check_ticket(ticket)
+        check_member_ticket(ticket, self._member(member))
+        return self._sessions[member].noise_phase(self._held(member, ticket))
+
+    def _held(self, member: int, ticket: ExportTicket) -> ExportTicket:
+        """Return the member's own pending ticket that a group ticket stands for.
+
+        Parameters
+        ----------
+        member : int
+            The member's position, already checked.
+        ticket : solprop.backends.events.ExportTicket
+            A ticket of the pending group batch, for this member.
+
+        Returns
+        -------
+        solprop.backends.events.ExportTicket
+            The member session's ticket.
+
+        Raises
+        ------
+        solprop.backends.session.SessionError
+            If the ticket is not one of this member's in the pending batch.
+        """
         held = self._tickets.get(member)
         if held is None or held.generation != ticket.generation:
             msg = (
@@ -474,25 +520,7 @@ class NativeGroupSession:
                 f"{member}'s in the pending batch"
             )
             raise SessionError(msg)
-        return self._sessions[member].export(held, recipe, out)
-
-    def noise_phase(self, member: int, ticket: ExportTicket) -> np.ndarray | None:
-        """Return ``None``: the native group refuses noise models (:func:`refusal`).
-
-        Parameters
-        ----------
-        member : int
-            The member's position.
-        ticket : solprop.backends.events.ExportTicket
-            A ticket of the pending batch.
-
-        Returns
-        -------
-        None
-            No noise phase.
-        """
-        self._ledger.check_ticket(ticket)
-        check_member_ticket(ticket, self._member(member))
+        return held
 
     def member_status(self, member: int) -> SessionStatus:
         """Return one member's committed position, counters and outcome.

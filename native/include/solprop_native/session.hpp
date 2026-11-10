@@ -156,6 +156,9 @@ struct MonitorPlan {
   /** A free-space run's transverse edge, and the `transverse` record it continues. */
   std::optional<transverse::Config> edge;
   transverse::Resumption edge_record;
+  /** The input noise's readings the edge's launch carries, formed from its draw on the
+      host once (`TransverseEdge.launch`'s `noise`); none without input noise. */
+  std::optional<transverse::Noise> edge_noise;
 };
 
 /** The Adams march a session runs: its policy, state, replayed schedule and engine,

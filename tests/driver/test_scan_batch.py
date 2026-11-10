@@ -8,7 +8,7 @@ import contextlib
 import json
 from collections.abc import Mapping
 from functools import partial
-from typing import cast
+from typing import Literal, cast
 
 import h5py
 import numpy as np
@@ -35,7 +35,7 @@ from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
 
 
-def build(point, backend="numpy_ref"):
+def build(point, backend="numpy_ref", noise: Literal["input", "modified"] = "modified"):
     # The former grid without a collar: a short fixed schedule is refused beside the
     # default collar, and these tests are about batched scans, not boundaries.
     grid = EnvelopeGrid.from_limits(0.001, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID)
@@ -54,7 +54,7 @@ def build(point, backend="numpy_ref"):
             0.0, 0.001, 0.00025, save_planes=[0.0005, 0.001]
         ),
         stats=StatsSpec(names=("energy", "peak_power"), periodic=("energy",), period=2),
-        noise="modified",
+        noise=noise,
         seed=point.seed,
         # The fixed order leaves no controller decision on the prescribed schedule, so
         # a batch member and its solo run are one discrete march (SEP 25 4.4).
@@ -134,6 +134,46 @@ def test_batch_scan_matches_local_with_partial_groups(tmp_path, backend, size):
             assert recorded["settings"]["batch_size"] <= size
     run_scan(scan, builder, output=tmp_path / "batch.h5", executor=executor, **options)
     assert executor.budgets == []
+
+
+@pytest.mark.parametrize("noise", ["input", "modified"])
+def test_a_noisy_native_batch_runs_in_the_native_group(tmp_path, noise):
+    """A Batch scan's noisy native members run in the native group session (SEP 47
+    section 6.7): each member's noise phase, which its plane stores, is its own
+    session's, the same as its point run alone; its fields agree with it.
+    """
+    pytest.importorskip("solprop_native")
+    scan = Scan("batch", base_seed=772, power=[1.0, 2.0])
+    builder = partial(build, backend="native", noise=noise)
+    reference = run_scan(
+        scan,
+        builder,
+        output=tmp_path / "local.h5",
+        executor=Local(),
+        fields="all",
+        progress="none",
+    )
+    result = run_scan(
+        scan,
+        builder,
+        output=tmp_path / "batch.h5",
+        executor=Batch(2),
+        fields="all",
+        progress="none",
+    )
+    assert result.status.tolist() == ["done"] * 2
+    assert_points_matched(result, reference, scan, builder, what="batch member")
+    with (
+        h5py.File(tmp_path / "local.h5", "r") as alone,
+        h5py.File(tmp_path / "batch.h5", "r") as batch,
+    ):
+        expected = np.asarray(alone["fields/noise_phase"])
+        found = np.asarray(batch["fields/noise_phase"])
+        assert found.tobytes() == expected.tobytes()
+        assert not np.array_equal(found[0], found[1])
+        for index in range(2):
+            recorded = json.loads(_dataset(batch, "points/backend")[index])
+            assert recorded["settings"]["batch_strategy"] == "native_group_session"
 
 
 @pytest.mark.parametrize("size", [0, -1, True])
@@ -277,14 +317,30 @@ def test_a_batch_asks_its_members_only_for_the_fields_the_scan_reads(
             return original(self, field=field)
 
         monkeypatch.setattr(driver, "observe", observed)
+    exported = []
+    if backend == "native":
+        # The noisy native members run in the native group session (SEP 47 section
+        # 6.7), each member's field exported through its own native session.
+        group = pytest.importorskip("solprop_native.group").NativeGroupSession
+
+        def exporting(self, member, ticket, recipe, out=None, original=group.export):
+            exported.append(member)
+            return original(self, member, ticket, recipe, out)
+
+        monkeypatch.setattr(group, "export", exporting)
     result = run_scan(
         scan, builder, output=tmp_path / "batch.h5", executor=Batch(3), **keywords
     )
     assert result.status.tolist() == ["done"] * 3
     # The group drains each member's attempts field-free, member by member, and
     # fetches the members' fields of a plane only when the scan reads it.
-    assert fields == [True] * sum(asked)
-    assert crossed.count(True) == 3 * sum(asked)
+    if backend == "native":
+        assert fields == []
+        assert crossed.count(True) == 0
+        assert sorted(exported) == sorted([0, 1, 2] * sum(asked))
+    else:
+        assert fields == [True] * sum(asked)
+        assert crossed.count(True) == 3 * sum(asked)
     assert_points_matched(result, reference, scan, builder, what="batch member")
 
 

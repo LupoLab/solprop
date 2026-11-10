@@ -66,6 +66,7 @@ __all__ = [
     "edge_config",
     "log_declared",
     "log_finish",
+    "noise_readings",
     "notice_error",
     "notice_warning",
     "record_of",
@@ -277,6 +278,56 @@ def config_of(
             "noise_modes": float(modes),
         }
     )
+
+
+def noise_readings(
+    edge: TransverseEdge, noise: np.ndarray, clean: np.ndarray | None
+) -> dict[str, object]:
+    """Return the input noise's readings a native launch carries, formed as solprop's.
+
+    :meth:`~solprop.transverse_monitor.TransverseEdge.launch` reads its input noise on
+    the host with its own reductions: each column's energy, the weighted node energy
+    its allowance takes, the weighted columns' energy in the safety ramp's band and a
+    requested collar's strip. They are formed here from the same draw, the same way,
+    once (``transverse::Noise``), so the native launch judges the same numbers.
+
+    Parameters
+    ----------
+    edge : solprop.transverse_monitor.TransverseEdge
+        The run's fresh edge; it is not changed.
+    noise : numpy.ndarray
+        The input noise's draw, shape ``(n_modes, n_pol, n_omega)``, a host array.
+    clean : numpy.ndarray or None
+        Each column's unweighted launch energy without that noise
+        (``StepDriver._edge_clean_columns``), or ``None``.
+
+    Returns
+    -------
+    dict
+        The readings, as ``transverse::Noise`` takes them.
+    """
+    reduction = edge.reduction
+    columns = reduction.column_power(noise)
+    weights = edge._weights  # pyright: ignore[reportPrivateUsage]
+    design = edge.design
+    ramp = 0.0
+    if design is not None:
+        power = edge._column_power(columns)  # pyright: ignore[reportPrivateUsage]
+        ramp = float(np.sum(power[design.ramp_rate > 0.0]))
+    strip = np.empty(0, dtype=np.float64)
+    if edge.every_step:
+        strip = np.ascontiguousarray(reduction.strip(noise), dtype=np.float64).reshape(
+            -1
+        )
+    return {
+        "columns": np.ascontiguousarray(columns, dtype=np.float64),
+        "energy": float(np.sum(weights * reduction.node_power(noise))),
+        "ramp": ramp,
+        "strip": strip,
+        "clean": None
+        if clean is None
+        else np.ascontiguousarray(clean, dtype=np.float64),
+    }
 
 
 def resumption(record: object, faces: int) -> dict[str, object]:

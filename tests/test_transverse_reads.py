@@ -29,12 +29,11 @@ import math
 import re
 import warnings
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import pytest
 
-from solprop.backends import sessions
 from solprop.backends.registry import available
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BoundaryError, BoundaryWarning
@@ -123,11 +122,13 @@ def packet_run(  # noqa: PLR0913 - the settings these runs vary, each independen
     space: LineGrid | None = None,
     dz_init: float = 1e-4,
     backend: str = "numpy_ref",
+    noise: Literal["input"] | None = None,
 ) -> Simulation:
     """Return `packet` as a free-space run on `space` (its own line by default).
 
     ``rtol = 1e-5``, ``dz_init = 1e-4 L``, ``auto_init`` and ``dz_max = L``: the
-    settings of Part II's table of committed steps. `dz_init` is in units of ``L``.
+    settings of Part II's table of committed steps. `dz_init` is in units of ``L``;
+    `noise` launches the input noise, seeded, beside the packet.
     """
     length = packet.length
     grid = EnvelopeGrid.from_limits(length, WAVELENGTH, (790e-9, 810e-9), packet.window)
@@ -159,7 +160,8 @@ def packet_run(  # noqa: PLR0913 - the settings these runs vary, each independen
         launch,
         settings=settings,
         frame=frame,
-        noise=None,
+        noise=noise,
+        seed=None if noise is None else 5,
     )
 
 
@@ -426,7 +428,9 @@ def test_a_plane_the_step_already_read_reduces_nothing_more(
     # resident (`Session::edge_plane` skips the plane), with no reading through Python.
     _require(backend)
     if route == "bridge":
-        monkeypatch.setattr(sessions, "_native_session", lambda *_, **__: None)
+        monkeypatch.setattr(
+            "solprop_native.session.session_refusal", lambda *_: "the bridge"
+        )
     packet = REREVIEW
     length = packet.length
     planes = [length / 4, length / 2, length]

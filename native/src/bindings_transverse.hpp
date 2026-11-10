@@ -22,6 +22,9 @@ namespace solprop_native::bindings {
 transverse::Config transverse_config_from(nanobind::dict values);
 /** The record a resume continues, from `_transverse.resumption(...)`. */
 transverse::Resumption transverse_resumption_from(nanobind::dict values);
+/** The input noise's readings a launch carries (`noise` of `TransverseEdge.launch`,
+    `_transverse.noise_readings`). */
+transverse::Noise transverse_noise_from(nanobind::dict values);
 /** The edge's record and finish, as `_transverse.record_of` reads them. */
 nanobind::dict transverse_record_to(const transverse::Record& record,
                                     const transverse::Finish& finish);
