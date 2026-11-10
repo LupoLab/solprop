@@ -22,6 +22,7 @@ from march_bounds import (
 from solprop import fourier
 from solprop.backends.protocol import Backend, BackendHistory, Observation, StepSummary
 from solprop.backends.registry import select
+from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings, metadata_for, run_problem
 from solprop.driver.run import plane_from_observation
 from solprop.exceptions import DriverError
@@ -162,8 +163,8 @@ class NullBackend:
     def restore_march(self, snapshot):
         return None
 
-    def timed_step(self):
-        return lambda: None
+    def timing_probe(self, start):
+        raise NotImplementedError
 
     def propagate_to(self, z):
         if self.failure is not None:
@@ -448,6 +449,7 @@ def test_a_statistics_spec_that_disagrees_about_the_channel_is_refused(
             problem,
             NullBackend(),
             MemoryOutput(),
+            start=Start.entrance(problem),
             metadata=metadata_for(problem, narrow_grid),
             stats_spec=StatsSpec(names=("energy",)),
         )
@@ -459,6 +461,7 @@ def test_a_batch_axis_is_refused(batched_problem, narrow_grid):
             batched_problem,
             NullBackend(),
             MemoryOutput(),
+            start=Start(field=batched_problem.initial.field0[0], z=0.0),
             metadata=metadata_for(batched_problem, narrow_grid),
         )
 
@@ -471,8 +474,10 @@ def test_a_start_plane_outside_the_run_is_refused(build_simulation, narrow_grid)
             problem,
             NullBackend(),
             MemoryOutput(),
+            start=Start(
+                field=problem.initial.field0[0], z=problem.initial.z, plane_index=3
+            ),
             metadata=simulation.metadata(),
-            start_plane=3,
         )
 
 
@@ -485,6 +490,7 @@ def test_the_output_is_closed_when_the_run_fails(build_simulation, tmp_path):
             problem,
             NullBackend(RuntimeError("the card caught fire"), shape=problem.shape),
             handler,
+            start=Start.entrance(problem),
             metadata=simulation.metadata(),
         )
     # The plane at z = 0 was written before the failure and the file is readable, which
@@ -542,12 +548,12 @@ def test_the_loop_runs_without_a_simulation(narrow_grid, soliton):
         prefactor_index=1.0,
     )
     backend = select("numpy_ref", problem, grid=narrow_grid, modes=[gnlse.mode])
-    backend.set_initial(problem.initial.field0, None)
     handler = MemoryOutput()
     run_problem(
         problem,
         backend,
         handler,
+        start=Start.entrance(problem),
         metadata=metadata_for(problem, narrow_grid, modes=[gnlse.mode]),
     )
     backend.close()
@@ -668,6 +674,7 @@ def test_a_run_that_raises_tells_the_reporter_it_was_interrupted(build_simulatio
             problem,
             NullBackend(RuntimeError("the card caught fire"), shape=problem.shape),
             MemoryOutput(),
+            start=Start.entrance(problem),
             metadata=simulation.metadata(),
             progress=events,
         )
@@ -699,6 +706,7 @@ def test_a_reporter_without_interrupted_is_still_accepted(build_simulation):
             problem,
             NullBackend(RuntimeError("the card caught fire"), shape=problem.shape),
             MemoryOutput(),
+            start=Start.entrance(problem),
             metadata=simulation.metadata(),
             progress=FourCalls(),  # type: ignore[arg-type] - the older protocol on purpose
         )

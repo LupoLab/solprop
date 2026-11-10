@@ -484,7 +484,7 @@ class NativeSession:
         driver = self._driver(backend)
         integrator = self._problem.stepper.integrator
         backend.set_initial(
-            np.asarray(start.field)[np.newaxis], None, z=float(start.z), resume=False
+            np.asarray(start.take_field())[np.newaxis], None, z=float(start.z), resume=False
         )
         if isinstance(integrator, Multistep):
             march = driver._adams

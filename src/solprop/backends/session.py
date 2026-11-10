@@ -39,6 +39,10 @@ Control requests travel separately from the immutable request: a thread-safe
 :meth:`RunSession.request_snapshot` latches a snapshot for the next eligible accepted
 endpoint (SEP 47 section 5.5).
 
+A :class:`GroupSession` advances compatible trajectories through one common fixed
+schedule, a window at a time, and reports each member's own events and outcome (SEP 47
+section 6.7).
+
 :class:`SessionLedger` is the lifecycle bookkeeping every Python session shares:
 receipts, the pending barrier, closing and poisoning. It holds no numerical state.
 """
@@ -59,6 +63,7 @@ from jaxtyping import Complex
 from solprop.backends.events import (
     EventBatch,
     ExportTicket,
+    GroupBatch,
     Outcome,
     Receipt,
 )
@@ -74,6 +79,7 @@ __all__ = [
     "DEFAULT_DEADLINE",
     "DEFAULT_WORK_LIMIT",
     "ExecutionOptions",
+    "GroupSession",
     "PreparedExecution",
     "RunSession",
     "SessionBackend",
@@ -205,16 +211,22 @@ class ExecutionOptions:
     backend_options: Mapping[str, object] = field(default_factory=dict)
 
 
-@dataclass(frozen=True, eq=False)
+@dataclass(eq=False)
 class Start:
     """Where a session starts: an initial state, or a checkpoint being resumed.
 
+    A start is handed to one session, which takes its field (:meth:`take_field`): the
+    session loads a copy made once at start, and the start forgets the array, so an
+    input that nothing else holds -- a runner's caller's array -- is released before
+    the first step rather than held through the run by every frame that passed the
+    start along (SEP 47 section 5.4).
+
     Attributes
     ----------
-    field : numpy.ndarray
+    field : numpy.ndarray or None
         The state in internal amplitude units and the FFT convention, complex,
-        shape ``(n_modes, n_pol, n_omega)``. The session takes ownership of a copy
-        made once at start, so mutating the caller's array afterwards changes nothing.
+        shape ``(n_modes, n_pol, n_omega)``; ``None`` once a session took it.
+        Mutating the caller's array after the start changes nothing.
     z : float
         Its position, m.
     noise : solprop.noise.NoiseRealisation or None
@@ -237,7 +249,7 @@ class Start:
         ``input`` noise realisation is not added a second time.
     """
 
-    field: Complex[np.ndarray, "n_modes n_pol n_omega"]
+    field: Complex[np.ndarray, "n_modes n_pol n_omega"] | None
     z: float
     noise: NoiseRealisation | None = None
     plane_index: int = 0
@@ -246,6 +258,58 @@ class Start:
     monitor: Mapping[str, object] | None = None
     plane_pending: bool = True
     resume: bool = False
+
+    @classmethod
+    def entrance(
+        cls, problem: KernelProblem, *, noise: NoiseRealisation | None = None
+    ) -> "Start":  # noqa: UP037 - runtime type hook
+        """Return the fresh start of a problem: its launch state, its launch plane owed.
+
+        Parameters
+        ----------
+        problem : solprop.translate.problem.KernelProblem
+            The translated problem, whose initial state has one member.
+        noise : solprop.noise.NoiseRealisation or None, optional
+            A realisation to carry instead of the one the problem was assembled with.
+
+        Returns
+        -------
+        Start
+            The start at ``problem.initial.z``, before the first save plane.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            If the problem's initial state has more than one member.
+        """
+        field0 = problem.initial.field0
+        if field0.shape[0] != 1:
+            msg = (
+                f"a session starts one trajectory, and this problem's initial state "
+                f"has {field0.shape[0]} members"
+            )
+            raise BackendError(msg)
+        return cls(field=field0[0], z=float(problem.initial.z), noise=noise)
+
+    def take_field(self) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Hand the field to the session starting here, and forget it.
+
+        Returns
+        -------
+        numpy.ndarray
+            The field, shape ``(n_modes, n_pol, n_omega)``; the caller copies it.
+
+        Raises
+        ------
+        SessionError
+            If a session already took it: a start is used once.
+        """
+        field = self.field
+        if field is None:
+            msg = "this start was already used: a start is handed to one session"
+            raise SessionError(msg)
+        self.field = None
+        return field
 
 
 class SessionState(enum.Enum):
@@ -466,6 +530,101 @@ class RunSession(Protocol):
         trace : types.TracebackType or None
             Its traceback, if any.
         """
+        ...
+
+
+@runtime_checkable
+class GroupSession(Protocol):
+    """Compatible trajectories advanced together through one common fixed schedule.
+
+    A group request is a sequence of independently translated member problems that
+    pass the compatibility predicate a batched scan groups its points by; the
+    common schedule's maximum error norm is a diagnostic only (SEP 47 section 6.7).
+    Each :meth:`advance` runs every member still running through the next common
+    schedule window -- to the next save plane -- and reports each member's own
+    events (:class:`~solprop.backends.events.GroupBatch`)::
+
+        with group:
+            while not group.finished:
+                batch = group.advance()
+                service(batch)                 # each member's planes and outcome
+                group.acknowledge(batch.receipt)
+
+    **Failure.** A boundary error, or a boundary warning raised as an error, ends
+    that member alone with a :class:`~solprop.backends.events.Terminal`, and the
+    others go on. A non-finite error norm, a step floor, a trial exception or an
+    in-flight failure ends the group: every member still running ends with the same
+    error. Members are stepped in turn, so earlier members may already have advanced
+    the failed scheduled step: each terminal reports that member's actual committed
+    position and checkpoint eligibility, and no common cursor or rollback is
+    invented. A group-wide stop request ends every running member at a common
+    accepted endpoint.
+    """
+
+    @property
+    def n_members(self) -> int:
+        """Return the number of members."""
+        ...
+
+    @property
+    def finished(self) -> bool:
+        """Return whether every member has ended."""
+        ...
+
+    @property
+    def closed(self) -> bool:
+        """Return whether the group was closed."""
+        ...
+
+    def advance(self) -> GroupBatch:
+        """Run every running member through the next common window, and report it."""
+        ...
+
+    def acknowledge(self, receipt: Receipt) -> None:
+        """Release a window's batch and allow advancing past it."""
+        ...
+
+    def export(
+        self,
+        member: int,
+        ticket: ExportTicket,
+        recipe: ExportRecipe,
+        out: Complex[np.ndarray, "n_modes n_pol n_omega"] | None = None,
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Fill a destination with one member's converted field at a pending ticket."""
+        ...
+
+    def noise_phase(self, member: int, ticket: ExportTicket) -> np.ndarray | None:
+        """Return one member's noise phase at a pending ticket."""
+        ...
+
+    def member_status(self, member: int) -> SessionStatus:
+        """Return one member's committed position, counters and outcome."""
+        ...
+
+    def execution_record(self, member: int) -> Mapping[str, object]:
+        """Return one member's execution facts."""
+        ...
+
+    def monitor_record(self, member: int) -> Mapping[str, object] | None:
+        """Return one member's boundary-monitor record, ``None`` when unwatched."""
+        ...
+
+    def close(self) -> None:
+        """Release every member's resources; idempotent."""
+        ...
+
+    def __enter__(self) -> "GroupSession":  # noqa: UP037 - runtime type hook
+        """Return the group, for scoped ownership."""
+        ...
+
+    def __exit__(
+        self,
+        kind: type[BaseException] | None,
+        error: BaseException | None,
+        trace: TracebackType | None,
+    ) -> None:
+        """Close the group."""
         ...
 
 

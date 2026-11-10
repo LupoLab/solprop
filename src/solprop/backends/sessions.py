@@ -10,15 +10,22 @@ The NumPy reference runs in its own session
 bridge, until its own session replaces it in phase 3 -- runs in the transitional
 session over the inherited driver
 (:class:`solprop.backends.driver_session.DriverSession`). :func:`start_session` chooses
-by the driver's type, so the run layer has one door.
+by the driver's type, so the run layer has one door. :func:`start_group` is the door
+for a group of compatible members (SEP 47 section 6.7), served on every backend by the
+transitional group over the lockstep runners
+(:class:`solprop.backends.driver_session.DriverGroupSession`).
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
-from solprop.backends.driver_session import AttemptListener, DriverSession
+from solprop.backends.driver_session import (
+    AttemptListener,
+    DriverGroupSession,
+    DriverSession,
+)
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.session import HostSession
 from solprop.backends.session import RunSession, Start
@@ -30,14 +37,14 @@ if TYPE_CHECKING:
     # The scripted drivers of the test suite stand in for a backend.
     from solprop.backends.protocol import Backend
 
-__all__ = ["start_session"]
+__all__ = ["start_group", "start_session"]
 
 
 def start_session(  # noqa: PLR0913 - the session context
     backend: Backend,
     problem: KernelProblem,
     request: RunRequest,
-    start: Start | None,
+    start: Start,
     *,
     listener: AttemptListener | None = None,
     started: Callable[[float, float, int], None] | None = None,
@@ -49,15 +56,14 @@ def start_session(  # noqa: PLR0913 - the session context
     Parameters
     ----------
     backend : solprop.backends.protocol.Backend
-        The loaded backend, freshly constructed for `problem`, holding no state yet
-        unless `start` is ``None``.
+        The backend, constructed for `problem`. A backend reused from an earlier
+        run is loaded again from `start`, which restores everything a march reads.
     problem : solprop.translate.problem.KernelProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.
-    start : solprop.backends.session.Start or None
-        Where the run starts; ``None`` when the caller already loaded the backend and
-        the run starts at its first plane with the launch plane owed (transitional).
+    start : solprop.backends.session.Start
+        Where the run starts; the session takes its field.
     listener : callable or None, optional
         Called with each attempt as it is made, for a progress reporter.
     started : callable or None, optional
@@ -101,11 +107,43 @@ def start_session(  # noqa: PLR0913 - the session context
     )
 
 
+def start_group(
+    members: Sequence[Backend],
+    problems: Sequence[KernelProblem],
+    requests: Sequence[RunRequest],
+    starts: Sequence[Start],
+    *,
+    stop: StopFlag | None = None,
+) -> DriverGroupSession:
+    """Start the group that advances compatible members through one fixed schedule.
+
+    Parameters
+    ----------
+    members : collections.abc.Sequence of solprop.backends.protocol.Backend
+        One constructed backend per member, all of one backend; the group owns them
+        once constructed.
+    problems : collections.abc.Sequence of solprop.translate.problem.KernelProblem
+        Each member's independently translated problem.
+    requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
+        Each member's run request, with its own fresh boundary monitor.
+    starts : collections.abc.Sequence of solprop.backends.session.Start
+        Each member's entrance.
+    stop : solprop.log.StopFlag or None, optional
+        A group-wide stop token.
+
+    Returns
+    -------
+    solprop.backends.driver_session.DriverGroupSession
+        The started group (:class:`~solprop.backends.session.GroupSession`).
+    """
+    return DriverGroupSession(members, problems, requests, starts, stop=stop)
+
+
 def _native_session(  # noqa: PLR0913 - the session context
     backend: Backend,
     problem: KernelProblem,
     request: RunRequest,
-    start: Start | None,
+    start: Start,
     *,
     listener: AttemptListener | None,
     started: Callable[[float, float, int], None] | None,
@@ -125,7 +163,7 @@ def _native_session(  # noqa: PLR0913 - the session context
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.
-    start : solprop.backends.session.Start or None
+    start : solprop.backends.session.Start
         Where the run starts.
     listener : callable or None
         Called with each attempt as it is made; the native session then yields after
@@ -141,10 +179,10 @@ def _native_session(  # noqa: PLR0913 - the session context
     Returns
     -------
     solprop.backends.session.RunSession or None
-        The native session, or ``None`` for any other backend, a start the caller
-        already loaded, or a run the native session refuses.
+        The native session, or ``None`` for any other backend or a run the native
+        session refuses.
     """
-    if start is None or type(backend).__module__ != "solprop_native.backend":
+    if type(backend).__module__ != "solprop_native.backend":
         return None
     from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
         NativeBackend,

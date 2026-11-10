@@ -8,7 +8,8 @@ Every run is a job of its own (:mod:`solprop.service.job`), on this computer or
 another, and streams to nothing but its record (:mod:`solprop.service.record`): the
 window follows the record. The march runs in the main thread, and its plane observer
 (:class:`LiveObserver`) only reduces each plane and hands the row to the record, whose
-own thread writes it. The run's stop file sets solprop's stop flag.
+own thread writes it. The run's stop file sets its stop token
+(:class:`solprop.backends.session.StopToken`), which reaches the session.
 
 Whether a run *stopped* comes from the worker's own flag and the run's clean return,
 never from solprop's outcome, which records a stop as a failure.
@@ -27,6 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
+from solprop.backends.session import StopToken
 from solprop.driver.executors import Pool
 from solprop.driver.scan import run_scan
 from solprop.exceptions import RunTerminated
@@ -437,7 +439,7 @@ def _scan(
     folder: Path,
     spec: RunSpec,
     emit: Callable[[Event], None],
-    stop: threading.Event,
+    stop: StopToken,
 ) -> tuple[str, dict[str, object]]:
     """Run a recipe's ``[scan]`` (``Recipe.scan`` and ``run_scan``) into its folder.
 
@@ -456,8 +458,8 @@ def _scan(
         beyond its statistics.
     emit : Callable
         Where its events go: its record.
-    stop : threading.Event
-        Its stop flag: the points not yet started are not run.
+    stop : solprop.backends.session.StopToken
+        Its stop token: the points not yet started are not run.
 
     Returns
     -------
@@ -530,7 +532,7 @@ def execute(spec: RunSpec) -> None:
     folder = Path(spec.folder)
     folder.mkdir(parents=True, exist_ok=True)
     output = folder / OUTPUT
-    stop = threading.Event()
+    stop = StopToken()
     done = threading.Event()
     if spec.resume is not None:
         set_aside(folder)  # as the launcher did, for a run continued by hand
@@ -623,7 +625,7 @@ def _march(
     folder: Path,
     emit: Callable[[Event], None],
     observer: LiveObserver,
-    stop: threading.Event,
+    stop: StopToken,
 ) -> tuple[str, dict[str, object]]:
     """Run, continue or scan, and return the terminal event.
 
@@ -637,8 +639,8 @@ def _march(
         Where a scan's events go: its record.
     observer : LiveObserver
         The run's reporter.
-    stop : threading.Event
-        Its stop flag.
+    stop : solprop.backends.session.StopToken
+        Its stop token.
 
     Returns
     -------

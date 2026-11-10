@@ -27,6 +27,7 @@ from solprop.backends import registry, select
 from solprop.backends import spatial as backend_spatial
 from solprop.backends.host.group import HostGroup
 from solprop.backends.registry import statistics_refusal
+from solprop.backends.session import Start
 from solprop.backends.spatial import (
     FarFieldLayout,
     FarFieldTables,
@@ -717,7 +718,6 @@ def test_an_older_native_build_is_refused_the_far_field_statistics_by_name(
     problem = plain.translate()
     owner = select("numpy_ref", problem, grid=grid)
     try:
-        owner.set_initial(problem.initial.field0, None)
         monkeypatch.setattr(owner, "name", "native")
         # The run loop's door, for a spec handed to it rather than the problem's own.
         with pytest.raises(DriverError, match="far-field statistics"):
@@ -725,6 +725,7 @@ def test_an_older_native_build_is_refused_the_far_field_statistics_by_name(
                 problem,
                 owner,
                 MemoryOutput(),
+                start=Start.entrance(problem),
                 metadata=plain.metadata(),
                 stats_spec=far_spec(),
             )

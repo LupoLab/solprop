@@ -21,7 +21,11 @@ from typing import cast
 import numpy as np
 
 from solprop.backends import select
+from solprop.backends.events import ObservationReady, Terminal
+from solprop.backends.protocol import Backend
 from solprop.backends.registry import _device_build
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.driver._scan_context import current_executor
 from solprop.driver._scan_model import Scan, ScanPoint, name_seed
 from solprop.driver.executors import Batch, Executor, Local
@@ -30,7 +34,7 @@ from solprop.driver.executors.pool import PlaneScalars, peak_rss
 from solprop.driver.executors.queue import Queue, collect
 from solprop.driver.executors.slurm import Slurm
 from solprop.driver.simulation import Simulation, SimulationRunner
-from solprop.exceptions import DriverError, OutputError, StopRequested
+from solprop.exceptions import BackendError, DriverError, OutputError, StopRequested
 from solprop.fourier import spectrum_to_optics
 from solprop.log import (
     BarReporter,
@@ -55,6 +59,8 @@ from solprop.output.schema import (
     field_retention_refusal,
 )
 from solprop.processing.scans import Reduction, ScanOutput, _Builtin, _provenance
+from solprop.translate.problem import KernelProblem
+from solprop.translate.run_request import describe_run
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +93,52 @@ class _Job:
 
     point: ScanPoint
     cached_hash: str = ""
+
+
+def launch_statistics(
+    backend: Backend, problem: KernelProblem
+) -> Mapping[str, np.ndarray]:
+    """Load a probed backend at its problem's entrance and return the launch statistics.
+
+    A probe for resource admission: the backend's session loads the entrance, as a
+    run's would, and reports the launch plane; the backend stays loaded and open for
+    the caller to measure and close. The realisation is the one the problem was
+    assembled with: the builders' own is in true sqrt(W), while ``initial.noise0``
+    is already divided by the entrance weight.
+
+    Parameters
+    ----------
+    backend : solprop.backends.protocol.Backend
+        The constructed backend.
+    problem : solprop.translate.problem.KernelProblem
+        Its problem.
+
+    Returns
+    -------
+    collections.abc.Mapping
+        The launch plane's statistics, without a batch axis.
+
+    Raises
+    ------
+    BaseException
+        The launch's own failure, when its statistics could not be evaluated.
+    solprop.exceptions.BackendError
+        If the session reports anything but its launch plane.
+    """
+    session = start_session(
+        backend, problem, describe_run(problem), Start.entrance(problem), owns=False
+    )
+    try:
+        launch = session.advance().events[-1]
+    finally:
+        session.close()
+    if isinstance(launch, Terminal) and launch.error is not None:
+        # The launch plane's statistics failed: the probe fails with that error.
+        raise launch.error
+    if not isinstance(launch, ObservationReady):
+        msg = f"a fresh session reported {type(launch).__name__} before its launch"
+        raise BackendError(msg)
+    return dict(launch.stats)
 
 
 def _plane_index(index: int, count: int) -> int:
@@ -730,17 +782,12 @@ class _Work:
             profiles=simulation.profiles,
         )
         try:
-            # None, not `simulation.noise`: the realisation the builders return is in
-            # true sqrt(W), while `initial.noise0` has already been divided by the
-            # entrance weight, and StepDriver prefers a passed realisation over it.
-            backend.set_initial(simulation.translate().initial.field0, None)
+            statistics = launch_statistics(backend, simulation.translate())
             return {
                 "baseline_rss": baseline,
                 "rss": peak_rss(),
                 "ledger": sum(backend.memory_ledger().values()),
-                "output_bytes": self._output_bytes(
-                    simulation, backend.stats(simulation.translate().stats_spec)
-                ),
+                "output_bytes": self._output_bytes(simulation, statistics),
             }
         finally:
             backend.close()

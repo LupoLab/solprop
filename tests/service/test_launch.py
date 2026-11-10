@@ -357,6 +357,36 @@ def test_a_run_ended_by_a_signal_ends_stopped(tmp_path, monkeypatch):
     assert ending.data["message"] == "terminated by SIGTERM"
 
 
+def test_a_run_s_stop_file_reaches_its_session_through_a_stop_token(
+    tmp_path, monkeypatch
+):
+    """The march gets a StopToken, which the stop-file watch sets from its thread."""
+    import threading  # noqa: PLC0415 - only here
+
+    from solprop.backends.session import StopToken  # noqa: PLC0415 - only here
+    from solprop.service import record as record_module  # noqa: PLC0415 - only here
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    monkeypatch.setattr(record_module, "STOP_PERIOD", 0.01)
+    seen: list[object] = []
+    folder = tmp_path / "r1"
+
+    def marching(spec, folder, emit, observer, stop):
+        seen.append(stop)
+        heard = threading.Event()
+        stop.attach(heard.set)  # as a session attaches its own flag
+        record_module.request_stop(folder)
+        assert heard.wait(5.0)
+        return ("stopped" if stop.is_set() else "finished"), {}
+
+    monkeypatch.setattr(run_module, "_march", marching)
+    run_module.execute(RunSpec("r1", str(folder), recipe=TINY))
+    (token,) = seen
+    assert isinstance(token, StopToken) and token.is_set()
+    (ending,) = [e for e in read_events(folder)[0] if e.terminal]
+    assert ending.kind == "stopped"
+
+
 @pytest.mark.medium
 def test_a_scan_as_a_job_runs_its_points_in_a_pool(tmp_path):
     from solprop.service import run as run_module  # noqa: PLC0415 - only here

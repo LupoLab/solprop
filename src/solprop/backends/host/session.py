@@ -47,16 +47,14 @@ class HostSession(DriverSession):
     ----------
     driver : solprop.backends.protocol.Backend
         The reference backend (a :class:`~solprop.backends.host.driver.HostDriver`),
-        freshly constructed for `problem`, holding no state yet unless `start` is
-        ``None``. The session owns it from here and closes it with itself when `owns`
-        is set.
+        constructed for `problem`. The session closes it with itself when `owns` is
+        set.
     problem : solprop.translate.problem.KernelProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.
-    start : solprop.backends.session.Start or None
-        Where the run starts; ``None`` when the caller already loaded the driver and
-        the run starts at its first plane with the launch plane owed (transitional).
+    start : solprop.backends.session.Start
+        Where the run starts; the session takes its field.
     listener : callable or None, optional
         Called with each attempt as it is made, for a progress reporter. It observes
         only; it cannot change the run.
@@ -79,7 +77,7 @@ class HostSession(DriverSession):
         driver: Backend,
         problem: KernelProblem,
         request: RunRequest,
-        start: Start | None,
+        start: Start,
         *,
         listener: AttemptListener | None = None,
         started: Callable[[float, float, int], None] | None = None,

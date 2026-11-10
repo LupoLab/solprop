@@ -976,7 +976,10 @@ DRIVER_SURFACE = {
         "(self, snapshot: solprop.output.schema.MarchSnapshot) -> str | None"
     ),
     "set_stop": "(self, flag: solprop.log.StopFlag | None) -> None",
-    "timed_step": "(self) -> collections.abc.Callable[[], object]",
+    "timing_probe": (
+        "(self, start: solprop.backends.session.Start) -> "
+        "solprop.backends.protocol.TimingProbe"
+    ),
 }
 """Every ``StepDriver`` method a subclass overrides or calls, or the run layer calls.
 
