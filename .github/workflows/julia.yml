@@ -106,9 +106,9 @@ jobs:
         run: uv run --no-sync python tools/check_julia.py core
       - name: Run Aqua and blocking JET error analysis
         run: uv run --no-sync python tools/check_julia.py quality
-      # The default coverage lane omits the optional adapter until the final SEP 48
-      # coverage gate is enabled. These tests still run here, including real runtime
-      # subprocess probes; their presence and explicit opt-in are mandatory.
+      # SEP 48 permits omitting the optional Tier 3 adapter from the default coverage
+      # lane. This separate Julia lane qualifies it, including real runtime subprocess
+      # probes; their presence and explicit opt-in are mandatory.
       - name: Run Python Julia adapter and runtime subprocess tests
         run: uv run --no-sync python tools/check_julia.py python
       - name: Refuse changes to committed Julia inputs

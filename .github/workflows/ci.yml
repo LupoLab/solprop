@@ -87,8 +87,10 @@ jobs:
           echo "device=$device" | tee -a "$GITHUB_OUTPUT"
           # Linux checks Julia on every non-documentation change, including GUI-only
           # changes. macOS adds a change-triggered run for its source and integration.
+          # Read both sides of the pipe fully: grep -q can cause an upstream SIGPIPE
+          # under pipefail and turn a real match into a false result on a large diff.
           julia=true
-          if [ -f changed.txt ] && ! grep -vE '^docs/|\.md$' changed.txt | grep -qE '^julia/|^src/solprop/backends/julia/|^tests/backends/julia/|^tools/check_julia\.py$|^tests/test_check_julia\.py$|^hatch_build\.py$|^pyproject\.toml$|^uv\.lock$|^\.github/workflows/(ci|julia)\.yml$'; then
+          if [ -f changed.txt ] && ! grep -vE '^docs/|\.md$' changed.txt | grep -E '^julia/|^src/solprop/backends/julia/|^tests/backends/julia/|^tools/check_julia\.py$|^tests/test_check_julia\.py$|^hatch_build\.py$|^pyproject\.toml$|^uv\.lock$|^\.github/workflows/(ci|julia)\.yml$' > /dev/null; then
             julia=false
           fi
           echo "julia=$julia" | tee -a "$GITHUB_OUTPUT"

@@ -7,6 +7,7 @@
 import os
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -337,3 +338,34 @@ def test_command_failure_is_not_suppressed(pinned_tree, private_depot, monkeypat
     with pytest.raises(subprocess.CalledProcessError) as caught:
         check_julia._run(pinned_tree, ("julia", "-e", "error()"))
     assert caught.value.returncode == 7
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="CI change detection runs in Linux Bash"
+)
+@pytest.mark.parametrize("pipefail", [False, True])
+def test_large_change_list_still_selects_julia_ci(tmp_path, pipefail):
+    workflow = (
+        Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml"
+    ).read_text(encoding="utf-8")
+    start = workflow.index("          julia=true\n")
+    last = '          echo "julia=$julia" | tee -a "$GITHUB_OUTPUT"'
+    end = workflow.index(last, start) + len(last)
+    script = textwrap.dedent(workflow[start:end])
+    (tmp_path / "changed.txt").write_text(
+        "julia/src/session.jl\n"
+        + "".join(f"src/other/{index:08d}.py\n" for index in range(100_000)),
+        encoding="utf-8",
+    )
+    output = tmp_path / "github-output"
+    shell = ["bash", "-e"]
+    if pipefail:
+        shell.extend(("-o", "pipefail"))
+    subprocess.run(
+        [*shell, "-c", script],
+        cwd=tmp_path,
+        env={**os.environ, "GITHUB_OUTPUT": str(output)},
+        check=True,
+        capture_output=True,
+    )
+    assert output.read_text(encoding="utf-8") == "julia=true\n"
