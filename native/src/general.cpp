@@ -43,6 +43,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 #if defined(__APPLE__)
 #include <malloc/malloc.h>
@@ -2269,6 +2270,8 @@ public:
   std::vector<double> form_flow_actions(std::size_t section, double dz,
                                         const std::vector<double>& fractions);
   std::vector<Complex> flow_actions_to_host(bool inverse) const;
+  std::vector<Complex> adams_block_to_host() const;
+  std::vector<Complex> adams_exponent_to_host() const;
   void prepare_raman(const std::vector<double>& rates,
                      const std::vector<double>& densities);
   std::vector<double> spatial_statistics(std::uint64_t flags, double intensity_factor,
@@ -3043,9 +3046,10 @@ public:
   // beside a block wider than `adams_max_channels` (solprop SEP 47 phase 4); empty
   // otherwise, when a host task holds them on its stack.
   ComplexView2 adams_channels_;
-  // A host's functions of the bins off the flow's eigenbasis route, `(n_fallback,
-  // augmented_blocks(slots), n_modes, n_modes)`: the augmented exponential's first
-  // block row and its scratch, per bin (solprop SEP 47 phase 4); empty otherwise.
+  // A host's functions of the bins off the flow's eigenbasis route, `(n_active,
+  // augmented_blocks(slots), n_modes, n_modes)` by active bin: the augmented
+  // exponential's first block row and its scratch for the trial's section (solprop
+  // SEP 47 phase 4); empty without a bin off the route.
   Kokkos::View<Complex****, Layout, MemorySpace> adams_fallback_;
   // A frozen-residual flow's generator at each sample applied to its state, `G(z_j)
   // u_j`, formed once per sample; the trial's at its end, and the weights it is formed
@@ -6389,14 +6393,15 @@ void GeneralWorkspace::adams_allocate(const std::size_t slots, const bool compen
     if (!flow_->forms_actions())
       throw std::logic_error("the resident Adams engine needs the flow's eigenbasis "
                              "and route");
-    // A bin off the route takes the augmented exponential, per bin.
-    const auto off = flow_->n_fallback();
+    // A bin off the route takes the augmented exponential: a trial reads one
+    // section, so the scratch is one row per active bin, whatever the sections.
+    const auto rows = flow_->n_fallback() == 0 ? 0 : flow_->n_active();
     const auto blocks = flow_functions::augmented_blocks(slots);
-    if (off == 0)
+    if (rows == 0)
       adams_fallback_ = {};
-    else if (adams_fallback_.extent(0) != off || adams_fallback_.extent(1) != blocks)
+    else if (adams_fallback_.extent(0) != rows || adams_fallback_.extent(1) != blocks)
       adams_fallback_ = Kokkos::View<Complex****, Layout, MemorySpace>(
-          "solprop_native.adams.fallback_functions", off, blocks, problem_.n_modes,
+          "solprop_native.adams.fallback_functions", rows, blocks, problem_.n_modes,
           problem_.n_modes);
 #endif
     if (columns != problem_.n_modes)
@@ -7274,6 +7279,11 @@ inline constexpr std::size_t adams_channel_stack =
  * `stack` up to `adams_max_channels` channels, beyond it the bin's row of `rows`
  * (`adams_channels_`, solprop SEP 47 phase 4). Every pass reads only what it wrote.
  */
+// A bin's row of `adams_channels_` is contiguous: the view's last extent is its
+// fastest.
+static_assert(std::is_same_v<Layout, Kokkos::LayoutRight>,
+              "adams_channel_rows reads a bin's row as contiguous memory");
+
 inline Complex*
 adams_channel_rows(Complex* stack,
                    const Kokkos::View<Complex**, Layout, MemorySpace>& rows,
@@ -8606,11 +8616,15 @@ void GeneralWorkspace::adams_fallback_squarings(const std::size_t section,
   const auto exponent = adams_exponent_;
   const auto modes = problem_.n_modes;
   const std::size_t count = weights.count;
-  int needed = 0;
+  const auto policy =
+      Kokkos::RangePolicy<ExecutionSpace>(flow_execution_space_, 0, problem_.n_omega);
+  // The moments' augmented exponent, and the carries' `span dz T`, apart, so that a
+  // refusal names which.
+  int moments = 0;
+  int carries = 0;
   launch::parallel_reduce(
-      "solprop_native.adams.fallback_squarings",
-      Kokkos::RangePolicy<ExecutionSpace>(flow_execution_space_, 0, problem_.n_omega),
-      KOKKOS_LAMBDA(const std::size_t index, int& most) {
+      "solprop_native.adams.fallback_squarings", policy,
+      KOKKOS_LAMBDA(const std::size_t index, int& most, int& carried) {
         const auto one = slots(index);
         if (one == 0)
           return;
@@ -8618,27 +8632,35 @@ void GeneralWorkspace::adams_fallback_squarings(const std::size_t section,
         if (path == 0)
           return;
         const Complex argument = adams_moment_argument(weights, exponent(0, index));
-        int squarings = flow_functions::augmented_squarings(argument, dz, triangular,
-                                                            path - 1, modes, count);
+        const int squarings = flow_functions::augmented_squarings(
+            argument, dz, triangular, path - 1, modes, count);
+        most = squarings > most ? squarings : most;
         if (weights.compensated)
           for (std::size_t t = 0; t + 1 < weights.width; ++t) {
             const int carry = flow_functions::augmented_squarings(
                 Complex{}, weights.span[t] * dz, triangular, path - 1, modes, 0);
-            squarings = carry > squarings ? carry : squarings;
+            carried = carry > carried ? carry : carried;
           }
-        most = squarings > most ? squarings : most;
       },
-      Kokkos::Max<int>(needed));
-  if (needed > flow_functions::max_squarings) {
-    std::array<char, 32> length{};
-    std::snprintf(length.data(), length.size(), "%.4g", dz);
-    throw BackendRefusal(
-        std::string("native cannot take the flow and moments of a coupled flow's bin "
-                    "off its eigenbasis route over a step of ") +
-        length.data() + " m: its exponent would need more than " +
-        std::to_string(flow_functions::max_squarings) +
-        " squarings, the most this backend admits. Cap dz_max");
-  }
+      Kokkos::Max<int>(moments), Kokkos::Max<int>(carries));
+  const std::string bin =
+      "native cannot take the flow and moments of a coupled flow's bin off its "
+      "eigenbasis route";
+  if (moments == flow_functions::non_finite || carries == flow_functions::non_finite)
+    throw BackendRefusal(bin + ": the step's exponent there is not finite");
+  if (moments <= flow_functions::max_squarings &&
+      carries <= flow_functions::max_squarings)
+    return;
+  std::array<char, 32> length{};
+  std::snprintf(length.data(), length.size(), "%.4g", dz);
+  const std::string limit = " would need more than " +
+                            std::to_string(flow_functions::max_squarings) +
+                            " squarings, the most this backend admits. Cap dz_max";
+  if (moments > flow_functions::max_squarings)
+    throw BackendRefusal(bin + " over a step of " + length.data() + " m: its exponent" +
+                         limit);
+  throw BackendRefusal(bin + " over a step of " + length.data() +
+                       " m: a history sample's carry to the step's end" + limit);
 }
 #endif
 
@@ -8774,7 +8796,7 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
               argument, dz, fallback_triangular, f, modes, count,
               flow_functions::augmented_squarings(argument, dz, fallback_triangular, f,
                                                   modes, count),
-              fallback, f);
+              fallback, bin);
           const Complex factor = weights.shifted
                                      ? exponential(Complex(0.0, weights.shift))
                                      : Complex(1.0, 0.0);
@@ -8784,8 +8806,8 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
               for (std::size_t j = 0; j < modes; ++j) {
                 Complex total{};
                 for (std::size_t m = 0; m <= j; ++m)
-                  total += fallback_vectors(f, i, m) * fallback(f, k, m, j);
-                fallback(f, product, i, j) = total;
+                  total += fallback_vectors(f, i, m) * fallback(bin, k, m, j);
+                fallback(bin, product, i, j) = total;
               }
             const Complex scale =
                 k == 0 ? factor : Complex(adams_factorial(k - 1), 0.0);
@@ -8793,7 +8815,7 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
               for (std::size_t j = 0; j < modes; ++j) {
                 Complex total{};
                 for (std::size_t m = 0; m < modes; ++m)
-                  total += fallback(f, product, i, m) *
+                  total += fallback(bin, product, i, m) *
                            Kokkos::conj(fallback_vectors(f, j, m));
                 block(k, bin, i, j) = scale * total;
               }
@@ -8921,32 +8943,33 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
                 // Z exp(span x) Z^H with x = shift I + dz T, the shift's exponential
                 // apart: exp(span shift) Z exp(span dz T) Z^H, then applied.
                 const auto f = path - 1;
+                const auto bin = one - 1;
                 const double length = span * dz;
                 flow_functions::augmented_row(
                     Complex{}, length, fallback_triangular, f, modes, 0,
                     flow_functions::augmented_squarings(
                         Complex{}, length, fallback_triangular, f, modes, 0),
-                    fallback, f);
+                    fallback, bin);
                 const Complex factor = exponential(span * exponent(0, index));
                 for (std::size_t i = 0; i < modes; ++i)
                   for (std::size_t j = 0; j < modes; ++j) {
                     Complex total{};
                     for (std::size_t m = 0; m <= j; ++m)
-                      total += fallback_vectors(f, i, m) * fallback(f, 0, m, j);
-                    fallback(f, 1, i, j) = total;
+                      total += fallback_vectors(f, i, m) * fallback(bin, 0, m, j);
+                    fallback(bin, 1, i, j) = total;
                   }
                 for (std::size_t i = 0; i < modes; ++i)
                   for (std::size_t j = 0; j < modes; ++j) {
                     Complex total{};
                     for (std::size_t m = 0; m < modes; ++m)
-                      total += fallback(f, 1, i, m) *
+                      total += fallback(bin, 1, i, m) *
                                Kokkos::conj(fallback_vectors(f, j, m));
-                    fallback(f, 2, i, j) = factor * total;
+                    fallback(bin, 2, i, j) = factor * total;
                   }
                 for (std::size_t i = 0; i < modes; ++i) {
                   Complex value{};
                   for (std::size_t j = 0; j < modes; ++j)
-                    value += fallback(f, 2, i, j) * term[j];
+                    value += fallback(bin, 2, i, j) * term[j];
                   rotated[i] = value;
                 }
                 for (std::size_t i = 0; i < modes; ++i)
@@ -13739,6 +13762,26 @@ void GeneralWorkspace::set_flow_actions(const std::vector<Complex>& forward,
   flow_->set_actions(forward, inverse, identity);
 }
 
+std::vector<Complex> GeneralWorkspace::adams_block_to_host() const {
+  require_adams();
+  if (adams_block_.extent(0) == 0)
+    throw std::logic_error("the Adams history holds no coupled block");
+  std::vector<Complex> values(adams_block_.size());
+  const auto mirror =
+      Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, adams_block_);
+  std::copy(mirror.data(), mirror.data() + mirror.size(), values.begin());
+  return values;
+}
+
+std::vector<Complex> GeneralWorkspace::adams_exponent_to_host() const {
+  require_adams();
+  std::vector<Complex> values(adams_exponent_.size());
+  const auto mirror =
+      Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, adams_exponent_);
+  std::copy(mirror.data(), mirror.data() + mirror.size(), values.begin());
+  return values;
+}
+
 std::vector<Complex> GeneralWorkspace::flow_actions_to_host(const bool inverse) const {
   require_open();
   if (!flow_)
@@ -17714,6 +17757,14 @@ void GeneralState::set_flow_actions(const std::vector<Complex>& forward,
 std::vector<Complex> GeneralState::flow_actions_to_host(const bool inverse) const {
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->flow_actions_to_host(inverse);
+}
+std::vector<Complex> GeneralState::adams_block_to_host() const {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->adams_block_to_host();
+}
+std::vector<Complex> GeneralState::adams_exponent_to_host() const {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->adams_exponent_to_host();
 }
 std::vector<double>
 GeneralState::form_flow_actions(const std::size_t section, const double dz,

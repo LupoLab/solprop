@@ -871,5 +871,9 @@ TEST(CoupledFlowFunctions, AnExponentPastThirtySquaringsIsCounted) {
   EXPECT_EQ(flow::augmented_squarings(Complex{}, 0x1p40, upper, 0, 1, 0),
             flow::max_squarings + 1);
   EXPECT_EQ(flow::augmented_squarings(Complex(std::nan(""), 0.0), 1.0, upper, 0, 1, 0),
-            flow::max_squarings + 1);
+            flow::non_finite);
+  EXPECT_EQ(
+      flow::augmented_squarings(Complex(std::numeric_limits<double>::infinity(), 0.0),
+                                1.0, upper, 0, 1, 0),
+      flow::non_finite);
 }

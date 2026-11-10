@@ -44,13 +44,16 @@ inline constexpr int taylor_order = 16;
 inline constexpr double taylor_scale = 0.5;
 /** solprop's reference `_MAX_FLOW_SQUARINGS`: the most squarings a bin may need. */
 inline constexpr int max_squarings = 30;
+/** What `augmented_squarings` returns for an exponent that is not finite. */
+inline constexpr int non_finite = max_squarings + 2;
 
 /**
  * The squarings the series of the augmented matrix of `shift I + length T` with `count`
  * phi-blocks takes: from its row-sum norm, `max_r sum_c |X_rc|` plus one for the
  * identity block beside it (when `count > 0`), as solprop's reference counts them for
- * the flow's action. A norm that is not finite, or would need more than
- * `max_squarings`, returns `max_squarings + 1`, which the caller refuses.
+ * the flow's action. A norm that would need more than `max_squarings` returns
+ * `max_squarings + 1`, and one that is not finite `non_finite`, which the caller
+ * refuses by name.
  */
 template <class Triangular>
 KOKKOS_INLINE_FUNCTION int
@@ -70,6 +73,8 @@ augmented_squarings(const Complex shift, const double length,
     if (!(total <= largest))
       largest = total;
   }
+  if (!Kokkos::isfinite(largest))
+    return non_finite;
   // 2^30 times the scale: past it the refusal, and the cast below stays in range.
   if (!(largest <= taylor_scale * 0x1p30))
     return max_squarings + 1;
