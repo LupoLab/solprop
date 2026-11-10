@@ -45,8 +45,9 @@ end
 Hold the translated instantaneous cubic coefficients without evaluating material data.
 
 # Arguments
-- `coefficient`: Finite real `epsilon_0 * chi3` per unit stage-density weight, in
-  SI units. No analytic-signal factor or stage density is folded into this value.
+- `coefficient`: Finite real `epsilon_0 * chi3` per unit stage-density weight:
+  C m V⁻³ for a dimensionless weight, or C m⁴ V⁻³ for a number density in m⁻³.
+  No analytic-signal factor or stage density is folded into this value.
 - `form`: `:real` for `(sum(E_q^2)) E_p`, or `:analytic` for
   `self_factor * sum(abs2(a_q)) * a_p + conjugate_factor * sum(a_q^2) * conj(a_p)`.
 - `self_factor`, `conjugate_factor`: Finite dimensionless analytic-cubic factors.

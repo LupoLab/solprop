@@ -44,8 +44,8 @@ Retain translated causal Raman rows and their sample spacing for stage reconstru
 
 # Arguments
 - `undamped`: Finite real matrix `(2n_time, n_terms)` of independently damped causal
-  rows, in the translated response's SI units. Its second half is exactly zero.
-  The caller owns immutable prepared storage.
+  rows `h`, in m⁵ V⁻² s⁻¹ for the translated per-density scalar response. It contains
+  no `epsilon_0`. Its second half is exactly zero; the caller owns prepared storage.
 - `dt`: Finite positive sample spacing in seconds, at the rows' scalar precision.
 
 # Returns
@@ -82,7 +82,8 @@ Bind a doubled-grid Raman spectrum to caller-prepared transform plans.
 # Arguments
 - `n_time`: Positive number of physical time samples, before zero padding.
 - `kernel`: Complex vector of length `n_time + 1`, equal to `dt * rfft(h)` on the
-  doubled grid. Its prepared storage may be updated by `rebuild_raman!`.
+  doubled grid: m⁵ V⁻² before a number-density weight, m² V⁻² after that weight.
+  Its prepared storage may be updated by `rebuild_raman!`.
 - `forward`, `inverse`: Plans accepted by `LinearAlgebra.mul!` for real-to-complex
   and complex-to-real column transforms. Planning and thread policy belong to preparation.
 - `inverse_scale`: Explicit inverse normalisation: `1/(2n_time)` for an unnormalised
@@ -222,12 +223,15 @@ end
 Rebuild every sample and spectral bin of a stage's weighted, damped Raman kernel.
 
 # Arguments
-- `time_kernel`: Real caller-owned vector of length `2n_time`.
-- `spectrum`: Complex caller-owned vector of length `n_time + 1`; receives `dt*rfft(h)`.
+- `time_kernel`: Real caller-owned vector of length `2n_time`, in the prepared rows'
+  units times the supplied weights' units.
+- `spectrum`: Complex caller-owned vector of length `n_time + 1`; receives `dt*rfft(h)`
+  and therefore has the reconstructed time kernel's units times seconds.
 - `prepared`: `RamanKernel` holding undamped rows and spacing in seconds.
 - `rates`: Stage decay rates in s⁻¹, one finite nonnegative entry per row term.
 - `weights`: Stage term weights, one finite entry per term, already containing the
-  appropriate Raman component density and fraction. These are independent profiles.
+  appropriate Raman component density (m⁻³) and fraction. A dimensionless fraction
+  alone leaves the number density outside the convolution. Profiles stay independent.
 - `forward`: Caller-prepared real FFT plan from `time_kernel` to `spectrum`.
 - `execution`: Synchronous numerical launcher.
 
@@ -308,7 +312,8 @@ Multiply a scalar Raman history by the physical field and its explicit material 
 
 # Arguments
 - `destination`, `samples`: Output C/m² and input V/m matrices with `layout`.
-- `convolved`: Real matrix `(2n_time, n_nodes)` containing the Raman convolution.
+- `convolved`: Real matrix `(2n_time, n_nodes)` containing the Raman convolution,
+  in m³ before its number-density weight or dimensionless after that weight.
 - `layout`: Scalar `ResponseLayout`.
 - `execution`: Synchronous numerical launcher.
 - `factor`: Translated `epsilon_0` times the outside Raman density weight. Use only

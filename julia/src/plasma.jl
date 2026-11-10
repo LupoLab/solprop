@@ -123,6 +123,18 @@ end
     PlasmaQuadratureFailure = 3
 end
 
+"""Identify a finite, successfully evaluated plasma sample."""
+PlasmaSuccess
+
+"""Identify a nonfinite field sample before plasma arithmetic begins."""
+PlasmaNonfiniteInput
+
+"""Identify nonfinite plasma arithmetic, including accumulation into earlier channels."""
+PlasmaNonfiniteResult
+
+"""Identify scalar cycle moments that exhaust the supplied refinement rules."""
+PlasmaQuadratureFailure
+
 """
     PlasmaFailure(code, node, sample)
 
