@@ -19,7 +19,7 @@ checkpoint, with every attempt made delivered once.
 import dataclasses
 import signal
 import warnings
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pytest
@@ -41,7 +41,6 @@ from solprop.backends.registry import select
 from solprop.backends.session import SessionError, Start
 from solprop.backends.sessions import start_session
 from solprop.exceptions import (
-    BackendError,
     BoundaryWarning,
     ResponseBudgetError,
     RunTerminated,
@@ -602,12 +601,8 @@ def test_a_noisy_run_is_the_drivers(noise, check, march):
         assert records["native"] == records["driver"]
 
 
-def test_a_noisy_run_on_a_z_table_is_refused_once_the_backend_is_built():
-    """The noise phase at a plane reads a z table's propagator phase, which the leased
-    state holds: the native session refuses the built backend by name, directly as
-    through the door, before the start's field is taken and leaving the backend open
-    to the transitional session, which serves the run.
-    """
+def _walkoff(noise: Literal["input", "modified"], integrator: Any) -> Any:
+    """Return a noisy linear walk-off run, whose propagator phase is a z table."""
     from driver.test_specified_paths import (  # noqa: PLC0415 - beside its one use
         GRID,
         PULSE,
@@ -620,31 +615,89 @@ def test_a_noisy_run_on_a_z_table_is_refused_once_the_backend_is_built():
     from solprop.grid import EnvelopeGrid  # noqa: PLC0415 - beside its one use
 
     grid = EnvelopeGrid.from_limits(WALKOFF_LENGTH, 835e-9, (600e-9, 1300e-9), 2e-12)
-    simulation = Simulation.from_gnlse(
+    return Simulation.from_gnlse(
         0.1, WALKOFF_LENGTH, fibre=linear_walkoff(grid), shock=False, n_save=4,
-        noise="input", seed=3, backend="native", integrator=Multistep(),
+        noise=noise, seed=3, backend="native", integrator=integrator,
         **GRID, **PULSE,
     )  # fmt: skip
+
+
+@pytest.mark.parametrize("march", ["adams", "runge-kutta"])
+@pytest.mark.parametrize("noise", ["input", "modified"])
+def test_a_noisy_run_on_a_z_table_is_the_drivers(noise, march):
+    """The noise phase at a plane reads a z table's propagator phase, which the leased
+    state holds: the native session reads its slot at the plane through the session,
+    under its lock, as the backend reads it from its state, and the door serves the
+    run natively. The same phase at every plane, and on one thread the same run.
+    """
+    from solprop.stepper import RungeKutta  # noqa: PLC0415 - beside its one use
+
+    integrator = Multistep() if march == "adams" else RungeKutta()
+    simulation = _walkoff(noise, integrator)
     problem = simulation.translate()
-    run_request = simulation._run_request()
-    request = run_request
+    assert problem.linear.phi_representation == "table"
+    assert problem.initial.noise_model == noise
+    request = simulation._run_request()
     skip_device_refused(problem, request)
     assert native_session.refusal(problem, request) is None
     context = {"grid": simulation.grid, "modes": simulation.modes}
-    backend = select("native", problem, run_request, **context)
-    try:
+    phases: dict[str, list[np.ndarray]] = {"driver": [], "native": []}
+    runs = {}
+    for kind in ("driver", "native"):
+        backend = select("native", problem, request, **context)
+        assert native_session.backend_refusal(backend) is None
         start = Start(field=problem.initial.field0, z=float(problem.initial.z))
-        with pytest.raises(BackendError, match="'input' noise model on a z table"):
-            native_session.NativeSession(problem, request, start, backend=backend)
-        assert start.field is not None
-        session = start_session(backend, problem, request, start, owns=False)
+        if kind == "driver":
+            session: Any = DriverSession(backend, problem, request, start)
+        else:
+            session = start_session(backend, problem, request, start)
+            assert isinstance(session, native_session.NativeSession)
+
+        def phase(one, batch, found=phases[kind]) -> None:
+            for event in batch.events:
+                if isinstance(event, ObservationReady):
+                    found.append(np.array(one.noise_phase(event.ticket)))
+
         try:
-            assert isinstance(session, DriverSession)
-            session.acknowledge(session.advance().receipt)
+            runs[kind] = drive(Started(session), export=IDENTITY, between=phase)
         finally:
             session.close()
+            backend.close()
+    assert len(phases["native"]) == len(phases["driver"]) == 4
+    for got, expected in zip(phases["native"], phases["driver"], strict=True):
+        assert got.shape == problem.shape
+        assert got.tobytes() == expected.tobytes()
+    assert np.any(phases["native"][-1] != phases["native"][0])
+    if _one_thread():
+        from sessions.executors import assert_same_run  # noqa: PLC0415
+
+        assert_same_run(runs["native"], runs["driver"])
+
+
+def test_a_z_table_s_noise_phase_needs_a_pending_ticket():
+    """The slot is read under the session's lock for the pending batch alone: an
+    acknowledged ticket has expired, as for an export.
+    """
+    simulation = _walkoff("modified", Multistep())
+    problem = simulation.translate()
+    request = simulation._run_request()
+    skip_device_refused(problem, request)
+    context = {"grid": simulation.grid, "modes": simulation.modes}
+    start = Start(field=problem.initial.field0, z=float(problem.initial.z))
+    session = native_session.NativeSession(problem, request, start, **context)
+    try:
+        batch = session.advance()
+        ticket = next(
+            event.ticket
+            for event in batch.events
+            if isinstance(event, ObservationReady)
+        )
+        assert session.noise_phase(ticket) is not None
+        session.acknowledge(batch.receipt)
+        with pytest.raises(SessionError, match="expired"):
+            session.noise_phase(ticket)
     finally:
-        backend.close()
+        session.close()
 
 
 class _TranslationError(RuntimeError):

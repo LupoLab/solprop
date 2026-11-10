@@ -1302,6 +1302,9 @@ native::session::MonitorPlan monitor_plan_from(const nb::dict values) {
     if (values.contains("edge") && !values["edge"].is_none())
       plan.edge =
           native::bindings::transverse_config_from(nb::cast<nb::dict>(values["edge"]));
+    if (values.contains("edge_noise") && !values["edge_noise"].is_none())
+      plan.edge_noise = native::bindings::transverse_noise_from(
+          nb::cast<nb::dict>(values["edge_noise"]));
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("a session's boundary monitor has the wrong types");
   } catch (const nb::python_error&) {
@@ -2271,6 +2274,16 @@ public:
       throw std::logic_error("native state is not leased by this session");
     return built_state();
   }
+  // A z table's `Phi` at `z` (`_ZTables.values`), for the session that leases the
+  // state, under its lock: the noise phase at a plane, through the one slot cache.
+  std::vector<native::Complex> leased_table_phi(const BoundSession* session,
+                                                const double z) {
+    auto& state = leased_state(session);
+    if (!z_slots_.phi)
+      throw std::logic_error("native state holds no z table of Phi");
+    const std::size_t slot = z_slots_.load(state, {z}).front();
+    return state.table_terms_to_host(native::TableKind::phi, slot);
+  }
   // A session leases the state exclusively: the host's own march and loads refuse.
   void lease(BoundSession* session) {
     require_unleased();
@@ -2581,6 +2594,22 @@ public:
                         {extents[index][0], extents[index][1], extents[index][2]});
     return nb::make_tuple(march_state_to(*state), owned_complex(std::move(field), {n}),
                           held);
+  }
+  // A z table's `Phi` at `z`, the noise phase at the pending ticket
+  // `(sequence, generation)`'s plane (`_ZTables.values`); takes the session's lock.
+  ComplexOutput table_phi(const std::uint64_t sequence, const std::uint64_t generation,
+                          const double z) {
+    std::vector<native::Complex> values;
+    {
+      const nb::gil_scoped_release release;
+      session_->read(sequence, generation,
+                     [&](const native::session::Method& /*method*/,
+                         native::session::Resident& /*resident*/) {
+                       values = owner_->leased_table_phi(this, z);
+                     });
+    }
+    const std::size_t columns = owner_->columns();
+    return complex_output(values, {columns, values.size() / columns});
   }
   // Issue a failed terminal batch for a failure outside the session; takes its lock.
   std::optional<BatchRecord> fail_outside() {
@@ -4414,6 +4443,7 @@ NB_MODULE(_core, module_) {
       .def("march_state", &BoundSession::march_state, "since"_a)
       .def("march_snapshot", &BoundSession::march_snapshot, "sequence"_a,
            "generation"_a)
+      .def("table_phi", &BoundSession::table_phi, "sequence"_a, "generation"_a, "z"_a)
       .def("fail_outside", &BoundSession::fail_outside)
       .def("close", &BoundSession::close, nb::call_guard<nb::gil_scoped_release>());
   // solprop SEP 47 section 6.4: the owning boundary monitor alone, for solprop's tests

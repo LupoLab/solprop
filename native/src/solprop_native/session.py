@@ -62,9 +62,10 @@ It admits a subset and refuses every other feature by name before allocating any
   accepted endpoint a ticket names and installs from its start, as the backend's own
   march does;
 - the input and modified noise models, the input draw's vacuum floor read by the
-  native monitor, and the noise phase at each plane formed on the host;
-- no comparison method, custom controller, group, TDSE or noise model on a z table's
-  propagator phase.
+  native monitor and the draw's readings by the native transverse edge, and the noise
+  phase at each plane, formed on the host or, for a z table's propagator phase, read
+  from its slot in the leased state;
+- no comparison method, custom controller, group or TDSE.
 """
 
 from __future__ import annotations
@@ -278,14 +279,6 @@ def refusal(
         return "a controller with its own " + ", ".join(overridden)
     if tdse_descriptor(problem.route) is not None:
         return "a TDSE response"
-    monitor = request.boundary.monitor
-    if (
-        monitor is not None
-        and monitor.transverse is not None
-        and problem.initial.noise_model == "input"
-    ):
-        # The edge's launch would read the draw as its vacuum floor.
-        return "the input noise beside a boundary monitor's transverse edge"
     if isinstance(method, LowStorageRungeKutta):
         if not stage_tables_available(problem):
             return "a low-storage step whose stage rows the host forms"
@@ -362,14 +355,6 @@ def backend_refusal(backend: NativeBackend) -> str | None:
         The reason, or ``None`` when the native session can run the march.
     """
     driver = NativeSession._driver(backend)  # pyright: ignore[reportPrivateUsage]
-    tables = driver._z_tables
-    if (
-        driver._problem.initial.noise_model != "none"
-        and tables is not None
-        and tables.phi
-    ):
-        # The noise phase at a plane reads the z table's slot in the native state.
-        return f"the {driver._problem.initial.noise_model!r} noise model on a z table"
     integrator = driver._stepper.integrator
     if isinstance(integrator, Multistep):
         return cast("str | None", driver._adams.refusal)
@@ -591,6 +576,8 @@ class NativeSession:
         self._method: Multistep | None = None
         self._max_calls: int | None = None
         self._rows_nbytes = 0
+        # The input noise's readings the transverse edge's launch carries (`_prepare`).
+        self._edge_noise: dict[str, object] | None = None
         self._spatial = problem.transform.geometry is not None
         self._shape = tuple(problem.shape)
         spec = request.observation.stats
@@ -801,7 +788,35 @@ class NativeSession:
             self._max_calls = adams._policy.max_calls
             # The history's persistent rows, sized while the state is not leased.
             self._rows_nbytes = int(adams._engine.snapshot_nbytes())
+        self._edge_noise = self._noise_readings(driver)
         return kind, march._state(False)  # pyright: ignore[reportPrivateUsage]
+
+    def _noise_readings(self, driver: Any) -> dict[str, object] | None:
+        """Return the input noise's readings the transverse edge's launch carries.
+
+        ``StepDriver.attach_monitor`` hands the edge's launch the input draw and the
+        launch's columns without it (``_edge_clean_columns``), formed where the load
+        holds both parts or, on a resume, from the loaded state, which is read here
+        before the native session leases it.
+
+        Parameters
+        ----------
+        driver : solprop_native.backend.NativeBackend
+            The loaded backend, its state not yet leased.
+
+        Returns
+        -------
+        dict or None
+            The readings (:func:`solprop_native._transverse.noise_readings`), or
+            ``None`` without an edge or input noise.
+        """
+        edge = None if self._monitor is None else self._monitor.transverse
+        drawn = driver._input_floor
+        if edge is None or drawn is None:
+            return None
+        return _transverse.noise_readings(
+            edge, np.asarray(drawn[0]), driver._edge_clean_columns(edge)
+        )
 
     @staticmethod
     def _driver(backend: NativeBackend | None) -> Any:
@@ -914,6 +929,7 @@ class NativeSession:
             plan["edge"] = _transverse.edge_config(
                 monitor.transverse, self._problem, self._stepper
             ).native()
+            plan["edge_noise"] = self._edge_noise
         if start.monitor is not None:
             plan.update(self._continuation(start.monitor))
         return plan
@@ -1230,9 +1246,9 @@ class NativeSession:
         """Return the noise phase at a pending observation, ``Im Phi`` there.
 
         Formed on the host from the problem's scalar tables, as the backend's own
-        observation forms it (``StepDriver._noise_phase``); a z table's phase, which
-        the leased state holds, is refused when the backend is built
-        (:func:`backend_refusal`).
+        observation forms it (``StepDriver._noise_phase``); a z table's, which the
+        leased state holds, is its slot at the plane, read through the native session
+        under its lock as the backend reads it (``NativeBackend._unitary_phase``).
 
         Parameters
         ----------
@@ -1247,7 +1263,7 @@ class NativeSession:
         Raises
         ------
         solprop.backends.session.SessionError
-            If the ticket belongs to another session.
+            If the ticket belongs to another session, or a z table's ticket expired.
         """
         if self._problem.initial.noise_model == "none":
             return None
@@ -1256,7 +1272,17 @@ class NativeSession:
             raise SessionError(msg)
         driver = self._driver(self._backend)
         z = float(ticket.z)
-        phase = driver._unitary_phase(driver._stage_scalars(z, z))
+        tables = driver._z_tables
+        if tables is not None and tables.phi:
+            try:
+                values = self._native.table_phi(
+                    ticket.receipt.sequence, ticket.generation, z
+                )
+            except _core.SessionLifecycleError as error:
+                raise SessionError(str(error)) from None
+            phase = np.imag(values).reshape(driver._layout)
+        else:
+            phase = driver._unitary_phase(driver._stage_scalars(z, z))
         # The phase keeps the operator table's leading axis of one.
         return np.array(np.broadcast_to(phase, (1, *self._problem.shape))[0])
 
