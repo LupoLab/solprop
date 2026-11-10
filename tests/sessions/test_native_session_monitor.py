@@ -51,6 +51,7 @@ from solprop.grid import EnvelopeGrid
 from solprop.monitor import BoundaryCheck
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
+from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
@@ -66,12 +67,15 @@ TRANGE = 1e-12
 
 IDENTITY = ExportRecipe(power=False, optics=False)
 
+LOW_STORAGE_STEPS = 200
+"""The steps of a low-storage walker's uniform schedule."""
+
 
 def walker(  # noqa: PLR0913 - one choice per keyword
     drift: float,
     *,
     check: BoundaryCheck | None = None,
-    integrator: Multistep | RungeKutta | None = None,
+    integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
     scheme: str | None = None,
     n_save: int = 3,
     length: float = 1.0,
@@ -81,9 +85,17 @@ def walker(  # noqa: PLR0913 - one choice per keyword
     grid = EnvelopeGrid.from_limits(length, 1e-6, (0.8e-6, 1.25e-6), trange)
     omega0 = 2 * np.pi * C / 1e-6
     offset = drift / (BETA2 * length)
-    extra: dict[str, Any] = {}
+    extra: dict[str, Any] = {"n_save": n_save}
     if integrator is not None:
         extra["integrator"] = integrator
+    if isinstance(integrator, LowStorageRungeKutta):
+        # The low-storage march replays a uniform schedule landing on the planes.
+        planes = [float(z) for z in np.linspace(0.0, length, n_save)[1:]]
+        extra.pop("n_save")
+        extra["save_planes"] = planes
+        extra["schedule"] = FixedSchedule.uniform(
+            0.0, length, length / LOW_STORAGE_STEPS, save_planes=planes
+        )
     if scheme is not None:
         extra["absorber_scheme"] = scheme
     simulation = Simulation.from_gnlse(
@@ -91,8 +103,7 @@ def walker(  # noqa: PLR0913 - one choice per keyword
         pulses=[GaussianPulse(
             wavelength=2 * np.pi * C / (omega0 + offset), fwhm=200e-15, peak_power=1.0,
         )],
-        noise=None, raman=False, shock=False, n_save=n_save, backend="native",
-        **extra,
+        noise=None, raman=False, shock=False, backend="native", **extra,
     )  # fmt: skip
     simulation.settings = dataclasses.replace(
         simulation.settings,
@@ -236,7 +247,9 @@ def _both(simulation_of, *, period: int = 2, **serve: Any) -> tuple[Served, Serv
     return served[0], served[1]
 
 
-MARCHES = {"rk": RungeKutta, "adams": Multistep}
+MARCHES = {"rk": RungeKutta, "adams": Multistep, "low-storage": LowStorageRungeKutta}
+"""The marches the monitor follows; the low-storage march replays a uniform schedule
+(:func:`walker`) and cannot rest its collar."""
 
 
 @pytest.mark.parametrize("march", sorted(MARCHES))
@@ -293,7 +306,9 @@ def test_a_quiet_collar_rests_and_returns_as_the_driver_s_does(march):
     )
     _compare(driver, native)
     assert native.record is not None
-    assert native.record["collar_left_out_checks"] > 0
+    # The low-storage march keeps its collar in every pass (`_collar_can_rest`).
+    rested = native.record["collar_left_out_checks"]
+    assert rested == 0 if march == "low-storage" else rested > 0
     assert native.record["removed_fraction"] > 0.1
 
 

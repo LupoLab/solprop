@@ -22,6 +22,7 @@ import pytest
 from convergence_records import Column, Study, record
 from solprop import fourier
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.constants import EPS0, C
 from solprop.exceptions import (
     BackendError,
@@ -97,9 +98,9 @@ def build(grid, modes, field0, **overrides):
         return assemble(grid, modes, responses, field0, **request)
 
 
-def propagate(backend_class, problem, grid, distance=LENGTH):
+def propagate(backend_class, problem, grid, distance=LENGTH, options=None):
     """Run a problem to a position and return the plane and the backend."""
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, grid=grid, options=options)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(distance)
     return backend.observe(), backend
@@ -297,16 +298,15 @@ def test_a_chunk_of_one_node_agrees_with_all_of_them(backend_class, grid, capill
     modes = modes_of(capillary, 2)
     rule = transverse_quadrature(modes, n_r=16, radial_rule="gauss_kronrod")
     start = pulse(grid, 2)
+    problem = build(grid, modes, start, quadrature=rule)
     whole, backend = propagate(
-        backend_class,
-        build(grid, modes, start, quadrature=rule, node_budget=1 << 30),
-        grid,
+        backend_class, problem, grid, options=ExecutionOptions(node_budget=1 << 30)
     )
     chunked, small = propagate(
-        backend_class, build(grid, modes, start, quadrature=rule, node_budget=1), grid
+        backend_class, problem, grid, options=ExecutionOptions(node_budget=1)
     )
-    assert backend._problem.transform.node_chunk == rule.n_nodes
-    assert small._problem.transform.node_chunk == 1
+    assert backend.node_chunk == rule.n_nodes
+    assert small.node_chunk == 1
     # Seventeen rank-one updates against one GEMM over seventeen columns: Higham's
     # n * eps is 3.8e-15. Measured 1.8e-15.
     assert peak_gap(chunked.field, whole.field) < 1e-13
@@ -319,11 +319,12 @@ def test_the_memory_ledger_sizes_the_node_buffers_by_the_chunk(
     modes = modes_of(capillary, 2)
     rule = transverse_quadrature(modes, n_r=16, radial_rule="gauss_kronrod")
     start = pulse(grid, 2)
+    problem = build(grid, modes, start, quadrature=rule)
     whole = backend_class(
-        build(grid, modes, start, quadrature=rule, node_budget=1 << 30), grid=grid
+        problem, grid=grid, options=ExecutionOptions(node_budget=1 << 30)
     ).memory_ledger()
     chunked = backend_class(
-        build(grid, modes, start, quadrature=rule, node_budget=1), grid=grid
+        problem, grid=grid, options=ExecutionOptions(node_budget=1)
     ).memory_ledger()
     named = ("node_field", "node_polarisation")
     for name in named:

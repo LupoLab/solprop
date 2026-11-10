@@ -283,3 +283,35 @@ def test_a_node_budget_reaches_every_builder_s_settings(monkeypatch):
     monkeypatch.setenv(NODE_BUDGET, "lots")
     with pytest.raises(SuiteError, match="positive number of bytes"):
         build(configuration("radial_filament_256"))
+
+
+def test_the_benchmark_node_budget_reaches_the_timed_backend(monkeypatch):
+    """The budget plans the timed backend's chunk: translation no longer reads it."""
+    from benchmarks.builders import NODE_BUDGET  # noqa: PLC0415
+    from benchmarks.worker import measure  # noqa: PLC0415
+
+    import solprop.backends  # noqa: PLC0415
+    from solprop.backends.node_chunk import plan_node_chunk  # noqa: PLC0415
+
+    simulation = build(configuration("radial_filament_256"))
+    problem = simulation.translate()
+    automatic = plan_node_chunk(problem, simulation.settings.execution_options())
+    monkeypatch.setenv(NODE_BUDGET, str(2**24))
+    budgeted = build(configuration("radial_filament_256"))
+    options = budgeted.settings.execution_options()
+    assert options.node_budget == 2**24
+    assert plan_node_chunk(budgeted.translate(), options).chunk < automatic.chunk
+
+    class BuiltError(Exception):
+        """The timed backend's construction, stopped once its options are seen."""
+
+    seen = []
+
+    def capture(*_: object, options=None, **__: object):
+        seen.append(options)
+        raise BuiltError
+
+    monkeypatch.setattr(solprop.backends, "select", capture)
+    with pytest.raises(BuiltError):
+        measure(configuration("radial_filament_256"), 1, None)
+    assert [one.node_budget for one in seen] == [2**24]

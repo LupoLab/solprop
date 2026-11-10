@@ -39,6 +39,7 @@ from jaxtyping import Complex, Float
 from solprop._helpers import PLAIN, Helpers
 from solprop._interrupts import committing, poll
 from solprop.backends import rk_core
+from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.protocol import (
     BackendHistory,
     Observation,
@@ -47,7 +48,7 @@ from solprop.backends.protocol import (
     TimingProbe,
 )
 from solprop.backends.rk_core import rk_policy
-from solprop.backends.session import Start
+from solprop.backends.session import ExecutionOptions, Start
 from solprop.exceptions import BackendError, BoundaryError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter, StopFlag
@@ -86,7 +87,6 @@ __all__ = [
     "INITIAL_STEP_STATS_CAPACITY",
     "HostDriver",
     "reached",
-    "refuse_general_leaves",
     "replay_tolerance",
 ]
 
@@ -282,19 +282,17 @@ class _TrialProbe:
     driver : HostDriver
         The driver, loaded from the probe's start.
     start : tuple
-        The loaded position, m, the noise realisation it was loaded with, and the
-        replayed itinerary's index there, for reloading the loaded state after a
-        readback that had to commit the trial (:meth:`field`).
+        The loaded position, m, and the replayed itinerary's index there.
     """
 
     def __init__(
         self,
         driver: "HostDriver[object]",  # noqa: UP037 - the driver class follows
-        start: tuple[float, NoiseRealisation | None, int],
+        start: tuple[float, int],
     ) -> None:
         """Hold the loaded driver; no trial is taken yet."""
         self._driver = driver
-        self._z, self._noise, self._index = start
+        self._z, self._index = start
         self._trial: tuple[object, float] | None = None
 
     def trial(self, z: float | None = None, dz: float | None = None) -> None:
@@ -326,10 +324,8 @@ class _TrialProbe:
         """Return the last trial's end state on the host, as a kept step would be.
 
         The trial's state after the accepted-step boundary treatments (the band mask,
-        and the split-step absorber where it runs). A backend whose trial lives in its
-        own state, as the native state's does, can read it back only by finishing the
-        step there; the loaded state is then loaded again, exactly, so that the probe
-        still commits nothing.
+        and the split-step absorber where it runs). A host trial is a new array beside
+        the loaded state, so finishing it leaves the loaded state alone.
 
         Returns
         -------
@@ -353,15 +349,7 @@ class _TrialProbe:
         if self._trial is None:
             raise BackendError("take a trial before reading its field")
         state, length = self._trial
-        loaded = driver._require_state()
-        shared = state is loaded
-        # The loaded state, kept only when finishing the trial overwrites it.
-        kept = np.array(driver._observed_field(loaded)) if shared else None
-        finished = driver._finish(state, length)
-        field = np.array(driver._observed_field(finished)[0])
-        if kept is not None:
-            # The kept array already carries any `input` draw: a resume adds none.
-            driver.set_initial(kept, self._noise, z=self._z, resume=True)
+        field = np.array(driver._observed_field(driver._finish(state, length))[0])
         self._trial = None
         return field
 
@@ -394,6 +382,11 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         The propagated modes, in state order, for the statistics that need them.
     profiles : collections.abc.Mapping, optional
         The z-profiles keyed by statistic name.
+    options : solprop.backends.session.ExecutionOptions, optional
+        The run's execution options: an explicit node budget or an exact node chunk,
+        from which the node chunk is planned here, before anything is allocated
+        (:func:`solprop.backends.node_chunk.plan_node_chunk`). ``None`` for the
+        automatic choice.
 
     Attributes
     ----------
@@ -431,9 +424,14 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
         profiles: Mapping[str, ZProfile] | None = None,
+        options: ExecutionOptions | None = None,
     ) -> None:
         """Adopt a validated problem and start the run at the entrance."""
         self._problem = problem
+        # SEP 47 section 6.5: the node chunk is an execution choice, planned from the
+        # problem and the options.
+        self._options = ExecutionOptions() if options is None else options
+        self._chunk_plan: NodeChunkPlan = plan_node_chunk(problem, self._options)
         self._adams: HostAdamsMarch | None = None
         # The low-storage march (SEP 24), set at construction by a backend that
         # executes it, and the step it has left in flight: from the step's start to
@@ -479,6 +477,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # whether a step that crossed a densely observed plane ends on a step to save.
         self._natural_count = 0
         self._natural_due = False
+        self._halt_ahead = False
         self._halt_requested = False
         self._halt_check: Callable[[], bool] | None = None
         self._halted = False
@@ -587,12 +586,24 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         ----------
         count : int
             Number of logical source evaluations required by the trial.
+
+        Raises
+        ------
+        NotImplementedError
+            Always: the driver that runs an Adams march (the reference backend) keeps
+            its own reservations; a group's members reserve theirs.
         """
-        del count
+        raise NotImplementedError
 
     def _release_source_calls(self) -> None:
-        """Release the unused part of an external source-call reservation."""
-        return
+        """Release the unused part of an external source-call reservation.
+
+        Raises
+        ------
+        NotImplementedError
+            Always, as :meth:`_reserve_source_calls`.
+        """
+        raise NotImplementedError
 
     def _adams_source(
         self,
@@ -902,6 +913,28 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             return "recompute"
         return self.propagator_default if asked == "auto" else asked
 
+    @property
+    def node_chunk(self) -> int:
+        """Return the nodes a response pass of this backend holds at once.
+
+        Returns
+        -------
+        int
+            The planned chunk (:attr:`chunk_plan`).
+        """
+        return self._chunk_plan.chunk
+
+    @property
+    def chunk_plan(self) -> NodeChunkPlan:
+        """Return the node-chunk plan and what chose it.
+
+        Returns
+        -------
+        solprop.backends.node_chunk.NodeChunkPlan
+            The plan made at construction.
+        """
+        return self._chunk_plan
+
     def available_device_memory(self) -> int | None:
         """Return None for host execution; device backends report free bytes.
 
@@ -931,6 +964,9 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         record: dict[str, object] = {
             "backend": self.name,
             "propagator_mode": self._propagator_mode,
+            # SEP 47 section 4.3: execution metadata, outside the resume key.
+            **self._chunk_plan.record(),
+            "node_chunk": self.node_chunk,
         }
         if self._problem.responses.plasma_channels:
             record["plasma_source"] = plasma_source_record(self._problem.grids)
@@ -1307,6 +1343,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._history = []
         self._natural_count = 0
         self._natural_due = False
+        self._halt_ahead = False
         self._halt_requested = False
         self._halt_check = None
         self._clock = time.perf_counter()
@@ -1440,6 +1477,15 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             self._replay_to(schedule, target)
         else:
             self._march_to(target)
+        if (
+            self._natural_due
+            and reached(self._z, target)
+            and self._dense_ahead is None
+            and (self._adams is None or self._adams._ahead is None)
+        ):
+            # The step owed as a step plane ends on the target itself, whose plane
+            # observes it: it is not observed a second time there (`_natural_stop`).
+            self._natural_due = False
         taken = self._history[first:]
         record = ControlRecord.from_norms(
             self._problem.stepper.controller,
@@ -1575,7 +1621,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         )
         return _TrialProbe(
             cast("HostDriver[object]", self),
-            (float(start.z), start.noise, self._schedule_index),
+            (float(start.z), self._schedule_index),
         )
 
     # --- the step loop -------------------------------------------------------------
@@ -1894,6 +1940,18 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """Withdraw a halt requested with :meth:`request_halt`, once it is serviced."""
         self._halt_requested = False
 
+    def halt_ahead(self) -> None:
+        """Halt the next march at the endpoint a dense observation held, if short.
+
+        The execution session's snapshot latch beside interpolated planes (SEP 47
+        section 5.5): the march stands ahead of the plane it observed, at the end of
+        the step that crossed it. When the next march restores that endpoint and the
+        latch is set, it returns there at once, unless a step plane is owed there
+        first or the target is another plane the step crossed, so that the snapshot is
+        taken at that endpoint rather than wait for a step that crosses no plane.
+        """
+        self._halt_ahead = True
+
     def set_halt_check(self, check: Callable[[], bool] | None) -> None:
         """Ask `check` at every accepted endpoint whether to halt there.
 
@@ -1941,7 +1999,8 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         Called at the start of a march, once a dense observation's march state is
         restored: a step that crossed the last observed plane and was the ``k``-th is
-        saved now, unless `target` is another plane it also crossed.
+        saved now, unless `target` is another plane it also crossed; otherwise a halt
+        asked for there (:meth:`halt_ahead`) stops the march there.
 
         Parameters
         ----------
@@ -1953,8 +2012,14 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         bool
             Whether to return at once, at the step's end.
         """
+        ahead, self._halt_ahead = self._halt_ahead, False
         if self._natural_due and not reached(self._z, target):
             self._natural_due = False
+            return True
+        if ahead and self._halt_requested and not reached(self._z, target):
+            # The restored endpoint of :meth:`halt_ahead`, every plane its step
+            # crossed observed.
+            self._halted = True
             return True
         return False
 
@@ -2943,56 +3008,6 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             msg = (
                 f"z = {target:.6g} m lies beyond the operator table, which covers "
                 f"[{span[0]:.6g}, {span[1]:.6g}] m"
-            )
-            raise BackendError(msg)
-
-
-def refuse_general_leaves(
-    problem: KernelProblem, backend: str, *, admits: Sequence[str] = ()
-) -> None:
-    """Refuse, by name, each schema-12 general-modal leaf a backend cannot execute.
-
-    The four optional leaves of the general modal route arrived at kernel schema 12
-    with no backend behind them. A
-    schema check alone cannot stand in for this: a separately built backend compares
-    against solprop's imported constant, so a freshly built wheel would accept a
-    problem carrying a representation it does not implement and silently run the old
-    physical model. Each leaf is therefore named here, one refusal each, and each
-    check is deleted only when that backend executes that exact representation.
-
-    Every backend in this repository names all four leaves and admits through the
-    shared list in :mod:`solprop.backends.numpy_ref.admission`, so this refusal guards
-    a separately built backend. A backend that executes a leaf names it in `admits` and
-    checks the exact representation it supports itself: admitting a leaf is a statement
-    about one combination of contents, not about the field being present.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        The problem to check.
-    backend : str
-        The backend's registry name, used in the refusal.
-    admits : sequence of str, optional
-        Dotted leaf names this backend executes, for example
-        ``("transform.modal_tables",)``. Empty by default: a backend refuses every
-        one until it has a kernel for it.
-
-    Raises
-    ------
-    BackendError
-        Naming the backend and the leaf it cannot execute.
-    """
-    for name, leaf in (
-        ("linear.coupled_flow", problem.linear.coupled_flow),
-        ("linear.modal_metric", problem.linear.modal_metric),
-        ("transform.modal_tables", problem.transform.modal_tables),
-        ("responses.regional_responses", problem.responses.regional_responses),
-    ):
-        if leaf is not None and name not in admits:
-            msg = (
-                f"{backend} does not execute {name}: the general modal route is not "
-                "implemented on this backend, and a leaf silently ignored would run, "
-                "converge and be the wrong physics"
             )
             raise BackendError(msg)
 

@@ -2,13 +2,16 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "bindings_transverse.hpp"
 #include "helpers.hpp"
 #include "solprop_native/adams_march.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/crossing.hpp"
+#include "solprop_native/dense_output.hpp"
 #include "solprop_native/engines.hpp"
 #include "solprop_native/fft_plan.hpp"
 #include "solprop_native/lagrange_basis.hpp"
+#include "solprop_native/low_storage.hpp"
 #include "solprop_native/rk_march.hpp"
 #include "solprop_native/session.hpp"
 #include "solprop_native/stage_tables.hpp"
@@ -1282,6 +1285,9 @@ native::session::MonitorPlan monitor_plan_from(const nb::dict values) {
       plan.record = watch_resumption_from(nb::cast<nb::dict>(values["record"]));
       plan.plane = nb::cast<bool>(values["plane"]);
       plan.unwatched = watch_stretches_from(values["unwatched"]);
+      if (values.contains("edge_record"))
+        plan.edge_record = native::bindings::transverse_resumption_from(
+            nb::cast<nb::dict>(values["edge_record"]));
     }
     // The input noise's floor: its energy, then its four regions' shares.
     if (values.contains("floor") && !values["floor"].is_none()) {
@@ -1292,6 +1298,10 @@ native::session::MonitorPlan monitor_plan_from(const nb::dict values) {
       plan.floor_energy = floor[0];
       std::copy(floor.begin() + 1, floor.end(), plan.floor_regions.begin());
     }
+    // A free-space run's transverse edge (SEP 40 section 5.3), owned alike.
+    if (values.contains("edge") && !values["edge"].is_none())
+      plan.edge =
+          native::bindings::transverse_config_from(nb::cast<nb::dict>(values["edge"]));
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("a session's boundary monitor has the wrong types");
   } catch (const nb::python_error&) {
@@ -1819,6 +1829,15 @@ public:
     require_open();
     return general_state_->weighted_error(scale);
   }
+  // solprop SEP 47 section 6.3: the low-storage replay's flows and operator origin,
+  // which a session's low-storage engine reads beside the Runge-Kutta policy.
+  void low_storage_configure(const std::size_t flows, const bool separable,
+                             const double origin) {
+    open_state();
+    if (flows > 2)
+      throw std::invalid_argument("the low-storage march holds at most two flows");
+    low_storage_ = native::rk::low_storage::Config{flows, separable, origin};
+  }
   // solprop SEP 45 phase 4: a weighted controller's weights, and its norm from a
   // trial's partials, for both Runge-Kutta loops.
   void rk_weights_configure(std::vector<double> weights) {
@@ -2167,10 +2186,15 @@ public:
   // solprop SEP 47: the march a native execution session runs, from the policy, the
   // schedule and the stage tables this state was configured with, its engine over the
   // state and its tables; `state` is the march's state at the session's start.
+  // `dense`, a session's dense output (solprop SEP 47 section 5.3), is none or
+  // `{"weights": float64 array}`: a Runge-Kutta tableau's dense-output weights, empty
+  // for the Adams march.
   native::session::Method session_method(const std::string& kind,
-                                         const nb::dict state_values) {
+                                         const nb::dict state_values,
+                                         const nb::handle dense) {
     require_unleased();
     auto& general = open_state();
+    const bool interpolated = !dense.is_none();
     if (kind == "adams") {
       if (!march_policy_ || !stage_tables_)
         throw std::logic_error("the native Adams march is not configured");
@@ -2181,6 +2205,13 @@ public:
       method.engine = std::make_unique<native::engines::ResidentEngine>(
           general, *stage_tables_, stage_anchor_, march_fused_, march_compensated_,
           march_interpolate_, march_fault_);
+      if (interpolated) {
+        if (!march_interpolate_)
+          throw std::invalid_argument(
+              "a session's dense output needs an Adams engine that keeps its steps");
+        method.dense = std::make_unique<native::engines::AdamsDense>(
+            general, *stage_tables_, stage_anchor_, march_fused_, march_compensated_);
+      }
       return method;
     }
     if (kind == "runge_kutta") {
@@ -2190,15 +2221,44 @@ public:
       method.policy = *rk_policy_;
       method.state = rk_state_from(state_values);
       method.schedule = rk_schedule_;
-      method.engine = std::make_unique<native::engines::ResidentRungeKutta>(
+      auto engine = std::make_unique<native::engines::ResidentRungeKutta>(
           general,
           [this](const double z, const double dz) {
             return staged_trial(z, dz, rk_nodes_, false);
           },
           rk_rtol_, rk_atol_, rk_weights_);
+      if (interpolated) {
+        if (!stage_tables_)
+          throw std::logic_error("a session's dense output needs the stage tables");
+        auto holder = std::make_unique<native::engines::RungeKuttaDense>(
+            general, *stage_tables_, stage_anchor_,
+            real_vector(exact_array<RealInput>(nb::cast<nb::dict>(dense)["weights"])));
+        // The engine holds each crossing step's extension through it; both live in
+        // the method, the engine released first.
+        auto* held = holder.get();
+        engine->set_extension(
+            [held](const double z, const double dz) { held->hold(z, dz); });
+        method.dense = std::move(holder);
+      }
+      method.engine = std::move(engine);
       return method;
     }
-    throw std::invalid_argument("a session's march is \"adams\" or \"runge_kutta\"");
+    if (kind == "low_storage") {
+      // solprop SEP 47 section 6.3: the replay is the Runge-Kutta march's, each step
+      // one in-place low-storage step whose scalars the state forms itself.
+      if (!rk_policy_ || !stage_tables_ || !low_storage_)
+        throw std::logic_error("the native low-storage replay is not configured");
+      native::session::RungeKuttaMethod method;
+      method.policy = *rk_policy_;
+      method.state = rk_state_from(state_values);
+      method.schedule = rk_schedule_;
+      method.engine = std::make_unique<native::engines::ResidentLowStorage>(
+          general, *stage_tables_, stage_anchor_, *low_storage_, rk_schedule_,
+          rk_policy_->landings.landing_ulps, march_fault_);
+      return method;
+    }
+    throw std::invalid_argument(
+        "a session's march is \"adams\", \"runge_kutta\" or \"low_storage\"");
   }
   // The state's field and statistics, as a session reads them.
   std::unique_ptr<native::session::Resident> session_resident() {
@@ -2269,6 +2329,7 @@ private:
   double rk_atol_ = 0.0;
   march::Schedule rk_schedule_;
   std::vector<double> rk_weights_;
+  std::optional<native::rk::low_storage::Config> low_storage_;
   march::Schedule march_schedule_;
   bool march_fused_ = false;
   bool march_compensated_ = false;
@@ -2417,11 +2478,24 @@ public:
   std::size_t elements() const { return session_->elements(); }
   // Continue a resumed run's monitor record; takes the session's lock.
   void continue_monitor(const nb::dict record, const bool plane,
-                        const nb::handle unwatched) {
+                        const nb::handle unwatched, const nb::dict edge_record) {
     auto resumption = watch_resumption_from(record);
     auto stretches = watch_stretches_from(unwatched);
+    auto edge = native::bindings::transverse_resumption_from(edge_record);
     const nb::gil_scoped_release release;
-    session_->continue_monitor(resumption, plane, stretches);
+    session_->continue_monitor(resumption, plane, stretches, edge);
+  }
+  // The transverse edge's record and finish, or None; takes the session's lock.
+  nb::object edge_record() {
+    std::optional<std::pair<native::transverse::Record, native::transverse::Finish>>
+        record;
+    {
+      const nb::gil_scoped_release release;
+      record = session_->edge_record();
+    }
+    if (!record)
+      return nb::none();
+    return native::bindings::transverse_record_to(record->first, record->second);
   }
   // The boundary monitor's record, or None; takes the session's lock.
   nb::object monitor_record() {
@@ -2702,7 +2776,9 @@ native::session::Plan session_plan_from(const nb::dict values) {
 std::unique_ptr<BoundSession> start_session(BoundState& state, const std::string& kind,
                                             const nb::dict march_state,
                                             const nb::dict plan, const double z) {
-  auto method = state.session_method(kind, march_state);
+  const nb::object dense =
+      plan.contains("dense") ? nb::object(plan["dense"]) : nb::object(nb::none());
+  auto method = state.session_method(kind, march_state, dense);
   auto session = std::make_unique<native::session::Session>(
       state.session_resident(), std::move(method), session_plan_from(plan), z);
   return std::make_unique<BoundSession>(state, std::move(session));
@@ -3104,7 +3180,10 @@ NB_MODULE(_core, module_) {
                               native::watch::strict_probe(a, b, c),
                               native::rk::strict_probe(a, b, c),
                               native::session::strict_probe(a, b, c),
-                              native::statistics::strict_probe(a, b, c));
+                              native::statistics::strict_probe(a, b, c),
+                              native::rk::low_storage::strict_probe(a, b, c),
+                              native::transverse::strict_probe(a, b, c),
+                              native::dense::strict_probe(a, b, c));
       },
       "a"_a, "b"_a, "c"_a);
   module_.def(
@@ -3212,6 +3291,7 @@ NB_MODULE(_core, module_) {
       },
       "text"_a);
   native::bindings::bind_helpers(module_);
+  native::bindings::bind_transverse(module_);
   nb::class_<ScriptedMarch>(module_, "ScriptedMarch")
       .def(nb::init<nb::dict, RealInput, double, RealInput, RealInput>(), "policy"_a,
            "norms"_a.noconvert(), "carrier_rate"_a, "steps"_a.noconvert(),
@@ -3702,6 +3782,8 @@ NB_MODULE(_core, module_) {
           "policy"_a, "nodes"_a, "rtol"_a, "atol"_a, "steps"_a.noconvert(),
           "edges"_a.noconvert())
       .def("rk_march_run", &BoundState::rk_march_run, "state"_a, "bounds"_a)
+      .def("low_storage_configure", &BoundState::low_storage_configure, "flows"_a,
+           "separable"_a, "origin"_a)
       .def("start_session", &start_session, "kind"_a, "state"_a, "plan"_a, "z"_a,
            nb::keep_alive<0, 1>())
       .def("rk_weights_configure", &BoundState::rk_weights_configure, "weights"_a)
@@ -4271,6 +4353,7 @@ NB_MODULE(_core, module_) {
         out["value"] = notice.value;
         out["cap"] = notice.cap;
         out["step"] = notice.step;
+        out["edge"] = native::bindings::transverse_notice_to(notice.edge);
         return out;
       });
   nb::class_<BoundStatisticsPlan>(module_, "StatisticsPlan")
@@ -4317,7 +4400,8 @@ NB_MODULE(_core, module_) {
       .def_prop_ro("elements", &BoundSession::elements)
       .def("monitor_record", &BoundSession::monitor_record)
       .def("continue_monitor", &BoundSession::continue_monitor, "record"_a, "plane"_a,
-           "unwatched"_a)
+           "unwatched"_a, "edge_record"_a)
+      .def("edge_record", &BoundSession::edge_record)
       .def("march_state", &BoundSession::march_state, "since"_a)
       .def("march_snapshot", &BoundSession::march_snapshot, "sequence"_a,
            "generation"_a)

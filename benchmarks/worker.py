@@ -541,6 +541,8 @@ def measure(
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
+            # SOLPROP_BENCH_NODE_BUDGET reaches the backend through its options.
+            options=simulation.settings.execution_options(),
         )
         if single
         else None

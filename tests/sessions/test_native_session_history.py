@@ -376,10 +376,13 @@ def test_a_failure_between_batches_still_checkpoints_the_committed_state():
         (plane,) = batch.events
         assert isinstance(plane, ObservationReady)
         session.acknowledge(batch.receipt)
-        ticket = session.pending_ticket()
+        # Nothing is pending to bind a ticket to (the protocol's answer), until the
+        # failure's own terminal batch is issued.
+        assert session.pending_ticket() is None
+        ticket = session.failure_ticket()
         assert ticket is not None
         assert ticket.z == plane.z and ticket.generation == plane.ticket.generation
-        assert session.pending_ticket() == ticket
+        assert session.pending_ticket() == ticket == session.failure_ticket()
         field = np.asarray(session.export(ticket, IDENTITY))
         assert np.all(np.isfinite(field))
         snapshot = session.march_snapshot(ticket)
@@ -390,6 +393,7 @@ def test_a_failure_between_batches_still_checkpoints_the_committed_state():
         session.acknowledge(ticket.receipt)
         assert session.finished
         assert session.pending_ticket() is None
+        assert session.failure_ticket() is None
         with pytest.raises(SessionError):
             session.advance()
     finally:

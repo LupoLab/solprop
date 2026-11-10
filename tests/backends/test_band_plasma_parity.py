@@ -26,6 +26,7 @@ from bounds import gamma, ladder_bound
 from driver.test_prop_capillary import SHORT, build
 from optmat_parity import INTEGRATION_AGREEMENT
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.grid import FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.nonlinear.responses import PlasmaResponse
 from solprop.profiles import Constant
@@ -98,11 +99,6 @@ def spatial(kind):
         steps=STEPS,
         density=1e22,
     )
-    if kind != "radial":
-        # A remainder chunk, so the band column meets a partial block.
-        problem = dataclasses.replace(
-            problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
-        )
     return grid, problem
 
 
@@ -127,7 +123,7 @@ def modal(kind):
 
 def planar():
     """Return ``(grid, problem)``: the hybrid planar field-plasma case."""
-    grid, _, problem = planar_case("field-plasma", steps=STEPS, node_chunk=5)
+    grid, _, problem = planar_case("field-plasma", steps=STEPS)
     return grid, problem
 
 
@@ -143,6 +139,16 @@ CASES = (
 )
 
 
+CHUNKS = {"free": 7, "line": 7, "planar": 5}
+"""Exact node chunks that leave a remainder: the band column meets a partial block."""
+
+
+def options_for(name):
+    """Return the execution options a case runs with: its remainder chunk, if any."""
+    chunk = CHUNKS.get(name)
+    return None if chunk is None else ExecutionOptions(node_chunk=chunk)
+
+
 def case(name):
     """Return the banded ``(grid, problem)`` of one case."""
     if name in {"mode_averaged", "analytic", "multimode", "mixture"}:
@@ -155,9 +161,9 @@ def case(name):
     return grid, dataclasses.replace(problem, stats_spec=StatsSpec(names=STATISTICS))
 
 
-def march(implementation, problem, grid, *, steps):
+def march(implementation, problem, grid, *, steps, options=None):
     """Return the field and the statistics after the problem's fixed steps."""
-    backend = implementation(problem, grid=grid)
+    backend = implementation(problem, grid=grid, options=options)
     try:
         backend.set_initial(problem.initial.field0, None)
         summary = backend.propagate_to(float(problem.stepper.save_planes[-1]))
@@ -219,8 +225,13 @@ def test_current_rules_match_the_reference_on_every_route(
     # evaluations per step; the same bound covers these requested march lengths.
     limit = bound(problem, grid, implementation.name, steps)
     assert limit > 0
-    expected, expected_stats = march(NumpyRefBackend, problem, grid, steps=steps)
-    actual, actual_stats = march(implementation, problem, grid, steps=steps)
+    options = options_for(name)
+    expected, expected_stats = march(
+        NumpyRefBackend, problem, grid, steps=steps, options=options
+    )
+    actual, actual_stats = march(
+        implementation, problem, grid, steps=steps, options=options
+    )
     if preionisation:
         assert np.max(expected_stats["electron_density"]) > 0
     scale = float(np.max(np.abs(expected)))

@@ -162,7 +162,6 @@ def test_a_transform_and_a_state_cannot_both_carry_the_components(
         synthesis=np.ones((2, 1)),
         projection=np.ones((1, 2)),
         projection_coarse=np.ones((1, 2)),
-        node_chunk=1,
         _n_pol=2,
         kind="modal",
     )

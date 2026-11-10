@@ -6,13 +6,13 @@
 
 from __future__ import annotations
 
-import dataclasses
 from typing import cast
 
 import numpy as np
 import pytest
 from conftest import PhaseACase
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FreeGrid, LineGrid
 from solprop.modes.slab import PlanarGrid, SlabMode
 from solprop.nonlinear.responses import KerrResponse
@@ -44,12 +44,13 @@ def free_payload(phase_a_case: PhaseACase) -> dict[str, object]:
         dz_max=1e-3,
         dz_init=1e-4,
     )
-    problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=5)
-    )
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, grid=grid, options=ExecutionOptions(node_chunk=5))
     try:
-        return _native_problem(problem, backend._terms)  # pyright: ignore[reportPrivateUsage]
+        return _native_problem(
+            problem,
+            backend._terms,  # pyright: ignore[reportPrivateUsage]
+            node_chunk=backend.node_chunk,
+        )
     finally:
         backend.close()
 
@@ -260,16 +261,14 @@ def test_a_line_of_one_y_row_matches_the_reference(collar: float) -> None:
         dz_init=length / 10,
         schedule=FixedSchedule.uniform(0.0, length, length / 10),
     )
-    problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
-    )
+    options = ExecutionOptions(node_chunk=7)
     geometry = problem.transform.geometry
     assert geometry is not None
     assert geometry.shape == (24, 1)
     names = ("energy", "peak_intensity", "on_axis_intensity", "beam_radius", "fwhm_r")
     rows: list[tuple[np.ndarray, dict[str, np.ndarray]]] = []
     for implementation in (NumpyRefBackend, NativeBackend):
-        backend = implementation(problem, grid=grid)
+        backend = implementation(problem, grid=grid, options=options)
         try:
             if isinstance(backend, NativeBackend):
                 ledger = backend.memory_ledger()
@@ -329,10 +328,12 @@ def _planar_problem(
         dz_init=length / 10,
         schedule=FixedSchedule.uniform(0.0, length, length / 10),
     )
-    chunk = 2 * space.x.size
-    return space, dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=chunk)
-    )
+    return space, problem
+
+
+def _planar_options(space: PlanarGrid) -> ExecutionOptions:
+    """Return two y rows a chunk, which leaves a partial last chunk of rows."""
+    return ExecutionOptions(node_chunk=2 * space.x.size)
 
 
 def test_the_hybrid_planar_kind_matches_the_reference(phase_a_case: PhaseACase) -> None:
@@ -353,7 +354,7 @@ def test_the_hybrid_planar_kind_matches_the_reference(phase_a_case: PhaseACase) 
     rows: list[tuple[np.ndarray, dict[str, np.ndarray]]] = []
     length = 1e-3
     for implementation in (NumpyRefBackend, NativeBackend):
-        backend = implementation(problem, grid=grid)
+        backend = implementation(problem, grid=grid, options=_planar_options(space))
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(length)
@@ -393,10 +394,14 @@ def test_the_hybrid_planar_kind_matches_the_reference(phase_a_case: PhaseACase) 
 @pytest.fixture
 def planar_payload(phase_a_case: PhaseACase) -> dict[str, object]:
     original, grid = phase_a_case
-    _, problem = _planar_problem(grid, original.stepper.controller)
-    backend = NativeBackend(problem, grid=grid)
+    space, problem = _planar_problem(grid, original.stepper.controller)
+    backend = NativeBackend(problem, grid=grid, options=_planar_options(space))
     try:
-        return _native_problem(problem, backend._terms)  # pyright: ignore[reportPrivateUsage]
+        return _native_problem(
+            problem,
+            backend._terms,  # pyright: ignore[reportPrivateUsage]
+            node_chunk=backend.node_chunk,
+        )
     finally:
         backend.close()
 

@@ -102,7 +102,8 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
         first = self._members[0]
         # The members read the transverse edge, or not; the runner speaks for them.
         self.reads_transverse_edge = first.reads_transverse_edge
-        super().__init__(first._problem)
+        # The members' own execution options, so the runner plans the chunk they do.
+        super().__init__(first._problem, options=first._options)
         self.name = first.name
         self.max_batch = len(self._members)
         self._state = tuple(member._require_state() for member in self._members)
@@ -533,7 +534,8 @@ def _validate_members(members: tuple[StepDriver[object], ...]) -> None:
     schedule = settings.schedule
     if schedule is None:
         raise BackendError("lockstep execution requires an explicit fixed schedule")
-    _refuse_mixed_precisions(members)
+    # One precision throughout: the native backend, the only one on this bridge,
+    # computes in binary64 alone (SEP 33).
     for member in members:
         if not isinstance(member, Backend):
             raise BackendError("lockstep members must implement the backend protocol")
@@ -580,25 +582,6 @@ def _validate_members(members: tuple[StepDriver[object], ...]) -> None:
         ):
             raise BackendError("lockstep members require the same statistics request")
         _refuse_mixed_guides(problem, first._problem)
-
-
-def _refuse_mixed_precisions(members: tuple[StepDriver[object], ...]) -> None:
-    """Refuse members whose problems do not share one precision.
-
-    Parameters
-    ----------
-    members : tuple of solprop.backends.driver.StepDriver
-        Loaded workspaces, at least one.
-
-    Raises
-    ------
-    BackendError
-        If a member's precision differs from the first's: each member's trial keeps
-        its own format, and the runner's common step and norms would mix them.
-    """
-    first = members[0]._problem.precision
-    if any(member._problem.precision != first for member in members):
-        raise BackendError("lockstep execution refuses mixed precisions")
 
 
 def _general_leaves(problem: KernelProblem) -> object:

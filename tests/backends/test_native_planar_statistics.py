@@ -25,6 +25,7 @@ import numpy as np
 import pytest
 
 from backends.planar_cases import planar_case
+from backends.test_planar_native import chunked
 from backends.test_planar_native import planar_case as collar_family_case
 from bounds import assert_within, fft_bound, gamma
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -150,16 +151,16 @@ def test_each_statistic_is_the_reference_s_on_the_same_state(name):
         assert np.max(np.abs(ours[stat] - theirs[stat])) <= bound * scale + floor, stat
 
 
-def finished(problem, grid, rows, dz):
+def finished(problem, grid, rows, dz, options=None):
     """Return each backend's finish of the rows it is handed, the reference's first."""
-    reference = NumpyRefBackend(problem, grid=grid)
+    reference = NumpyRefBackend(problem, grid=grid, options=options)
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)
         expected = np.array(reference._finish(rows.copy(), dz))
     finally:
         reference.close()
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, grid=grid, options=options)
     try:
         backend.set_initial(problem.initial.field0, None)
         native = backend._native_state
@@ -178,7 +179,7 @@ def test_the_hard_mask_takes_the_rows_to_the_state():
     finish on rows it is handed. Off the band the zeros are exact (class P,
     ``docs/dev/testing.md`` section 3): any other value would be real content.
     """
-    grid, _, problem = collar_family_case("collar_split_step")
+    grid, space, problem = collar_family_case("collar_split_step")
     active = np.asarray(problem.grids.active_mask)
     assert not np.all(active)
     rows = np.array(problem.initial.field0, dtype=complex)
@@ -188,6 +189,7 @@ def test_the_hard_mask_takes_the_rows_to_the_state():
         grid,
         rows,
         float(problem.stepper.schedule.max_step),  # pyright: ignore[reportOptionalMemberAccess]
+        chunked(space),
     )
     np.testing.assert_array_equal(expected[..., ~active], 0.0)
     np.testing.assert_array_equal(actual[..., ~active], 0.0)
@@ -196,7 +198,7 @@ def test_the_hard_mask_takes_the_rows_to_the_state():
 
 def test_the_finish_on_the_band_is_the_reference_s():
     """The same finish on rows with nothing off the band, as every march's are."""
-    grid, _, problem = collar_family_case("collar_split_step")
+    grid, space, problem = collar_family_case("collar_split_step")
     active = np.asarray(problem.grids.active_mask)
     rows = np.array(problem.initial.field0, dtype=complex)
     rows[..., ~active] = 0.0
@@ -205,6 +207,7 @@ def test_the_finish_on_the_band_is_the_reference_s():
         grid,
         rows,
         float(problem.stepper.schedule.max_step),  # pyright: ignore[reportOptionalMemberAccess]
+        chunked(space),
     )
     assert_within(actual, expected, finish_bound(problem), what="the finish")
 
@@ -224,7 +227,7 @@ def test_a_finish_with_content_off_the_band_is_the_reference_s_on_it():
     source's prefactor and the in-stage term are zero there, and the flow is the
     identity there. Measured 1.1e-8 at unit content off the band, 4.4e6 V/m at the peak.
     """
-    grid, _, problem = collar_family_case("collar_split_step")
+    grid, space, problem = collar_family_case("collar_split_step")
     active = np.asarray(problem.grids.active_mask)
     rows = np.array(problem.initial.field0, dtype=complex)
     rows[..., ~active] = 1.0 + 1.0j
@@ -233,5 +236,6 @@ def test_a_finish_with_content_off_the_band_is_the_reference_s_on_it():
         grid,
         rows,
         float(problem.stepper.schedule.max_step),  # pyright: ignore[reportOptionalMemberAccess]
+        chunked(space),
     )
     assert_within(actual, expected, finish_bound(problem), what="the finish")

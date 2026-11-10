@@ -17,16 +17,16 @@ structural counter of section 7.3 -- no return to Python caused by periodic rows
 a stop from another thread reaching a march in progress.
 """
 
-import dataclasses
 import threading
 import time
-from typing import Any, cast
 
 import numpy as np
 import pytest
 
 from sessions.executors import (
     CONSUMER,
+    EXECUTORS,
+    IDENTITY,
     PLANES,
     STORED,
     Run,
@@ -35,12 +35,16 @@ from sessions.executors import (
     drive,
     entrance,
     fibre,
-    soliton,
-    spy_monitor,
     window,
 )
 from solprop.backends.driver_session import DriverSession
-from solprop.backends.events import ObservationReady, Outcome, Progress, Terminal
+from solprop.backends.events import (
+    ObservationReady,
+    Outcome,
+    Progress,
+    Terminal,
+    join_attempts,
+)
 from solprop.backends.registry import select
 from solprop.backends.session import SessionError, StopToken
 from solprop.exceptions import BackendError, StopRequested
@@ -241,9 +245,23 @@ CASES = {
         "integrator": Multistep(),
         "schedule": FixedSchedule(np.full(40, LENGTH / 40)),
     },
+    "low-storage": {
+        "integrator": LowStorageRungeKutta(),
+        "schedule": FixedSchedule(np.full(40, LENGTH / 40)),
+    },
+    "adams-dense": {"integrator": Multistep(), "interpolate": True},
+    "adams-interaction-dense": {
+        "integrator": Multistep(formulation="interaction"),
+        "interpolate": True,
+        "step_planes": 2,
+        "rtol": 1e-8,
+    },
 }
-"""Adams and Runge-Kutta, adaptive and replayed, with periodic rows and step planes;
-and every temporal statistic, whose native plan the driver's backend also reads."""
+"""Adams and Runge-Kutta, adaptive and replayed, and the low-storage replay, with
+periodic rows and step planes; every temporal statistic, whose native plan the
+driver's backend also reads; and the Adams march's planes interpolated in both
+formulations, which the driver also interpolates natively, from weights its Python
+forms by the same native basis."""
 
 
 @pytest.mark.parametrize("recipe", [CONSUMER, STORED], ids=["consumer", "stored"])
@@ -362,17 +380,6 @@ def _refused(problem, request, name, monkeypatch) -> None:
         )
 
 
-def _edged() -> Any:
-    """Return a spy monitor carrying a transverse edge, which the session refuses.
-
-    Returns
-    -------
-    sessions.executors.SpyMonitor
-        The monitor; its edge is a placeholder, read only for its presence.
-    """
-    return dataclasses.replace(spy_monitor([]), transverse=cast("Any", object()))
-
-
 class _OwnAccept(PIController):
     """A controller that overrides a decision: a reference-only experiment."""
 
@@ -384,18 +391,6 @@ class _OwnAccept(PIController):
 @pytest.mark.parametrize(
     ("build", "name"),
     [
-        (lambda: (soliton(), {"monitor": _edged()}), "transverse edge"),
-        (lambda: (_case(interpolate=True), {}), "dense output"),
-        (
-            lambda: (
-                _case(
-                    integrator=LowStorageRungeKutta(),
-                    schedule=FixedSchedule(np.full(40, LENGTH / 40)),
-                ),
-                {},
-            ),
-            "the low-storage replay",
-        ),
         (
             lambda: (
                 _case(integrator=ComparisonMultistep(corrector="pece", order=4)),
@@ -413,9 +408,6 @@ class _OwnAccept(PIController):
         ),
     ],
     ids=[
-        "transverse-edge",
-        "dense",
-        "low-storage",
         "comparison",
         "controller",
         "statistic",
@@ -517,6 +509,9 @@ LEASED_CALLS = {
     "adams_march_run": lambda state, n: state.adams_march_run({}, {}),
     "table_slots": lambda state, n: state.table_slots(False, False, 1, False),
     "rk_weights_configure": lambda state, n: state.rk_weights_configure([1.0]),
+    "low_storage_configure": lambda state, n: state.low_storage_configure(
+        1, False, 0.0
+    ),
     "flow_guard_configure": lambda state, n: state.flow_guard_configure(
         [1.0], [1.0], 1.0, 1, 1.0
     ),
@@ -647,3 +642,143 @@ def test_march_admission_is_decided_before_the_backend_is_built(monkeypatch):
     session.close()
     monkeypatch.setattr(native_backend, "_RK_ROWS", "host")
     _refused(problem, request, "a trial whose stage rows the host forms", monkeypatch)
+
+
+DENSE = {
+    "runge-kutta": {},
+    "runge-kutta-rejections": {"rtol": 1e-12, "period": 2, "dz_init": 1e-2},
+    "adams": {"integrator": Multistep()},
+    "adams-interaction": {"integrator": Multistep(formulation="interaction")},
+}
+"""Dense runs: the default tableau's DOPRI5 extension, with and without rejections,
+and the Adams march's interpolant in both formulations."""
+
+
+def test_runge_kutta_dense_planes_follow_the_drivers_run():
+    """SEP 47 section 7.1: the native session's dense Runge-Kutta run is the driver's
+    to rounding.
+
+    The driver forms each plane on the host with NumPy (`StepDriver._dense_record`,
+    `_observe_inside`) from stages copied out of the native state, then reloads the
+    committed state, which drops the step's last stage, re-evaluated as the next
+    step's first; the native session forms the extension where the state lives, its
+    flow through the native exponential, and keeps the committed state and that
+    stage. The attempts, acceptances, observation kinds and positions are the
+    driver's, the steps' norms agree to rounding (the stage), and the planes to the
+    last bits (measured 9.2e-17 of the peak).
+    """
+    if not _one_thread():
+        pytest.skip("equal decisions are claimed on one thread (SOLPROP_THREADS=1)")
+    for options in ({"step_planes": 3, "rtol": 1e-8}, DENSE["runge-kutta-rejections"]):
+        problem = _case(interpolate=True, **{"step_planes": 0, **options})
+        request = describe_run(problem)
+        baseline = drive(_driver_session(problem, request), export=CONSUMER)
+        started = _native_session(problem, request)
+        run = drive(started, export=CONSUMER)
+        started.session.close()
+        assert run.status.attempts == baseline.status.attempts
+        assert run.status.rejected == baseline.status.rejected
+        assert [(event.kind, event.plane_index) for event in run.observations] == [
+            (event.kind, event.plane_index) for event in baseline.observations
+        ]
+        np.testing.assert_allclose(
+            [event.z for event in run.observations],
+            [event.z for event in baseline.observations],
+            rtol=1e-12,
+        )
+        got = join_attempts(run.chunks)[0]
+        expected = join_attempts(baseline.chunks)[0]
+        np.testing.assert_array_equal(got.accepted, expected.accepted)
+        np.testing.assert_allclose(got.z, expected.z, rtol=1e-12)
+        np.testing.assert_allclose(got.error_norm, expected.error_norm, rtol=1e-8)
+        scale = max(float(np.max(np.abs(field))) for field in baseline.fields)
+        for field, other in zip(run.fields, baseline.fields, strict=True):
+            np.testing.assert_allclose(field, other, rtol=0, atol=1e-14 * scale)
+
+
+@pytest.mark.parametrize("case", sorted(DENSE))
+def test_dense_planes_meet_the_reference(case):
+    """SEP 47 section 6.6 and SEP 25: dense planes held to the NumPy reference.
+
+    The native session against the reference session on the same problem, under the
+    budgets of the existing dense tests: the same attempts, the planes within 1e-12 of
+    the peak (``tests/backends/test_dense_output.py``), and for Adams the accepted
+    positions within 1e-6 relative (``tests/backends/test_resident_adams.py``).
+    Measured: at most 2.8e-16 of the peak, and 4.8e-11 relative in positions.
+    """
+    problem = _case(interpolate=True, step_planes=0, **DENSE[case])
+    request = describe_run(problem)
+    reference = drive(
+        EXECUTORS["reference"].start(problem, request, entrance(problem)),
+        export=IDENTITY,
+    )
+    started = _native_session(problem, request)
+    run = drive(started, export=IDENTITY)
+    started.session.close()
+    assert run.status.attempts == reference.status.attempts
+    assert [(event.kind, event.z) for event in run.observations] == [
+        (event.kind, event.z) for event in reference.observations
+    ]
+    np.testing.assert_allclose(
+        run.accepted_ends(), reference.accepted_ends(), rtol=1e-6
+    )
+    scale = max(float(np.max(np.abs(field))) for field in reference.fields)
+    for got, expected in zip(run.fields, reference.fields, strict=True):
+        np.testing.assert_allclose(got, expected, rtol=0, atol=1e-12 * scale)
+
+
+@pytest.mark.parametrize("case", ["runge-kutta", "adams", "adams-interaction"])
+def test_a_dense_plane_crosses_to_the_host_only_as_its_export(case):
+    """SEP 47 sections 5.3 and 7.3: dense output is formed where the state lives.
+
+    No stage, field or extension crosses to the host to interpolate a plane, and
+    nothing crosses back: the state's crossings are the exported planes' bytes alone.
+    """
+    problem = _case(interpolate=True, step_planes=0, **DENSE[case])
+    session = _make_native(problem, describe_run(problem))
+    backend = session._backend  # pyright: ignore[reportPrivateUsage]
+    assert backend is not None
+    state = backend._native_state  # pyright: ignore[reportPrivateUsage]
+    before = state.crossed_bytes()
+    run = drive(Started(session), export=CONSUMER)
+    after = state.crossed_bytes()
+    status = session.native.status()
+    session.close()
+    assert status.exports == len(run.observations)
+    assert after[0] - before[0] == status.export_bytes
+    assert after[1] == before[1]
+
+
+def test_the_ledger_counts_runge_kutta_dense_output_before_and_during_a_session():
+    """SEP 47 section 5.3: a retained dense-output object appears in the memory ledger.
+
+    A Runge-Kutta run's dense-output storage -- five extension coefficients and the
+    held committed state, six fields, and a byte a bin -- is reported by a backend
+    built for it before any session allocates it, as an estimate reads it, and is
+    then what the session allocated, until it closes; an Adams run's lives in its
+    history's views.
+    """
+    problem = _case(interpolate=True, step_planes=0)
+    backend = select("native", problem, grid=window(), modes=[fibre().mode])
+    try:
+        ledger = backend.memory_ledger()
+    finally:
+        backend.close()
+    field = ledger["state"]
+    assert ledger["rk_dense"] == 6 * field + field // 16 > 0
+    session = _make_native(problem, describe_run(problem))
+    live = session._backend  # pyright: ignore[reportPrivateUsage]
+    assert live is not None
+    assert live.memory_ledger()["rk_dense"] == ledger["rk_dense"]
+    state = live._native_state  # pyright: ignore[reportPrivateUsage]
+    assert state.memory_ledger()["rk_dense"] == ledger["rk_dense"]
+    # Closing the native session releases it, before its backend closes.
+    session.native.close()
+    assert state.memory_ledger()["rk_dense"] == 0
+    session.close()
+    landed = _case(step_planes=0)
+    backend = select("native", landed, grid=window(), modes=[fibre().mode])
+    try:
+        assert backend.memory_ledger()["rk_dense"] == 0
+    finally:
+        backend.close()

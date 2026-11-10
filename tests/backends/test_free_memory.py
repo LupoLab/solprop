@@ -10,9 +10,9 @@ import numpy as np
 import pytest
 
 from backends import test_free_ladders
+from solprop.backends.session import ExecutionOptions
 from solprop.stats import StatsSpec
 from solprop.translate.free import free_transform
-from solprop.translate.problem import _held_current_chunk
 from spatial_records import record_metric
 
 free_response = test_free_ladders.free_case
@@ -26,14 +26,9 @@ def test_cartesian_column_buffers_stay_within_the_shared_budget(
     # At most 19 complex-equivalent time columns are simultaneously retained:
     # response/FFT 8, doubled Raman 3, GPU plasma 3.5, split-step 2, statistics 2.5.
     # One further column covers real-FFT endpoint bins. Use a small budget to
-    # exercise the same translation division without allocating a full-size run.
+    # exercise the backend's plan without allocating a full-size run.
     budget = 7 * 20 * 16 * problem.shape[2] * grid.n_to
-    transform = free_transform(
-        space, grid, n_pol=problem.shape[2], z_max=grid.length, node_budget=budget
-    )
-    transform = _held_current_chunk(
-        transform, problem.responses, problem.shape[2], grid.n_to, budget
-    )
+    transform = free_transform(space, n_pol=problem.shape[2], z_max=grid.length)
     geometry = transform.geometry
     assert geometry is not None
     transform = dataclasses.replace(
@@ -53,7 +48,9 @@ def test_cartesian_column_buffers_stay_within_the_shared_budget(
             temporal_absorber_fine=fine_rate,
         ),
     )
-    backend = spatial_backend_class(problem, grid=grid)
+    backend = spatial_backend_class(
+        problem, grid=grid, options=ExecutionOptions(node_budget=budget)
+    )
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.stats(StatsSpec(names=("energy", "beam_radius", "peak_intensity")))

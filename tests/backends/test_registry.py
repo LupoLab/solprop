@@ -175,7 +175,12 @@ def test_optional_constructor_receives_the_original_contract_without_fallback(
         _construct("native", problem, grid=narrow_grid, modes=None, profiles=None)
     assert len(received) == 1
     assert received[0][0] is problem
-    assert received[0][1] == {"grid": narrow_grid, "modes": None, "profiles": None}
+    assert received[0][1] == {
+        "grid": narrow_grid,
+        "modes": None,
+        "profiles": None,
+        "options": None,
+    }
 
 
 def test_an_unknown_name_lists_what_is_usable(linear_problem, narrow_grid):
@@ -298,7 +303,10 @@ def test_optional_backend_constructor_forwards_the_context(
     backend = _construct("native", problem, grid=narrow_grid, modes=None, profiles=None)
     try:
         assert calls == [
-            (problem, {"grid": narrow_grid, "modes": None, "profiles": None})
+            (
+                problem,
+                {"grid": narrow_grid, "modes": None, "profiles": None, "options": None},
+            )
         ]
         assert isinstance(backend, Backend)
     finally:

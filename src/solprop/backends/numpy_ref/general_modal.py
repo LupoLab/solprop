@@ -86,10 +86,12 @@ import numpy as np
 from jaxtyping import Complex, Float, Int32, Num
 
 from solprop import fourier
+from solprop.backends.node_chunk import NodeChunkPlan
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError
 from solprop.nonlinear.responses import dispersive_cubic
 from solprop.translate.modal_tables import ModalTransformTables
+from solprop.translate.problem import KernelProblem
 from solprop.translate.responses import (
     DELAYED_MODEL_ID,
     KERR_MODEL_FORMS,
@@ -111,6 +113,7 @@ __all__ = [
     "general_dispersive_buffers",
     "general_memory",
     "general_node_chunk",
+    "general_planned_chunk",
     "general_source",
     "node_delayed_maps",
     "node_kerr_form",
@@ -914,6 +917,43 @@ def general_node_chunk(
     )
     per_node = columns * samples * np.dtype(np.complex128).itemsize
     return int(max(1, budget // per_node))
+
+
+def general_planned_chunk(problem: KernelProblem, plan: NodeChunkPlan) -> int:
+    """Return the general route's node chunk under a backend's node-chunk plan.
+
+    The route's own rule (:func:`general_node_chunk`) within the plan's budget -- the
+    explicit one, or :data:`~solprop.backends.node_chunk.DEFAULT_NODE_BUDGET` -- or
+    the plan's exact chunk when one was forced, bounded by the node count. Both
+    compiled backends take it, so that they execute the same chunks.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        A problem that carries ``transform.modal_tables``.
+    plan : solprop.backends.node_chunk.NodeChunkPlan
+        The backend's plan (:func:`solprop.backends.node_chunk.plan_node_chunk`).
+
+    Returns
+    -------
+    int
+        Nodes the general source holds at once, between one and the node count.
+    """
+    tables = problem.transform.modal_tables
+    assert tables is not None
+    nodes = int(tables.region_index.size)
+    chunk = (
+        plan.requested
+        if plan.requested is not None
+        else general_node_chunk(
+            int(tables.electric.shape[2]),
+            problem.grids.n_to,
+            int(tables.omega_fine.size),
+            plan.budget,
+            dispersive=general_dispersive_buffers(problem.responses.dispersive_kerr),
+        )
+    )
+    return min(chunk, nodes)
 
 
 def general_memory(

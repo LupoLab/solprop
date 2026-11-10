@@ -14,6 +14,7 @@ lossless copies and yields that must be transport no-ops (sections 5.1 and 7.1).
 """
 
 import dataclasses
+import itertools
 import threading
 import time
 import warnings
@@ -23,6 +24,7 @@ import pytest
 
 from sessions.executors import (
     CONSUMER,
+    DENSE,
     FACTOR,
     IDENTITY,
     LENGTH,
@@ -31,12 +33,14 @@ from sessions.executors import (
     RECIPES,
     STATISTICS,
     STORED,
+    TRANSVERSE,
     Executor,
     Run,
     ScriptedError,
     ScriptedWarning,
     assert_same_run,
     drive,
+    edged,
     soliton,
     spy_monitor,
     window,
@@ -60,8 +64,10 @@ from solprop.backends.session import (
     SnapshotReceipt,
     StopToken,
 )
-from solprop.exceptions import BackendError, StopRequested
+from solprop.exceptions import BackendError, BoundaryError, StopRequested
+from solprop.monitor import BoundaryCheck
 from solprop.stats import StatsSpec
+from solprop.stepper.multistep import Multistep
 from solprop.translate.run_request import describe_run
 
 # The soliton's 1 ps window is tight for a monitor's guards; the window is not tested.
@@ -373,6 +379,75 @@ def test_events_follow_the_committed_order(start, executor):
     assert record["planes"]["z"] == observed
 
     _assert_committed_order(run)
+
+
+@pytest.mark.parametrize(
+    ("check", "outcome"),
+    [
+        (BoundaryCheck(transverse_budget=10.0), Outcome.COMPLETED),
+        (BoundaryCheck(), Outcome.FAILED),
+    ],
+    ids=["relaxed", "stopped"],
+)
+def test_a_transverse_edge_is_read_in_the_committed_order(
+    start, executor, check, outcome
+):
+    """SEP 47 section 5.3 with SEP 40 section 5.3: a free-space run's transverse edge.
+
+    The edge is launched after the launch plane and read where its spacing falls due,
+    the steps held to that spacing; it is read at every plane it has not read, and its
+    record joins the monitor's. Relaxed, the re-review's packet is read to the end at
+    most a quarter of the run apart (the backstop's largest); under the default budget
+    the edge stops it at a read, a failure at that committed endpoint naming the edge.
+    """
+    executor.require(TRANSVERSE)
+    problem, request, context = edged(check)
+    started = start(problem, request, context=context)
+    launch = started.session.advance()
+    (first,) = launch.events
+    assert isinstance(first, ObservationReady)
+    assert first.kind is ObservationKind.LAUNCH
+    if executor.native_monitor:
+        record = started.session.monitor_record()
+        assert record is not None
+        assert record["transverse"]["launch_energy"] is None, (
+            "the edge was launched before the launch plane was committed"
+        )
+    started.session.acknowledge(launch.receipt)
+    rest = drive(started)
+    run = Run([launch, *rest.batches], [], rest.status)
+    record = started.session.monitor_record()
+    assert record is not None
+    edge = record["transverse"]
+    assert edge["launch_energy"] is not None and edge["reads"] > 0
+    assert run.terminal.outcome is outcome
+    length = problem.stepper.save_planes[-1]
+    if outcome is Outcome.COMPLETED:
+        # A replayed uniform schedule's steps are longer than the edge's read spacing,
+        # which the edge reports as coarse (SEP 40 section 5.3); adaptive steps are
+        # held to the spacing.
+        replayed = executor.name.endswith("low-storage")
+        assert edge["transverse_status"] == ("coarse" if replayed else "clear")
+        # Read at most a quarter of the run apart, or a replayed step apart.
+        longest = max(
+            float(history.dz.max()) for history, _ in run.chunks if history.n_steps
+        )
+        gap = max(length / 4, longest) if replayed else length / 4
+        assert edge["largest_gap"] <= gap * (1 + 1e-9)
+        planes = [e for e in run.observations if e.kind is ObservationKind.PLANE]
+        assert [event.z for event in planes] == list(problem.stepper.save_planes)
+    else:
+        assert edge["transverse_status"] == "stopped"
+        assert isinstance(run.terminal.error, BoundaryError)
+        assert "reached the transverse edge" in str(run.terminal.error)
+        assert run.terminal.eligibility is Eligibility.ELIGIBLE
+        assert run.terminal.z < length
+    for batch in run.batches:
+        assert (
+            sum(getattr(event, "ticket", None) is not None for event in batch.events)
+            <= 1
+        )
+    assert run.attempts == run.status.attempts > 0
 
 
 def test_events_follow_the_committed_order_without_a_monitor(start):
@@ -720,10 +795,17 @@ def test_rejected_trials_are_recorded_and_not_kept(start_scripted):
     assert np.flatnonzero(~flags).tolist() == [trial - 1 for trial in rejected]
     assert run.status.rejected == len(rejected)
     assert run.attempts == run.status.attempts
+    # Every chunk counts, in delivery order: a deadline's yield delivers its own.
+    fields = dict(zip(map(id, run.observations), run.fields, strict=True))
     accepted = 0
-    for event, field in zip(run.observations, run.fields, strict=True):
-        accepted += int(event.history.accepted.sum())
-        np.testing.assert_array_equal(field, run.fields[0] * FACTOR**accepted)
+    for event in run.events:
+        history = getattr(event, "history", None)
+        if history is not None:
+            accepted += int(history.accepted.sum())
+        if id(event) in fields:
+            np.testing.assert_array_equal(
+                fields[id(event)], run.fields[0] * FACTOR**accepted
+            )
 
 
 # ------------------------------------------------------------------------ stops
@@ -803,6 +885,7 @@ def test_stop_token_listeners_fire():
     token.attach(lambda: calls.append("late"))
     assert calls == ["early", "late"]  # attached to a set token: called at once
     detach()
+    detach()  # a second detach does nothing
     token.clear()
     assert not token.is_set()
     token.set()
@@ -972,6 +1055,228 @@ def test_a_snapshot_at_a_step_plane_follows_its_observation(start):
     )
     assert isinstance(events[step + 1], ServiceRequired)
     assert events[step + 1].z == events[step].z
+
+
+# ----------------------------------------------------------------- dense output
+
+
+DENSE_METHODS = {"runge-kutta": None, "adams": Multistep()}
+"""The marches whose planes are interpolated: the default tableau's DOPRI5 extension
+and the Adams march's own interpolant."""
+
+
+def _delivered_ends(run: Run) -> list[np.ndarray]:
+    """Return, for each event of a run, the accepted ends delivered up to it, inclusive.
+
+    Parameters
+    ----------
+    run : sessions.executors.Run
+        The run.
+
+    Returns
+    -------
+    list of numpy.ndarray
+        One array per event, in order.
+    """
+    ends: list[float] = []
+    found: list[np.ndarray] = []
+    for history, _ in run.chunks:
+        ends.extend((history.z[history.accepted]).tolist())
+        found.append(np.array(ends))
+    return found
+
+
+def _assert_inside_crossing_steps(run: Run) -> int:
+    """Assert each requested plane is observed inside the last step delivered before it.
+
+    Parameters
+    ----------
+    run : sessions.executors.Run
+        A dense run.
+
+    Returns
+    -------
+    int
+        How many planes fell strictly inside a step: interpolated, not landed.
+    """
+    inside = 0
+    for event, ends in zip(run.events, _delivered_ends(run), strict=True):
+        if not (
+            isinstance(event, ObservationReady) and event.kind is ObservationKind.PLANE
+        ):
+            continue
+        # The step that crossed the plane is the last one delivered: it ends at or past
+        # the plane, and every step before it ends short of it.
+        assert ends.size and ends[-1] >= event.z, (event.z, ends[-1:])
+        assert ends.size == 1 or ends[-2] < event.z, (event.z, ends[-2:])
+        inside += bool(ends[-1] > event.z)
+    return inside
+
+
+@pytest.mark.parametrize("method", sorted(DENSE_METHODS))
+def test_dense_planes_follow_the_committed_order(start, executor, method):
+    """SEP 47 section 5.3: dense planes are served in requested-position order, each at
+    its own position inside the step that crossed it, neither replacing the committed
+    endpoint nor advancing it.
+
+    The run of :func:`test_events_follow_the_committed_order` with its planes
+    interpolated: the launch first, the planes in order at exactly their requested
+    positions, a step plane at every third accepted step -- after the planes its step
+    crossed --, the terminal event last; each attempt and row delivered once, and the
+    monitor's record holding one row per observation at its position.
+    """
+    executor.require(DENSE)
+    executor.require(MONITOR)
+    log: list[tuple[str, float]] = []
+    problem = soliton(
+        step_planes=3, period=2, interpolate=True, integrator=DENSE_METHODS[method]
+    )
+    started = start(problem, describe_run(problem, monitor=spy_monitor(log)))
+    run = drive(started)
+    _assert_committed_order(run)
+    assert _assert_inside_crossing_steps(run) > 0, "no plane was interpolated"
+    # The run's end is landed on; the monitor closed one row at each observation.
+    assert run.accepted_ends()[-1] == LENGTH
+    record = started.session.monitor_record()
+    assert record is not None
+    assert record["planes"]["z"] == [event.z for event in run.observations]
+
+
+@pytest.mark.parametrize("method", sorted(DENSE_METHODS))
+def test_a_snapshot_waits_for_the_planes_its_step_crossed(start, executor, method):
+    """SEP 47 section 5.5: before a snapshot, every earlier owed dense plane crossed by
+    the accepted step is observed, and the snapshot is taken at an accepted endpoint.
+
+    A snapshot is requested at every interpolated plane, while the session holds the
+    plane's field between two endpoints. Each is serviced at the next accepted endpoint,
+    after every plane short of it, so that no persisted state would need the step's
+    extension to reconstruct a plane; and the planes, attempts and fields are the run's
+    without snapshots.
+    """
+    executor.require(DENSE)
+    problem = soliton(
+        step_planes=0, period=2, interpolate=True, integrator=DENSE_METHODS[method]
+    )
+    baseline = drive(start(problem), export=IDENTITY)
+    held: list[float] = []
+
+    def between(session: RunSession, batch: EventBatch) -> None:
+        for event in batch.events:
+            if (
+                isinstance(event, ObservationReady)
+                and event.kind is ObservationKind.PLANE
+            ):
+                held.append(event.z)
+                session.request_snapshot()
+
+    run = drive(start(problem), export=IDENTITY, between=between)
+    snapshots = [event for event in run.events if isinstance(event, ServiceRequired)]
+    assert snapshots and held
+    ends = _delivered_ends(run)
+    for snapshot in snapshots:
+        assert snapshot.kind is ServiceKind.SNAPSHOT
+        index = run.events.index(snapshot)
+        assert snapshot.z in ends[index].tolist(), "a snapshot between endpoints"
+        before = [
+            event.z
+            for event in run.events[:index]
+            if isinstance(event, ObservationReady)
+            and event.kind is ObservationKind.PLANE
+        ]
+        # A plane at the endpoint itself is observed first too (section 5.3).
+        assert before == [plane for plane in PLANES if plane <= snapshot.z]
+    assert _assert_inside_crossing_steps(run) > 0, "no plane was interpolated"
+    if executor.deterministic:
+        assert_same_run(run, baseline)
+
+
+@pytest.mark.parametrize("step_planes", [1, 2])
+def test_a_step_plane_ending_on_the_next_plane_is_observed_once(
+    start, executor, step_planes
+):
+    """SEP 47 section 5.3: a step owed as a step plane that crossed an interpolated
+    plane and ends on the next one is observed by that plane alone.
+
+    On the Adams soliton the step from 0.007 m crosses the plane at 0.01 m and lands on
+    the one at 0.015 m: the plane there observes the step's end, which is not observed
+    again as a step plane at the same position.
+    """
+    executor.require(DENSE)
+    problem = soliton(
+        step_planes=step_planes, interpolate=True, integrator=DENSE_METHODS["adams"]
+    )
+    run = drive(start(problem))
+    ends = run.accepted_ends().tolist()
+    planes = [
+        event.z for event in run.observations if event.kind is ObservationKind.PLANE
+    ]
+    # The case: a step crossing a plane and ending exactly on the next.
+    assert any(
+        later in ends and ends[ends.index(later) - 1] < earlier < later
+        for earlier, later in itertools.pairwise(planes)
+    ), "no step crossed a plane and landed on the next"
+    positions = [event.z for event in run.observations]
+    assert len(set(positions)) == len(positions), positions
+
+
+MANY_PLANES = tuple(float(z) for z in np.linspace(LENGTH / 64, LENGTH, 64))
+"""Planes closer than the soliton's steps: several fall inside each step."""
+
+
+@pytest.mark.parametrize("method", sorted(DENSE_METHODS))
+def test_a_snapshot_among_close_planes_is_taken_at_the_crossing_step_s_end(
+    start, executor, method
+):
+    """SEP 47 section 5.5: with several planes inside each step, a snapshot requested
+    while a plane is held is taken at the end of the step that crossed it, once every
+    plane that step crossed is observed -- not put off by every later step, each of
+    which crosses another plane -- and the planes are the run's without it.
+    """
+    executor.require(DENSE)
+    problem = soliton(
+        interpolate=True, integrator=DENSE_METHODS[method], planes=MANY_PLANES
+    )
+    baseline = drive(start(problem), export=IDENTITY)
+    requested: list[int] = []
+
+    def between(session: RunSession, batch: EventBatch) -> None:
+        if requested or batch.terminal is not None:
+            return
+        for event in batch.events:
+            if (
+                isinstance(event, ObservationReady)
+                and event.kind is ObservationKind.PLANE
+            ):
+                requested.append(event.plane_index)
+                session.request_snapshot()
+
+    run = drive(start(problem), export=IDENTITY, between=between)
+    (snapshot,) = [event for event in run.events if isinstance(event, ServiceRequired)]
+    index = run.events.index(snapshot)
+    ends = _delivered_ends(run)
+    (first,) = [
+        position
+        for position, event in enumerate(run.events)
+        if isinstance(event, ObservationReady)
+        and event.plane_index == requested[0]
+        and event.kind is ObservationKind.PLANE
+    ]
+    # The end of the step that crossed the plane it was requested at, which no other
+    # step was delivered before.
+    assert snapshot.z == ends[first][-1] == ends[index][-1]
+    assert snapshot.z < LENGTH
+    planes = [
+        event.z
+        for event in run.events[:index]
+        if isinstance(event, ObservationReady) and event.kind is ObservationKind.PLANE
+    ]
+    assert planes == [plane for plane in MANY_PLANES if plane <= snapshot.z]
+    assert len(planes) > requested[0] + 1, "the step crossed one plane only"
+    assert [event.z for event in run.observations] == [
+        event.z for event in baseline.observations
+    ]
+    if executor.deterministic:
+        assert_same_run(run, baseline)
 
 
 # ------------------------------------------------------------------- invariance

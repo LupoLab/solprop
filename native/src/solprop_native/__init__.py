@@ -333,6 +333,8 @@ itself, and is not listed.
 
 _DRIVER_CLASS_MEMBERS: tuple[str, ...] = (
     "_collar_quiet",
+    "chunk_plan",
+    "node_chunk",
     "_monitor",
     "_propagator_mode",
     "far_field_statistics",

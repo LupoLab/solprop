@@ -49,7 +49,6 @@ from solprop.exceptions import (
     OutputError,
     SolpropWarning,
 )
-from solprop.fourier import power_amplitude
 from solprop.log import (
     DEFAULT_PROGRESS_PERIOD,
     LogReporter,
@@ -91,7 +90,6 @@ from solprop.output.tdse_archive import TDSEArchiveWriter
 from solprop.stats import StatsSpec
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
-from solprop.translate.linop import power_weight_at
 from solprop.translate.problem import KernelProblem
 from solprop.translate.tdse import TDSEBinding
 
@@ -179,7 +177,8 @@ def plane_from_observation(
     way to storage (``docs/dev/conventions.md`` section 2). Nothing is rescaled either:
     the field is whatever amplitude the observation carries, the backend's
     vacuum-normalised one unless the caller has applied the interface conversion to
-    true-power amplitudes (``_power_observation``; see ``docs/dev/decisions.md``).
+    true-power amplitudes (a session's export with
+    ``ExportRecipe(power=True, ...)``; see ``docs/dev/decisions.md``).
 
     Parameters
     ----------
@@ -243,47 +242,21 @@ def plane_from_observation(
     )
 
 
-def _power_observation(problem: KernelProblem, observation: Observation) -> Observation:
-    """Convert modal output units once, before the handler changes Fourier sign.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        Translated problem supplying modal weights or spatial geometry.
-    observation : solprop.backends.protocol.Observation
-        Internal state and diagnostics at a saved plane.
-
-    Returns
-    -------
-    solprop.backends.protocol.Observation
-        Observation carrying true-power amplitudes and unchanged diagnostics.
-    """
-    if problem.transform.geometry is not None or observation.field is None:
-        return observation
-    return dataclasses.replace(
-        observation,
-        field=power_amplitude(
-            observation.field, power_weight_at(problem, observation.z)
-        ),
-    )
-
-
 class SessionFacts:
     """A session's execution facts, as the service loop's records read a backend's.
 
     The transitional output and record helpers (:mod:`solprop.driver.run`) read a
     backend: its name, metadata, method history and in-flight state. A session that
     owns its backend answers them through its protocol: its execution record, its
-    method-history size, and an in-place step it never leaves in flight.
+    method-history size, and the in-place step a failure left in flight, which a
+    session that steps in place reports as ``in_flight`` (the native session's
+    low-storage replay, SEP 47 section 5.5); any other leaves none.
 
     Parameters
     ----------
     session : solprop.backends.session.RunSession
         The session.
     """
-
-    in_flight = None
-    """A session's failures leave no step for the loop to observe in flight."""
 
     def __init__(self, session: RunSession) -> None:
         """Read the session's facts through its protocol."""
@@ -293,6 +266,17 @@ class SessionFacts:
         self.reads_transverse_edge = bool(
             getattr(session, "reads_transverse_edge", False)
         )
+
+    @property
+    def in_flight(self) -> tuple[float, float] | None:
+        """Return the in-place step a failure left in flight, or ``None``.
+
+        Returns
+        -------
+        tuple or None
+            Where the step started and its length, m, as the session reports it.
+        """
+        return getattr(self._session, "in_flight", None)
 
     def metadata(self) -> dict[str, object]:
         """Return the session's execution record.
@@ -446,8 +430,8 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
         from the end.
     snapshots : solprop.output.SnapshotController or None, optional
         Requests immutable disk copies at committed accepted steps, each serviced at
-        the next accepted endpoint. Requires HDF5, all fields and non-interpolated
-        observations.
+        the next accepted endpoint, after every interpolated plane its step crossed.
+        Requires HDF5 and all fields.
     tdse_archive : solprop.output.tdse_archive.TDSEArchiveWriter or None, optional
         Live archive to suspend and copy beside the optical writer.
     boundary_monitor : solprop.monitor.BoundaryMonitor or None, optional
@@ -736,11 +720,11 @@ def check_snapshot_request(
     # section 5.5).
     if problem.shape[0] != 1:
         raise DriverError("snapshots require an unbatched run")
-    # Interpolated output stays refused for now: a running checkpoint must first drain
-    # and commit the dense planes its accepted step crossed (SEP 47 section 5.5),
-    # which the transitional session does not do yet.
-    if problem.stepper.interpolate_planes or fields != "all":
-        raise DriverError("snapshots require fields='all' and no interpolated output")
+    # Interpolated output is admitted: every session takes a snapshot at an accepted
+    # endpoint only, once the planes its step crossed are observed, so a checkpoint
+    # never needs the step's extension to reconstruct a plane (SEP 47 section 5.5).
+    if fields != "all":
+        raise DriverError("snapshots require fields='all'")
     if isinstance(problem.stepper.integrator, Multistep) and resume_history is False:
         raise DriverError(
             "snapshots require Adams history; resume_history=False is incompatible"
@@ -1303,7 +1287,7 @@ class _MarchKeeper:
 
 
 def _record_abandoned_step(
-    backend: Backend,
+    backend: Backend | SessionFacts,
     output: CheckpointOutput,
     binding: TDSEBinding | None,
     failure: _FailedObservation,
@@ -1324,8 +1308,8 @@ def _record_abandoned_step(
 
     Parameters
     ----------
-    backend : Backend
-        The backend, refusing its state.
+    backend : Backend or SessionFacts
+        The backend, refusing its state, or a poisoned session's facts.
     output : CheckpointOutput
         Handler recording the outcome.
     binding : TDSEBinding or None

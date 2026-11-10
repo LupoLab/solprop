@@ -862,6 +862,24 @@ public:
   void adams_exponential_observe(double xi, double dz,
                                  const ExponentialWeights& weights);
   /**
+   * A Runge-Kutta march's dense output in a native session (solprop SEP 47 section
+   * 5.3), DOPRI5's continuous extension (Hairer, Norsett and Wanner II.6) as solprop's
+   * `extension_coefficients` and `_observe_inside` form it. `rk_dense_allocate` keeps
+   * the tableau's dense-output weights, one per stage, and the views the extension
+   * needs; `rk_dense_hold` contracts the accepted, unfinished trial over `dz` -- the
+   * state before it and its stages -- into the extension's five coefficients and marks
+   * the bins the step's flow changes by more than an e-fold;
+   * `rk_dense_observe` holds the committed state aside and makes the state the
+   * extension at the fraction `theta`, carried from the anchor by the flow of `carry`
+   * (a trial's arrays from the anchor to the plane) and masked; `rk_dense_restore`
+   * makes the held state current again; `rk_dense_release` frees the views.
+   */
+  void rk_dense_allocate(const std::vector<double>& weights);
+  void rk_dense_hold(double dz);
+  void rk_dense_observe(double theta, const TrialScalars& carry);
+  void rk_dense_restore();
+  void rk_dense_release() noexcept;
+  /**
    * The resident Adams history's persistent rows, for a resume (solprop SEP 29 G2):
    * `"store"`, and `"states"`, `"rates"` and `"applied"` where allocated, each
    * `(slots, columns, n_omega)`. Scratch views are not rows: a trial rebuilds them.

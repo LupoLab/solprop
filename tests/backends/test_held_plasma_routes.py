@@ -8,13 +8,14 @@ import dataclasses
 
 import numpy as np
 import pytest
-from tests.backends.test_band_plasma_parity import CASES, case
+from tests.backends.test_band_plasma_parity import CASES, case, options_for
 from tests.backends.test_radial_nonlinear import derivative
 from tests.bounds import gamma
 from tests.driver.test_prop_capillary import build
 
 from gated_source import _gated_source
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.session import ExecutionOptions
 from solprop.translate.plasma_integration import design_running_integral
 from solprop.translate.stage import scalars
 
@@ -42,14 +43,12 @@ def test_source_chunking_and_zero_after_a_nonzero_evaluation(name, rule):
     # projected in different chunk orders, so no time-discretisation term enters.
     relative = gamma(64 * grid.n_to + 32 * problem.transform.n_nodes)
     assert relative > 0
-    reference = derivative(NumpyRefBackend, problem, grid)
-    whole = dataclasses.replace(
+    reference = derivative(NumpyRefBackend, problem, grid, options_for(name))
+    backend = NumpyRefBackend(
         problem,
-        transform=dataclasses.replace(
-            problem.transform, node_chunk=problem.transform.n_nodes
-        ),
+        grid=grid,
+        options=ExecutionOptions(node_chunk=problem.transform.n_nodes),
     )
-    backend = NumpyRefBackend(whole, grid=grid)
     try:
         bundle = backend._stage_scalars(0.0, 0.0)
         state = problem.initial.field0

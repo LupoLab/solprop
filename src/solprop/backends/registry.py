@@ -30,6 +30,7 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Final, cast
 
 from solprop.backends.protocol import Backend, BatchBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
@@ -394,7 +395,7 @@ def _baseline_probe(source: Path) -> ModuleType:
     return module
 
 
-def select(
+def select(  # noqa: PLR0913 - the problem, its host context and its execution
     name: str,
     problem: KernelProblem,
     *,
@@ -402,6 +403,7 @@ def select(
     modes: Sequence[Mode] | None = None,
     profiles: Mapping[str, ZProfile] | None = None,
     tdse_binding: TDSEBinding | None = None,
+    options: ExecutionOptions | None = None,
 ) -> Backend:
     """Construct the named backend for a validated kernel problem.
 
@@ -421,6 +423,10 @@ def select(
         The z-profiles keyed by statistic name, for the profile statistics.
     tdse_binding : solprop.translate.tdse.TDSEBinding or None, optional
         Driver-owned host response binding for a TDSE problem on NumPy.
+    options : solprop.backends.session.ExecutionOptions or None, optional
+        The run's execution options, among them an explicit node budget, from which
+        the backend plans its node chunk (SEP 47 section 6.5); ``None`` for the
+        automatic choice.
 
     Returns
     -------
@@ -489,6 +495,7 @@ def select(
         modes=modes,
         profiles=profiles,
         tdse_binding=tdse_binding,
+        options=options,
     )
     logger.info("Using %s backend", backend.name)
     return backend
@@ -571,7 +578,7 @@ def _satisfied(entry: BackendEntry) -> bool:
     )
 
 
-def _construct(
+def _construct(  # noqa: PLR0913 - as select
     name: str,
     problem: KernelProblem,
     *,
@@ -579,6 +586,7 @@ def _construct(
     modes: Sequence[Mode] | None,
     profiles: Mapping[str, ZProfile] | None,
     tdse_binding: TDSEBinding | None = None,
+    options: ExecutionOptions | None = None,
 ) -> Backend:
     """Import and build the named backend, whose requirements are already met.
 
@@ -596,6 +604,8 @@ def _construct(
         The z-profiles keyed by statistic name.
     tdse_binding : TDSEBinding or None, optional
         Driver-owned atomic runtime, passed only to the NumPy backend.
+    options : solprop.backends.session.ExecutionOptions or None, optional
+        The run's execution options.
 
     Returns
     -------
@@ -623,6 +633,7 @@ def _construct(
                 modes=modes,
                 profiles=profiles,
                 tdse_binding=tdse_binding,
+                options=options,
             )
         return NumpyRefBackend(
             problem,
@@ -630,6 +641,7 @@ def _construct(
             modes=modes,
             profiles=profiles,
             tdse_binding=tdse_binding,
+            options=options,
         )
     if name == "native":
         from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
@@ -640,6 +652,8 @@ def _construct(
         # from this repository's static-analysis source tree.
         return cast(
             Backend,
-            NativeBackend(problem, grid=grid, modes=modes, profiles=profiles),
+            NativeBackend(
+                problem, grid=grid, modes=modes, profiles=profiles, options=options
+            ),
         )
     raise AssertionError(f"unhandled backend registry entry {name!r}")

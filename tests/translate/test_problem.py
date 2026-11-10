@@ -254,7 +254,6 @@ def test_the_soliton_problem_assembles(soliton, envelope_grid):
     assert soliton.linear.n_intervals == 1
     assert soliton.linear.phi_degrees.tolist() == [1]
     assert soliton.stepper.z_end == 1.0
-    assert soliton.transform.node_chunk == 1
 
 
 def test_the_gradient_capillary_assembles(gradient, field_grid, capillary):

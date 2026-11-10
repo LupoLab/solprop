@@ -38,7 +38,7 @@ import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Final, Literal, Protocol, SupportsIndex, cast
 
 import numpy as np
 from jaxtyping import Complex, Float, Shaped
@@ -50,7 +50,7 @@ from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
 from solprop.backends.protocol import Backend, _all_finite
 from solprop.backends.registry import resolve_name, select
-from solprop.backends.session import Start
+from solprop.backends.session import ExecutionOptions, Start, positive_count
 from solprop.boundaries import (
     Absorber,
     SpatialAbsorber,
@@ -119,6 +119,7 @@ from solprop.driver.run import (
 )
 from solprop.exceptions import (
     AdiabaticTaperWarning,
+    BackendError,
     BoundaryWarning,
     CouplingError,
     DriverError,
@@ -323,7 +324,6 @@ from solprop.translate.masks import (
     AbsorberScheme,
     noise_spectrum,
 )
-from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_integration import (
     integration_record,
 )
@@ -452,8 +452,40 @@ _RECIPE_EXECUTION = ("fields", "field_planes", "resume_history")
 """The settings a recipe's ``[execution]`` table holds: a change of any other one drops
 the recipe, which would no longer describe the run (SEP 41, S2)."""
 
+
+def _held_budget(value: SupportsIndex | None) -> int | None:
+    """Return a settings node budget as an ``int``, refused before translation.
+
+    Any integral budget, a NumPy integer among them, is held as an ``int``, and a
+    budget that is not one is refused when the settings are made, rather than when the
+    backend is built after the output has opened.
+
+    Parameters
+    ----------
+    value : int or None
+        The budget given, bytes.
+
+    Returns
+    -------
+    int or None
+        The budget, or ``None`` for the backend's automatic choice.
+
+    Raises
+    ------
+    solprop.exceptions.DriverError
+        If the budget is not a positive integer.
+    """
+    if value is None:
+        return None
+    try:
+        return positive_count("node_budget", value)
+    except BackendError as error:
+        raise DriverError(str(error), parameter="node_budget") from None
+
+
 _EXECUTION_SETTINGS = (
     "backend",
+    "node_budget",
     "resume_history",
     "tdse_execution",
     "fields",
@@ -684,10 +716,13 @@ class SimulationSettings(Displayed):
         low is a silent clip.
     node_budget : int or None
         Bytes of node-chunk buffers a response pass may hold
-        (``docs/dev/architecture.md`` section 13). ``None``, the default, takes 1 GiB
-        on a free-space, line or planar grid and 64 MiB otherwise
-        (:data:`~solprop.translate.modal.DEFAULT_SPATIAL_NODE_BUDGET`,
-        :data:`~solprop.translate.modal.DEFAULT_NODE_BUDGET`).
+        (``docs/dev/architecture.md`` section 13). An execution setting, outside the
+        resume key: the backend plans its node chunk from it when it is prepared, and
+        it may change after translation. ``None``, the default, leaves the choice to
+        the backend, which takes 1 GiB on a free-space, line or planar grid and 64 MiB
+        otherwise (:data:`~solprop.backends.node_chunk.DEFAULT_SPATIAL_NODE_BUDGET`,
+        :data:`~solprop.backends.node_chunk.DEFAULT_NODE_BUDGET`); an explicit budget
+        is authoritative.
     stats : solprop.stats.StatsSpec or None
         Which statistics to collect at every saved plane; ``None`` collects none.
     polarisation_taper : bool
@@ -813,7 +848,7 @@ class SimulationSettings(Displayed):
     quadrature: TransverseQuadrature | None = None
     components: Sequence[str] | None = None
     ionisation_field_range: tuple[float, float] | None = None
-    node_budget: int | None = None
+    node_budget: int | SupportsIndex | None = None
     stats: StatsSpec | None = None
     polarisation_taper: bool = False
     backend: str = "auto"
@@ -967,6 +1002,7 @@ class SimulationSettings(Displayed):
         if refusal is not None:
             raise DriverError(refusal, parameter=("fields", "field_planes"))
         object.__setattr__(self, "field_planes", tuple(self.field_planes))
+        object.__setattr__(self, "node_budget", _held_budget(self.node_budget))
         precision = _precision(self.precision)
         self._resolve_defaults(precision)
         # A backend "auto" chose is marked, so a copy in the other precision chooses
@@ -1098,6 +1134,26 @@ class SimulationSettings(Displayed):
             False when :attr:`absorber_scheme` is the route's default.
         """
         return not isinstance(self.absorber_scheme, _Defaulted)
+
+    def execution_options(self) -> ExecutionOptions:
+        """Return the execution options a backend is prepared with (SEP 47).
+
+        The node budget is an execution choice, not part of the scientific problem:
+        the translation records none, and the backend plans its node chunk from it
+        when it is prepared (:func:`solprop.backends.node_chunk.plan_node_chunk`).
+
+        Returns
+        -------
+        solprop.backends.session.ExecutionOptions
+            The explicit :attr:`node_budget`, or the backend's automatic choice.
+
+        Examples
+        --------
+        >>> from solprop.driver import SimulationSettings
+        >>> SimulationSettings(node_budget=2**26).execution_options().node_budget
+        67108864
+        """
+        return ExecutionOptions(node_budget=self.node_budget)
 
     def defaults_resolution(self) -> DefaultsResolution:
         """Return which stepping choices took the route's default (#87, SEP 41).
@@ -2492,7 +2548,6 @@ class Simulation(Displayed):
                     ionisation_field_range=(
                         settings.ionisation_field_range if self._reuse is None else None
                     ),
-                    node_budget=settings.node_budget,
                     stats_spec=settings.stats,
                     shock=settings.shock,
                     prefactor_index=settings.prefactor_index,
@@ -3524,10 +3579,10 @@ class Simulation(Displayed):
             neither the propagation nor the call ledger.
         snapshots : solprop.output.SnapshotController or None, optional
             Publish immutable local checkpoints without rebuilding the backend or
-            atomic provider, each at the next accepted endpoint. Requires HDF5,
-            ``fields='all'`` and no interpolated output. Adams history cannot be
-            explicitly disabled. A configured archive is copied together with the
-            optical file.
+            atomic provider, each at the next accepted endpoint, after every
+            interpolated plane its step crossed. Requires HDF5 and ``fields='all'``.
+            Adams history cannot be explicitly disabled. A configured archive is
+            copied together with the optical file.
         stop : object or None, optional
             This run's own stop flag: any object with an ``is_set()`` method, such as
             a :class:`threading.Event` (SEP 41, S17). It is polled before the first
@@ -3692,6 +3747,7 @@ class Simulation(Displayed):
                     modes=self.modes,
                     profiles=self.profiles,
                     tdse_binding=binding,
+                    options=self.settings.execution_options(),
                 )
                 restoration: dict[str, object] = {}
                 start = self._start(
@@ -5148,7 +5204,7 @@ class Simulation(Displayed):
         n_save: int | None = None,
         stats: StatsSpec | None = None,
         polarisation_taper: bool = False,
-        node_budget: int = DEFAULT_NODE_BUDGET,
+        node_budget: int | None = None,
         backend: str = "auto",
         precision: PrecisionName = "double",
         polarisation: str | float | None = None,
@@ -5440,8 +5496,9 @@ class Simulation(Displayed):
             taper costs a systematic error of the size of the field's content in the
             collar, and the rate absorber acts either way
             (``docs/guide/numerics/boundaries.md``).
-        node_budget : int, optional
-            Bytes of node-chunk buffers the response pass may hold.
+        node_budget : int or None, optional
+            Bytes of node-chunk buffers the response pass may hold, an execution
+            setting; ``None``, the default, leaves the backend's automatic choice.
         backend : str, optional
             Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
             it isn't installed or this processor is below its baseline. There is no
@@ -5637,7 +5694,7 @@ class Simulation(Displayed):
         n_save: int | None = None,
         stats: StatsSpec | None = None,
         polarisation_taper: bool = False,
-        node_budget: int = DEFAULT_NODE_BUDGET,
+        node_budget: int | None = None,
         backend: str = "auto",
         precision: PrecisionName = "double",
         polarisation: str | float | None = None,
@@ -5967,8 +6024,9 @@ class Simulation(Displayed):
             taper costs a systematic error of the size of the field's content in the
             collar, and the rate absorber acts either way
             (``docs/guide/numerics/boundaries.md``).
-        node_budget : int, optional
-            Bytes of node-chunk buffers the response pass may hold.
+        node_budget : int or None, optional
+            Bytes of node-chunk buffers the response pass may hold, an execution
+            setting; ``None``, the default, leaves the backend's automatic choice.
         backend : str, optional
             Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
             it isn't installed or this processor is below its baseline. There is no
@@ -6530,7 +6588,7 @@ class Simulation(Displayed):
         n_save: int | None = None,
         stats: StatsSpec | None = None,
         polarisation_taper: bool = False,
-        node_budget: int = DEFAULT_NODE_BUDGET,
+        node_budget: int | None = None,
         backend: str = "auto",
         precision: PrecisionName = "double",
         polarisation: str | float | None = None,
@@ -6811,8 +6869,9 @@ class Simulation(Displayed):
             only a backend can compute.
         polarisation_taper : bool, optional
             Whether the spectral collar tapers the nonlinear polarisation.
-        node_budget : int, optional
-            Bytes of node-chunk buffers the response pass may hold.
+        node_budget : int or None, optional
+            Bytes of node-chunk buffers the response pass may hold, an execution
+            setting; ``None``, the default, leaves the backend's automatic choice.
         backend : str, optional
             Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
             it isn't installed or this processor is below its baseline. There is no
@@ -7309,6 +7368,7 @@ class SimulationRunner(Displayed):
                 grid=simulation.grid,
                 modes=simulation.modes,
                 profiles=simulation.profiles,
+                options=settings.execution_options(),
             )
 
     def __repr__(self) -> str:
@@ -11395,7 +11455,7 @@ _GAS_KEYWORD_DEFAULTS: Mapping[str, object] = {
     "ionisation_field_range": None,
     "polarisation": None,
     "envelope": False,
-    "node_budget": DEFAULT_NODE_BUDGET,
+    "node_budget": None,
     "taper_coupling": True,
 }
 """Every gas-filled `from_waveguide` keyword, with the value that means "not given".

@@ -5,6 +5,7 @@
 #include "solprop_native/engines.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <csignal>
 #include <cstddef>
@@ -187,6 +188,12 @@ void ResidentRungeKutta::accept(const double dz) {
 
 std::vector<double> ResidentRungeKutta::reading() { return state_.monitor_reading(); }
 
+void ResidentRungeKutta::extend(const double z, const double dz) {
+  if (!extension_)
+    throw std::logic_error("this Runge-Kutta engine holds no dense extension");
+  extension_(z, dz);
+}
+
 GeneralResident::GeneralResident(GeneralState& state, const std::size_t elements,
                                  const std::size_t n_omega)
     : state_(state), elements_(elements), n_omega_(n_omega) {}
@@ -214,6 +221,39 @@ std::vector<double> GeneralResident::statistics(const session::StatisticsRecipe&
 
 std::vector<double> GeneralResident::boundary_reading() {
   return state_.monitor_reading();
+}
+
+transverse::Reading GeneralResident::edge_reading(const bool faces, const bool whole,
+                                                  const bool totals, const bool strip,
+                                                  const bool current) {
+  // The state's reading where it lives (solprop SEP 44), laid out as
+  // `NativeBackend._edge_reading` lays it out: the faces' four sums, then the clip's
+  // and the totals' for every node, or a collar's totals alone.
+  const EdgeNumbers numbers = state_.edge_reading(faces, whole, totals, strip, current);
+  transverse::Reading reading;
+  const auto four = [&numbers](const std::size_t first) {
+    if (numbers.sums.size() < first + 4)
+      throw std::logic_error("a transverse edge reading is short of its sums");
+    std::array<double, 4> values{};
+    for (std::size_t index = 0; index < 4; ++index)
+      values[index] = numbers.sums[first + index];
+    return values;
+  };
+  if (faces) {
+    reading.faces = four(0);
+    reading.columns = numbers.columns;
+    if (whole) {
+      reading.clip = four(4);
+      reading.totals = four(8);
+    } else if (totals) {
+      reading.totals = four(4);
+    }
+    if (strip)
+      reading.strip = numbers.strip;
+  }
+  if (current)
+    reading.current = numbers.current;
+  return reading;
 }
 
 void GeneralResident::set_collar_quiet(const bool quiet) {

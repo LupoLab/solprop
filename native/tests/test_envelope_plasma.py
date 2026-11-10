@@ -18,7 +18,9 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 from legacy_geometry import LEGACY_GRID
+from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
 from solprop.modes import MarcatiliMode, ModeCollection, transverse_quadrature
@@ -166,7 +168,7 @@ def test_envelope_current_streams_use_large_radial_projection() -> None:
         dz_max=1e-6,
         ionisation_field_range=(1e7, 1e11),
     )
-    assert problem.transform.node_chunk == space.n_r
+    assert plan_node_chunk(problem).chunk == space.n_r
     reference, actual = (
         NumpyRefBackend(problem, grid=grid),
         NativeBackend(problem, grid=grid),
@@ -279,10 +281,12 @@ def envelope_case(
             stats_spec=spec,
             ionisation_field_range=(1e7, 1e11),
         )
-    return replace(
-        problem,
-        transform=replace(problem.transform, node_chunk=2 if route == "modal" else 3),
-    ), grid
+    return problem, grid
+
+
+def envelope_options(route: str) -> ExecutionOptions:
+    """Return the exact node chunks a route's case runs with, leaving partial ones."""
+    return ExecutionOptions(node_chunk=2 if route == "modal" else 3)
 
 
 @pytest.mark.parametrize(
@@ -301,11 +305,12 @@ def test_envelope_currents_steps_statistics_and_repeatability(
     route: str, n_pol: int
 ) -> None:
     problem, grid = envelope_case(route, n_pol)
+    options = envelope_options(route)
     reference, actual = (
-        NumpyRefBackend(problem, grid=grid),
-        NativeBackend(problem, grid=grid),
+        NumpyRefBackend(problem, grid=grid, options=options),
+        NativeBackend(problem, grid=grid, options=options),
     )
-    repeat = NativeBackend(problem, grid=grid)
+    repeat = NativeBackend(problem, grid=grid, options=options)
     try:
         for owner in (reference, actual, repeat):
             owner.set_initial(problem.initial.field0, None)
@@ -358,7 +363,9 @@ def test_envelope_currents_steps_statistics_and_repeatability(
 )
 def test_envelope_native_payload_rejects_inconsistent_inputs(corruption: str) -> None:
     problem, _ = envelope_case("modal", 1, mixture=False)
-    payload = _native_problem(problem, terms(problem))
+    payload = _native_problem(
+        problem, terms(problem), node_chunk=envelope_options("modal").node_chunk
+    )
     if corruption in ("field", "thg", "stash"):
         key, value = {
             "field": ("family", "field_real"),
@@ -399,7 +406,9 @@ def test_envelope_angular_failure_is_a_solprop_convergence_error(
     import solprop_native.backend as adapter
 
     problem, grid = envelope_case(geometry, n_pol, mixture=False)
-    payload = _native_problem(problem, terms(problem))
+    payload = _native_problem(
+        problem, terms(problem), node_chunk=envelope_options(geometry).node_chunk
+    )
     nodes = cast(npt.NDArray[np.float64], payload["envelope_rule_nodes"]).copy()
     # Sorted interior nodes and normalized positive weights still satisfy native
     # shape/domain checks. Alternating incompatible rules must fail refinement.
@@ -408,11 +417,11 @@ def test_envelope_angular_failure_is_a_solprop_convergence_error(
         nodes[:, level, :order] = 0.5 * (nodes[:, level, :order] + 1)
     payload["envelope_rule_nodes"] = nodes
 
-    def corrupt_payload(*args: object) -> dict[str, object]:
+    def corrupt_payload(*args: object, **keywords: object) -> dict[str, object]:
         return payload
 
     monkeypatch.setattr(adapter, "_native_problem", corrupt_payload)
-    owner = NativeBackend(problem, grid=grid)
+    owner = NativeBackend(problem, grid=grid, options=envelope_options(geometry))
     try:
         # Spatial pulses need enough local field to enter the angular rule; a
         # below-threshold sample correctly bypasses refinement even with bad nodes.
@@ -463,7 +472,7 @@ def test_envelope_native_batch_keeps_noisy_members_and_statistics_independent() 
                 problem, initial=initial, flags=replace(problem.flags, has_noise=True)
             )
             for destination in (members, singletons):
-                owner = NativeBackend(one, grid=grid)
+                owner = NativeBackend(one, grid=grid, options=envelope_options("modal"))
                 cleanup.callback(owner.close)
                 owner.set_initial(initial.field0, draw)
                 destination.append(owner)

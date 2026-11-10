@@ -153,6 +153,7 @@ def _start(
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
+            options=simulation.settings.execution_options(),
         )
         timed = _Timed(session._native)
         session._native = timed
@@ -166,6 +167,7 @@ def _start(
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
+        options=simulation.settings.execution_options(),
     )
     timed = _Timed(backend._native_state)
     backend._native_state = timed

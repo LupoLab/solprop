@@ -51,11 +51,12 @@ from __future__ import annotations
 
 import enum
 import itertools
+import operator
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import TracebackType
-from typing import Protocol, runtime_checkable
+from typing import Protocol, SupportsIndex, cast, runtime_checkable
 
 import numpy as np
 from jaxtyping import Complex
@@ -90,6 +91,9 @@ __all__ = [
     "SnapshotReceipt",
     "Start",
     "StopToken",
+    "check_group",
+    "check_member_ticket",
+    "positive_count",
 ]
 
 DEFAULT_WORK_LIMIT = 256
@@ -178,8 +182,6 @@ class StopToken:
         with self._lock:
             self._listeners.append(listener)
             already = self._event.is_set()
-        if already:
-            listener()
 
         def detach() -> None:
             """Remove the listener; a second call does nothing."""
@@ -187,6 +189,8 @@ class StopToken:
                 if listener in self._listeners:
                     self._listeners.remove(listener)
 
+        if already:
+            listener()
         return detach
 
 
@@ -200,15 +204,179 @@ class ExecutionOptions:
     Attributes
     ----------
     node_budget : int or None
-        An explicit workspace budget for node chunks, bytes; ``None`` leaves the
-        backend's automatic choice. An explicit budget is authoritative.
+        An explicit workspace budget for node chunks, bytes: any integral value
+        (``operator.index``, a NumPy integer too), held as an ``int``. ``None`` leaves
+        the backend's automatic choice. An explicit budget is authoritative: the backend
+        plans its chunk from it and no machine rule overrides it
+        (:func:`solprop.backends.node_chunk.plan_node_chunk`).
+    node_chunk : int or None
+        An exact node chunk, integral and held as an ``int``, which overrides both the
+        budget and the automatic choice: a measurement's or a test's control, not a user
+        setting. A backend takes at most every node, and on the planar kind whole
+        transverse rows.
     backend_options : collections.abc.Mapping
         Backend-specific execution options, passed through untouched (for example a
         native CPU execution record).
+
+    Raises
+    ------
+    solprop.exceptions.BackendError
+        If `node_budget` or `node_chunk` is given and is not a positive integer.
+
+    Examples
+    --------
+    >>> from solprop.backends.session import ExecutionOptions
+    >>> ExecutionOptions(node_budget=2**26).node_budget
+    67108864
     """
 
-    node_budget: int | None = None
+    node_budget: int | SupportsIndex | None = None
+    node_chunk: int | SupportsIndex | None = None
     backend_options: Mapping[str, object] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Hold an integral budget or chunk as an ``int``; refuse any other value.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            Naming the offending option.
+        """
+        for name in ("node_budget", "node_chunk"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, positive_count(name, value))
+
+    @property
+    def budget(self) -> int | None:
+        """Return the explicit node budget as an ``int``, or ``None``.
+
+        Returns
+        -------
+        int or None
+            :attr:`node_budget`, which construction already made an ``int``.
+        """
+        return None if self.node_budget is None else operator.index(self.node_budget)
+
+    @property
+    def chunk(self) -> int | None:
+        """Return the exact node chunk as an ``int``, or ``None``.
+
+        Returns
+        -------
+        int or None
+            :attr:`node_chunk`, which construction already made an ``int``.
+        """
+        return None if self.node_chunk is None else operator.index(self.node_chunk)
+
+
+def check_group(
+    count: int,
+    problems: Sequence[KernelProblem],
+    requests: Sequence[RunRequest],
+    starts: Sequence[Start],
+) -> None:
+    """Refuse a group's inputs that no group implementation starts from.
+
+    A group (:class:`GroupSession`) takes one problem, request and start per member,
+    and starts every member at its entrance, with no method history or monitor record
+    to continue (SEP 47 section 6.7).
+
+    Parameters
+    ----------
+    count : int
+        The members given.
+    problems : collections.abc.Sequence of solprop.translate.problem.KernelProblem
+        Each member's problem.
+    requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
+        Each member's run request.
+    starts : collections.abc.Sequence of Start
+        Each member's start.
+
+    Raises
+    ------
+    SessionError
+        If the sequences differ in length or are empty, or if a start is not a fresh
+        entrance whose launch plane is owed.
+    """
+    if count == 0 or not count == len(problems) == len(requests) == len(starts):
+        msg = (
+            f"a group needs one problem, request and start per member, and got "
+            f"{count} members, {len(problems)} problems, {len(requests)} "
+            f"requests and {len(starts)} starts"
+        )
+        raise SessionError(msg)
+    for start in starts:
+        fresh = start.march is None and start.monitor is None
+        if not fresh or start.plane_index or not start.plane_pending:
+            msg = (
+                "a group starts its members at their entrance, its launch plane owed, "
+                "with no method history or monitor record to continue"
+            )
+            raise SessionError(msg)
+
+
+def check_member_ticket(ticket: ExportTicket, member: int) -> None:
+    """Refuse a group ticket presented for another member than the one it names.
+
+    Parameters
+    ----------
+    ticket : solprop.backends.events.ExportTicket
+        A ticket of a group's pending batch.
+    member : int
+        The member it is presented for.
+
+    Raises
+    ------
+    SessionError
+        If the ticket names another member, or none.
+    """
+    if ticket.member != member:
+        msg = (
+            f"the export ticket for z = {ticket.z!r} m is member {ticket.member}'s, "
+            f"not member {member}'s"
+        )
+        raise SessionError(msg)
+
+
+def positive_count(name: str, value: object) -> int:
+    """Return an integral, positive budget or chunk as an ``int``.
+
+    Parameters
+    ----------
+    name : str
+        ``"node_budget"`` or ``"node_chunk"``, for the message.
+    value : object
+        Anything ``operator.index`` accepts, such as an ``int`` or a NumPy integer.
+
+    Returns
+    -------
+    int
+        The value.
+
+    Raises
+    ------
+    solprop.exceptions.BackendError
+        If `value` is a ``bool``, not integral, or not positive.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.backends.session import positive_count
+    >>> positive_count("node_budget", np.int64(2**26))
+    67108864
+    """
+    unit = " of bytes" if name == "node_budget" else ""
+    msg = f"{name} must be a positive number{unit}, got {value!r}"
+    if isinstance(value, bool | np.bool_):
+        raise BackendError(msg)
+    try:
+        count = operator.index(cast("SupportsIndex", value))
+    except TypeError:
+        raise BackendError(msg) from None
+    if count < 1:
+        raise BackendError(msg)
+    return count
 
 
 @dataclass(eq=False)

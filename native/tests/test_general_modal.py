@@ -28,6 +28,7 @@ from typing import Literal, cast
 import numpy as np
 import numpy.typing as npt
 import pytest
+from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.general_modal import (
     general_node_chunk,
@@ -54,7 +55,6 @@ from solprop.profiles import Linear
 from solprop.stats import StatsSpec
 from solprop.stepper import Multistep
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.problem import KernelProblem
 from thread_sizing import Sizing, assert_threaded
 

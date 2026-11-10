@@ -34,7 +34,7 @@ from solprop.driver.executors.pool import PlaneScalars, peak_rss
 from solprop.driver.executors.queue import Queue, collect
 from solprop.driver.executors.slurm import Slurm
 from solprop.driver.simulation import Simulation, SimulationRunner
-from solprop.exceptions import BackendError, DriverError, OutputError, StopRequested
+from solprop.exceptions import DriverError, OutputError, StopRequested
 from solprop.fourier import spectrum_to_optics
 from solprop.log import (
     BarReporter,
@@ -122,8 +122,6 @@ def launch_statistics(
     ------
     BaseException
         The launch's own failure, when its statistics could not be evaluated.
-    solprop.exceptions.BackendError
-        If the session reports anything but its launch plane.
     """
     session = start_session(
         backend, problem, describe_run(problem), Start.entrance(problem), owns=False
@@ -135,9 +133,8 @@ def launch_statistics(
     if isinstance(launch, Terminal) and launch.error is not None:
         # The launch plane's statistics failed: the probe fails with that error.
         raise launch.error
-    if not isinstance(launch, ObservationReady):
-        msg = f"a fresh session reported {type(launch).__name__} before its launch"
-        raise BackendError(msg)
+    # A fresh session's first batch ends at its launch plane, or at the failure above.
+    assert isinstance(launch, ObservationReady)
     return dict(launch.stats)
 
 
@@ -780,6 +777,7 @@ class _Work:
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
+            options=simulation.settings.execution_options(),
         )
         try:
             statistics = launch_statistics(backend, simulation.translate())

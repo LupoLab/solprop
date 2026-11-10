@@ -177,11 +177,16 @@ class ExportTicket:
         The committed state generation (or dense observation) the field is taken from.
     z : float
         Position of that state, m.
+    member : int or None
+        The group member whose field it names (a
+        :class:`~solprop.backends.session.GroupSession`'s ticket, whose members share
+        one batch and generation); ``None`` for a lone session's.
     """
 
     receipt: Receipt
     generation: int
     z: float
+    member: int | None = None
 
 
 @dataclass(frozen=True, eq=False)

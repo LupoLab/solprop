@@ -275,8 +275,6 @@ def test_the_translation_refuses_two_components_and_a_gas_path(space):
         planar_transform(space, GRID, n_pol=2, z_max=0.1)
     with pytest.raises(TranslationError, match="positive finite span"):
         planar_transform(space, GRID, n_pol=1, z_max=-1.0)
-    with pytest.raises(TranslationError, match="cannot hold one complete"):
-        planar_transform(space, GRID, n_pol=1, z_max=0.1, node_budget=16)
     medium = SpatialMedium("Ar", Linear(1.0, 0.5, 0.1))
     dispersion = SpatialDispersion(medium, GRID, Frame.comoving(GRID))
     with pytest.raises(TranslationError, match="requires constant media"):

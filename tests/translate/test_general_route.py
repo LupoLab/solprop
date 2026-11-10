@@ -291,11 +291,10 @@ def test_the_general_transform_needs_the_guides_channels(case):
                 "synthesis": np.zeros((2, 1)),
                 "projection": np.zeros((1, 2)),
                 "projection_coarse": np.zeros((1, 2)),
-                "node_chunk": 2,
             },
             "zero placeholders",
         ),
-        ({"node_chunk": 1, "node_weights": np.ones(1)}, "node_chunk is 1"),
+        ({"node_weights": np.ones(1)}, "the node weights"),
     ],
 )
 def test_a_general_transform_refuses_a_static_matrix_that_carries_anything(

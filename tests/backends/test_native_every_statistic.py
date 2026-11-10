@@ -21,6 +21,7 @@ from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports
 
 from backends.matched import stash_bound
 from backends.test_band_plasma_parity import case as band_case
+from backends.test_band_plasma_parity import options_for
 from bounds import assert_within
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.modes.capillary import MarcatiliMode
@@ -181,8 +182,9 @@ def test_a_band_rule_of_one_tap_is_the_reference(name):
         responses=dataclasses.replace(problem.responses, plasma_integral=flat),
     )
     bound = 64 * grid.n_to * np.finfo(float).eps
-    expected = derivative(NumpyRefBackend, problem, grid)
-    actual = derivative(NativeBackend, problem, grid)
+    options = options_for(name)
+    expected = derivative(NumpyRefBackend, problem, grid, options)
+    actual = derivative(NativeBackend, problem, grid, options)
     scale = float(np.max(np.abs(expected)))
     assert scale > 0
     assert float(np.max(np.abs(actual - expected))) <= bound * scale

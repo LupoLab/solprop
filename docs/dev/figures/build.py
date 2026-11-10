@@ -712,8 +712,8 @@ MODULES = {
                 "spatial",
                 "populations",
                 "memory",
+                "node_chunk",
                 "multistep",
-                "multistep_general",
                 "adams_core",
                 "rk_core",
                 "exponential",
@@ -1210,7 +1210,7 @@ SEAM_METHODS = (
     ("march_snapshot_nbytes", "its size, copying nothing"),
     ("march_export_refusal", "why the march cannot carry its history, or None"),
     ("restore_march", "continue the history, or say why it starts afresh"),
-    ("timed_step", "one step of the march, for an estimate to time"),
+    ("timing_probe", "single trials from a start, committing nothing, for timing"),
     ("stats", "one fused pass, a dict of small host arrays"),
     ("metadata", "what the execution was: pools, plans, digests, propagator mode"),
     ("memory_ledger", "every named buffer and its size"),
@@ -1228,7 +1228,7 @@ DRIVER_PARTS = (
     ("the noise", ("_noise_field", "_noise_at", "_noise_phase")),
     (
         "the per-stage bundle",
-        ("_hoist", "_stage_scalars", "_delta_phi", "_prefactor", "_unitary_phase"),
+        ("_hoist", "_stage_scalars", "_delta_phi", "_unitary_phase"),
     ),
     (
         "what a backend supplies",
@@ -2400,7 +2400,7 @@ def one_stage() -> drawsvg.Drawing:
     _arrow(drawing, [(MARGIN + PIPE_WIDTH + 4, fourth + 24), (side_x - 4, fourth + 24)])
     _text(
         drawing,
-        "over a chunk of transform.node_chunk nodes, so the buffers are",
+        "over the backend's node chunk at a time, so the buffers are",
         side_x,
         fourth + column + 14,
         size=SMALL_SIZE,

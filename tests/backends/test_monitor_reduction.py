@@ -42,6 +42,7 @@ from monitor_cases import (
     with_copy,
 )
 from solprop.backends.registry import available, select
+from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError
 from solprop.translate.problem import KernelProblem
@@ -73,12 +74,14 @@ def _checkreading(
     route: str,
     scheme: str,
     problem: Callable[[Simulation], KernelProblem] | None = None,
+    options: ExecutionOptions | None = None,
 ) -> None:
     """Compare a backend's reading of the edge-reaching launch with the reference's."""
     simulation = probe(route, scheme)
     translated = None if problem is None else problem(simulation)
     reference, compiled = (
-        watched(simulation, name, translated) for name in ("numpy_ref", backend)
+        watched(simulation, name, translated, options)
+        for name in ("numpy_ref", backend)
     )
     try:
         theirs, ours = reading(reference), reading(compiled)
@@ -214,12 +217,13 @@ def test_a_monitor_for_another_grid_is_refused(backend: str) -> None:
         made.close()
 
 
+PARTIAL = ExecutionOptions(node_chunk=50)
+"""Node chunks that leave a partial one on the Cartesian case."""
+
+
 def _chunked(simulation: Simulation) -> KernelProblem:
-    """Return the Cartesian case's problem with node chunks that leave a partial one."""
-    problem = simulation.translate()
-    return dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=50)
-    )
+    """Return the Cartesian case's problem, which runs in :data:`PARTIAL` chunks."""
+    return simulation.translate()
 
 
 def _bare(simulation: Simulation) -> KernelProblem:
@@ -242,7 +246,9 @@ def test_a_check_reads_the_reference_s_numbers_at_the_edges(
     # A last chunk shorter than the rest, and a run with no collar, for which the
     # backends plan their own coarse transform at the first attach.
     _require(backend)
-    _checkreading(backend, route, "nonlinear", problem)
+    _checkreading(
+        backend, route, "nonlinear", problem, PARTIAL if problem is _chunked else None
+    )
 
 
 @pytest.mark.parametrize("backend", ["numpy_ref", *COMPILED])

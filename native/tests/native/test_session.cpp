@@ -11,6 +11,7 @@
 
 #include "solprop_native/session.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -34,7 +35,8 @@ volatile double factor_a = 1.0 + 0x1p-30;
 volatile double factor_b = 1.0 - 0x1p-30;
 volatile double addend = -1.0;
 
-[[gnu::noinline]] double contracting(const double a, const double b, const double c) {
+[[gnu::noinline, maybe_unused]] double contracting(const double a, const double b,
+                                                   const double c) {
   const double product = a * b;
   return product + c;
 }
@@ -67,6 +69,36 @@ public:
   int evaluations = 0;
 };
 
+// A dense output on the toy field: an observation fills the field with its position,
+// holding the committed field aside, and a restore puts it back; each crossing step's
+// extension is held by its anchor and step.
+class ToyDense final : public session::Dense {
+public:
+  explicit ToyDense(Toy& toy) : toy_(toy) {}
+  void stepped(const march::Result& /*result*/) override {}
+  [[nodiscard]] bool crosses(const double position, const double target,
+                             const int ulps) const override {
+    return !march::reached(target, position, ulps);
+  }
+  void observe(const double position) override {
+    held_ = toy_.field_;
+    toy_.field_.assign(toy_.field_.size(), position);
+    observed.push_back(position);
+  }
+  void restore() override {
+    toy_.field_ = held_;
+    ++restored;
+  }
+  void hold(const double z, const double dz) { holds.push_back(z + dz); }
+  std::vector<double> observed;
+  std::vector<double> holds;
+  int restored = 0;
+
+private:
+  Toy& toy_;
+  std::vector<double> held_;
+};
+
 // Trials that score 0.25, or 5.0 at the trials `rejects` names; an accept doubles the
 // field, so after `k` accepted steps it is the launch times `2^k` exactly.
 class Doubling final : public rk::Engine {
@@ -95,7 +127,13 @@ public:
   }
   void accept(double /*dz*/) override { toy_.double_it(); }
   std::vector<double> reading() override { return {}; }
+  void extend(const double z, const double dz) override {
+    if (dense == nullptr)
+      throw std::logic_error("no dense output");
+    dense->hold(z, dz);
+  }
   int trials = 0;
+  ToyDense* dense = nullptr;
 
 private:
   Toy& toy_;
@@ -569,4 +607,91 @@ TEST(Session, AnAdamsSessionLandsOnEveryPlane) {
       planes.push_back(entry.z);
   EXPECT_EQ(planes, (std::vector<double>{0.01, 0.02, 0.03}));
   EXPECT_EQ(seen.back().outcome, session::Outcome::completed);
+}
+
+TEST(Session, DensePlanesAreObservedInsideTheirStepsAndASnapshotWaitsForThem) {
+  // SEP 47 sections 5.3 and 5.5: a plane the march steps across is observed inside
+  // the step that crossed it, at its own position, the committed state held aside and
+  // restored before the march goes on; a snapshot latched meanwhile waits for the next
+  // accepted endpoint. The run's end is landed on.
+  auto toy = std::make_unique<Toy>();
+  Toy* field = toy.get();
+  session::RungeKuttaMethod method;
+  method.policy = controller();
+  method.policy.landings.interpolate = true;
+  method.policy.landings.save_planes = {};
+  method.state.proposal = 1e-3;
+  auto engine = std::make_unique<Doubling>(*toy, std::vector<int>{});
+  auto dense = std::make_unique<ToyDense>(*toy);
+  ToyDense* held = dense.get();
+  engine->dense = held;
+  method.engine = std::move(engine);
+  method.dense = std::move(dense);
+  session::Plan plan;
+  plan.planes = {0.01, 0.02, 0.03};
+  auto statistics = std::make_shared<statistics::Plan>();
+  statistics->outputs = {statistics::Stat::energy};
+  plan.plane_statistics.plan = std::move(statistics);
+  session::Session run(std::move(toy), std::move(method), std::move(plan), 0.0);
+  run.acknowledge(run.advance(256, 10.0).sequence);
+  std::vector<double> planes;
+  std::vector<double> snapshots;
+  std::uint64_t accepted = 0;
+  std::vector<double> ends;
+  bool requested = false;
+  while (run.status().state != session::State::finished) {
+    const auto batch = run.advance(256, 10.0);
+    for (std::size_t row = 0; row < batch.attempts.size() / session::attempt_columns;
+         ++row) {
+      const double* values = batch.attempts.data() + row * session::attempt_columns;
+      if (values[3] != 0.0) {
+        ++accepted;
+        ends.push_back(values[0]);
+      }
+    }
+    const auto& event = batch.event;
+    std::vector<double> exported;
+    if (event.ticket) {
+      exported.resize(2 * run.elements());
+      run.export_field(batch.sequence, event.generation, false, false, nullptr,
+                       exported.data());
+    }
+    if (event.kind == session::EventKind::observation &&
+        event.observation == session::Observation::plane) {
+      planes.push_back(event.z);
+      EXPECT_EQ(batch.plane_stats.at(0), event.z);
+      EXPECT_EQ(run.status().z, event.z);
+      if (event.z < 0.03) {
+        // Interpolated: the toy's observation, at the plane, inside the last step.
+        EXPECT_EQ(exported.at(0), event.z);
+        EXPECT_GT(ends.back(), event.z);
+        if (!requested) {
+          EXPECT_FALSE(run.request_snapshot().coalesced);
+          requested = true;
+        }
+      } else {
+        EXPECT_EQ(exported.at(0), std::ldexp(1.0, static_cast<int>(accepted)));
+      }
+    }
+    if (event.kind == session::EventKind::snapshot) {
+      // At an accepted endpoint, the committed field restored, every plane short of
+      // it observed first.
+      snapshots.push_back(event.z);
+      EXPECT_EQ(event.z, ends.back());
+      EXPECT_EQ(exported.at(0), std::ldexp(1.0, static_cast<int>(accepted)));
+      for (const double plane : {0.01, 0.02})
+        EXPECT_EQ(plane < event.z,
+                  std::count(planes.begin(), planes.end(), plane) == 1);
+    }
+    run.acknowledge(batch.sequence);
+  }
+  EXPECT_EQ(planes, (std::vector<double>{0.01, 0.02, 0.03}));
+  EXPECT_EQ(held->observed, (std::vector<double>{0.01, 0.02}));
+  EXPECT_EQ(held->restored, 2);
+  ASSERT_EQ(snapshots.size(), 1U);
+  EXPECT_GT(snapshots[0], 0.01);
+  // Each crossing step held its extension, ending past the planes it crossed.
+  ASSERT_FALSE(held->holds.empty());
+  EXPECT_GT(held->holds.front(), 0.01);
+  EXPECT_EQ(field->field_.at(0), std::ldexp(1.0, static_cast<int>(accepted)));
 }

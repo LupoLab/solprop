@@ -27,6 +27,11 @@ What is counted, and where:
   march, a replay, the low-storage march and a lockstep group's members), each one or
   more native calls the counters do not split. The low-storage engine's steps and a
   native group's lockstep steps are also counted as such.
+- **Native group members' batches**: every batch a member's native session returns
+  to the native group session (``solprop_native.group``), by its event --
+  ``session_observation``, ``session_progress``, ``session_warning`` or
+  ``session_terminal`` -- with the attempts it carries, among the native attempts; and
+  the group's common steps, among the group steps.
 - **Planes** (calls of ``propagate_to``), **statistics rows** (periodic rows) and
   **statistics evaluations** (every ``stats`` call, rows and planes), **transverse
   edge reads**, and **fields crossing to the host** with their bytes, by where they
@@ -70,9 +75,13 @@ class Counters:
     low_storage_steps : int
         Low-storage engine steps, among the host attempts.
     group_steps : int
-        Lockstep steps of a native group, each covering every member's attempt.
+        Lockstep steps of a native group, each covering every member's attempt and
+        each a return to Python.
     group_attempts : int
         Member attempts those steps covered, among the host attempts.
+    session_group_steps : int
+        Common steps of the native group session, which returns per window, not per
+        step; the record's ``group_steps`` counts both kinds.
     planes : int
         ``propagate_to`` calls: one per saved plane after the launch.
     statistics_rows : int
@@ -96,6 +105,7 @@ class Counters:
     low_storage_steps: int = 0
     group_steps: int = 0
     group_attempts: int = 0
+    session_group_steps: int = 0
     planes: int = 0
     statistics_rows: int = 0
     statistics_evaluations: int = 0
@@ -144,6 +154,27 @@ class Counters:
         self.group_steps += 1
         self.group_attempts += members
 
+    def session_batch(self, event: str, attempts: int, accepted: int) -> None:
+        """Count one batch a group member's native session returned.
+
+        Parameters
+        ----------
+        event : str
+            Its event's kind: ``observation``, ``progress``, ``warning`` or
+            ``terminal``.
+        attempts : int
+            The attempts it carries.
+        accepted : int
+            The accepted steps among them.
+        """
+        self.returns[f"session_{event}"] += 1
+        self.march_attempts += attempts
+        self.march_accepted += accepted
+
+    def group_window(self, steps: int) -> None:
+        """Count the common steps of one window of the native group session."""
+        self.session_group_steps += steps
+
     def crossing(self, where: str, nbytes: int) -> None:
         """Count one field copied to the host."""
         self.field_crossings[where] += 1
@@ -173,7 +204,7 @@ class Counters:
             "march_attempts": self.march_attempts,
             "host_attempts": self.host_attempts,
             "low_storage_steps": self.low_storage_steps,
-            "group_steps": self.group_steps,
+            "group_steps": self.group_steps + self.session_group_steps,
             "planes": self.planes,
             "statistics_rows": self.statistics_rows,
             "statistics_evaluations": self.statistics_evaluations,

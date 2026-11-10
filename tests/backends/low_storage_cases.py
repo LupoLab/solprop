@@ -108,11 +108,24 @@ def assert_compiled(backend_class, problem, grid, limit, *, what="march", **repl
     return departure(got, expected)
 
 
-def assert_parity(backend_class, problem, grid, *, modes=None, noise=None, **bound):
-    """Replay on both backends and assert the states within :func:`parity_bound`."""
+def assert_parity(
+    backend_class, problem, grid, *, modes=None, noise=None, options=None, **bound
+):
+    """Replay on both backends and assert the states within :func:`parity_bound`.
+
+    `options` are both backends' execution options, an exact node chunk among them.
+    """
     limit = parity_bound(problem, **bound)
     return (
-        assert_compiled(backend_class, problem, grid, limit, modes=modes, noise=noise),
+        assert_compiled(
+            backend_class,
+            problem,
+            grid,
+            limit,
+            modes=modes,
+            noise=noise,
+            options=options,
+        ),
         limit,
     )
 

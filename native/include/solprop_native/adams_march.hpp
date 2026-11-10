@@ -320,6 +320,11 @@ struct Bounds {
    *  none. The march reads it at each accepted endpoint, after the step's commit and
    *  accounting and where no other host event returns first, and returns `halted`. */
   const std::atomic<bool>* halt = nullptr;
+  /** A Runge-Kutta march's step across an interpolated plane (SEP 47 section 5.3): with
+   *  this set the march holds the step's extension through `rk::Engine::extend` and
+   *  finishes the step itself, returning `reached` at its endpoint as the Adams march
+   *  does (a native session); otherwise it returns `dense` for solprop to finish. */
+  bool extend = false;
 };
 
 /** The split collar's cap on an adaptive step: the owning monitor's, the march's own

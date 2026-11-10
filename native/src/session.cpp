@@ -130,6 +130,8 @@ Session::Session(std::unique_ptr<Resident> resident, Method method, Plan plan,
   adams_ = std::holds_alternative<AdamsMethod>(method_);
   if (plan_.monitor) {
     monitor_ = std::make_unique<watch::Monitor>(plan_.monitor->config);
+    if (plan_.monitor->edge)
+      edge_ = std::make_unique<transverse::Edge>(*plan_.monitor->edge);
     // A resting collar caps the steps at the monitor's interval, as the march's policy
     // takes it from solprop's monitor (`quiet_interval`).
     std::visit(
@@ -152,6 +154,10 @@ Session::Session(std::unique_ptr<Resident> resident, Method method, Plan plan,
     landing_ulps_ = adams.policy.landing_ulps;
     if (adams.state.z != z)
       throw std::invalid_argument("the Adams march's state is not at the start");
+    if (adams.policy.interpolate != (adams.dense != nullptr))
+      throw std::invalid_argument(
+          "a session interpolates its planes with the march's dense output");
+    dense_ = adams.dense.get();
   } else {
     auto& runge_kutta = std::get<RungeKuttaMethod>(method_);
     if (!runge_kutta.engine)
@@ -159,6 +165,10 @@ Session::Session(std::unique_ptr<Resident> resident, Method method, Plan plan,
     landing_ulps_ = runge_kutta.policy.landings.landing_ulps;
     if (runge_kutta.state.z != z)
       throw std::invalid_argument("the Runge-Kutta march's state is not at the start");
+    if (runge_kutta.policy.landings.interpolate != (runge_kutta.dense != nullptr))
+      throw std::invalid_argument(
+          "a session interpolates its planes with the march's dense output");
+    dense_ = runge_kutta.dense.get();
   }
   if (!std::is_sorted(plan_.planes.begin(), plan_.planes.end()))
     throw std::invalid_argument("a session's save planes increase");
@@ -172,6 +182,8 @@ Session::Session(std::unique_ptr<Resident> resident, Method method, Plan plan,
     throw std::invalid_argument("a session's chunk buffers hold at least one entry");
   if (plan_.replay && plan_.replay_steps == 0)
     throw std::invalid_argument("a replayed schedule has steps");
+  if (plan_.replay && dense_ != nullptr)
+    throw std::invalid_argument("a replayed schedule lands on its planes");
   next_plane_ = plan_.next_plane;
   launch_pending_ = plan_.launch_pending;
   history_.reserve(attempt_columns * plan_.attempt_capacity);
@@ -194,6 +206,12 @@ double Session::position() const noexcept {
   return std::get_if<RungeKuttaMethod>(&method_)->state.z;
 }
 
+double Session::here() const noexcept {
+  // The observed position: a dense plane's while the state holds it, the committed
+  // endpoint's otherwise (`DriverSession._z`).
+  return observed_ ? observed_z_ : position();
+}
+
 std::uint64_t Session::cursor() const {
   return std::visit(
       [](const auto& method) {
@@ -204,6 +222,13 @@ std::uint64_t Session::cursor() const {
 
 bool Session::snapshot_latched() const noexcept {
   return (latch_.load(std::memory_order_acquire) & 1U) != 0;
+}
+
+bool Session::poisoned() const noexcept {
+  // An in-place step abandoned partway (solprop SEP 47 section 5.5): no state stands.
+  const auto* runge_kutta = std::get_if<RungeKuttaMethod>(&method_);
+  return runge_kutta != nullptr && runge_kutta->engine &&
+         runge_kutta->engine->in_flight();
 }
 
 std::uint64_t Session::host_step() const {
@@ -218,14 +243,19 @@ std::uint64_t Session::host_step() const {
     take(steps_to_next(plan_.period, accepted_steps_));
   if (plan_.step_planes > 0)
     take(steps_to_next(plan_.step_planes, natural_count_));
+  // A requested collar's current is taken at every committed step, in the session.
+  if (edge_ && edge_->every_step())
+    take(1);
   return steps;
 }
 
 bool Session::at_endpoint() const {
   // An accepted endpoint this session reached, with no attempt made since: the
   // starting position holds no history to snapshot, and a rejection's trial is
-  // past.
-  return stepped_ && last_accepted_;
+  // past. A dense observation holds the state between endpoints: a latched snapshot
+  // waits for the next endpoint, every plane its step crossed observed first (SEP 47
+  // section 5.5).
+  return stepped_ && last_accepted_ && !observed_;
 }
 
 std::size_t Session::chunk_attempts() const noexcept {
@@ -245,9 +275,16 @@ march::Result Session::call(const double target, const double slack,
   bounds.target = target;
   bounds.host_step = host_step();
   // The session's own monitor takes each committed step's check in the march, its cap
-  // the split collar's; no transverse edge (refused at preparation), whose spacing is
-  // infinite.
+  // the split collar's. The transverse edge's spacing caps every adaptive step, and the
+  // march returns to the session at the committed position from which the next step
+  // would carry past the next read (`TransverseEdge.ceiling`, `.due`); infinite
+  // without an edge.
   bounds.read_spacing = std::numeric_limits<double>::infinity();
+  if (edge_) {
+    bounds.read_at = edge_->next_read();
+    bounds.has_read_at = std::isfinite(bounds.read_at);
+    bounds.read_spacing = edge_->ceiling();
+  }
   if (monitor_) {
     bounds.watch = true;
     bounds.owner = monitor_.get();
@@ -259,6 +296,9 @@ march::Result Session::call(const double target, const double slack,
   bounds.slack = slack;
   bounds.stop = &stop_;
   bounds.halt = &halt_;
+  // A Runge-Kutta step across an interpolated plane holds its extension and is
+  // finished in the march, which returns at its endpoint as the Adams march does.
+  bounds.extend = dense_ != nullptr && !adams_;
   march_calls_.fetch_add(1, std::memory_order_relaxed);
   if (adams_) {
     auto& adams = std::get<AdamsMethod>(method_);
@@ -271,7 +311,7 @@ march::Result Session::call(const double target, const double slack,
 }
 
 void Session::publish() noexcept {
-  published_z_.store(position(), std::memory_order_relaxed);
+  published_z_.store(here(), std::memory_order_relaxed);
   published_plane_.store(next_plane_, std::memory_order_relaxed);
   published_attempts_.store(attempts_, std::memory_order_relaxed);
   published_rejected_.store(rejected_, std::memory_order_relaxed);
@@ -352,7 +392,7 @@ Event Session::observe(Batch& batch, const Observation kind, const std::int64_t 
   Event event;
   event.kind = EventKind::observation;
   event.observation = kind;
-  event.z = position();
+  event.z = here();
   event.plane_index = plane;
   event.ticket = true;
   event.generation = generation_;
@@ -367,7 +407,7 @@ Event Session::observe(Batch& batch, const Observation kind, const std::int64_t 
 void Session::progress(Batch& batch) {
   Event event;
   event.kind = EventKind::progress;
-  event.z = position();
+  event.z = here();
   drain(batch);
   batch.event = event;
 }
@@ -379,7 +419,7 @@ void Session::snapshot(Batch& batch) {
   halt_.store(false, std::memory_order_release);
   Event event;
   event.kind = EventKind::snapshot;
-  event.z = position();
+  event.z = here();
   event.ticket = true;
   event.generation = generation_;
   drain(batch);
@@ -389,12 +429,12 @@ void Session::snapshot(Batch& batch) {
 void Session::terminal(Batch& batch, const Outcome outcome, Failure failure) {
   Event event;
   event.kind = EventKind::terminal;
-  event.z = position();
+  event.z = here();
   event.outcome = outcome;
   event.failure = std::move(failure);
-  // A stop or a failure names the committed state, eligible
-  // (`DriverSession._terminal`).
-  event.ticket = outcome != Outcome::completed;
+  // A stop or a failure names the committed state, eligible, unless a step left in
+  // flight poisoned it (`DriverSession._terminal`).
+  event.ticket = outcome != Outcome::completed && !poisoned();
   event.generation = generation_;
   drain(batch);
   batch.event = event;
@@ -434,7 +474,7 @@ void Session::warning(Batch& batch, const Notice& notice) {
   // checkpoint while the caller emits the warning, which its filters may raise.
   Event event;
   event.kind = EventKind::warning;
-  event.z = position();
+  event.z = here();
   event.ticket = true;
   event.generation = generation_;
   event.notice = notice;
@@ -445,10 +485,11 @@ void Session::warning(Batch& batch, const Notice& notice) {
 void Session::monitor_stop(Batch& batch, const Notice& notice) {
   Failure failure;
   failure.reason = march::Reason::error;
-  failure.category =
-      notice.kind == Notice::Kind::guard || notice.kind == Notice::Kind::crossing
-          ? march::Category::refused
-          : march::Category::backend;
+  failure.category = notice.kind == Notice::Kind::guard ||
+                             notice.kind == Notice::Kind::crossing ||
+                             notice.kind == Notice::Kind::transverse
+                         ? march::Category::refused
+                         : march::Category::backend;
   failure.notice = notice;
   failure.cursor = cursor();
   terminal(batch, Outcome::failed, std::move(failure));
@@ -493,7 +534,7 @@ bool Session::refused_crossing(Batch& batch) {
     return false;
   Notice notice;
   notice.kind = Notice::Kind::crossing;
-  notice.z = position();
+  notice.z = here();
   notice.cap = monitor_->cap();
   notice.step = longest;
   monitor_stop(batch, notice);
@@ -505,8 +546,12 @@ bool Session::attach(Batch& batch) {
   // record, then record and judge the launch (`attach_monitor`).
   attached_ = true;
   const auto& plan = *plan_.monitor;
-  if (plan.resume)
+  if (plan.resume) {
+    // `BoundaryMonitor.resume` continues the edge's record first.
+    if (edge_)
+      edge_->resume(plan.edge_record);
     monitor_->resume(plan.record, plan.plane, plan.unwatched);
+  }
   const std::vector<double> reading = resident_->boundary_reading();
   // The input noise's floor, read from its draw on the host once, or none.
   const watch::Judgement judgement =
@@ -517,12 +562,16 @@ bool Session::attach(Batch& batch) {
   if (judged(batch, judgement))
     return true;
   sync_collar();
-  return refused_crossing(batch);
+  // Then the transverse edge's launch (`attach_monitor`).
+  return refused_crossing(batch) || (edge_ && edge_launch(batch));
 }
 
-bool Session::endpoint(Batch& batch, const double target) {
-  // The event step after its monitor check: its statistics row, then the natural stop
+bool Session::endpoint(Batch& batch, const double target, const bool edge) {
+  // The event step after its monitor check: the transverse edge's read where due and
+  // its collar's current, its statistics row, then the natural stop
   // (`_take_step_stats`, `_natural_stop`).
+  if (edge && edge_ && edge_endpoint(batch))
+    return true;
   if (plan_.period > 0) {
     ++accepted_steps_;
     if (accepted_steps_ % plan_.period == 0)
@@ -536,6 +585,10 @@ bool Session::endpoint(Batch& batch, const double target) {
     if (!march::reached(z, target, landing_ulps_))
       return observe_plane(batch, Observation::step,
                            static_cast<std::int64_t>(next_plane_), false);
+    // A step that crossed an interpolated target is observed after it, once the
+    // planes it crossed are (`_natural_stop`).
+    if (dense_ != nullptr)
+      natural_due_ = !march::reached(target, z, landing_ulps_);
   } else if (!march::reached(z, target, landing_ulps_) && snapshot_latched()) {
     // `_halted_short`: the latch halts the march at this endpoint.
     snapshot(batch);
@@ -554,7 +607,7 @@ bool Session::observe_plane(Batch& batch, const Observation kind,
   if (monitor_ && monitor_->stale()) {
     const std::vector<double> reading = resident_->boundary_reading();
     const watch::Judgement judgement =
-        monitor_->step(reading.data(), reading.size(), position(), true);
+        monitor_->step(reading.data(), reading.size(), here(), true);
     sync_collar();
     if (judgement.verdict == watch::Verdict::warn)
       continuation_ = Continuation::plane;
@@ -563,17 +616,34 @@ bool Session::observe_plane(Batch& batch, const Observation kind,
     if (refused_crossing(batch))
       return true;
   }
+  // The transverse edge reads every plane it has not read (`_read_transverse`).
+  if (edge_ && edge_plane(batch))
+    return true;
   return plane_rest(batch);
 }
 
 bool Session::plane_rest(Batch& batch) {
   // The plane's monitor row, then its statistics and the observation.
   if (monitor_)
-    monitor_->plane(position());
+    monitor_->plane(here());
   if (continued_next_)
     ++next_plane_;
   batch.event = observe(batch, continued_kind_, continued_plane_);
   return true;
+}
+
+bool Session::observe_inside(Batch& batch, const double target) {
+  // `_observe_inside` and the Adams march's observation: the state becomes the
+  // crossing step's interpolated field at the plane, the committed state held aside,
+  // and the plane is observed there (SEP 47 section 5.3).
+  dense_->observe(target);
+  observed_ = true;
+  observed_z_ = target;
+  if (auto* adams = std::get_if<AdamsMethod>(&method_))
+    ++adams->state.ledger.dense_observations;
+  publish();
+  return observe_plane(batch, Observation::plane,
+                       static_cast<std::int64_t>(next_plane_), true);
 }
 
 Batch Session::advance(const std::size_t work_limit, const double deadline) {
@@ -612,16 +682,31 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
     switch (continued) {
     case Continuation::attach:
       sync_collar();
-      if (refused_crossing(batch))
+      if (refused_crossing(batch) || (edge_ && edge_launch(batch)))
+        return ready();
+      break;
+    case Continuation::edge_launch:
+      if (edge_proceed(batch, Continuation::edge_launch))
         return ready();
       break;
     case Continuation::endpoint:
-      // The step's check warned: its crossing, then its row and natural stop.
+      // The step's check warned: its crossing, then the edge, its row and natural stop.
       if (refused_crossing(batch) || endpoint(batch, plan_.planes[next_plane_]))
         return ready();
       break;
+    case Continuation::edge_endpoint:
+      // The edge warned at the step: the rest of its read, then the row and stop.
+      if (edge_proceed(batch, Continuation::edge_endpoint) ||
+          endpoint(batch, plan_.planes[next_plane_], false))
+        return ready();
+      break;
     case Continuation::plane:
-      if (refused_crossing(batch))
+      if (refused_crossing(batch) || (edge_ && edge_plane(batch)))
+        return ready();
+      plane_rest(batch);
+      return ready();
+    case Continuation::edge_plane:
+      if (edge_proceed(batch, Continuation::edge_plane))
         return ready();
       plane_rest(batch);
       return ready();
@@ -631,7 +716,8 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
     case Continuation::none:
       break;
     }
-    if (continued != Continuation::endpoint) {
+    if (continued != Continuation::endpoint &&
+        continued != Continuation::edge_endpoint) {
       if (monitor_ && !attached_ && attach(batch))
         return ready();
       if (snapshot_latched() && at_endpoint()) {
@@ -645,7 +731,7 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
           if (finish.warns) {
             Notice notice;
             notice.kind = Notice::Kind::removal;
-            notice.z = position();
+            notice.z = here();
             notice.value = finish.removed;
             continuation_ = Continuation::finish;
             warning(batch, notice);
@@ -657,6 +743,29 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
       }
     }
     const double target = plan_.planes[next_plane_];
+    const bool restored = observed_;
+    if (restored) {
+      // The march is ahead of the last interpolated plane: resume it there.
+      dense_->restore();
+      observed_ = false;
+      publish();
+    }
+    if (natural_due_ && !march::reached(position(), target, landing_ulps_)) {
+      // The step that crossed the last plane ends before this one, and is observed
+      // first (`_natural_stop_due`).
+      natural_due_ = false;
+      observe_plane(batch, Observation::step, static_cast<std::int64_t>(next_plane_),
+                    false);
+      return ready();
+    }
+    if (restored && snapshot_latched() && at_endpoint() &&
+        !march::reached(position(), target, landing_ulps_)) {
+      // A snapshot latched while a plane was held is taken at the endpoint ahead of
+      // it, every plane its step crossed observed (`halt_ahead`): with planes closer
+      // than the steps, a later endpoint would only be reached past another plane.
+      snapshot(batch);
+      return issue(std::move(batch));
+    }
     const double slack = plan_.replay
                              ? replay_tolerance(plan_.replay_steps, plan_.replay_length,
                                                 target, landing_ulps_)
@@ -690,6 +799,8 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
           call(target, slack, std::max<std::size_t>(attempts, 1),
                seconds > 0.0 ? seconds : 0.0);
       absorb(result, call_started);
+      if (dense_ != nullptr)
+        dense_->stepped(result);
       const march::Reason reason = result.reason;
       const bool event = event_reason(reason);
       // Every accepted step but an event's last is accounted where it falls: rows
@@ -748,6 +859,10 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
       }
     }
     const double z = position();
+    if (dense_ != nullptr && dense_->crosses(z, target, landing_ulps_)) {
+      observe_inside(batch, target);
+      return ready();
+    }
     if (plan_.replay && z < target - slack) {
       // `replay_to`: the schedule ran out before the target.
       Failure failure;
@@ -760,6 +875,9 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
       return issue(std::move(batch), Outcome::failed);
     }
     if (plan_.replay || plane_reached(z, target)) {
+      // A step owed as a step plane that ends on the target is observed by its plane,
+      // once.
+      natural_due_ = false;
       observe_plane(batch, Observation::plane, static_cast<std::int64_t>(next_plane_),
                     true);
       return ready();
@@ -778,7 +896,8 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
 }
 
 void Session::continue_monitor(const watch::Resumption& record, const bool plane,
-                               const std::vector<std::array<double, 2>>& unwatched) {
+                               const std::vector<std::array<double, 2>>& unwatched,
+                               const transverse::Resumption& edge_record) {
   const std::scoped_lock lock(mutex_);
   require_open();
   if (attached_)
@@ -789,6 +908,7 @@ void Session::continue_monitor(const watch::Resumption& record, const bool plane
   plan_.monitor->record = record;
   plan_.monitor->plane = plane;
   plan_.monitor->unwatched = unwatched;
+  plan_.monitor->edge_record = edge_record;
 }
 
 void Session::read(const std::uint64_t sequence, const std::uint64_t generation,
@@ -848,6 +968,9 @@ void Session::export_field(const std::uint64_t sequence, const std::uint64_t gen
       generation != pending_generation_)
     throw LifecycleError("the export ticket has expired: its batch was acknowledged, "
                          "or it belongs to another session");
+  if (poisoned())
+    throw LifecycleError("the state was left in flight by an abandoned step and "
+                         "cannot be exported");
   const std::size_t n = resident_->elements();
   bool scale = false;
   if (power) {
@@ -939,10 +1062,15 @@ bool Session::close() noexcept {
   closed_.store(true, std::memory_order_release);
   pending_ = false;
   // The march's engine refers to the leased state: both go, the engine first.
-  if (auto* adams = std::get_if<AdamsMethod>(&method_))
+  dense_ = nullptr;
+  if (auto* adams = std::get_if<AdamsMethod>(&method_)) {
     adams->engine.reset();
-  if (auto* runge_kutta = std::get_if<RungeKuttaMethod>(&method_))
+    adams->dense.reset();
+  }
+  if (auto* runge_kutta = std::get_if<RungeKuttaMethod>(&method_)) {
     runge_kutta->engine.reset();
+    runge_kutta->dense.reset();
+  }
   resident_.reset();
   history_ = {};
   row_z_ = {};

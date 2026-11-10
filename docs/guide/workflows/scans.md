@@ -153,7 +153,10 @@ need not have equal configuration hashes when their construction provenance diff
 one backend. It runs on `numpy_ref` and `native` (CPU and GPU builds), and
 each backend is tested to give a batch member the output the same point gives run alone,
 to rounding: the same steps, with sums that may be ordered differently
-([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
+([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)). On the
+native CPU build each member of a batch runs in its own native execution session,
+stepping natively between save planes, unless the batch needs something that session does
+not run (a noise model, for instance), when the batch runs as before.
 
 ```{code-block} python
 from solprop.driver.executors import Batch

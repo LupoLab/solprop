@@ -60,7 +60,9 @@ from backends.forced_threads import assert_threaded
 from backends.matched import fixed_order, native_thread_fields
 from bounds import assert_within, dispersive_device_bound, step_evaluations
 from modal_provider_cases import GENERAL_Z_END
+from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.driver import prop_capillary
 from solprop.modes import CoherentWall
 from solprop.nonlinear.responses import DispersiveKerrResponse
@@ -106,12 +108,14 @@ DISPERSIVE_ROWS = (
 # --- the measurements ------------------------------------------------------------
 
 
-def assert_one_evaluation(problem: KernelProblem, grid: Any) -> float:
+def assert_one_evaluation(
+    problem: KernelProblem, grid: Any, options: ExecutionOptions | None = None
+) -> float:
     """One evaluation against the reference; return the departure."""
-    ours = source(NativeBackend, problem, grid)
+    ours = source(NativeBackend, problem, grid, options)
     bound = evaluation_bound(problem)
     assert bound > 0
-    departure = disagreement(ours, source(NumpyRefBackend, problem, grid))
+    departure = disagreement(ours, source(NumpyRefBackend, problem, grid, options))
     assert departure < bound
     return departure
 
@@ -270,11 +274,8 @@ def test_free_space_chunks_accumulate_as_one(evaluator):
     """Chunks of 20 columns, the last a partial one: each lands where it belongs."""
     grid = free_grid("field", True)
     problem = free_problem([DispersiveKerrResponse(ARGON, evaluator)], grid)
-    problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=20)
-    )
     assert problem.transform.n_nodes % 20
-    assert_one_evaluation(problem, grid)
+    assert_one_evaluation(problem, grid, ExecutionOptions(node_chunk=20))
 
 
 # --- the planar route ----------------------------------------------------------------
@@ -325,10 +326,7 @@ def test_planar_blocks_accumulate_as_one(evaluator):
     geometry = problem.transform.geometry
     assert geometry is not None
     n_x = geometry.shape[0]
-    problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=3 * n_x)
-    )
-    assert_one_evaluation(problem, grid)
+    assert_one_evaluation(problem, grid, ExecutionOptions(node_chunk=3 * n_x))
 
 
 @pytest.mark.medium
@@ -585,7 +583,7 @@ def test_a_free_polynomial_writes_its_filtered_fields_into_its_product_blocks():
         [DispersiveKerrResponse(ARGON, "polynomial", thg=False)], grid
     )
     ledger = ledger_of(problem, grid)
-    rows = min(problem.transform.node_chunk, problem.transform.n_nodes)
+    rows = plan_node_chunk(problem).chunk
     field = rows * grid.n_to * 16  # the analytic family: complex products
     assert ledger["dispersive_products"] == 3 * field
     assert ledger["dispersive_product_spectra"] == 3 * field

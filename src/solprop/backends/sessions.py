@@ -11,15 +11,19 @@ bridge, until its own session replaces it in phase 3 -- runs in the transitional
 session over the inherited driver
 (:class:`solprop.backends.driver_session.DriverSession`). :func:`start_session` chooses
 by the driver's type, so the run layer has one door. :func:`start_group` is the door
-for a group of compatible members (SEP 47 section 6.7), served on every backend by the
+for a group of compatible members (SEP 47 section 6.7): native CPU members run in the
+native group session (:class:`solprop_native.group.NativeGroupSession`, one native
+session per member) whenever it admits the group; any other group runs in the
 transitional group over the lockstep runners
-(:class:`solprop.backends.driver_session.DriverGroupSession`).
+(:class:`solprop.backends.driver_session.DriverGroupSession`), the reference's and the
+native groups the native group refuses by name (``solprop_native.group.refusal``).
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from solprop.backends.driver_session import (
     AttemptListener,
@@ -28,7 +32,7 @@ from solprop.backends.driver_session import (
 )
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.session import HostSession
-from solprop.backends.session import RunSession, Start
+from solprop.backends.session import GroupSession, RunSession, Start, check_group
 from solprop.log import StopFlag
 from solprop.translate.problem import KernelProblem
 from solprop.translate.run_request import RunRequest
@@ -38,6 +42,8 @@ if TYPE_CHECKING:
     from solprop.backends.protocol import Backend
 
 __all__ = ["start_group", "start_session"]
+
+logger = logging.getLogger(__name__)
 
 
 def start_session(  # noqa: PLR0913 - the session context
@@ -114,7 +120,7 @@ def start_group(
     starts: Sequence[Start],
     *,
     stop: StopFlag | None = None,
-) -> DriverGroupSession:
+) -> GroupSession:
     """Start the group that advances compatible members through one fixed schedule.
 
     Parameters
@@ -133,9 +139,34 @@ def start_group(
 
     Returns
     -------
-    solprop.backends.driver_session.DriverGroupSession
-        The started group (:class:`~solprop.backends.session.GroupSession`).
+    solprop.backends.session.GroupSession
+        The started group: the native group session for native members it admits,
+        the transitional group otherwise.
+
+    Raises
+    ------
+    solprop.backends.session.SessionError
+        If the sequences differ in length or are empty, or if a start is not a fresh
+        entrance.
     """
+    check_group(len(members), problems, requests, starts)
+    if members[0].name == "native":
+        # The native package has its own strict type gate.
+        from solprop_native.group import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+            NativeGroupSession,
+            refusal,
+        )
+
+        refused = refusal(problems, requests, starts)
+        if refused is None:
+            return cast(
+                GroupSession,
+                NativeGroupSession(members, problems, requests, starts, stop=stop),  # pyright: ignore[reportArgumentType] - native members, checked there
+            )
+        logger.debug(
+            "the native group session does not run %s; the transitional group runs it",
+            refused,
+        )
     return DriverGroupSession(members, problems, requests, starts, stop=stop)
 
 

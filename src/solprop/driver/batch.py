@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.protocol import BackendHistory, Observation
 from solprop.driver.run import _history_of, plane_from_observation
 from solprop.driver.simulation import Simulation
@@ -90,7 +91,12 @@ def _signature(member: BatchMember) -> str:
         "stepper": problem.stepper,
         "statistics": problem.stats_spec,
         "nodes": transform.n_nodes,
-        "node_chunk": transform.node_chunk,
+        # Each member's planned chunk (SEP 47 section 6.5): members whose responses
+        # plan different chunks (Raman tensor weights, dispersive groups) do not
+        # share a lockstep group.
+        "node_chunk": plan_node_chunk(
+            problem, simulation.settings.execution_options()
+        ).chunk,
         "transform_shape": transform.synthesis.shape,
         "coarse_projection": transform.projection_coarse is not None,
         "linear_structure": _structure(problem.linear),
@@ -365,9 +371,10 @@ def split_observation(
     **The field of every returned plane is the backend's internal, vacuum-normalised
     modal amplitude, not the interface amplitude in true sqrt(W)**. This
     function splits an observation and nothing else; the conversion ``b = sqrt(w) a`` at
-    the interface is ``solprop.driver.run._power_observation``, which a run applies to
-    the observation before any plane is stored. A caller that wants stored units must
-    convert first and split the converted observation.
+    the interface is a session's export with ``ExportRecipe(power=True, ...)``
+    (:mod:`solprop.backends.export`), which a run applies before any plane is stored.
+    A caller that wants stored units must convert first and split the converted
+    observation.
 
     Parameters
     ----------

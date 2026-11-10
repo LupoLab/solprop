@@ -2238,6 +2238,12 @@ public:
   void adams_accepted_boundary() const;
   void adams_exponential_observe(double xi, double dz,
                                  const ExponentialWeights& weights);
+  // solprop SEP 47: a Runge-Kutta march's dense output in a native session.
+  void rk_dense_allocate(const std::vector<double>& weights);
+  void rk_dense_hold(double dz);
+  void rk_dense_observe(double theta, const TrialScalars& carry);
+  void rk_dense_restore();
+  void rk_dense_release() noexcept;
   std::vector<std::string> adams_row_names() const;
   std::array<std::size_t, 3> adams_row_extents(const std::string& name) const;
   std::vector<Complex> adams_rows_to_host(const std::string& name) const;
@@ -3036,6 +3042,15 @@ public:
   ComplexView2 adams_end_applied_;
   Kokkos::View<double*, Layout, MemorySpace> adams_end_weights_;
   std::size_t adams_dense_count_{};
+  // solprop SEP 47: a Runge-Kutta step's continuous extension for dense output, its
+  // five coefficients `(5, columns, n_omega)`; the bins its flow changes by more than
+  // an e-fold; the committed state held across an observation; the tableau's
+  // dense-output weights; and whether a step is held.
+  ComplexView3 rk_dense_coefficients_;
+  Kokkos::View<unsigned char**, Layout, MemorySpace> rk_dense_stiff_;
+  ComplexView2 rk_dense_held_;
+  std::vector<double> rk_dense_weights_;
+  bool rk_dense_ready_{};
   bool adams_trial_ready_{};
   bool adams_trial_compensated_{};
   bool adams_trial_coupled_{};
@@ -9206,6 +9221,195 @@ void GeneralWorkspace::adams_exponential_observe(const double xi, const double d
   mask(current_);
   stash_is_current_ = false;
   execution_space_.fence("solprop_native Adams observation boundary");
+}
+
+// --- solprop SEP 47: a Runge-Kutta march's dense output in a native session ---------
+//
+// DOPRI5's continuous extension (Hairer, Norsett and Wanner, II.6) in the step's
+// interaction picture, as solprop's `extension_coefficients`, `extension_value` and
+// `StepDriver._observe_inside` form it: with `v0` the state at the step's anchor, `k_i`
+// its stages in the anchor's frame and `v1 - v0 = h sum_i b_i k_i`, the coefficients
+// `v0`, `v1 - v0`, `h k1 - (v1 - v0)`, `(v1 - v0) - h k7 - (h k1 - (v1 - v0))` and
+// `h sum_i d_i k_i`, evaluated at the fraction theta as `r1 + theta (r2 + (1 - theta)
+// (r3 + theta (r4 + (1 - theta) r5)))`. A bin the step's flow changes by more than an
+// e-fold takes the anchor's value: no polynomial in theta follows its exponentially
+// growing interaction-picture derivative. The value is carried from the anchor to the
+// plane by `U(position, anchor)` and masked. Every product and sum is rounded on its
+// own, in solprop's order.
+
+namespace {
+
+/** The most stages a dense extension reads. */
+constexpr std::size_t rk_dense_max_stages = 16;
+
+/** A tableau's solution and dense-output weights, captured by a kernel. */
+struct RungeKuttaDenseWeights {
+  double solution[rk_dense_max_stages]{};
+  double dense[rk_dense_max_stages]{};
+  std::size_t stages{};
+};
+
+/** The step's phase increment at one element from the uploaded weights' last row: on a
+    separable route the step's length times the element's operator, otherwise `sum_t
+    dPhi_t Phi_t` in term order (`adams_phase`'s exponent). */
+struct StepExponent {
+  bool separable{};
+  SpatialCoefficients spatial;
+  ByteView active;
+  RealView delta;
+  ComplexView3 phi_terms;
+  std::size_t n_pol{};
+  std::size_t n_stages{};
+  std::size_t n_phi{};
+  KOKKOS_INLINE_FUNCTION Complex operator()(const std::size_t column,
+                                            const std::size_t index) const {
+    if (separable) {
+      const auto values = spatial.value(column / n_pol, index, active(index) != 0U);
+      return delta(n_stages) * values.linear;
+    }
+    return adams_phase_sum(phi_terms, delta, n_stages * n_phi, n_phi, column, index);
+  }
+};
+
+} // namespace
+
+void GeneralWorkspace::rk_dense_allocate(const std::vector<double>& weights) {
+  require_open();
+  if (problem_.low_storage || stages_.extent(0) == 0)
+    throw std::logic_error("Runge-Kutta dense output needs the Runge-Kutta stages");
+  if (weights.size() != problem_.n_stages || weights.size() > rk_dense_max_stages)
+    throw std::invalid_argument("the dense-output weights are one per stage");
+  const auto columns = problem_.n_columns();
+  const auto n = problem_.n_omega;
+  rk_dense_weights_ = weights;
+  if (rk_dense_coefficients_.extent(0) == 0) {
+    rk_dense_coefficients_ =
+        ComplexView3("solprop_native.rk.dense_coefficients", 5, columns, n);
+    rk_dense_stiff_ = Kokkos::View<unsigned char**, Layout, MemorySpace>(
+        "solprop_native.rk.dense_stiff", columns, n);
+    rk_dense_held_ = ComplexView2("solprop_native.rk.dense_held", columns, n);
+  }
+  rk_dense_ready_ = false;
+}
+
+void GeneralWorkspace::rk_dense_hold(const double dz) {
+  require_open();
+  if (rk_dense_coefficients_.extent(0) == 0)
+    throw std::logic_error("Runge-Kutta dense output storage is not allocated");
+  if (!stages_ready_)
+    throw std::logic_error("no Runge-Kutta trial is held for a dense extension");
+  RungeKuttaDenseWeights weights;
+  weights.stages = problem_.n_stages;
+  for (std::size_t stage = 0; stage < weights.stages; ++stage) {
+    weights.solution[stage] = problem_.solution_weights[stage];
+    weights.dense[stage] = rk_dense_weights_[stage];
+  }
+  // The trial's own scalars are bound: their last row is the whole step's.
+  const StepExponent step{problem_.separable_geometry(),
+                          spatial_,
+                          active_mask_,
+                          stage_phi_delta_,
+                          phi_terms_,
+                          problem_.n_pol_state,
+                          problem_.n_stages,
+                          problem_.n_phi_terms};
+  const auto current = current_;
+  const auto stages = stages_;
+  const auto coefficients = rk_dense_coefficients_;
+  const auto stiff = rk_dense_stiff_;
+  launch::parallel_for(
+      "solprop_native.rk.dense_hold",
+      Range2(execution_space_, {0, 0}, {problem_.n_columns(), problem_.n_omega}),
+      KOKKOS_LAMBDA(const std::size_t column, const std::size_t index)
+          SOLPROP_NATIVE_STRICT_FUNCTION {
+            SOLPROP_NATIVE_STRICT_BLOCK
+            Complex span{};
+            Complex dense{};
+            for (std::size_t stage = 0; stage < weights.stages; ++stage) {
+              const Complex slope = stages(stage, column, index);
+              span = strict_accumulate(span, weights.solution[stage], slope);
+              dense = strict_accumulate(dense, weights.dense[stage], slope);
+            }
+            span = strict_scale(dz, span);
+            const Complex first =
+                strict_sub(strict_scale(dz, stages(0, column, index)), span);
+            const Complex last = strict_sub(
+                strict_sub(span,
+                           strict_scale(dz, stages(weights.stages - 1, column, index))),
+                first);
+            coefficients(0, column, index) = current(column, index);
+            coefficients(1, column, index) = span;
+            coefficients(2, column, index) = first;
+            coefficients(3, column, index) = last;
+            coefficients(4, column, index) = strict_scale(dz, dense);
+            const Complex x = step(column, index);
+            stiff(column, index) = Kokkos::abs(x.real()) > 1.0 ? 1U : 0U;
+          });
+  rk_dense_ready_ = true;
+}
+
+void GeneralWorkspace::rk_dense_observe(const double theta, const TrialScalars& carry) {
+  require_open();
+  if (!rk_dense_ready_)
+    throw std::logic_error("no Runge-Kutta step is held for a dense observation");
+  require_trial_scalars(carry);
+  graph::deep_copy(execution_space_, rk_dense_held_, current_);
+  upload_trial(carry);
+  const StepExponent flow{problem_.separable_geometry(),
+                          spatial_,
+                          active_mask_,
+                          stage_phi_delta_,
+                          phi_terms_,
+                          problem_.n_pol_state,
+                          problem_.n_stages,
+                          problem_.n_phi_terms};
+  const double rest = 1.0 - theta;
+  const auto coefficients = rk_dense_coefficients_;
+  const auto stiff = rk_dense_stiff_;
+  const auto current = current_;
+  launch::parallel_for(
+      "solprop_native.rk.dense_observe",
+      Range2(execution_space_, {0, 0}, {problem_.n_columns(), problem_.n_omega}),
+      KOKKOS_LAMBDA(const std::size_t column,
+                    const std::size_t index) SOLPROP_NATIVE_STRICT_FUNCTION {
+        SOLPROP_NATIVE_STRICT_BLOCK
+        const Complex start = coefficients(0, column, index);
+        Complex value = start;
+        if (stiff(column, index) == 0U) {
+          Complex inner = strict_scale(rest, coefficients(4, column, index));
+          inner =
+              strict_scale(theta, strict_add(coefficients(3, column, index), inner));
+          inner = strict_scale(rest, strict_add(coefficients(2, column, index), inner));
+          inner =
+              strict_scale(theta, strict_add(coefficients(1, column, index), inner));
+          value = strict_add(start, inner);
+        }
+        current(column, index) = strict_mul(exponential(flow(column, index)), value);
+      });
+  mask(current_);
+  stash_is_current_ = false;
+  // A plane inside a step already taken has no quadrature score of its own, as on
+  // the driver's path, which reloads the observed field.
+  quadrature_error_ = Kokkos::Experimental::quiet_NaN_v<double>;
+  quadrature_stale_ = false;
+  execution_space_.fence("solprop_native Runge-Kutta observation boundary");
+}
+
+void GeneralWorkspace::rk_dense_restore() {
+  require_open();
+  if (rk_dense_held_.extent(0) == 0)
+    throw std::logic_error("Runge-Kutta dense output storage is not allocated");
+  graph::deep_copy(execution_space_, current_, rk_dense_held_);
+  stash_is_current_ = false;
+  execution_space_.fence("solprop_native Runge-Kutta restore boundary");
+}
+
+void GeneralWorkspace::rk_dense_release() noexcept {
+  rk_dense_coefficients_ = {};
+  rk_dense_stiff_ = {};
+  rk_dense_held_ = {};
+  rk_dense_weights_ = {};
+  rk_dense_ready_ = false;
 }
 
 std::vector<double> GeneralWorkspace::collect_trial() {
@@ -16541,6 +16745,10 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       {"accumulator_error", error_.size() * complex_bytes},
       {"weighted_residual", residual_.size() * complex_bytes},
       {"recycled_stage", recycled_.size() * complex_bytes},
+      // A native session's Runge-Kutta dense output (solprop SEP 47 section 5.3).
+      {"rk_dense",
+       (rk_dense_coefficients_.size() + rk_dense_held_.size()) * complex_bytes +
+           rk_dense_stiff_.size() * byte_bytes},
       {"noise", problem_.modified_noise ? field : 0},
       // The Runge-Kutta march's whole-step propagator, or the low-storage march's
       // table or step pair (solprop's `propagators` row).
@@ -17252,6 +17460,26 @@ void GeneralState::adams_exponential_accept(const double dz, const std::size_t f
                                             const AdamsWeights& dense) {
   const CpuTeamScope team(workspace_->cpu_team());
   workspace_->adams_exponential_accept(dz, free, dense);
+}
+void GeneralState::rk_dense_allocate(const std::vector<double>& weights) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->rk_dense_allocate(weights);
+}
+void GeneralState::rk_dense_hold(const double dz) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->rk_dense_hold(dz);
+}
+void GeneralState::rk_dense_observe(const double theta, const TrialScalars& carry) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->rk_dense_observe(theta, carry);
+}
+void GeneralState::rk_dense_restore() {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->rk_dense_restore();
+}
+void GeneralState::rk_dense_release() noexcept {
+  if (workspace_)
+    workspace_->rk_dense_release();
 }
 void GeneralState::adams_exponential_observe(const double xi, const double dz,
                                              const ExponentialWeights& weights) {

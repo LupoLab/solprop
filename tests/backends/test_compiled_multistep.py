@@ -25,7 +25,7 @@ from solprop.exceptions import DriverError
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.noise import modified_noise
 from solprop.stepper import PIController
-from solprop.stepper.multistep import ComparisonMultistep, Multistep
+from solprop.stepper.multistep import Multistep
 from solprop.translate.linop import delta_phi
 
 COMPILED: list[type] = []
@@ -59,16 +59,10 @@ def run(backend_class, problem, grid):
     [
         Multistep(formulation="interaction"),
         Multistep(order=3, variable_order=False, formulation="interaction"),
-        # The general path runs solprop's march on native, with its warning (SEP 39).
-        pytest.param(
-            ComparisonMultistep(corrector="pece", order=4),
-            marks=pytest.mark.filterwarnings(
-                "ignore::solprop.exceptions.HostMarchWarning"
-            ),
-        ),
+        # The comparison variants' general path is the reference's alone (SEP 47).
         "interpolated",
     ],
-    ids=["selected", "pec3/4", "pece4", "dense"],
+    ids=["selected", "pec3/4", "dense"],
 )
 @pytest.mark.parametrize("backend_class", COMPILED, ids=lambda one: one.name)
 def test_a_compiled_backend_follows_the_reference_trajectory(

@@ -144,7 +144,8 @@ alone does not describe, and the cap cost it calls.
 ### What was compared
 
 SEP 13 also ran these variants. They remain executable, as
-`solprop.stepper.multistep.ComparisonMultistep`, for the benchmarks only:
+`solprop.stepper.multistep.ComparisonMultistep`, for the benchmarks only, on
+`backend="numpy_ref"`; the native backend refuses them by name:
 
 - **PECE**, which spends a second call at the corrected field;
 - **plain Adams–Bashforth**, with an a-posteriori recheck;

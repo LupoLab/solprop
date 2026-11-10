@@ -62,9 +62,11 @@ from solprop.backends.session import (
     SessionStatus,
     SnapshotReceipt,
     Start,
+    check_group,
+    check_member_ticket,
 )
 from solprop.exceptions import StopRequested
-from solprop.log import NullReporter, PlaneSummary, StopFlag
+from solprop.log import NullReporter, StopFlag
 from solprop.monitor import BoundaryMonitor
 from solprop.output.schema import MarchSnapshot
 from solprop.translate.linop import power_weight_at
@@ -87,22 +89,22 @@ AttemptListener = Callable[[float, float, bool], None]
 
 
 class _Attempts(NullReporter):
-    """Forwards a driver's per-attempt progress to a listener, and nothing else.
+    """Forwards a driver's per-attempt progress and its start, and nothing else.
 
-    The service loop reports planes itself; a driver's own ``plane`` calls are
-    dropped here.
+    The service loop reports planes itself; :class:`~solprop.log.NullReporter` drops
+    the rest.
 
     Parameters
     ----------
-    listener : callable or None
-        Called with each attempt; ``None`` drops them.
+    listener : callable
+        Called with each attempt.
     started : callable or None, optional
         Called once, when the driver first propagates; ``None`` drops it.
     """
 
     def __init__(
         self,
-        listener: AttemptListener | None,
+        listener: AttemptListener,
         started: Callable[[float, float, int], None] | None = None,
     ) -> None:
         """Hold the listeners."""
@@ -136,20 +138,7 @@ class _Attempts(NullReporter):
         accepted : bool
             Whether it was accepted.
         """
-        if self._listener is not None:
-            self._listener(z, dz, accepted)
-
-    def plane(self, z: float, summary: PlaneSummary) -> None:
-        """Drop a driver's plane report: the service loop reports planes.
-
-        Parameters
-        ----------
-        z : float
-            The plane, m.
-        summary : solprop.log.PlaneSummary
-            Its summary.
-        """
-        del z, summary
+        self._listener(z, dz, accepted)
 
 
 def _hook(driver: object, name: str, *arguments: object) -> None:
@@ -454,7 +443,7 @@ class DriverSession:
             outcome=self._ledger.outcome,
         )
 
-    def advance(  # noqa: PLR0911, PLR0912 - one return per barrier kind
+    def advance(  # noqa: PLR0911 - one return per barrier kind
         self,
         *,
         work_limit: int = DEFAULT_WORK_LIMIT,
@@ -491,6 +480,11 @@ class DriverSession:
         if self._index >= self._planes.size:
             return self._complete()
         target = float(self._planes[self._index])
+        if self._snapshot_pending is not None and self._holding_plane():
+            # The march restores the endpoint ahead of the plane it holds, and halts
+            # there if the target lies beyond: planes closer than the steps would
+            # otherwise put off the snapshot with every step (SEP 47 section 5.5).
+            _hook(self._driver, "halt_ahead")
         started = time.perf_counter()
         limit = self._listened + max(int(work_limit), 1)
 
@@ -517,14 +511,17 @@ class DriverSession:
             self._summary = None
             return self._observation(ObservationKind.PLANE, plane, summary)
         if self._driver_halted():
+            # A halt short of the target is never a step plane: the driver counts a
+            # step plane first and stops there unhalted, so a coincident plane is
+            # observed below and the latch, still set, is serviced at the next advance
+            # (SEP 47 section 5.3: a coincident plane's transaction precedes the
+            # snapshot).
             if self._snapshot_pending is not None:
-                if not self._step_plane_here():
-                    return self._snapshot()
-            else:
-                # A bounded yield: no barrier, only progress; the plane goes on later.
-                _hook(self._driver, "clear_halt")
-                history, rows = self._chunk()
-                return self._issue([Progress(self._z, history, rows)])
+                return self._snapshot()
+            # A bounded yield: no barrier, only progress; the plane goes on later.
+            _hook(self._driver, "clear_halt")
+            history, rows = self._chunk()
+            return self._issue([Progress(self._z, history, rows)])
         self._summary = None
         return self._observation(
             ObservationKind.STEP
@@ -965,7 +962,23 @@ class DriverSession:
         """
         # The starting position is no accepted endpoint of this session: an Adams
         # march holds no history there to snapshot.
-        return self._stepped and getattr(self._driver, "_dense_ahead", None) is None
+        return self._stepped and not self._holding_plane()
+
+    def _holding_plane(self) -> bool:
+        """Return whether a dense observation holds the driver's state.
+
+        Returns
+        -------
+        bool
+            True while the driver's own (a Runge-Kutta march's) or its Adams march's
+            observation holds an interpolated plane, the march ahead of it.
+        """
+        driver = self._driver
+        adams = getattr(driver, "_adams", None)
+        return (
+            getattr(driver, "_dense_ahead", None) is not None
+            or getattr(adams, "_ahead", None) is not None
+        )
 
     def _driver_halted(self) -> bool:
         """Return whether the driver stopped at a requested halt.
@@ -976,23 +989,6 @@ class DriverSession:
             True while the latch is set and the driver did not reach its target.
         """
         return bool(getattr(self._driver, "_halted", False))
-
-    def _step_plane_here(self) -> bool:
-        """Return whether the driver stopped at a step plane, latch or not.
-
-        A halt requested for a snapshot and the ``step_planes``-th accepted step can
-        end at the same endpoint. The step plane is observed first and the latch, still
-        set, is serviced at the next advance (SEP 47 section 5.3: a coincident plane's
-        transaction precedes the snapshot).
-
-        Returns
-        -------
-        bool
-            True when the endpoint ends a ``step_planes``-th accepted step.
-        """
-        every = self._request.observation.step_planes
-        count = int(getattr(self._driver, "_natural_count", 0))
-        return bool(every) and count % every == 0
 
     def _issue(
         self, events: list[Event], *, outcome: Outcome | None = None
@@ -1207,7 +1203,7 @@ class DriverSession:
         return field[0]
 
 
-def _bound(event: Event, receipt: Receipt) -> Event:
+def _bound(event: Event, receipt: Receipt, member: int | None = None) -> Event:
     """Return an event with its ticket bound to the batch that delivers it.
 
     Parameters
@@ -1216,6 +1212,8 @@ def _bound(event: Event, receipt: Receipt) -> Event:
         An event, with an unbound ticket or none.
     receipt : solprop.backends.events.Receipt
         The batch's receipt.
+    member : int or None, optional
+        The group member the ticket names; ``None`` for a lone session.
 
     Returns
     -------
@@ -1227,7 +1225,7 @@ def _bound(event: Event, receipt: Receipt) -> Event:
         return event
     return dataclasses.replace(
         event,  # pyright: ignore[reportArgumentType]
-        ticket=dataclasses.replace(ticket, receipt=receipt),
+        ticket=dataclasses.replace(ticket, receipt=receipt, member=member),
     )
 
 
@@ -1287,22 +1285,8 @@ class DriverGroupSession:
         from solprop.backends.registry import select_batch  # noqa: PLC0415 - cycle
 
         count = len(members)
-        if count == 0 or not count == len(problems) == len(requests) == len(starts):
-            msg = (
-                f"a group needs one problem, request and start per member, and got "
-                f"{count} members, {len(problems)} problems, {len(requests)} "
-                f"requests and {len(starts)} starts"
-            )
-            raise SessionError(msg)
+        check_group(count, problems, requests, starts)
         observation = requests[0].observation
-        for start in starts:
-            fresh = start.march is None and start.monitor is None
-            if not fresh or start.plane_index:
-                msg = (
-                    "a group starts its members at their entrance, with no method "
-                    "history or monitor record to continue"
-                )
-                raise SessionError(msg)
         for member, start in zip(members, starts, strict=True):
             member.set_initial(
                 np.asarray(start.take_field())[np.newaxis],
@@ -1431,7 +1415,8 @@ class DriverGroupSession:
             The member's converted field.
         """
         self._ledger.check_ticket(ticket)
-        problem = self._problems[self._member(member)]
+        check_member_ticket(ticket, self._member(member))
+        problem = self._problems[member]
         if recipe.power and problem.transform.geometry is not None:
             # A spatial route's field measure is already the stored quantity.
             recipe = dataclasses.replace(recipe, power=False)
@@ -1456,7 +1441,8 @@ class DriverGroupSession:
             The phase, shape ``(n_modes, n_pol, n_omega)``, or ``None`` without noise.
         """
         self._ledger.check_ticket(ticket)
-        phase = self._fielded(ticket, self._member(member)).noise_phase
+        check_member_ticket(ticket, self._member(member))
+        phase = self._fielded(ticket, member).noise_phase
         return None if phase is None else np.array(phase[0])
 
     def member_status(self, member: int) -> SessionStatus:
@@ -1618,17 +1604,16 @@ class DriverGroupSession:
         """
         chunks: list[tuple[BackendHistory, StepStats]] = []
         for index in range(len(self._members)):
-            if index not in self._drained:
-                # One member at a time, each kept until an event delivers it: a later
-                # member's failure, or the statistics', ends the group with the
-                # attempts already drained delivered by the terminals.
-                observation = self._members[index].observe(field=False)
-                self._attempts[index] += observation.n_steps
-                self._rejected[index] += observation.n_rejected
-                self._drained[index] = (
-                    observation.step_history,
-                    _rows(observation.step_stats),
-                )
+            # One member at a time, each kept until an event delivers it: a later
+            # member's failure, or the statistics', ends the group with the attempts
+            # already drained delivered by the terminals. Each event drains once.
+            observation = self._members[index].observe(field=False)
+            self._attempts[index] += observation.n_steps
+            self._rejected[index] += observation.n_rejected
+            self._drained[index] = (
+                observation.step_history,
+                _rows(observation.step_stats),
+            )
             chunks.append(self._drained[index])
         return chunks
 
@@ -1896,7 +1881,8 @@ class DriverGroupSession:
         # Every drained attempt is delivered by this batch.
         self._drained = {}
         bound = tuple(
-            tuple(_bound(event, receipt) for event in events) for events in members
+            tuple(_bound(event, receipt, index) for event in events)
+            for index, events in enumerate(members)
         )
         return GroupBatch(receipt, bound, outcome, error)
 
