@@ -1,10 +1,11 @@
 # SPDX-FileCopyrightText: 2026 John C. Travers and contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-public ModalPreparation, prepare_modal, start_runge_kutta
+public ModalPreparation, prepare_modal, start_runge_kutta, start_adams
 public advance_session, acknowledge_session, session_status, export_session!
 public session_attempts!, session_failure, session_memory, preparation_memory
 public fail_session
+public session_execution, session_orders!, session_budget
 
 """
     ModalPreparation(execution, data, operator, power_weight, node_chunk)
@@ -62,6 +63,17 @@ all conversion before returning the session; mutable state is never shared betwe
 function start_runge_kutta end
 
 """
+    start_adams(preparation, transfer, field, z, plane, plane_pending, stop)
+
+Copy a starting field and resolved exponential Adams policy into an owned session.
+
+Arguments have the same ownership, shape and units as `start_runge_kutta`. This
+entry currently starts fresh history; portable continuation is separately admitted.
+The extension copies every policy value from the shared resolved Python record.
+"""
+function start_adams end
+
+"""
     advance_session(session, work_limit, deadline)
 
 Advance the complete engine through a positional bridge call that may release Python's GIL.
@@ -115,6 +127,83 @@ function session_status(session)
     return (
         state.z, state.plane - 1, state.attempts, state.rejected,
         state.generation, state.poisoned,
+    )
+end
+
+function _session_chunk_pending(session, generation)
+    state = session.state
+    !state.closed && state.pending && state.generation == generation ||
+        throw(ArgumentError("the session chunk is stale or not pending"))
+    return nothing
+end
+
+"""
+    session_execution(session, generation)
+
+Read cumulative actual source calls and optional Adams logical counters without draining.
+
+The logical tuple is startup, predictor, corrected, rejected, accepted steps, rejected
+steps, restarts, failure restarts and dense observations, in shared `CallLedger` order.
+Other methods return `nothing` for that tuple. A pending poisoned generation still
+permits these diagnostic reads; closed, stale and acknowledged generations refuse.
+"""
+function session_execution(session::RungeKuttaSession, generation::Int)
+    _session_chunk_pending(session, generation)
+    return (session.source.calls, nothing)
+end
+
+function session_execution(session::AdamsSession, generation::Int)
+    _session_chunk_pending(session, generation)
+    ledger = session.ledger
+    return (
+        ledger.source_evaluations,
+        (
+            ledger.startup, ledger.predictor, ledger.corrected, ledger.rejected,
+            ledger.accepted_steps, ledger.rejected_steps, ledger.restarts,
+            ledger.failure_restarts, ledger.dense_observations,
+        ),
+    )
+end
+
+"""
+    session_orders!(output, session, generation)
+
+Copy accepted Adams orders, or zero for rejected attempts, into detached integer storage.
+
+The destination has exactly the pending attempt count. Validate generation, length and
+nonaliasing before writing; this read neither drains the chunk nor changes counters.
+"""
+function session_orders!(
+        output::AbstractVector{Int64}, session::AdamsSession, generation::Int,
+    )
+    _session_chunk_pending(session, generation)
+    count = session.attempts.count
+    length(output) == count ||
+        throw(DimensionMismatch("order destination must match the pending chunk"))
+    _retained_alias(output, session) &&
+        throw(ArgumentError("order destination must not alias retained storage"))
+    for row in 1:count
+        output[row] = session.attempts.accepted[row] ? session.orders[row] : 0
+    end
+    return nothing
+end
+
+"""
+    session_budget(session, generation)
+
+Read maximum, spent and required logical calls from a pending Adams budget failure.
+
+The refused trial has not changed its history, field or ledger. Its required charge
+uses the same numerical helper as admission; Python only formats the shared exception.
+Throw `ArgumentError` unless the requested generation is a pending budget failure.
+"""
+function session_budget(session::AdamsSession, generation::Int)
+    _session_chunk_pending(session, generation)
+    session.state.failure_code === :AdamsBudgetError ||
+        throw(ArgumentError("the pending failure is not an Adams call budget"))
+    return (
+        session.policy.max_calls, adams_charged_calls(session.ledger),
+        _adams_session_cost(session),
     )
 end
 
@@ -199,9 +288,8 @@ counter; acknowledgment releases the chunk. Python tracks whether an event deliv
 function session_attempts!(
         positions, lengths, norms, accepted, elapsed, session, generation::Int,
     )
-    state, buffer = session.state, session.attempts
-    !state.closed && state.pending && state.generation == generation ||
-        throw(ArgumentError("the attempt chunk is stale or not pending"))
+    buffer = session.attempts
+    _session_chunk_pending(session, generation)
     length(positions) == length(lengths) == length(norms) == length(accepted) ==
         length(elapsed) == buffer.count ||
         throw(DimensionMismatch("attempt destinations must match the pending chunk"))

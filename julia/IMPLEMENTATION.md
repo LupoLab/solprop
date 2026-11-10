@@ -11,7 +11,7 @@ The completed implementation is left ready for maintainer review, not auto-merge
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
 | 1: package and runtime | Setup/package integrated; remaining runtime qualification deferred | Maintainer directs core implementation to proceed; failures remain tracked |
-| 2: CPU binary64 session | Scalar modal RK composition passes; methods and services in progress | Nineteen real bridge tests cover field/envelope Kerr, Raman, plasma and represented operators |
+| 2: CPU binary64 session | Scalar modal RK and landed Adams pass; service attachment in progress | Twenty-four real bridge tests cover numerical composition, adaptive accuracy and exact Adams budget accounting |
 | 3: CPU binary32 | Pending | Phase 2 and source-checked DF32 bounds |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
@@ -50,10 +50,10 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Numerical transform/Adams agent | `julia/src/adams_session.jl` and its test | Landed Adams session composition; earlier numerical leaves reviewed and integrated |
-| Numerical services agent | `julia/src/observation_session.jl` and its test | Frozen interface in `SESSION_DESIGN.md`; implementing bounded rows, monitor barriers, continuation and split finishing |
+| Numerical transform/Adams agent | `julia/src/low_storage_session.jl` and its test | Fixed-schedule low-storage session; reviewed Adams returns to master ownership |
+| Numerical services agent | `julia/src/quadrature_alarm.jl` and its test; focused `statistics.jl` source/test correction | Modal quadrature diagnostic and unavailable-value fix (#653); reviewed observation services return to master ownership |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
-| Independent reviewer | Production code read-only | Adams policy and observation composition approved; reviewing shared integration, then Adams session |
+| Independent reviewer | Production code read-only | Adams and observation sessions approved; reviewing Python bridge integration and subsequent numerical slices |
 
 The temporary CI assignments for `restore_control!`, CPU allocation and source/monitor
 constructors are complete and integrated after independent review. Their files return
@@ -443,3 +443,38 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   missing docstrings on two overload stubs, where Ruff D418 forbids docstrings. Narrow
   GL08 exceptions explain that boundary and leave the implementation fully checked;
   both scoped validators now pass. Other full CI lanes are still running.
+- Independently reviewed Adams session `fc121ef5` and observation services `86a39425`
+  are integrated at `ce20d587` and `4a1171ca`. The reviewer ran 648 bounds-enabled
+  assertions, including actual Adams with split damping and all warning, deferred-row,
+  plane, snapshot and completion continuations. The combined witness retained zero
+  warmed advancement allocation. Separate NumPy split witnesses also pass.
+- The Python Adams integration now copies the complete shared policy once, preserves
+  actual replay steps beyond the adaptive ceiling, exports cumulative logical and
+  actual work counts, and copies each pending accepted-order chunk before acknowledgment.
+  A single immutable accounting publication binds its generation and compact order
+  record, so interruption or failed-copy retries cannot duplicate the chunk. Every
+  retained order buffer appears in the memory ledger. Portable Adams continuation is
+  explicitly refused until its history transfer is complete.
+- A fresh immutable setup passes 24 real Python/Julia bridge tests in 65.84 seconds on
+  macOS arm64 with two Julia threads. New witnesses cover adaptive Adams against a
+  converged independent RK reference and exact call-budget failures for both active
+  and structurally absent sources, at work limits one and 256. The focused Python
+  lowering/boundary selection passes 60 tests with runtime type checks, including
+  interruption immediately before and after atomic publication; changed adapter types
+  report zero errors.
+  The combined Julia source/march/Adams/transfer selection passes 911 assertions;
+  all 16 Aqua/JET checks pass with 968 definitions analysed and none cached. Sphinx,
+  scoped docstrings, Runic, changed-file spelling and adapter types pass. Independent
+  bridge review is complete with no remaining code blocker. Broader fixed-history
+  parity witnesses remain a subsequent qualification slice. The 364 structure-figure
+  assertions also pass after the new private accounting record.
+- Modal statistics audit finds all 17 publicly admitted periodic names represented.
+  Remaining work is lowering and delivery, the accepted-source quadrature alarm and
+  monitor restore distinctions. Unavailable quadrature diagnostics must preserve NaN
+  without permitting nonfinite physical fields (#653). A resumed monitor with no old
+  record and an old record without quiet counts need distinct restoration inputs.
+- GitHub confirms native CUDA/HIP compilation, sanitizers, tidy and three wheel targets
+  at `aaec5e92`; the full matrix remains incomplete. Its native Python surface test
+  exposed a missing `start_group` contract entry (#654). The entry and missing-member
+  regression now pass seven targeted tests; the shared frozen signature was already
+  correct. The registry overload-docstring correction also remains in the next push.

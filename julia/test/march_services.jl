@@ -27,6 +27,7 @@ Base.@kwdef mutable struct _ScriptedMarchServices
     candidate_masked::Bool = false
     candidate_endpoint::Float64 = NaN
     fail_candidate::Bool = false
+    nonfinite_candidate::Bool = false
 end
 
 function _scripted_warning!(service, stage, continuation)
@@ -115,6 +116,7 @@ function SolpropJulia._session_finish_candidate!(
     service.candidate_masked = all(iszero, candidate[.!session.norm.active, :])
     service.candidate_endpoint = destination
     service.fail_candidate && throw(ArgumentError("injected split candidate failure"))
+    service.nonfinite_candidate && (candidate[1, 1] = ComplexF64(Inf))
     # A numerical finishing operator can repopulate the inactive band; the final
     # commit still has to enforce its structural zeros.
     for column in axes(candidate, 2), row in axes(candidate, 1)
@@ -280,8 +282,11 @@ end
 @testset "Candidate finishing sees the mask and its exact chosen endpoint" begin
     active = fill(true, 8)
     active[2] = false
-    for failure in (false, true)
-        service = _ScriptedMarchServices(; fail_candidate = failure)
+    for failure in (:none, :throw, :nonfinite)
+        service = _ScriptedMarchServices(;
+            fail_candidate = failure === :throw,
+            nonfinite_candidate = failure === :nonfinite,
+        )
         session = scripted_service_session(service; active)
         acknowledge_launch(session)
         before = copy(session.field)
@@ -289,7 +294,7 @@ end
         @test service.candidate_masked
         @test service.candidate_endpoint == session.schedule.replay_edges[2]
         @test !report.poisoned
-        if failure
+        if failure !== :none
             @test report.kind == SolpropJulia.SESSION_FAILED
             @test session.field == before
             @test report.z == 0.0

@@ -13,7 +13,7 @@ import pytest
 from benchmarks.records import SuiteError
 from benchmarks.worker import _Loaded
 
-from backends.julia.cases import cpu_case
+from backends.julia.cases import adams_case, cpu_case
 from solprop.backends.julia import backend
 from solprop.backends.julia._descriptors import (
     TableTransfer,
@@ -21,12 +21,14 @@ from solprop.backends.julia._descriptors import (
     lower_table,
     transfer_memory,
 )
-from solprop.backends.julia._lower import lower_runge_kutta
+from solprop.backends.julia._lower import lower_run
 from solprop.backends.julia.backend import JuliaBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.exceptions import BackendError
+from solprop.stepper.multistep import ComparisonMultistep, Multistep, march_policy
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.precision import SINGLE
+from solprop.translate.responses import ResponseStage
 
 
 def test_lowering_caches_owned_read_only_arrays_and_releases_its_problem():
@@ -65,7 +67,7 @@ def test_lowering_caches_owned_read_only_arrays_and_releases_its_problem():
 
 def test_run_lowering_preserves_actual_replay_lengths_beyond_the_adaptive_ceiling():
     case = cpu_case(dz_max=1e-5)
-    transfer = lower_runge_kutta(case.problem, case.request)
+    transfer = lower_run(case.problem, case.request)
     assert case.request.replay is not None
     assert np.array_equal(transfer.steps, case.request.replay.schedule.steps)
     assert np.array_equal(transfer.edges, case.request.replay.schedule.edges)
@@ -75,6 +77,95 @@ def test_run_lowering_preserves_actual_replay_lengths_beyond_the_adaptive_ceilin
     assert transfer.active.dtype == np.bool_
     assert np.all(transfer.weights == 1.0)
     assert not transfer.matrix.flags.writeable
+
+
+@pytest.mark.parametrize("order", [1, 5, 6])
+@pytest.mark.parametrize("interval_cap", [False, True])
+def test_adams_lowering_uses_shared_policy_and_preserves_replay(order, interval_cap):
+    method = Multistep(order=order, interval_cap=interval_cap, max_calls=13)
+    case = adams_case(method=method, dz_max=1e-5)
+    transfer = lower_run(case.problem, case.request)
+    control, observation = case.request.error_control, case.request.observation
+    expected = march_policy(
+        method,
+        dz_min=control.dz_min,
+        dz_max=control.dz_max,
+        stretch=control.stretch,
+        z_end=float(observation.save_planes[-1]),
+        save_planes=observation.save_planes.tolist(),
+        hard_kinks=case.problem.linear.hard_kinks.tolist(),
+        breakpoints=case.problem.linear.phi_breakpoints.tolist(),
+        interpolate=False,
+    )
+    # Scalar control is an exact policy-transfer contract, not a numerical comparison.
+    assert transfer.adams == expected
+    assert not transfer.source_absent
+    assert np.all(transfer.steps > control.dz_max)
+    assert case.request.replay is not None
+    assert np.array_equal(transfer.steps, case.request.replay.schedule.steps)
+    assert not transfer.steps.flags.writeable
+
+
+@pytest.mark.parametrize(
+    ("method", "refusal"),
+    [
+        (Multistep(formulation="interaction"), "interaction"),
+        (Multistep(carrier_frame="scalar"), "carrier frame"),
+        (ComparisonMultistep(), "comparison"),
+    ],
+)
+def test_unadmitted_adams_variants_refuse_before_initialization(
+    method, refusal, monkeypatch
+):
+    case = adams_case(method=method)
+
+    def no_runtime(**_):
+        pytest.fail("method admission must precede Julia initialization")
+
+    monkeypatch.setattr(backend, "get_runtime", no_runtime)
+    with pytest.raises(BackendError, match=refusal):
+        JuliaBackend(case.problem, case.request)
+
+
+@pytest.mark.parametrize("source", ["absent", "zero_coefficient", "absorber"])
+def test_adams_source_absence_is_structural_and_includes_the_collar(source):
+    case = adams_case()
+    responses = case.problem.responses
+    if source == "zero_coefficient":
+        assert responses.kerr_coefficients is not None
+        responses = replace(
+            responses,
+            kerr_coefficients=replace(responses.kerr_coefficients, coefficient=0.0),
+        )
+    else:
+        responses = replace(
+            responses,
+            response_order=(ResponseStage.ACCUMULATE,),
+            kerr_coefficients=None,
+        )
+    if source == "absorber":
+        coarse = np.ones(case.problem.grids.n_t)
+        fine = np.ones(case.problem.grids.n_to)
+        coarse.setflags(write=False)
+        fine.setflags(write=False)
+        responses = replace(
+            responses,
+            temporal_absorber=coarse,
+            temporal_absorber_fine=fine,
+            absorber_scheme="nonlinear",
+        )
+    transfer = lower_run(replace(case.problem, responses=responses), case.request)
+    assert transfer.source_absent is (source == "absent")
+
+
+def test_adams_rejects_disagreeing_resolved_interval_topology():
+    case = adams_case(method=Multistep(interval_cap=True))
+    request = replace(
+        case.request,
+        error_control=replace(case.request.error_control, interval_cap=False),
+    )
+    with pytest.raises(BackendError, match="interval-cap policy disagree"):
+        lower_run(case.problem, request)
 
 
 def test_binary32_refuses_before_a_runtime_is_selected(monkeypatch):

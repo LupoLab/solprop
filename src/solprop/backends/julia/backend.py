@@ -13,7 +13,7 @@ from weakref import WeakSet
 from solprop.backends.driver_session import foreign_request
 from solprop.backends.julia import _calls
 from solprop.backends.julia._descriptors import lower_modal, transfer_memory
-from solprop.backends.julia._lower import RunTransfer, lower_runge_kutta
+from solprop.backends.julia._lower import RunTransfer, lower_run
 from solprop.backends.julia._ownership import JuliaHandle, require_main_thread
 from solprop.backends.julia._runtime import JuliaRuntime, get_runtime
 from solprop.backends.julia._session import JuliaSession
@@ -30,7 +30,7 @@ from solprop.log import StopFlag
 from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
 from solprop.translate.problem import PropagationProblem
-from solprop.translate.run_request import RunRequest
+from solprop.translate.run_request import MethodKind, RunRequest
 
 __all__ = ["JuliaBackend", "JuliaPrepared"]
 
@@ -109,7 +109,7 @@ class JuliaBackend:
             problem.transform.n_nodes,
             problem.transform.n_nodes if selected.chunk is None else selected.chunk,
         )
-        lower_runge_kutta(problem, request)
+        lower_run(problem, request)
         self._setup_id = setup_id
         self._wide = wide
         self._grid, self._modes, self._profiles = grid, modes, profiles
@@ -186,7 +186,7 @@ class JuliaBackend:
             from solprop.driver.simulation import check_derived_problem  # noqa: PLC0415
 
             check_derived_problem(self._problem, problem, self._request, request)
-        transfer = lower_runge_kutta(problem, request)
+        transfer = lower_run(problem, request)
         if self._preparation is None:
             runtime = get_runtime(setup_id=self._setup_id, device="cpu")
             handle = runtime.own_call(
@@ -226,13 +226,15 @@ class JuliaBackend:
         return record
 
     def march_export_refusal(self) -> str | None:
-        """Return no history-export refusal for the admitted Runge-Kutta composition.
+        """Report whether this composition can export portable march history.
 
         Returns
         -------
         str or None
-            None; Runge-Kutta restarts from its field with an explicit reset record.
+            Adams continuation remains pending; Runge-Kutta uses an explicit reset.
         """
+        if self._request.integration.kind is MethodKind.ADAMS:
+            return "this Julia composition does not yet export portable Adams history"
         return None
 
     def edge_memory(self, space: object) -> int:

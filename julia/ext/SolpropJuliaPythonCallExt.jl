@@ -5,8 +5,8 @@ module SolpropJuliaPythonCallExt
 
 import PythonCall: Py, PyArray, pyconvert, pyis, pyisinstance, pybuiltins
 import SolpropJulia
-import SolpropJulia: copy_preparation, prepare_modal, start_runge_kutta
-import SolpropJulia: export_session!, session_attempts!
+import SolpropJulia: copy_preparation, prepare_modal, start_runge_kutta, start_adams
+import SolpropJulia: export_session!, session_attempts!, session_orders!
 
 """
     copy_preparation(values::Py)
@@ -200,20 +200,12 @@ function _control(transfer)
     )
 end
 
-function start_runge_kutta(
-        preparation::SolpropJulia.ModalPreparation, transfer::Py, field,
-        z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
-    )
+function _launch(preparation, transfer, field)
     execution = preparation.execution
     host = copy_preparation(field)
     ndims(host) == 3 && size(host, 2) == 1 ||
         throw(DimensionMismatch("the starting field needs mode/component/frequency axes"))
     state = reshape(permutedims(host, (3, 2, 1)), size(host, 3), size(host, 1))
-    tableau = SolpropJulia.EmbeddedTableau(
-        copy_preparation(transfer.nodes), copy_preparation(transfer.matrix),
-        copy_preparation(transfer.solution), copy_preparation(transfer.error),
-    )
-    policy = _control(transfer)
     control = transfer.control
     norm = SolpropJulia.MarchNorm(
         execution, copy_preparation(transfer.active), copy_preparation(transfer.observed),
@@ -236,9 +228,70 @@ function start_runge_kutta(
     work = operator isa SolpropJulia.ExpansionOperator ?
         zeros(size(operator.terms, 3)) : nothing
     flow = SolpropJulia.LinearFlow(execution, operator, state; work)
+    return state, norm, schedule, source, flow
+end
+
+function start_runge_kutta(
+        preparation::SolpropJulia.ModalPreparation, transfer::Py, field,
+        z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
+    )
+    execution = preparation.execution
+    tableau = SolpropJulia.EmbeddedTableau(
+        copy_preparation(transfer.nodes), copy_preparation(transfer.matrix),
+        copy_preparation(transfer.solution), copy_preparation(transfer.error),
+    )
+    policy = _control(transfer)
+    state, norm, schedule, source, flow = _launch(preparation, transfer, field)
     return SolpropJulia.RungeKuttaSession(
-        execution, state, z, pyconvert(Float64, control.dz_init), tableau, policy,
+        execution, state, z, pyconvert(Float64, transfer.control.dz_init), tableau, policy,
         norm, schedule, source, flow; stop, plane_index = plane, plane_pending,
+        exports = SolpropJulia._FieldExport(execution, preparation.power_weight),
+    )
+end
+
+function _adams_control(policy)
+    return SolpropJulia.AdamsControlPolicy(;
+        order = pyconvert(Int, policy.order),
+        variable_order = pyconvert(Bool, policy.variable_order),
+        safety = pyconvert(Float64, policy.safety),
+        max_growth = pyconvert(Float64, policy.max_growth),
+        min_factor = pyconvert(Float64, policy.min_factor),
+        rejection_growth = pyconvert(Float64, policy.rejection_growth),
+        hysteresis = pyconvert(Float64, policy.hysteresis),
+        restart_after = pyconvert(Int, policy.restart_after),
+        collar_stability = pyconvert(Float64, policy.collar_stability),
+        real_intervals = pyconvert(Tuple{Vararg{Float64}}, policy.real_intervals),
+        collar_rate = pyconvert(Float64, policy.collar_rate),
+        carrier = pyconvert(Bool, policy.carrier),
+        carrier_cap = pyconvert(Float64, policy.carrier_cap),
+        max_calls = pyconvert(Union{Nothing, Int}, policy.max_calls),
+        equal_approach = pyconvert(Bool, policy.equal_approach),
+        interval_cap = pyconvert(Bool, policy.interval_cap),
+        dz_min = pyconvert(Float64, policy.dz_min),
+        dz_max = pyconvert(Float64, policy.dz_max),
+        stretch = pyconvert(Float64, policy.stretch),
+        z_end = pyconvert(Float64, policy.z_end),
+        save_planes = pyconvert(Vector{Float64}, policy.save_planes),
+        hard_kinks = pyconvert(Vector{Float64}, policy.hard_kinks),
+        breakpoints = pyconvert(Vector{Float64}, policy.breakpoints),
+        landing_ulps = pyconvert(Int, policy.landing_ulps),
+        interpolate = pyconvert(Bool, policy.interpolate),
+        quiet_interval = pyconvert(Union{Nothing, Float64}, policy.quiet_interval),
+    )
+end
+
+function start_adams(
+        preparation::SolpropJulia.ModalPreparation, transfer::Py, field,
+        z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
+    )
+    execution = preparation.execution
+    policy = _adams_control(transfer.adams)
+    state, norm, schedule, source, flow = _launch(preparation, transfer, field)
+    return SolpropJulia.AdamsSession(
+        execution, state, z, pyconvert(Float64, transfer.control.dz_init),
+        policy, norm, schedule, source, flow;
+        stop, plane_index = plane, plane_pending,
+        source_absent = pyconvert(Bool, transfer.source_absent),
         exports = SolpropJulia._FieldExport(execution, preparation.power_weight),
     )
 end
@@ -288,6 +341,10 @@ function session_attempts!(
         _python_buffer(Bool, Val(1), accepted),
         _python_buffer(Float64, Val(1), elapsed), session, generation,
     )
+end
+
+function session_orders!(output::Py, session::SolpropJulia.AdamsSession, generation::Int)
+    return session_orders!(_python_buffer(Int64, Val(1), output), session, generation)
 end
 
 end

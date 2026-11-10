@@ -45,6 +45,8 @@ include("source.jl")
 include("composition.jl")
 include("observations.jl")
 include("march.jl")
+include("adams_session.jl")
+include("observation_session.jl")
 include("transfer.jl")
 
 """

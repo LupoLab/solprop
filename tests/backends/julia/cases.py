@@ -19,9 +19,10 @@ from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
+from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.problem import Translation, assemble
-from solprop.translate.run_request import ReplaySpec
+from solprop.translate.run_request import MethodKind, ReplaySpec
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,22 @@ def cpu_case(*, steps: int | None = 8, rtol=1e-8, dz_max=0.02):
         else ReplaySpec(FixedSchedule(np.full(steps, 0.02 / steps))),
         observation=replace(
             original.request.observation, stats=StatsSpec(names=(), periodic=())
+        ),
+    )
+    return Translation(original.problem, request)
+
+
+def adams_case(*, method=None, steps: int | None = 8, rtol=1e-8, dz_max=0.02):
+    """Return the same short soliton with resolved exponential Adams policy."""
+    original = cpu_case(steps=steps, rtol=rtol, dz_max=dz_max)
+    method = Multistep() if method is None else method
+    request = replace(
+        original.request,
+        integration=replace(
+            original.request.integration, kind=MethodKind.ADAMS, method=method
+        ),
+        error_control=replace(
+            original.request.error_control, interval_cap=method.interval_cap
         ),
     )
     return Translation(original.problem, request)

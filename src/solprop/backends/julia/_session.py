@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from types import TracebackType
 from typing import TYPE_CHECKING
 
@@ -48,13 +49,18 @@ from solprop.backends.session import (
     StopToken,
     positive_count,
 )
-from solprop.exceptions import BackendError, ConvergenceError, StopRequested
+from solprop.exceptions import (
+    BackendError,
+    ConvergenceError,
+    ResponseBudgetError,
+    StopRequested,
+)
 from solprop.log import StopFlag
 from solprop.output.schema import MarchSnapshot
 
 if TYPE_CHECKING:
     # Destination admission must run before the optional runtime array-type hook.
-    from jaxtyping import Complex
+    from jaxtyping import Complex, Int
 
 __all__ = ["JuliaSession"]
 
@@ -64,6 +70,36 @@ _OBSERVATIONS = {
     2: ObservationKind.STEP,
 }
 _OUTCOMES = {5: Outcome.COMPLETED, 6: Outcome.STOPPED, 7: Outcome.FAILED}
+_CALL_COUNTERS = (
+    "startup",
+    "predictor",
+    "corrected",
+    "rejected",
+    "accepted_steps",
+    "rejected_steps",
+    "restarts",
+    "failure_restarts",
+    "dense_observations",
+)
+
+
+@dataclass(frozen=True)
+class _ExecutionRecord:
+    """Publish counters, compact orders and their generation as one owned value.
+
+    Attributes
+    ----------
+    record : dict
+        Private detached cumulative execution metadata.
+    orders : numpy.ndarray
+        Compact accepted ``[order, count]`` pairs, shape ``(n_runs, 2)``.
+    generation : int
+        Last copied numerical generation; zero precedes the first event.
+    """
+
+    record: dict[str, object]
+    orders: Int[np.ndarray, "n_runs 2"]
+    generation: int
 
 
 class JuliaSession:
@@ -120,7 +156,14 @@ class JuliaSession:
         self._runtime = runtime
         self._preparation = preparation
         self._shape = shape
-        self._record = dict(record)
+        initial = dict(record)
+        initial["source_evaluations"] = 0
+        self._adams = transfer.adams is not None
+        if self._adams:
+            initial["response_calls"] = dict.fromkeys(_CALL_COUNTERS, 0)
+        self._accounting = _ExecutionRecord(
+            initial, np.empty((0, 2), dtype=np.int64), 0
+        )
         self._released = released
         self._ledger = SessionLedger()
         self._listener = listener
@@ -134,7 +177,7 @@ class JuliaSession:
         self._lease = StopLease(runtime, self._token)
         try:
             self._engine = runtime.own_call(
-                "start_runge_kutta",
+                "start_runge_kutta" if transfer.adams is None else "start_adams",
                 preparation,
                 transfer,
                 start.field,
@@ -186,7 +229,7 @@ class JuliaSession:
             raise BackendError("julia requires a finite complex128 starting field")
         if start.march is not None:
             raise BackendError(
-                "the Julia Runge-Kutta composition accepts field restarts only"
+                "this Julia session composition accepts field restarts only"
             )
         if start.noise is not None or start.ledgers or start.monitor:
             raise BackendError(
@@ -359,7 +402,40 @@ class JuliaSession:
         if report.poisoned:
             _, _, in_flight, z, dz = _calls.failure(self._runtime, self._engine)
             self._abandoned = (z, dz) if in_flight else None
-        return self._ledger.issue(outcome=_OUTCOMES.get(report.kind))
+        receipt = self._ledger.issue(outcome=_OUTCOMES.get(report.kind))
+        self._capture_execution(report.generation)
+        return receipt
+
+    def _capture_execution(self, generation: int) -> None:
+        """Retain cumulative counts and encode a generation's accepted orders once.
+
+        Parameters
+        ----------
+        generation : int
+            A bound numerical event, whose acknowledgment has not drained its chunk.
+        """
+        current = self._accounting
+        if generation == current.generation:
+            return
+        record = _calls.execution(self._runtime, self._engine, generation)
+        updated = dict(current.record)
+        runs = [(int(order), int(count)) for order, count in current.orders]
+        if record.response_calls is not None:
+            for order in record.orders.tolist():
+                if order == 0:
+                    continue
+                if runs and runs[-1][0] == order:
+                    runs[-1] = (order, runs[-1][1] + 1)
+                else:
+                    runs.append((order, 1))
+            updated["response_calls"] = {
+                **dict(zip(_CALL_COUNTERS, record.response_calls, strict=True)),
+            }
+        updated["source_evaluations"] = record.source_evaluations
+        # Publish only a complete encoding, so a failed allocation can retry without
+        # counting a prefix twice. No Julia object or per-step Python callback remains.
+        encoded = np.asarray(runs, dtype=np.int64).reshape(-1, 2)
+        self._accounting = _ExecutionRecord(updated, encoded, generation)
 
     def _event(
         self, report: _calls.EngineReport, receipt: Receipt, chunk: BackendHistory
@@ -418,11 +494,12 @@ class JuliaSession:
             error = StopRequested(self._token if self._stop is None else self._stop)
         elif outcome is Outcome.FAILED:
             code, message, _, _, _ = _calls.failure(self._runtime, self._engine)
-            error = (
-                ConvergenceError(message)
-                if code in ("StepFloorError", "DomainError", "NonfiniteSourceError")
-                else BackendError(f"Julia {code}: {message}")
-            )
+            if code == "AdamsBudgetError":
+                error = self._budget_error(report)
+            elif code in ("StepFloorError", "DomainError", "NonfiniteSourceError"):
+                error = ConvergenceError(message)
+            else:
+                error = BackendError(f"Julia {code}: {message}")
         return Terminal(
             outcome,
             report.z,
@@ -432,6 +509,39 @@ class JuliaSession:
             chunk,
             rows,
         )
+
+    def _budget_error(self, report: _calls.EngineReport) -> ResponseBudgetError:
+        """Attach the accepted field and exact charges to the shared budget error.
+
+        Parameters
+        ----------
+        report : EngineReport
+            The pending terminal budget refusal at its committed position.
+
+        Returns
+        -------
+        ResponseBudgetError
+            A shared diagnostic owning a detached internal-convention field.
+        """
+        from solprop.backends.multistep import (  # noqa: PLC0415 - failure formatting only
+            budget_error,
+        )
+
+        maximum, spent, required = _calls.budget(
+            self._runtime, self._engine, report.generation
+        )
+        field = np.empty(self._shape, dtype=np.complex128)
+        _calls.call_void(
+            self._runtime,
+            "export_session!",
+            field,
+            self._engine,
+            report.generation,
+            self._preparation,
+            False,
+            False,
+        )
+        return budget_error(maximum, spent, report.z, required, field)
 
     def _announce(self) -> None:
         """Deliver the start notification once after the launch barrier."""
@@ -460,6 +570,7 @@ class JuliaSession:
             raise SessionError("the receipt is stale, foreign or already acknowledged")
         assert self._report is not None
         with committing():
+            self._capture_execution(self._report.generation)
             _calls.call_void(
                 self._runtime,
                 "acknowledge_session",
@@ -599,8 +710,17 @@ class JuliaSession:
         -------
         solprop.output.schema.MarchSnapshot or None
             None, as required for this method's explicit reset record.
+
+        Raises
+        ------
+        BackendError
+            For Adams until its portable history export is implemented.
         """
         self._check_ticket(ticket)
+        if self._adams:
+            raise BackendError(
+                "Julia portable Adams history export is not yet implemented"
+            )
         return None
 
     def march_snapshot_nbytes(self) -> int | None:
@@ -622,7 +742,18 @@ class JuliaSession:
         collections.abc.Mapping
             Backend, device, precision, runtime identity and effective thread budget.
         """
-        return dict(self._record)
+        # The nested compact order record is caller-owned, as are the top-level
+        # execution options. A caller cannot corrupt a later checkpoint's counts.
+        import copy  # noqa: PLC0415 - only the metadata service needs recursive copying
+
+        if self._ledger.pending is not None and self._report is not None:
+            self._capture_execution(self._report.generation)
+        current = self._accounting
+        record = copy.deepcopy(current.record)
+        calls = record.get("response_calls")
+        if isinstance(calls, dict):
+            calls["orders"] = current.orders.tolist()
+        return record
 
     def monitor_record(self) -> Mapping[str, object] | None:
         """Return no monitor record for this unwatched composition.
@@ -669,6 +800,7 @@ class JuliaSession:
         report = self._check_ticket(ticket)
         if not self._held:
             return join_attempts(())
+        self._capture_execution(report.generation)
         chunk = _calls.attempts(self._runtime, self._engine, report.generation)
         self._held = False
         return chunk, StepStats.empty()
@@ -729,6 +861,7 @@ class JuliaSession:
         """
         self._check()
         ledger = _calls.memory(self._runtime, self._engine)
+        ledger["execution.response_orders"] = self._accounting.orders.nbytes
         for recipe, values in self._exports.items():
             ledger[f"export_power_{recipe.power}_optics_{recipe.optics}"] = (
                 values.nbytes

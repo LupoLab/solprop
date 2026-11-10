@@ -478,6 +478,8 @@ function _march_trial!(session::RungeKuttaSession, began)
             active[row] || (candidate[row, column] = zero(eltype(candidate)))
         end
         _session_finish_candidate!(session.services, session, candidate, dz, destination)
+        all(isfinite, candidate) ||
+            throw(DomainError(NaN, "the finished Runge-Kutta candidate is nonfinite"))
         state.in_flight = true
         rk_commit!(session.field, session.work, norm.active, session.execution)
         state.z = destination

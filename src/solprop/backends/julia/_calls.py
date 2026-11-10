@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+from jaxtyping import Int
 
 from solprop.backends.julia._bridge import invoke
 from solprop.backends.julia._ownership import JuliaHandle
@@ -15,16 +16,144 @@ from solprop.backends.julia._runtime import JuliaRuntime
 from solprop.backends.protocol import BackendHistory
 
 __all__ = [
+    "EngineExecution",
     "EngineReport",
     "advance",
     "attempts",
+    "budget",
     "call_void",
+    "execution",
     "fail",
     "failure",
     "memory",
     "snapshot",
     "status",
 ]
+
+
+@dataclass(frozen=True)
+class EngineExecution:
+    """Hold detached cumulative accounting and one bounded accepted-order chunk.
+
+    Attributes
+    ----------
+    source_evaluations : int
+        Actual source invocations, including calls that failed after entry.
+    response_calls : tuple of int or None
+        Adams logical counters in the shared CallLedger order, absent for other methods.
+    orders : numpy.ndarray
+        One integer per completed attempt in the pending chunk, zero for rejections.
+        Empty for a method without Adams orders. The receiving session owns encoding.
+    """
+
+    source_evaluations: int
+    response_calls: tuple[int, ...] | None
+    orders: Int[np.ndarray, " n_attempts"]
+
+
+def _execution(
+    runtime: JuliaRuntime, handle: JuliaHandle, generation: int
+) -> EngineExecution:
+    """Detach cumulative counters and copy the current pending method-order chunk.
+
+    Parameters
+    ----------
+    runtime : JuliaRuntime
+        Initialized runtime inside the guarded main-thread call.
+    handle : JuliaHandle
+        Numerical session with a pending event.
+    generation : int
+        The bound pending generation.
+
+    Returns
+    -------
+    EngineExecution
+        Python-owned counters and orders, without draining numerical storage.
+    """
+    session = handle.borrow()
+    result = runtime.engine.session_execution(session, generation)
+    logical = result[1]
+    if logical is None:
+        return EngineExecution(int(result[0]), None, np.empty(0, dtype=np.int64))
+    counts = tuple(int(value) for value in logical)
+    orders = np.empty(int(session.attempts.count), dtype=np.int64)
+    getattr(runtime.engine, "session_orders!")(orders, session, generation)
+    return EngineExecution(int(result[0]), counts, orders)
+
+
+def execution(
+    runtime: JuliaRuntime, handle: JuliaHandle, generation: int
+) -> EngineExecution:
+    """Copy one pending generation's accounting into detached Python storage.
+
+    Parameters
+    ----------
+    runtime : JuliaRuntime
+        Initialized main-thread runtime.
+    handle : JuliaHandle
+        Owned numerical session.
+    generation : int
+        Current pending event generation.
+
+    Returns
+    -------
+    EngineExecution
+        Logical counts, actual source invocations and bounded accepted-order data.
+    """
+    runtime.check()
+    return invoke(
+        lambda: _execution(runtime, handle, generation),
+        "the julia execution accounting read failed",
+    )
+
+
+def _budget(
+    runtime: JuliaRuntime, handle: JuliaHandle, generation: int
+) -> tuple[int, int, int]:
+    """Detach maximum, spent and required charges inside the guarded bridge.
+
+    Parameters
+    ----------
+    runtime : JuliaRuntime
+        Initialized main-thread runtime.
+    handle : JuliaHandle
+        Owned numerical session.
+    generation : int
+        Pending budget-failure generation.
+
+    Returns
+    -------
+    tuple of int
+        Maximum, spent and required logical calls.
+    """
+    result = runtime.engine.session_budget(handle.borrow(), generation)
+    return int(result[0]), int(result[1]), int(result[2])
+
+
+def budget(
+    runtime: JuliaRuntime, handle: JuliaHandle, generation: int
+) -> tuple[int, int, int]:
+    """Read a pending Adams budget refusal without recomputing its admission.
+
+    Parameters
+    ----------
+    runtime : JuliaRuntime
+        Initialized main-thread runtime.
+    handle : JuliaHandle
+        Owned numerical session.
+    generation : int
+        Pending budget-failure generation.
+
+    Returns
+    -------
+    tuple of int
+        Maximum, spent and required logical calls.
+    """
+    runtime.check()
+    return invoke(
+        lambda: _budget(runtime, handle, generation),
+        "the julia budget failure read failed",
+    )
 
 
 @dataclass(frozen=True)

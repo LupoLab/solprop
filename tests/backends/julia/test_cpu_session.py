@@ -12,7 +12,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from backends.julia.cases import cpu_case
+from backends.julia.cases import adams_case, cpu_case
 from sessions.executors import (
     BETA2,
     GAMMA,
@@ -35,11 +35,13 @@ from solprop.backends.registry import select
 from solprop.backends.session import ExecutionOptions, SessionError, Start, StopToken
 from solprop.driver.run import run_problem
 from solprop.driver.simulation import metadata_for
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, ResponseBudgetError
 from solprop.log import NullReporter
 from solprop.output import MemoryOutput
+from solprop.stepper.multistep import Multistep
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.problem import Translation
+from solprop.translate.responses import ResponseStage
 
 pytestmark = [
     pytest.mark.medium,
@@ -434,3 +436,69 @@ def test_power_export_evaluates_weights_at_the_restart_position(representation):
         recipe = ExportRecipe(power=True, optics=True)
         expected = apply_recipe(raw, recipe, weight=np.full(shape, 1.5))
         assert session.export(launch.ticket, recipe).tobytes() == expected.tobytes()
+
+
+def test_adaptive_adams_meets_an_independently_converged_rk_reference():
+    actual = _run(adams_case(steps=None, rtol=1e-8), julia=True)
+    coarse = _run(cpu_case(steps=128), julia=False)
+    fine = _run(cpu_case(steps=256), julia=False)
+    scale = np.linalg.norm(fine.fields[-1].ravel())
+    # The RK refinement settles three orders below the global accuracy envelope;
+    # no equality of adaptive attempts or local error readings is assumed.
+    assert np.linalg.norm((fine.fields[-1] - coarse.fields[-1]).ravel()) < 1e-11 * scale
+    assert np.linalg.norm((actual.fields[-1] - fine.fields[-1]).ravel()) < 1e-8 * scale
+    assert actual.status.outcome is Outcome.COMPLETED
+
+
+@pytest.mark.parametrize("work_limit", [1, 256])
+@pytest.mark.parametrize("absent", [False, True])
+def test_adams_budget_retains_the_accepted_field_and_exact_logical_counts(
+    work_limit, absent
+):
+    case = adams_case(method=Multistep(order=5, variable_order=False, max_calls=4))
+    if absent:
+        responses = replace(
+            case.problem.responses,
+            response_order=(ResponseStage.ACCUMULATE,),
+            kerr_coefficients=None,
+        )
+        case = Translation(replace(case.problem, responses=responses), case.request)
+    _, prepared = _prepared(case)
+    with prepared.start(Start.entrance(case.problem)) as session:
+        result = drive(Started(session), export=IDENTITY, work_limit=work_limit)
+        error = result.terminal.error
+        assert result.status.outcome is Outcome.FAILED
+        assert isinstance(error, ResponseBudgetError)
+        assert error.calls == 4
+        assert case.request.replay is not None
+        assert error.z == case.request.replay.schedule.edges[3]
+        calls = session.execution_record()["response_calls"]
+        assert calls == {
+            "startup": 1,
+            "predictor": 3,
+            "corrected": 0,
+            "rejected": 0,
+            "accepted_steps": 3,
+            "rejected_steps": 0,
+            "restarts": 0,
+            "failure_restarts": 0,
+            "dense_observations": 0,
+            "orders": [[1, 1], [2, 1], [3, 1]],
+        }
+        assert session.execution_record()["source_evaluations"] == (0 if absent else 4)
+        # The exception owns the last accepted internal field, independent of close.
+        field = np.array(error.field)
+        assert field.shape == case.problem.shape
+        assert np.all(np.isfinite(field))
+    assert np.array_equal(error.field, field)
+    owner = select(
+        "numpy_ref", case.problem, case.request, grid=window(), modes=[fibre().mode]
+    )
+    with owner.prepare(case.problem, case.request).start(
+        Start.entrance(case.problem)
+    ) as reference:
+        witness = drive(Started(reference), export=IDENTITY)
+        other = witness.terminal.error
+        assert isinstance(other, ResponseBudgetError)
+        assert str(error) == str(other)
+        assert calls == reference.execution_record()["response_calls"]

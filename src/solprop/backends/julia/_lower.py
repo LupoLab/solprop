@@ -12,15 +12,16 @@ from jaxtyping import Bool, Float
 from solprop.backends.julia._descriptors import owned
 from solprop.exceptions import BackendError
 from solprop.stepper.controller import START_GROWTH, PIController
+from solprop.stepper.multistep import MarchPolicy, Multistep, march_policy
 from solprop.translate.problem import PropagationProblem, validate_run
 from solprop.translate.run_request import ErrorControlSpec, MethodKind, RunRequest
 
-__all__ = ["RunTransfer", "lower_runge_kutta"]
+__all__ = ["RunTransfer", "lower_run"]
 
 
 @dataclass(frozen=True, eq=False)
 class RunTransfer:
-    """Hold one resolved Runge-Kutta request for one-time Julia conversion.
+    """Hold one resolved landed-session request for one-time Julia conversion.
 
     Attributes
     ----------
@@ -42,6 +43,11 @@ class RunTransfer:
         Accepted-step observation cadence; zero disables these observations.
     start_growth : float
         Translated dimensionless maximum startup growth factor.
+    adams : solprop.stepper.multistep.MarchPolicy or None
+        The shared resolved exponential Adams policy, absent for Runge-Kutta.
+    source_absent : bool
+        Whether admitted descriptors prove the complete source structurally zero.
+        No sampled zero or constant profile establishes this property.
     """
 
     control: ErrorControlSpec
@@ -59,10 +65,12 @@ class RunTransfer:
     edges: Float[np.ndarray, " n_edges"]
     step_planes: int
     start_growth: float
+    adams: MarchPolicy | None = None
+    source_absent: bool = False
 
 
-def lower_runge_kutta(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
-    """Lower a resolved landed-plane Runge-Kutta request without numerical work.
+def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
+    """Lower a resolved landed-plane method and numerical policy once.
 
     Parameters
     ----------
@@ -82,8 +90,8 @@ def lower_runge_kutta(problem: PropagationProblem, request: RunRequest) -> RunTr
         For a method or service not yet implemented in this first composition.
     """
     validate_run(problem, request)
-    if request.integration.kind is not MethodKind.RUNGE_KUTTA:
-        raise BackendError("this julia march composition requires Runge-Kutta")
+    if request.integration.kind not in (MethodKind.RUNGE_KUTTA, MethodKind.ADAMS):
+        raise BackendError("this julia march composition requires Runge-Kutta or Adams")
     if type(request.error_control.controller) is not PIController:
         raise BackendError("julia refuses custom controllers; use numpy_ref")
     if request.observation.dense:
@@ -99,6 +107,11 @@ def lower_runge_kutta(problem: PropagationProblem, request: RunRequest) -> RunTr
     tableau, control = request.integration.tableau, request.error_control
     replay = request.replay
     weights = control.controller.weights
+    responses = problem.responses
+    in_stage = (
+        responses.temporal_absorber_fine is not None
+        and responses.absorber_scheme == "nonlinear"
+    )
     return RunTransfer(
         control,
         owned(tableau.nodes),
@@ -119,4 +132,67 @@ def lower_runge_kutta(problem: PropagationProblem, request: RunRequest) -> RunTr
         owned(np.empty(0) if replay is None else replay.schedule.edges),
         request.observation.step_planes,
         START_GROWTH,
+        _adams_policy(problem, request),
+        # lower_modal has already excluded general, spatial and atomic pipelines.
+        len(responses.response_order) == 1 and not in_stage,
+    )
+
+
+def _adams_policy(
+    problem: PropagationProblem, request: RunRequest
+) -> MarchPolicy | None:
+    """Resolve the admitted Adams policy through the shared method definition.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        Scientific descriptor containing represented operator boundaries and collars.
+    request : solprop.translate.run_request.RunRequest
+        Resolved run policy with an optional exponential Adams method.
+
+    Returns
+    -------
+    solprop.stepper.multistep.MarchPolicy or None
+        Immutable shared scalar policy, absent for a different method family.
+
+    Raises
+    ------
+    BackendError
+        For a comparison method, interaction formulation or carrier frame.
+    """
+    if request.integration.kind is not MethodKind.ADAMS:
+        return None
+    method = request.integration.method
+    if type(method) is not Multistep:
+        raise BackendError("julia refuses comparison Adams methods; use numpy_ref")
+    if method.formulation != "exponential":
+        raise BackendError("julia refuses interaction Adams; use native or numpy_ref")
+    if method.carrier_frame != "off":
+        raise BackendError(
+            "julia refuses the Adams carrier frame; use native or numpy_ref"
+        )
+    control, observation = request.error_control, request.observation
+    if method.interval_cap != control.interval_cap:
+        raise BackendError("the Adams method and resolved interval-cap policy disagree")
+    responses, linear = problem.responses, problem.linear
+    collar = responses.temporal_absorber
+    collar_rate = (
+        0.5 * float(np.max(collar))
+        if collar is not None and responses.absorber_scheme == "nonlinear"
+        else 0.0
+    )
+    monitor = request.boundary.monitor
+    return march_policy(
+        method,
+        dz_min=control.dz_min,
+        dz_max=control.dz_max,
+        stretch=control.stretch,
+        z_end=float(observation.save_planes[-1]),
+        save_planes=observation.save_planes.tolist(),
+        hard_kinks=linear.hard_kinks.tolist(),
+        breakpoints=linear.phi_breakpoints.tolist(),
+        interpolate=observation.dense,
+        collar_rate=collar_rate,
+        carrier=False,
+        quiet_interval=None if monitor is None else monitor.interval,
     )

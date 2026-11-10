@@ -6,21 +6,29 @@ Numerical sessions and device qualification remain in progress; installing a dev
 environment does not establish that its propagation kernels are qualified.
 
 The current internal integration supports scalar modal fields and envelopes in binary64
-with Kerr, Raman and plasma responses and Runge–Kutta stepping, including adaptive and
-fixed replay schedules. Constant, tabulated and expanded operators, prefactors and power
-weights keep their full represented variation. Each material response uses its own
-density, decay and preionisation profiles; taper scaling follows the translated mode map.
+with Kerr, Raman and plasma responses and Runge–Kutta or exponential Adams stepping,
+including adaptive and fixed replay schedules. Constant, tabulated and expanded
+operators, prefactors and power weights keep their full represented variation. Each
+material response uses its own density, decay and preionisation profiles; taper scaling
+follows the translated mode map.
 Julia owns the stepping loop, error control, bounded attempt history and event barriers.
 Snapshots, cooperative stops and field exports use the same session contract as other
 backends. An acknowledged event invalidates its export ticket; arrays already returned
 to Python remain valid. Failed output consumers can recover an undelivered history chunk
 once, without repeating numerical work.
 
+Adams receives its controller and landing constants from the shared resolved method
+policy. Its execution record distinguishes logical response-call charges from actual
+source invocations, including structurally absent sources, and retains compact accepted
+order counts. A spent call budget stops before the next trial and carries the last
+accepted field. Portable Adams history export and restore are still pending and refuse
+explicitly; this milestone does not qualify continuation checkpoints.
+
 This composition is being extended to the remaining accepted routes,
 integrators, statistics and monitors before public backend selection is enabled.
 Unsupported combinations currently refuse by name at preparation. The standalone
-Adams, low-storage, statistics and temporal/transverse-monitor components have separate tests;
-their presence alone does not establish complete session support.
+Low-storage, statistics and temporal/transverse-monitor components have separate tests;
+their presence alone does not establish complete Python session support.
 The current session supports in-stage temporal absorption. Split absorption, noise,
 vector responses, general modal and spatial transforms, and observation services remain
 pending. An explicit node chunk bounds the source's physical-node scratch; memory-budget

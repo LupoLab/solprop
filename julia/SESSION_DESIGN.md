@@ -102,15 +102,30 @@ position with state, and invokes `_session_accepted!` after a successful commit.
 `_prepare_march` validates and copies the launch, applies its hard mask and establishes
 the common plane/replay cursors. Only the master edits these shared boundaries.
 
-The next independent numerical task owns `adams_session.jl` and its test. It composes
-the approved Adams policy and kernels for landed adaptive/fixed sessions, reusing this
-common event transport. Retain the full oldest-first `order+1` history for policy and
+`adams_session.jl` composes the approved Adams policy and kernels for landed
+adaptive/fixed sessions, reusing this common event transport. Retain the full
+oldest-first `order+1` history for policy and
 resume, actual predictor samples, and the original sampled positions even when the
 committed endpoint snaps to a landing. Store no unbounded order log inside advancement:
 fixed counters and bounded per-attempt order rows can be drained with event chunks.
 Master integration owns Python lowering, ledger translation, dense observation hooks,
 restart records and the observation-service attachment. No partial method is advertised
 as publicly qualified before these integrations and conformance checks pass.
+
+The bridge copies cumulative method counters and accepted orders from each pending
+generation without draining it. Rejected attempt rows encode order zero. Python owns
+the compact run-length record outside numerical advancement and publishes the record,
+array and generation as one immutable value, including on failed-consumer retries.
+Acknowledgment cannot clear a chunk before that copy succeeds. The bounded Julia
+order buffer and retained Python record array both appear in their memory ledgers.
+Budget diagnostics query the exact refused numerical charge and export the committed
+field; Python formats the existing shared exception without deciding trial admission.
+
+The next numerical composition is `LowStorageSession(execution, state, z, tableau,
+norm, schedule, source, flow; stop, capacity, services, exports, plane_index,
+plane_pending)`. It requires a fixed itinerary before allocating. Its in-place trial
+marks the field in flight before any source call. Keep attempted source invocations
+separate from the existing low-storage method's committed-call and norm counters.
 
 Service numerical hooks are `_session_quiet(services, session)::Bool`,
 `_session_cap(services, session, proposal)::Float64` (transverse then split caps, after

@@ -220,8 +220,10 @@ function _adams_session_reset!(session)
     return nothing
 end
 
+_adams_session_cost(session) = session.control.held == 0 ? 2 : 1
+
 function _adams_session_afford(session)
-    cost = session.control.held == 0 ? 2 : 1
+    cost = _adams_session_cost(session)
     maximum = session.policy.max_calls
     charged = adams_charged_calls(session.ledger)
     if maximum !== nothing && charged > maximum - cost

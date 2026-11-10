@@ -134,6 +134,7 @@ class _Engine:
             acknowledge_session=self.acknowledge,
             session_status=self.status,
             session_failure=lambda session: session.frame.failure,
+            session_execution=lambda session, generation: (0, None),
             fail_session=self.fail,
         )
         for name, operation in (
@@ -668,3 +669,111 @@ def test_invalid_advance_bounds_refuse_before_announcement_or_engine_entry(bound
         with pytest.raises(BackendError):
             session.advance(**keywords)
     assert not announced and not boundary.engine.advances
+
+
+@pytest.mark.parametrize("fail_copy", [False, True])
+def test_execution_orders_survive_failed_copy_and_encode_each_chunk_once(
+    boundary, monkeypatch, fail_copy
+):
+    def counters(session, generation):
+        assert session.pending and session.generation == generation
+        count = session.frame.report.attempts
+        startup = int(count > 0)
+        return startup + count, (startup, count, 0, 0, count, 0, 0, 0, 0)
+
+    failed = False
+
+    def orders(output, session, generation):
+        nonlocal failed
+        assert session.pending and session.generation == generation
+        if fail_copy and output.size and not failed:
+            failed = True
+            raise RuntimeError("injected order-copy failure")
+        output.fill(2)
+
+    monkeypatch.setattr(boundary.engine.module, "session_execution", counters)
+    monkeypatch.setattr(
+        boundary.engine.module, "session_orders!", orders, raising=False
+    )
+    monkeypatch.setattr(_calls, "memory", lambda *_: {})
+    session = _start(
+        boundary, _frame(0), _frame(3, z=0.1, attempts=1), _frame(1, z=1.0, attempts=2)
+    )
+    session.acknowledge(session.advance().receipt)
+    if fail_copy:
+        with pytest.raises(BackendError, match="accounting read failed"):
+            session.advance()
+        ticket = session.pending_ticket()
+        assert ticket is not None
+        history, rows = session.undelivered(ticket)
+        assert history.n_steps == 1 and rows.z.size == 0
+        assert session.undelivered(ticket)[0].n_steps == 0
+        receipt = ticket.receipt
+    else:
+        receipt = session.advance().receipt
+    first = session.execution_record()
+    assert first["source_evaluations"] == 2
+    assert first["response_calls"]["orders"] == [[2, 1]]
+    first["response_calls"]["orders"][0][1] = 99
+    assert session.execution_record()["response_calls"]["orders"] == [[2, 1]]
+    session.acknowledge(receipt)
+    plane = session.advance()
+    expected = session.execution_record()
+    assert expected["source_evaluations"] == 3
+    assert expected["response_calls"]["accepted_steps"] == 2
+    assert expected["response_calls"]["orders"] == [[2, 2]]
+    assert (
+        session.memory_ledger()["execution.response_orders"]
+        == 2 * np.dtype(np.int64).itemsize
+    )
+    session.acknowledge(plane.receipt)
+    assert session.execution_record() == expected
+    session.close()
+    assert session.execution_record() == expected
+
+
+@pytest.mark.parametrize("interrupt_at", ["before", "after"])
+def test_accounting_publication_is_atomic_under_interruption(
+    boundary, monkeypatch, interrupt_at
+):
+    import inspect  # noqa: PLC0415 - trace the one publication boundary precisely
+    import sys  # noqa: PLC0415 - isolated synthetic interruption, no runtime signals
+
+    session = _start(boundary, _frame(0))
+    accounting = _calls.EngineExecution(
+        2, (1, 1, 0, 0, 1, 0, 0, 0, 0), np.array([2], dtype=np.int64)
+    )
+    monkeypatch.setattr(_calls, "execution", lambda *_: accounting)
+    capture = inspect.unwrap(JuliaSession._capture_execution)
+    lines, first = inspect.getsourcelines(capture)
+    publication = first + next(
+        index for index, line in enumerate(lines) if "self._accounting =" in line
+    )
+    interrupted = False
+
+    def trace(frame, event, arg):
+        nonlocal interrupted
+        before = event == "line" and frame.f_lineno == publication
+        after = event == "return"
+        if frame.f_code is capture.__code__ and (
+            before if interrupt_at == "before" else after
+        ):
+            interrupted = True
+            raise KeyboardInterrupt
+        return trace
+
+    previous = sys.gettrace()
+    try:
+        sys.settrace(trace)
+        with pytest.raises(KeyboardInterrupt):
+            session._capture_execution(1)
+    finally:
+        sys.settrace(previous)
+    assert interrupted
+    assert session._accounting.generation == (0 if interrupt_at == "before" else 1)
+    session._capture_execution(1)
+    session._capture_execution(1)
+    record = session.execution_record()
+    assert record["source_evaluations"] == 2
+    assert record["response_calls"]["orders"] == [[2, 1]]
+    assert record["response_calls"]["accepted_steps"] == 1

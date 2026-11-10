@@ -167,3 +167,65 @@ end
         @test sum(values(sizes)) == sum(values(ordinary))
     end
 end
+
+@testset "Bridge Adams accounting is detached and generation validated" begin
+    session = adams_session_fixture(; replay = true)
+    launch = SolpropJulia.advance!(session)
+    @test SolpropJulia.session_execution(session, launch.generation) ==
+        (0, (0, 0, 0, 0, 0, 0, 0, 0, 0))
+    @test_throws ArgumentError SolpropJulia.session_budget(session, launch.generation)
+    SolpropJulia.acknowledge!(session, launch.generation)
+    @test_throws ArgumentError SolpropJulia.session_execution(session, launch.generation)
+    report = SolpropJulia.advance!(session; work_limit = 3, deadline = 60.0)
+    generation, count = report.generation, session.attempts.count
+    actual, logical = SolpropJulia.session_execution(session, generation)
+    @test actual == session.source.calls == 4
+    @test logical == (1, 3, 0, 0, 3, 0, 0, 0, 0)
+    orders = zeros(Int64, count)
+    SolpropJulia.session_orders!(orders, session, generation)
+    @test orders == session.orders[1:count]
+    @test session.attempts.count == count
+    orders[1] = 99
+    @test session.orders[1] != 99
+    # Rejected attempts have no accepted order in the run-length record.
+    session.attempts.accepted[2] = false
+    SolpropJulia.session_orders!(orders, session, generation)
+    @test orders[2] == 0
+    session.state.poisoned = true
+    @test SolpropJulia.session_execution(session, generation) == (actual, logical)
+    @test_throws ArgumentError SolpropJulia.session_orders!(
+        view(session.orders, 1:count), session, generation,
+    )
+    untouched = fill(Int64(17), count)
+    @test_throws ArgumentError SolpropJulia.session_orders!(
+        untouched, session, generation + 1,
+    )
+    @test all(==(17), untouched)
+    @test_throws DimensionMismatch SolpropJulia.session_orders!(
+        zeros(Int64, count + 1), session, generation,
+    )
+    SolpropJulia.acknowledge!(session, generation)
+    @test_throws ArgumentError SolpropJulia.session_orders!(orders, session, generation)
+end
+
+@testset "Bridge budget diagnostics use the numerical admission charge" begin
+    for absent in (false, true), maximum in (1, 3)
+        session = adams_session_fixture(;
+            replay = true, policy = adams_session_policy(; max_calls = maximum),
+            source_absent = absent,
+        )
+        launch = SolpropJulia.advance!(session)
+        SolpropJulia.acknowledge!(session, launch.generation)
+        failed = SolpropJulia.advance!(session; deadline = 60.0)
+        @test failed.kind == SolpropJulia.SESSION_FAILED
+        @test !failed.poisoned
+        spent, needed = maximum == 1 ? (0, 2) : (3, 1)
+        @test SolpropJulia.session_budget(session, failed.generation) ==
+            (maximum, spent, needed)
+        actual, logical = SolpropJulia.session_execution(session, failed.generation)
+        @test actual == (absent ? 0 : spent)
+        @test sum(logical[1:3]) == spent
+        SolpropJulia.acknowledge!(session, failed.generation)
+        @test_throws ArgumentError SolpropJulia.session_budget(session, failed.generation)
+    end
+end
