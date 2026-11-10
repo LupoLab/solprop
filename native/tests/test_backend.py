@@ -145,12 +145,14 @@ def test_spatial_statistics_refuse_a_malformed_native_result(
         backend.close()
 
 
+@pytest.mark.parametrize("member", ["_hoist", "start_group"])
 def test_a_solprop_without_a_driver_member_is_refused_by_name(
     monkeypatch: pytest.MonkeyPatch,
+    member: str,
 ) -> None:
     """The seam is the driver surface and the bundles, not solprop's version string."""
-    monkeypatch.delattr(StepDriver, "_hoist")
-    with pytest.raises(BackendError, match=r"has no StepDriver\._hoist"):
+    monkeypatch.delattr(StepDriver, member)
+    with pytest.raises(BackendError, match=rf"has no StepDriver\.{member}"):
         check_build()
 
 
