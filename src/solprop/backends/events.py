@@ -392,6 +392,33 @@ class EventBatch:
         return None
 
 
+def _column(
+    histories: list[BackendHistory], name: str, dtype: type = np.float64
+) -> np.ndarray:
+    """Return one column of consecutive histories, joined in order.
+
+    At module level rather than nested in :func:`join_attempts`, so that no function
+    object is made per call (each one costs the coverage lane's import hook a compile).
+
+    Parameters
+    ----------
+    histories : list of BackendHistory
+        The histories, in delivery order.
+    name : str
+        The column's attribute on a history.
+    dtype : type, optional
+        The column's dtype, which an empty join keeps.
+
+    Returns
+    -------
+    numpy.ndarray
+        The column over every history.
+    """
+    return np.concatenate(
+        [np.empty(0, dtype=dtype), *(getattr(part, name) for part in histories)]
+    )
+
+
 def join_attempts(
     chunks: Iterable[tuple[BackendHistory | None, StepStats | None]],
 ) -> tuple[BackendHistory, StepStats]:
@@ -452,34 +479,12 @@ def join_attempts(
             attempts += history.n_steps
             wall += float(history.wall_time[-1])
 
-    def column(name: str, dtype: type = np.float64) -> np.ndarray:
-        """Return one column of the chunks' histories, joined in order.
-
-        Parameters
-        ----------
-        name : str
-            The column's attribute on a history.
-        dtype : type, optional
-            The column's dtype, which an empty join keeps.
-
-        Returns
-        -------
-        numpy.ndarray
-            The column over every chunk.
-        """
-        return np.concatenate(
-            [
-                np.empty(0, dtype=dtype),
-                *(getattr(part, name) for part in histories),
-            ]
-        )
-
     joined = BackendHistory(
-        z=column("z"),
-        dz=column("dz"),
-        error_norm=column("error_norm"),
-        accepted=column("accepted", np.bool_),
-        wall_time=column("wall_time"),
+        z=_column(histories, "z"),
+        dz=_column(histories, "dz"),
+        error_norm=_column(histories, "error_norm"),
+        accepted=_column(histories, "accepted", np.bool_),
+        wall_time=_column(histories, "wall_time"),
     )
     if not rows:
         return joined, StepStats.empty()
