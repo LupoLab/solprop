@@ -302,3 +302,357 @@ end
     )
     @test one_column.buckets == retained_buckets
 end
+
+function _transverse_policy(; design = false, collar = false)
+    return SolpropJulia.TransversePolicy(;
+        warn = 0.01, stop = 0.09,
+        backstop_start = 0.0625, backstop_max = 0.25, reach_growth = 0.1,
+        guard_numerator = 0.2, k_min = 10.0, k_floor_fraction = 0.05,
+        due_tolerance = 1.0e-12, noise_factor = 8.0, strip_floor_margin = 3.0,
+        strip_leakage = 1.0e-6, has_design = design, has_collar = collar
+    )
+end
+
+function _transverse_tables(; ramp = false)
+    faces = zeros(4, 4)
+    faces[1, 1], faces[4, 2] = 0.25, 0.25
+    clip = copy(faces)
+    totals = zeros(4, 4)
+    totals[:, 1] .= 0.25
+    totals[:, 2] .= [0.125, 0.0, 0.0, 0.25]
+    totals[:, 3] .= [0.25, 0.0, 0.0, 0.25]
+    return SolpropJulia.TransverseTables(
+        faces, clip, totals, ones(4),
+        [0.0, 1.0, 3.0, 6.0], [1, 2, 3, 4], ramp ? [0.0, 0.0, 0.0, 1.0] : zeros(4);
+        face_ranks = (2, 1), noise_face_share = 0.25, noise_modes = 16
+    )
+end
+
+function _transverse_reading(;
+        total = 100.0, faces = (0.0, 0.0, 0.0, 0.0),
+        columns = [100.0, 0.0, 0.0, 0.0], rate = 0.0, outside = 0.0,
+        strip = zeros(0, 2), current = nothing
+    )
+    reading = SolpropJulia.TransverseReading(4, size(strip, 1))
+    reading.faces, reading.totals = faces, (total, rate, outside, 0.0)
+    reading.has_faces, reading.full = true, true
+    copyto!(reading.columns, columns)
+    copyto!(reading.strip, strip)
+    reading.has_strip = true
+    if current !== nothing
+        reading.current, reading.has_current = current, true
+    end
+    return reading
+end
+
+function _transverse_reading_allocations(
+        reading, nodes, columns, tables, scratch, execution
+    )
+    SolpropJulia.transverse_reading!(
+        reading, nodes, columns, tables, scratch, execution;
+        full = true
+    )
+    return @allocated SolpropJulia.transverse_reading!(
+        reading, nodes, columns, tables,
+        scratch, execution; full = true
+    )
+end
+
+function _transverse_control_allocations(state, policy, tables, reading, notices)
+    first_z = state.last_z + 0.125
+    second_z = first_z + 0.125
+    # Julia 1.13 wraps a qualified @allocated call in a closure; a reassigned z
+    # would box the test's arguments. Measure the concrete kernel call directly.
+    read! = SolpropJulia.transverse_read!
+    read!(state, policy, tables, reading, first_z, notices)
+    return @allocated read!(state, policy, tables, reading, second_z, notices)
+end
+
+function _transverse_strip_allocations(reading, lines, execution)
+    SolpropJulia.transverse_strip!(reading, lines, execution)
+    return @allocated SolpropJulia.transverse_strip!(reading, lines, execution)
+end
+
+@testset "Transverse numerical norms, regions and stale flags" begin
+    for tasks in (1, 2)
+        execution = SolpropJulia.KernelExecution(
+            SolpropJulia.KernelAbstractions.CPU(), tasks, true
+        )
+        tables = _transverse_tables()
+        node_spectrum = reshape(complex.(sin.(1:20), cos.(2:21)), 5, 4)
+        column_spectrum = 2 .* node_spectrum
+        scratch = fill(NaN, 4)
+        reading = SolpropJulia.TransverseReading(4, 2)
+        reading.has_strip = reading.has_current = true
+        SolpropJulia.transverse_reading!(
+            reading, node_spectrum, column_spectrum,
+            tables, scratch, execution; full = true
+        )
+        norm = vec(sum(abs2, Complex{BigFloat}.(node_spectrum); dims = 1))
+        expected = [
+            sum(norm .* table[:, region]) for region in 1:4,
+                table in (tables.faces, tables.clip, tables.totals)
+        ]
+        actual = hcat(
+            collect(reading.faces), collect(reading.clip), collect(reading.totals)
+        )
+        # Five complex squared norms followed by four-node positive reductions:
+        # gamma_64 bounds each output using the largest absolute weighted norm.
+        bound = 64eps(Float64) / (1 - 64eps(Float64)) * maximum(Float64.(expected))
+        @test maximum(abs, actual - Float64.(expected)) <= bound
+        @test maximum(abs, reading.columns - 4Float64.(norm)) <= 4bound
+        @test !reading.has_strip && !reading.has_current && reading.full
+        @test _transverse_reading_allocations(
+            reading, node_spectrum, column_spectrum,
+            tables, scratch, execution
+        ) == 0
+        @test_throws ArgumentError SolpropJulia.transverse_reading!(
+            reading,
+            node_spectrum, column_spectrum, tables, reading.columns, execution
+        )
+        @test_throws DimensionMismatch SolpropJulia.transverse_reading!(
+            reading,
+            node_spectrum, column_spectrum, tables, zeros(3), execution
+        )
+    end
+end
+
+@testset "Transverse strip Parseval factors and inward current" begin
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 2, true)
+    # A pure discrete Fourier mode has one nonzero raw FFT bin. Its energy is
+    # n_fft*spacing times the squared amplitude, then the line measure.
+    spectrum = zeros(ComplexF64, 8, 2)
+    spectrum[3, :] .= [8.0, 4.0im]
+    inward = SolpropJulia.TransverseStripLine(spectrum, 0.25, 2.0, 2, 4)
+    outward = SolpropJulia.TransverseStripLine(spectrum, 0.25, 2.0, 5, 8)
+    empty_line = SolpropJulia.TransverseStripLine(zeros(ComplexF64, 0, 0), 0.25, 2.0, 1, 0)
+    reading = SolpropJulia.TransverseReading(4, 3)
+    lines = (inward, outward, empty_line)
+    SolpropJulia.transverse_strip!(reading, lines, execution)
+    @test reading.strip == [5.0 5.0; 0.0 5.0; 0.0 0.0]
+    @test reading.has_strip
+    @test _transverse_strip_allocations(reading, lines, execution) == 0
+    # E=1+i*q*x gives Im(conj(E)*dE/dx)=q exactly at x=0; the opposite
+    # q channel is outgoing and is rectified separately before the sum.
+    samples = ComplexF64[1 - 1im 1 + 2im; 1 1; 1 + 1im 1 - 2im]
+    current_line = SolpropJulia.TransverseCurrentLine(samples, 2, 1, 3, 2.0, 3.0)
+    SolpropJulia.transverse_current!(reading, (current_line,), 2.0)
+    @test reading.current == 1.5 && reading.has_current
+    @test_throws ArgumentError SolpropJulia.TransverseStripLine(spectrum, -1.0, 2.0, 1, 8)
+    @test_throws ArgumentError SolpropJulia.TransverseCurrentLine(
+        samples, 9, 1, 3, 2.0, 3.0
+    )
+end
+
+@testset "Transverse cadence, warning order and lexical stop ties" begin
+    tables, policy = _transverse_tables(), _transverse_policy()
+    state = SolpropJulia.TransverseState(tables)
+    reading = _transverse_reading()
+    notices = SolpropJulia.MonitorNotices(8)
+    SolpropJulia.transverse_launch!(state, policy, tables, reading, 0.0, notices)
+    @test state.next == 0.0625 && state.backstop == 0.0625
+    @test SolpropJulia.transverse_ceiling(state) == 0.0625
+    @test !SolpropJulia.transverse_due(state, policy, 0.0, 0.01)
+    @test SolpropJulia.transverse_due(state, policy, 0.0, 0.0625)
+    @test !SolpropJulia.transverse_wants_read(state, 0.0)
+    reading.columns .= [0.0, 100.0, 0.0, 0.0]
+    SolpropJulia.transverse_read!(state, policy, tables, reading, 0.05, notices)
+    reference = state.reach_reference
+    @test reference > 0.0 && state.backstop == 0.0625
+    SolpropJulia.transverse_read!(state, policy, tables, reading, 0.1, notices)
+    @test state.backstop == 0.125 && state.reach_reference == reference
+    SolpropJulia.transverse_read!(state, policy, tables, reading, 0.15, notices)
+    @test state.backstop == 0.25
+    @test _transverse_control_allocations(state, policy, tables, reading, notices) == 0
+    reading.columns .= [0.0, 0.0, 100.0, 0.0]
+    SolpropJulia.transverse_read!(state, policy, tables, reading, 0.5, notices)
+    @test state.backstop == 0.0625 && state.reach_reference > reference * 1.1
+    reading.faces = (4.0, 5.0, 0.0, 0.0)
+    SolpropJulia.transverse_read!(state, policy, tables, reading, 0.6, notices)
+    @test notices.count == 1 && notices.records[1].face == 1
+    @test state.status == SolpropJulia.TransverseWarned
+    SolpropJulia.reset_notices!(notices)
+    reading.faces = (16.0, 16.0, 0.0, 0.0)
+    SolpropJulia.transverse_read!(state, policy, tables, reading, 0.7, notices)
+    @test SolpropJulia.monitor_stopped(notices)
+    @test notices.records[1].face == 1 # x- is lexically greater than x+.
+    @test state.status == SolpropJulia.TransverseStopped
+end
+
+@testset "Transverse ramp declaration, noise allowance and unwatched state" begin
+    tables, policy = _transverse_tables(; ramp = true), _transverse_policy(; design = true)
+    notices = SolpropJulia.MonitorNotices(8)
+    reading = _transverse_reading(; columns = [98.0, 0.0, 0.0, 2.0])
+    state = SolpropJulia.TransverseState(tables)
+    SolpropJulia.transverse_launch!(state, policy, tables, reading, 0.0, notices)
+    @test notices.records[1].code == SolpropJulia.TransverseLaunchWarning
+    SolpropJulia.reset_notices!(notices)
+    SolpropJulia.transverse_read!(state, policy, tables, reading, 10.0, notices)
+    @test state.ramp_warned
+    @test notices.records[1].code == SolpropJulia.TransverseRampWarning
+    declared = SolpropJulia.TransverseState(tables)
+    SolpropJulia.reset_notices!(notices)
+    SolpropJulia.transverse_launch!(
+        declared, policy, tables, reading, 0.0, notices;
+        declared = true
+    )
+    SolpropJulia.transverse_read!(declared, policy, tables, reading, 10.0, notices)
+    @test notices.count == 0 && declared.declared_share == 0.02
+    @test SolpropJulia.transverse_ramp_removed(declared) < 0.0
+    noise = _transverse_reading(; total = 4.0, columns = [0.0, 0.0, 0.0, 4.0])
+    noisy = SolpropJulia.TransverseState(tables)
+    SolpropJulia.transverse_launch!(
+        noisy, policy, tables, reading, 0.0, notices;
+        noise, clean_columns = [98.0, 0.0, 0.0, 0.0]
+    )
+    @test noisy.allowance == 0.02 && noisy.status == SolpropJulia.TransverseInsensitive
+    @test noisy.noise_share_in_ramp == 0.04
+    unwatched = SolpropJulia.TransverseState(tables)
+    SolpropJulia.reset_notices!(notices)
+    SolpropJulia.transverse_launch!(
+        unwatched, policy, tables, reading, 0.0, notices;
+        reads = false, declared = true
+    )
+    @test unwatched.status == SolpropJulia.TransverseUnwatched
+    @test !SolpropJulia.transverse_wants_read(unwatched, 1.0)
+    @test isinf(SolpropJulia.transverse_ceiling(unwatched))
+end
+
+@testset "Transverse collar returns and immutable continuation" begin
+    tables = _transverse_tables()
+    policy = _transverse_policy(; design = true, collar = true)
+    state = SolpropJulia.TransverseState(tables)
+    notices = SolpropJulia.MonitorNotices(8)
+    reading = _transverse_reading(; rate = 2.0, outside = 5.0, strip = [1.0 2.0; 0.0 1.0])
+    SolpropJulia.transverse_launch!(state, policy, tables, reading, 0.0, notices)
+    @test state.strip_baseline == 0.01 && state.current_baseline == 0.05
+    SolpropJulia.transverse_step!(state, policy, 100.0, 0.1)
+    SolpropJulia.transverse_step!(state, policy, 100.0, 0.2)
+    @test state.current == 0.1
+    reading.faces = (50.0, 40.0, 0.0, 0.0)
+    reading.strip .= [4.0 8.0; 0.0 1.0]
+    SolpropJulia.transverse_read!(state, policy, tables, reading, 0.2, notices)
+    @test state.peak == (0.0, 0.0) && state.peak_raw == (0.5, 0.4)
+    @test state.returned_peak == 0.05
+    @test notices.records[1].code == SolpropJulia.TransverseReturnWarning
+    continuation = SolpropJulia.transverse_continuation(state)
+    resumed = SolpropJulia.TransverseState(tables)
+    SolpropJulia.restore_transverse!(resumed, continuation)
+    SolpropJulia.reset_notices!(notices)
+    reading.strip .= 1000.0
+    reading.current, reading.has_current = 100.0, true
+    SolpropJulia.transverse_launch!(resumed, policy, tables, reading, 0.2, notices)
+    @test notices.count == 0 && resumed.launch == state.launch
+    @test resumed.current == state.current && resumed.strip_baseline == state.strip_baseline
+    @test resumed.has_current_last && resumed.current_last == 1.0
+    @test SolpropJulia.transverse_finish!(resumed).reads == state.reads
+    @test_throws ArgumentError SolpropJulia.restore_transverse!(resumed, continuation)
+end
+
+@testset "Transverse early refusal, launch stops and zero launch" begin
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 2, true)
+    tables, policy = _transverse_tables(), _transverse_policy()
+    spectrum = ones(ComplexF64, 3, 4)
+    reading = _transverse_reading()
+    for scratch in (
+            tables.column_weights, tables.kappa, tables.ramp_rates,
+            reinterpret(Float64, tables.order),
+        )
+        retained = copy(scratch)
+        @test_throws ArgumentError SolpropJulia.transverse_reading!(
+            reading,
+            spectrum, spectrum, tables, scratch, execution
+        )
+        @test isequal(scratch, retained)
+    end
+    reading.columns = tables.column_weights
+    retained = copy(tables.column_weights)
+    @test_throws ArgumentError SolpropJulia.transverse_reading!(
+        reading,
+        spectrum, spectrum, tables, zeros(4), execution
+    )
+    @test tables.column_weights == retained
+    reading = _transverse_reading()
+    state = SolpropJulia.TransverseState(tables)
+    state.last_columns = tables.ramp_rates
+    @test_throws ArgumentError SolpropJulia.transverse_launch!(
+        state,
+        policy, tables, reading, 0.0, SolpropJulia.MonitorNotices(8)
+    )
+    @test all(iszero, tables.ramp_rates)
+    state = SolpropJulia.TransverseState(tables)
+    @test_throws ArgumentError SolpropJulia.transverse_launch!(
+        state,
+        policy, tables, reading, 0.0, SolpropJulia.MonitorNotices(8);
+        clean_columns = state.last_columns
+    )
+    @test isnan(state.launch)
+    reading = SolpropJulia.TransverseReading(4, 2)
+    reading.columns = vec(reading.strip)
+    line = SolpropJulia.TransverseStripLine(ones(ComplexF64, 2, 2), 1.0, 1.0, 1, 1)
+    @test_throws ArgumentError SolpropJulia.transverse_strip!(
+        reading, (line, line), execution
+    )
+    @test all(iszero, reading.strip)
+    reading = SolpropJulia.TransverseReading(4, 2)
+    line = SolpropJulia.TransverseStripLine(reading.strip, 1.0, 1.0, 1, 1)
+    @test_throws ArgumentError SolpropJulia.transverse_strip!(
+        reading, (line, line), execution
+    )
+    @test all(iszero, reading.strip)
+    reading = _transverse_reading(; total = 0.0)
+    state = SolpropJulia.TransverseState(tables)
+    notices = SolpropJulia.MonitorNotices(8)
+    SolpropJulia.transverse_launch!(state, policy, tables, reading, 0.0, notices)
+    @test state.launch == 0 && !isfinite(state.next) && notices.count == 0
+    @test !SolpropJulia.transverse_wants_read(state, 1.0)
+    @test !SolpropJulia.transverse_due(state, policy, 1.0)
+    tables, policy = _transverse_tables(; ramp = true), _transverse_policy(; design = true)
+    reading = _transverse_reading(; columns = [80.0, 0.0, 0.0, 20.0])
+    state = SolpropJulia.TransverseState(tables)
+    SolpropJulia.transverse_launch!(state, policy, tables, reading, 0.0, notices)
+    @test SolpropJulia.monitor_stopped(notices)
+    @test notices.records[1].code == SolpropJulia.TransverseLaunchStop
+    @test !isfinite(state.next) && all(iszero, state.last_columns)
+    @test all(iszero, state.baseline)
+    SolpropJulia.reset_notices!(notices)
+    @test_throws ArgumentError SolpropJulia.TransverseReading(0)
+    @test_throws DimensionMismatch SolpropJulia.TransverseTables(
+        zeros(4, 3),
+        tables.clip, tables.totals, tables.column_weights, tables.kappa, tables.order,
+        tables.ramp_rates; face_ranks = (2, 1), noise_face_share = 0.25, noise_modes = 16
+    )
+    @test_throws ArgumentError SolpropJulia.TransverseTables(
+        tables.faces,
+        tables.clip, tables.totals, tables.column_weights, tables.kappa, [1, 1, 3, 4],
+        tables.ramp_rates; face_ranks = (2, 1), noise_face_share = 0.25, noise_modes = 16
+    )
+    @test_throws ArgumentError SolpropJulia.TransverseTables(
+        tables.faces,
+        tables.clip, tables.totals, tables.column_weights, tables.kappa, tables.order,
+        tables.ramp_rates; face_ranks = (1, 1), noise_face_share = 0.25, noise_modes = 16
+    )
+    reading = _transverse_reading()
+    reading.full = false
+    @test_throws ArgumentError SolpropJulia.transverse_launch!(
+        SolpropJulia.TransverseState(tables), policy, tables, reading, 0.0, notices
+    )
+    reading.full = true
+    reading.columns[1] = NaN
+    @test_throws ArgumentError SolpropJulia.transverse_launch!(
+        SolpropJulia.TransverseState(tables), policy, tables, reading, 0.0, notices
+    )
+    reading = _transverse_reading(; current = Inf)
+    @test_throws ArgumentError SolpropJulia.transverse_launch!(
+        SolpropJulia.TransverseState(tables), policy, tables, reading, 0.0, notices
+    )
+    reading = _transverse_reading(; total = nextfloat(0.0), faces = (1.0, 0.0, 0.0, 0.0))
+    @test_throws ArgumentError SolpropJulia.transverse_launch!(
+        SolpropJulia.TransverseState(tables), policy, tables, reading, 0.0, notices
+    )
+    reading = _transverse_reading(; total = nextfloat(0.0), rate = 1.0)
+    collar_policy = _transverse_policy(; design = true, collar = true)
+    @test_throws ArgumentError SolpropJulia.transverse_launch!(
+        SolpropJulia.TransverseState(tables), collar_policy, tables, reading, 0.0, notices
+    )
+end

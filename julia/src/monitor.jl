@@ -33,6 +33,9 @@ transverse codes carry the declared face index and their scalar diagnostic.
     TransverseReturnStop = 10
     TransverseRampWarning = 11
     TransverseRampStop = 12
+    TransverseLaunchStop = 13
+    TransverseInsensitiveWarning = 14
+    TransverseUnwatchedWarning = 15
 end
 
 """
@@ -95,7 +98,7 @@ function monitor_stopped(notices::MonitorNotices)
     for index in 1:notices.count
         notices.records[index].code in (
             TemporalGuardStop, TransverseFaceStop,
-            TransverseReturnStop, TransverseRampStop,
+            TransverseReturnStop, TransverseRampStop, TransverseLaunchStop,
         ) && return true
     end
     return false
@@ -842,4 +845,977 @@ function restore_temporal!(state, continuation; plane::Bool)
     state.left_out_checks, state.last_plane_z = continuation.left_out_checks,
         continuation.last_plane_z
     return nothing
+end
+
+public TransverseStatus, TransversePolicy, TransverseTables, TransverseReading
+public TransverseState, TransverseContinuation, TransverseStripLine, TransverseCurrentLine
+public transverse_reading!, transverse_strip!, transverse_current!
+public transverse_launch!, transverse_read!, transverse_step!, transverse_due
+public transverse_wants_read, transverse_ceiling, transverse_ramp_removed
+public transverse_continuation, restore_transverse!, transverse_finish!
+
+"""
+    TransverseStatus
+
+Identify the numerical edge status, with names formatted by the session boundary.
+
+The values are clear, warned, stopped, insensitive, coarse, unwatched and off.
+"""
+@enum TransverseStatus::UInt8 begin
+    TransverseClear = 0
+    TransverseWarned = 1
+    TransverseStopped = 2
+    TransverseInsensitive = 3
+    TransverseCoarse = 4
+    TransverseUnwatched = 5
+    TransverseOff = 6
+end
+
+"""
+    TransversePolicy(; warn, stop, backstop_start, backstop_max, reach_growth,
+        guard_numerator, k_min, k_floor_fraction, due_tolerance, noise_factor,
+        strip_floor_margin, strip_leakage, has_design, has_collar)
+
+Retain explicitly lowered transverse monitoring policy in binary64.
+
+`warn/stop` are energy shares. Backstops and `guard_numerator=4*guard_width` are in m;
+`k_min` is in rad/m. Remaining margins are dimensionless and come from the neutral
+monitor. There are no new physical defaults. A collar requires a design; positive
+scales and finite nonnegative margins are validated at preparation.
+"""
+struct TransversePolicy
+    warn::Float64
+    stop::Float64
+    backstop_start::Float64
+    backstop_max::Float64
+    reach_growth::Float64
+    guard_numerator::Float64
+    k_min::Float64
+    k_floor_fraction::Float64
+    due_tolerance::Float64
+    noise_factor::Float64
+    strip_floor_margin::Float64
+    strip_leakage::Float64
+    has_design::Bool
+    has_collar::Bool
+end
+function TransversePolicy(;
+        warn, stop, backstop_start, backstop_max, reach_growth, guard_numerator,
+        k_min, k_floor_fraction, due_tolerance, noise_factor, strip_floor_margin,
+        strip_leakage, has_design::Bool, has_collar::Bool,
+    )
+    all(
+        isfinite, (
+            warn, stop, backstop_start, backstop_max, reach_growth,
+            guard_numerator, k_min, k_floor_fraction, due_tolerance, noise_factor,
+            strip_floor_margin, strip_leakage,
+        )
+    ) && 0 < warn <= stop &&
+        0 < backstop_start <= backstop_max && reach_growth >= 0 &&
+        guard_numerator > 0 && k_min > 0 && k_floor_fraction > 0 &&
+        due_tolerance >= 0 && noise_factor >= 0 && strip_floor_margin >= 0 &&
+        strip_leakage >= 0 && (!has_collar || has_design) ||
+        throw(ArgumentError("invalid transverse monitor policy"))
+    return TransversePolicy(
+        warn, stop, backstop_start, backstop_max, reach_growth,
+        guard_numerator, k_min, k_floor_fraction, due_tolerance, noise_factor,
+        strip_floor_margin, strip_leakage, has_design, has_collar
+    )
+end
+
+"""
+    TransverseTables(faces, clip, totals, column_weights, kappa, order, ramp_rates;
+                     face_ranks, noise_face_share, noise_modes)
+
+Retain prepared spatial reduction weights and exact scalar-decision ordering.
+
+The three real matrices are `(n_nodes,4)`, with unused face columns zero; totals are
+whole-grid energy, collar removal rate, launch energy outside the requested size and
+an unused zero column. Vectors have `n_columns` entries. `kappa` is in rad/m, ramp
+rates in m⁻¹ and `order` is the one-based ascending-kappa permutation from preparation.
+`face_ranks` gives the lexical tie rank of each of one to four actual faces in declared
+order. Noise geometry is the first face's measure share and its node×band sample count.
+Tables are immutable caller-owned inputs; invalid dimensions/domains raise.
+"""
+struct TransverseTables{F, C, T, V, K, I, R, N}
+    faces::F
+    clip::C
+    totals::T
+    column_weights::V
+    kappa::K
+    order::I
+    ramp_rates::R
+    face_ranks::NTuple{N, Int}
+    noise_face_share::Float64
+    noise_modes::Int
+end
+function TransverseTables(
+        faces, clip, totals, column_weights, kappa, order, ramp_rates;
+        face_ranks::NTuple{N, Int}, noise_face_share, noise_modes::Int
+    ) where {N}
+    all(vector -> ndims(vector) == 1, (column_weights, kappa, order, ramp_rates)) &&
+        eltype(order) <: Integer &&
+        size(faces) == size(clip) == size(totals) && ndims(faces) == 2 &&
+        size(faces, 1) > 0 && size(faces, 2) == 4 &&
+        length(column_weights) == length(kappa) ==
+        length(order) == length(ramp_rates) > 0 ||
+        throw(DimensionMismatch("transverse monitor table dimensions disagree"))
+    1 <= N <= 4 && sort(collect(face_ranks)) == collect(1:N) &&
+        sort(collect(order)) == collect(1:length(order)) &&
+        all(index -> kappa[order[index]] >= kappa[order[index - 1]], 2:length(order)) ||
+        throw(ArgumentError("transverse face ranks or kappa order are invalid"))
+    all(
+        table -> all(value -> isfinite(value) && value >= 0, table),
+        (faces, clip, totals, column_weights, kappa, ramp_rates)
+    ) &&
+        isfinite(noise_face_share) && 0 <= noise_face_share <= 1 && noise_modes > 0 ||
+        throw(ArgumentError("transverse monitor weights must be finite nonnegative"))
+    return TransverseTables(
+        faces, clip, totals, column_weights, kappa, order, ramp_rates,
+        face_ranks, noise_face_share, noise_modes
+    )
+end
+
+"""
+    TransverseReading(n_columns, n_lines=0)
+
+Allocate fixed transverse reading storage with no valid observation initially.
+
+`faces/clip/totals` are four-entry binary64 tuples. Owned `columns` holds unweighted
+spectral column energies; `strip` is `(n_lines,2)` inward/windowed energy. `current`
+is the rectified onset current in proxy energy per m. Validity flags require callers
+to form strips/current after each `transverse_reading!`, preventing stale reuse.
+"""
+mutable struct TransverseReading{V, A}
+    faces::NTuple{4, Float64}
+    clip::NTuple{4, Float64}
+    totals::NTuple{4, Float64}
+    columns::V
+    strip::A
+    current::Float64
+    has_faces::Bool
+    full::Bool
+    has_strip::Bool
+    has_current::Bool
+end
+function TransverseReading(n_columns::Int, n_lines::Int = 0)
+    n_columns > 0 && n_lines >= 0 || throw(ArgumentError("invalid transverse reading size"))
+    blank = (0.0, 0.0, 0.0, 0.0)
+    return TransverseReading(
+        blank, blank, blank, zeros(n_columns), zeros(n_lines, 2),
+        0.0, false, false, false, false
+    )
+end
+
+function _transverse_alias_tables(buffer, tables)
+    return Base.mightalias(buffer, tables.faces) || Base.mightalias(buffer, tables.clip) ||
+        Base.mightalias(buffer, tables.totals) ||
+        Base.mightalias(buffer, tables.column_weights) ||
+        Base.mightalias(buffer, tables.kappa) || Base.mightalias(buffer, tables.order) ||
+        Base.mightalias(buffer, tables.ramp_rates)
+end
+
+function _transverse_numerical_check(reading, node_spectrum, column_spectrum, tables, nodes)
+    ndims(node_spectrum) == ndims(column_spectrum) == 2 &&
+        size(node_spectrum, 1) == size(column_spectrum, 1) > 0 &&
+        size(node_spectrum, 2) == size(tables.faces, 1) == length(nodes) &&
+        size(column_spectrum, 2) == length(reading.columns) ==
+        length(tables.column_weights) ||
+        throw(DimensionMismatch("transverse spectra and reduction storage disagree"))
+    all(isfinite, node_spectrum) && all(isfinite, column_spectrum) ||
+        throw(ArgumentError("transverse monitor spectra are nonfinite"))
+    # Explicit calls specialize on each buffer type; no heterogeneous dynamic scan.
+    (
+        Base.mightalias(nodes, node_spectrum) || Base.mightalias(nodes, column_spectrum) ||
+            _transverse_alias_tables(nodes, tables) ||
+            Base.mightalias(nodes, reading.columns) ||
+            Base.mightalias(nodes, reading.strip) ||
+            Base.mightalias(reading.columns, node_spectrum) ||
+            Base.mightalias(reading.columns, column_spectrum) ||
+            _transverse_alias_tables(reading.columns, tables) ||
+            Base.mightalias(reading.columns, reading.strip)
+    ) &&
+        throw(ArgumentError("transverse reduction storage aliases its inputs"))
+    return nothing
+end
+
+"""
+    transverse_reading!(reading, node_spectrum, column_spectrum, tables, nodes,
+                        execution; full=false)
+
+Reduce actual physical-node and spectral-column matrices into an edge reading.
+
+Matrices are `(n_omega,n_nodes)` and `(n_omega,n_columns)` for admitted scalar routes.
+The caller supplies shared spatial transforms, including zeroed inactive nodes.
+`nodes` is caller-owned binary64 scratch. `full=true` certifies all launch nodes were
+prepared. Ordinary reads may omit unused nodes but must include all rate/face weights.
+Only raw squared norms are reduced here. Strip/current flags are cleared; their
+fresh leaves run afterwards. Invalid inputs raise before any scratch write.
+"""
+function transverse_reading!(
+        reading, node_spectrum, column_spectrum, tables,
+        nodes, execution; full::Bool = false
+    )
+    _transverse_numerical_check(reading, node_spectrum, column_spectrum, tables, nodes)
+    each_column!(execution, length(nodes)) do node
+        value = 0.0
+        for row in axes(node_spectrum, 1)
+            value += _monitor_pair(node_spectrum[row, node])
+        end
+        nodes[node] = value
+    end
+    columns = reading.columns
+    each_column!(execution, length(columns)) do column
+        value = 0.0
+        for row in axes(column_spectrum, 1)
+            value += _monitor_pair(column_spectrum[row, column])
+        end
+        columns[column] = value
+    end
+    faces = clip = totals = (0.0, 0.0, 0.0, 0.0)
+    for node in eachindex(nodes)
+        value = nodes[node]
+        faces = (
+            faces[1] + tables.faces[node, 1] * value,
+            faces[2] + tables.faces[node, 2] * value,
+            faces[3] + tables.faces[node, 3] * value,
+            faces[4] + tables.faces[node, 4] * value,
+        )
+        clip = (
+            clip[1] + tables.clip[node, 1] * value,
+            clip[2] + tables.clip[node, 2] * value,
+            clip[3] + tables.clip[node, 3] * value,
+            clip[4] + tables.clip[node, 4] * value,
+        )
+        totals = (
+            totals[1] + tables.totals[node, 1] * value,
+            totals[2] + tables.totals[node, 2] * value,
+            totals[3] + tables.totals[node, 3] * value,
+            totals[4] + tables.totals[node, 4] * value,
+        )
+    end
+    all(isfinite, columns) && all(isfinite, faces) && all(isfinite, clip) &&
+        all(isfinite, totals) || throw(ArgumentError("transverse monitor sums overflowed"))
+    reading.faces, reading.clip, reading.totals = faces, clip, totals
+    reading.has_faces, reading.full = true, full
+    reading.has_strip, reading.has_current = false, false
+    return nothing
+end
+
+"""
+    TransverseStripLine(spectrum, spacing, measure, first, last)
+
+Retain one line's prepared windowed, twice-padded, unnormalised forward spectrum.
+
+`spectrum` is `(2*n_strip,n_traces)` complex storage. The inward bin interval is
+one-based inclusive `first:last`; an empty interval selects no inward energy. `spacing`
+is in m; `measure` is the transverse integration factor. A zero-row spectrum represents
+an unresolved empty strip and yields exact zeros. The shared transform owner prepares
+its Kaiser window and every padding cell, with no FFT or window policy chosen here.
+"""
+struct TransverseStripLine{A}
+    spectrum::A
+    spacing::Float64
+    measure::Float64
+    first::Int
+    last::Int
+
+    function TransverseStripLine(
+            spectrum, spacing::Real, measure::Real,
+            first::Int, last::Int
+        )
+        ndims(spectrum) == 2 && isfinite(spacing) && spacing > 0 &&
+            isfinite(measure) && measure > 0 && 1 <= first <= size(spectrum, 1) + 1 &&
+            0 <= last <= size(spectrum, 1) ||
+            throw(ArgumentError("invalid transverse strip"))
+        return new{typeof(spectrum)}(
+            spectrum, Float64(spacing), Float64(measure), first, last
+        )
+    end
+end
+
+"""
+    transverse_strip!(reading, lines, execution)
+
+Fill every inward/windowed strip pair from a concrete tuple of prepared spectra.
+
+Each energy is `sum(abs2(FFT))*spacing/n_fft*measure`; only the supplied inward bins
+enter its first member. This matches the neutral strip definition. All spectra must
+be finite and disjoint from the writable strip. The session computes fresh strip
+spectra for the observed field before invoking this reduction.
+"""
+function transverse_strip!(reading, lines::Tuple, execution)
+    size(reading.strip) == (length(lines), 2) ||
+        throw(DimensionMismatch("transverse strip destination does not match its lines"))
+    Base.mightalias(reading.strip, reading.columns) &&
+        throw(ArgumentError("strip output aliases retained column energies"))
+    for (index, line) in pairs(lines)
+        spectrum = line.spectrum
+        all(isfinite, spectrum) || throw(ArgumentError("strip spectrum is nonfinite"))
+        Base.mightalias(reading.strip, spectrum) &&
+            throw(ArgumentError("strip output aliases its spectrum"))
+    end
+    for (index, line) in pairs(lines)
+        spectrum, spacing, measure = line.spectrum, line.spacing, line.measure
+        inward = total = 0.0
+        count = size(spectrum, 1)
+        if count > 0
+            for column in axes(spectrum, 2), row in axes(spectrum, 1)
+                energy = _monitor_pair(spectrum[row, column]) * spacing / count
+                total += energy
+                line.first <= row <= line.last && (inward += energy)
+            end
+        end
+        reading.strip[index, 1], reading.strip[index, 2] = inward * measure, total * measure
+    end
+    all(isfinite, reading.strip) || throw(ArgumentError("transverse strip sums overflowed"))
+    reading.has_strip = true
+    return nothing
+end
+
+"""
+    TransverseCurrentLine(samples, node, before, after, onset_step, measure)
+
+Retain samples and a centred derivative stencil across one collar onset.
+
+`samples` is `(n_axis_nodes,n_traces)` complex data from shared spatial transforms.
+Radial samples already contain their translated square-root-radius scaling. Indices
+are one-based, `onset_step` is the positive physical denominator in m, and `measure`
+is the positive line quadrature factor. `node=0` declares no resolved onset and yields
+zero current. No geometry or physical wavenumber is inferred from these arrays.
+"""
+struct TransverseCurrentLine{A}
+    samples::A
+    node::Int
+    before::Int
+    after::Int
+    onset_step::Float64
+    measure::Float64
+
+    function TransverseCurrentLine(
+            samples, node::Int, before::Int, after::Int,
+            onset_step::Real, measure::Real
+        )
+        ndims(samples) == 2 && isfinite(onset_step) && onset_step > 0 &&
+            isfinite(measure) && measure > 0 && (
+            node == 0 ||
+                all(index -> 1 <= index <= size(samples, 1), (node, before, after))
+        ) ||
+            throw(ArgumentError("invalid transverse current stencil"))
+        return new{typeof(samples)}(
+            samples, node, before, after,
+            Float64(onset_step), Float64(measure)
+        )
+    end
+end
+
+"""
+    transverse_current!(reading, lines, k_min)
+
+Reduce rectified inward onset current from explicit line stencils.
+
+The neutral convention gives `Im(conj(E)*(E_after-E_before)/onset_step)/k_min`;
+rectify each trace at zero before summing and applying its measure. `k_min` is positive
+in rad/m. The result is proxy energy per propagation metre, independent of launch
+normalisation. Finite inputs and a representable result are required.
+"""
+function transverse_current!(reading, lines::Tuple, k_min)
+    isfinite(k_min) && k_min > 0 || throw(ArgumentError("current needs positive k_min"))
+    total = 0.0
+    for line in lines
+        line.node == 0 && continue
+        samples = line.samples
+        all(isfinite, samples) || throw(ArgumentError("current samples are nonfinite"))
+        value = 0.0
+        for column in axes(samples, 2)
+            slope = (samples[line.after, column] - samples[line.before, column]) /
+                line.onset_step
+            field = samples[line.node, column]
+            flux = (
+                Float64(real(field)) * Float64(imag(slope)) -
+                    Float64(imag(field)) * Float64(real(slope))
+            ) / k_min
+            value += max(flux, 0.0)
+        end
+        total += value * line.measure
+    end
+    isfinite(total) || throw(ArgumentError("transverse current overflowed"))
+    reading.current, reading.has_current = total, true
+    return nothing
+end
+
+"""
+    TransverseState(tables)
+
+Allocate concrete transverse control state and owned previous/noise column vectors.
+
+Face baselines and maxima are fixed tuples in declared order. All coordinates are in
+m and totals are launch-normalised energy shares. `last_columns` and `noise_columns`
+are the only retained arrays; no history or notices are stored inside the state.
+"""
+Base.@kwdef mutable struct TransverseState{N, V}
+    launch::Float64 = NaN
+    baseline::NTuple{N, Float64} = ntuple(_ -> 0.0, Val(N))
+    peak::NTuple{N, Float64} = ntuple(_ -> 0.0, Val(N))
+    peak_raw::NTuple{N, Float64} = ntuple(_ -> 0.0, Val(N))
+    allowance::Float64 = 0.0
+    noise_columns::V
+    has_noise::Bool = false
+    noise_share_in_ramp::Float64 = 0.0
+    ramp_raw::Float64 = 0.0
+    ramp_noise::Float64 = 0.0
+    spatial_removed::Float64 = 0.0
+    last_rate_z::Float64 = NaN
+    last_rate::Float64 = 0.0
+    last_columns::V
+    last_z::Float64 = NaN
+    next::Float64 = Inf
+    spacing_now::Float64 = Inf
+    backstop::Float64 = Inf
+    reach_reference::Float64 = 0.0
+    reads::Int = 0
+    largest_gap::Float64 = 0.0
+    warned_at::Float64 = NaN
+    status::TransverseStatus = TransverseClear
+    reason::UInt8 = 0
+    warned::Bool = false
+    ramp_warned::Bool = false
+    resumed::Bool = false
+    declared_share::Float64 = 0.0
+    strip_baseline::Float64 = 0.0
+    strip_floor::Float64 = 0.0
+    strip_peak::Float64 = 0.0
+    current::Float64 = 0.0
+    has_current_last::Bool = false
+    current_last_z::Float64 = NaN
+    current_last::Float64 = 0.0
+    current_baseline::Float64 = 0.0
+    returned_peak::Float64 = 0.0
+end
+function TransverseState(tables::TransverseTables{F, C, T, V, K, I, R, N}) where
+    {F, C, T, V, K, I, R, N}
+    count = length(tables.column_weights)
+    previous, noise = zeros(count), zeros(count)
+    return TransverseState{N, typeof(previous)}(;
+        last_columns = previous, noise_columns = noise
+    )
+end
+
+"""
+    TransverseContinuation
+
+Retain an immutable numerical public-record continuation, with fixed face tuples.
+
+This preserves original launch/baselines, removal/noise/return totals, warning/read
+accounting and a status. No spectral columns are copied: a resumed launch prepares
+its fresh last columns and optional noise columns, then restarts the spacing rule.
+"""
+struct TransverseContinuation{N}
+    launch::Float64
+    baseline::NTuple{N, Float64}
+    peak::NTuple{N, Float64}
+    peak_raw::NTuple{N, Float64}
+    allowance::Float64
+    ramp_raw::Float64
+    ramp_noise::Float64
+    noise_share_in_ramp::Float64
+    declared_share::Float64
+    spatial_removed::Float64
+    current::Float64
+    current_baseline::Float64
+    strip_baseline::Float64
+    strip_floor::Float64
+    strip_peak::Float64
+    returned_peak::Float64
+    reads::Int
+    largest_gap::Float64
+    warned_at::Float64
+    status::TransverseStatus
+end
+
+function _transverse_check(state, tables, reading; full = false)
+    reading.has_faces && (!full || reading.full) ||
+        throw(ArgumentError("transverse observation is missing fresh node reductions"))
+    length(state.last_columns) == length(state.noise_columns) ==
+        length(reading.columns) == length(tables.column_weights) ||
+        throw(DimensionMismatch("transverse control column dimensions disagree"))
+    all(isfinite, reading.faces) && all(isfinite, reading.totals) &&
+        (!full || all(isfinite, reading.clip)) &&
+        all(value -> isfinite(value) && value >= 0, reading.columns) ||
+        throw(ArgumentError("transverse observation is nonfinite or negative"))
+    (
+        Base.mightalias(state.last_columns, reading.columns) ||
+            Base.mightalias(state.noise_columns, reading.columns) ||
+            Base.mightalias(state.last_columns, state.noise_columns) ||
+            Base.mightalias(state.last_columns, reading.strip) ||
+            Base.mightalias(state.noise_columns, reading.strip) ||
+            _transverse_alias_tables(state.last_columns, tables) ||
+            _transverse_alias_tables(state.noise_columns, tables)
+    ) &&
+        throw(ArgumentError("transverse control storage aliases prepared columns"))
+    return nothing
+end
+
+function _weighted_columns!(destination, columns, tables)
+    for index in eachindex(destination, columns, tables.column_weights)
+        destination[index] = columns[index] * tables.column_weights[index]
+    end
+    all(isfinite, destination) || throw(ArgumentError("weighted edge columns overflowed"))
+    return nothing
+end
+
+function _transverse_reach(state, policy, tables)
+    cumulative, selected = 0.0, 0.0
+    for position in length(tables.order):-1:1
+        column = tables.order[position]
+        value = state.last_columns[column]
+        state.has_noise && (value = max(value - state.noise_columns[column], 0.0))
+        cumulative += value
+        if cumulative / state.launch > policy.warn
+            selected = tables.kappa[column]
+            break
+        end
+    end
+    isfinite(cumulative) || throw(ArgumentError("transverse spectral tail overflowed"))
+    longitudinal = sqrt(max(policy.k_min * policy.k_min - selected * selected, 0.0))
+    reach = selected / max(longitudinal, policy.k_floor_fraction * policy.k_min)
+    isfinite(reach) || throw(ArgumentError("transverse reach is unrepresentable"))
+    return reach
+end
+
+function _transverse_respace!(state, policy, tables; launch)
+    reach = _transverse_reach(state, policy, tables)
+    grown = reach > state.reach_reference * (1.0 + policy.reach_growth)
+    if launch || grown || reach == 0.0
+        state.backstop, state.reach_reference = policy.backstop_start, reach
+    else
+        state.backstop = min(2.0 * state.backstop, policy.backstop_max)
+    end
+    spacing = state.backstop
+    reach > 0 && (spacing = min(spacing, policy.guard_numerator / reach))
+    state.spacing_now = spacing
+    return nothing
+end
+
+function _transverse_rate(policy, reading, launch)
+    rate = policy.has_collar ? reading.totals[2] / launch : 0.0
+    isfinite(rate) || throw(ArgumentError("normalised collar rate overflowed"))
+    return rate
+end
+
+function _strip_shares(reading, launch)
+    reading.has_strip || throw(ArgumentError("requested collar needs a fresh return strip"))
+    all(value -> isfinite(value) && value >= 0, reading.strip) ||
+        throw(ArgumentError("transverse return strip is invalid"))
+    best = windowed = 0.0
+    for line in axes(reading.strip, 1)
+        share = reading.strip[line, 1] / launch
+        if share > best
+            best, windowed = share, reading.strip[line, 2] / launch
+        end
+    end
+    all(isfinite, (best, windowed)) ||
+        throw(ArgumentError("normalised return strip overflowed"))
+    return best, windowed
+end
+
+function _transverse_ramp_band!(state, policy, tables, columns, declared, notices)
+    policy.has_design || return nothing
+    total = ramp = 0.0
+    for index in eachindex(columns, tables.column_weights)
+        value = columns[index] * tables.column_weights[index]
+        total += value
+        tables.ramp_rates[index] > 0 && (ramp += value)
+    end
+    all(isfinite, (total, ramp)) || throw(ArgumentError("launch ramp-band sum overflowed"))
+    share = total > 0 ? ramp / total : 0.0
+    if declared
+        state.declared_share = share
+    elseif share > policy.stop
+        _notice!(notices, TransverseLaunchStop, NaN, share)
+    elseif share > policy.warn
+        _notice!(notices, TransverseLaunchWarning, NaN, share)
+    end
+    return nothing
+end
+
+"""
+    transverse_launch!(state, policy, tables, reading, z, notices;
+        noise=nothing, clean_columns=nothing, fixed_step_max=nothing,
+        reads=true, declared=false)
+
+Record or resume the transverse launch and establish its next read spacing.
+
+`reading` has complete launch nodes, except on resume. Optional `noise` is its own
+fresh full `TransverseReading`; `clean_columns` is the noise-free unweighted spectral
+column energy used for the launch ramp-band judgement. Fixed steps are represented
+only by their actual maximum. A resumed launch preserves baselines/totals, refreshes
+column arrays and spacing, and does not judge again. All warnings/stops are fixed
+notices; stop notices return before the later launch operations, matching the oracle.
+"""
+function transverse_launch!(
+        state::TransverseState{N}, policy, tables, reading, z, notices;
+        noise = nothing, clean_columns = nothing, fixed_step_max = nothing,
+        reads::Bool = true, declared::Bool = false
+    ) where {N}
+    isfinite(z) || throw(ArgumentError("transverse launch coordinate must be finite"))
+    _transverse_check(state, tables, reading; full = !state.resumed)
+    if noise !== nothing
+        _transverse_check(state, tables, noise; full = true)
+    end
+    if clean_columns !== nothing
+        length(clean_columns) == length(tables.column_weights) &&
+            all(value -> isfinite(value) && value >= 0, clean_columns) ||
+            throw(ArgumentError("clean launch columns must be finite nonnegative"))
+        (
+            Base.mightalias(clean_columns, state.last_columns) ||
+                Base.mightalias(clean_columns, state.noise_columns)
+        ) &&
+            throw(ArgumentError("control storage aliases clean launch columns"))
+    end
+    if reading.has_current
+        isfinite(reading.current) && reading.current >= 0 ||
+            throw(ArgumentError("transverse current must be finite nonnegative"))
+    end
+    if state.resumed
+        state.last_z = z
+        if noise !== nothing
+            _weighted_columns!(state.noise_columns, noise.columns, tables)
+            state.has_noise = true
+        end
+        _weighted_columns!(state.last_columns, reading.columns, tables)
+        _transverse_respace!(state, policy, tables; launch = true)
+        state.next = reads ? z + state.spacing_now : Inf
+        state.last_rate_z = z
+        state.last_rate = _transverse_rate(policy, reading, state.launch)
+        if reading.has_current && state.launch > 0
+            state.has_current_last = true
+            state.current_last_z, state.current_last = z, reading.current / state.launch
+            isfinite(state.current_last) ||
+                throw(ArgumentError("normalised transverse current overflowed"))
+        end
+        !reads && (state.status = TransverseUnwatched)
+        return nothing
+    end
+    state.launch, state.last_z = reading.totals[1], z
+    if !(state.launch > 0)
+        state.next = Inf
+        return nothing
+    end
+    columns = clean_columns === nothing ? reading.columns : clean_columns
+    length(columns) == length(tables.column_weights) &&
+        all(value -> isfinite(value) && value >= 0, columns) ||
+        throw(ArgumentError("clean launch columns must be finite nonnegative"))
+    _transverse_ramp_band!(state, policy, tables, columns, declared, notices)
+    monitor_stopped(notices) && return nothing
+    if !reads
+        state.status, state.reason = TransverseUnwatched, 1
+        _notice!(notices, TransverseUnwatchedWarning, z, 0.0)
+        return nothing
+    end
+    state.baseline = ntuple(index -> reading.faces[index] / state.launch, Val(N))
+    all(isfinite, state.baseline) ||
+        throw(ArgumentError("normalised launch faces overflowed"))
+    for index in 1:N
+        clipped = reading.clip[index] / state.launch
+        isfinite(clipped) || throw(ArgumentError("normalised launch clip overflowed"))
+        clipped > policy.warn &&
+            _notice!(notices, TransverseClipWarning, z, clipped; face = index)
+    end
+    if noise !== nothing
+        eta = noise.totals[1] / state.launch
+        state.allowance = policy.noise_factor * eta * tables.noise_face_share /
+            sqrt(tables.noise_modes)
+        isfinite(state.allowance) || throw(ArgumentError("edge noise allowance overflowed"))
+        _weighted_columns!(state.noise_columns, noise.columns, tables)
+        state.has_noise = true
+        if policy.has_design
+            total = 0.0
+            for index in eachindex(state.noise_columns)
+                tables.ramp_rates[index] > 0 && (total += state.noise_columns[index])
+            end
+            state.noise_share_in_ramp = total / state.launch
+            isfinite(state.noise_share_in_ramp) ||
+                throw(ArgumentError("normalised ramp noise overflowed"))
+        end
+        if state.allowance > policy.warn
+            state.status, state.reason = TransverseInsensitive, 2
+            _notice!(notices, TransverseInsensitiveWarning, z, state.allowance)
+        end
+    end
+    _weighted_columns!(state.last_columns, reading.columns, tables)
+    _transverse_respace!(state, policy, tables; launch = true)
+    state.next = z + state.spacing_now
+    if fixed_step_max !== nothing
+        isfinite(fixed_step_max) && fixed_step_max > 0 ||
+            throw(ArgumentError("fixed maximum step must be finite positive"))
+        if fixed_step_max > state.spacing_now
+            state.status == TransverseClear && (state.status = TransverseCoarse)
+            state.largest_gap = fixed_step_max
+            _notice!(
+                notices, TransverseCoarseWarning, z, fixed_step_max;
+                auxiliary = state.spacing_now
+            )
+        end
+    end
+    state.last_rate_z, state.last_rate = z, _transverse_rate(policy, reading, state.launch)
+    if policy.has_collar
+        state.strip_baseline = first(_strip_shares(reading, state.launch))
+        noise !== nothing && (
+            state.strip_floor = policy.strip_floor_margin *
+                first(_strip_shares(noise, state.launch))
+        )
+        state.current_baseline = reading.totals[3] / state.launch
+        isfinite(state.current_baseline) ||
+            throw(ArgumentError("normalised outside-launch energy overflowed"))
+        state.has_current_last, state.current = false, 0.0
+    end
+    return nothing
+end
+
+"""
+    transverse_due(state, policy, z, proposal=0.0)
+
+Return whether the next proposed step crosses the retained transverse read position.
+
+The lowered coordinate tolerance preserves the reference's exact comparison order.
+"""
+transverse_due(state, policy, z, proposal = 0.0) =
+    z + proposal >= state.next - policy.due_tolerance * max(abs(z), 1.0)
+
+"""
+    transverse_wants_read(state, z)
+
+Return whether a positive-launch, watched edge has a new position to record.
+"""
+transverse_wants_read(state, z) =
+    state.launch > 0 && state.status != TransverseUnwatched && z > state.last_z
+
+"""
+    transverse_ceiling(state)
+
+Return the read spacing in m, or Inf when no transverse read is scheduled.
+"""
+transverse_ceiling(state) = isfinite(state.next) ? state.spacing_now : Inf
+
+"""
+    transverse_ramp_removed(state)
+
+Return signed ramp removal after subtracting at most its initial noise and declaration.
+"""
+transverse_ramp_removed(state) = state.ramp_raw -
+    min(state.ramp_noise, state.noise_share_in_ramp) - state.declared_share
+
+function _transverse_judge_ramp!(state, policy, notices)
+    removed = transverse_ramp_removed(state)
+    if removed > policy.stop
+        state.status = TransverseStopped
+        _notice!(notices, TransverseRampStop, NaN, removed; auxiliary = policy.stop)
+    elseif removed > policy.warn && !state.ramp_warned
+        state.ramp_warned = true
+        state.status in (TransverseClear, TransverseCoarse) &&
+            (state.status = TransverseWarned)
+        _notice!(notices, TransverseRampWarning, NaN, removed)
+    end
+    return nothing
+end
+
+function _transverse_judge_return!(state, policy, reading, z, notices)
+    strip, windowed = _strip_shares(reading, state.launch)
+    state.strip_peak = max(state.strip_peak, strip)
+    judged_strip = max(
+        strip - state.strip_baseline - state.strip_floor -
+            policy.strip_leakage * windowed, 0.0
+    )
+    judged_current = max(state.current - state.current_baseline, 0.0)
+    returned = max(judged_strip, judged_current)
+    state.returned_peak = max(state.returned_peak, returned)
+    if returned > policy.stop
+        state.status = TransverseStopped
+        _notice!(notices, TransverseReturnStop, z, returned; auxiliary = policy.stop)
+    elseif returned > policy.warn && !state.warned
+        state.warned, state.warned_at, state.status = true, z, TransverseWarned
+        _notice!(notices, TransverseReturnWarning, z, returned)
+    end
+    return nothing
+end
+
+"""
+    transverse_read!(state, policy, tables, reading, z, notices)
+
+Credit ramp/collar removal, refresh spacing, and judge a new transverse observation.
+
+Column norms and node sums are ordinary bounded reductions. The retained descending
+kappa prefix uses sequential accumulation, matching the exact bucket-selection rule.
+Scalar thresholds use strict comparisons. Stop ties select the lexically last face;
+warning order follows declared faces and emits once. With a collar, outward edge
+shares are recorded while return-strip/current and safety-ramp removal are judged.
+"""
+function transverse_read!(
+        state::TransverseState{N}, policy, tables, reading, z,
+        notices
+    ) where {N}
+    transverse_wants_read(state, z) || return nothing
+    isfinite(z) || throw(ArgumentError("transverse read coordinate must be finite"))
+    _transverse_check(state, tables, reading)
+    gap = z - state.last_z
+    state.reads += 1
+    state.largest_gap = max(state.largest_gap, gap)
+    if policy.has_design
+        raw = noise = 0.0
+        for index in eachindex(state.last_columns)
+            taken = -expm1(-tables.ramp_rates[index] * gap)
+            raw += state.last_columns[index] * taken
+            state.has_noise && (noise += state.noise_columns[index] * taken)
+        end
+        state.ramp_raw += raw / state.launch
+        state.has_noise && (state.ramp_noise += noise / state.launch)
+    end
+    rate = _transverse_rate(policy, reading, state.launch)
+    state.spatial_removed += 0.5 * (z - state.last_rate_z) * (state.last_rate + rate)
+    all(isfinite, (state.ramp_raw, state.ramp_noise, state.spatial_removed)) ||
+        throw(ArgumentError("transverse removal totals overflowed"))
+    state.last_rate_z, state.last_rate, state.last_z = z, rate, z
+    _weighted_columns!(state.last_columns, reading.columns, tables)
+    _transverse_respace!(state, policy, tables; launch = false)
+    state.next = z + state.spacing_now
+    state.peak_raw = ntuple(
+        index -> max(
+            state.peak_raw[index],
+            reading.faces[index] / state.launch
+        ), Val(N)
+    )
+    all(isfinite, state.peak_raw) ||
+        throw(ArgumentError("normalised transverse face overflowed"))
+    if policy.has_collar
+        _transverse_judge_return!(state, policy, reading, z, notices)
+        monitor_stopped(notices) && return nothing
+        _transverse_judge_ramp!(state, policy, notices)
+        return nothing
+    end
+    judged = ntuple(
+        index -> reading.faces[index] / state.launch -
+            state.baseline[index] - state.allowance, Val(N)
+    )
+    all(isfinite, judged) || throw(ArgumentError("judged transverse face overflowed"))
+    state.peak = ntuple(index -> max(state.peak[index], judged[index]), Val(N))
+    worst = 1
+    for index in 2:N
+        if judged[index] > judged[worst] ||
+                (
+                judged[index] == judged[worst] &&
+                    tables.face_ranks[index] > tables.face_ranks[worst]
+            )
+            worst = index
+        end
+    end
+    if judged[worst] > policy.stop
+        state.status = TransverseStopped
+        _notice!(notices, TransverseFaceStop, z, judged[worst]; face = worst)
+        return nothing
+    end
+    for index in 1:N
+        if judged[index] > policy.warn && !state.warned
+            state.warned, state.warned_at = true, z
+            state.status in (TransverseClear, TransverseCoarse) &&
+                (state.status = TransverseWarned)
+            _notice!(notices, TransverseFaceWarning, z, judged[index]; face = index)
+        end
+    end
+    _transverse_judge_ramp!(state, policy, notices)
+    return nothing
+end
+
+"""
+    transverse_step!(state, policy, current, z)
+
+Accumulate a collar's rectified inward current at every committed step.
+
+`current` is the fresh unnormalised reduction in proxy energy per m. Normalise by the
+original launch and integrate with the preceding committed reading's trapezoid.
+Without a collar, a positive launch or a watched edge, no total changes.
+"""
+function transverse_step!(state, policy, current, z)
+    (
+        !policy.has_collar || !(state.launch > 0) ||
+            state.status == TransverseUnwatched
+    ) && return nothing
+    isfinite(current) && current >= 0 && isfinite(z) ||
+        throw(ArgumentError("transverse current or coordinate is invalid"))
+    share = current / state.launch
+    if state.has_current_last
+        state.current += 0.5 * (z - state.current_last_z) * (state.current_last + share)
+    end
+    isfinite(state.current) && isfinite(share) ||
+        throw(ArgumentError("integrated transverse current overflowed"))
+    state.has_current_last = true
+    state.current_last_z, state.current_last = z, share
+    return nothing
+end
+
+"""
+    transverse_continuation(state)
+
+Return immutable numerical restart data with the original face and launch baselines.
+"""
+function transverse_continuation(state)
+    return TransverseContinuation(
+        state.launch, state.baseline, state.peak, state.peak_raw,
+        state.allowance, state.ramp_raw, state.ramp_noise, state.noise_share_in_ramp,
+        state.declared_share, state.spatial_removed, state.current, state.current_baseline,
+        state.strip_baseline, state.strip_floor, state.strip_peak, state.returned_peak,
+        state.reads, state.largest_gap, state.warned_at, state.status
+    )
+end
+
+"""
+    restore_transverse!(state, continuation)
+
+Restore a numerical public record into a fresh edge before its resumed launch.
+
+A nonpositive/missing launch leaves fresh monitoring in place. Positive launches keep
+all recorded baselines/totals. Only clear/warned/insensitive/coarse statuses survive,
+as in the neutral resume contract; a new launch refreshes previous field samples.
+"""
+function restore_transverse!(state, continuation)
+    isnan(state.last_z) || throw(ArgumentError("transverse restore needs fresh state"))
+    (continuation === nothing || !(continuation.launch > 0)) && return nothing
+    length(continuation.baseline) == length(state.baseline) ||
+        throw(DimensionMismatch("resumed transverse faces do not match"))
+    state.resumed, state.launch = true, continuation.launch
+    state.baseline, state.peak, state.peak_raw = continuation.baseline,
+        continuation.peak, continuation.peak_raw
+    state.allowance = continuation.allowance
+    state.ramp_raw, state.ramp_noise = continuation.ramp_raw, continuation.ramp_noise
+    state.noise_share_in_ramp = continuation.noise_share_in_ramp
+    state.declared_share, state.spatial_removed = continuation.declared_share,
+        continuation.spatial_removed
+    state.current = continuation.current
+    state.current_baseline = continuation.current_baseline
+    state.strip_baseline = continuation.strip_baseline
+    state.strip_floor = continuation.strip_floor
+    state.strip_peak = continuation.strip_peak
+    state.returned_peak = continuation.returned_peak
+    state.reads, state.largest_gap = continuation.reads, continuation.largest_gap
+    state.warned_at, state.warned = continuation.warned_at, isfinite(continuation.warned_at)
+    continuation.status in (
+        TransverseClear, TransverseWarned,
+        TransverseInsensitive, TransverseCoarse,
+    ) && (state.status = continuation.status)
+    return nothing
+end
+
+"""
+    transverse_finish!(state)
+
+Return the fixed closing verdict for session-side logging and record assembly.
+
+No numerical state changes: status, largest judged face share, signed ramp removal
+and read count are an isbits named tuple. The session owns text and delivery.
+"""
+function transverse_finish!(state)
+    return (
+        status = state.status, largest = maximum(state.peak),
+        ramp_removed = transverse_ramp_removed(state), reads = state.reads,
+    )
 end
