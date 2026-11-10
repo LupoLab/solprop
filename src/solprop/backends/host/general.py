@@ -12,8 +12,8 @@ trials to :class:`HostGeneralPath`, which keeps their arithmetic and shares the 
 controller, history, ledger and lifecycle (SEP 39 phase 0, Q7). The selected method and
 the one-order-higher PEC variants never reach it.
 
-Owned by the NumPy reference since SEP 47 phase 2: a copy of the native bridge's
-:mod:`solprop.backends.multistep_general`, sharing its stateless arithmetic.
+Owned by the NumPy reference since SEP 47 phase 2, and the reference's alone since the
+native backend refuses the comparison variants' general path (SEP 47 section 6.3).
 """
 
 import math
