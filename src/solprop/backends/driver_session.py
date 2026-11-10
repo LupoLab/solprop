@@ -1207,6 +1207,30 @@ class DriverSession:
         return field[0]
 
 
+def _bound(event: Event, receipt: Receipt) -> Event:
+    """Return an event with its ticket bound to the batch that delivers it.
+
+    Parameters
+    ----------
+    event : solprop.backends.events.Event
+        An event, with an unbound ticket or none.
+    receipt : solprop.backends.events.Receipt
+        The batch's receipt.
+
+    Returns
+    -------
+    solprop.backends.events.Event
+        The event, its ticket bound; the same event when it carries none.
+    """
+    ticket = getattr(event, "ticket", None)
+    if ticket is None:
+        return event
+    return dataclasses.replace(
+        event,  # pyright: ignore[reportArgumentType]
+        ticket=dataclasses.replace(ticket, receipt=receipt),
+    )
+
+
 class DriverGroupSession:
     """A :class:`~solprop.backends.session.GroupSession` over the lockstep runners.
 
@@ -1304,6 +1328,8 @@ class DriverGroupSession:
         self._observed_generation = -1
         # Set once a group-wide stop or failure ended every running member.
         self._broken = False
+        # Each member's attempts drained since its previous event and not yet delivered.
+        self._drained: dict[int, tuple[BackendHistory, StepStats]] = {}
 
     # -- protocol -------------------------------------------------------------------
 
@@ -1556,8 +1582,9 @@ class DriverGroupSession:
         """Return one member's committed position.
 
         Members are stepped in turn, so after a failure partway through a common step
-        a member ahead of the failing one stands at the step's end and the others at
-        its start.
+        a member ahead of the failing one stands at the step's end, its step neither
+        validated nor recorded -- in flight, and so poisoned -- and the others at the
+        step's start.
 
         Parameters
         ----------
@@ -1589,12 +1616,20 @@ class DriverGroupSession:
         list of tuple
             Each member's attempts and rows (without a batch axis), in member order.
         """
-        observed = self._runner.observe_members(field=False)
         chunks: list[tuple[BackendHistory, StepStats]] = []
-        for index, observation in enumerate(observed):
-            self._attempts[index] += observation.n_steps
-            self._rejected[index] += observation.n_rejected
-            chunks.append((observation.step_history, _rows(observation.step_stats)))
+        for index in range(len(self._members)):
+            if index not in self._drained:
+                # One member at a time, each kept until an event delivers it: a later
+                # member's failure, or the statistics', ends the group with the
+                # attempts already drained delivered by the terminals.
+                observation = self._members[index].observe(field=False)
+                self._attempts[index] += observation.n_steps
+                self._rejected[index] += observation.n_rejected
+                self._drained[index] = (
+                    observation.step_history,
+                    _rows(observation.step_stats),
+                )
+            chunks.append(self._drained[index])
         return chunks
 
     def _final_chunk(self, index: int) -> tuple[BackendHistory, StepStats] | None:
@@ -1801,7 +1836,15 @@ class DriverGroupSession:
         """
         self._generation += 1
         self._broken = True
-        chunks = [self._final_chunk(index) for index in range(len(self._members))]
+        chunks = [
+            join_attempts(
+                [
+                    self._drained.get(index, (None, None)),
+                    self._final_chunk(index) or (None, None),
+                ]
+            )
+            for index in range(len(self._members))
+        ]
         events: list[tuple[Event, ...]] = []
         for index, chunk in enumerate(chunks):
             if self._outcomes[index] is not None:
@@ -1809,7 +1852,7 @@ class DriverGroupSession:
                 continue
             self._outcomes[index] = outcome
             poisoned = self._members[index].in_flight is not None
-            history, rows = (None, None) if chunk is None else chunk
+            history, rows = chunk
             cursor = self._cursor(index)
             events.append(
                 (
@@ -1850,17 +1893,11 @@ class DriverGroupSession:
             The batch.
         """
         receipt = self._ledger.issue(outcome=outcome)
-
-        def bind(event: Event) -> Event:
-            ticket = getattr(event, "ticket", None)
-            if ticket is None:
-                return event
-            return dataclasses.replace(
-                event,  # pyright: ignore[reportArgumentType]
-                ticket=dataclasses.replace(ticket, receipt=receipt),
-            )
-
-        bound = tuple(tuple(bind(event) for event in events) for events in members)
+        # Every drained attempt is delivered by this batch.
+        self._drained = {}
+        bound = tuple(
+            tuple(_bound(event, receipt) for event in events) for events in members
+        )
         return GroupBatch(receipt, bound, outcome, error)
 
     def _fielded(self, ticket: ExportTicket, member: int) -> Observation:

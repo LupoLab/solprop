@@ -287,9 +287,10 @@ def test_a_boundary_stop_ends_its_member_alone_and_the_others_go_on():
         assert group.monitor_record(1) is None
 
 
-def test_a_non_finite_norm_ends_the_group_after_every_member_stepped(monkeypatch):
-    # Each Adams member's march commits its replayed step before the group judges the
-    # norms, so a refused norm ends the group with every member past that step.
+def test_a_non_finite_norm_poisons_every_member_that_stepped(monkeypatch):
+    # Each Adams member's march takes the replayed step before the group judges the
+    # norms; a refused norm leaves every member's state past its last recorded step,
+    # perhaps not finite: none can be resumed there (SEP 47 section 6.7).
     simulations = [member(index, "numpy_ref", FIXED_ORDER) for index in range(3)]
     with ExitStack() as cleanup:
         group, owners = group_of(simulations, cleanup)
@@ -308,21 +309,23 @@ def test_a_non_finite_norm_ends_the_group_after_every_member_stepped(monkeypatch
     assert ended.outcome is Outcome.FAILED
     assert isinstance(ended.error, BackendError)
     assert "member 1" in str(ended.error)
-    # The third step opens the second window and ends at 0.75 mm.
+    # The third step opens the second window and ends at 0.75 mm, where each march
+    # stands with its step unrecorded.
     for events in ended.members:
         (terminal,) = events
         assert isinstance(terminal, Terminal)
         assert terminal.outcome is Outcome.FAILED
         assert terminal.error is ended.error
         assert terminal.z == pytest.approx(PLANES[0] + STEP)
-        assert terminal.eligibility is Eligibility.ELIGIBLE
-        assert terminal.ticket is not None
+        assert terminal.eligibility is Eligibility.POISONED
+        assert terminal.ticket is None
 
 
 def test_a_trial_failure_partway_reports_each_member_s_own_position(monkeypatch):
-    # An Adams member's march commits its replayed step itself, member by member, so a
-    # failure in the second member leaves the first past the failed step and the
-    # second and third before it: no common cursor is invented (SEP 47 section 6.7).
+    # Members take a replayed step in turn, so a failure in the second leaves the first
+    # stepped but unrecorded -- its march past the step, in flight, poisoned -- and
+    # the second and third untouched at the step's start: no common cursor or
+    # rollback is invented (SEP 47 section 6.7).
     simulations = [member(index, "numpy_ref", FIXED_ORDER) for index in range(3)]
     with ExitStack() as cleanup:
         group, owners = group_of(simulations, cleanup)
@@ -342,27 +345,32 @@ def test_a_trial_failure_partway_reports_each_member_s_own_position(monkeypatch)
     ended = batches[-1]
     assert ended.outcome is Outcome.FAILED
     assert isinstance(ended.error, RuntimeError)
-    positions = []
-    for events in ended.members:
-        (terminal,) = events
-        assert isinstance(terminal, Terminal)
-        assert terminal.error is ended.error
-        assert terminal.eligibility is Eligibility.ELIGIBLE
-        positions.append(terminal.z)
+    terminals = [events[0] for events in ended.members]
+    assert all(isinstance(terminal, Terminal) for terminal in terminals)
+    assert all(terminal.error is ended.error for terminal in terminals)  # pyright: ignore[reportAttributeAccessIssue]
     # The failed step is the third, from the first plane to 0.75 mm.
-    assert positions == pytest.approx([PLANES[0] + STEP, PLANES[0], PLANES[0]])
+    assert [terminal.z for terminal in terminals] == pytest.approx(
+        [PLANES[0] + STEP, PLANES[0], PLANES[0]]
+    )  # pyright: ignore[reportAttributeAccessIssue]
+    assert [terminal.eligibility for terminal in terminals] == [  # pyright: ignore[reportAttributeAccessIssue]
+        Eligibility.POISONED,
+        Eligibility.ELIGIBLE,
+        Eligibility.ELIGIBLE,
+    ]
+    assert terminals[0].ticket is None  # pyright: ignore[reportAttributeAccessIssue]
+    assert terminals[1].ticket is not None  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def test_an_in_flight_failure_poisons_its_member_alone(monkeypatch):
     # An in-place step abandoned partway leaves no valid state for its member, which
-    # cannot be checkpointed; the members ahead committed theirs.
+    # cannot be checkpointed; the member after it, not yet stepped, can be.
     simulations = [member(index, "numpy_ref", FIXED_ORDER) for index in range(2)]
     with ExitStack() as cleanup:
         group, owners = group_of(simulations, cleanup)
-        march = owners[1]._adams
+        march = owners[0]._adams
 
         def abandoned(dz, end, slack):
-            owners[1]._in_flight = (owners[1]._z, dz)
+            owners[0]._in_flight = (owners[0]._z, dz)
             msg = "a manufactured in-flight failure"
             raise RuntimeError(msg)
 
@@ -370,19 +378,49 @@ def test_an_in_flight_failure_poisons_its_member_alone(monkeypatch):
         launch = group.advance()
         group.acknowledge(launch.receipt)
         ended = group.advance()
-        ahead, poisoned = (events[0] for events in ended.members)
-        assert isinstance(ahead, Terminal) and isinstance(poisoned, Terminal)
-        assert ahead.eligibility is Eligibility.ELIGIBLE
-        assert ahead.ticket is not None
-        assert ahead.ticket.z == ahead.z == pytest.approx(STEP)
-        # The member ahead can still be checkpointed where it stands.
-        field = group.export(0, ahead.ticket, IDENTITY)
-        assert np.all(np.isfinite(field))
+        poisoned, untouched = (events[0] for events in ended.members)
+        assert isinstance(poisoned, Terminal) and isinstance(untouched, Terminal)
         assert poisoned.eligibility is Eligibility.POISONED
         assert poisoned.ticket is None
         assert poisoned.z == 0.0
+        assert untouched.eligibility is Eligibility.ELIGIBLE
+        assert untouched.ticket is not None
+        assert untouched.ticket.z == untouched.z == 0.0
+        # The untouched member can still be checkpointed where it stands.
+        field = group.export(1, untouched.ticket, IDENTITY)
+        assert np.all(np.isfinite(field))
         group.acknowledge(ended.receipt)
         assert group.finished
+
+
+def test_a_window_s_failure_delivers_the_attempts_it_drained(monkeypatch):
+    # The statistics fail after each member's attempts of the window were drained:
+    # each terminal delivers them, and the status counts no attempt it did not.
+    with ExitStack() as cleanup:
+        group, owners = group_of(
+            [member(index, "numpy_ref") for index in range(2)], cleanup
+        )
+        launch = group.advance()
+        group.acknowledge(launch.receipt)
+
+        def broken(self, spec):
+            msg = "manufactured statistics failure"
+            raise RuntimeError(msg)
+
+        monkeypatch.setattr(type(owners[0]), "stats", broken)
+        ended = group.advance()
+        assert ended.outcome is Outcome.FAILED
+        assert isinstance(ended.error, RuntimeError)
+        for index, events in enumerate(ended.members):
+            (terminal,) = events
+            assert isinstance(terminal, Terminal)
+            assert terminal.history is not None
+            # The first window's two fixed steps, delivered once.
+            assert terminal.history.n_steps == 2
+            assert group.member_status(index).attempts == 2
+            assert terminal.z == pytest.approx(PLANES[0])
+            assert terminal.eligibility is Eligibility.ELIGIBLE
+        group.acknowledge(ended.receipt)
 
 
 def test_a_group_wide_stop_ends_every_member_at_a_common_endpoint():

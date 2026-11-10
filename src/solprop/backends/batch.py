@@ -195,11 +195,15 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
             for member, march in zip(self._members, marches, strict=True):
                 assert march is not None  # one integrator: every member has a march
                 norms.append(march.replay_step(dz, end, slack))
-                # This member's step is committed: a later member's failure ends the
-                # group with this member's actual position (SEP 47 section 6.7).
-                member._z = end
+                # Stepped, but neither validated nor recorded: until the common step
+                # is, this member's state is neither end of its record, so a later
+                # member's failure or a refused norm leaves it in flight, not
+                # resumable (SEP 47 section 6.7).
+                member._in_flight = (self._z, dz)
             self._member_norms = tuple(norms)
             _refuse_invalid_norm(self._member_norms, "lockstep")
+            for member in self._members:
+                member._in_flight = None
             self._state = tuple(member._require_state() for member in self._members)
             self._schedule_index += 1
             self._z = end
