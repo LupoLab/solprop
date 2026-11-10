@@ -23,10 +23,10 @@ import pytest
 from bounds import assert_within
 from sessions.test_group import FIELD_BOUND, IDENTITY, PLANES, drive, member
 from solprop.backends import registry
-from solprop.backends.driver_session import DriverGroupSession, DriverPreparedGroup
 from solprop.backends.events import ObservationReady, Outcome
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.group import HostGroup
+from solprop.backends.host.group_session import HostGroupSession, HostPreparedGroup
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.protocol import Backend, BatchBackend
 from solprop.backends.registry import BackendEntry, select, select_batch
@@ -54,14 +54,14 @@ class Toy(NumpyRefBackend):
         return ToyGroup(members, problems, requests)
 
 
-class ToyGroup(DriverPreparedGroup):
+class ToyGroup(HostPreparedGroup):
     """The toy's prepared group: the group over its lockstep runner, counted."""
 
     started: ClassVar[list[int]] = []
 
     def start(
         self, starts: Sequence[Start], *, stop: StopFlag | None = None
-    ) -> DriverGroupSession:
+    ) -> HostGroupSession:
         """Record the start and open the group."""
         ToyGroup.started.append(len(starts))
         return super().start(starts, stop=stop)

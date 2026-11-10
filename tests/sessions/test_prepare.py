@@ -22,7 +22,9 @@ from solprop.backends.driver_session import (
     DriverPreparedGroup,
     DriverSession,
 )
-from solprop.backends.host.session import HostSession
+from solprop.backends.events import Eligibility, Outcome, Terminal
+from solprop.backends.host.group_session import HostPreparedGroup
+from solprop.backends.host.session import HostPrepared, HostSession
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import available, select
 from solprop.backends.session import (
@@ -50,11 +52,38 @@ def test_the_reference_prepares_its_own_session():
     try:
         prepared = backend.prepare(problem, request)
         assert isinstance(prepared, PreparedExecution)
+        assert type(prepared) is HostPrepared
         assert prepared.backend == "numpy_ref"
         with start_session(
             backend, problem, request, Start.entrance(problem), owns=False
         ) as session:
-            assert isinstance(session, HostSession)
+            assert type(session) is HostSession
+        # The preparation's execution facts and retained buffers are its backend's.
+        assert prepared.metadata() == backend.metadata()
+        assert prepared.memory_ledger() == backend.memory_ledger()
+    finally:
+        backend.close()
+
+
+def test_a_closed_reference_preparation_closes_its_backend_and_refuses_to_start():
+    problem, request = soliton()
+    backend = _select("numpy_ref", problem, request)
+    prepared = backend.prepare(problem, request)
+    prepared.close()
+    prepared.close()  # idempotent
+    assert backend.closed
+    with pytest.raises(SessionError, match="closed"):
+        prepared.start(Start.entrance(problem))
+
+
+def test_the_reference_prepares_its_own_group():
+    problem, request = soliton()
+    backend = _select("numpy_ref", problem, request)
+    try:
+        prepared = backend.prepare_group([backend], [problem], [request])
+        assert type(prepared) is HostPreparedGroup
+        assert isinstance(prepared, PreparedGroup)
+        assert prepared.backend == "numpy_ref"
     finally:
         backend.close()
 
@@ -64,6 +93,7 @@ def test_any_other_driver_prepares_the_transitional_session():
     driver = ScriptedDriver(problem, request, grid=window())
     prepared = driver.prepare(problem, request)
     assert isinstance(prepared, DriverPrepared)
+    assert prepared.backend == driver.name
     # The preparation's execution facts are its driver's.
     assert prepared.metadata() == driver.metadata()
     with prepared.start(Start.entrance(problem), owns=False) as session:
@@ -73,6 +103,32 @@ def test_any_other_driver_prepares_the_transitional_session():
     assert driver.closed
     with pytest.raises(SessionError, match="closed"):
         prepared.start(Start.entrance(problem))
+
+
+def test_the_transitional_session_fails_a_plane_whose_statistics_fail(monkeypatch):
+    """The bridge session's own terminal paths, which the reference no longer takes.
+
+    A failure of the statistics at a plane ends the run there, eligible; a ticket
+    asked for while that terminal batch is pending is bound to it.
+    """
+    problem, request = soliton()
+    driver = ScriptedDriver(problem, request, grid=window())
+
+    def broken(spec):
+        msg = "manufactured statistics failure"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(driver, "stats", broken)
+    with driver.prepare(problem, request).start(Start.entrance(problem)) as session:
+        batch = session.advance()
+        (terminal,) = batch.events
+        assert isinstance(terminal, Terminal)
+        assert terminal.outcome is Outcome.FAILED
+        assert isinstance(terminal.error, RuntimeError)
+        assert terminal.eligibility is Eligibility.ELIGIBLE
+        ticket = session.pending_ticket()
+        assert ticket is not None
+        assert ticket.receipt == batch.receipt
 
 
 def test_any_other_driver_prepares_the_transitional_group():
@@ -88,6 +144,10 @@ def test_any_other_driver_prepares_the_transitional_group():
         assert isinstance(prepared, DriverPreparedGroup)
         assert isinstance(prepared, PreparedGroup)
         assert prepared.backend == "numpy_ref"
+        # It starts over the runner the registry row names, which refuses an
+        # adaptive member by name.
+        with pytest.raises(BackendError, match="explicit fixed schedule"):
+            prepared.start([Start.entrance(problem)])
     finally:
         backend.close()
 

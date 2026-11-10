@@ -36,6 +36,7 @@ from sessions.executors import (
 from solprop.backends.driver_session import DriverSession
 from solprop.backends.events import ExportTicket, ObservationReady
 from solprop.backends.export import ExportRecipe, apply_recipe
+from solprop.backends.host.session import HostSession
 from solprop.backends.registry import available, select
 from solprop.driver.run import run_problem
 from solprop.driver.simulation import metadata_for
@@ -86,10 +87,11 @@ class _Spy:
 def _spied(monkeypatch: pytest.MonkeyPatch) -> _Spy:
     """Spy on the exports of every session a run may start.
 
-    The reference's own session derives from the driver session; a native run is
-    served by the native session where it admits the run.
+    The reference runs in its own session; a native run is served by the native
+    session where it admits the run, and by the transitional session otherwise.
     """
     spy = _Spy()
+    monkeypatch.setattr(HostSession, "export", spy.wrap(HostSession.export))
     monkeypatch.setattr(DriverSession, "export", spy.wrap(DriverSession.export))
     if "native" in available():
         from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]

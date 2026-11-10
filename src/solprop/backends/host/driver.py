@@ -957,19 +957,14 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         solprop.backends.session.PreparedExecution
             The prepared execution.
         """
-        from solprop.backends.driver_session import (  # noqa: PLC0415 - it builds on this module
-            DriverPrepared,
-        )
         from solprop.backends.host.session import (  # noqa: PLC0415 - it builds on this module
-            HostSession,
+            HostPrepared,
         )
 
         # A concrete driver is a backend: this base is the march, and the subclass
         # supplies the rest of the protocol (`memory_ledger`, `close`). They are not
         # abstract here, so that a batch's protocol check can refuse a driver without.
-        return DriverPrepared(
-            cast("Backend", self), problem, request, session=HostSession
-        )
+        return HostPrepared(cast("Backend", self), problem, request)
 
     def prepare_group(
         self,
@@ -979,9 +974,10 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     ) -> PreparedGroup:
         """Prepare a group of compatible members of this backend (SEP 47 section 6.7).
 
-        The reference's group is the transitional group over its lockstep runner
-        (:class:`~solprop.backends.driver_session.DriverGroupSession` over
-        :class:`~solprop.backends.host.group.HostGroup` or
+        The reference's own group
+        (:class:`~solprop.backends.host.group_session.HostGroupSession`): its members
+        advance in lockstep through one fixed schedule on the reference's group runner
+        (:class:`~solprop.backends.host.group.HostGroup` or
         :class:`~solprop.backends.numpy_ref.batch.NumpyBatchBackend`, chosen by
         :func:`solprop.backends.registry.select_batch`).
 
@@ -999,11 +995,11 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         solprop.backends.session.PreparedGroup
             The prepared group.
         """
-        from solprop.backends.driver_session import (  # noqa: PLC0415 - it builds on this module
-            DriverPreparedGroup,
+        from solprop.backends.host.group_session import (  # noqa: PLC0415 - it builds on this module
+            HostPreparedGroup,
         )
 
-        return DriverPreparedGroup(members, problems, requests)
+        return HostPreparedGroup(members, problems, requests)
 
     @property
     def request(self) -> RunRequest:
@@ -1706,6 +1702,75 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             (``solprop.backends.low_storage``).
         """
         return self._in_flight
+
+    @property
+    def position(self) -> float:
+        """Return where the march stands, m.
+
+        Returns
+        -------
+        float
+            The committed state's position, or the end of a step a group took but
+            neither validated nor recorded, which leaves the state in flight
+            (:attr:`in_flight`).
+        """
+        return float(self._z)
+
+    @property
+    def halted(self) -> bool:
+        """Return whether the last march stopped at a requested halt short of its end.
+
+        Returns
+        -------
+        bool
+            True while the halt latch of :meth:`request_halt` or the yield check of
+            :meth:`set_halt_check` stopped it.
+        """
+        return self._halted
+
+    @property
+    def holding_plane(self) -> bool:
+        """Return whether a dense observation holds the state between endpoints.
+
+        Returns
+        -------
+        bool
+            True while this driver's own (a Runge-Kutta march's) or its Adams march's
+            observation holds an interpolated plane, the march ahead of it.
+        """
+        return self._dense_ahead is not None or (
+            self._adams is not None and self._adams._ahead is not None
+        )
+
+    def drain_attempts(self) -> Observation:
+        """Drain the attempts recorded since the last observation, with no field.
+
+        For a state left in flight, which :meth:`observe` refuses: the attempts and
+        periodic rows recorded before the abandoned step, drained once, as an
+        observation drains them.
+
+        Returns
+        -------
+        solprop.backends.protocol.Observation
+            The attempts and rows at :attr:`position`, with no field.
+        """
+        entries, self._history = self._history, []
+        history = BackendHistory(
+            z=np.array([entry[0] for entry in entries], dtype=np.float64),
+            dz=np.array([entry[1] for entry in entries], dtype=np.float64),
+            error_norm=np.array([entry[2] for entry in entries], dtype=np.float64),
+            accepted=np.array([entry[3] for entry in entries], dtype=np.bool_),
+            wall_time=np.array([entry[4] for entry in entries], dtype=np.float64),
+        )
+        return Observation(
+            z=self.position,
+            field=None,
+            noise_phase=None,
+            step_history=history,
+            n_steps=history.n_steps,
+            n_rejected=history.n_rejected,
+            step_stats=self._drain_step_stats(),
+        )
 
     def timing_probe(self, start: Start) -> TimingProbe:
         """Load a start and return single trials of this run's march from it.

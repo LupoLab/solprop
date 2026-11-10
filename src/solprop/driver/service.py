@@ -45,6 +45,7 @@ from solprop.backends.events import (
     join_attempts,
 )
 from solprop.backends.export import ExportRecipe
+from solprop.backends.host.session import HostSession
 from solprop.backends.protocol import Backend, BackendHistory
 from solprop.backends.protocol import StepStats as BackendRows
 from solprop.backends.session import RunSession
@@ -518,7 +519,8 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
 ) -> None:
     """Advance a session to its end, servicing every event it reports.
 
-    Any :class:`~solprop.backends.session.RunSession` is served: the transitional
+    Any :class:`~solprop.backends.session.RunSession` is served: the reference's
+    :class:`~solprop.backends.host.session.HostSession` and the transitional
     :class:`~solprop.backends.driver_session.DriverSession`, whose driver gives the
     execution facts and method history, or a backend's own session, through its
     protocol alone (:class:`~solprop.driver.run.SessionFacts`).
@@ -1065,7 +1067,7 @@ def _fallback_ticket(session: RunSession) -> ExportTicket | None:
     A service failure -- an output error, a signal during a commit -- leaves the
     session's batch pending, so its state is still where the batch left it. When
     nothing is pending, the session issues a failed terminal batch whose ticket exports
-    the committed state (``DriverSession.pending_ticket``).
+    the committed state (``HostSession.pending_ticket``).
 
     Parameters
     ----------
@@ -1090,8 +1092,8 @@ def _fallback_ticket(session: RunSession) -> ExportTicket | None:
 def _facts(session: RunSession) -> Backend | SessionFacts:
     """Return what the service loop's records read as the session's backend.
 
-    The transitional session's driver, or a session's own facts
-    (:class:`~solprop.driver.run.SessionFacts`).
+    The reference session's or the transitional session's driver, or a session's own
+    facts (:class:`~solprop.driver.run.SessionFacts`).
 
     Parameters
     ----------
@@ -1103,8 +1105,6 @@ def _facts(session: RunSession) -> Backend | SessionFacts:
     Any
         The driver, or the facts.
     """
-    # The transitional session's own module imports this loop's helpers.
-
-    if isinstance(session, DriverSession):
+    if isinstance(session, HostSession | DriverSession):
         return session.driver
     return SessionFacts(session)

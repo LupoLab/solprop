@@ -535,12 +535,15 @@ modes, profiles)` builds one, for the problem and the request it is run with: th
 request's method, error control, itinerary and planes are lowered once, here (the native
 session lowers its statistics as it starts, from profile tables cached per problem), and
 a run's session serves that request adapted to one run (`RunRequest.for_run`); a
-preparation refuses any other request by name (`driver_session.foreign_request`). A run
+preparation refuses any other request by name (`session_core.foreign_request`). A run
 starts through the backend's own preparation shape (SEP 47 §5.2):
 `backend.prepare(problem, request)` returns a `PreparedExecution` whose
 `start(start, *, listener, started, stop, owns)` opens the backend's session, and
 `backends.sessions.start_session` does nothing else, so a backend chooses its session
-without the run layer naming it. The reference's opens `HostSession`; the native
+without the run layer naming it. The reference's (`backends.host.session.HostPrepared`)
+opens `HostSession`, which composes the parts the Python sessions share
+(`backends.session_core`: the attempt counter, yield check, snapshot latch, shared
+observation and preparation refusals) and imports nothing of the bridge's; the native
 backend's (`solprop_native.session.NativePrepared`) opens `NativeSession` where it admits
 the run and the transitional `DriverSession` otherwise, logging the reason at debug level
 (`session_refusal`, which a test replaces to force the bridge); any other driver's
@@ -578,9 +581,10 @@ both read a Radau rule's axis node. A group starts through the same shape (SEP 4
 `start(starts, *, stop)` opens the backend's `GroupSession`, so it names no backend
 either. The native backend's (`solprop_native.group.NativePreparedGroup`) opens
 `NativeGroupSession` where `solprop_native.group.refusal` admits the group and the
-transitional `DriverGroupSession` otherwise, logging the reason at debug level; every
-other driver's (`driver_session.DriverPreparedGroup`), the reference's among them,
-opens `DriverGroupSession` over the lockstep runner its registry row names. A backend
+transitional `DriverGroupSession` otherwise, logging the reason at debug level. The
+reference's (`backends.host.group_session.HostPreparedGroup`) opens its own
+`HostGroupSession` over the group runner its registry row names, and any other step
+driver's (`driver_session.DriverPreparedGroup`) opens `DriverGroupSession`. A backend
 that runs no group raises `BackendError` from `prepare_group`. The
 three keyword arguments are what `stats()` needs and the kernel contract does not carry.
 
