@@ -142,7 +142,7 @@ def test_a_structurally_absent_source_takes_the_exact_flow():
     field, adams, _ = march(simulation)
     assert adams is not None and not adams._engine.compensated
     start = problem.initial.field0 * problem.grids.active_mask
-    exact = np.exp(delta_phi(problem.linear, 0.0, LENGTH)) * start
+    exact = np.exp(delta_phi(problem.linear, 0.0, LENGTH))[0] * start
     # Round-off of the flows' products, step by step.
     np.testing.assert_allclose(field, exact, rtol=0, atol=1e-12 * np.abs(exact).max())
 

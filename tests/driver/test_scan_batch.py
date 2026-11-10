@@ -63,6 +63,32 @@ def build(point, backend="numpy_ref"):
     )
 
 
+def test_a_field_reduction_without_kept_fields_matches_local_in_a_batch(tmp_path):
+    """A batched point's field capture has the trajectory's shape, every axis of it.
+
+    The capture is retained at ``problem.shape``, ``(n_modes, n_pol, n_omega)``: one
+    axis short and a field reduction refuses the plane it is handed (SEP 47 section
+    6.2 removed the batch axis that slice once dropped).
+    """
+    scan = Scan("batch", base_seed=772, power=[1.0, 2.0])
+    options = {
+        "fields": "none",
+        "progress": "none",
+        "reductions": [scans.field_at_plane()],
+    }
+    reference = run_scan(
+        scan, build, output=tmp_path / "local.h5", executor=Local(), **options
+    )
+    result = run_scan(
+        scan, build, output=tmp_path / "batch.h5", executor=Batch(2), **options
+    )
+    assert reference.status.tolist() == result.status.tolist() == ["done"] * 2
+    for point in scan.points():
+        shape = build(point).translate().shape
+        assert result.point(point.index)["reduced/field_at_plane"].shape[-3:] == shape
+    assert_points_matched(result, reference, scan, build, what="batch member")
+
+
 # A native lockstep batch replays its Adams members on solprop's march, with the
 # warning native/tests/test_batch.py asserts (SEP 39).
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
@@ -373,7 +399,7 @@ def test_batch_refuses_changed_configuration_of_completed_point(tmp_path):
 
     def changed(point):
         simulation = build(point)
-        return simulation.with_input(simulation.translate().initial.field0[0] * 2)
+        return simulation.with_input(simulation.translate().initial.field0 * 2)
 
     with pytest.raises(OutputError, match="different configuration"):
         run_scan(scan, changed, **options)

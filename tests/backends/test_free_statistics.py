@@ -100,7 +100,7 @@ def test_free_packed_statistics_match_host_definitions(
         backend.set_initial(problem.initial.field0, None)
         actual = backend.stats(spec)
         for name, expected in reference.items():
-            errors = np.abs(actual[name][0] - expected)
+            errors = np.abs(actual[name] - expected)
             assert np.all(errors <= bounds[name]), (name, errors, bounds[name])
             pairs = (
                 [(float(np.max(errors)), float(np.max(bounds[name])))]

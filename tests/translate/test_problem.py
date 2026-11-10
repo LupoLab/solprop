@@ -2,9 +2,11 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import copy
 import dataclasses
 import math
 import re
+import typing
 import warnings
 from pathlib import Path
 from typing import cast
@@ -40,13 +42,14 @@ from solprop.translate.problem import (
     DEFAULT_COMPONENTS,
     Flags,
     Initial,
-    KernelProblem,
+    PropagationProblem,
     StepperSettings,
     _held_state,
     _walk_arrays,
     assemble,
 )
 from solprop.translate.responses import CompiledResponses, prefactor_at
+from solprop.translate.routes import Route, TDSESource, flux_of
 
 CONTRACT = Path(__file__).resolve().parents[2] / "docs" / "dev" / "kernel-contract.md"
 DOCS = CONTRACT.parents[1]
@@ -163,7 +166,11 @@ def contract_field_names(path=CONTRACT):
 
 
 def dataclass_field_names(problem):
-    """Every contract field of the dataclass tree, by the contract's walking rule."""
+    """Every contract field of the dataclass tree, by the contract's walking rule.
+
+    The route is a closed union: every variant's fields are rows of the document,
+    whichever variant this problem carries, and so are the TDSE source's.
+    """
     names = set()
 
     def visit(node):
@@ -176,6 +183,9 @@ def dataclass_field_names(problem):
                 visit(value)
 
     visit(problem)
+    visit(problem.transform)
+    for variant in (*typing.get_args(Route.__value__), TDSESource):
+        names.update(entry.name for entry in dataclasses.fields(variant))
     return names
 
 
@@ -236,11 +246,10 @@ def test_every_page_states_the_schema_the_code_writes():
 
 def test_the_soliton_problem_assembles(soliton, envelope_grid):
     assert soliton.grid_kind == "envelope"
-    assert soliton.shape == (1, 1, 1, envelope_grid.n_omega)
+    assert soliton.shape == (1, 1, envelope_grid.n_omega)
     assert soliton.flags == Flags(
         single_mode=True,
         scalar_pol=True,
-        single_batch=True,
         has_plasma=False,
         has_raman=False,
         has_spectral_responses=False,
@@ -258,7 +267,7 @@ def test_the_soliton_problem_assembles(soliton, envelope_grid):
 
 def test_the_gradient_capillary_assembles(gradient, field_grid, capillary):
     assert gradient.grid_kind == "field"
-    assert gradient.shape == (1, 1, 1, field_grid.n_omega)
+    assert gradient.shape == (1, 1, field_grid.n_omega)
     assert not gradient.flags.constant_linop
     assert gradient.flags.has_temporal_absorber
     assert gradient.flags.mode_averaged
@@ -316,30 +325,24 @@ def test_the_polarisation_taper_is_off_unless_asked_for(envelope_grid, gnlse):
     assert np.array_equal(tapered.grids.omega_window, envelope_grid.omega_window)
 
 
-def test_a_batched_initial_state_keeps_its_batch_axis(envelope_grid, gnlse):
+def test_a_stacked_initial_state_is_refused_by_name(envelope_grid, gnlse):
+    # A group of trajectories is a sequence of problems (SEP 47 section 6.7), never a
+    # leading axis of one problem's state.
     start = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=1.0).build(
         envelope_grid
     )
-    batched = np.stack([start, 2.0 * start])
-    problem = assemble(
-        envelope_grid,
-        gnlse.mode,
-        [gnlse.kerr],
-        batched,
-        controller=PIController(rtol=1e-8, atol=1e-14),
-        save_planes=[1.0],
-        dz_max=0.05,
-        dz_init=1e-4,
-        batch_params={"energy": [1.0, 4.0]},
-        **GNLSE,
-    )
-    assert problem.shape[0] == 2
-    assert not problem.flags.single_batch
-    assert problem.initial.batch_params["energy"].tolist() == [1.0, 4.0]
-    with pytest.raises(TypeError):
-        # A mapping proxy has no __setitem__, which is the point: the record a backend
-        # is handed cannot be edited behind its back.
-        problem.initial.batch_params["energy"] = np.zeros(2)  # pyright: ignore[reportIndexIssue]
+    with pytest.raises(TranslationError, match=r"\(n_modes, n_pol, n_omega\)"):
+        assemble(
+            envelope_grid,
+            gnlse.mode,
+            [gnlse.kerr],
+            np.stack([start, 2.0 * start]),
+            controller=PIController(rtol=1e-8, atol=1e-14),
+            save_planes=[1.0],
+            dz_max=0.05,
+            dz_init=1e-4,
+            **GNLSE,
+        )
 
 
 def test_a_noise_realisation_is_carried_in_the_canonical_layout(envelope_grid, gnlse):
@@ -363,7 +366,7 @@ def test_a_noise_realisation_is_carried_in_the_canonical_layout(envelope_grid, g
     assert problem.initial.noise_model == "modified"
     assert problem.initial.noise0 is not None
     assert problem.initial.noise0.shape == problem.shape
-    assert np.array_equal(problem.initial.noise0[0], draw.spectrum)
+    assert np.array_equal(problem.initial.noise0, draw.spectrum)
 
 
 def test_the_defaults_follow_the_stepper_design(soliton):
@@ -414,6 +417,12 @@ def corrupt(problem, group, name, value):
     copy = dataclasses.replace(problem)
     member = dataclasses.replace(getattr(copy, group))
     object.__setattr__(member, name, value)
+    if group == "transform":
+        # The transform is the route's: corrupt it where it is held.
+        route = dataclasses.replace(copy.route)
+        object.__setattr__(route, "transform", member)
+        object.__setattr__(copy, "route", route)
+        return copy
     object.__setattr__(copy, group, member)
     return copy
 
@@ -469,7 +478,7 @@ def test_validate_rejects_a_non_boolean_mask(soliton):
 @pytest.mark.parametrize(
     ("group", "name", "shape", "message"),
     [
-        ("initial", "field0", (1, 1, 1, 7), "field0 has shape"),
+        ("initial", "field0", (1, 1, 7), "field0 has shape"),
         ("grids", "omega", (7,), "bins, expected"),
     ],
 )
@@ -616,7 +625,9 @@ def test_validate_rejects_a_raman_kernel_on_a_vector_problem(raman_soliton):
     transform = dataclasses.replace(raman_soliton.transform)
     object.__setattr__(transform, "_n_pol", 2)
     stale = dataclasses.replace(raman_soliton)
-    object.__setattr__(stale, "transform", transform)
+    route = copy.copy(stale.route)
+    object.__setattr__(route, "transform", transform)
+    object.__setattr__(stale, "route", route)
     with pytest.raises(TranslationError, match="tensor"):
         stale.validate()
 
@@ -809,67 +820,43 @@ def test_assemble_rejects_a_mode_set_without_a_quadrature(envelope_grid, gnlse):
         )
 
 
-def test_a_batch_parameter_must_have_one_value_per_member(envelope_grid, gnlse):
-    start = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=1.0).build(
-        envelope_grid
-    )
-    with pytest.raises(TranslationError, match="one per batch member"):
-        assemble(
-            envelope_grid,
-            gnlse.mode,
-            [gnlse.kerr],
-            start,
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[1.0],
-            dz_max=0.05,
-            dz_init=1e-4,
-            batch_params={"energy": [1.0, 2.0]},
-            **GNLSE,
-        )
-
-
 # --------------------------------------------------------------------------- the groups
 
 
 def test_the_initial_group_refuses_a_noise_field_of_the_wrong_shape():
     with pytest.raises(TranslationError, match="noise0 has shape"):
-        Initial(
-            np.zeros((1, 1, 1, 8), complex),
-            np.zeros((1, 1, 1, 4), complex),
-            "input",
-            {},
-        )
+        Initial(np.zeros((1, 1, 8), complex), np.zeros((1, 1, 4), complex), "input")
 
 
 def test_the_initial_group_refuses_a_model_without_a_realisation():
     with pytest.raises(TranslationError, match="noise_model"):
-        Initial(np.zeros((1, 1, 1, 8), complex), None, "input", {})
+        Initial(np.zeros((1, 1, 8), complex), None, "input")
 
 
 def test_the_initial_group_copies_a_writeable_state():
     # A writeable array stays the caller's: changing it later never reaches the problem.
-    state = np.arange(16, dtype=complex).reshape(2, 1, 1, 8)
-    held = Initial(state, None, "none", {}).field0
+    state = np.arange(16, dtype=complex).reshape(2, 1, 8)
+    held = Initial(state, None, "none").field0
     assert not np.shares_memory(held, state)
     assert not held.flags.writeable and held.flags.c_contiguous
     assert state.flags.writeable
-    state[0, 0, 0, 3] = 99.0
-    assert held[0, 0, 0, 3] == 3.0
+    state[0, 0, 3] = 99.0
+    assert held[0, 0, 3] == 3.0
 
 
 def test_the_initial_group_copies_a_read_only_view_of_a_writeable_array():
-    state = np.arange(16, dtype=complex).reshape(2, 1, 1, 8)
+    state = np.arange(16, dtype=complex).reshape(2, 1, 8)
     view = state.view()
     view.setflags(write=False)
-    held = Initial(view, None, "none", {}).field0
+    held = Initial(view, None, "none").field0
     assert not np.shares_memory(held, state)
 
 
 def test_the_initial_group_copies_a_read_only_state_too():
     # Flags are no proof: the owner of a frozen array can make it writeable again.
-    state = np.zeros((2, 1, 1, 8), dtype=complex)
+    state = np.zeros((2, 1, 8), dtype=complex)
     state.setflags(write=False)
-    held = Initial(state, None, "none", {}).field0
+    held = Initial(state, None, "none").field0
     assert not np.shares_memory(held, state)
     state.setflags(write=True)
     state[...] = 1.0
@@ -878,51 +865,45 @@ def test_the_initial_group_copies_a_read_only_state_too():
 
 def test_the_initial_group_keeps_a_broadcast_as_its_repeated_block():
     # The block is copied, so the row stays the caller's, and the state costs one row.
-    row = np.arange(8, dtype=complex).reshape(1, 1, 1, 8)
-    held = Initial(np.broadcast_to(row, (5, 1, 1, 8)), None, "none", {}).field0
-    assert held.shape == (5, 1, 1, 8)
+    row = np.arange(8, dtype=complex).reshape(1, 1, 8)
+    held = Initial(np.broadcast_to(row, (5, 1, 8)), None, "none").field0
+    assert held.shape == (5, 1, 8)
     assert held.strides[0] == 0 and not held.flags.writeable
     assert not np.shares_memory(held, row)
     row[..., 2] = 99.0
     assert row.flags.writeable
-    np.testing.assert_array_equal(held, np.broadcast_to(np.arange(8), (5, 1, 1, 8)))
+    np.testing.assert_array_equal(held, np.broadcast_to(np.arange(8), (5, 1, 8)))
     # What the problem holds is taken back as it is, by a replaced problem.
-    assert Initial(held, None, "none", {}).field0 is held
+    assert Initial(held, None, "none").field0 is held
 
 
 @pytest.mark.parametrize("dtype", [np.complex64, np.float64])
 def test_a_broadcast_of_another_dtype_converts_its_block_alone(dtype):
     # A real field comes from a simulation's input (`_built`), not from `Initial`.
-    row = np.arange(8, dtype=dtype).reshape(1, 1, 1, 8)
-    held = _held_state(np.broadcast_to(row, (5, 1, 1, 8)))
+    row = np.arange(8, dtype=dtype).reshape(1, 1, 8)
+    held = _held_state(np.broadcast_to(row, (5, 1, 8)))
     assert held.dtype == np.complex128 and held.strides[0] == 0
     np.testing.assert_array_equal(held[3], row[0])
-    assert Initial(held, None, "none", {}).field0 is held
+    assert Initial(held, None, "none").field0 is held
 
 
 def test_the_initial_group_converts_another_dtype_once():
-    state = np.ones((1, 1, 1, 8), dtype=np.complex64)
-    held = Initial(state, None, "none", {}).field0
+    state = np.ones((1, 1, 8), dtype=np.complex64)
+    held = Initial(state, None, "none").field0
     assert held.dtype == np.complex128 and not held.flags.writeable
-    assert Initial(held, None, "none", {}).field0 is held
+    assert Initial(held, None, "none").field0 is held
 
 
-def test_the_initial_group_copies_the_noise_and_the_batch_parameters():
-    # Neither is aliased nor frozen: the caller's arrays stay the caller's.
-    noise = np.full((2, 1, 1, 8), 1j)
-    energy = np.array([1.0, 2.0])
-    initial = Initial(
-        np.zeros((2, 1, 1, 8), complex), noise, "input", {"energy": energy}
-    )
-    assert noise.flags.writeable and energy.flags.writeable
+def test_the_initial_group_copies_the_noise():
+    # It is neither aliased nor frozen: the caller's array stays the caller's.
+    noise = np.full((2, 1, 8), 1j)
+    initial = Initial(np.zeros((2, 1, 8), complex), noise, "input")
+    assert noise.flags.writeable
     noise[...] = 0.0
-    energy[...] = 0.0
     assert initial.noise0 is not None
     assert np.all(initial.noise0 == 1j) and not initial.noise0.flags.writeable
-    np.testing.assert_array_equal(initial.batch_params["energy"], [1.0, 2.0])
     replaced = dataclasses.replace(initial, z=1e-3)
     assert replaced.noise0 is initial.noise0
-    assert replaced.batch_params["energy"] is initial.batch_params["energy"]
 
 
 def test_validate_admits_a_broadcast_initial_state(soliton):
@@ -963,7 +944,7 @@ def test_a_broadcast_free_space_input_runs_as_its_expansion():
         )
         runs.append((simulation.translate(), simulation.run(progress="none")))
     (broadcast, held), (expanded, reference) = runs
-    assert broadcast.initial.field0.strides[1] == 0
+    assert broadcast.initial.field0.strides[0] == 0
     # A single-precision placeholder converts its column alone, once.
     single = Simulation.from_free(
         grid,
@@ -1043,38 +1024,28 @@ def test_the_stats_request_is_the_catalogue_object(envelope_grid, gnlse, soliton
 
 def test_a_kernel_problem_can_be_built_by_hand_from_its_groups(soliton):
     """The contract is a dataclass, so a backend test can substitute one group."""
-    rebuilt = KernelProblem(
+    rebuilt = PropagationProblem(
         grid_kind=soliton.grid_kind,
         shape=soliton.shape,
         flags=soliton.flags,
         grids=soliton.grids,
         linear=dataclasses.replace(
             constant_phi(
-                np.zeros(soliton.shape[3], dtype=complex), soliton.stepper.z_end
+                np.zeros(soliton.shape[2], dtype=complex), soliton.stepper.z_end
             ),
             power_weight_representation=soliton.linear.power_weight_representation,
             power_weight=soliton.linear.power_weight,
             power_weight_constant=soliton.linear.power_weight_constant,
         ),
-        transform=soliton.transform,
         responses=soliton.responses,
         initial=soliton.initial,
         stepper=soliton.stepper,
         stats_spec=soliton.stats_spec,
+        route=soliton.route,
     )
     rebuilt.validate()
     assert rebuilt.linear.phi_representation == "constant"
     assert math.isclose(rebuilt.linear.z_span[1], 1.05)
-
-
-def test_the_initial_group_checks_a_batch_parameter_it_is_handed_directly():
-    with pytest.raises(TranslationError, match="one per batch member"):
-        Initial(
-            np.zeros((2, 1, 1, 8), complex),
-            None,
-            "none",
-            {"energy": np.array([1.0, 2.0, 3.0])},
-        )
 
 
 def test_a_save_plane_at_or_below_zero_is_refused(envelope_grid, gnlse):
@@ -1113,7 +1084,7 @@ def test_a_multimode_problem_assembles_with_a_quadrature(field_grid):
             dz_init=1e-4,
             quadrature=rule,
         )
-    assert problem.shape == (1, 3, 1, field_grid.n_omega)
+    assert problem.shape == (3, 1, field_grid.n_omega)
     assert not problem.flags.single_mode
     assert not problem.flags.mode_averaged
     assert problem.transform.n_nodes == rule.n_nodes
@@ -1188,7 +1159,7 @@ def test_inferred_vector_rows_require_an_explicit_product_choice(field_grid):
     with pytest.raises(TranslationError, match="carry the transverse components twice"):
         _multimode_problem(field_grid, modes, rule, n_pol=2)
     assert (
-        _multimode_problem(field_grid, modes, rule, components=("y",), n_pol=2).shape[2]
+        _multimode_problem(field_grid, modes, rule, components=("y",), n_pol=2).shape[1]
         == 2
     )
 
@@ -1347,7 +1318,7 @@ def test_validate_rejects_a_transform_and_a_state_that_both_carry_the_components
             dz_max=0.01,
             dz_init=1e-4,
         )
-    assert problem.shape[2] == 2
+    assert problem.shape[1] == 2
     doubled = corrupt(problem, "transform", "_n_pol", 2)
     with pytest.raises(TranslationError, match="with_polarisations"):
         doubled.validate()
@@ -1492,13 +1463,16 @@ def test_validate_pairs_the_plane_measure_with_spatial_geometry(
     soliton, radial_problem
 ):
     """A spatial problem needs its plane measure on its band, and others carry none."""
-    flux = radial_problem.flux
+    flux = flux_of(radial_problem.route)
     assert flux is not None
     radial_problem.validate()
-    with pytest.raises(TranslationError, match="requires its plane measure"):
-        dataclasses.replace(radial_problem, flux=None).validate()
-    with pytest.raises(TranslationError, match="requires its plane measure"):
-        dataclasses.replace(soliton, flux=flux).validate()
+    # The annotation refuses it under the test session's type checks; the route
+    # itself does without them.
+    with pytest.raises((TranslationError, TypeError), match="flux"):
+        dataclasses.replace(radial_problem.route, flux=None)
+    # A modal route has no plane measure to carry: the union leaves it no field.
+    assert flux_of(soliton.route) is None
+    assert "flux" not in {field.name for field in dataclasses.fields(soliton.route)}
     narrowed = np.array(flux.base.active, copy=True)
     narrowed[np.flatnonzero(narrowed)[0]] = False
     narrowed.setflags(write=False)
@@ -1506,4 +1480,6 @@ def test_validate_pairs_the_plane_measure_with_spatial_geometry(
         flux, base=dataclasses.replace(flux.base, active=narrowed)
     )
     with pytest.raises(TranslationError, match="active mask must match"):
-        dataclasses.replace(radial_problem, flux=stale).validate()
+        dataclasses.replace(
+            radial_problem, route=dataclasses.replace(radial_problem.route, flux=stale)
+        ).validate()

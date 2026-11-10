@@ -125,19 +125,19 @@ def test_radial_statistics_match_the_host_without_field_observation(
         oracle.set_initial(problem.initial.field0, None)
         if steps:
             oracle.propagate_to(grid.length)
-        state = oracle.observe().require_field()[0]
+        state = oracle.observe().require_field()
         reference = collect(spec, grid, SavedPlane(z=0.0, field=state), flux=flux)
         bounds = statistic_bounds(grid, space, state, reference, flux)
-        backend.set_initial(state[None], None)
+        backend.set_initial(state, None)
         # Calling stats never calls observe(); the native lane transfers only its
         # packed reductions. All exposed statistics are requested together, then singly.
         actual = backend.stats(spec)
         for name, expected in reference.items():
-            assert actual[name].shape == (1, *expected.shape)
-            assert np.all(np.abs(actual[name][0] - expected) <= bounds[name]), name
+            assert actual[name].shape == expected.shape
+            assert np.all(np.abs(actual[name] - expected) <= bounds[name]), name
             for index, (deviation, limit) in enumerate(
                 zip(
-                    np.abs(actual[name][0] - expected).reshape(-1),
+                    np.abs(actual[name] - expected).reshape(-1),
                     np.broadcast_to(bounds[name], expected.shape).reshape(-1),
                     strict=True,
                 )
@@ -149,7 +149,7 @@ def test_radial_statistics_match_the_host_without_field_observation(
                         request,
                         f"spatial statistic {name} (J s/m²)",
                         f"{grid.kind}, p={n_pol}, steps={steps}",
-                        np.max(np.abs(actual[name][0] - expected)),
+                        np.max(np.abs(actual[name] - expected)),
                         np.max(bounds[name]),
                         spatial_backend_class.name,
                     )

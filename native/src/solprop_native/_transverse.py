@@ -53,7 +53,7 @@ from solprop.transverse_monitor import (
 from ._watch import _number  # pyright: ignore[reportPrivateUsage] - one reading
 
 if TYPE_CHECKING:
-    from solprop.translate.problem import KernelProblem
+    from solprop.translate.problem import PropagationProblem
     from solprop.transverse_monitor import TransverseEdge, TransverseStatus
 
 __all__ = [
@@ -162,12 +162,12 @@ class EdgeConfig:
         return dict(self.values)
 
 
-def declared(problem: KernelProblem) -> bool:
+def declared(problem: PropagationProblem) -> bool:
     """Return whether a run declares content above ``discard_above``.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -178,14 +178,14 @@ def declared(problem: KernelProblem) -> bool:
     return _declared_discard(problem)
 
 
-def edge_config(edge: TransverseEdge, problem: KernelProblem) -> EdgeConfig:
+def edge_config(edge: TransverseEdge, problem: PropagationProblem) -> EdgeConfig:
     """Return the native edge's configuration for a run's fresh edge.
 
     Parameters
     ----------
     edge : solprop.transverse_monitor.TransverseEdge
         The run's fresh edge; it is not changed.
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem: its fixed schedule and its declared content, as
         ``StepDriver.attach_monitor`` hands them to the edge's launch.
 

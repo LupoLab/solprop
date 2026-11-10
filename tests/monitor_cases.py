@@ -30,7 +30,7 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 ROUTE_NAMES = (
     "gnlse",
@@ -113,7 +113,7 @@ def as_driver(backend: Backend) -> StepDriver[Any] | HostDriver[Any]:
 def watched(
     simulation: Simulation,
     name: str,
-    problem: KernelProblem | None = None,
+    problem: PropagationProblem | None = None,
     options: ExecutionOptions | None = None,
 ) -> Backend:
     """Return a backend loaded with the edge-reaching launch and watched.
@@ -144,7 +144,7 @@ def reading(backend: Backend) -> BoundaryEnergies:
 
 
 def record_after_march(
-    simulation: Simulation, name: str, problem: KernelProblem | None = None
+    simulation: Simulation, name: str, problem: PropagationProblem | None = None
 ) -> dict[str, Any]:
     """Return a backend's monitor record after the probe's fixed steps, with the split
     collar's crossing cap the last check read (``step_cap``)."""

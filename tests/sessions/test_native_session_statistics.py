@@ -93,7 +93,7 @@ def _run(problem, names, *, grid, modes=None, profiles=None, windows=None):
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     names : tuple of str
         The plane statistics; their periodic-capable subset is periodic.
@@ -155,7 +155,7 @@ def _reference(problem, spec, seen, *, grid, modes=None, profiles=None):
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     spec : solprop.stats.StatsSpec
         The plane statistics.

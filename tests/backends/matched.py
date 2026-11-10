@@ -34,10 +34,10 @@ import numpy as np
 from backends.forced_threads import saved_sizing, thread_environment
 from bounds import assert_within, fft_bound, rate_log_sensitivity, scan_bound
 from solprop.stepper.multistep import Multistep
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 
-def fixed_order(problem: KernelProblem) -> KernelProblem:
+def fixed_order(problem: PropagationProblem) -> PropagationProblem:
     """Return `problem` with its Adams method held at its top order, if it has one.
 
     The Runge-Kutta march (``integrator=None``) has no order to choose and is returned

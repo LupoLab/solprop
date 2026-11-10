@@ -31,7 +31,7 @@ from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.monitor import BoundaryMonitor
 from solprop.stats import StatsSpec
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 __all__ = ["LockstepRunner"]
 
@@ -393,7 +393,7 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
             member._begin_plane()
 
     def stats(self, spec: StatsSpec) -> dict[str, np.ndarray]:
-        """Collect member statistics with a leading batch axis.
+        """Collect member statistics, stacked on a leading member axis.
 
         Parameters
         ----------
@@ -403,16 +403,13 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
         Returns
         -------
         dict of str to numpy.ndarray
-            Host statistics concatenated on their existing batch axes.
+            Host statistics, each member's own stacked in member order.
         """
         self._require_state()
         values = [member.stats(spec) for member in self._members]
         if any(value.keys() != values[0].keys() for value in values):
             raise BackendError("lockstep members returned different statistic names")
-        return {
-            name: np.concatenate([value[name] for value in values], axis=0)
-            for name in values[0]
-        }
+        return {name: np.stack([value[name] for value in values]) for name in values[0]}
 
     def observe_members(self, *, field: bool = True) -> tuple[Observation, ...]:
         """Drain each member's host observation and its own diagnostic history.
@@ -426,7 +423,7 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
         Returns
         -------
         tuple of solprop.backends.protocol.Observation
-            Singleton observations in batch order, with unchanged field shapes or no
+            Each member's observation in member order, with its own field or no
             field, and independently retained periodic rows.
         """
         self._require_state()
@@ -558,10 +555,8 @@ def _validate_members(members: tuple[StepDriver[object], ...]) -> None:
         other = problem.stepper.schedule
         if problem.stepper.integrator != settings.integrator:
             raise BackendError("lockstep members require the same integrator")
-        if problem.shape[0] != 1 or problem.shape[1:] != first._problem.shape[1:]:
-            raise BackendError(
-                "lockstep members require matching singleton field shapes"
-            )
+        if problem.shape != first._problem.shape:
+            raise BackendError("lockstep members require matching field shapes")
         if (
             other is None
             or other.z_start != schedule.z_start
@@ -584,12 +579,12 @@ def _validate_members(members: tuple[StepDriver[object], ...]) -> None:
         _refuse_mixed_guides(problem, first._problem)
 
 
-def _general_leaves(problem: KernelProblem) -> object:
+def _general_leaves(problem: PropagationProblem) -> object:
     """Return what general modal guide a problem carries, comparably.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         A member's problem.
 
     Returns
@@ -617,7 +612,9 @@ def _general_leaves(problem: KernelProblem) -> object:
     )
 
 
-def _refuse_mixed_guides(problem: KernelProblem, reference: KernelProblem) -> None:
+def _refuse_mixed_guides(
+    problem: PropagationProblem, reference: PropagationProblem
+) -> None:
     """Refuse a lockstep group whose members are not one general modal guide.
 
     The narrow admission rule for a batch of general modal guides, applied at the
@@ -631,9 +628,9 @@ def _refuse_mixed_guides(problem: KernelProblem, reference: KernelProblem) -> No
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The member being admitted.
-    reference : solprop.translate.problem.KernelProblem
+    reference : solprop.translate.problem.PropagationProblem
         Member zero's problem, whose guide the group is.
 
     Raises

@@ -70,7 +70,8 @@ from solprop.stepper.tableau import extension_coefficients, extension_value
 from solprop.translate.linop import delta_phi, unitary_phase
 from solprop.translate.masks import noise_spectrum
 from solprop.translate.plasma_source import plasma_source_record
-from solprop.translate.problem import KernelProblem, PropagatorMode
+from solprop.translate.problem import PropagationProblem, PropagatorMode
+from solprop.translate.routes import transverse_of
 from solprop.translate.stage import (
     StageScalars,
     anchor,
@@ -131,8 +132,8 @@ def replay_tolerance(schedule: FixedSchedule, position: float) -> float:
     is therefore :data:`~solprop.stepper.schedule.LANDING_ULPS` or the step count,
     whichever is larger, in ulps of the larger of the position and the schedule's
     length -- still far inside the ``1e-9`` of the length that
-    :meth:`~solprop.translate.problem.KernelProblem.validate` allows an edge to miss a
-    save plane by, so no step is ever skipped.
+    :meth:`~solprop.translate.problem.PropagationProblem.validate` allows an edge to
+    miss a save plane by, so no step is ever skipped.
 
     Parameters
     ----------
@@ -202,8 +203,8 @@ class _StepStatsBuffer:
         step : int
             Index of the accepted step it was taken after, into the plane's history.
         values : collections.abc.Mapping
-            What the backend's ``stats`` returned, keyed by name, each with a leading
-            batch axis.
+            What the backend's ``stats`` returned, keyed by name, without a batch
+            axis.
 
         Raises
         ------
@@ -394,7 +395,7 @@ class _TrialProbe:
         finished = driver._finish(state, length)
         field = np.array(driver._observed_field(finished)[0])
         # The kept array already carries any `input` draw: a resume adds none.
-        driver.set_initial(kept, self._noise, z=self._z, resume=True)
+        driver.set_initial(kept[0], self._noise, z=self._z, resume=True)
         self._trial = None
         return field
 
@@ -417,7 +418,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The validated problem to step. The subclass refuses what it cannot execute
         before calling this constructor.
     grid : solprop.grid.TimeGrid, optional
@@ -471,7 +472,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     def __init__(
         self,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         *,
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
@@ -972,7 +973,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         Returns
         -------
         dict
-            Small host arrays keyed by statistic name, each with a leading batch axis.
+            Small host arrays keyed by statistic name, without a batch axis.
         """
 
     def _on_accepted_step(self) -> None:  # noqa: B027 - optional by design
@@ -1344,7 +1345,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     def set_initial(
         self,
-        field: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
         noise: NoiseRealisation | None,
         *,
         z: float = 0.0,
@@ -1387,8 +1388,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         ----------
         field : numpy.ndarray
             The state in the canonical layout, complex, shape
-            ``(n_batch, n_modes, n_pol, n_omega)``, in the square root of watts and the
-            FFT convention.
+            ``(n_modes, n_pol, n_omega)``, in the square root of watts and the FFT
+            convention.
         noise : solprop.noise.NoiseRealisation or None
             The realisation to carry along the run, or ``None`` to take the one the
             problem was assembled with.
@@ -1413,6 +1414,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                 f"{self._problem.shape} from the contract"
             )
             raise BackendError(msg)
+        # The march holds its state with a leading axis of one, privately: the layout
+        # its kernels and the native build's read (SEP 47 section 6.2).
+        values = values[np.newaxis]
         position = self._checked_position(float(z))
         drawn = self._noise_field(noise)
         model = self._problem.initial.noise_model
@@ -1423,7 +1427,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             and not resume
             and position == self._problem.initial.z
         ):
-            if self._problem.transverse is not None:
+            if transverse_of(self._problem.route) is not None:
                 self._clean_columns = _clean_launch_columns(
                     values[0], drawn[0], self._problem.grids.active_mask
                 )
@@ -1666,9 +1670,15 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             accepted=np.array([entry[3] for entry in self._history], dtype=np.bool_),
             wall_time=np.array([entry[4] for entry in self._history], dtype=np.float64),
         )
+        whole = self._observed_field(state) if field else None
+        if whole is not None and not self.observes_fresh_field:
+            # The observation is a view of the held state without its leading axis:
+            # the state itself is frozen, as an observed array always was, so that
+            # the next step replaces it rather than accepting in place.
+            whole.setflags(write=False)
         plane = Observation(
             z=self._z,
-            field=self._observed_field(state) if field else None,
+            field=None if whole is None else whole[0],
             noise_phase=self._noise_phase() if field else None,
             step_history=history,
             n_steps=history.n_steps,
@@ -1712,7 +1722,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             The probe.
         """
         self.set_initial(
-            np.asarray(start.take_field())[np.newaxis],
+            np.asarray(start.take_field()),
             start.noise,
             z=float(start.z),
             resume=start.resume,
@@ -1842,7 +1852,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             The anchor, the step and the five coefficients, host arrays.
         """
         start = self._observed_field(cast(_StateT, self._state)).reshape(
-            self._problem.shape
+            (1, *self._problem.shape)
         )
         coefficients = extension_coefficients(
             self._problem.stepper.tableau, start, self._dense_stages(), dz
@@ -1872,7 +1882,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._dense_ahead = (
             self._z,
             self._observed_field(cast(_StateT, self._state)).reshape(
-                self._problem.shape
+                (1, *self._problem.shape)
             ),
         )
         self._state = self._apply_mask(self._adams_propagator(z, position) * value)
@@ -1940,8 +1950,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         too coarse for its tolerance is reported rather than silent
         (``docs/dev/stepper.md`` section 8). The position is read off the schedule's
         edges rather than accumulated, so every save plane is hit exactly -- which
-        :meth:`~solprop.translate.problem.KernelProblem.validate` has already checked
-        the schedule can do.
+        :meth:`~solprop.translate.problem.PropagationProblem.validate` has already
+        checked the schedule can do.
 
         Parameters
         ----------
@@ -2168,7 +2178,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             If the monitor's weights do not match the grid, or its columns the state.
         """
         n_t = self._problem.grids.n_t
-        _, n_modes, _, _ = self._problem.shape
+        n_modes, _, _ = self._problem.shape
         columns = monitor.columns
         given = None if columns is None else columns.shape
         if monitor.weights.shape != (4, n_t) or given not in {None, (n_modes,)}:
@@ -2819,8 +2829,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if self._problem.initial.noise_model == "none":
             return None
         if noise is not None:
-            return noise_spectrum(noise, self._problem.shape)
-        return self._problem.initial.noise0
+            return noise_spectrum(noise, self._problem.shape)[np.newaxis]
+        noise0 = self._problem.initial.noise0
+        return None if noise0 is None else noise0[np.newaxis]
 
     def _noise_at(
         self, bundle: StageScalars
@@ -2847,7 +2858,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     def _noise_phase(
         self,
-    ) -> Float[np.ndarray, "n_batch n_modes n_pol n_omega"] | None:
+    ) -> Float[np.ndarray, "n_modes n_pol n_omega"] | None:
         """Return ``Im Phi`` at the current position, or ``None`` without a noise model.
 
         Returns
@@ -2858,7 +2869,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if self._problem.initial.noise_model == "none":
             return None
         phase = self._unitary_phase(self._stage_scalars(self._z, self._z))
-        return np.ascontiguousarray(np.broadcast_to(phase, self._problem.shape))
+        return np.ascontiguousarray(
+            np.broadcast_to(phase, (1, *self._problem.shape))[0]
+        )
 
     # --- guards --------------------------------------------------------------------
 
@@ -3125,8 +3138,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         BackendError
             If a schedule is being replayed and `z` is not one of its edges. Every save
             plane is an edge, which
-            :meth:`~solprop.translate.problem.KernelProblem.validate` has checked, so
-            this fires only for a position the run never stopped at -- from which a
+            :meth:`~solprop.translate.problem.PropagationProblem.validate` has checked,
+            so this fires only for a position the run never stopped at -- from which a
             replay could not continue in step.
         """
         schedule = self._problem.stepper.schedule
@@ -3174,7 +3187,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
 
 def refuse_general_leaves(
-    problem: KernelProblem, backend: str, *, admits: Sequence[str] = ()
+    problem: PropagationProblem, backend: str, *, admits: Sequence[str] = ()
 ) -> None:
     """Refuse, by name, each schema-12 general-modal leaf a backend cannot execute.
 
@@ -3194,7 +3207,7 @@ def refuse_general_leaves(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem to check.
     backend : str
         The backend's registry name, used in the refusal.
@@ -3253,12 +3266,12 @@ def _clean_launch_columns(
     return np.sum(inside, axis=(1, 2)) + np.sum(outside, axis=(1, 2))
 
 
-def _declared_discard(problem: KernelProblem) -> bool:
+def _declared_discard(problem: PropagationProblem) -> bool:
     """Return whether a run declared content above ``discard_above`` (SEP 40 5.3).
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The run's problem.
 
     Returns
@@ -3266,5 +3279,5 @@ def _declared_discard(problem: KernelProblem) -> bool:
     bool
         True when its transverse specification sets ``discard_above``.
     """
-    design = problem.transverse
+    design = transverse_of(problem.route)
     return design is not None and design.specification.discard_above is not None

@@ -12,9 +12,10 @@ linear propagator's exponent in binary64
 This module holds what every backend that admits single precision shares, so that
 they compute the same exponents and refuse the same things:
 
-* :class:`Precision`, the record a :class:`~solprop.translate.problem.KernelProblem`
-  carries, with named fields so that a later mixed mode (a binary32 source beside a
-  binary64 state) is a third public value rather than a schema redesign;
+* :class:`Precision`, the record a
+  :class:`~solprop.translate.problem.PropagationProblem` carries, with named fields so
+  that a later mixed mode (a binary32 source beside a binary64 state) is a third public
+  value rather than a schema redesign;
 * :func:`admit_precision`, the shared admission of the defaults and refusals;
 * the range helpers of SEP 33 section 4.3: :func:`block_exponent` and :func:`narrow`
   for every table narrowed at upload, :func:`state_scale` for the state's exact
@@ -242,7 +243,8 @@ def admit_precision(
     integrator is admitted: binary32 Adams agrees with binary64 Adams to the method's
     own truncation on the survival cases (#342). The routes and responses no backend
     runs in binary32 are refused by
-    :meth:`~solprop.translate.problem.KernelProblem.validate`, where they are known.
+    :meth:`~solprop.translate.problem.PropagationProblem.validate`, where they are
+    known.
 
     Parameters
     ----------

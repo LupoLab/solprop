@@ -43,6 +43,7 @@ from solprop.translate.chebyshev import build
 from solprop.translate.linop import LinearOperator, phi_rate
 from solprop.translate.problem import EXPONENT_BUDGET, LOG_DBL_MAX
 from solprop.translate.radial import radial_operators, radial_rate_bounds
+from solprop.translate.routes import transverse_of
 from solprop.translate.spatial import rate_bounds, separable_values
 
 WAVELENGTH = 800e-9
@@ -114,7 +115,7 @@ def test_every_setting_at_its_default_is_the_documented_operator_and_record():
     plain = line(spatial_absorber=None, step=None)
     problem = plain.translate()
     operator = problem.linear.separable
-    design = problem.transverse
+    design = transverse_of(problem.route)
     assert operator is not None and design is not None
     assert not design.has_collar
     assert operator.evanescent_rate == EVANESCENT_RATE
@@ -126,7 +127,7 @@ def test_every_setting_at_its_default_is_the_documented_operator_and_record():
     # False asks for no ramp: exact zeros, and recorded because it was asked.
     bare = line(step=None)
     unramped = bare.translate()
-    assert unramped.transverse is None
+    assert transverse_of(unramped.route) is None
     without = unramped.linear.separable
     assert without is not None and without.kperp_rate is not None
     assert np.array_equal(without.kperp_rate, np.zeros(without.kperp_sq.size))
@@ -159,7 +160,7 @@ def test_the_settings_reach_the_operator_and_the_record():
     simulation = line(evanescent_rate=3e5, spatial_absorber=specification, step=None)
     problem = simulation.translate()
     operator = problem.linear.separable
-    design = problem.transverse
+    design = transverse_of(problem.route)
     assert operator is not None and design is not None
     assert operator.evanescent_rate == 3e5
     assert design.specification == specification
@@ -274,7 +275,7 @@ def test_a_safety_ramp_past_the_budget_names_its_strength():
     # The default ramp on this sub-wavelength line is stronger than a 0.1 mm step's
     # budget admits: it alone overflows, and the refusal names its strength.
     step = 1e-4
-    design = line(spatial_absorber=None, step=None).translate().transverse
+    design = transverse_of(line(spatial_absorber=None, step=None).translate().route)
     assert design is not None
     assert design.ramp_strength > 2 * LOG_DBL_MAX / step
     with pytest.raises(TranslationError, match="safety ramp strength") as caught:

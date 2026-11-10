@@ -38,7 +38,8 @@ from solprop.profiles import ZProfile
 from solprop.spatial import FAR_FIELD_STATISTICS
 from solprop.translate.plasma_source import _BENCHMARK_GATED
 from solprop.translate.precision import SINGLE_PRECISION_BACKENDS
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
+from solprop.translate.routes import tdse_descriptor
 from solprop.translate.tdse import TDSEBinding
 
 if TYPE_CHECKING:
@@ -397,7 +398,7 @@ def _baseline_probe(source: Path) -> ModuleType:
 
 def select(  # noqa: PLR0913 - the problem, its host context and its execution
     name: str,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     *,
     grid: TimeGrid | None = None,
     modes: Sequence[Mode] | None = None,
@@ -412,7 +413,7 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
     name : str
         The backend's registry name, for example ``"numpy_ref"``, or ``"auto"``
         for the native backend, with no fallback (:func:`resolve_name`).
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem to step. The backend validates it again.
     grid : solprop.grid.TimeGrid, optional
         The grid the state lives on. Statistics need it and the kernel contract does not
@@ -462,7 +463,9 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
     _check_required_device(name)
     if _BENCHMARK_GATED.get() and name != "numpy_ref":
         raise BackendError("the gated plasma benchmark requires numpy_ref")
-    if (problem.tdse is not None or tdse_binding is not None) and name != "numpy_ref":
+    if (
+        tdse_descriptor(problem.route) is not None or tdse_binding is not None
+    ) and name != "numpy_ref":
         raise BackendError(f"{name} does not execute TDSE responses; use numpy_ref")
     refusal = statistics_refusal(name, problem.stats_spec.names)
     if refusal is not None:
@@ -580,7 +583,7 @@ def _satisfied(entry: BackendEntry) -> bool:
 
 def _construct(  # noqa: PLR0913 - as select
     name: str,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     *,
     grid: TimeGrid | None,
     modes: Sequence[Mode] | None,
@@ -594,7 +597,7 @@ def _construct(  # noqa: PLR0913 - as select
     ----------
     name : str
         The backend's registry name.
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem to step.
     grid : solprop.grid.TimeGrid or None
         The grid the state lives on.

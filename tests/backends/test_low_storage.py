@@ -75,6 +75,7 @@ from solprop.stepper import (
 from solprop.stepper.schedule import LANDING_ULPS
 from solprop.translate.linop import delta_phi
 from solprop.translate.problem import PropagatorMode, StepperSettings, assemble
+from solprop.translate.routes import TDSESource
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
 # hold more than a millionth of the energy in their guards or collar: the boundary
@@ -132,11 +133,12 @@ def linear_bound(problem, schedule):
         for a, b in itertools.pairwise(edges)
     )
     final = np.abs(delta_phi(problem.linear, float(edges[0]), float(edges[-1])))
-    shape = problem.shape
+    # The exponent keeps the operator tables' leading axis of one.
+    shape = (1, *problem.shape)
     return EPS * (
         4 * steps
         + ARGUMENT_FACTOR
-        * (np.broadcast_to(swept, shape) + np.broadcast_to(final, shape))
+        * (np.broadcast_to(swept, shape)[0] + np.broadcast_to(final, shape)[0])
     )
 
 
@@ -245,7 +247,6 @@ def test_the_cartesian_diffraction_reproduces_its_width_and_gouy_phase(fraction)
     # The free kinds admit the table under this march, and "auto" takes it.
     assert backend.metadata()["propagator_mode"] == "tabulate"
     backend.close()
-    state = state[0]
     physical = np.fft.ifft2(state[:, 0, index].reshape(space.n_y, space.n_x)).ravel()
     assert np.max(np.abs(physical - continuum)) < bound
     measured_axis = np.sum(space.on_axis * state[:, 0, index])
@@ -275,7 +276,8 @@ def populated(spectra, fraction=1e-2):
 
 def driven_phase(problem, step, bins):
     """Return ``max |Im D| h / 2`` over `bins`: section 4.4's asymptotic range."""
-    rate = np.broadcast_to(delta_phi(problem.linear, 0.0, step) / step, problem.shape)
+    exponent = delta_phi(problem.linear, 0.0, step)
+    rate = np.broadcast_to(exponent / step, (1, *problem.shape))[0]
     selected = np.broadcast_to(bins, problem.shape)
     return float(np.max(np.abs(np.imag(rate))[selected]) * step / 2)
 
@@ -404,10 +406,10 @@ def test_the_dissipative_varying_problem_converges_at_order_four(request, solito
             dataclasses.replace(problem, stepper=stepper), soliton_grid
         )
         backend.close()
-        return float(np.linalg.norm(final[0, 0, 0] - exact) / np.linalg.norm(exact))
+        return float(np.linalg.norm(final[0, 0] - exact) / np.linalg.norm(exact))
 
     base = FixedSchedule.uniform(0.0, distance, distance / 40)
-    bins = populated([problem.initial.field0[0, 0, 0], exact], 1e-3)
+    bins = populated([problem.initial.field0[0, 0], exact], 1e-3)
     # The operator varies: take each step's own rate.
     edges = base.edges
     phase = max(
@@ -561,7 +563,7 @@ def test_whole_runs_agree_with_the_scaffold_far_below_the_truncation_error(
     backend.close()
     start = start[0, 0, 0]
     scaffold = propagate_fixed_rk4(gnlse, soliton_grid, start, period, steps)[1][-1]
-    gap = float(np.linalg.norm(final[0, 0, 0] - scaffold) / np.linalg.norm(start))
+    gap = float(np.linalg.norm(final[0, 0] - scaffold) / np.linalg.norm(start))
     exact = np.exp(1j * scales.recurrence_phase) * start
     truncation = float(np.linalg.norm(scaffold - exact) / np.linalg.norm(start))
     per_step = 4 * difference / UNIT_ROUNDOFF + 16
@@ -808,8 +810,8 @@ def test_the_translation_refuses_a_coupled_flow():
 def test_the_tdse_response_is_refused_by_name(soliton_problem, narrow_grid):
     """Through ``validate``, before the TDSE route's own checks would name Adams.
 
-    The descriptor is the Adams route's; the march's check reads only its presence and
-    the current numerator beside it, so stand-ins suffice (the full TDSE path is the
+    The march's check reads only the TDSE source's presence, and it runs before the
+    route's own checks, so an unfilled stand-in suffices (the full TDSE path is the
     route's own tests').
     """
     length = 0.1
@@ -821,8 +823,9 @@ def test_the_tdse_response_is_refused_by_name(soliton_problem, narrow_grid):
         integrator=MARCH,
     )
     spoiled = copy.copy(problem)
-    object.__setattr__(spoiled, "tdse", object())
-    object.__setattr__(spoiled, "current_numerator", np.zeros(problem.shape[1:]))
+    route = copy.copy(spoiled.route)
+    object.__setattr__(route, "tdse", object.__new__(TDSESource))
+    object.__setattr__(spoiled, "route", route)
     with pytest.raises(TranslationError, match="does not step the TDSE response"):
         spoiled.validate()
 

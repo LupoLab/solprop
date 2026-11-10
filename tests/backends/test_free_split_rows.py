@@ -30,7 +30,7 @@ from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 native_backend = pytest.importorskip("solprop_native.backend")
 
@@ -105,7 +105,7 @@ def _blocked(chunk: int | None) -> ExecutionOptions:
 def _marched(
     simulation: Simulation,
     name: str,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     options: ExecutionOptions | None = None,
 ) -> tuple[np.ndarray, dict[str, Any], dict[str, int]]:
     """Return the state, the monitor's record and the ledger after the fixed march."""

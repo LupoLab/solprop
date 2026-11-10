@@ -77,7 +77,7 @@ from solprop.stepper import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 from solprop.translate.run_request import (
     IntegrationSpec,
     MethodKind,
@@ -153,7 +153,7 @@ def soliton(
     interpolate: bool = False,
     integrator: Multistep | None = None,
     planes: Collection[float] = PLANES,
-) -> KernelProblem:
+) -> PropagationProblem:
     """Return the fundamental soliton over :data:`PLANES`.
 
     Parameters
@@ -171,7 +171,7 @@ def soliton(
 
     Returns
     -------
-    solprop.translate.problem.KernelProblem
+    solprop.translate.problem.PropagationProblem
         The translated problem.
     """
     grid = window()
@@ -197,12 +197,12 @@ def soliton(
     )
 
 
-def entrance(problem: KernelProblem) -> Start:
+def entrance(problem: PropagationProblem) -> Start:
     """Return the fresh start of a problem, its launch plane owed.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
 
     Returns
@@ -228,7 +228,7 @@ class _Outcomes:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     reject_at : collection of int, optional
         Trials that score :data:`REJECTED`.
@@ -246,7 +246,7 @@ class _Outcomes:
 
     def __init__(
         self,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         *,
         reject_at: Collection[int] = (),
         fail_at: int | None = None,
@@ -317,7 +317,7 @@ class Factory(Protocol):
 
     def __call__(
         self,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         request: RunRequest,
         start: Start,
         *,
@@ -387,7 +387,7 @@ def _selected(name: str) -> Callable[..., Any]:
         The constructor; it takes no script.
     """
 
-    def make(problem: KernelProblem, *, context: Mapping[str, Any] | None) -> Any:
+    def make(problem: PropagationProblem, *, context: Mapping[str, Any] | None) -> Any:
         return select(
             name, problem, **(_soliton_context() if context is None else context)
         )
@@ -407,13 +407,13 @@ def _soliton_context() -> dict[str, Any]:
 
 
 def _host_scripted(
-    problem: KernelProblem, *, context: Mapping[str, Any] | None, **script: Any
+    problem: PropagationProblem, *, context: Mapping[str, Any] | None, **script: Any
 ) -> HostSessionScript:
     """Return a scripted driver on the reference's own driver for a problem.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     context : collections.abc.Mapping or None
         Refused: a script runs the soliton alone.
@@ -430,13 +430,13 @@ def _host_scripted(
 
 
 def _scripted(
-    problem: KernelProblem, *, context: Mapping[str, Any] | None, **script: Any
+    problem: PropagationProblem, *, context: Mapping[str, Any] | None, **script: Any
 ) -> SessionScript:
     """Return a scripted driver for a problem.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     context : collections.abc.Mapping or None
         Refused: a script runs the soliton alone.
@@ -459,7 +459,7 @@ def _native_session(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.
@@ -494,8 +494,8 @@ def _native_session(
 
 
 def low_storage(
-    problem: KernelProblem, request: RunRequest
-) -> tuple[KernelProblem, RunRequest]:
+    problem: PropagationProblem, request: RunRequest
+) -> tuple[PropagationProblem, RunRequest]:
     """Return a problem and its request replayed by the low-storage march.
 
     The same problem and policies, its planes replayed on a uniform schedule of
@@ -504,7 +504,7 @@ def low_storage(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     request : solprop.translate.run_request.RunRequest
         Its run request.
@@ -542,7 +542,7 @@ def _native_low_storage(problem, request, start, *, stop=None, listener=None, **
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem, whose planes the replay lands on (:func:`low_storage`).
     request : solprop.translate.run_request.RunRequest
         Its run request.
@@ -587,7 +587,9 @@ CAPABILITIES = frozenset({MONITOR, STATISTICS, TRANSVERSE, DENSE})
 """Every capability a test may need of an executor."""
 
 
-def edged(check: BoundaryCheck) -> tuple[KernelProblem, RunRequest, dict[str, Any]]:
+def edged(
+    check: BoundaryCheck,
+) -> tuple[PropagationProblem, RunRequest, dict[str, Any]]:
     """Return the re-review's tilted packet, edged, with its context.
 
     The packet of ``tests/test_transverse_reads.py`` on its 256-sample periodic line,
@@ -654,7 +656,7 @@ def device_build() -> bool:
     return solprop_native.build_info().device_backend != "none"
 
 
-def skip_device_refused(problem: KernelProblem, request: RunRequest) -> None:
+def skip_device_refused(problem: PropagationProblem, request: RunRequest) -> None:
     """Skip the calling test where the native session refuses its run on a device.
 
     On a device build the native session admits SEP 47 phase 3's representative path
@@ -664,7 +666,7 @@ def skip_device_refused(problem: KernelProblem, request: RunRequest) -> None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     request : solprop.translate.run_request.RunRequest
         Its run request.

@@ -20,7 +20,7 @@ from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 
 from solprop_native import NativeBackend, _core
 from solprop_native.backend import (
@@ -303,7 +303,7 @@ def test_a_line_of_one_y_row_matches_the_reference(collar: float) -> None:
 
 def _planar_problem(
     grid: EnvelopeGrid, controller: PIController, *, collar: float = 0.0
-) -> tuple[PlanarGrid, KernelProblem]:
+) -> tuple[PlanarGrid, PropagationProblem]:
     """Return a small Kerr slab problem: three orders, 5 y rows, two rows per chunk."""
     # A constant plate index: the fixture's band reaches beyond silica's fit.
     modes = [SlabMode(63.5e-6, order=p, cladding=1.45) for p in (1, 2, 3)]

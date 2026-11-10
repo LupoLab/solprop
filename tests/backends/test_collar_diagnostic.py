@@ -53,7 +53,7 @@ def planar(**changes):
 def test_the_blockwise_fraction_is_the_whole_volume_one(monkeypatch, kind, bins):
     simulation = cartesian("numpy_ref") if kind == "free" else planar()
     problem = simulation.translate()
-    field = problem.initial.field0[0] * (1 + 0.3j)
+    field = problem.initial.field0 * (1 + 0.3j)
     # A beam that reaches the collar: shift it towards a corner of the window.
     field = field * np.exp(1j * np.linspace(0.0, 3.0, field.shape[0]))[:, None, None]
     expected = whole_volume_fraction(problem, field)
@@ -85,7 +85,7 @@ def test_the_block_is_bounded_by_the_node_chunk_and_so_is_the_transient():
     assert 3 * transform.n_nodes * n_pol * block <= max(
         chunk * n_pol * problem.grids.n_to, 3 * transform.n_nodes * n_pol
     )
-    field = np.ascontiguousarray(problem.initial.field0[0])
+    field = np.ascontiguousarray(problem.initial.field0)
     # Warm any first-call allocation.
     collar_field_fraction(problem, field, node_chunk=chunk)
     tracemalloc.start()
@@ -103,4 +103,4 @@ def test_the_block_is_bounded_by_the_node_chunk_and_so_is_the_transient():
 def test_a_small_problem_takes_its_whole_band_in_few_blocks():
     problem = cartesian("numpy_ref").translate()
     block = collar_block(problem)
-    assert block >= problem.shape[3] // 3
+    assert block >= problem.shape[2] // 3

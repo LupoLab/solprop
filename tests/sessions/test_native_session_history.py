@@ -81,7 +81,7 @@ def _native(problem, request, start, **controls) -> Any:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     request : solprop.translate.run_request.RunRequest
         Its run request.
@@ -106,7 +106,7 @@ def _entrance(problem) -> Start:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
 
     Returns
@@ -248,7 +248,7 @@ def _resumed(problem, snapshot: MarchSnapshot, ledger: dict[str, object]) -> Sta
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     snapshot : solprop.output.schema.MarchSnapshot
         The history, at a save plane.

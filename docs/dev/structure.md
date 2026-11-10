@@ -60,7 +60,7 @@ Text: [architecture.md §5](architecture.md). The seam itself is figure 5.
 
 ## 3. The kernel contract
 
-`KernelProblem` is the only object that crosses from the physics and translation layers
+`PropagationProblem` is the only object that crosses from the physics and translation layers
 into a backend, and this is it section by section: on the left what builds each section,
 in the middle the field it becomes, on the right what a backend does with it. The inset
 at the bottom is the one thing about the contract that is not a field — Φ and the

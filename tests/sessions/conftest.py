@@ -17,7 +17,7 @@ import pytest
 
 from sessions.executors import EXECUTORS, Executor, Started, entrance
 from solprop.backends.session import RunSession
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest, describe_run
 
 Starter = Callable[..., Started]
@@ -74,7 +74,7 @@ def _starter(chosen: Executor) -> Iterator[Starter]:
     opened: list[RunSession] = []
 
     def start(
-        problem: KernelProblem,
+        problem: PropagationProblem,
         request: RunRequest | None = None,
         **controls: Any,
     ) -> Started:

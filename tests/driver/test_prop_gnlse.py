@@ -147,8 +147,8 @@ MEDIUM_STEPS = 400
 def interface_and_backend(simulation):
     """Return the handler, its exit plane and the backend's, all from one translation.
 
-    Both sides step the very same :class:`~solprop.translate.problem.KernelProblem` on
-    its prescribed schedule at a fixed order, and ``fields("fft")`` undoes the stored
+    Both sides step the very same :class:`~solprop.translate.problem.PropagationProblem`
+    on its prescribed schedule at a fixed order, and ``fields("fft")`` undoes the stored
     optics convention with a conjugation and a per-bin sign, neither of which loses a
     bit (``docs/dev/testing.md`` section 3). The two runs are one march, so they agree
     within its rounding budget (SEP 25), with the soliton's nonlinear phase ``Phi``
@@ -166,7 +166,7 @@ def interface_and_backend(simulation):
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(float(problem.stepper.save_planes[-1]))
-        direct = backend.observe().require_field()[0].copy()
+        direct = backend.observe().require_field().copy()
     finally:
         backend.close()
     return handler, handler.fields("fft")[-1], direct

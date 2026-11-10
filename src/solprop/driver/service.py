@@ -95,7 +95,7 @@ from solprop.output.schema import (
 from solprop.output.snapshots import SnapshotController
 from solprop.output.tdse_archive import TDSEArchiveWriter
 from solprop.stepper.multistep import Multistep
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 from solprop.translate.tdse import TDSEBinding
 
@@ -118,7 +118,7 @@ class ServiceContext:
 
     Attributes
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.
@@ -148,7 +148,7 @@ class ServiceContext:
         execution record; ``None`` for a fresh run or a caller that says nothing.
     """
 
-    problem: KernelProblem
+    problem: PropagationProblem
     request: RunRequest
     metadata: RunMetadata
     reporter: ProgressReporter
@@ -554,7 +554,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
     reserve = getattr(output, "reserve", None)
     if reserve is not None:
         reserve(planes.size + 1)
-    _retain(output, context.retention, problem.shape[1:])
+    _retain(output, context.retention, problem.shape)
     reached, missing_current_save = _resume_position(output, checkpoint_output, problem)
     _refuse_unread_collar(problem, backend)
     # The request's own monitor: its thresholds; the session owns its state.

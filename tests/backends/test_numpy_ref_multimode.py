@@ -254,8 +254,8 @@ def test_the_transform_pair_loses_no_energy(backend_class, grid, capillary):
         responses=[KerrResponse(chi3=0.0, thg=True)],
     )
     plane, _ = propagate(backend_class, problem, grid)
-    before = total_energy(grid, problem.initial.field0[0])
-    after = total_energy(grid, plane.field[0])
+    before = total_energy(grid, problem.initial.field0)
+    after = total_energy(grid, plane.field)
     # Measured 4.4e-16, which is the machine epsilon times the 257-bin reduction.
     assert abs(after / before - 1.0) < 1e-14
 
@@ -280,8 +280,8 @@ def test_a_kerr_run_keeps_the_energy_the_medium_does_not_hold(
     def drift_at(energy):
         problem = build(grid, modes, pulse(grid, 2, energy), quadrature=rule)
         plane, _ = propagate(backend_class, problem, grid)
-        before = total_energy(grid, problem.initial.field0[0])
-        return abs(total_energy(grid, plane.field[0]) / before - 1.0)
+        before = total_energy(grid, problem.initial.field0)
+        return abs(total_energy(grid, plane.field) / before - 1.0)
 
     strong, weak = drift_at(ENERGY), drift_at(ENERGY / 10.0)
     # Measured 1.0072e-8 and 1.0072e-9, a ratio of 10.000 over the decade. The window
@@ -499,10 +499,10 @@ def test_a_linearly_polarised_run_is_the_scalar_one_rotated(
         [math.cos(angle) * start, math.sin(angle) * start], axis=1
     )
     vector, _ = propagate(backend_class, build(grid, capillary, components), grid)
-    assert vector.field.shape[2] == 2
+    assert vector.field.shape[1] == 2
     peak = np.max(np.abs(scalar.field))
     for index, cosine in enumerate((math.cos(angle), math.sin(angle))):
-        gap = np.max(np.abs(vector.field[0, :, index] - cosine * scalar.field[0, :, 0]))
+        gap = np.max(np.abs(vector.field[:, index] - cosine * scalar.field[:, 0]))
         # Peak-normalised: the field passes through zero at every carrier crossing, so a
         # relative comparison is meaningless there. Measured worst 5.1e-16 over the four
         # angles; the bound is the machine epsilon times the 257-bin reduction.
@@ -565,8 +565,8 @@ def test_the_two_routes_to_a_vector_run_agree_on_a_uniformly_polarised_pair(
         ),
         **fixed,
     )
-    assert resolved.shape[1:3] == (2, 1)
-    assert product.shape[1:3] == (1, 2)
+    assert resolved.shape[0:2] == (2, 1)
+    assert product.shape[0:2] == (1, 2)
     # The premise: each of the pair's profiles has an exactly zero cross component.
     rows = resolved.transform.synthesis.reshape(-1, 2, 2)
     assert np.all(rows[:, 1, 0] == 0.0)
@@ -580,8 +580,8 @@ def test_the_two_routes_to_a_vector_run_agree_on_a_uniformly_polarised_pair(
     for component in range(2):
         gap = np.max(
             np.abs(
-                by_rows.require_field()[0, component, 0]
-                - by_state.require_field()[0, 0, component]
+                by_rows.require_field()[component, 0]
+                - by_state.require_field()[0, component]
             )
         )
         assert gap / peak <= bound
@@ -637,8 +637,8 @@ def test_the_peak_intensity_is_taken_on_the_axis(backend_class, grid, capillary)
     got = backend.stats(StatsSpec(names=("peak_intensity",)))["peak_intensity"]
     # Both routes evaluate the same Bessel profiles at r = 0 and the same analytic
     # signal, so they agree to the round-off of a two-term sum.
-    assert float(got[0]) == pytest.approx(
-        on_axis_intensity(grid, modes, plane.field[0]), rel=1e-14
+    assert float(got) == pytest.approx(
+        on_axis_intensity(grid, modes, plane.field), rel=1e-14
     )
 
 
@@ -662,6 +662,6 @@ def test_the_alarm_is_reported_as_a_statistic(backend_class, grid, capillary):
     problem = build(grid, modes, pulse(grid, 3), quadrature=rule)
     _, backend = propagate(backend_class, problem, grid)
     values = backend.stats(StatsSpec(names=("quadrature_error", "energy")))
-    assert float(values["quadrature_error"][0]) == quadrature_alarm(backend)
-    assert values["quadrature_error"].shape == (1,)
-    assert values["energy"].shape == (1, 3, 1)
+    assert float(values["quadrature_error"]) == quadrature_alarm(backend)
+    assert values["quadrature_error"].shape == ()
+    assert values["energy"].shape == (3, 1)

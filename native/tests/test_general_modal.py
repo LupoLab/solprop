@@ -14,6 +14,7 @@ before the run (:func:`_parity_bound`).
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import json
 import math
@@ -55,7 +56,7 @@ from solprop.profiles import Linear
 from solprop.stats import StatsSpec
 from solprop.stepper import Multistep
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from thread_sizing import Sizing, assert_threaded
 
 from solprop_native import NativeBackend, NativeBatchBackend, build_info
@@ -168,7 +169,7 @@ class Case:
     """One general modal problem, its launch and the context both backends need."""
 
     simulation: Simulation
-    problem: KernelProblem
+    problem: PropagationProblem
     state: ComplexArray
 
 
@@ -207,11 +208,13 @@ def _case(
     if mix is not None:
         # A second channel carrying part of the launch, so every cross term of the
         # cubic and of the delayed pair history is exercised.
-        state[:, 1] = mix * state[:, 0]
+        state[1] = mix * state[0]
     return Case(simulation, problem, state)
 
 
-def _prescribed(problem: KernelProblem, schedule: FixedSchedule) -> KernelProblem:
+def _prescribed(
+    problem: PropagationProblem, schedule: FixedSchedule
+) -> PropagationProblem:
     """Return `problem` on `schedule` with its method's order held fixed.
 
     A prescribed schedule alone does not fix the discrete computation: a
@@ -285,7 +288,7 @@ def _parity_bound(case: Case, reference: ComplexArray, linear: ComplexArray) -> 
     n_to = case.problem.grids.n_to
     components = int(tables.electric.shape[2])
     nodes = int(tables.region_index.size)
-    modes = case.problem.shape[1]
+    modes = case.problem.shape[0]
     delayed = case.problem.responses.regional_responses
     source = (
         _gamma(modes)
@@ -408,11 +411,11 @@ def test_the_general_statistics_are_the_references() -> None:
 
 
 def _replaced(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     *,
     linear: dict[str, object] | None = None,
     responses: dict[str, object] | None = None,
-) -> KernelProblem:
+) -> PropagationProblem:
     """Return the problem with some rows of its linear and response groups replaced."""
     return dataclasses.replace(
         problem,
@@ -556,7 +559,7 @@ def test_a_batch_of_general_members_agrees_with_its_members_alone() -> None:
     the member's own :func:`_parity_bound` (solprop SEP 25).
     """
     case = CASES["delayed_tensor"]()
-    launches = [case.state, 0.5 * case.state[:, ::-1].copy()]
+    launches = [case.state, 0.5 * case.state[::-1].copy()]
     cases = [dataclasses.replace(case, state=state) for state in launches]
     singles = [_run(NativeBackend, one)[0] for one in cases]
     bounds = [
@@ -579,7 +582,7 @@ def test_a_batch_of_general_members_agrees_with_its_members_alone() -> None:
             member.close()
 
 
-def _moving_grin() -> tuple[Simulation, KernelProblem]:
+def _moving_grin() -> tuple[Simulation, PropagationProblem]:
     """Build solprop's graded-index sector on a 10 % taper over the millimetre.
 
     Solprop's moving solid guide: the core radius follows
@@ -633,7 +636,7 @@ def _moving_grin() -> tuple[Simulation, KernelProblem]:
 def _moving_run(
     backend_class: type[NumpyRefBackend] | type[NativeBackend],
     simulation: Simulation,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     field0: ComplexArray | None = None,
 ) -> tuple[ComplexArray, dict[str, int]]:
     backend = backend_class(problem, grid=simulation.grid)
@@ -648,7 +651,7 @@ def _moving_run(
 
 
 def _moving_bound(
-    problem: KernelProblem, expected: ComplexArray, linear: ComplexArray
+    problem: PropagationProblem, expected: ComplexArray, linear: ComplexArray
 ) -> float:
     """Return the ten-step bound relative to the launch; fixed before the first run.
 
@@ -670,7 +673,7 @@ def _moving_bound(
     assert tables is not None
     assert tables.synthesis is not None
     assert tables.projection is not None
-    _, channels, _, _ = problem.shape
+    channels, _, _ = problem.shape
     dz = FIBRE / STEPS
     kappa = float(np.max(flow.inverse_condition_bound))
     scale = float(np.max(np.abs(problem.initial.field0)))
@@ -764,7 +767,9 @@ def test_moving_maps_without_their_connection_are_refused_by_name() -> None:
     transform = dataclasses.replace(problem.transform)
     object.__setattr__(transform, "modal_tables", moving)
     spoiled = dataclasses.replace(problem)
-    object.__setattr__(spoiled, "transform", transform)
+    route = copy.copy(spoiled.route)
+    object.__setattr__(route, "transform", transform)
+    object.__setattr__(spoiled, "route", route)
     with pytest.raises(
         BackendError, match=r"native executes a moving guide.s maps.*no coupled flow"
     ):

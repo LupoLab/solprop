@@ -28,9 +28,10 @@ The seam's evaluation form is therefore split in two:
 
 A backend evaluates ``dPhi`` as one linear combination of the terms it holds over the
 bundle's floats (:func:`combine`) and knows nothing else about the representation. The
-z table has no such split: :attr:`solprop.translate.problem.KernelProblem.device_ready`
-is the predicate, the host backends evaluate the table, the native backend's CPU build
-evaluates it natively into term slots it then weighs by +-1 (SEP 29 section 6.6), and
+z table has no such split:
+:attr:`solprop.translate.problem.PropagationProblem.device_ready` is the predicate, the
+host backends evaluate the table, the native backend's CPU build evaluates it natively
+into term slots it then weighs by +-1 (SEP 29 section 6.6), and
 :func:`require_device_ready` is the refusal an accelerator build raises.
 
 The split costs nothing in accuracy because it is the arithmetic that was already
@@ -52,7 +53,7 @@ from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.coupled import flow_section, flow_weights
 from solprop.translate.linop import LinearOperator
 from solprop.translate.modal_path import transform_weights
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.responses import CompiledResponses
 from solprop.translate.spatial import SeparableOperator
 
@@ -79,7 +80,7 @@ class StageTerms:
     Attributes
     ----------
     phi : numpy.ndarray or None
-        The terms of ``Phi``, complex128, shape ``(n_phi_terms, n_batch_or_1, n_modes,
+        The terms of ``Phi``, complex128, shape ``(n_phi_terms, 1, n_modes,
         n_pol, n_omega)``. One term for a constant operator, ``n_terms`` for an
         expansion, and ``None`` for the z table, which has no such form.
     prefactor : numpy.ndarray or None
@@ -146,13 +147,13 @@ class StepAnchor:
 
 
 def anchor(
-    problem: KernelProblem, z0: float, *, helpers: Helpers = PLAIN
+    problem: PropagationProblem, z0: float, *, helpers: Helpers = PLAIN
 ) -> StepAnchor:
     """Return the weights a step's stages all subtract, evaluated once.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The validated contract.
     z0 : float
         The step's anchor, m, inside the tabulated range.
@@ -360,7 +361,7 @@ def combine(
     return np.tensordot(weights, fixed, axes=1)
 
 
-def terms(problem: KernelProblem) -> StageTerms:
+def terms(problem: PropagationProblem) -> StageTerms:
     """Return the fixed arrays of a problem's two array-valued z quantities.
 
     Built once per run and uploaded once by a device backend. The constant fast path is
@@ -369,7 +370,7 @@ def terms(problem: KernelProblem) -> StageTerms:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The validated contract.
 
     Returns
@@ -419,7 +420,7 @@ def _phi_terms(
     Returns
     -------
     numpy.ndarray or None
-        Shape ``(n_phi_terms, n_batch_or_1, n_modes, n_pol, n_omega)``.
+        Shape ``(n_phi_terms, 1, n_modes, n_pol, n_omega)``.
     """
     if linear.phi_constant is not None:
         return linear.phi_constant[np.newaxis]
@@ -451,7 +452,7 @@ def _prefactor_terms(
 
 
 def scalars(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     z0: float,
     z1: float,
     *,
@@ -462,7 +463,7 @@ def scalars(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The validated contract.
     z0 : float
         The step's anchor, m, inside the tabulated range.
@@ -555,7 +556,7 @@ def scalars(
 
 
 def scalars_at(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     z0: float,
     positions: Sequence[float],
     *,
@@ -580,7 +581,7 @@ def scalars_at(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The validated contract.
     z0 : float
         The step's anchor, m, inside the tabulated range.
@@ -874,7 +875,7 @@ def _prefactor_weights(
     return None if expansion is None else expansion.weights(z, helpers=helpers)
 
 
-def require_device_ready(problem: KernelProblem, name: str) -> None:
+def require_device_ready(problem: PropagationProblem, name: str) -> None:
     """Refuse a problem whose z quantities an accelerator would hold as a z table.
 
     A backend whose step loop runs on an accelerator calls this at construction: the
@@ -888,7 +889,7 @@ def require_device_ready(problem: KernelProblem, name: str) -> None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The validated contract.
     name : str
         The backend's registry name, for the message.

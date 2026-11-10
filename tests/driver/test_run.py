@@ -132,7 +132,7 @@ class NullBackend:
     in_flight = None
     closed = False
 
-    def __init__(self, failure=None, *, shape=(1, 1, 1, 8)):
+    def __init__(self, failure=None, *, shape=(1, 1, 8)):
         self.failure = failure
         self.shape = shape
 
@@ -197,35 +197,6 @@ class NullBackend:
         pass
 
 
-@pytest.fixture
-def batched_problem(narrow_grid, soliton):
-    """A two-member batch, which a stored plane has no room for."""
-    gnlse = problem_from(
-        [0.0, 0.0, soliton.beta2],
-        omega_ref=narrow_grid.omega0,
-        gamma=soliton.gamma,
-        shock=False,
-    )
-    start = SechPulse(
-        wavelength=soliton.wavelength,
-        width=soliton.tau0,
-        peak_power=soliton.peak_power(1),
-    ).build(narrow_grid)
-    return assemble(
-        narrow_grid,
-        gnlse.mode,
-        [gnlse.kerr],
-        np.concatenate([start[np.newaxis], start[np.newaxis]]),
-        controller=PIController(rtol=1e-8, atol=1e-18),
-        save_planes=[0.01],
-        dz_max=0.01,
-        dz_init=1e-4,
-        density=1.0,
-        shock=False,
-        prefactor_index=1.0,
-    )
-
-
 def item(parent, *names) -> Any:
     """Return one h5py object or serialised entry, loosely typed for inspection."""
     value = parent
@@ -257,7 +228,7 @@ def test_the_stored_history_holds_start_positions_and_per_attempt_times():
         accepted=np.array([True, False, True]),
         wall_time=np.array([0.25, 0.75, 1.0]),
     )
-    observation = Observation(1.25, np.ones((1, 1, 1, 4), complex), None, history, 3, 1)
+    observation = Observation(1.25, np.ones((1, 1, 4), complex), None, history, 3, 1)
     stored = plane_from_observation(observation).step_history
     assert np.array_equal(stored.z, [0.0, 0.5, 1.0])
     assert np.array_equal(stored.h, history.dz)
@@ -269,7 +240,7 @@ def test_the_stored_history_holds_start_positions_and_per_attempt_times():
         np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0, dtype=bool), np.zeros(0)
     )
     assert plane_from_observation(
-        Observation(0.0, np.ones((1, 1, 1, 4), complex), None, empty, 0, 0)
+        Observation(0.0, np.ones((1, 1, 4), complex), None, empty, 0, 0)
     ).step_history.z.shape == (0,)
 
 
@@ -316,14 +287,12 @@ def test_the_stored_field_is_the_optics_spectrum_of_the_observation(build_simula
     backend.propagate_to(float(simulation.settings.save_planes[-1]))
     observation = backend.observe()
     backend.close()
-    expected = fourier.spectrum_to_optics(
-        observation.require_field()[0], kind="envelope"
-    )
+    expected = fourier.spectrum_to_optics(observation.require_field(), kind="envelope")
     # The same problem stepped the same way, a matched march; the storage boundary
     # is a conjugation and a sign flip, both exact in floating point (ADR-017).
     bound = simulation_bound(simulation)
     assert_matched(handler["field"][-1], expected, bound)
-    assert_matched(handler.fields("fft")[-1], observation.require_field()[0], bound)
+    assert_matched(handler.fields("fft")[-1], observation.require_field(), bound)
     # And on one stored array the two conventions are that exact map of each other.
     assert np.array_equal(
         handler["field"][-1],
@@ -455,17 +424,6 @@ def test_a_statistics_spec_that_disagrees_about_the_channel_is_refused(
         )
 
 
-def test_a_batch_axis_is_refused(batched_problem, narrow_grid):
-    with pytest.raises(DriverError, match="plane has no batch axis"):
-        run_problem(
-            batched_problem,
-            NullBackend(),
-            MemoryOutput(),
-            start=Start(field=batched_problem.initial.field0[0], z=0.0),
-            metadata=metadata_for(batched_problem, narrow_grid),
-        )
-
-
 def test_a_start_plane_outside_the_run_is_refused(build_simulation, narrow_grid):
     simulation = build_simulation(n_save=3)
     problem = simulation.translate()
@@ -475,7 +433,7 @@ def test_a_start_plane_outside_the_run_is_refused(build_simulation, narrow_grid)
             NullBackend(),
             MemoryOutput(),
             start=Start(
-                field=problem.initial.field0[0], z=problem.initial.z, plane_index=3
+                field=problem.initial.field0, z=problem.initial.z, plane_index=3
             ),
             metadata=simulation.metadata(),
         )

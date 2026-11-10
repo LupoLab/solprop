@@ -145,7 +145,7 @@ def test_an_empty_measurement_is_not_refused():
     native_backend._check_flow_conditioning(held, 0, np.empty(0), dz)
     reference = _coupled_flow_maps(problem)
     assert reference is not None
-    channels = problem.shape[1]
+    channels = problem.shape[0]
     nothing = np.empty((0, channels, channels), dtype=complex)
     _check_flow_conditioning(reference, 0, (nothing, nothing), dz)
     # The guard is live: one bin over its declared row is refused, on either.
@@ -207,7 +207,7 @@ def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_a
     field = np.asarray(problem.initial.field0)
     held = native_backend._host_flow(problem)
     active = np.flatnonzero(held.active)
-    power = np.sum(np.abs(field[0]) ** 2, axis=(0, 1))
+    power = np.sum(np.abs(field) ** 2, axis=(0, 1))
     # The active bin holding most of the launch, masked off with a hard zero.
     masked = active[int(np.argmax(power[active]))]
     mask = np.array(problem.grids.norm_mask)
@@ -243,7 +243,7 @@ def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_a
             reference.close()
 
     old, new, error = (float(np.sum(row)) for row in partials[:3])
-    n_modes = field.shape[1]
+    n_modes = field.shape[0]
     sum_bound = 2.0 * np.sqrt(2.0) * (n_modes + 8) * np.sqrt(n_modes) * UNIT
     masked_old = float(np.sum(np.abs(expected_state[..., mask]) ** 2))
     assert old == pytest.approx(masked_old, rel=sum_bound)

@@ -81,11 +81,11 @@ def test_two_channel_fractions_and_rates_are_the_passes(kerr, n_pol, record_prop
     # Both channels really ionise on axis, beyond their pre-ionisation.
     assert np.all(fraction[:, 0] > np.array([0.03, 0.1]) + 1e-3)
     values = launch_statistics(native.NativeBackend, kerr, n_pol)
-    measured = float(np.max(abs(values["species_ionisation"][0] - fraction)))
+    measured = float(np.max(abs(values["species_ionisation"] - fraction)))
     record_property("measured", measured)
     record_property("bound", bound)
-    assert_allclose(values["species_ionisation"][0], fraction, rtol=0, atol=bound)
-    assert_allclose(values["species_peak_ionisation_rate"][0], rate, rtol=bound, atol=0)
+    assert_allclose(values["species_ionisation"], fraction, rtol=0, atol=bound)
+    assert_allclose(values["species_peak_ionisation_rate"], rate, rtol=bound, atol=0)
 
 
 @pytest.mark.medium
@@ -103,5 +103,5 @@ def test_two_channel_fractions_and_rates_on_several_threads(
     for kerr, n_pol in CASES:
         fraction, rate, bound = oracle(kerr, n_pol)
         tag = f"{'kerr' if kerr else 'none'}:{n_pol}"
-        assert_allclose(threaded[f"{tag}:{NAMES[0]}"][0], fraction, rtol=0, atol=bound)
-        assert_allclose(threaded[f"{tag}:{NAMES[1]}"][0], rate, rtol=bound, atol=0)
+        assert_allclose(threaded[f"{tag}:{NAMES[0]}"], fraction, rtol=0, atol=bound)
+        assert_allclose(threaded[f"{tag}:{NAMES[1]}"], rate, rtol=bound, atol=0)

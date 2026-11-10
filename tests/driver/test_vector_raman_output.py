@@ -43,7 +43,7 @@ def test_tensor_run_resumes_with_the_same_realisation_and_configuration(
             grid,
             modes,
             [raman_response("H2", thg=False)],
-            problem.initial.field0[0],
+            problem.initial.field0,
             noise=draw,
             settings=SimulationSettings(
                 backend=backend,
@@ -110,7 +110,7 @@ def test_jones_tensor_scan_batches_match_singletons_with_a_partial_group(
         jones = to_internal(
             rotate(waveplate(np.pi / 2), float(point.values["angle"])) @ horizontal()
         )
-        initial = problem.initial.field0[0, :, :1] * jones[None, :, None]
+        initial = problem.initial.field0[:, :1] * jones[None, :, None]
         return Simulation(
             grid,
             modes,

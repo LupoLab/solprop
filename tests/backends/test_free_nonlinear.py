@@ -179,7 +179,7 @@ def test_resolved_grazing_allows_backend_construction_and_a_zero_field_trial(
         # All terms are homogeneous in E. Cutoff correction cannot create a field.
         assert error == 0.0
         np.testing.assert_array_equal(
-            backend._observed_field(advanced), problem.initial.field0
+            backend._observed_field(advanced)[0], problem.initial.field0
         )
     finally:
         backend.close()
@@ -212,8 +212,7 @@ def test_cartesian_linear_flow_resolves_both_sides_and_exact_cutoff(
         problem,
         linear=dataclasses.replace(problem.linear, separable=data),
         responses=dataclasses.replace(problem.responses, separable=data),
-        # A uniform Cartesian medium's plane measure is its own operator (SEP 34).
-        flux=FluxPlan(data),
+        route=dataclasses.replace(problem.route, flux=FluxPlan(data)),
     )
     root = np.sqrt(complex(residual))
     expected = initial.copy()
@@ -225,7 +224,7 @@ def test_cartesian_linear_flow_resolves_both_sides_and_exact_cutoff(
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(grid.length)
-        actual = backend.observe().require_field()[0]
+        actual = backend.observe().require_field()
         np.testing.assert_allclose(actual, expected, rtol=0, atol=bound)
     finally:
         backend.close()

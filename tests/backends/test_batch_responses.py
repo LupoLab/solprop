@@ -5,7 +5,7 @@
 """Check batch isolation for the tiny modal, Raman and plasma response problems.
 
 The three problem builders below are backend-agnostic
-:class:`~solprop.translate.problem.KernelProblem` constructions, small enough
+:class:`~solprop.translate.problem.PropagationProblem` constructions, small enough
 (``n_to <= 64``, eight fixed steps) that a batch and its members can be compared
 directly on every backend the batch runner supports, within a rounding budget.
 """
@@ -172,13 +172,13 @@ def compare(
             draw = modified_noise(
                 grid,
                 np.random.default_rng(313 + index),
-                n_modes=problem.shape[1],
-                n_pol=problem.shape[2],
+                n_modes=problem.shape[0],
+                n_pol=problem.shape[1],
             )
             initial = dataclasses.replace(
                 problem.initial,
                 field0=problem.initial.field0 * (1.0 + 0.125 * index),
-                noise0=draw.spectrum[None],
+                noise0=draw.spectrum,
                 noise_model=draw.model,
             )
             one = dataclasses.replace(
@@ -205,7 +205,7 @@ def compare(
                 for name, value in owner.stats(spec).items():
                     np.testing.assert_allclose(
                         statistics[name][index],
-                        value[0],
+                        value,
                         rtol=batch_tests.statistics_bound(expected.field, bound),
                         err_msg=name,
                     )

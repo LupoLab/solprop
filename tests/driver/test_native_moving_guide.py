@@ -57,7 +57,7 @@ from solprop.modes.guide import ModalGuide, circular_pair, provider_channels
 from solprop.modes.material import MaterialKerr
 from solprop.output.memory import MemoryOutput
 from solprop.stepper import FixedSchedule
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 pytestmark = pytest.mark.skipif(
     "native" not in available(), reason="native is not installed"
@@ -211,7 +211,7 @@ def map_conditioning(terms: np.ndarray) -> float:
     return worst
 
 
-def combination_bound(problem: KernelProblem) -> float:
+def combination_bound(problem: PropagationProblem) -> float:
     """Return the maps' combination's relative rounding on the source, both backends.
 
     Written before any measurement. Each backend forms a combined map element as a

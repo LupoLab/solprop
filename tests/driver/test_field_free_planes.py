@@ -159,7 +159,7 @@ def replay_bound(simulation: Simulation) -> float:
     a few milliradians, so the propagation does not amplify a perturbation.
     """
     problem = simulation.translate()
-    columns = problem.shape[1]
+    columns = problem.shape[0]
     return STEPS * (gamma(16) + 7 * fft_bound(columns * problem.grids.n_to))
 
 
@@ -504,7 +504,7 @@ def test_a_field_free_observation_relies_on_the_step_loop_for_finiteness():
     simulation = cartesian("numpy_ref")
     problem = simulation.translate()
     poisoned = problem.initial.field0.copy()
-    poisoned[0, 0, 0, np.flatnonzero(problem.grids.active_mask)[0]] = np.nan
+    poisoned[0, 0, np.flatnonzero(problem.grids.active_mask)[0]] = np.nan
     backend = NumpyRefBackend(problem, grid=simulation.grid)
     try:
         backend.set_initial(poisoned, None)
@@ -527,7 +527,7 @@ def test_an_observation_refuses_a_noise_phase_without_its_field():
         np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0, bool), np.zeros(0)
     )
     with pytest.raises(BackendError, match="without a field"):
-        Observation(0.0, None, np.zeros((1, 1, 1, 4)), history, 0, 0)
+        Observation(0.0, None, np.zeros((1, 1, 4)), history, 0, 0)
     with pytest.raises(BackendError, match="n_steps is 1"):
         Observation(0.0, None, None, history, 1, 0)
 
@@ -540,14 +540,3 @@ def test_a_lockstep_batch_still_refuses_a_shared_observation():
         HostGroup.observe(object.__new__(HostGroup), field=False)
     with pytest.raises(BackendError, match="observe_members"):
         LockstepRunner.observe(object.__new__(LockstepRunner), field=False)
-
-
-def test_a_lockstep_split_refuses_a_field_free_observation():
-    from solprop.driver.batch import split_observation  # noqa: PLC0415
-
-    history = BackendHistory(
-        np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0, bool), np.zeros(0)
-    )
-    observation = Observation(0.0, None, None, history, 0, 0)
-    with pytest.raises(DriverError, match="every member's field"):
-        split_observation(observation, {}, histories=[history])

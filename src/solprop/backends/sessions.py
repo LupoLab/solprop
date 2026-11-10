@@ -37,7 +37,7 @@ from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.session import HostSession
 from solprop.backends.session import GroupSession, RunSession, Start, check_group
 from solprop.log import StopFlag
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 if TYPE_CHECKING:
@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 def start_session(  # noqa: PLR0913 - the session context
     backend: Backend,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     request: RunRequest,
     start: Start,
     *,
@@ -67,7 +67,7 @@ def start_session(  # noqa: PLR0913 - the session context
     backend : solprop.backends.protocol.Backend
         The backend, constructed for `problem`. A backend reused from an earlier
         run is loaded again from `start`, which restores everything a march reads.
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.
@@ -118,7 +118,7 @@ def start_session(  # noqa: PLR0913 - the session context
 
 def start_group(
     members: Sequence[Backend],
-    problems: Sequence[KernelProblem],
+    problems: Sequence[PropagationProblem],
     requests: Sequence[RunRequest],
     starts: Sequence[Start],
     *,
@@ -131,7 +131,7 @@ def start_group(
     members : collections.abc.Sequence of solprop.backends.protocol.Backend
         One constructed backend per member, all of one backend; the group owns them
         once constructed.
-    problems : collections.abc.Sequence of solprop.translate.problem.KernelProblem
+    problems : collections.abc.Sequence of solprop.translate.problem.PropagationProblem
         Each member's independently translated problem.
     requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
         Each member's run request, with its own fresh boundary monitor.
@@ -175,7 +175,7 @@ def start_group(
 
 def _native_session(  # noqa: PLR0913 - the session context
     backend: Backend,
-    problem: KernelProblem,
+    problem: PropagationProblem,
     request: RunRequest,
     start: Start,
     *,
@@ -193,7 +193,7 @@ def _native_session(  # noqa: PLR0913 - the session context
     ----------
     backend : solprop.backends.protocol.Backend
         The loaded backend.
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.

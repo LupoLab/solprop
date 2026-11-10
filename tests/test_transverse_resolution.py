@@ -24,6 +24,7 @@ from solprop.linear import Frame
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.stepper import PIController, RungeKutta
+from solprop.translate.routes import transverse_of
 from solprop.translate.transverse import band_wavenumbers, resolve_transverse
 
 SPATIAL = ("radial", "cartesian", "line", "planar")
@@ -74,7 +75,7 @@ def test_the_default_is_the_safety_ramp_alone(route: str) -> None:
         simulation.settings, spatial_absorber=None
     )
     problem = simulation.translate()
-    design = problem.transverse
+    design = transverse_of(problem.route)
     assert design is not None
     assert not design.has_collar
     geometry = problem.transform.geometry
@@ -95,7 +96,7 @@ def test_the_radial_ramp_rides_the_dense_operator_exactly() -> None:
     # on each column's real part, inside the active band, and nowhere else.
     plain = suite(0.0, False).translate()
     ramped = suite(0.0, None).translate()
-    design = ramped.transverse
+    design = transverse_of(ramped.route)
     assert design is not None
     before, after = plain.linear.phi_constant, ramped.linear.phi_constant
     assert before is not None and after is not None
@@ -113,7 +114,7 @@ def test_the_radial_ramp_rides_the_dense_operator_exactly() -> None:
 
 def test_the_ramp_covers_the_outer_tenth_of_the_wavenumbers() -> None:
     problem = suite(0.0, None).translate()
-    design = problem.transverse
+    design = transverse_of(problem.route)
     assert design is not None
     geometry = problem.transform.geometry
     assert geometry is not None
@@ -128,7 +129,7 @@ def test_the_scaled_suite_collar_is_the_full_case_s_design_scaled() -> None:
     # At full size f = 2.6 resolves to 242 1/m (Part II); a paraxial scaling of the
     # lengths by 1/8 scales the rate by 8.
     problem = suite(2.6, SpatialAbsorber()).translate()
-    design = problem.transverse
+    design = transverse_of(problem.route)
     assert design is not None and design.has_collar
     assert design.alpha0 == pytest.approx(8 * 242, rel=0.01)
     assert design.kappa_p[0] == pytest.approx(3 * math.sqrt(2) / W0, rel=1e-3)
@@ -170,10 +171,10 @@ def test_the_resolved_operator_does_not_depend_on_the_run_length() -> None:
 
 def test_a_declared_band_is_used_as_given() -> None:
     kappa = 2.5e5
-    design = suite(2.6, SpatialAbsorber(kappa=kappa)).translate().transverse
+    design = transverse_of(suite(2.6, SpatialAbsorber(kappa=kappa)).translate().route)
     assert design is not None
     assert design.kappa_p == (kappa,)
-    angle = suite(2.6, SpatialAbsorber(angle=0.03)).translate().transverse
+    angle = transverse_of(suite(2.6, SpatialAbsorber(angle=0.03)).translate().route)
     assert angle is not None
     low, high = angle.notes["kappa_p_band"][0]  # pyright: ignore[reportIndexIssue]
     assert high > low > 0.0

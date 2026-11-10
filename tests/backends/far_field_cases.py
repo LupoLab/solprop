@@ -209,7 +209,7 @@ def bound_for(magnitude, problem, name, factor=1):
     amplitude. `factor` is how many edges a row's weight multiplies: a rectangle's two
     double the weight's error, to first order.
     """
-    bound = 3 * gamma(8 * problem.shape[1] + 64) * np.abs(magnitude[name])
+    bound = 3 * gamma(8 * problem.shape[0] + 64) * np.abs(magnitude[name])
     if name == "aperture_spectrum":
         bound = bound + factor * 8 * np.finfo(float).eps * magnitude["beam_spectrum"]
     if name == "aperture_on_axis_spectrum":

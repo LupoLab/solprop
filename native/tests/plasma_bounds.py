@@ -67,7 +67,7 @@ from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.grid import FieldGrid
 from solprop.nonlinear.ionisation import RunningIntegral
 from solprop.translate.ionisation import RateTable
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.spatial import separable_values
 
 type Real = npt.NDArray[np.float64]
@@ -230,7 +230,7 @@ def rate_spread(table: RateTable, magnitude: Real, delta: Real) -> tuple[Real, R
 
 
 def node_field_error(
-    reference: NumpyRefBackend, problem: KernelProblem, fields: Real
+    reference: NumpyRefBackend, problem: PropagationProblem, fields: Real
 ) -> Real:
     """Bound each node field's difference between two syntheses (module item 2)."""
     transform = problem.transform
@@ -257,7 +257,7 @@ def node_field_error(
 
 
 def current_error(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     grid: FieldGrid,
     fields: Real,
     field_error: Real,
@@ -341,7 +341,10 @@ def current_error(
 
 
 def stage_error(
-    reference: NumpyRefBackend, problem: KernelProblem, error: Real, magnitude: Real
+    reference: NumpyRefBackend,
+    problem: PropagationProblem,
+    error: Real,
+    magnitude: Real,
 ) -> float:
     """Carry independent current-product errors through the held source (item 6)."""
     transform, grids = problem.transform, problem.grids
@@ -395,7 +398,9 @@ def stage_error(
     return grids.crop_scale * float(np.max(abs(prefactor * window) * projected))
 
 
-def plasma_stage_bound(problem: KernelProblem, grid: FieldGrid, threads: int) -> float:
+def plasma_stage_bound(
+    problem: PropagationProblem, grid: FieldGrid, threads: int
+) -> float:
     """Return the column's bound on one stage, relative to the stage's largest value.
 
     At the launch field and ``z = 0``: one evaluation, or each stage of a short march
@@ -408,7 +413,7 @@ def plasma_stage_bound(problem: KernelProblem, grid: FieldGrid, threads: int) ->
         state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
         bundle = reference._stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         stage = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
-            state, bundle, np.ones(problem.shape, complex)
+            state, bundle, np.ones((1, *problem.shape), complex)
         )[0]
         fields = np.real(
             np.concatenate(

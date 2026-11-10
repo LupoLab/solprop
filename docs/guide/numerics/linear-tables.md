@@ -23,7 +23,7 @@ $$
 
 with the coefficients held in one rectangular array of shape `(n_intervals, n_deg, ...)`,
 the trailing axes being those of the value; for the kernel contract that value is
-`(n_batch_or_1, n_modes, n_pol, n_omega)`. Intervals that need a lower degree carry
+`(1, n_modes, n_pol, n_omega)`. Intervals that need a lower degree carry
 zeros in the high-order slots, which the evaluation handles exactly and at no cost, so a
 single vectorised pass serves every interval.
 
@@ -219,7 +219,7 @@ Everything above describes the *representation*. What
 {func}`solprop.translate.linop.build_phi` actually hands a backend is section 3 of the
 [kernel contract](../../dev/kernel-contract.md): a
 {class}`solprop.translate.linop.LinearOperator`, holding the interval edges, the Chebyshev
-coefficients of $\Phi$ over `(n_batch_or_1, n_modes, n_pol, n_omega)`, the degree used on
+coefficients of $\Phi$ over `(1, n_modes, n_pol, n_omega)`, the degree used on
 each interval, the hard kinks steps must land on, and the frame quantities as scalar
 tables for the record. Every array is read-only and C-contiguous; nothing else about the
 mode, the gas or the frame survives the crossing.

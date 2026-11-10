@@ -111,7 +111,7 @@ def test_radial_partial_chunks_preserve_the_reference_source(
             reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
                 reference._require_state(),  # pyright: ignore[reportPrivateUsage]
                 reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-                np.ones(problem.shape, complex),
+                np.ones((1, *problem.shape), complex),
             )[0]
         )
     finally:
@@ -134,7 +134,7 @@ def test_radial_partial_chunks_preserve_the_reference_source(
         backend.set_initial(problem.initial.field0, None)
         backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         state = backend._native_state  # pyright: ignore[reportPrivateUsage]
-        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape[1:])
+        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
         assert np.isfinite(actual).all()
         scale = float(np.max(np.abs(expected)))
         assert scale > 0

@@ -53,6 +53,7 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import ABSORBED_CHANNELS, FAR_FIELD_STATISTICS, SpatialMedium
 from solprop.stats import ApertureSet, StatsSpec
 from solprop.stepper import PIController, RungeKutta
+from solprop.translate.routes import flux_of
 from solprop.translate.spatial import axial_admittance, separable_values
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
@@ -156,7 +157,6 @@ def test_native_forms_the_far_field_statistics_as_the_reference_does(grid):
             gamma(4 * (space.n_columns + 16)),
             what=name,
         )
-        assert values["numpy_ref"][name].shape[0] == 1  # the batch axis
 
 
 # ------------------------------------------------------------- the layout and bands
@@ -234,7 +234,7 @@ def test_a_radial_problem_takes_no_partials(grid):
 
 def field_spectrum(problem, grid):
     """The beam's spectrum with no admittance: ``eps0 c/2 sum_c w_c sd(E_c)``."""
-    field = problem.initial.field0[0]
+    field = problem.initial.field0
     weights = problem.transform.geometry.spectral_weights
     density = np.sum(spectral_density(field, grid.dt, kind=grid.kind), axis=1)
     return 0.5 * EPS0 * C * np.sum(weights[:, None] * density, axis=0)
@@ -270,7 +270,7 @@ def test_the_axial_flux_of_a_vacuum_gaussian_is_its_mean_obliquity(grid):
     band = np.flatnonzero(grid.inband_mask)
     # The beam spectrum is the axial flux (SEP 34): the field's spectrum weighted
     # per column by the real admittance, here the vacuum's obliquity.
-    ratio = values["beam_spectrum"][0, band] / field_spectrum(problem, grid)[band]
+    ratio = values["beam_spectrum"][band] / field_spectrum(problem, grid)[band]
     expected = np.array([paraxial_obliquity(grid.omega[k] / C * waist) for k in band])
     assert np.all(ratio < 1)
     # The lattice sum of a smooth integrand (aliasing below exp(-70)), quad 1e-13 and
@@ -292,7 +292,7 @@ def test_the_axial_flux_in_a_gas_is_its_index(grid):
     )
     values, problem = entrance(simulation)
     band = np.flatnonzero(grid.inband_mask)
-    ratio = values["beam_spectrum"][0, band] / field_spectrum(problem, grid)[band]
+    ratio = values["beam_spectrum"][band] / field_spectrum(problem, grid)[band]
     index = np.real(medium.index(grid.omega[band], 0.0))
     # O = sqrt(n^2 - u) averages to n - mean(u)/(2n): within the obliquity term
     # 2/(k w0)^2 of Re n, and below it.
@@ -371,8 +371,8 @@ def test_each_absorbed_channel_is_its_share_of_the_linear_decay(
         spatial_absorber=collar,
     )
     values, problem = entrance(simulation)
-    power = values["absorbed_power"][0]
-    expected, magnitude = channel_powers(problem, grid, problem.initial.field0[0])
+    power = values["absorbed_power"]
+    expected, magnitude = channel_powers(problem, grid, problem.initial.field0)
     # Each channel's power is a sum of n terms with their roundings: 2 gamma_n of
     # the sum of their magnitudes; without a collar the transverse channel is an
     # exact zero.
@@ -387,7 +387,7 @@ def test_each_absorbed_channel_is_its_share_of_the_linear_decay(
             power[channel],
             expected[channel],
             2
-            * gamma(power.size * problem.shape[1] * grid.n_omega + 16)
+            * gamma(power.size * problem.shape[0] * grid.n_omega + 16)
             * magnitude[channel]
             / abs(expected[channel]),
         )
@@ -405,7 +405,7 @@ def test_each_absorbed_channel_is_its_share_of_the_linear_decay(
             geometry.spectral_weights[:, None, None]
             * np.real(axial_admittance(data, grid.omega, slice(None)))[:, None]
             * (-2 * np.real(operator[0]))
-            * np.abs(problem.initial.field0[0]) ** 2
+            * np.abs(problem.initial.field0) ** 2
             * energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
         )
     )
@@ -427,7 +427,7 @@ def test_gain_reverses_the_material_channel(grid, lossy_launch):
             medium=SpatialMedium(1 + 1j * loss),
             spec=StatsSpec(names=("absorbed_power",)),
         )
-        powers[loss] = entrance(simulation)[0]["absorbed_power"][0]
+        powers[loss] = entrance(simulation)[0]["absorbed_power"]
     # sqrt(conj q) = conj sqrt(q): the material rate flips sign, to rounding.
     assert_within(powers[-2e-5][3], -powers[2e-5][3], 4 * gamma(field.size + 16))
     # No flux on the evanescent columns and no spectral absorber.
@@ -505,7 +505,7 @@ def split_rates(problem, grid):
         * C
         * problem.transform.geometry.spectral_weights[:, None]
         * np.real(axial_admittance(data, grid.omega, slice(None)))
-        * np.sum(np.abs(problem.initial.field0[0]) ** 2, axis=1)
+        * np.sum(np.abs(problem.initial.field0) ** 2, axis=1)
         * energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
     )
     return collar, user, material, measure
@@ -609,12 +609,12 @@ def test_a_run_without_a_custom_rate_reports_zero_and_moves_no_bit(
         spec=StatsSpec(names=("absorbed_power",)),
     )
     values, problem = entrance(simulation, backend)
-    power = values["absorbed_power"][0]
+    power = values["absorbed_power"]
     assert power.shape == (5,) and power[4] == 0.0 and power[0] > 0
     data = problem.linear.separable
     assert data is not None and not np.any(data.user_rate)
     # A zero share leaves channel 0 the total rate's sum, on the one rate read before.
-    expected, magnitude = channel_powers(problem, grid, problem.initial.field0[0])
+    expected, magnitude = channel_powers(problem, grid, problem.initial.field0)
     assert_within(
         power[0],
         expected[0],
@@ -759,10 +759,15 @@ def test_the_host_pass_refuses_what_it_was_not_given(grid):
     space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
     simulation = free_simulation(grid, space, gaussian(60e-6))
     problem = simulation.translate()
-    field = problem.initial.field0[0]
+    field = problem.initial.field0
     with pytest.raises(BackendError, match="tables"):
         collect_spatial(
-            far_spec(), grid, problem.transform, field, z=0.0, flux=problem.flux
+            far_spec(),
+            grid,
+            problem.transform,
+            field,
+            z=0.0,
+            flux=flux_of(problem.route),
         )
     tables = FarFieldTables(problem).for_spec(far_spec())
     # The saved-field names need no operator.
@@ -772,7 +777,7 @@ def test_the_host_pass_refuses_what_it_was_not_given(grid):
         problem.transform,
         field,
         z=0.0,
-        flux=problem.flux,
+        flux=flux_of(problem.route),
         tables=tables,
     )
     assert beam["beam_spectrum"].shape == (grid.n_omega,)
@@ -783,7 +788,7 @@ def test_the_host_pass_refuses_what_it_was_not_given(grid):
             problem.transform,
             field,
             z=0.0,
-            flux=problem.flux,
+            flux=flux_of(problem.route),
             tables=tables,
         )
 

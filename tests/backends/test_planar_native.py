@@ -54,6 +54,7 @@ from solprop.stepper import PIController
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.problem import assemble
+from solprop.translate.routes import transverse_of
 
 pytestmark = [
     pytest.mark.skipif("native" not in available(), reason="native is not installed"),
@@ -259,7 +260,10 @@ def test_the_cases_exercise_the_slab_route(case):
     assert problem.transform.synthesis.shape == (space.x.size, len(ORDERS))
     assert space.n_y % ROWS_PER_CHUNK != 0
     if family.startswith("collar"):
-        assert problem.transverse is not None and problem.transverse.has_collar
+        assert (
+            transverse_of(problem.route) is not None
+            and transverse_of(problem.route).has_collar
+        )
         assert np.any(geometry.absorber_rate > 0)
 
 

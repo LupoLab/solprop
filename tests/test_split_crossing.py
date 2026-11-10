@@ -147,7 +147,8 @@ def test_the_launch_s_limit_holds_dz_max() -> None:
     # pulse's, within a bucket's 18 % and the pulse's spectral width.
     rate = SPLIT_CROSSING * width / crossing.launch_limit
     assert GRID.n_t * GRID.dt < rate < 2.0 * GRID.n_t * GRID.dt
-    limit = crossing.limit(crossing.occupancy(problem.initial.field0))
+    # The occupancy reads the state behind its private leading axis of one.
+    limit = crossing.limit(crossing.occupancy(problem.initial.field0[np.newaxis]))
     assert crossing.launch_limit == limit
     assert problem.stepper.dz_max == limit
     assert problem.stepper.dz_init <= limit
@@ -309,13 +310,12 @@ def test_a_dz_max_within_the_limit_is_kept_and_not_logged(
     assert not any("crossing limit" in one.message for one in caplog.records)
 
 
-def test_every_batch_member_and_polarisation_is_read() -> None:
-    # Two members, two modes, two polarisations: each mode's bin takes its fastest.
+def test_every_polarisation_is_read() -> None:
+    # Two modes, two polarisations: each mode's bin takes its fastest, which is in
+    # the second polarisation for one mode and in the first for the other.
     omega = np.linspace(1.0e15, 3.0e15, 201)
     quadratic = -1j * 0.5 * (omega - 2.0e15) ** 2
-    beta2 = np.array(
-        [[[1e-26, 2e-26], [3e-26, 1e-26]], [[1e-26, 1e-26], [1e-26, 4e-26]]]
-    )
+    beta2 = np.array([[[1e-26, 2e-26], [4e-26, 1e-26]]])
     table = constant_phi(beta2[..., None] * quadratic, 1.0)
     buckets, _ = walk_off_buckets(table, omega, np.ones(201, dtype=bool))
     rates = split_bucket_rates()[buckets[:, 150]]  # 5e14 rad/s from the reference
@@ -459,7 +459,7 @@ def test_a_split_reading_without_the_occupancy_is_refused() -> None:
     monitor = simulation._boundary_monitor()
     assert monitor is not None
     monitor.crossing = problem.split_crossing
-    reading = monitor.energies(problem.initial.field0)
+    reading = monitor.energies(problem.initial.field0[np.newaxis])
     with pytest.raises(BackendError, match="occupancy"):
         monitor.launch(reading, 0.0)
 
@@ -493,7 +493,8 @@ def test_a_coupled_taper_s_channels_walk_at_their_own_rates() -> None:
     inband = coupled.grids.inband_mask
     assert np.min(crossing.buckets[2][inband]) < np.min(crossing.buckets[0][inband])
     # Light in the third mode alone bounds the cap below light in the first alone.
-    launch = np.asarray(coupled.initial.field0)
+    # The occupancy reads the state behind its private leading axis of one.
+    launch = np.asarray(coupled.initial.field0)[np.newaxis]
     alone = [np.zeros_like(launch) for _ in range(2)]
     alone[0][:, 0] = launch[:, 0]
     alone[1][:, 2] = launch[:, 0]

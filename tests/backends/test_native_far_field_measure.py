@@ -8,6 +8,7 @@
 refused. Native has that guard at the payload (``_flux_payload``), and no test held it.
 """
 
+import copy
 import dataclasses
 
 import numpy as np
@@ -27,6 +28,7 @@ from backends.test_native_far_field import (
 )
 from solprop.exceptions import BackendError, TranslationError
 from solprop.grid import FreeGrid
+from solprop.translate.routes import flux_of
 
 
 def separable_case():
@@ -40,13 +42,16 @@ def separable_case():
 def test_a_foreign_plane_measure_is_refused():
     """A measure on another operator than the run's own: the payload's guard."""
     problem, grid = separable_case()
-    flux = problem.flux
+    flux = flux_of(problem.route)
     assert flux is not None
     separable = dataclasses.replace(
         flux.base, k_squared=np.array(flux.base.k_squared) * (1 + 1e-6)
     )
     foreign = dataclasses.replace(
-        problem, flux=dataclasses.replace(flux, base=separable)
+        problem,
+        route=dataclasses.replace(
+            problem.route, flux=dataclasses.replace(flux, base=separable)
+        ),
     )
     with pytest.raises(BackendError, match="this plane measure is another"):
         NativeBackend(foreign, grid=grid)
@@ -60,6 +65,9 @@ def test_a_missing_plane_measure_is_refused():
     backend.
     """
     problem, grid = separable_case()
-    foreign = dataclasses.replace(problem, flux=None)
+    # The route refuses a missing measure on construction; set one past it.
+    route = copy.copy(problem.route)
+    object.__setattr__(route, "flux", None)
+    foreign = dataclasses.replace(problem, route=route)
     with pytest.raises(TranslationError, match="plane measure"):
         NativeBackend(foreign, grid=grid)

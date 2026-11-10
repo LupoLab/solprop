@@ -73,7 +73,7 @@ from solprop.translate.precision import (
     scaled_square_sum,
     state_scale,
 )
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.responses import (
     CompiledResponses,
     KerrCoefficients,
@@ -121,7 +121,7 @@ class NumpySingleBackend(NumpyRefBackend):
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         A validated problem with ``precision.single``.
     grid : solprop.grid.TimeGrid, optional
         The grid the state lives on, needed only by :meth:`stats`.
@@ -149,7 +149,7 @@ class NumpySingleBackend(NumpyRefBackend):
 
     def __init__(
         self,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         *,
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
@@ -219,7 +219,7 @@ class NumpySingleBackend(NumpyRefBackend):
         self._raman_exponent = 0
         # The lab-frame source's unit propagator, in the state's precision.
         self._lab_frame = np.broadcast_to(
-            np.ones((), dtype=self._complex), problem.shape
+            np.ones((), dtype=self._complex), (1, *problem.shape)
         )
         controller = problem.stepper.controller
         self._controller = dataclasses.replace(
@@ -317,7 +317,7 @@ class NumpySingleBackend(NumpyRefBackend):
 
     def set_initial(
         self,
-        field: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
         noise: object,
         *,
         z: float = 0.0,
@@ -328,7 +328,7 @@ class NumpySingleBackend(NumpyRefBackend):
         Parameters
         ----------
         field : numpy.ndarray
-            The state in the canonical layout, physical units.
+            The state, shape ``(n_modes, n_pol, n_omega)``, physical units.
         noise : object
             Must be ``None``; noise models are refused under single precision.
         z : float, optional

@@ -249,7 +249,7 @@ def gain_experiment(state, backend_name="numpy_ref", *, steps=8, ffac=16):
     try:
         owner.set_initial(problem.initial.field0, None)
         owner.propagate_to(length)
-        final = np.fft.ifft(owner.observe().require_field()[0, 0], axis=-1)
+        final = np.fft.ifft(owner.observe().require_field()[0], axis=-1)
     finally:
         owner.close()
     # Observe well inside the flat collar, >100 dephasing times after turn-on.

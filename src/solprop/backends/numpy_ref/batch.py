@@ -53,9 +53,7 @@ class NumpyBatchBackend(HostGroup):
             # action or the explicit residual, so a member carrying
             # `linear.coupled_flow` would run, converge and propagate the diagonal
             # half of an equation whose off-diagonal it silently dropped. A
-            # lockstep group is a group of *singleton* members, each with
-            # `n_batch == 1`, so the singleton backend's own batch-axis refusal
-            # never fires for it.
+            # lockstep group is a sequence of single-trajectory members.
             if member._problem.linear.coupled_flow is not None:
                 msg = (
                     "the numpy_ref lockstep batch does not execute "

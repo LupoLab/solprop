@@ -34,7 +34,7 @@ from solprop.output import schema
 from solprop.stats import CATALOGUE
 from solprop.stepper import schedule as schedule_module
 from solprop.stepper.controller import PIController
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 ROOT = Path(__file__).resolve().parents[1]
 FIGURES = ROOT / "docs" / "dev" / "figures"
@@ -99,15 +99,15 @@ def test_the_layers_figure_draws_the_whole_package():
 
 @pytest.mark.parametrize("section", build.CONTRACT_SECTIONS)
 def test_every_contract_section_names_fields_of_the_problem(section):
-    """Each numbered section of figure 3 names fields `KernelProblem` really has."""
-    fields = {field.name for field in dataclasses.fields(KernelProblem)}
+    """Each section of figure 3 names fields `PropagationProblem` really has."""
+    fields = {field.name for field in dataclasses.fields(PropagationProblem)}
     assert set(section.fields) <= fields
 
 
 def test_the_contract_figure_covers_every_field():
-    """Between them the eight sections account for all eleven fields."""
+    """Between them the eight sections account for all twelve fields."""
     drawn = {name for section in build.CONTRACT_SECTIONS for name in section.fields}
-    assert drawn == {field.name for field in dataclasses.fields(KernelProblem)}
+    assert drawn == {field.name for field in dataclasses.fields(PropagationProblem)}
 
 
 def test_the_representations_are_the_ones_the_contract_offers():

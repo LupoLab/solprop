@@ -301,7 +301,7 @@ def test_a_cartesian_kerr_beam_agrees(mode, collar, noisy):
             problem,
             initial=dataclasses.replace(
                 problem.initial,
-                field0=pulse.build(grid, space, medium=SpatialMedium())[None],
+                field0=pulse.build(grid, space, medium=SpatialMedium()),
             ),
         )
     assert_parity(

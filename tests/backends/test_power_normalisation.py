@@ -53,14 +53,14 @@ def test_constant_fill_internal_trajectory_is_unchanged(backend_class):
     grid = simulation.grid
     root_weight = np.ones(problem.shape)
     for mode_index, mode in enumerate(simulation.modes):
-        root_weight[0, mode_index, 0, grid.active_mask] = np.sqrt(
+        root_weight[mode_index, 0, grid.active_mask] = np.sqrt(
             np.real(mode.neff(grid.omega[grid.active_mask], 0.0))
         )
     assert simulation.noise is not None
     legacy_initial = replace(
         problem.initial,
-        field0=simulation._field0[None] / root_weight,
-        noise0=simulation.noise.spectrum[None] / root_weight,
+        field0=simulation._field0 / root_weight,
+        noise0=simulation.noise.spectrum / root_weight,
     )
     absorber = simulation.settings.absorber
     assert absorber is not None
@@ -150,7 +150,7 @@ def test_gnlse_route_is_unchanged(backend_class):
         shock=False,
     )
     legacy = _dispersion_phi(gnlse.mode, grid, Frame.comoving(grid), z_max=grid.length)
-    np.testing.assert_allclose(problem.initial.field0[0], field, rtol=4 * EPS)
+    np.testing.assert_allclose(problem.initial.field0, field, rtol=4 * EPS)
     assert_within(problem.linear.phi_coefficients, legacy.phi_coefficients, 4 * EPS)
     # Structural: a GNLSE's power weight is exactly one.
     np.testing.assert_array_equal(power_weight_at(problem, 0.0), 1.0)
@@ -161,7 +161,7 @@ def test_gnlse_route_is_unchanged(backend_class):
             phi_constant=legacy.phi_constant,
             phi_coefficients=legacy.phi_coefficients,
         ),
-        initial=replace(problem.initial, field0=field[None]),
+        initial=replace(problem.initial, field0=field),
     )
     spec = StatsSpec(names=("energy", "peak_power", "fwhm_t"))
     results = []
@@ -205,9 +205,9 @@ def test_backend_temporal_statistics_use_the_hermitian_flux(backend_class, grid_
     try:
         backend.set_initial(problem.initial.field0, None)
         values = backend.stats(spec)
-        a = analytic_field(grid, problem.initial.field0[0])
+        a = analytic_field(grid, problem.initial.field0)
         aw = analytic_field(
-            grid, problem.initial.field0[0] * power_weight_at(problem, 0.0)
+            grid, problem.initial.field0 * power_weight_at(problem, 0.0)
         )
         power = np.real(a * np.conj(aw)).sum(axis=1)
         axis = mode_matrix(
@@ -222,13 +222,13 @@ def test_backend_temporal_statistics_use_the_hermitian_flux(backend_class, grid_
         # error grows logarithmically with the coarse transform length.
         bound = 512 * np.finfo(float).eps * np.ceil(np.log2(grid.n_t))
         np.testing.assert_allclose(
-            values["peak_power"][0], power.max(axis=-1), rtol=bound, atol=0
+            values["peak_power"], power.max(axis=-1), rtol=bound, atol=0
         )
         np.testing.assert_allclose(
-            values["peak_power_total"][0], power.sum(axis=0).max(), rtol=bound, atol=0
+            values["peak_power_total"], power.sum(axis=0).max(), rtol=bound, atol=0
         )
         np.testing.assert_allclose(
-            values["peak_intensity"][0], intensity.max(), rtol=bound, atol=0
+            values["peak_intensity"], intensity.max(), rtol=bound, atol=0
         )
     finally:
         backend.close()
@@ -318,13 +318,13 @@ def test_energy_statistics_equal_the_weighted_sum(backend_class, grid_class):
         backend.set_initial(problem.initial.field0, None)
         actual = backend.stats(spec)
         expected = energy(
-            grid, problem.initial.field0[0] * np.sqrt(power_weight_at(problem, 0.0))
+            grid, problem.initial.field0 * np.sqrt(power_weight_at(problem, 0.0))
         )
         # The n_omega-epsilon spectral reduction bound, fixed in advance.
         bound = grid.n_omega * np.finfo(float).eps
-        np.testing.assert_allclose(actual["energy"][0], expected, rtol=bound, atol=0)
+        np.testing.assert_allclose(actual["energy"], expected, rtol=bound, atol=0)
         np.testing.assert_allclose(
-            actual["energy_window"][0, 0], expected, rtol=bound, atol=0
+            actual["energy_window"][0], expected, rtol=bound, atol=0
         )
     finally:
         backend.close()

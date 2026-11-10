@@ -84,7 +84,7 @@ from solprop.stepper.schedule import (
     landing,
 )
 from solprop.translate.linop import phi_rate
-from solprop.translate.tdse import TDSEPurpose
+from solprop.translate.routes import tdse_descriptor
 
 if TYPE_CHECKING:
     from solprop.backends.driver import StepDriver
@@ -1799,7 +1799,7 @@ def source_absent(problem: Any) -> bool:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
 
     Returns
@@ -1816,7 +1816,7 @@ def source_absent(problem: Any) -> bool:
     return (
         len(responses.response_order) == 1
         and not in_stage
-        and problem.tdse is None
+        and tdse_descriptor(problem.route) is None
         and problem.transform.modal_tables is None
         and problem.linear.separable is None
     )
@@ -3135,7 +3135,9 @@ class AdamsMarch:
         backend = self._backend
         return MarchSnapshot(
             z=float(backend._z),
-            state=np.array(backend._adams_state(), dtype=np.complex128, copy=True),
+            # The snapshot's state is the trajectory's own; the march holds it with a
+            # leading axis of one.
+            state=np.array(backend._adams_state()[0], dtype=np.complex128, copy=True),
             proposal=float(backend._proposal),
             method=repr(self._method),
             order=int(self._order),
@@ -3188,12 +3190,14 @@ class AdamsMarch:
         if reason is not None:
             return reason
         load_rows = self._engine.load_rows
-        shape = tuple(backend._problem.shape)
+        # The engine's rows keep the march's layout, a leading axis of one beside
+        # their own (the snapshot's disk format, SEP 47 section 6.7).
+        shape = (1, *backend._problem.shape)
         try:
             load_rows(snapshot.rows, shape)
         except BackendError as error:
             return str(error)
-        backend._adams_restore(snapshot.z, np.array(snapshot.state, copy=True))
+        backend._adams_restore(snapshot.z, np.array(snapshot.state, copy=True)[None])
         self._history = [
             _Derivative(float(z), self._engine.value(int(slot)), identity, int(slot))
             for z, identity, slot in zip(
@@ -3261,32 +3265,6 @@ class AdamsMarch:
         return next((reason for failed, reason in checks if failed), None)
 
     # --- evaluation -------------------------------------------------------------------
-
-    def _source(
-        self,
-        lab: _State,
-        anchor: float,
-        position: float,
-        *,
-        purpose: TDSEPurpose = "predictor",
-    ) -> tuple[_State, _State]:
-        """Return the source at a lab-frame field, in the anchor's frame, and U.
-
-        Parameters
-        ----------
-        lab : numpy.ndarray
-            The lab-frame field at `position`.
-        anchor, position : float
-            The frame's anchor and the evaluation position, m.
-        purpose : str, optional
-            Atomic evaluation label, distinguishing startup and predictor work.
-
-        Returns
-        -------
-        tuple
-            ``U(anchor, position) N(lab, position)`` and ``U(position, anchor)``.
-        """
-        return self._backend._adams_source(lab, anchor, position, purpose=purpose)
 
     # --- the march --------------------------------------------------------------------
 
@@ -3510,7 +3488,7 @@ class AdamsMarch:
             self.ledger.total,
             backend._z,
             cost,
-            backend._adams_state().copy(),
+            backend._adams_state()[0].copy(),
         )
 
     def _start(self) -> None:

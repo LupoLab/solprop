@@ -143,7 +143,9 @@ def problem_derivative(backend_class, problem, grid, modes):
             backend._hoist(0.0)
             bundle = backend._stage_scalars(0.0, 0.0)
             derivative = backend._nonlinear(
-                problem.initial.field0, bundle, np.ones(problem.shape, complex)
+                problem.initial.field0[None],
+                bundle,
+                np.ones((1, *problem.shape), complex),
             )
         else:
             # The first stage of a trial is exactly N(initial, 0). Observation reads
@@ -509,7 +511,7 @@ def test_full_azimuthal_propagation_obeys_selection_rules(
         result = backend.observe().require_field()
     finally:
         backend.close()
-    measured = float(np.max(np.abs(result[0, forbidden])) / np.max(np.abs(result)))
+    measured = float(np.max(np.abs(result[forbidden])) / np.max(np.abs(result)))
     assert measured < bound
     record_rung(
         request,
@@ -520,7 +522,7 @@ def test_full_azimuthal_propagation_obeys_selection_rules(
         bound,
     )
     if len(modes) == 3:
-        assert np.max(np.abs(result[0, 1])) / np.max(np.abs(result)) > bound
+        assert np.max(np.abs(result[1])) / np.max(np.abs(result)) > bound
 
 
 @pytest.mark.parametrize("kind", ["TE", "TM"])
@@ -590,7 +592,7 @@ def test_an_underresolved_angular_rule_creates_a_forbidden_harmonic(
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)
             result = backend.observe().require_field()
-            leakage.append(float(np.max(np.abs(result[0, 1])) / np.max(np.abs(result))))
+            leakage.append(float(np.max(np.abs(result[1])) / np.max(np.abs(result))))
         finally:
             backend.close()
     assert leakage[0] < bound

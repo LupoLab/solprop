@@ -111,7 +111,7 @@ def test_raman_acts_on_synthesised_position_dependent_direction(
         MarcatiliMode(125e-6, kind=kind, n=n, phi=0.37, cladding=1.45, loss=False),
         MarcatiliMode(125e-6, phi=0.19, cladding=1.45, loss=False),
     ]
-    initial = original.initial.field0[0].transpose(1, 0, 2).copy()
+    initial = original.initial.field0.transpose(1, 0, 2).copy()
     problem = assemble(
         grid,
         modes,

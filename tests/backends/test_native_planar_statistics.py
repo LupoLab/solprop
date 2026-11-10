@@ -157,7 +157,7 @@ def finished(problem, grid, rows, dz, options=None):
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)
-        expected = np.array(reference._finish(rows.copy(), dz))
+        expected = np.array(reference._finish(rows[None].copy(), dz))[0]
     finally:
         reference.close()
     backend = NativeBackend(problem, grid=grid, options=options)

@@ -211,7 +211,7 @@ def _ramp_launch(share: float) -> Simulation:
     """Return the scaled suite with `share` of its launch in the top k_r column."""
     simulation = suite(1.5, None)
     problem = simulation.translate()
-    field = np.array(problem.initial.field0[0])
+    field = np.array(problem.initial.field0)
     weights = problem.transform.geometry.spectral_weights  # pyright: ignore[reportOptionalMemberAccess]
     energy = float(np.sum(weights[:, None, None] * np.abs(field) ** 2))
     top = np.zeros_like(field)

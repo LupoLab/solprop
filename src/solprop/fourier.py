@@ -7,7 +7,7 @@
 This module owns the sign convention of ``docs/dev/conventions.md`` §2 and the discrete
 energy functionals of §4. Every array is a plain NumPy array and the frequency or time
 axis is always the **last** one, because the kernel state is
-``(n_batch, n_modes, n_pol, n_omega)`` with that axis contiguous (§6).
+``(n_modes, n_pol, n_omega)`` with that axis contiguous (§6).
 
 Two Fourier conventions are in play. User-facing spectra and phases use the **optics**
 convention ``E(omega) = int E(t) exp(+i omega t) dt``; everything stored internally uses

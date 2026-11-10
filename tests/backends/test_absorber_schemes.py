@@ -116,7 +116,7 @@ def exit_field(grid, scheme, n_steps):
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(LENGTH)
-        return backend.observe().require_field()[0, 0, 0].copy()
+        return backend.observe().require_field()[0, 0].copy()
     finally:
         backend.close()
 
@@ -150,7 +150,7 @@ def relative(got, want):
 def test_the_collar_bites_on_this_case(grid, exits):
     """Otherwise every comparison below would be about a boundary that does nothing."""
     problem = biting_case(grid, "nonlinear", 400)
-    start = energy_of(grid, problem.initial.field0[0, 0, 0])
+    start = energy_of(grid, problem.initial.field0[0, 0])
     left = energy_of(grid, exits[("nonlinear", 400)])
     # A third of the pulse walks into the boundary and is absorbed over this distance
     # (a seventh under the capped logarithm, whose inner collar was almost transparent).
@@ -310,12 +310,10 @@ def test_a_collar_with_no_response_is_still_absorbed(grid, backend_class):
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)
-            energies[scheme] = energy_of(
-                grid, backend.observe().require_field()[0, 0, 0]
-            )
+            energies[scheme] = energy_of(grid, backend.observe().require_field()[0, 0])
         finally:
             backend.close()
-        start = energy_of(grid, problem.initial.field0[0, 0, 0])
+        start = energy_of(grid, problem.initial.field0[0, 0])
         assert 0.05 < (start - energies[scheme]) / start < 0.5, scheme
     # The two schemes absorb the same energy, to the first-order gap between them.
     assert energies["nonlinear"] == pytest.approx(energies["split_step"], rel=1e-3)
@@ -392,7 +390,9 @@ def test_the_split_step_absorber_leaves_nothing_outside_the_active_band(
         # above can see).
         rate = problem.responses.temporal_absorber
         assert rate is not None
-        absorbed = apply_temporal_rate(field, rate, length / BAND_STEPS, kind=kind)
+        absorbed = apply_temporal_rate(
+            field[None], rate, length / BAND_STEPS, kind=kind
+        )
         assert outside[0]
         assert np.abs(absorbed[..., 0]).max() > 1e-3 * np.abs(absorbed).max()
 

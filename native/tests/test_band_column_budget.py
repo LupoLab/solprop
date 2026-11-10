@@ -74,7 +74,7 @@ from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 from test_band_stress import launch_statistics
 
 import solprop_native
@@ -149,14 +149,14 @@ def stress(name: str, n_pol: int) -> Real:
 
 
 def launched(
-    problem: KernelProblem, real: Real, integral: RunningIntegral
-) -> KernelProblem:
+    problem: PropagationProblem, real: Real, integral: RunningIntegral
+) -> PropagationProblem:
     """Return `problem` launching `real`, band-limited, under `integral`, no collar."""
     grids = problem.grids
     # The state's spectrum is doubled on its way to the real field.
     spectrum = 2.0 * np.fft.fft(real, axis=-1)[..., grids.crop_index] / grids.pad_scale
     inverse = np.linalg.inv(problem.transform.synthesis)
-    state = np.einsum("mn,npw->mpw", inverse, spectrum)[None]
+    state = np.einsum("mn,npw->mpw", inverse, spectrum)
     state[..., ~grids.active_mask] = 0.0
     n_to = grids.n_to
     return dataclasses.replace(
@@ -179,7 +179,7 @@ def assembled(
     n_pol: int,
     medium: SpatialMedium,
     density: float | None = None,
-) -> KernelProblem:
+) -> PropagationProblem:
     """Return a one-step radial problem of three nodes, launching nothing yet."""
     return assemble(
         GRID,
@@ -199,7 +199,7 @@ def assembled(
 
 def argon(
     name: str, initial: float, n_pol: int, integral: RunningIntegral
-) -> KernelProblem:
+) -> PropagationProblem:
     """Return a stress case: argon's real rate, its own pre-ionisation."""
     table = build_rate_table(OptmatRate("Ar", 800e-9), (1e8, 3e11))
     problem = assembled(
@@ -211,7 +211,7 @@ def argon(
     return launched(problem, stress(name, n_pol), integral)
 
 
-def stages(problem: KernelProblem) -> tuple[Complex, Complex]:
+def stages(problem: PropagationProblem) -> tuple[Complex, Complex]:
     """Return native's and the reference's first stage on the launch."""
     reference = NumpyRefBackend(problem, grid=GRID)
     try:
@@ -220,7 +220,7 @@ def stages(problem: KernelProblem) -> tuple[Complex, Complex]:
         expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
             reference._require_state(),  # pyright: ignore[reportPrivateUsage]
             reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-            np.ones(problem.shape, complex),
+            np.ones((1, *problem.shape), complex),
         )[0]
     finally:
         reference.close()
@@ -231,14 +231,14 @@ def stages(problem: KernelProblem) -> tuple[Complex, Complex]:
         backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         actual = np.asarray(
             backend._native_state.stage_to_host(0)  # pyright: ignore[reportPrivateUsage]
-        ).reshape(problem.shape[1:])
+        ).reshape(problem.shape)
     finally:
         backend.close()
     return actual, expected
 
 
 def assert_stage_within_bound(
-    problem: KernelProblem, record: Callable[[str, float], None]
+    problem: PropagationProblem, record: Callable[[str, float], None]
 ) -> None:
     bound = fft_bound(GRID.n_to) + plasma_stage_bound(
         problem, GRID, INFO.runtime_threads
@@ -254,7 +254,7 @@ def assert_stage_within_bound(
     assert measured <= bound * scale
 
 
-def launch_fraction_bound(problem: KernelProblem) -> float:
+def launch_fraction_bound(problem: PropagationProblem) -> float:
     """Return the final fraction's absolute bound at the launch (``plasma_bounds``)."""
     responses = problem.responses
     integral = responses.plasma_integral
@@ -321,12 +321,12 @@ def test_the_launch_fraction_is_within_its_scan_bound(
     bound = launch_fraction_bound(problem)
     expected = launch_statistics(NumpyRefBackend, problem, GRID)
     actual = launch_statistics(NativeBackend, problem, GRID)
-    error = abs(float(actual["electron_density"][0] - expected["electron_density"][0]))
+    error = abs(float(actual["electron_density"] - expected["electron_density"]))
     record_property("measured", error / DENSITY)
     record_property("bound", bound)
     assert error <= DENSITY * bound, (error, DENSITY * bound)
     # Every case but one has electrons; the pre-ionised one starts with them too.
-    assert float(expected["electron_density"][0]) > 0.0
+    assert float(expected["electron_density"]) > 0.0
 
 
 @dataclass(frozen=True)

@@ -139,7 +139,8 @@ def launch_source(problem, grid) -> tuple[np.ndarray, float]:
     """Return the reference's source ``N(a_0)`` at the launch, and ``||a_0||``."""
     backend = NumpyRefBackend(problem, grid=grid)
     try:
-        state = problem.initial.field0
+        # The backend's private state keeps its leading axis of one.
+        state = problem.initial.field0[np.newaxis]
         bundle = backend._stage_scalars(0.0, 0.0)
         source = backend._nonlinear(state, bundle, np.ones_like(state))
         return np.array(source), float(np.linalg.norm(state))

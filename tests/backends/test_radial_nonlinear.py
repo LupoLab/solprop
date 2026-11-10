@@ -115,7 +115,7 @@ def derivative(spatial_backend_class, problem, grid, options=None):
             return backend._nonlinear(
                 backend._require_state(),
                 backend._stage_scalars(0.0, 0.0),
-                np.ones(problem.shape, complex),
+                np.ones((1, *problem.shape), complex),
             )[0]
         # This probe requests N(E, z=0), not an advanced field. A zero-length
         # trial exposes the same first stage without later stages inventing an
@@ -126,7 +126,7 @@ def derivative(spatial_backend_class, problem, grid, options=None):
             if backend.name == "native"
             else backend._stages[0].copy()
         )
-        return values.reshape(problem.shape[1:])
+        return values.reshape(problem.shape)
     finally:
         backend.close()
 
@@ -163,7 +163,7 @@ def test_radial_vector_raman_keeps_the_named_refusal(spatial_backend_class):
     scalar = make_problem(
         grid, space, np.zeros((space.n_r, 1, grid.n_omega), complex), [response]
     )
-    problem = dataclasses.replace(scalar, shape=(1, space.n_r, 2, grid.n_omega))
+    problem = dataclasses.replace(scalar, shape=(space.n_r, 2, grid.n_omega))
     with pytest.raises(BackendError, match="Raman"):
         spatial_backend_class(problem, grid=grid)
 
@@ -470,7 +470,7 @@ def test_radial_field_envelope_and_scalar_vector_parity(
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)
-            state = backend.observe().require_field()[0]
+            state = backend.observe().require_field()
             if n_pol == 2:
                 np.testing.assert_array_equal(state[:, 1], np.zeros_like(state[:, 1]))
             indices = np.rint((grid.omega - carrier) / grid.d_omega).astype(int)

@@ -54,7 +54,7 @@ from solprop.stepper import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 from solprop.translate.run_request import describe_run
 
 native_session = pytest.importorskip("solprop_native.session")
@@ -90,7 +90,7 @@ def _case(  # noqa: PLR0913 - one choice per keyword
     controller: PIController | None = None,
     dz_init: float = 1e-3,
     dz_max: float = LENGTH,
-) -> KernelProblem:
+) -> PropagationProblem:
     """Return the soliton of the lifecycle suite with the method and rows chosen.
 
     Parameters
@@ -118,7 +118,7 @@ def _case(  # noqa: PLR0913 - one choice per keyword
 
     Returns
     -------
-    solprop.translate.problem.KernelProblem
+    solprop.translate.problem.PropagationProblem
         The problem.
     """
     grid = window()
@@ -158,7 +158,7 @@ def _driver_session(problem, request, **controls) -> Started:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     request : solprop.translate.run_request.RunRequest
         Its run request.
@@ -181,7 +181,7 @@ def _make_native(problem, request, **controls):
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     request : solprop.translate.run_request.RunRequest
         Its run request.
@@ -209,7 +209,7 @@ def _native_session(problem, request, **controls) -> Started:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     request : solprop.translate.run_request.RunRequest
         Its run request.
@@ -360,7 +360,7 @@ def _refused(problem, request, name, monkeypatch) -> None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     request : solprop.translate.run_request.RunRequest
         Its run request.

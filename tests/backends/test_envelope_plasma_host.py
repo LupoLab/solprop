@@ -118,7 +118,7 @@ def test_envelope_population_values_do_not_depend_on_retaining_node_scans(host_c
     problem, grid = host_case
     with closing(NumpyRefBackend(problem, grid=grid)) as backend:
         backend.set_initial(problem.initial.field0, None)
-        field = problem.initial.field0[0]
+        field = problem.initial.field0
         plain = backend._species_statistics(field)
         scans = {}
         retained = backend._species_statistics(field, scans, member=3)
@@ -164,7 +164,7 @@ def test_one_eight_steps_and_complete_host_run(
     if amplitude_scale == 10.0:
         assembly = problem.responses.envelope_plasma
         assert assembly is not None
-        modal = np.fft.ifft(problem.initial.field0[0], axis=-1)
+        modal = np.fft.ifft(problem.initial.field0, axis=-1)
         physical = (problem.transform.synthesis @ modal.reshape(1, -1)).reshape(
             2, grid.n_to
         )
@@ -209,7 +209,7 @@ def test_prescribed_density_off_carrier_drude_assembly(host_case):
     backend = NumpyRefBackend(problem, grid=grid)
     try:
         bundle = scalars(problem, 0.0, 0.0)
-        lab = problem.initial.field0
+        lab = problem.initial.field0[None]
         actual = backend._nonlinear(lab, bundle, np.ones_like(lab))
         assembly = problem.responses.envelope_plasma
         assert assembly is not None
@@ -260,7 +260,7 @@ def test_direct_simulation_records_carrier_approximation_and_runs(host_case):
         grid,
         mode,
         [EnvelopePlasmaResponse("Ar", assembly.channels[0].rate, preionisation=0.1)],
-        original.initial.field0[0],
+        original.initial.field0,
         settings=SimulationSettings(
             controller=original.stepper.controller,
             save_planes=[8e-6],
@@ -308,7 +308,7 @@ def test_node_budget_accounts_for_envelope_histories(host_case):
         grid,
         MarcatiliMode(125e-6, "Ar", 1.0, loss=False),
         [EnvelopePlasmaResponse("Ar", assembly.channels[0].rate)],
-        original.initial.field0[0],
+        original.initial.field0,
         controller=original.stepper.controller,
         save_planes=[8e-6],
         dz_init=1e-6,

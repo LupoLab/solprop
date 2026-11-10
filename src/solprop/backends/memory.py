@@ -16,7 +16,8 @@ import numpy as np
 
 from solprop.fourier import n_omega_for
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
+from solprop.translate.routes import tdse_descriptor
 
 __all__ = [
     "LOCAL_FLUX_STATISTICS",
@@ -29,7 +30,7 @@ __all__ = [
 
 
 def reference_base_memory(  # noqa: PLR0913 - the problem and the backend's own sizes
-    problem: KernelProblem,
+    problem: PropagationProblem,
     *,
     tabulating: bool,
     embedded: bool,
@@ -53,7 +54,7 @@ def reference_base_memory(  # noqa: PLR0913 - the problem and the backend's own 
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     tabulating : bool
         Whether the Runge-Kutta march's propagators are tabulated (six distinct
@@ -76,8 +77,8 @@ def reference_base_memory(  # noqa: PLR0913 - the problem and the backend's own 
     dict
         Buffer name to bytes, every row named even when it is zero.
     """
-    n_batch, n_modes, n_pol, n_omega = problem.shape
-    field_bytes = n_batch * n_modes * n_pol * n_omega * 16
+    n_modes, n_pol, n_omega = problem.shape
+    field_bytes = n_modes * n_pol * n_omega * 16
     stepping = _stepping_rows(problem, field_bytes, tabulating=tabulating)
     transform = problem.transform
     n_to = problem.grids.n_to
@@ -101,22 +102,23 @@ def reference_base_memory(  # noqa: PLR0913 - the problem and the backend's own 
     held = bool(problem.responses.plasma_channels)
     radial = transform.geometry is not None and transform.geometry.kind == "radial"
     held_columns = chunk_columns if free or radial else n_modes * n_pol
+    descriptor = tdse_descriptor(problem.route)
     return {
         # TDSE keeps the complete radial input while stable native chunks are
         # evaluated. Include subtraction operands and embedded P/J projection
         # transients in the same admission used by the constructed reference.
         "tdse_nodal_sources": 0
-        if problem.tdse is None
+        if descriptor is None
         else 8 * transform.n_nodes * n_to * 8,
         "tdse_projected_sources": 0
-        if problem.tdse is None
+        if descriptor is None
         else 6 * modal_time + 8 * field_bytes,
         # A gated source's edge term (SEP 26): the scaled g'S, its two absolute
         # rounding operands and the raw operand sum on the nodes; the projected edge
         # array and its two absolute projections, for the fine and embedded maps; and
         # the edge spectrum with 1/(i omega) and the diagnostic's band products.
         "tdse_edge_sources": 0
-        if problem.tdse is None or not problem.tdse.gated
+        if descriptor is None or not descriptor.gated
         else 4 * transform.n_nodes * n_to * 8 + 6 * modal_time + 8 * field_bytes,
         # SEP 27: total J and its two products coexist with the non-plasma
         # polarisation. Radial/free routes combine spectra on nodes; modal routes
@@ -137,7 +139,7 @@ def reference_base_memory(  # noqa: PLR0913 - the problem and the backend's own 
         # A slab's physical nodes (n_x * n_y) are not its columns (n_p * n_y): the
         # reference holds the whole node volume of the synthesised field.
         "transverse_scratch": (
-            n_batch * transform.n_nodes * n_pol * n_omega * 16
+            transform.n_nodes * n_pol * n_omega * 16
             if transform.geometry is not None and transform.geometry.kind == "slab"
             else field_bytes
             if free
@@ -184,13 +186,13 @@ def reference_base_memory(  # noqa: PLR0913 - the problem and the backend's own 
 
 
 def _stepping_rows(
-    problem: KernelProblem, field_bytes: int, *, tabulating: bool
+    problem: PropagationProblem, field_bytes: int, *, tabulating: bool
 ) -> dict[str, int]:
     """Return the march's own field-sized rows: stages, accumulators, registers, flows.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem, whose integrator decides the rows.
     field_bytes : int
         One state's bytes.
@@ -215,7 +217,7 @@ def _stepping_rows(
     }
 
 
-def _low_storage_rows(problem: KernelProblem, field_bytes: int) -> dict[str, int]:
+def _low_storage_rows(problem: PropagationProblem, field_bytes: int) -> dict[str, int]:
     """Return the low-storage march's field-sized rows: two registers and the flows.
 
     Every backend that runs the march holds these, the native engine to the byte
@@ -225,7 +227,7 @@ def _low_storage_rows(problem: KernelProblem, field_bytes: int) -> dict[str, int
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     field_bytes : int
         One state's bytes.
@@ -245,7 +247,7 @@ def _low_storage_rows(problem: KernelProblem, field_bytes: int) -> dict[str, int
     }
 
 
-def low_storage_flows(problem: KernelProblem, backend: str) -> int:
+def low_storage_flows(problem: PropagationProblem, backend: str) -> int:
     """Return how many flow volumes a compiled backend's low-storage march holds.
 
     The one predicate the engines share (SEP 24 section 4.3): with
@@ -259,7 +261,7 @@ def low_storage_flows(problem: KernelProblem, backend: str) -> int:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     backend : str
         A registry name; every backend that runs the march counts the same.
@@ -296,7 +298,7 @@ def low_storage_flows(problem: KernelProblem, backend: str) -> int:
     return 1 if constant else 2
 
 
-def low_storage_stage_register(problem: KernelProblem, backend: str) -> bool:
+def low_storage_stage_register(problem: PropagationProblem, backend: str) -> bool:
     """Return whether a backend's low-storage march holds the stage register ``C``.
 
     SEP 24 Q4: Kokkos, from phase 3, elides it
@@ -308,7 +310,7 @@ def low_storage_stage_register(problem: KernelProblem, backend: str) -> bool:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     backend : str
         A registry name.
@@ -353,7 +355,7 @@ def low_storage_stage_register(problem: KernelProblem, backend: str) -> bool:
     return in_stage or len(responses.response_order) <= 1
 
 
-def adams_memory(problem: KernelProblem) -> dict[str, int]:
+def adams_memory(problem: PropagationProblem) -> dict[str, int]:
     """Return the Adams march's history rows ``numpy_ref`` holds for a problem.
 
     Empty without an Adams integrator, and on the general path, whose history is a list
@@ -361,7 +363,7 @@ def adams_memory(problem: KernelProblem) -> dict[str, int]:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -431,7 +433,7 @@ LOCAL_FLUX_STATISTICS = frozenset(
 """The spatial statistics that synthesise the magnetic closure in time (SEP 34)."""
 
 
-def z_table_slots(problem: KernelProblem) -> int:
+def z_table_slots(problem: PropagationProblem) -> int:
     """Return the position slots the native CPU build holds for a z table.
 
     SEP 29 section 6.6: the native backend evaluates a z table at each native call's
@@ -443,7 +445,7 @@ def z_table_slots(problem: KernelProblem) -> int:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -477,12 +479,12 @@ def z_table_slots(problem: KernelProblem) -> int:
     return int(max(np.unique(fractions).size, low_storage, 2))
 
 
-def _distinct_fractions(problem: KernelProblem) -> int:
+def _distinct_fractions(problem: PropagationProblem) -> int:
     """Return the tableau's distinct stage fractions, the step's end included.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns

@@ -179,7 +179,7 @@ def test_lockstep_preserves_member_physics_noise_and_statistics(
                 for name, value in owner.stats(spec).items():
                     np.testing.assert_allclose(
                         batched_stats[name][index],
-                        value[0],
+                        value,
                         rtol=statistics_bound(expected.field),
                         err_msg=name,
                     )

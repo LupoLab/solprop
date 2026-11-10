@@ -149,8 +149,11 @@ def general_runs(strand):
         "full": problem,
         "frozen": dataclasses.replace(
             problem,
-            transform=dataclasses.replace(
-                problem.transform, modal_tables=frozen_tables
+            route=dataclasses.replace(
+                problem.route,
+                transform=dataclasses.replace(
+                    problem.transform, modal_tables=frozen_tables
+                ),
             ),
         ),
     }
@@ -161,7 +164,7 @@ def general_runs(strand):
             owner.set_initial(one.initial.field0, None)
             summary = owner.propagate_to(LENGTH)
             runs[name] = (
-                np.array(owner.observe().require_field()[0, 0, 0]),
+                np.array(owner.observe().require_field()[0, 0]),
                 summary.n_steps,
             )
         finally:
