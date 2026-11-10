@@ -604,3 +604,23 @@ def test_the_native_ramp_readings_are_within_their_bound(columns, gap):
     found = pair.read_sums(gap)
     assert found is not None
     assert raw == pytest.approx(found[0], rel=order + 6 * U, abs=1e-300)
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"launch_energy": None, "edge_baseline": [0.0, 0.0], "edge_max": [None, None]},
+        {"launch_energy": 1.0, "edge_baseline": [0.0], "edge_max_raw": [None, None]},
+        {"launch_energy": 0.0, "edge_baseline": [0.0, 0.0], "reads": math.nan},
+    ],
+    ids=["no-launch", "unfitting-baseline", "empty-launch"],
+)
+def test_a_record_solprop_s_resume_ignores_is_ignored_alike(record):
+    # Past a launch without energy or a baseline that does not fit, solprop's resume
+    # reads nothing more: the maxima and the reads are not converted, nor refused.
+    pair = Pair("line", "none")
+    pair.python.resume(record)
+    pair.native.resume(pair.transverse.resumption(record, 2))
+    assert not pair.python.resumed and not pair.native.resumed
+    pair.launch(Readings([0.0] * 4, [0.0] * 4, 0, 0, [1.0], [0.0], 0.0))
+    pair.record()

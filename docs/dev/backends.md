@@ -528,8 +528,13 @@ raise five) are each a `ServiceRequired` barrier, the edge holding its place bet
 warning the caller raises leaves the rest of that point undone, as solprop's inline warning does. The scalar decisions
 are solprop's exactly on the same readings, the worst face's ties broken on its name as `max` breaks a tuple's and the
 reach's tail summed in order over the columns as solprop sorted them; the launch's share in the ramp's band and the
-ramp's removal per interval are the native reading, summed in order where NumPy sums pairwise, within
-`(n - 1 + ceil(log2 n))u` of it (`tests/backends/test_transverse_owner.py`). `solprop_native._transverse` formats the
+ramp's removal per interval are the native reading, summed in order with the C library's `expm1` where NumPy sums
+pairwise with its own, within `(n - 1 + ceil(log2 n))u` of it, plus the two `expm1`s' error for the removal
+(`tests/backends/test_transverse_owner.py`). The removal's error accumulates across reads, at most that bound of each
+read's term plus a rounding per read. So the two decisions taken on these readings -- the ramp's band at the launch
+and the ramp's removal at each read, warning or stop -- may differ from solprop's where a share lies within that bound
+of a threshold: a native share a rounding below the stop warns where solprop stops (SEP 47 §4.3, the maintainer's
+decision 4). Every other decision is solprop's on the same readings. `solprop_native._transverse` formats the
 record and the verdicts with the edge's own texts, which `solprop.transverse_monitor` keeps as module functions.
 
 ## 3. Compiled execution: the design `native` runs

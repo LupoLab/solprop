@@ -138,9 +138,6 @@ _NUMBERS = (
 )
 """The numbers a resume reads from an earlier record (``transverse::Resumption``)."""
 
-_LISTS = ("edge_baseline", "edge_max", "edge_max_raw")
-"""Its per-face lists."""
-
 
 @dataclass(frozen=True, eq=False)
 class EdgeConfig:
@@ -282,9 +279,9 @@ def resumption(record: object, faces: int) -> dict[str, object]:
     """Return what the native resume reads of an earlier execution's edge record.
 
     Only the record's types are read here, as :meth:`TransverseEdge.resume` reads
-    them: each number present, and each per-face list that has a value per face. The
-    reads are made whole as that resume makes them, and refused as it refuses them,
-    once the record's launch energy and baseline make it read them. Which fields are
+    them: each number present, and, once the record's launch energy and baseline make
+    that resume read further, each per-face maximum that has a value per face and the
+    reads, made whole as it makes them and refused as it refuses them. Which fields are
     restored, their defaults and the status a resume keeps are native.
 
     Parameters
@@ -315,21 +312,49 @@ def resumption(record: object, faces: int) -> dict[str, object]:
         value = _number(mapping, name)
         if value is not None:
             out[name] = value
-    for name in _LISTS:
-        value = mapping.get(name)
-        if isinstance(value, list) and len(cast("list[object]", value)) == faces:
-            out[name] = [
-                float(cast("float", one)) for one in cast("list[object]", value)
-            ]
+    baseline = _per_face(mapping, "edge_baseline", faces)
     launch = cast("float", out.get("launch_energy", math.nan))
-    if launch > 0.0 and "edge_baseline" in out:
-        # `TransverseEdge.resume` reads the count only past its launch test.
+    if launch > 0.0 and baseline is not None:
+        # `TransverseEdge.resume` reads the maxima and the count only past its test
+        # of the launch and the baseline: a record it ignores is not read further.
+        out["edge_baseline"] = baseline
+        for name in ("edge_max", "edge_max_raw"):
+            value = _per_face(mapping, name, faces)
+            if value is not None:
+                out[name] = value
         reads = _number(mapping, "reads")
         out["reads"] = int(0.0 if reads is None else reads)
     status = mapping.get("transverse_status")
     if isinstance(status, str):
         out["transverse_status"] = status
     return out
+
+
+def _per_face(
+    record: Mapping[str, object], name: str, faces: int
+) -> list[float] | None:
+    """Return a record's per-face list, or ``None`` when it has no value per face.
+
+    As ``TransverseEdge.resume``'s ``numbers`` reads it.
+
+    Parameters
+    ----------
+    record : collections.abc.Mapping
+        The edge's record.
+    name : str
+        The field.
+    faces : int
+        The edge's faces.
+
+    Returns
+    -------
+    list of float or None
+        One value per face.
+    """
+    value = record.get(name)
+    if not isinstance(value, list) or len(cast("list[object]", value)) != faces:
+        return None
+    return [float(cast("float", one)) for one in cast("list[object]", value)]
 
 
 def record_of(edge: TransverseEdge, native: Mapping[str, object]) -> dict[str, object]:
