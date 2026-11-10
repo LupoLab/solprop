@@ -84,9 +84,17 @@ class _Spy:
 
 
 def _spied(monkeypatch: pytest.MonkeyPatch) -> _Spy:
-    """Spy on the reference's and the native backend's sessions' exports."""
+    """Spy on the exports of every session a run may start.
+
+    The reference's own session derives from the driver session; a native run is
+    served by the native session where it admits the run.
+    """
     spy = _Spy()
     monkeypatch.setattr(DriverSession, "export", spy.wrap(DriverSession.export))
+    if "native" in available():
+        from solprop_native.session import NativeSession  # noqa: PLC0415
+
+        monkeypatch.setattr(NativeSession, "export", spy.wrap(NativeSession.export))
     return spy
 
 
