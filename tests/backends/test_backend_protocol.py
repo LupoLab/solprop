@@ -337,6 +337,9 @@ class Stub:
     def prepare(self, problem, request):
         return DriverPrepared(self, problem, request)
 
+    def prepare_group(self, members, problems, requests):
+        raise BackendError("the stub runs no group")
+
     def restore_call_ledgers(self, logical, atomic=None):
         return None
 

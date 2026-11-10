@@ -14,7 +14,12 @@ expose it as `Backend.request`. A run starts through the backend's preparation:
 opens the backend's own session, the reference's `HostSession`, the native backend's
 `NativeSession` where it admits the run and the transitional session otherwise, and
 `solprop.backends.sessions.start_session` only starts it; a preparation refuses a
-request that is not one run of the backend's own (`RunRequest.for_run` of it).
+request that is not one run of the backend's own (`RunRequest.for_run` of it). A group
+starts the same way: `Backend.prepare_group(members, problems, requests)`, called on
+its first member, returns a `PreparedGroup` whose `start(starts, ...)` opens the
+backend's own group, and `start_group` only starts it. A
+`solprop.backends.registry.BackendEntry` row now names its backend's constructor
+(`factory`) and policies by import path, so a backend registers with one row.
 `PropagationProblem.validate()` now checks what the problem
 promises alone; `validate_run` adds the checks that read the run's policy, with the same
 refusals and messages, and `validate_launch(request)` takes the request.

@@ -55,17 +55,22 @@ marches, which own the whole step, do not (SEP 47 section 6.7 asks for coarse gr
 not fused kernels).
 
 :func:`refusal` names what the group does not run, decided from the members' problems,
-requests and starts before anything is allocated; solprop's ``start_group`` then starts
-the transitional group instead.
+requests and starts before anything is allocated. :class:`NativePreparedGroup`, the
+native backend's prepared group (``NativeBackend.prepare_group``, which solprop's
+``start_group`` calls), then starts the transitional lockstep group instead
+(:class:`solprop.backends.driver_session.DriverGroupSession`), which SEP 47 phase 5
+deletes.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import logging
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+from solprop.backends.driver_session import DriverGroupSession
 from solprop.backends.events import (
     Eligibility,
     Event,
@@ -81,6 +86,7 @@ from solprop.backends.events import (
     join_attempts,
 )
 from solprop.backends.session import (
+    GroupSession,
     SessionError,
     SessionLedger,
     SessionState,
@@ -101,13 +107,15 @@ if TYPE_CHECKING:
     import numpy.typing as npt
     from solprop.backends.events import Receipt
     from solprop.backends.export import ExportRecipe
-    from solprop.backends.protocol import BackendHistory, StepStats
+    from solprop.backends.protocol import Backend, BackendHistory, StepStats
     from solprop.backends.session import Start
     from solprop.log import StopFlag
     from solprop.translate.problem import PropagationProblem
     from solprop.translate.run_request import RunRequest
 
-__all__ = ["ROUND_STEPS", "NativeGroupSession", "refusal"]
+__all__ = ["ROUND_STEPS", "NativeGroupSession", "NativePreparedGroup", "refusal"]
+
+logger = logging.getLogger(__name__)
 
 ROUND_STEPS = 256
 """The most common steps a member takes in one turn, as one native advance makes at
@@ -167,6 +175,82 @@ def refusal(
                 "planes, method, field shape or statistics request"
             )
     return None
+
+
+class NativePreparedGroup:
+    """The native backend's prepared group (SEP 47 section 6.7).
+
+    Each :meth:`start` opens the native group session whenever it admits the group
+    (:func:`refusal`), and the transitional lockstep group otherwise
+    (:class:`solprop.backends.driver_session.DriverGroupSession`), the reason logged
+    at debug level.
+
+    Parameters
+    ----------
+    members : collections.abc.Sequence of solprop.backends.protocol.Backend
+        One constructed native backend per member; they stay the caller's until a
+        started group owns them.
+    problems : collections.abc.Sequence of solprop.translate.problem.PropagationProblem
+        Each member's independently translated problem.
+    requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
+        Each member's run request.
+    """
+
+    def __init__(
+        self,
+        members: Sequence[Backend],
+        problems: Sequence[PropagationProblem],
+        requests: Sequence[RunRequest],
+    ) -> None:
+        """Hold the members, their problems and their requests."""
+        self._members = tuple(members)
+        self._problems = tuple(problems)
+        self._requests = tuple(requests)
+
+    @property
+    def backend(self) -> str:
+        """Return the registered name of the backend that prepared it.
+
+        Returns
+        -------
+        str
+            The first member's registered name.
+        """
+        return self._members[0].name
+
+    def start(
+        self, starts: Sequence[Start], *, stop: StopFlag | None = None
+    ) -> GroupSession:
+        """Start the native group where it admits the group, the transitional otherwise.
+
+        Parameters
+        ----------
+        starts : collections.abc.Sequence of solprop.backends.session.Start
+            Each member's entrance; the group takes their fields.
+        stop : solprop.log.StopFlag or None, optional
+            A group-wide stop token.
+
+        Returns
+        -------
+        solprop.backends.session.GroupSession
+            The started group.
+        """
+        refused = refusal(self._problems, self._requests, starts)
+        if refused is None:
+            return NativeGroupSession(
+                cast("Sequence[NativeBackend]", self._members),
+                self._problems,
+                self._requests,
+                starts,
+                stop=stop,
+            )
+        logger.debug(
+            "the native group session does not run %s; the transitional group runs it",
+            refused,
+        )
+        return DriverGroupSession(
+            self._members, self._problems, self._requests, starts, stop=stop
+        )
 
 
 def _member_refusal(request: RunRequest) -> str | None:

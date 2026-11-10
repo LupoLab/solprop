@@ -94,6 +94,22 @@ that record it still load. `metadata()` says what the execution *was* — the na
 resolved propagator mode, and whatever pools, plans and digests the backend has — and the
 driver writes it into the run's `RunMetadata.backend`, outside the resume key.
 
+**Registration.** A backend is one row of `registry.BACKENDS`, a `BackendEntry` that
+names by import path (`"module:attribute"`) everything selection reads of it, so
+`select`, `select_batch` and the policy checks read the row and never branch on the
+name: the modules it `requires` and the `extras` or `install` text that supply them;
+its `factory`, called as `factory(problem, request, *, grid, modes, profiles, options)`;
+the transitional lockstep runner `batch(owners)` (`select_batch`, deleted in SEP 47
+phase 5); and the native policies, each `None` on a row without it: `first_use`, called
+before each construction (SEP 46's first-use calibration), `device`, the build
+description that `SOLPROP_REQUIRE_DEVICE` reads (a row without one is refused a required
+device by name), and `far_field`, the far-field statistics the installed build declares
+(`statistics_refusal`). `auto` is `registry.AUTO`, `native`, with no fallback. Nothing
+is imported until selection needs it, and only after `requires` is found. A new
+backend (Tier 3, ADR-061) in another distribution registers with one row, and runs and groups through its
+own `prepare` and `prepare_group` (**Selection** below); there is no entry-point
+discovery, so the row is added to `BACKENDS` in this repository.
+
 **Periodic-statistics storage hooks.** The seam carries three storage hooks for the
 periodic statistics — `_reset_step_stats`, `_record_step_stats`, `_drain_step_stats` — so
 that a device backend can keep its rows resident and copy them once per plane; the shared
@@ -555,8 +571,16 @@ one-component scan of a field grid reads both rows' magnitude, `hypot(E_x, E_y)`
 whose one-component transform has modes with a y field on the axis is the one row it cannot hold, and
 the session leaves it to the transitional session (`_statistics.axis_row_refusal`). The native row
 agrees with the host's scan to the node scans' parity tolerance (`1e-10`), and is the same bits where
-both read a Radau rule's axis node. Groups start through
-`start_group`. The
+both read a Radau rule's axis node. A group starts through the same shape (SEP 47 §6.7):
+`start_group` checks the group (`check_group`) and asks its first member,
+`members[0].prepare_group(members, problems, requests)`, for a `PreparedGroup` whose
+`start(starts, *, stop)` opens the backend's `GroupSession`, so it names no backend
+either. The native backend's (`solprop_native.group.NativePreparedGroup`) opens
+`NativeGroupSession` where `solprop_native.group.refusal` admits the group and the
+transitional `DriverGroupSession` otherwise, logging the reason at debug level; every
+other driver's (`driver_session.DriverPreparedGroup`), the reference's among them,
+opens `DriverGroupSession` over the lockstep runner its registry row names. A backend
+that runs no group raises `BackendError` from `prepare_group`. The
 three keyword arguments are what `stats()` needs and the kernel contract does not carry.
 
 **Spatial statistics measure the medium's flux** ([SEP 34](seps/archive/sep-0034-medium-flux.md)).

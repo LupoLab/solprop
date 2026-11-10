@@ -13,8 +13,11 @@ with the cumulative operator, the lagged PI controller, landing on save planes a
 kinks, the shot-noise field and the hard band mask.
 
 :mod:`solprop.backends.numpy_ref.passes` holds the passes;
-:mod:`solprop.backends.numpy_ref.backend` holds the step loop and the seam.
+:mod:`solprop.backends.numpy_ref.backend` holds the step loop and the seam;
+:func:`construct` is the registry's constructor (:mod:`solprop.backends.registry`).
 """
+
+from collections.abc import Mapping, Sequence
 
 from solprop.backends.numpy_ref.backend import (
     QUADRATURE_ALARM,
@@ -40,6 +43,13 @@ from solprop.backends.numpy_ref.passes import (
     to_frequency,
     to_time,
 )
+from solprop.backends.session import ExecutionOptions
+from solprop.grid import TimeGrid
+from solprop.modes.protocol import Mode
+from solprop.profiles import ZProfile
+from solprop.translate.problem import PropagationProblem
+from solprop.translate.run_request import RunRequest
+from solprop.translate.tdse import TDSEBinding
 
 __all__ = [
     "QUADRATURE_ALARM",
@@ -48,6 +58,7 @@ __all__ = [
     "accumulate",
     "apply_hard_mask",
     "apply_temporal_rate",
+    "construct",
     "error_norm",
     "ionisation_rate",
     "kerr_polarisation",
@@ -63,3 +74,58 @@ __all__ = [
     "to_frequency",
     "to_time",
 ]
+
+
+def construct(  # noqa: PLR0913 - the problem, its request and the host context
+    problem: PropagationProblem,
+    request: RunRequest,
+    *,
+    grid: TimeGrid | None = None,
+    modes: Sequence[Mode] | None = None,
+    profiles: Mapping[str, ZProfile] | None = None,
+    tdse_binding: TDSEBinding | None = None,
+    options: ExecutionOptions | None = None,
+) -> NumpyRefBackend:
+    """Construct the reference for a problem in its precision (the registry's row).
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The problem to step.
+    request : solprop.translate.run_request.RunRequest
+        The run's policies.
+    grid : solprop.grid.TimeGrid or None, optional
+        The grid the state lives on.
+    modes : collections.abc.Sequence or None, optional
+        The propagated modes.
+    profiles : collections.abc.Mapping or None, optional
+        The z-profiles keyed by statistic name.
+    tdse_binding : solprop.translate.tdse.TDSEBinding or None, optional
+        Driver-owned host response binding for a TDSE problem.
+    options : solprop.backends.session.ExecutionOptions or None, optional
+        The run's execution options.
+
+    Returns
+    -------
+    NumpyRefBackend
+        The binary64 reference, or its binary32 subclass
+        (:class:`~solprop.backends.numpy_ref.single.NumpySingleBackend`) for a
+        single-precision problem (SEP 33).
+    """
+    kind = NumpyRefBackend
+    if problem.precision.single:
+        # Imported here: the binary32 path is loaded only when it is asked for.
+        from solprop.backends.numpy_ref.single import (  # noqa: PLC0415
+            NumpySingleBackend,
+        )
+
+        kind = NumpySingleBackend
+    return kind(
+        problem,
+        request,
+        grid=grid,
+        modes=modes,
+        profiles=profiles,
+        tdse_binding=tdse_binding,
+        options=options,
+    )
