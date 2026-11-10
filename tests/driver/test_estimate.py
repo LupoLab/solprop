@@ -7,6 +7,7 @@
 import dataclasses
 import math
 import warnings
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -239,8 +240,9 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
         # The readback is the trial's own state as a kept step finishes it: the same
         # arithmetic again, on one thread layout in one process, so agreement to a few
         # roundings of the field's largest magnitude bounds it (SEP 25).
-        _, state = fresh._trial_step(float(problem.initial.z), dz)
-        trial = np.asarray(fresh._observed_field(fresh._finish(state, dz)))[0]
+        stepping = cast("Any", fresh)  # the driver's own trial, as a kernel test does
+        _, state = stepping._trial_step(float(problem.initial.z), dz)
+        trial = np.asarray(stepping._observed_field(stepping._finish(state, dz)))[0]
         scale = float(np.max(np.abs(trial)))
         np.testing.assert_allclose(whole, trial, rtol=0.0, atol=64e-16 * scale)
         # A copy the probe owns: a later trial does not write to it.
