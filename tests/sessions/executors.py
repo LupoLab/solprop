@@ -480,7 +480,9 @@ def _native_session(
         The session, counting the fields it exports natively.
     """
     assert not script, "the native session takes no script"
-    from solprop_native.session import NativeSession  # noqa: PLC0415 - optional
+    from solprop_native.session import (  # noqa: PLC0415 - optional  # pyright: ignore[reportMissingImports]
+        NativeSession,
+    )
 
     session = NativeSession(
         problem,
@@ -650,7 +652,7 @@ def device_build() -> bool:
         False without ``solprop_native``.
     """
     try:
-        import solprop_native  # noqa: PLC0415 - optional
+        import solprop_native  # noqa: PLC0415 - optional  # pyright: ignore[reportMissingImports]
     except ImportError:
         return False
     return solprop_native.build_info().device_backend != "none"
@@ -674,7 +676,9 @@ def skip_device_refused(problem: PropagationProblem, request: RunRequest) -> Non
     if not device_build():
         return
     import pytest  # noqa: PLC0415 - only a test calls it
-    from solprop_native.session import device_refusal  # noqa: PLC0415 - optional
+    from solprop_native.session import (  # noqa: PLC0415 - optional  # pyright: ignore[reportMissingImports]
+        device_refusal,
+    )
 
     refused = device_refusal(problem, request)
     if refused is not None:

@@ -114,7 +114,7 @@ def _prepare(name: str, fraction: float, *, admitted: bool) -> tuple[Any, Any, A
     )
     stats = None
     if admitted:
-        from solprop_native.session import (  # noqa: PLC0415
+        from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
             ADMITTED_SPATIAL_STATISTICS,
             ADMITTED_STATISTICS,
         )
@@ -146,7 +146,9 @@ def _start(
 
     start = Start(field=problem.initial.field0, z=float(problem.initial.z))
     if executor == "native-session":
-        from solprop_native.session import NativeSession  # noqa: PLC0415
+        from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+            NativeSession,
+        )
 
         session: Any = NativeSession(
             problem,
@@ -224,7 +226,9 @@ def _once(
     of the timed ones; both sessions are counted the same way
     (:mod:`solprop_native._counters`).
     """
-    from solprop_native import _counters  # noqa: PLC0415
+    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        _counters,
+    )
 
     session, timed = _start(executor, simulation, problem, request)
     counters = _counters.enable() if count else None
@@ -307,7 +311,9 @@ def measure(
         order = executors if index % 2 == 0 else executors[::-1]
         for executor in order:
             runs[executor].append(_once(executor, simulation, problem, request))
-    from solprop_native import build_info  # noqa: PLC0415
+    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        build_info,
+    )
 
     result: dict[str, Any] = {
         "case": name,

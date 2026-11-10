@@ -93,7 +93,9 @@ def _spied(monkeypatch: pytest.MonkeyPatch) -> _Spy:
     spy = _Spy()
     monkeypatch.setattr(DriverSession, "export", spy.wrap(DriverSession.export))
     if "native" in available():
-        from solprop_native.session import NativeSession  # noqa: PLC0415
+        from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+            NativeSession,
+        )
 
         monkeypatch.setattr(NativeSession, "export", spy.wrap(NativeSession.export))
     return spy

@@ -668,7 +668,9 @@ def test_march_admission_is_decided_before_the_backend_is_built(monkeypatch):
     """SEP 47 section 5.2: a march the backend would step on the host is refused from
     the problem alone, and the problem-only predicate agrees with the built backend.
     """
-    from solprop_native import backend as native_backend  # noqa: PLC0415
+    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        backend as native_backend,
+    )
 
     problem = _case()
     request = describe_run(problem)

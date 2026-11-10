@@ -464,7 +464,9 @@ def test_the_device_rule_applies_to_an_automatic_plan_alone(
 
 def test_the_native_backend_executes_and_records_its_lowered_chunk(native_backend):
     pytest.importorskip("solprop_native")
-    from solprop_native import NativeBackend  # noqa: PLC0415
+    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        NativeBackend,
+    )
 
     problem = BUILDERS["collar-planar"]()
     geometry = problem.transform.geometry

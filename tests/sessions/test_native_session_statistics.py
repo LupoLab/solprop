@@ -52,7 +52,10 @@ from solprop.translate.run_request import describe_run
 
 native_session = pytest.importorskip("solprop_native.session")
 native_statistics = pytest.importorskip("solprop_native._statistics")
-from solprop_native import _core, _counters  # noqa: E402
+from solprop_native import (  # noqa: E402  # pyright: ignore[reportMissingImports]
+    _core,
+    _counters,
+)
 
 RAW = ExportRecipe(power=False, optics=False)
 
