@@ -16,7 +16,9 @@ failure between batches -- still leaves the committed state exportable for its
 checkpoint, with every attempt made delivered once.
 """
 
+import dataclasses
 import signal
+import warnings
 from typing import Any
 
 import numpy as np
@@ -30,7 +32,7 @@ from solprop.backends.events import ObservationReady, Outcome
 from solprop.backends.registry import select
 from solprop.backends.session import SessionError, Start
 from solprop.backends.sessions import start_session
-from solprop.exceptions import ResponseBudgetError, RunTerminated
+from solprop.exceptions import BoundaryWarning, ResponseBudgetError, RunTerminated
 from solprop.output.schema import MarchSnapshot
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
@@ -476,3 +478,70 @@ def test_a_backend_that_steps_on_the_host_is_served_by_the_driver(monkeypatch):
                 assert native_session.backend_refusal(backend) is None
         finally:
             session.close()
+
+
+def _noisy(noise: str, *, check: bool) -> Any:
+    """Return a short soliton with a noise model, its boundary monitor on or off."""
+    from solprop.driver import Simulation  # noqa: PLC0415 - beside its one use
+    from solprop.monitor import BoundaryCheck  # noqa: PLC0415 - beside its one use
+    from solprop.pulses import SechPulse  # noqa: PLC0415 - beside its one use
+
+    grid = window()
+    simulation = Simulation.from_gnlse(
+        0.11, LENGTH, [0.0, 0.0, -1.183e-26], wavelength=835e-9, grid=grid,
+        pulses=[SechPulse(wavelength=835e-9, width=50e-15, peak_power=1e3)],
+        noise=noise, seed=7, raman=False, shock=False, n_save=len(PLANES) + 1,
+        backend="native", integrator=Multistep(),
+    )  # fmt: skip
+    simulation.settings = dataclasses.replace(
+        simulation.settings, boundary_check=BoundaryCheck() if check else None
+    )
+    return simulation
+
+
+@pytest.mark.parametrize("check", [True, False], ids=["monitored", "unmonitored"])
+@pytest.mark.parametrize("noise", ["input", "modified"])
+def test_a_noisy_run_is_the_drivers(noise, check):
+    """The input and modified noise models run on the native session as on the
+    backend's own march: the same noise phase at every plane, and on one thread the
+    same trace, fields and boundary-monitor record, the input draw's vacuum floor
+    read by the native monitor as solprop's monitor reads it.
+    """
+    simulation = _noisy(noise, check=check)
+    problem = simulation.translate()
+    assert problem.initial.noise_model == noise
+    request = describe_run(problem, monitor=simulation._boundary_monitor())
+    assert native_session.refusal(problem, request) is None
+    context = {"grid": simulation.grid, "modes": simulation.modes}
+    phases: dict[str, list[np.ndarray]] = {"driver": [], "native": []}
+    runs = {}
+    records = {}
+    for kind in ("driver", "native"):
+        start = Start(field=problem.initial.field0[0], z=float(problem.initial.z))
+        if kind == "driver":
+            session: Any = DriverSession(
+                select("native", problem, **context), problem, request, start
+            )
+        else:
+            session = native_session.NativeSession(problem, request, start, **context)
+
+        def phase(one, batch, found=phases[kind]) -> None:
+            for event in batch.events:
+                if isinstance(event, ObservationReady):
+                    found.append(np.array(one.noise_phase(event.ticket)))
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", BoundaryWarning)
+            runs[kind] = drive(Started(session), export=IDENTITY, between=phase)
+        records[kind] = session.monitor_record()
+        session.close()
+    assert len(phases["native"]) == len(phases["driver"]) > len(PLANES)
+    for got, expected in zip(phases["native"], phases["driver"], strict=True):
+        assert got.shape == problem.shape[1:]
+        assert got.tobytes() == expected.tobytes()
+    assert (records["native"] is None) is not check
+    if _one_thread():
+        from sessions.executors import assert_same_run  # noqa: PLC0415
+
+        assert_same_run(runs["native"], runs["driver"])
+        assert records["native"] == records["driver"]

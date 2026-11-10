@@ -38,8 +38,10 @@ It admits a subset and refuses every other feature by name before allocating any
   (:class:`~solprop.output.schema.MarchSnapshot`), which the session exports at every
   accepted endpoint a ticket names and installs from its start, as the backend's own
   march does;
+- the input and modified noise models, the input draw's vacuum floor read by the
+  native monitor, and the noise phase at each plane formed on the host;
 - no transverse edge, dense output, low-storage replay, comparison method, custom
-  controller, group, noise model or TDSE.
+  controller, group, TDSE or noise model on a z table's propagator phase.
 """
 
 from __future__ import annotations
@@ -235,12 +237,8 @@ def refusal(
     monitor = request.boundary.monitor
     if monitor is not None and monitor.transverse is not None:
         return "a boundary monitor's transverse edge"
-    if problem.initial.noise_model != "none":
-        return f"the {problem.initial.noise_model!r} noise model"
     if problem.tdse is not None:
         return "a TDSE response"
-    if start is not None and start.noise is not None:
-        return "a noise realisation"
     march = native_march_refusal(problem)
     if march is not None:
         return march
@@ -267,6 +265,14 @@ def backend_refusal(backend: NativeBackend) -> str | None:
         The reason, or ``None`` when the native session can run the march.
     """
     driver = NativeSession._driver(backend)
+    tables = driver._z_tables
+    if (
+        driver._problem.initial.noise_model != "none"
+        and tables is not None
+        and tables.phi
+    ):
+        # The noise phase at a plane reads the z table's slot in the native state.
+        return f"the {driver._problem.initial.noise_model!r} noise model on a z table"
     if isinstance(driver._problem.stepper.integrator, Multistep):
         return cast("str | None", driver._adams.refusal)
     refused, _ = _NativeRungeKuttaMarch.refusal(backend)
@@ -537,7 +543,7 @@ class NativeSession:
         integrator = self._problem.stepper.integrator
         backend.set_initial(
             np.asarray(start.take_field())[np.newaxis],
-            None,
+            start.noise,
             z=float(start.z),
             resume=start.resume,
         )
@@ -667,6 +673,12 @@ class NativeSession:
             ).native(),
             "resume": start.monitor is not None,
         }
+        drawn = backend._input_floor
+        if drawn is not None:
+            # The input noise's vacuum floor, read from its draw on the host once, as
+            # `BoundaryMonitor.launch` reads it.
+            floor = float(monitor.power(drawn).sum())
+            plan["floor"] = [floor, *(floor * monitor.weights.mean(axis=1)).tolist()]
         if start.monitor is not None:
             plan.update(self._continuation(start.monitor))
         return plan
@@ -917,7 +929,12 @@ class NativeSession:
         return destination
 
     def noise_phase(self, ticket: ExportTicket) -> np.ndarray | None:
-        """Return ``None``: the prototype refuses noise models.
+        """Return the noise phase at a pending observation, ``Im Phi`` there.
+
+        Formed on the host from the problem's scalar tables, as the backend's own
+        observation forms it (``StepDriver._noise_phase``); a z table's phase, which
+        the leased state holds, is refused when the backend is built
+        (:func:`backend_refusal`).
 
         Parameters
         ----------
@@ -926,10 +943,23 @@ class NativeSession:
 
         Returns
         -------
-        None
-            No noise phase.
+        numpy.ndarray or None
+            The phase, shape ``(n_modes, n_pol, n_omega)``, or ``None`` without noise.
+
+        Raises
+        ------
+        solprop.backends.session.SessionError
+            If the ticket belongs to another session.
         """
-        del ticket
+        if self._problem.initial.noise_model == "none":
+            return None
+        if self.closed or ticket.receipt.session != self._id:
+            msg = f"the ticket for z = {ticket.z!r} m has expired"
+            raise SessionError(msg)
+        driver = self._driver(self._backend)
+        z = float(ticket.z)
+        phase = driver._unitary_phase(driver._stage_scalars(z, z))
+        return np.array(np.broadcast_to(phase, self._problem.shape)[0])
 
     def request_snapshot(self) -> SnapshotReceipt:
         """Latch a snapshot for the next eligible accepted endpoint.

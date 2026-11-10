@@ -1283,6 +1283,15 @@ native::session::MonitorPlan monitor_plan_from(const nb::dict values) {
       plan.plane = nb::cast<bool>(values["plane"]);
       plan.unwatched = watch_stretches_from(values["unwatched"]);
     }
+    // The input noise's floor: its energy, then its four regions' shares.
+    if (values.contains("floor") && !values["floor"].is_none()) {
+      const auto floor = nb::cast<std::vector<double>>(values["floor"]);
+      if (floor.size() != 5)
+        throw std::invalid_argument("a monitor's floor is its energy and four regions");
+      plan.floor = true;
+      plan.floor_energy = floor[0];
+      std::copy(floor.begin() + 1, floor.end(), plan.floor_regions.begin());
+    }
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("a session's boundary monitor has the wrong types");
   } catch (const nb::python_error&) {

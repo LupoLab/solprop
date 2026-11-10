@@ -508,9 +508,10 @@ bool Session::attach(Batch& batch) {
   if (plan.resume)
     monitor_->resume(plan.record, plan.plane, plan.unwatched);
   const std::vector<double> reading = resident_->boundary_reading();
-  // The input noise's floor is refused at preparation: none is read.
+  // The input noise's floor, read from its draw on the host once, or none.
   const watch::Judgement judgement =
-      monitor_->launch(reading.data(), reading.size(), position(), 0.0, nullptr);
+      monitor_->launch(reading.data(), reading.size(), position(), plan.floor_energy,
+                       plan.floor ? plan.floor_regions.data() : nullptr);
   if (judgement.verdict == watch::Verdict::warn)
     continuation_ = Continuation::attach;
   if (judged(batch, judgement))

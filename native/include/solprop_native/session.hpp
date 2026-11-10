@@ -132,6 +132,11 @@ struct MonitorPlan {
   /** Whether it resumes at a saved plane, and the stretches run since unwatched, m. */
   bool plane = false;
   std::vector<std::array<double, 2>> unwatched;
+  /** The input noise's vacuum floor the launch judges above (`BoundaryMonitor.launch`'s
+      `floor`): its energy and its expected share in each region; none without. */
+  bool floor = false;
+  double floor_energy = 0.0;
+  std::array<double, 4> floor_regions{};
 };
 
 /** The Adams march a session runs: its policy, state, replayed schedule and engine,
