@@ -84,7 +84,6 @@ from solprop.stepper.schedule import (
     landing,
 )
 from solprop.translate.linop import phi_rate
-from solprop.translate.tdse import TDSEPurpose
 
 if TYPE_CHECKING:
     from solprop.backends.driver import StepDriver
@@ -3222,32 +3221,6 @@ class AdamsMarch:
         return next((reason for failed, reason in checks if failed), None)
 
     # --- evaluation -------------------------------------------------------------------
-
-    def _source(
-        self,
-        lab: _State,
-        anchor: float,
-        position: float,
-        *,
-        purpose: TDSEPurpose = "predictor",
-    ) -> tuple[_State, _State]:
-        """Return the source at a lab-frame field, in the anchor's frame, and U.
-
-        Parameters
-        ----------
-        lab : numpy.ndarray
-            The lab-frame field at `position`.
-        anchor, position : float
-            The frame's anchor and the evaluation position, m.
-        purpose : str, optional
-            Atomic evaluation label, distinguishing startup and predictor work.
-
-        Returns
-        -------
-        tuple
-            ``U(anchor, position) N(lab, position)`` and ``U(position, anchor)``.
-        """
-        return self._backend._adams_source(lab, anchor, position, purpose=purpose)
 
     # --- the march --------------------------------------------------------------------
 
