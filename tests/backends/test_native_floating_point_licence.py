@@ -149,6 +149,7 @@ STRICT_SOURCES = (
     "src/rk_march.cpp",
     "src/session.cpp",
     "src/session_statistics.cpp",
+    "src/session_widths.cpp",
     "src/low_storage.cpp",
     "src/transverse.cpp",
     "src/session_edge.cpp",
@@ -158,8 +159,8 @@ STRICT_SOURCES = (
 
 The Adams march's decisions, the boundary watch's predictions, the Runge-Kutta march's
 arithmetic, the low-storage replay's keys, the native session's scheduling, its
-statistics plan's finishing, the transverse edge's judgement and the dense-output
-weights. Written out, as the helper list is, so that dropping a file fails.
+statistics plan's finishing and fluence widths, the transverse edge's judgement and the
+dense-output weights. Written out, as the helper list is, so that dropping a file fails.
 """
 
 

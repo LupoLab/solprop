@@ -41,7 +41,12 @@ from solprop._interrupts import committing, handled
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, BackendHistory, Observation
 from solprop.backends.registry import statistics_refusal
-from solprop.backends.session import RunSession, SessionState, Start
+from solprop.backends.session import (
+    RunSession,
+    SessionState,
+    Start,
+    statistics_unavailable,
+)
 from solprop.driver.summary import run_summary
 from solprop.exceptions import (
     BackendError,
@@ -1583,6 +1588,9 @@ def _refuse_unrunnable(
     ------
     DriverError
         Naming what cannot be done.
+    BackendError
+        Naming statistics the problem does not carry
+        (:func:`solprop.backends.session.statistics_unavailable`).
     """
     _refuse_a_record_that_misnames_the_basis(problem, metadata)
     channel = request.observation.stats
@@ -1634,3 +1642,8 @@ def _refuse_unrunnable(
     refusal = axis_refusal(problem, [*spec.names, *spec.periodic])
     if refusal is not None:
         raise DriverError(refusal)
+    # What the problem does not carry, refused here for every executor rather than at
+    # the first plane (SEP 47 section 6.3), as a preparation and a group refuse it.
+    refusal = statistics_unavailable(problem, [*spec.names, *spec.periodic])
+    if refusal is not None:
+        raise BackendError(refusal)

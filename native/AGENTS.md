@@ -135,8 +135,8 @@ the gate.
   the loops that need it. No umbrella fast-math, `nnan`/`ninf`, `nsz`, approximate
   functions or reciprocals, or flush-to-zero; the `__FAST_MATH__` refusal stays.
   The marches' and the session's strict files (`adams_march.cpp`, `watch.cpp`,
-  `rk_march.cpp`, `session.cpp`, `session_statistics.cpp`, `low_storage.cpp`,
-  `transverse.cpp`, `session_edge.cpp`, `dense.cpp`) are compiled with
+  `rk_march.cpp`, `session.cpp`, `session_statistics.cpp`, `session_widths.cpp`,
+  `low_storage.cpp`, `transverse.cpp`, `session_edge.cpp`, `dense.cpp`) are compiled with
   `-ffp-contract=off` and carry `#pragma GCC optimize("fp-contract=off")`, so that GCC
   never inlines them into a contracting caller. Their probes are checked in the
   installed build and the wheel's disassembly is scanned for a fused instruction

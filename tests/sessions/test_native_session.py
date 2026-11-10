@@ -404,8 +404,11 @@ class _OwnAccept(PIController):
             "a controller with its own accepts",
         ),
         (
-            lambda: (_case(names=("energy", "peak_power", "zdw")), {}),
-            "'zdw'",
+            lambda: (
+                _case(names=("energy", "peak_power", "on_axis_electron_density")),
+                {},
+            ),
+            "'on_axis_electron_density'",
         ),
     ],
     ids=[

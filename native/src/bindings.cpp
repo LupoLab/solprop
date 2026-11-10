@@ -2772,6 +2772,20 @@ public:
       plan->n_absorbed = nb::cast<std::size_t>(values["n_absorbed"]);
       plan->root = table_from<std::complex<double>>(values["root"]);
       plan->spectral_prefactor = nb::cast<double>(values["spectral_prefactor"]);
+      const auto widths = nb::cast<int>(values["widths"]);
+      if (widths < 0 || widths > 4)
+        throw std::invalid_argument("a statistics plan's width rule is 0 to 4");
+      plan->widths = static_cast<statistics::Widths>(widths);
+      plan->width_x = real_vector(exact_array<RealInput>(values["width_x"]));
+      plan->width_y = real_vector(exact_array<RealInput>(values["width_y"]));
+      plan->width_weights = real_vector(exact_array<RealInput>(values["width_weights"]));
+      plan->width_n_x = nb::cast<std::size_t>(values["width_n_x"]);
+      plan->width_n_y = nb::cast<std::size_t>(values["width_n_y"]);
+      plan->width_terms = nb::cast<std::size_t>(values["width_terms"]);
+      plan->ring_cosines = real_vector(exact_array<RealInput>(values["ring_cosines"]));
+      plan->ring_sines = real_vector(exact_array<RealInput>(values["ring_sines"]));
+      plan->e2_fraction = nb::cast<double>(values["e2_fraction"]);
+      plan->zdw = tables_from(values["zdw"]);
     } catch (const nb::cast_error&) {
       throw std::invalid_argument("a statistics plan has the wrong types");
     } catch (const nb::python_error&) {
@@ -3238,9 +3252,50 @@ NB_MODULE(_core, module_) {
                               native::statistics::strict_probe(a, b, c),
                               native::rk::low_storage::strict_probe(a, b, c),
                               native::transverse::strict_probe(a, b, c),
-                              native::dense::strict_probe(a, b, c));
+                              native::dense::strict_probe(a, b, c),
+                              native::statistics::widths::strict_probe(a, b, c));
       },
       "a"_a, "b"_a, "c"_a);
+  // solprop SEP 47: the fluence widths' native finishing on given profiles, for the
+  // tests that hold it to solprop's own (`solprop.spatial.radial_fluence_widths`,
+  // `_line_fluence_widths`).
+  module_.def(
+      "radial_fluence_widths",
+      [](const RealInput radius, const RealInput fluence, const RealInput weights,
+         const double axis_fluence, const double e2_fraction) {
+        if (radius.ndim() != 1 || fluence.ndim() != 1 || weights.ndim() != 1 ||
+            fluence.shape(0) != radius.shape(0) || weights.shape(0) != radius.shape(0))
+          throw std::invalid_argument("a radial profile's samples are one-dimensional "
+                                      "and of one length");
+        const auto widths = native::statistics::widths::radial(
+            radius.data(), fluence.data(), weights.data(), radius.shape(0), axis_fluence,
+            e2_fraction);
+        return nb::make_tuple(widths[0], widths[1], widths[2]);
+      },
+      "radius"_a.noconvert(), "fluence"_a.noconvert(), "weights"_a.noconvert(),
+      "axis_fluence"_a, "e2_fraction"_a);
+  module_.def(
+      "fluence_block_widths",
+      [](const BoundStatisticsPlan& plan, const RealInput block) {
+        if (block.ndim() != 1)
+          throw std::invalid_argument("a fluence block is one-dimensional");
+        const auto widths =
+            native::statistics::widths::of_block(*plan.plan(), real_vector(block));
+        return nb::make_tuple(widths[0], widths[1], widths[2]);
+      },
+      "plan"_a, "block"_a.noconvert());
+  module_.def(
+      "line_fluence_widths",
+      [](const RealInput x, const RealInput samples, const double e2_fraction) {
+        if (x.ndim() != 1 || samples.ndim() != 1 || samples.shape(0) != x.shape(0) ||
+            x.shape(0) < 2)
+          throw std::invalid_argument("a line's samples are one-dimensional and of "
+                                      "one length, at least two");
+        const auto widths = native::statistics::widths::line(
+            real_vector(x), real_vector(samples), e2_fraction);
+        return nb::make_tuple(widths[0], widths[1], widths[2]);
+      },
+      "x"_a.noconvert(), "samples"_a.noconvert(), "e2_fraction"_a);
   module_.def(
       "watch_due",
       [](const nb::dict policy, const nb::dict state, const double z) {

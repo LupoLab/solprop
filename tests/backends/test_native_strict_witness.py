@@ -41,7 +41,7 @@ def test_the_strict_files_round_every_operation_where_the_build_fuses():
     control, *probes = native._core.strict_witness(  # pyright: ignore[reportPrivateUsage]
         FACTOR_A, FACTOR_B, ADDEND
     )
-    assert probes == [0.0] * 8, "a strict file's product and sum were fused"
+    assert probes == [0.0] * 9, "a strict file's product and sum were fused"
     if control == -(2.0**-60):
         return
     assert control == 0.0, control

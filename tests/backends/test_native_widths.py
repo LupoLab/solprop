@@ -16,6 +16,7 @@ beam in a corner, and two beams that cancel on the axis.
 
 import importlib.util
 import math
+import platform
 
 import numpy as np
 import pytest
@@ -695,3 +696,268 @@ def test_the_rings_are_the_host_widths_rule():
     radius, width = _ring_fluence_widths(radii, np.exp(-2 * radii**2))
     assert radius == pytest.approx(1.0, abs=1e-6)
     assert width == pytest.approx(np.sqrt(2 * np.log(2)), abs=1e-6)
+
+
+# --- the native finishing, against solprop's own (SEP 47 section 6.4) -------------
+
+
+def _profiles(rng):
+    """Radial or line profiles a width is most exposed on, with their axis values."""
+    radius = np.sort(rng.uniform(1e-6, 4e-4, 300))
+    gaussian = np.exp(-2 * (radius / 1e-4) ** 2)
+    return radius, (
+        (gaussian, 1.0),
+        # A ring: the axis below every level, so no threshold width.
+        (np.exp(-(((radius - 2e-4) / 3e-5) ** 2)), 0.0),
+        # A flat top a ripple above its separately formed axis value.
+        (np.where(radius < 1e-4, 1.0 + 1e-9, 0.0), 1.0),
+        # A pedestal that never falls below the 1/e^2 level.
+        (0.5 + 0.5 * gaussian, 1.0),
+        # Nothing, and one sample.
+        (np.zeros_like(radius), 0.0),
+        (np.where(np.arange(radius.size) == 7, 1.0, 0.0), 0.0),
+        (rng.uniform(0.0, 1.0, radius.size) * gaussian, 1.0),
+    )
+
+
+@native_only
+def test_the_native_radial_widths_are_solprop_s_to_the_bit():
+    """The radial widths ported operation for operation: NumPy's pairwise sums, the
+    crossings' interpolation, the hollow and the uncrossed profiles."""
+    from solprop_native import _core  # noqa: PLC0415
+
+    from solprop.spatial import radial_fluence_widths  # noqa: PLC0415
+
+    rng = np.random.default_rng(47)
+    radius, cases = _profiles(rng)
+    weights = rng.uniform(1e-10, 2e-9, radius.size)
+    for size in (2, 7, 8, 9, 128, 129, 300):
+        for fluence, axis in cases:
+            arguments = (radius[:size], fluence[:size], weights[:size], axis)
+            want = radial_fluence_widths(*arguments)
+            got = _core.radial_fluence_widths(*arguments, math.exp(-2))
+            np.testing.assert_array_equal(got, want, err_msg=f"{size} samples")
+
+
+@native_only
+def test_the_native_radial_widths_refuse_what_solprop_s_refuse():
+    from solprop_native import _core  # noqa: PLC0415
+
+    from solprop.spatial import radial_fluence_widths  # noqa: PLC0415
+
+    radius = np.array([1e-5, 2e-5, 3e-5])
+    weights = np.ones(3)
+    for fluence, axis in (
+        (np.array([1.0, -1e-300, 0.0]), 1.0),
+        (np.array([1.0, np.nan, 0.0]), 1.0),
+        (np.ones(3), -1.0),
+        (np.ones(3), math.inf),
+    ):
+        with pytest.raises(GridError, match="radial fluence widths require") as want:
+            radial_fluence_widths(radius, fluence, weights, axis)
+        with pytest.raises(ValueError, match="radial fluence widths require") as got:
+            _core.radial_fluence_widths(radius, fluence, weights, axis, math.exp(-2))
+        assert str(got.value) == str(want.value)
+    huge = np.full(3, 1e300)
+    with pytest.raises(GridError, match="not representable"):
+        radial_fluence_widths(radius * 1e200, huge, weights, 1e300)
+    with pytest.raises(ValueError, match="not representable"):
+        _core.radial_fluence_widths(radius * 1e200, huge, weights, 1e300, math.exp(-2))
+
+
+X86_64 = platform.machine().lower() in {"x86_64", "amd64"}
+"""Whether NumPy's compiled loops run unfused here: x86-64's distribution baselines have
+no fused multiply-add, where an AArch64 build (Apple silicon, Graviton) may contract
+``numpy.interp``'s product and sum."""
+
+
+def unfused_interp(x, xp, fp):
+    """``numpy.interp``'s compiled rule, each product and sum its own ufunc.
+
+    ``numpy/_core/src/multiarray/compiled_base.c``: the end values outside the axis,
+    the sample itself on a node and at the last node, else
+    ``slope * (x - xp[j]) + fp[j]`` with ``slope = (fp[j+1] - fp[j]) / (xp[j+1] -
+    xp[j])``. No platform fuses separate ufuncs, so this is the rule the native
+    finishing ports, on every platform; on x86-64 it is ``numpy.interp`` to the bit.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    j = np.clip(np.searchsorted(xp, x, side="right") - 1, 0, xp.size - 2)
+    slope = (fp[j + 1] - fp[j]) / (xp[j + 1] - xp[j])
+    offset = x - xp[j]
+    product = slope * offset
+    value = product + fp[j]
+    value = np.where(x == xp[j], fp[j], value)
+    value = np.where(x >= xp[-1], fp[-1], value)
+    return np.where(x < xp[0], fp[0], value)
+
+
+def host_interp(monkeypatch):
+    """Hold the host finishing to the unfused rule where NumPy's own may fuse."""
+    if not X86_64:
+        monkeypatch.setattr(np, "interp", unfused_interp)
+
+
+@pytest.mark.skipif(not X86_64, reason="NumPy's interp may fuse off x86-64")
+def test_the_unfused_interp_is_numpy_s_on_x86_64():
+    rng = np.random.default_rng(49)
+    xp = np.linspace(-2e-4, 3e-4, 97)
+    fp = rng.uniform(0.0, 1.0, xp.size)
+    points = np.concatenate((rng.uniform(-3e-4, 4e-4, 1000), xp, xp[:1] - 1, xp[-1:]))
+    np.testing.assert_array_equal(
+        unfused_interp(points, xp, fp), np.interp(points, xp, fp)
+    )
+
+
+@native_only
+def test_the_native_line_widths_are_solprop_s_to_the_bit(monkeypatch):
+    """A line's centroid, moment and two-sided average, ``numpy.interp`` included: to
+    the bit on x86-64, and to the unfused rule wherever NumPy's own may fuse."""
+    from solprop_native import _core  # noqa: PLC0415
+
+    from solprop.spatial import _line_fluence_widths  # noqa: PLC0415
+
+    host_interp(monkeypatch)
+
+    rng = np.random.default_rng(48)
+    for n in (5, 8, 48, 129, 300):
+        x = np.linspace(-2e-4, 3e-4, n)
+        # Centred, near an edge, wider than the axis, and a point on one sample.
+        point = float(x[n // 2])
+        for centre, waist in (
+            (0.0, 5e-5),
+            (2.9e-4, 2e-5),
+            (-1e-4, 3e-4),
+            (point, 1e-6),
+        ):
+            samples = np.exp(-2 * ((x - centre) / waist) ** 2)
+            samples = samples / np.max(samples)
+            want = _line_fluence_widths(x, samples)
+            got = _core.line_fluence_widths(x, samples, math.exp(-2))
+            np.testing.assert_array_equal(got, want, err_msg=f"{n} {centre} {waist}")
+        noisy = rng.uniform(0.0, 1.0, n)
+        noisy = noisy / np.max(noisy)
+        np.testing.assert_array_equal(
+            _core.line_fluence_widths(x, noisy, math.exp(-2)),
+            _line_fluence_widths(x, noisy),
+        )
+
+
+def _radial_route(kind="envelope"):
+    from solprop.grid import RadialGrid  # noqa: PLC0415
+
+    grid = _time_grid(kind)
+    settings = SimulationSettings(
+        controller=PIController(rtol=1e-6, atol=1e-14),
+        save_planes=[1e-3],
+        dz_max=2.5e-4,
+        dz_init=2.5e-4,
+        absorber=None,
+        integrator=RungeKutta(),
+        stats=StatsSpec(names=WIDTHS),
+    )
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 6e-5
+    )
+    simulation = Simulation.from_radial(
+        grid, RadialGrid(3e-4, 32), LOSSY, [], pulse, settings=settings, noise=None
+    )
+    return grid, simulation.translate(), simulation._run_request()
+
+
+@native_only
+@pytest.mark.parametrize("route", ["radial", "line", "planar"])
+def test_a_profile_s_native_widths_refuse_as_the_host_s_do(monkeypatch, route):
+    """The fluence block's finishing (``of_block``), on given blocks: the host's widths,
+    its ``BackendError`` for a lobe beyond the rounding budget and its ``GridError``
+    for a value that is not finite, each through ``translated`` as the plan raises
+    it."""
+    from solprop_native import _core, _statistics  # noqa: PLC0415
+
+    host_interp(monkeypatch)
+    grid, problem, run_request = _radial_route() if route == "radial" else _route(route)
+    geometry = problem.transform.geometry
+    assert geometry is not None
+    lowering = _statistics.lower(
+        problem,
+        StatsSpec(names=WIDTHS),
+        WIDTHS,
+        grid=grid,
+        z_end=float(run_request.stepper.z_end),
+    )
+    plan = lowering.plan
+    assert plan is not None
+    n_nodes = problem.transform.n_nodes
+    n_terms = problem.shape[1] * grid.n_t + problem.transform.n_modes
+    rng = np.random.default_rng(50)
+    fluence = np.exp(-((np.arange(n_nodes) / (0.3 * n_nodes)) ** 2))
+    fluence = fluence * rng.uniform(0.9, 1.0, n_nodes)
+    axis = 1.0 if route == "radial" else math.nan
+    largest = 1.0
+    budget = fluence_budget(np.full(n_nodes, largest), n_terms)
+
+    def both(profile):
+        block = np.concatenate((profile, [axis, largest]))
+        try:
+            want = host_spatial.signed_fluence_widths(geometry, profile, budget, axis)
+        except (BackendError, GridError) as error:
+            with pytest.raises(ValueError) as caught:
+                _core.fluence_block_widths(plan, block)
+            raised = _statistics.translated(caught.value)
+            assert type(raised) is type(error)
+            assert str(raised) == str(error)
+            return type(error)
+        np.testing.assert_array_equal(_core.fluence_block_widths(plan, block), want)
+        return None
+
+    assert both(fluence) is None
+    lobe = fluence.copy()
+    lobe[3] = -1e-3
+    assert both(lobe) is BackendError
+    within = fluence.copy()
+    within[3] = -0.5 * budget[3]
+    assert both(within) is None
+    broken = fluence.copy()
+    broken[3] = math.nan
+    assert both(broken) is GridError
+
+
+@native_only
+def test_a_state_that_is_not_finite_has_the_host_s_grid_error():
+    """A radial state whose fluence is not finite: ``NativeBackend.stats`` raises the
+    reference's ``GridError``, through the plan and ``translated``."""
+    grid, problem, run_request = _radial_route()
+    field = np.array(problem.initial.field0, copy=True)
+    # A bin the launch fills, so the active band keeps it.
+    field[3, 0, int(np.argmax(np.abs(field[3, 0])))] = complex(math.nan, 0.0)
+    spec = StatsSpec(names=WIDTHS)
+    with pytest.raises(GridError, match="radial fluence widths require") as want:
+        _measure("numpy_ref", grid, problem, run_request, field, spec)
+    with pytest.raises(GridError, match="radial fluence widths require") as got:
+        _measure("native", grid, problem, run_request, field, spec)
+    assert str(got.value) == str(want.value)
+    # And the session's plane, whose failure is the reference's exception too.
+    from solprop_native.session import NativeSession  # noqa: PLC0415
+
+    from solprop.backends.events import Terminal  # noqa: PLC0415
+    from solprop.backends.session import Start  # noqa: PLC0415
+
+    session = NativeSession(
+        problem,
+        run_request.for_run(stats=spec),
+        Start(field=field, z=float(problem.initial.z)),
+        grid=grid,
+    )
+    errors = []
+    try:
+        while not session.finished:
+            batch = session.advance()
+            errors += [
+                event.error
+                for event in batch.events
+                if isinstance(event, Terminal) and event.error is not None
+            ]
+            session.acknowledge(batch.receipt)
+    finally:
+        session.close()
+    assert [type(error) for error in errors] == [GridError]
+    assert str(errors[0]) == str(want.value)

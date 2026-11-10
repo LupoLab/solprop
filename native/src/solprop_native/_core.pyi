@@ -424,7 +424,20 @@ def half_width(
 ) -> float: ...
 def strict_witness(
     a: float, b: float, c: float
-) -> tuple[float, float, float, float, float, float, float, float, float]: ...
+) -> tuple[float, float, float, float, float, float, float, float, float, float]: ...
+def radial_fluence_widths(
+    radius: npt.NDArray[np.float64],
+    fluence: npt.NDArray[np.float64],
+    weights: npt.NDArray[np.float64],
+    axis_fluence: float,
+    e2_fraction: float,
+) -> tuple[float, float, float]: ...
+def fluence_block_widths(
+    plan: StatisticsPlan, block: npt.NDArray[np.float64]
+) -> tuple[float, float, float]: ...
+def line_fluence_widths(
+    x: npt.NDArray[np.float64], samples: npt.NDArray[np.float64], e2_fraction: float
+) -> tuple[float, float, float]: ...
 def watch_check(
     policy: dict[str, object],
     state: dict[str, object],

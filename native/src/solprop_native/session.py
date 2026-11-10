@@ -44,8 +44,11 @@ It admits a subset and refuses every other feature by name before allocating any
 - every periodic-capable statistic of the catalogue on these routes, plane and
   periodic, each evaluated and finished natively from a plan lowered once
   (:mod:`solprop_native._statistics`), the profile statistics from tables whose
-  measured error the execution record carries; the plane-only statistics the host
-  finishes (:data:`~solprop_native._statistics.PLANE_ONLY`) are refused;
+  measured error the execution record carries, and the plane-only statistics the plan
+  evaluates, a spatial route's fluence widths among them; the plane-only statistics
+  the host still finishes (:data:`~solprop_native._statistics.PLANE_ONLY`) are
+  refused, as is what the problem does not carry
+  (:func:`solprop.backends.session.statistics_unavailable`);
 - the boundary monitor, temporal and a free-space run's transverse edge, which the
   native session owns (SEP 47 section 6.4): its every decision and record are native,
   each warning is its own :class:`~solprop.backends.events.ServiceRequired` barrier
@@ -105,6 +108,7 @@ from solprop.backends.session import (
     SessionState,
     SessionStatus,
     SnapshotReceipt,
+    statistics_unavailable,
 )
 from solprop.backends.spatial import FarFieldTables
 from solprop.exceptions import (
@@ -122,7 +126,6 @@ from solprop.output.capability import (
     withheld_accessors,
 )
 from solprop.output.schema import MarchSnapshot
-from solprop.stats import PLASMA_INTEGRATION_STATISTICS
 from solprop.stepper.controller import ControlRecord, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
@@ -137,6 +140,7 @@ from ._statistics import (
     ADMITTED_STATISTICS,
     StatisticsLowering,
     lower,
+    metric_refusal,
     translated,
     uncovered,
 )
@@ -400,8 +404,11 @@ def _statistics_refusal(problem: PropagationProblem, spec: StatsSpec) -> str | N
     """Return why the session refuses a run's statistics, naming them, or ``None``.
 
     Every statistic the native plan evaluates on the route is admitted, plane and
-    periodic (:mod:`solprop_native._statistics`); the plane-only statistics the host
-    finishes are refused by name, and so is what the backend itself would refuse.
+    periodic (:mod:`solprop_native._statistics`), a spatial route's fluence widths
+    among them. What the backend itself would refuse, and what the problem does not
+    carry (:func:`solprop.backends.session.statistics_unavailable`, which every
+    executor refuses before it starts), are refused by name; so are the plane-only
+    statistics the host still finishes.
 
     Parameters
     ----------
@@ -432,26 +439,18 @@ def _statistics_refusal(problem: PropagationProblem, spec: StatsSpec) -> str | N
     )
     if refused is not None:
         return f"statistics the backend refuses ({refused})"
+    unavailable = statistics_unavailable(problem, (*names, *spec.periodic))
+    if unavailable is not None:
+        return unavailable
+    refused = metric_refusal(problem, (*names, *spec.periodic))
+    if refused is not None:
+        return refused
     left = uncovered(problem, names)
     if left:
         return (
-            f"the statistics {left!r}, which the host finishes: a plane-only "
-            "statistic, a metric that varies inside an interval, or not a "
-            "statistic of this route"
+            f"the statistics {left!r}, which the host finishes: the on-axis plasma "
+            "statistics"
         )
-    responses = problem.responses
-    if set(names) & set(PLASMA_INTEGRATION_STATISTICS) and (
-        not responses.population_channels or responses.envelope_plasma is not None
-    ):
-        return (
-            "the plasma integration diagnostics, which read the field-grid plasma "
-            "column this problem does not carry"
-        )
-    if (
-        set(names) & {"electron_density", "peak_ionisation_rate"}
-        and not responses.population_channels
-    ):
-        return "the plasma statistics of a problem with no compiled plasma response"
     return None
 
 
@@ -593,6 +592,14 @@ class NativeSession:
             FarFieldTables(problem, spec) if backend is None else backend._far_field  # pyright: ignore[reportPrivateUsage] - the tables it was built with
         )
         self._owns = owned or owns
+        # Every position a plane statistic is taken at, where the request fixes them
+        # all: its start and its save planes, with no step or interpolated plane.
+        observation = request.observation
+        self._planes: tuple[float, ...] | None = (
+            None
+            if observation.dense or observation.step_planes
+            else (float(start.z), *(float(z) for z in observation.save_planes))
+        )
         lowering = self._lower(union, grid, modes, profiles)
         self._statistics_tables = lowering.tables
         self._plane_lowering = lowering.subset(spec.names)
@@ -686,6 +693,7 @@ class NativeSession:
                 profiles=profiles,
                 apertures=apertures,
                 z_end=self._stepper.z_end,
+                planes=self._planes,
             )
         except BackendError as error:
             msg = f"the native session does not run {error}"
@@ -2109,8 +2117,9 @@ class NativeSession:
                 f"z = {event.target:.6g} m"
             )
         # A statistics evaluation the native plan refused: the reference's exception.
-        refused = translated(BackendError(event.message))
-        if not isinstance(refused, BackendError):
+        failure = BackendError(event.message)
+        refused = translated(failure)
+        if refused is not failure:
             return refused
         result = {
             "reason": event.reason,
@@ -2203,8 +2212,21 @@ class NativePrepared(DriverPrepared):
         problem: PropagationProblem,
         request: RunRequest,
     ) -> None:
-        """Bind the problem and the request to the backend."""
+        """Bind the problem and the request to the backend.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            Naming a varying metric's statistics, which native refuses on every
+            session rather than leave to the transitional one
+            (:func:`~solprop_native._statistics.metric_refusal`).
+        """
         super().__init__(driver, problem, request)
+        stats = request.observation.stats
+        refused = metric_refusal(problem, (*stats.names, *stats.periodic))
+        if refused is not None:
+            msg = f"native cannot prepare this run: native refuses {refused}"
+            raise BackendError(msg)
         self._native_backend = driver
         self.refused: str | None = None
         """Why the last start ran on the transitional session; ``None`` on the native

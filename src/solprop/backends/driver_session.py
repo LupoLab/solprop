@@ -70,8 +70,9 @@ from solprop.backends.session import (
     Start,
     check_group,
     check_member_ticket,
+    statistics_unavailable,
 )
-from solprop.exceptions import StopRequested
+from solprop.exceptions import BackendError, StopRequested
 from solprop.log import NullReporter, StopFlag
 from solprop.monitor import BoundaryMonitor
 from solprop.output.schema import MarchSnapshot
@@ -1261,11 +1262,20 @@ class DriverPrepared:
         ------
         solprop.backends.session.SessionError
             If the request is not one run of the driver's own (:func:`foreign_request`).
+        solprop.exceptions.BackendError
+            If the request asks for statistics the problem does not carry
+            (:func:`~solprop.backends.session.statistics_unavailable`).
         """
         foreign = foreign_request(driver.request, request)
         if foreign is not None:
             msg = f"{driver.name} cannot prepare this run: {foreign}"
             raise SessionError(msg)
+        stats = request.observation.stats
+        unavailable = statistics_unavailable(problem, (*stats.names, *stats.periodic))
+        if unavailable is not None:
+            # Refused by name before any session starts, on every executor.
+            msg = f"{driver.name} cannot prepare this run: {unavailable}"
+            raise BackendError(msg)
         self._driver = driver
         self._problem = problem
         self._request = request

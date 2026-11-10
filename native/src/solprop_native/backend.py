@@ -66,14 +66,15 @@ from solprop.backends.populations import (
     axis_row_matrix,
     axis_row_populations,
 )
-from solprop.backends.session import ExecutionOptions, PreparedExecution
+from solprop.backends.session import (
+    ExecutionOptions,
+    PreparedExecution,
+    statistics_unavailable,
+)
 from solprop.backends.spatial import (
     FarFieldTables,
     far_field_partials,
-    fluence_budget,
-    plane_fluence_widths,
     radial_absorber_matrix,
-    signed_fluence_widths,
 )
 from solprop.boundaries import SPLIT_RATE_BUCKETS
 from solprop.constants import EPS0, C
@@ -91,7 +92,6 @@ from solprop.output.capability import (
     refusal_for,
     withheld_accessors,
 )
-from solprop.output.schema import SavedPlane
 from solprop.profiles import ZProfile
 from solprop.spatial import (
     ABSORBED_CHANNELS,
@@ -99,16 +99,12 @@ from solprop.spatial import (
     ApertureTables,
 )
 from solprop.stats import (
-    METRIC_WEIGHTED_STATISTICS,
     ON_AXIS_PLASMA_STATISTICS,
     PLASMA_INTEGRATION_STATISTICS,
     PROFILE_STATISTICS,
     StatsSpec,
-    collect,
-    inband_wavelengths,
     profile_value,
     weight_refusal_for,
-    zdw,
 )
 from solprop.stepper.controller import START_GROWTH, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -128,7 +124,6 @@ from solprop.translate.coupled import (
     SectionMethod,
     flow_edge_slack,
     frozen_generator,
-    metric_at,
     schur_blocks,
     schur_eigenbasis,
 )
@@ -187,6 +182,7 @@ from ._statistics import (
     NODE_POPULATIONS,
     StatisticsLowering,
     lower,
+    metric_refusal,
     translated,
     uncovered,
 )
@@ -245,17 +241,6 @@ _SPATIAL_STAT_FLAGS = {
     "beam_radius": 16,
     "fwhm_r": 16,
 }
-
-_PLANE_WIDTHS_FLAG = 32
-"""A Cartesian plane's widths: the native moments of its fluence, not flag 16's rows.
-
-The native pass holds the fluence and
-:func:`solprop.backends.spatial.plane_fluence_widths` reads the reductions. Radial, line
-and planar profiles are small, and cross.
-"""
-
-_PLANE_MOMENTS = 8
-"""The values flag 32 packs, in the order ``plane_fluence_widths`` reads them."""
 
 _FAR_FIELD_FLAGS = {
     "beam_spectrum": 1 << 5,
@@ -364,6 +349,11 @@ class NativeBackend(StepDriver[_core.State]):
         stepper = request.stepper
         _refuse_unsupported(problem, stepper)
         validate_run(problem, request)
+        stats = request.observation.stats
+        refused = metric_refusal(problem, (*stats.names, *stats.periodic))
+        if refused is not None:
+            # Before anything is allocated (SEP 47 phase 4's decision).
+            raise BackendError(f"native refuses {refused}")
         # solprop SEP 29 G1: a z table is evaluated natively on a CPU build; a device
         # build refuses it, naming the table's size and the CPU backends.
         if not problem.device_ready and _on_device():
@@ -1607,7 +1597,7 @@ class NativeBackend(StepDriver[_core.State]):
         self._require_state()
         if (counters := _counters.active) is not None:
             counters.statistics_evaluations += 1
-        grid_value = self._require_grid()
+        self._require_grid()
         # The accessor whitelist comes first, as on every CPU backend: a caller may ask
         # a backend directly, and a spatial run is refused rather than answered.
         general_modal = self._problem.transform.modal_tables is not None
@@ -1626,22 +1616,23 @@ class NativeBackend(StepDriver[_core.State]):
             raise BackendError(refusal)
         if general_modal:
             # solprop SEP 47: the route's statistics are the native plan's, the one
-            # implementation a native session's rows and planes also read; only a
-            # name it leaves (``zdw``) is collected on the host.
+            # implementation a native session's rows and planes also read; a metric
+            # that varies inside an interval is refused by name.
+            refused = metric_refusal(self._problem, spec.names)
+            if refused is not None:
+                raise BackendError(f"native refuses {refused}")
             weight_refusal = weight_refusal_for(
                 spec.names, power_weight_at(self._problem, self._z)
             )
             if weight_refusal is not None:
                 raise BackendError(weight_refusal)
-            left = uncovered(self._problem, spec.names)
-            values = self._planned_statistics(spec, left)
-            if left:
-                values.update(
-                    self._general_statistics(
-                        dataclasses.replace(spec, names=left, periodic=()), grid_value
-                    )
-                )
-            return values
+            return self._planned_statistics(spec)
+        if self._problem.transform.geometry is None:
+            # A spatial statistic of a modal state, refused as every executor refuses
+            # it before a session starts.
+            unavailable = statistics_unavailable(self._problem, spec.names)
+            if unavailable is not None:
+                raise BackendError(unavailable)
         integration_names = set(PLASMA_INTEGRATION_STATISTICS) & set(spec.names)
         if integration_names and (
             not self._problem.responses.population_channels
@@ -1700,10 +1691,8 @@ class NativeBackend(StepDriver[_core.State]):
             )
         # solprop SEP 47: the native plan, the one implementation of each statistic a
         # native session's rows and planes also read; only the plane-only statistics
-        # (the axis row's, the widths, zdw) take the host.
-        return self._planned_with_host(
-            spec, spatial_names, axis_names, population_names
-        )
+        # (the axis row's, zdw) take the host.
+        return self._planned_with_host(spec, axis_names, population_names)
 
     def _planned_statistics(
         self, spec: StatsSpec, left: Sequence[str] = (), *, scanned: bool = False
@@ -1787,13 +1776,13 @@ class NativeBackend(StepDriver[_core.State]):
     def _planned_with_host(
         self,
         spec: StatsSpec,
-        spatial_names: set[str],
         axis_names: set[str],
         population_names: set[str],
     ) -> dict[str, np.ndarray]:
         """Evaluate a modal or spatial spec: the plan, then the names it leaves.
 
-        Every statistic the plan covers is the plan's. An on-axis plasma statistic is
+        Every statistic the plan covers is the plan's, a spatial route's fluence widths
+        among them (SEP 47 section 6.4). An on-axis plasma statistic is
         the host's (SEP 19); on a Radau rule it reuses the node scan of this call's
         species statistics, which the plan hands over with them
         (:data:`~solprop_native._statistics.NODE_POPULATIONS`).
@@ -1802,8 +1791,6 @@ class NativeBackend(StepDriver[_core.State]):
         ----------
         spec : solprop.stats.StatsSpec
             The statistics.
-        spatial_names : set of str
-            Its spatial statistics.
         axis_names : set of str
             Its on-axis plasma statistics.
         population_names : set of str
@@ -1828,12 +1815,7 @@ class NativeBackend(StepDriver[_core.State]):
                 scan = (rows[0, :, :, 0].T, rows[0, :, :, 1].T)
             axis = self._axis_statistics(None, scan)
             values.update({name: axis[name][None] for name in axis_names})
-        widths = set(left) & spatial_names & {"beam_radius", "fwhm_r"}
-        if widths:
-            values.update(self._spatial_statistics(widths, spec))
-        rest = tuple(
-            name for name in left if name not in widths and name not in axis_names
-        )
+        rest = tuple(name for name in left if name not in axis_names)
         if rest:
             values.update(
                 self._profile_statistics(
@@ -1869,133 +1851,6 @@ class NativeBackend(StepDriver[_core.State]):
             np.asarray(spectrum).reshape(1, -1, self._problem.shape[-1]),
             self._z,
         )
-
-    def _general_statistics(
-        self, spec: StatsSpec, grid: TimeGrid
-    ) -> dict[str, np.ndarray]:
-        """Collect a general modal run's statistics from the observed channel field.
-
-        The route's admitted names are functionals of the physical flux ``a.H W a``
-        of the basis metric, which solprop's own ``collect`` evaluates; none is a
-        backend-owned response statistic. They are the unit-weight arithmetic, so a
-        weight that is not the constant one is refused rather than silently ignored.
-        """
-        weight_refusal = weight_refusal_for(
-            spec.names, power_weight_at(self._problem, self._z)
-        )
-        if weight_refusal is not None:
-            raise BackendError(weight_refusal)
-        metric = (
-            metric_at(self._problem.linear.modal_metric, self._z)
-            if set(spec.names) & METRIC_WEIGHTED_STATISTICS
-            else None
-        )
-        field = self._observed_field(self._native_state)
-        members = [
-            collect(
-                spec,
-                grid,
-                SavedPlane(z=self._z, field=field[member]),
-                modes=self._modes,
-                profiles=self._profiles,
-                metric=metric,
-            )
-            for member in range(field.shape[0])
-        ]
-        return {
-            name: np.stack([member[name] for member in members]) for name in spec.names
-        }
-
-    def _spatial_statistics(
-        self, names: set[str], spec: StatsSpec | None = None
-    ) -> dict[str, np.ndarray]:
-        """Reduce on the device and interpolate only the saved radial fluence.
-
-        On a Cartesian or line grid the far-field statistics and ``on_axis_spectrum``
-        come from the native far-field pass (solprop SEP 23 section 6).
-        """
-        geometry = self._problem.transform.geometry
-        if geometry is None:
-            raise BackendError("spatial statistics require spatial geometry")
-        folded = (
-            names & _FAR_FIELD_FLAGS.keys()
-            if geometry.kind == "free"
-            else names & set(FAR_FIELD_STATISTICS)
-        )
-        values: dict[str, np.ndarray] = {}
-        if folded:
-            values.update(self._far_field_statistics(folded, spec))
-            names = names - folded
-            if not names:
-                return values
-        flags = 0
-        for name in names:
-            flags |= _SPATIAL_STAT_FLAGS[name]
-        plane = geometry.kind == "free" and geometry.axes[1].size > 1
-        if plane and flags & _SPATIAL_STAT_FLAGS["beam_radius"]:
-            flags += _PLANE_WIDTHS_FLAG - _SPATIAL_STAT_FLAGS["beam_radius"]
-        packed = np.asarray(
-            self._native_state.spatial_statistics(flags, 0.5 * EPS0 * C, self._z)
-        ).ravel()
-        scalars, offset = self._spatial_scalars(names, packed)
-        values.update(scalars)
-        if names & {"beam_radius", "fwhm_r"}:
-            n_terms = (
-                self._problem.shape[1] * self._problem.grids.n_t
-                + self._problem.transform.n_modes
-            )
-            if plane:
-                widths = plane_fluence_widths(
-                    geometry,
-                    packed[offset : offset + _PLANE_MOMENTS],
-                    n_terms,
-                    self._native_state.plane_fluence_trace,
-                )
-                offset += _PLANE_MOMENTS
-            else:
-                # The signed fluence, the axis fluence (a radial width's alone) and the
-                # largest magnitude, which fixes the rounding budget (solprop SEP 34).
-                count = self._problem.transform.n_nodes
-                widths = signed_fluence_widths(
-                    geometry,
-                    packed[offset : offset + count],
-                    fluence_budget(np.full(count, packed[offset + count + 1]), n_terms),
-                    float(packed[offset + count]),
-                )
-                offset += count + 2
-            if "beam_radius" in names:
-                values["beam_radius"] = np.asarray([widths[:2]])
-            if "fwhm_r" in names:
-                values["fwhm_r"] = np.asarray([widths[2]])
-        if offset != packed.size:
-            raise BackendError(
-                f"native spatial statistics returned {packed.size} values; "
-                f"consumed {offset}"
-            )
-        return values
-
-    def _spatial_scalars(
-        self, names: set[str], packed: RealArray
-    ) -> tuple[dict[str, np.ndarray], int]:
-        """Unpack ``spatial_statistics``' scalar flags from the front of `packed`.
-
-        Returns the statistics, each with a leading batch axis, and how many values
-        they took: a plane's widths follow them.
-        """
-        values: dict[str, np.ndarray] = {}
-        offset = 0
-        for name in (
-            "energy",
-            "on_axis_intensity",
-            "peak_intensity",
-            "on_axis_spectrum",
-        ):
-            if name in names:
-                count = self._problem.shape[-1] if name == "on_axis_spectrum" else 1
-                data = packed[offset : offset + count]
-                values[name] = data[None] if name == "on_axis_spectrum" else data
-                offset += count
-        return values, offset
 
     def _far_field_statistics(
         self, names: set[str], spec: StatsSpec | None
@@ -2061,7 +1916,7 @@ class NativeBackend(StepDriver[_core.State]):
         return values
 
     def _profile_statistics(self, spec: StatsSpec) -> dict[str, np.ndarray]:
-        """Evaluate profile-only and ZDW statistics on their owning host objects."""
+        """Evaluate the profile statistics left outside the plan, on the host."""
         values: dict[str, np.ndarray] = {}
         for name in spec.names:
             if (
@@ -2081,20 +1936,6 @@ class NativeBackend(StepDriver[_core.State]):
                         f"the {name} statistic needs the {name!r} profile"
                     )
                 values[name] = np.array([profile_value(self._profiles[name], self._z)])
-            elif name == "zdw":
-                if self._modes is None:
-                    raise BackendError(
-                        "the zero-dispersion wavelength needs the mode set"
-                    )
-                values[name] = np.stack(
-                    [
-                        zdw(
-                            self._modes,
-                            self._z,
-                            wavelength_limits=inband_wavelengths(self._require_grid()),
-                        )
-                    ]
-                )
             else:
                 raise BackendError(f"the native backend cannot collect {name!r}")
         return values

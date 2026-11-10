@@ -41,6 +41,7 @@ def test_period_one_rows_return_to_python_only_on_the_driver(case):
 def test_a_refused_case_runs_admitted_for_both():
     record = measure("radial_filament_256_free_memory", 1, 0.02, admitted=True)
     assert record["admitted"]
-    assert "beam_radius" not in record["statistics"]
+    # The widths are finished natively now, and kept (SEP 47 section 6.4).
+    assert {"beam_radius", "fwhm_r"} <= set(record["statistics"])
     assert record["driver"]["attempts"] == record["native-session"]["attempts"]
     assert record["native-session"]["field_bytes"] == 0
