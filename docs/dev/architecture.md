@@ -652,23 +652,51 @@ durable distributed execution. A controller owns the collected HDF5 scan file.
 
 Fixed-schedule fibre batches run as a group (`solprop.backends.session.GroupSession`,
 started by `solprop.backends.sessions.start_group`; SEP 47 section 6.7): a sequence of
-independently translated member problems, each loaded from its own `Start`, advanced
+independently translated member problems, each started from its own `Start`, advanced
 one common window (save plane) at a time, each member reporting its own events. The
-batched scan's loop (`driver/_scan_batch.py`) is the group's service loop. Until the
-native session lands the group is served over the lockstep runners (`BatchBackend`,
-`select_batch`), which adopt the loaded member backends, each with its own tables,
-state and noise. The accepted update is fused on compiled backends, while response and
-transform work remains member-owned. `observe_members` preserves each member's history
-and statistics. Admission uses memory ledgers and a free-device-memory query with
-headroom.
+batched scan's loop (`driver/_scan_batch.py`) is the group's service loop. Two groups
+serve it:
+
+- **The native group session** (`solprop_native.group.NativeGroupSession`) serves
+  native CPU members whenever it admits the group. It owns one native execution session
+  per member (`solprop_native.session.NativeSession`, adopting the member backend the
+  scan built), so each member's march, events, attempts, statistics rows, tickets and
+  boundary monitor are its own session's, and the group only orders the members'
+  advances. Within a window the members take turns in rounds of at most 256 common
+  steps (`ROUND_STEPS`), each turn native from end to end. The running members stand
+  at one common step between rounds, and a group-wide stop is polled there. A member's
+  trajectory is its lone native session's, bit for bit at one thread, and so is the
+  transitional lockstep group's. The members share the schedule and nothing mutable: no
+  fused kernel, because the native marches own each whole step. Its refusals
+  (`solprop_native.group.refusal`) are named and made before allocation: a device
+  build, a run the native session refuses, an adaptive member, step or interpolated
+  planes, or members that do not share the schedule, save planes, method, field shape
+  and statistics request.
+- **The transitional group** (`solprop.backends.driver_session.DriverGroupSession`)
+  serves every other group: the reference's, and native groups the native group
+  refuses. It runs over the lockstep runners (`BatchBackend`, `select_batch`), which
+  adopt the loaded member backends, each with its own tables, state and noise. On the
+  native backend the accepted update is fused (`NativeBatchBackend`), while response
+  and transform work remains member-owned. `observe_members` preserves each member's
+  history and statistics.
+
+Admission uses memory ledgers and a free-device-memory query with headroom.
 
 Every backend has exact member-versus-singleton identity checks under the same
 schedule. That does not imply a throughput improvement on every workload: whether a
 batch beats independent runs depends on the problem size and the device. Adaptive
-lockstep is not implemented. A boundary stop fails its member alone; a group-level
-failure (a non-finite norm, a step floor, a trial exception, an in-flight failure)
-fails every member of that group, each reporting its own committed position and
-checkpoint eligibility; recovering the surviving members is an open question ([#171](https://github.com/LupoLab/solprop/issues/171)).
+lockstep is not implemented. A boundary stop (the monitor's error, or its warning
+raised as an error) fails its member alone. A group-level failure (a non-finite norm,
+a step floor, a trial exception, an in-flight failure) fails every member of that
+group, each reporting its own committed position and checkpoint eligibility. Members
+take their steps in turn, so those ahead of the failing one have already taken the
+failed step: the transitional group's members are then in flight and poisoned, having
+stepped without recording; a native group's have committed and recorded their whole
+turn and stay eligible. Recovering the surviving members is an open question
+([#171](https://github.com/LupoLab/solprop/issues/171)). A native member commits its
+launch plane before its monitor judges the launch, as a lone run does (SEP 47 section
+5.3), so a refused launch ends it in the window after the launch's; the transitional
+group attaches the monitors first.
 
 Independent simulations use spawned processes, normally one scientific thread per
 worker, rather than threads, because thread pools, FFTW plans and the OpenMP runtime are
