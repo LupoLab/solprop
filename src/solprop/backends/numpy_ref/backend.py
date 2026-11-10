@@ -174,6 +174,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     tdse_binding : solprop.translate.tdse.TDSEBinding or None, optional
         Driver-owned persistent atomic plans, required exactly when the problem
         declares a TDSE response. The driver closes this binding after the backend.
+    options : solprop.backends.session.ExecutionOptions or None, optional
+        The run's execution options, from which the node chunk is planned; ``None``
+        for the automatic choice.
 
     Raises
     ------

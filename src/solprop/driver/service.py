@@ -341,17 +341,16 @@ class _Chunks:
     (:mod:`solprop.backends.events`); this is where they are assembled. An observation
     takes them all as its plane's history and starts afresh; a running checkpoint
     includes them without consuming them; a terminal checkpoint includes them.
+
+    Parameters
+    ----------
+    step : callable
+        The progress reporter's per-attempt call, made with each attempt's end,
+        length and acceptance as its chunk arrives.
     """
 
     def __init__(self, step: Callable[[float, float, bool], None]) -> None:
-        """Start with nothing held.
-
-        Parameters
-        ----------
-        step : callable
-            The progress reporter's per-attempt call, made with each attempt's end,
-            length and acceptance as its chunk arrives.
-        """
+        """Start with nothing held."""
         self._chunks: list[_Chunk] = []
         self._step = step
 

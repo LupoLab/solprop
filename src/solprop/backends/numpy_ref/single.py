@@ -131,6 +131,9 @@ class NumpySingleBackend(NumpyRefBackend):
         The z-profiles keyed by statistic name.
     tdse_binding : solprop.translate.tdse.TDSEBinding or None, optional
         Must be ``None``: TDSE responses are refused under single precision.
+    options : solprop.backends.session.ExecutionOptions or None, optional
+        The run's execution options, from which the node chunk is planned; ``None``
+        for the automatic choice.
 
     Raises
     ------

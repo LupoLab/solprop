@@ -155,7 +155,7 @@ def test_the_native_profile_statistics_record_their_tables_error():
     pytest.importorskip("solprop_native")
     output = run("pair", "warm", "native")
     simulation = build(PAIR, WARM)
-    outcome = output.outcome
+    outcome = getattr(output, "outcome", None)
     assert outcome is not None
     tables = outcome.execution["statistics_tables"]
     z = np.asarray(output["z"])

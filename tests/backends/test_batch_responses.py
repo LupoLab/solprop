@@ -148,7 +148,15 @@ PARTIAL = ExecutionOptions(node_chunk=3)
 """Three-node chunks, which every multinode case's members and solo runs take."""
 
 
-def compare(problem, grid, backend, *, factory=select, spec=None, options=PARTIAL):
+def compare(
+    problem,
+    grid,
+    backend,
+    *,
+    factory=select,
+    spec=None,
+    options: ExecutionOptions | None = PARTIAL,
+):
     if spec is None:
         spec = StatsSpec(names=("energy", "peak_power"), periodic=("energy",), period=1)
     problem = dataclasses.replace(problem, stats_spec=spec)

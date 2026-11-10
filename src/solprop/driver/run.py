@@ -558,7 +558,9 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     )
     try:
         if march is not None and restoration is not None:
-            restoration = _restored(march, restoration, session.march_refusal)
+            restoration = _restored(
+                march, restoration, getattr(session, "march_refusal", None)
+            )
         serve(
             session,
             output,

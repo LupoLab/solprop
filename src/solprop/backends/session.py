@@ -654,6 +654,11 @@ class RunSession(Protocol):
 
         As :attr:`Start.monitor`, for a service loop that reads the earlier
         execution's record from its output after the session started.
+
+        Parameters
+        ----------
+        continuation : collections.abc.Mapping
+            The continuation, as :attr:`Start.monitor` holds it.
         """
         ...
 
@@ -662,6 +667,16 @@ class RunSession(Protocol):
 
         For a terminal checkpoint after a failure outside the session, whose attempts
         no event delivered; empty when every attempt was delivered.
+
+        Parameters
+        ----------
+        ticket : solprop.backends.events.ExportTicket
+            The checkpoint's ticket.
+
+        Returns
+        -------
+        tuple
+            The attempts and the periodic rows.
         """
         ...
 

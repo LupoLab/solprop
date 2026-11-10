@@ -69,9 +69,14 @@ def _dispersive_modal(evaluator, raman):
     """A fused modal dispersive response, alone or beside a Raman term."""
     grid = FieldGrid.from_limits(1.0, 800e-9, (400e-9, 2e-6), 400e-15)
     mode = MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45)
-    declared = [DispersiveKerrResponse(OptmatKerr("Ar").dispersive_model(), evaluator)]
-    if raman:
-        declared.append(response_for("SiO2", amplitude=1e-22, fraction=0.18, thg=True))
+    declared = [
+        DispersiveKerrResponse(OptmatKerr("Ar").dispersive_model(), evaluator),
+        *(
+            [response_for("SiO2", amplitude=1e-22, fraction=0.18, thg=True)]
+            if raman
+            else []
+        ),
+    ]
     start = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6).build(grid)
     return assemble(
         grid,
