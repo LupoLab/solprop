@@ -313,6 +313,7 @@ end
                 ) : DF.RungeKuttaWork(
                     work.stages, work.combination, work.lab, work.source,
                     work.transported, alias, work.defect, work.norm_parts, work.norm_scale,
+                    work.norm_readback,
                 )
             @test_throws ArgumentError trial!(
                 aliased_work, state, 0.0, 1 / 64, scheme, source, current, execution,
