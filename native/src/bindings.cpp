@@ -26,7 +26,7 @@
 // these headers in transitively today; declaring them here is what makes the
 // probe's own dependency explicit rather than a property of a Kokkos version.
 // The guards resolve only after Kokkos_Core.hpp has defined them.
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
 #include <cuda_runtime.h>
 #elif defined(KOKKOS_ENABLE_HIP)
 #include <hip/hip_runtime.h>
@@ -40,7 +40,7 @@
 #include <nanobind/stl/unique_ptr.h>
 #include <nanobind/stl/vector.h>
 
-#if defined(_WIN32)
+#ifdef _WIN32
 #include <windows.h>
 #else
 #include <dlfcn.h>
@@ -2829,7 +2829,7 @@ std::string decode_record_text(std::string value) {
   return value;
 }
 
-#if defined(_WIN32)
+#ifdef _WIN32
 // Windows looks a symbol up in one module only, so the search walks the modules this
 // extension imports (its FFT, BLAS and threading libraries, under whatever names the
 // wheel repair gave them), as dlsym on the extension's own handle does on POSIX.
@@ -3006,7 +3006,7 @@ nb::dict build_record() {
   result["blas_threads"] = blas_threads;
   result["blas_threading"] = blas_threading;
   result["execution_space"] = native::ExecutionSpace::name();
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
   result["fft_backend"] = "cuFFT";
   result["fft_library"] = loaded_library("cufftExecZ2Z");
   result["blas_library"] = loaded_library("cublasDgemm_v2");
@@ -3036,7 +3036,7 @@ nb::dict build_record() {
   result["device_count"] = 0;
 #endif
   result["raman_fft_option"] = SOLPROP_NATIVE_RAMAN_FFT_PROVIDER;
-#if defined(SOLPROP_NATIVE_RAMAN_ACCELERATE)
+#ifdef SOLPROP_NATIVE_RAMAN_ACCELERATE
   result["raman_fft_library"] = loaded_library("vDSP_fftm_zropD");
 #else
   result["raman_fft_library"] = result["fft_library"];
@@ -3044,7 +3044,7 @@ nb::dict build_record() {
   result["openmp_library"] = loaded_library("omp_get_num_threads");
   result["device_team_size"] = SOLPROP_NATIVE_DEVICE_TEAM_SIZE_RECORD;
   result["device_reduction_size"] = SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE_RECORD;
-#if defined(KOKKOS_ENABLE_OPENMP)
+#ifdef KOKKOS_ENABLE_OPENMP
   result["openmp_enabled"] = true;
 #else
   result["openmp_enabled"] = false;
@@ -3076,7 +3076,7 @@ nb::dict build_record() {
   result["coverage_source_hash"] = SOLPROP_NATIVE_COVERAGE_SOURCE_HASH;
   result["precision"] = "complex128";
   result["fft_normalization"] = "none (explicit inverse scaling)";
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
   result["fft_planner"] = "Kokkos-FFT persistent Plan / cuFFT";
 #elif defined(KOKKOS_ENABLE_HIP)
   result["fft_planner"] = "Kokkos-FFT persistent Plan / rocFFT";
@@ -3112,12 +3112,12 @@ nb::dict build_record() {
                                   "; no fast-math; " + contraction_policy + "; " +
                                   architecture_policy + "; " + ipo_policy + "; " +
                                   vectorization_policy;
-#if defined(__FAST_MATH__)
+#ifdef __FAST_MATH__
   result["fast_math_enabled"] = true;
 #else
   result["fast_math_enabled"] = false;
 #endif
-#if defined(__apple_build_version__)
+#ifdef __apple_build_version__
   result["compiler_family"] = "AppleClang";
 #elif defined(__clang__)
   result["compiler_family"] = "Clang";
@@ -3260,7 +3260,7 @@ NB_MODULE(_core, module_) {
       },
       "policy"_a, "occupancy"_a);
   module_.def("available_device_memory", []() -> nb::object {
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
     std::size_t free_bytes = 0;
     std::size_t total_bytes = 0;
     if (cudaMemGetInfo(&free_bytes, &total_bytes) != cudaSuccess)

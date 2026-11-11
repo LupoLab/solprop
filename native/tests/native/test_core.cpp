@@ -24,7 +24,7 @@
 #include <utility>
 #include <vector>
 
-#if defined(KOKKOS_ENABLE_OPENMP)
+#ifdef KOKKOS_ENABLE_OPENMP
 #include <omp.h>
 #endif
 
@@ -1530,7 +1530,7 @@ TEST(GeneralState, ChunkedBlasBuffersHaveExactPersistentByteCost) {
                         tolerance * std::max(1.0, Kokkos::abs(reference[index])));
 }
 
-#if defined(SOLPROP_NATIVE_TPL_BLAS_OPENBLAS)
+#ifdef SOLPROP_NATIVE_TPL_BLAS_OPENBLAS
 TEST(GeneralState, OpenBlasEnvelopePolicyAllocatesAndExecutesComplexTransforms) {
   auto problem = multimode_problem(8);
   problem.family = native::FieldFamily::envelope;
@@ -2799,7 +2799,7 @@ TEST(CpuThreadPolicy, SmoothGridSizesKeepThePowerOfTwoWidths) {
   // stage of 8004 elements and coarse FFT batch of 32000 samples take the widths of
   // 8196 and 32768, rather than falling to one thread just under a power-of-two
   // boundary. macOS keeps the earlier boundaries, where the serial ones are faster.
-#if defined(__APPLE__)
+#ifdef __APPLE__
   GTEST_SKIP() << "macOS keeps the 8192/32768 boundaries";
 #endif
   native::ThreadPolicy policy{18, 18, 18, 18};
@@ -2922,7 +2922,7 @@ TEST(CpuThreadPolicy, MetadataNamesEveryOperationClass) {
 }
 
 TEST(CpuThreadPolicy, ACompactTeamScopeHoldsAnOpenMpBlasAtOneThread) {
-#if !defined(KOKKOS_ENABLE_OPENMP)
+#ifndef KOKKOS_ENABLE_OPENMP
   GTEST_SKIP() << "the hold is an OpenMP build's";
 #else
   const int before = omp_get_max_threads();

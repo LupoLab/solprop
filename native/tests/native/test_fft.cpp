@@ -421,7 +421,7 @@ TEST(RamanFftProvider, PreservesRawNormalizationInputAndPartialRows) {
                     row < tail ? fft_bound(length, length) : 0.0);
         }
       }
-#if defined(SOLPROP_NATIVE_RAMAN_ACCELERATE)
+#ifdef SOLPROP_NATIVE_RAMAN_ACCELERATE
       const bool neon =
           std::string_view(fftw_version).find("-neon") != std::string_view::npos;
       const bool accelerated = length != 15 && (neon ? threads > 1 && length <= 16384

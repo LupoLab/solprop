@@ -15,7 +15,7 @@ namespace solprop_native::test {
 
 inline CpuExecution make_table() {
   CpuExecution table;
-#if defined(__APPLE__)
+#ifdef __APPLE__
   constexpr std::size_t stage = 8192;
   constexpr std::size_t fft = 32768;
   constexpr std::size_t fft_thread = 32768;

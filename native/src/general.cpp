@@ -24,7 +24,7 @@
 #include <Kokkos_Profiling_ScopedRegion.hpp>
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
 #include <fftw3.h>
-#if defined(__SSE2__)
+#ifdef __SSE2__
 #include <immintrin.h>
 #define SOLPROP_NATIVE_STREAMING_STORES 1
 #endif
@@ -45,7 +45,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
-#if defined(__APPLE__)
+#ifdef __APPLE__
 #include <malloc/malloc.h>
 #elif defined(__GLIBC__)
 #include <dlfcn.h>
@@ -183,7 +183,7 @@ template <class... Ts> KOKKOS_INLINE_FUNCTION void capture_anchor(const Ts&...) 
 // Net process allocator growth includes opaque vendor FFT plan/workspace
 // allocations. It is measured separately from Kokkos Views and is not a peak bound.
 std::size_t heap_bytes() {
-#if defined(__APPLE__)
+#ifdef __APPLE__
   malloc_statistics_t statistics{};
   malloc_zone_statistics(nullptr, &statistics);
   return statistics.size_in_use;
@@ -208,7 +208,7 @@ std::size_t heap_bytes() {
 #endif
 }
 std::size_t device_free_bytes() {
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
   std::size_t available{}, total{};
   if (cudaMemGetInfo(&available, &total) != cudaSuccess)
     throw std::runtime_error("cudaMemGetInfo failed during FFT planning");
@@ -337,7 +337,7 @@ void cartesian_for(const char* label, const ExecutionSpace& execution,
 // builds compile out the host traversals that use these, hence `maybe_unused`.
 [[maybe_unused]] KOKKOS_INLINE_FUNCTION void stream_store(Complex& target,
                                                           const Complex value) {
-#if defined(SOLPROP_NATIVE_STREAMING_STORES)
+#ifdef SOLPROP_NATIVE_STREAMING_STORES
   _mm_stream_pd(reinterpret_cast<double*>(&target),
                 _mm_set_pd(value.imag(), value.real()));
 #else
@@ -346,7 +346,7 @@ void cartesian_for(const char* label, const ExecutionSpace& execution,
 }
 
 [[maybe_unused]] KOKKOS_INLINE_FUNCTION void stream_fence() {
-#if defined(SOLPROP_NATIVE_STREAMING_STORES)
+#ifdef SOLPROP_NATIVE_STREAMING_STORES
   _mm_sfence();
 #endif
 }
@@ -3527,7 +3527,7 @@ std::string GeneralWorkspace::gemm_shape_policy() {
 
 std::size_t GeneralWorkspace::response_team_size() const noexcept {
   constexpr auto configured = static_cast<std::size_t>(SOLPROP_NATIVE_DEVICE_TEAM_SIZE);
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
   // Measured on a Hopper GPU, the crossover is sharp: 4,096-sample fibre problems
   // favour teams of 256, while 8,192 samples and more favour 512. Keep an explicitly
   // configured smaller team intact.
@@ -7440,7 +7440,7 @@ adams_phase_block(const Terms& phi_terms, const Weights& phi_delta,
   }
 }
 
-#if defined(SOLPROP_NATIVE_ADAMS_LANES)
+#ifdef SOLPROP_NATIVE_ADAMS_LANES
 
 // The history rows a pass reads, rotated by a carrier frame's factors
 // (`adams_history`). Strict.
@@ -7704,7 +7704,7 @@ inline void adams_lanes_defects(AdamsLanes& lanes, const ExponentialWeights& wei
 }
 #endif
 
-#if defined(SOLPROP_NATIVE_ADAMS_LANES)
+#ifdef SOLPROP_NATIVE_ADAMS_LANES
 // The whole step's phase increment `sum_t dPhi_t Phi_t` of every lane into `xr`/`xi`,
 // as `adams_phase_sum` forms it, and with `Rate` a varying operator's endpoint rate
 // `sum_t w_t Phi_t` into `dr`/`di`, as `adams_corrected_compensation` forms it, in the
@@ -7753,7 +7753,7 @@ adams_lanes_phase(AdamsLanes& lanes, const Terms& phi_terms, const Weights& phi_
 }
 #endif
 
-#if defined(SOLPROP_NATIVE_ADAMS_LANES)
+#ifdef SOLPROP_NATIVE_ADAMS_LANES
 /**
  * The predict pass on a host block's lanes, the elements [first, last) of a column
  * whose exponents are formed: the flow, the moments, the predictor's carried samples
@@ -7967,7 +7967,7 @@ struct ExponentialCorrection {
   // The host lanes' predict pass formed the endpoint rate (off a separable route).
   bool rate_formed;
 
-#if defined(SOLPROP_NATIVE_ADAMS_LANES)
+#ifdef SOLPROP_NATIVE_ADAMS_LANES
   // The pass on a host block's lanes (`AdamsLanes`), as the element-by-element form
   // below writes it; the norms' sums are taken in element order.
   void lanes_block(const std::size_t column, const std::size_t first,
@@ -8161,7 +8161,7 @@ struct ExponentialCorrection {
     const auto first = (task % blocks) * adams_block;
     const auto last = first + adams_block < n ? first + adams_block : n;
     const double magnitude = device_scale ? Kokkos::sqrt(magnitude_sum()) : 0.0;
-#if defined(SOLPROP_NATIVE_ADAMS_LANES)
+#ifdef SOLPROP_NATIVE_ADAMS_LANES
     if constexpr (vmath::vectorised) {
       lanes_block(column, first, last, magnitude, update);
       return;
@@ -8263,7 +8263,7 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
   // weights cross, with the step's and the sample's scalars, in the trial's one copy.
   upload_trial(step, &sample, compensated ? &rate : nullptr);
   const std::size_t blocks = (n + adams_block - 1) / adams_block;
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
   // A device thread takes one element of a long FP64 chain, and Kokkos's CUDA range
   // reduction gives each block 256 of them: a four-mode capillary's 10496 elements
   // were 41 blocks on an NVIDIA A40's 84 multiprocessors. Blocks of 128 take them
@@ -8296,7 +8296,7 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
   const std::size_t count = weights.count;
   const std::size_t formed = count > weights.order ? count : weights.order;
   const double inverse_dz = 1.0 / dz;
-#if defined(SOLPROP_NATIVE_ADAMS_LANES)
+#ifdef SOLPROP_NATIVE_ADAMS_LANES
   // A host block's predict pass forms the corrector's endpoint rate beside the phase,
   // from the weights the trial uploaded with its scalars.
   const auto endpoint_rates = stage_rate_weights_;
@@ -8333,7 +8333,7 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
 #endif
           flow(column, index) = exponential(x);
       }
-#if defined(SOLPROP_NATIVE_ADAMS_LANES)
+#ifdef SOLPROP_NATIVE_ADAMS_LANES
     if constexpr (passes) {
       magnitude += separable
                        ? adams_lanes_predict<false>(

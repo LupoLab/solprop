@@ -147,7 +147,7 @@ KOKKOS_INLINE_FUNCTION std::size_t far_field_band_edge(const std::size_t band,
  * protected block of plain arithmetic rounds each operation on its own. CUDA's
  * intrinsics are real.
  */
-#if defined(__HIPCC__)
+#ifdef __HIPCC__
 #define SOLPROP_NATIVE_FAR_FIELD_HIP_STRICT _Pragma("clang fp contract(off)")
 #else
 #define SOLPROP_NATIVE_FAR_FIELD_HIP_STRICT
@@ -172,7 +172,7 @@ KOKKOS_INLINE_FUNCTION double far_field_radius(const double scale, const double 
                                                const double centre_y) {
   SOLPROP_NATIVE_STRICT_BLOCK
   SOLPROP_NATIVE_FAR_FIELD_HIP_STRICT
-#if defined(__CUDA_ARCH__)
+#ifdef __CUDA_ARCH__
   const double across = __dadd_rn(__dmul_rn(scale, k_x), centre_x);
   const double along = __dadd_rn(__dmul_rn(scale, k_y), centre_y);
   return __dsqrt_rn(__dadd_rn(__dmul_rn(across, across), __dmul_rn(along, along)));
@@ -196,7 +196,7 @@ KOKKOS_INLINE_FUNCTION double far_field_offset(const double scale, const double 
                                                const double centre) {
   SOLPROP_NATIVE_STRICT_BLOCK
   SOLPROP_NATIVE_FAR_FIELD_HIP_STRICT
-#if defined(__CUDA_ARCH__)
+#ifdef __CUDA_ARCH__
   return __dadd_rn(__dmul_rn(scale, k), centre);
 #else
   return scale * k + centre;
@@ -216,7 +216,7 @@ KOKKOS_INLINE_FUNCTION double far_field_scaled_radius(const double across,
                                                       const double stretch_y) {
   SOLPROP_NATIVE_STRICT_BLOCK
   SOLPROP_NATIVE_FAR_FIELD_HIP_STRICT
-#if defined(__CUDA_ARCH__)
+#ifdef __CUDA_ARCH__
   const double scaled_x = __dmul_rn(stretch_x, across);
   const double scaled_y = __dmul_rn(stretch_y, along);
   return __dsqrt_rn(

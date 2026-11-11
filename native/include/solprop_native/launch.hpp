@@ -69,7 +69,7 @@ void parallel_for(const Label& label, const Policy& policy, const Functor& funct
     left three of the device's compute units to do the work. */
 template <typename Functor, typename Policy>
 [[nodiscard]] auto reduce_policy_for(const Policy& policy) {
-#if defined(KOKKOS_ENABLE_HIP)
+#ifdef KOKKOS_ENABLE_HIP
   if constexpr (Kokkos::is_execution_policy_v<Policy>) {
     using Space = typename Policy::execution_space;
     if constexpr (std::is_same_v<Policy, Kokkos::RangePolicy<Space>> &&

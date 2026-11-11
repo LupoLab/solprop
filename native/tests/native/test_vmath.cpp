@@ -211,7 +211,7 @@ TEST(VectorMath, SpecialValuesFollowC99) {
 }
 
 TEST(VectorMath, RouteMatchesTheBuild) {
-#if defined(SOLPROP_NATIVE_VECTOR_MATH_SLEEF)
+#ifdef SOLPROP_NATIVE_VECTOR_MATH_SLEEF
   EXPECT_TRUE(vmath::vectorised);
   EXPECT_GE(vmath::width, 2U);
 #else

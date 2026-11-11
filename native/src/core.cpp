@@ -14,7 +14,7 @@
 #include <stdexcept>
 #include <vector>
 
-#if defined(KOKKOS_ENABLE_OPENMP)
+#ifdef KOKKOS_ENABLE_OPENMP
 #include <omp.h>
 #endif
 
@@ -198,7 +198,7 @@ namespace {
 // variable in a device build under -Werror).
 std::atomic<bool> openmp_blas{false};
 thread_local int blas_holds = 0;
-#if defined(KOKKOS_ENABLE_OPENMP)
+#ifdef KOKKOS_ENABLE_OPENMP
 thread_local int blas_saved_default = 0;
 // The calling thread's scopes, and its OpenMP default before the outermost of them.
 thread_local int scope_depth = 0;
@@ -218,10 +218,10 @@ thread_local int scope_saved_blocktime = -1;
 // OpenMP between that width and Kokkos' at every pair: 9 to 19 times slower on two
 // Intel Xeon Gold 6240 (solprop issue #130).
 void enter_runtime_default() noexcept {
-#if defined(KOKKOS_ENABLE_OPENMP)
+#ifdef KOKKOS_ENABLE_OPENMP
   if (scope_depth++ != 0)
     return;
-#if defined(KMP_VERSION_MAJOR)
+#ifdef KMP_VERSION_MAJOR
   // LLVM's runtime: idle threads spin for a short while inside native work and sleep
   // at once outside it (solprop ADR-071).
   scope_saved_blocktime = -1;
@@ -244,12 +244,12 @@ void enter_runtime_default() noexcept {
 #endif
 }
 void leave_runtime_default() noexcept {
-#if defined(KOKKOS_ENABLE_OPENMP)
+#ifdef KOKKOS_ENABLE_OPENMP
   if (--scope_depth != 0)
     return;
   if (scope_saved_default != 0)
     omp_set_num_threads(scope_saved_default);
-#if defined(KMP_VERSION_MAJOR)
+#ifdef KMP_VERSION_MAJOR
   if (scope_saved_blocktime >= 0)
     kmp_set_blocktime(scope_saved_blocktime);
 #endif
@@ -263,13 +263,13 @@ void leave_runtime_default() noexcept {
 // scope names its width (Kokkos's instances, `fftw_team_loop`), so the default reaches
 // only OpenBLAS.
 void hold_blas() noexcept {
-#if defined(KOKKOS_ENABLE_OPENMP)
+#ifdef KOKKOS_ENABLE_OPENMP
   blas_saved_default = omp_get_max_threads();
   omp_set_num_threads(1);
 #endif
 }
 void release_blas() noexcept {
-#if defined(KOKKOS_ENABLE_OPENMP)
+#ifdef KOKKOS_ENABLE_OPENMP
   omp_set_num_threads(blas_saved_default);
 #endif
 }
@@ -310,7 +310,7 @@ int scoped_block_time() noexcept {
 
 int scoped_openmp_default() noexcept {
   const CpuTeamScope scope(0);
-#if defined(KOKKOS_ENABLE_OPENMP)
+#ifdef KOKKOS_ENABLE_OPENMP
   return omp_get_max_threads();
 #else
   return 1;

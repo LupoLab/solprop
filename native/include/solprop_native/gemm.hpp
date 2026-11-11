@@ -176,7 +176,7 @@ void native_order_gemm(const ExecutionSpace& execution_space, const AView& a,
 // at 316 GFLOP/s, about 54 % of the FP64 peak, at any row pitch. Such a build forms
 // the engine's real GEMMs with `device_dense_gemm`.
 inline constexpr bool device_dense_gemm_enabled =
-#if defined(KOKKOS_ARCH_AMPERE86)
+#ifdef KOKKOS_ARCH_AMPERE86
     true;
 #else
     false;
