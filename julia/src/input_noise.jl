@@ -119,7 +119,8 @@ function apply_input_noise!(
     _transfer_writable_destination(field)
     (
         _retained_alias(field, work) || _retained_alias(active, work) ||
-            _transfer_arrays_alias(field, active)
+            _transfer_arrays_alias(field, active) ||
+            _transfer_arrays_alias(work.scratch, active)
     ) && throw(ArgumentError("input noise field and mask must not alias retained storage"))
     all(isfinite, field) && all(isfinite, work.spectrum) ||
         throw(ArgumentError("input noise field and spectrum must be finite"))

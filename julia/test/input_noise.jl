@@ -198,6 +198,49 @@ end
     @test field == before
 end
 
+@testset "Input-noise mask index storage stays read-only" begin
+    for tasks in (1, 2)
+        execution = _noise_execution(tasks)
+        operator = SolpropJulia.DiagonalOperator(execution, zeros(ComplexF64, 5, 1))
+        work = SolpropJulia.InputNoise(execution, zeros(ComplexF64, 5, 1), 0.0, operator)
+        # Independently wrapped indices start inside candidate scratch (#678).
+        # Their owner differs from the mask's Bool data and Base does not see the
+        # overlap. A candidate write must not change a later mask decision.
+        GC.@preserve work begin
+            indices = unsafe_wrap(
+                Array, Ptr{Int}(pointer(work.scratch)) + sizeof(Int), (5,); own = false,
+            )
+            indices .= (1, 1, 2, 1, 2)
+            mask_data = Bool[true, false]
+            mask = @view mask_data[indices]
+            small = reinterpret(Float64, Int(1))
+            field = fill(complex(small, small), 5, 1)
+            before_field, before_indices = copy(field), copy(indices)
+            before_scratch, before_spectrum = copy(work.scratch), copy(work.spectrum)
+            @test !Base.mightalias(mask, work.scratch)
+            @test_throws ArgumentError SolpropJulia.apply_input_noise!(
+                field, work, mask, 0.0, false, execution,
+            )
+            @test field == before_field
+            @test indices == before_indices
+            @test work.scratch == before_scratch
+            @test work.spectrum == before_spectrum
+            @test collect(mask) == Bool[true, true, false, true, false]
+        end
+        # Read-only gather masks remain valid when their data and index owners
+        # are independent of every writable destination.
+        independent_indices = [1, 1, 2, 1, 2]
+        independent = @view Bool[true, false][independent_indices]
+        field = ones(ComplexF64, 5, 1)
+        @test SolpropJulia.apply_input_noise!(
+            field, work, independent, 0.0, false, execution,
+        )
+        @test vec(field) == ComplexF64[1, 1, 0, 1, 0]
+        @test independent_indices == [1, 1, 2, 1, 2]
+        @test _noise_allocations(field, work, independent, 0.0, true, execution) == 0
+    end
+end
+
 @testset "Input-noise cumulative phase uses the existing absolute anchor" begin
     for tasks in (1, 2)
         execution = _noise_execution(tasks)
