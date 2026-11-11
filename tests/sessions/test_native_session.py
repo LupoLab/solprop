@@ -180,6 +180,11 @@ PLANE_BOUND = 1e-12
 """A native plane's distance from the reference's, relative to the peak: the budget of
 the dense-output and backend tests (``tests/backends/test_dense_output.py``)."""
 
+DEVICE_PLANE_BOUND = 1e-9
+"""The same distance on an accelerator, whose FFT and GEMM libraries reduce in their
+own order: a planar route measured 9.1e-11 of the peak on an NVIDIA H100 (SEP 47
+Part II), against this budget's thousandfold margin under the solvers' tolerances."""
+
 STATISTIC_RTOL = 1e-9
 """A plane statistic's and a plane position's relative distance from the reference's."""
 
@@ -189,7 +194,9 @@ ACCEPTED_RTOL = 1e-6
 norms near rounding, which each backend rounds its own way (measured 2.6e-9)."""
 
 
-def assert_meets_reference(run: Run, reference: Run) -> None:
+def assert_meets_reference(
+    run: Run, reference: Run, *, plane_bound: float = PLANE_BOUND
+) -> None:
     """Assert a native run meets the reference's within the budgets above.
 
     Parameters
@@ -198,6 +205,9 @@ def assert_meets_reference(run: Run, reference: Run) -> None:
         The native run.
     reference : sessions.executors.Run
         The reference run of the same problem, exported with the same recipe.
+    plane_bound : float, optional
+        The planes' distance budget relative to the peak: :data:`PLANE_BOUND`, or
+        :data:`DEVICE_PLANE_BOUND` on an accelerator.
     """
     assert run.status.attempts == reference.status.attempts
     assert run.status.rejected == reference.status.rejected
@@ -208,7 +218,7 @@ def assert_meets_reference(run: Run, reference: Run) -> None:
     assert len(run.fields) == len(reference.fields)
     scale = max(float(np.max(np.abs(field))) for field in reference.fields)
     for got, expected in zip(run.fields, reference.fields, strict=True):
-        np.testing.assert_allclose(got, expected, rtol=0, atol=PLANE_BOUND * scale)
+        np.testing.assert_allclose(got, expected, rtol=0, atol=plane_bound * scale)
 
 
 def _make_native(problem, request, **controls):

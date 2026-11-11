@@ -50,6 +50,7 @@ from sessions.test_native_group import INTEGRATORS, _lone, _record, _same, _star
 from sessions.test_native_session import (
     CASES,
     DENSE,
+    DEVICE_PLANE_BOUND,
     _case,
     _control_trace,
     _make_native,
@@ -199,7 +200,7 @@ def test_the_device_session_repeats_itself_and_meets_the_reference(case, recipe)
     to_host, _ = backend._native_state.crossed_bytes()  # pyright: ignore[reportPrivateUsage]
     session.close()
     assert_same_run(run, baseline)
-    assert_meets_reference(run, reference)
+    assert_meets_reference(run, reference, plane_bound=DEVICE_PLANE_BOUND)
     if case == "rk-rejections":
         assert run.status.rejected > 0
     # One crossing per export, of the field alone: no row, statistic or decision read
@@ -228,7 +229,7 @@ def test_runge_kutta_dense_planes_repeat_and_follow_the_reference_on_the_device(
     assert _control_trace(again) == _control_trace(run)
     for field, other in zip(again.fields, run.fields, strict=True):
         assert field.tobytes() == other.tobytes()
-    assert_meets_reference(run, reference)
+    assert_meets_reference(run, reference, plane_bound=DEVICE_PLANE_BOUND)
 
 
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
@@ -249,7 +250,11 @@ def test_a_spatial_route_repeats_and_meets_the_reference_on_the_device(route):
     context = {"grid": grid}
     run = _door(problem, request, context)
     assert_same_run(_door(problem, request, context), run)
-    assert_meets_reference(run, _door(problem, request, context, name="numpy_ref"))
+    assert_meets_reference(
+        run,
+        _door(problem, request, context, name="numpy_ref"),
+        plane_bound=DEVICE_PLANE_BOUND,
+    )
 
 
 @pytest.mark.parametrize("march", sorted(MARCHES))
