@@ -77,9 +77,12 @@ def loaded(simulation, cleanup):
         profiles=simulation.profiles,
     )
     cleanup.callback(owner.close)
+    if owner.name == "native":
+        # The native backend loads a start only in its session (SEP 47).
+        return cast("Any", owner)
+    # The reference's own driver, which a group steps directly.
+    assert isinstance(owner, HostDriver)
     owner.set_initial(problem.initial.field0, simulation.noise)
-    # The reference's own driver, or the native backend (SEP 47).
-    assert isinstance(owner, HostDriver) or owner.name == "native"
     return cast("Any", owner)
 
 
@@ -296,6 +299,9 @@ def test_lockstep_refuses_mixed_backends(monkeypatch):
         members = tuple(
             loaded(simulation(0, name), cleanup) for name in ("numpy_ref", "native")
         )
+        # A native backend loads only in its session (SEP 47), so the group's check
+        # that a member is loaded is stood in for: the refusal here is the name's.
+        monkeypatch.setattr(members[1], "_require_state", lambda: None, raising=False)
         with pytest.raises(BackendError, match="mixed backends"):
             inspect.unwrap(HostGroup.__init__)(HostGroup.__new__(HostGroup), members)
 
@@ -494,5 +500,6 @@ def test_batch_registry_refuses_empty_and_mixed_owners():
         # The native backend's group is its own group session, with no runner.
         with pytest.raises(BackendError, match="no runner for backend 'native'"):
             select_batch(cast(Sequence[Backend], members[1:]))
-        for member in members:
-            assert member.observe().z == 0.0
+        # Each refusal leaves its members open, and the reference's where it was.
+        assert not any(member.closed for member in members)
+        assert members[0].observe().z == 0.0

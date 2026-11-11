@@ -213,7 +213,10 @@ def assert_family_refused(factory, wrong_backend):
         initialize = inspect.unwrap(factory.__init__)
         with pytest.raises(BackendError, match="requires"):
             initialize(instance, [owner])
-        assert owner.observe().z == 0.0
+        # A native backend loads only in its session: it is left open.
+        assert not owner.closed
+        if wrong_backend != "native":
+            assert owner.observe().z == 0.0
 
 
 def test_the_reference_batch_checks_family_without_the_session_type_hook():
