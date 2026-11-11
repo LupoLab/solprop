@@ -11,38 +11,42 @@ function _cartesian_shape(shape::NTuple{2, Int})
 end
 
 """
-    CartesianBandWork(execution, shape::NTuple{2,Int}, n_frequency)
+    CartesianBandWork(execution, shape::NTuple{2,Int}, n_frequency;
+                      arithmetic=SourceArithmetic(Float64))
 
 Own a scalar Cartesian/line band and its bounded spatial FFT plans.
 
 `shape=(n_x,n_y)` has x varying fastest, with `n_x>=2` and `n_y>=1`; `n_y=1`
-is the line route. The owned complex binary64 `band` is `(n_frequency,n_x*n_y)`.
+is the line route. The owned `Complex{source_type(arithmetic)}` band has shape
+`(n_frequency,n_x*n_y)` and retains the arithmetic record.
 The inverse is normalized by `1/(n_x*n_y)`, and the forward is the raw negative-sign
 DFT. Temporal normalization, material coefficients and physical measures are absent.
 Each independent source or observation owns its own work. CPU plans use one FFTW
 thread. Unsupported execution or invalid dimensions raise `ArgumentError`.
 """
-struct CartesianBandWork{E, A, F}
+struct CartesianBandWork{E, B, A, F, P}
     execution::E
     shape::NTuple{2, Int}
-    band::Matrix{ComplexF64}
+    band::B
     planes::A
     plan::F
+    arithmetic::P
 end
 
 function CartesianBandWork(
-        execution::KernelExecution, shape::NTuple{2, Int}, n_frequency::Int,
+        execution::KernelExecution, shape::NTuple{2, Int}, n_frequency::Int;
+        arithmetic::SourceArithmetic = SourceArithmetic(Float64),
     )
     oncpu(execution) || throw(ArgumentError("Cartesian transforms currently require CPU"))
     n_frequency > 0 ||
         throw(ArgumentError("the Cartesian frequency count must be positive"))
     columns = _cartesian_shape(shape)
-    band = zeros(ComplexF64, n_frequency, columns)
+    band = dzeros(execution, Complex{source_type(arithmetic)}, n_frequency, columns)
     # A reshaped view preserves the matrix's explicit owner chain for the memory
     # ledger. Retaining a second Array header would count the same memory twice.
     planes = reshape(view(band, :, :), n_frequency, shape...)
     return CartesianBandWork(
-        execution, shape, band, planes, SpatialFFT(execution, planes, (2, 3)),
+        execution, shape, band, planes, SpatialFFT(execution, planes, (2, 3)), arithmetic,
     )
 end
 
@@ -51,14 +55,14 @@ end
 
 Copy a disjoint frequency-first spectrum and return the owned physical-node band.
 
-`input` is strided complex binary64 storage with the work's matrix shape. Preserve it
+`input` is strided complex storage with the work's precision and shape. Preserve it
 exactly, then perform the normalized transverse inverse before any real temporal
 inverse. This ordering matters: a transverse spectral column alone need not be the
 spectrum of a real field. Throw on invalid storage, shape or overlap before mutation.
 """
 function cartesian_inverse!(work::CartesianBandWork, input)
-    input isa StridedMatrix{ComplexF64} && size(input) == size(work.band) ||
-        throw(DimensionMismatch("Cartesian input requires its complex binary64 band shape"))
+    input isa StridedMatrix{eltype(work.band)} && size(input) == size(work.band) ||
+        throw(DimensionMismatch("Cartesian input differs from its prepared band"))
     _transfer_arrays_alias(input, work.band) &&
         throw(ArgumentError("Cartesian inverse input must be disjoint from owned work"))
     copyto!(work.band, input)
@@ -71,13 +75,13 @@ end
 
 Transform the entire owned physical-node band and copy its raw spatial spectrum out.
 
-`output` is strided complex binary64 with the work's matrix shape. It may be exactly
+`output` is strided complex with the work's precision and shape. It may be exactly
 `work.band`; any other overlap refuses before mutation. Return `output`. Transform
 completion is synchronous and warmed calls allocate nothing.
 """
 function cartesian_forward!(output, work::CartesianBandWork)
-    output isa StridedMatrix{ComplexF64} && size(output) == size(work.band) ||
-        throw(DimensionMismatch("Cartesian output needs its complex binary64 band shape"))
+    output isa StridedMatrix{eltype(work.band)} && size(output) == size(work.band) ||
+        throw(DimensionMismatch("Cartesian output differs from its prepared band"))
     output !== work.band && _transfer_arrays_alias(output, work.band) &&
         throw(ArgumentError("Cartesian forward output refuses partial work overlap"))
     spatial_forward!(work.planes, work.plan)
@@ -87,7 +91,8 @@ end
 
 """
     CartesianSourceData(grid, shape, operator, spatial_rate, pad_scale;
-                        kerr=nothing, raman=(), plasma=nothing)
+                        kerr=nothing, raman=(), plasma=nothing,
+                        arithmetic=grid.arithmetic)
 
 Bind owned scalar Cartesian/line temporal, material and additive-loss records.
 
@@ -102,18 +107,27 @@ crop scaling. Additive loss uses neither that prefactor nor the source/spectral 
 Kerr, scalar Raman and scalar plasma are the existing independent owned response
 records and profile tuples, including independent varying nonlinear profiles. No physics
 default, density or analytic factor is added.
+The arithmetic must match the grid and every response. Binary32 preparation evaluates
+the separated prefactor in binary64 and folds `2^(field_exponent-state_exponent)`
+before one narrowing. Material reconstruction folds the reciprocal exponent into
+`pad_scale`. Additive loss stays in stored state units. Named ranges describe the
+prepared spatial rate and prefactor; the original operator remains immutable wide data.
 Throw `ArgumentError`/`DimensionMismatch` before workspace allocation for bad data.
 """
-struct CartesianSourceData{G, K, R, P}
+struct CartesianSourceData{G, K, R, P, S, F, T, A, B}
     grid::G
     shape::NTuple{2, Int}
     operator::SeparableSpatialOperator
-    spatial_rate::Vector{Float64}
+    spatial_rate::S
     pad_scale::Float64
     kerr::K
     raman::R
     plasma::P
     spatial_active::Bool
+    prefactor::F
+    field_scale::T
+    arithmetic::A
+    ranges::B
 end
 
 function CartesianSourceData(
@@ -121,6 +135,7 @@ function CartesianSourceData(
         operator::SeparableSpatialOperator, spatial_rate, pad_scale::Float64;
         kerr::Union{Nothing, ModalKerr} = nothing, raman::Tuple = (),
         plasma::Union{Nothing, ModalPlasma} = nothing,
+        arithmetic::SourceArithmetic = grid.arithmetic,
     )
     columns = _cartesian_shape(shape)
     _spatial_operator_shape(operator) == (length(grid.omega), columns) &&
@@ -133,19 +148,42 @@ function CartesianSourceData(
     isfinite(pad_scale) && pad_scale > 0 ||
         throw(ArgumentError("Cartesian temporal pad scale must be finite and positive"))
     _validate_source_responses(grid, kerr, raman, plasma)
+    arithmetic == grid.arithmetic ||
+        throw(ArgumentError("Cartesian source and grid arithmetic differ"))
+    rate, rate_range = _source_prepare_host(spatial_rate, arithmetic, :spatial_rate)
+    field_scale = source_coefficient(
+        arithmetic, :cartesian_field_scale, pad_scale;
+        exponent = arithmetic.state_exponent - arithmetic.field_exponent,
+    )
+    prefactor, prefactor_range = if source_type(arithmetic) === Float32
+        tables = _spatial_operator_tables(operator)
+        wide = Matrix{ComplexF64}(undef, length(grid.omega), columns)
+        for column in axes(wide, 2), row in axes(wide, 1)
+            wide[row, column] = tables.active[row] ?
+                last(_spatial_element(tables, row, column)) : 0
+        end
+        _source_prepare_host(
+            wide, arithmetic, :cartesian_prefactor;
+            exponent = arithmetic.field_exponent - arithmetic.state_exponent,
+        )
+    else
+        nothing, nothing
+    end
     return CartesianSourceData(
-        grid, shape, operator, copy(spatial_rate), pad_scale, kerr, raman, plasma,
-        any(!iszero, spatial_rate),
+        grid, shape, operator, rate, pad_scale, kerr, raman, plasma,
+        any(!iszero, spatial_rate), prefactor, field_scale, arithmetic,
+        (spatial_rate = rate_range, prefactor = prefactor_range),
     )
 end
 
 """
     CartesianSource(execution, data::CartesianSourceData; node_chunk)
 
-Prepare a bounded scalar binary64 Cartesian/line source, including additive absorption.
+Prepare a bounded scalar Cartesian/line source, including additive absorption.
 
-Call `source(out,state,z)` with disjoint `(n_omega,n_x*n_y)` strided complex binary64
-matrices and metres. The callable returns `nothing`, preserves the state, and charges
+Call `source(out,state,z)` with disjoint `(n_omega,n_x*n_y)` strided complex matrices
+at the grid's response precision, in scaled state units and metres. The callable
+returns `nothing`, preserves the state, and charges
 `calls` before validation. Inputs/outputs must also be disjoint from retained numerical
 inputs and scratch. `ready` is set only after all finite checks succeed.
 
@@ -159,20 +197,20 @@ allocate nothing. Monitor decisions and accepted-step split operations remain se
 Throw `ArgumentError`/`DimensionMismatch` for unsupported preparation or input data;
 `NonfiniteSourceError`/`SourcePlasmaError` report numerical failures outside kernels.
 """
-mutable struct CartesianSource{E, D, B, P, F, T, A, R, RB, L}
+mutable struct CartesianSource{E, D, B, P, F, T, S, A, R, RB, L}
     execution::E
     data::D
     band::B
     padding::P
     transform::F
-    spectrum::Matrix{ComplexF64}
+    spectrum::S
     nodes::T
     polarisation::T
     analytic::A
     raman::R
     raman_buffers::RB
     plasma::L
-    chunk_spectrum::Matrix{ComplexF64}
+    chunk_spectrum::S
     failures::Vector{Int}
     calls::Int
     temporal_active::Bool
@@ -185,21 +223,25 @@ function CartesianSource(
     oncpu(execution) || throw(ArgumentError("Cartesian sources currently require CPU"))
     node_chunk > 0 || throw(ArgumentError("the Cartesian node chunk must be positive"))
     grid = data.grid
+    T = source_type(grid.arithmetic)
     columns, frequencies = _cartesian_shape(data.shape), length(grid.omega)
     capacity = min(node_chunk, columns)
-    scalar = grid.kind == :field ? Float64 : ComplexF64
+    scalar = grid.kind == :field ? T : Complex{T}
     fine = grid.kind == :field ? grid.n_time ÷ 2 + 1 : grid.n_time
-    nodes = zeros(scalar, grid.n_time, capacity)
-    spectrum = zeros(ComplexF64, fine, capacity)
+    nodes = dzeros(execution, scalar, grid.n_time, capacity)
+    spectrum = dzeros(execution, Complex{T}, fine, capacity)
     layout = ResponseLayout(grid.n_time, 1, capacity)
     raman, buffers = _source_raman(execution, data, layout)
     return CartesianSource(
-        execution, data, CartesianBandWork(execution, data.shape, frequencies),
-        SpectralPadding(execution, grid.crop_index, fine, 1.0, 1.0),
+        execution, data, CartesianBandWork(
+            execution, data.shape, frequencies; arithmetic = grid.arithmetic
+        ),
+        SpectralPadding(execution, grid.crop_index, fine, one(T), one(T)),
         TemporalFFT(execution, nodes, spectrum), spectrum, nodes, similar(nodes),
         _source_analytic(execution, data, capacity, capacity), raman, buffers,
         _source_plasma(execution, data, layout, nodes; coarse = false),
-        zeros(ComplexF64, frequencies, capacity), zeros(Int, max(columns, capacity)),
+        dzeros(execution, Complex{T}, frequencies, capacity),
+        zeros(Int, max(columns, capacity)),
         0, grid.temporal_rate !== nothing, false,
     )
 end
@@ -211,7 +253,7 @@ end
 @inline function _source_alias(array, owned::CartesianSourceData)
     return _source_alias(
         array, (
-            owned.grid, owned.operator, owned.spatial_rate,
+            owned.grid, owned.operator, owned.spatial_rate, owned.prefactor,
             owned.kerr, owned.raman, owned.plasma,
         )
     )
@@ -284,7 +326,7 @@ function _cartesian_material!(output, source, state, position)
     capacity, columns = size(source.nodes, 2), size(state, 2)
     for first in 1:capacity:columns
         count = min(capacity, columns - first + 1)
-        _cartesian_to_time!(source, first, count, data.pad_scale)
+        _cartesian_to_time!(source, first, count, data.field_scale)
         if source.analytic !== nothing
             _source_analytic!(source.analytic, source.spectrum, execution)
             copyto!(source.analytic.nodes, source.analytic.modal)
@@ -310,12 +352,21 @@ function _cartesian_material!(output, source, state, position)
     _source_finite!(
         source.failures, source.band.band, execution, :spatial_material_spectrum,
     )
-    spectrum, tables, window = source.band.band, _spatial_operator_tables(data.operator),
-        data.grid.omega_window
-    each!(execution, size(output)...) do row, column
-        output[row, column] = tables.active[row] ?
-            last(_spatial_element(tables, row, column)) * window[row] *
-            spectrum[row, column] : zero(eltype(output))
+    spectrum, window, active = source.band.band, data.grid.omega_window, data.grid.active
+    if data.prefactor === nothing
+        tables = _spatial_operator_tables(data.operator)
+        each!(execution, size(output)...) do row, column
+            output[row, column] = active[row] ?
+                last(_spatial_element(tables, row, column)) * window[row] *
+                spectrum[row, column] : zero(eltype(output))
+        end
+    else
+        prefactor = data.prefactor
+        each!(execution, size(output)...) do row, column
+            output[row, column] = active[row] ?
+                prefactor[row, column] * window[row] * spectrum[row, column] :
+                zero(eltype(output))
+        end
     end
     return nothing
 end
@@ -324,6 +375,8 @@ function _cartesian_absorber!(output, source, state)
     execution, data = source.execution, source.data
     cartesian_inverse!(source.band, state)
     spatial, physical = data.spatial_rate, source.band.band
+    T = source_type(data.grid.arithmetic)
+    half = T(-0.5)
     if source.temporal_active
         capacity, columns = size(source.nodes, 2), size(state, 2)
         temporal, nodes, loss = data.grid.temporal_rate, source.nodes, source.polarisation
@@ -331,10 +384,10 @@ function _cartesian_absorber!(output, source, state)
             count = min(capacity, columns - first + 1)
             # No material pad scale: this is an additive linear rate, transformed
             # back without the material crop-scaled prefactor (SEP 40 section4.7).
-            _cartesian_to_time!(source, first, count, 1.0)
+            _cartesian_to_time!(source, first, count, one(T))
             each!(execution, size(loss)...) do row, column
                 loss[row, column] = column <= count ?
-                    -0.5 * (spatial[first + column - 1] + temporal[row]) *
+                    half * (spatial[first + column - 1] + temporal[row]) *
                     nodes[row, column] : zero(eltype(loss))
             end
             temporal_forward!(source.spectrum, source.transform, loss)
@@ -346,7 +399,7 @@ function _cartesian_absorber!(output, source, state)
     else
         # Node-only rates commute with the temporal transform: avoid that pair.
         each!(execution, size(physical)...) do row, column
-            physical[row, column] *= -0.5 * spatial[column]
+            physical[row, column] *= half * spatial[column]
         end
     end
     cartesian_forward!(physical, source.band)
@@ -362,8 +415,9 @@ end
 function (source::CartesianSource)(output, state, position::Float64)
     source.calls += 1
     source.ready = false
-    output isa StridedMatrix{ComplexF64} && state isa StridedMatrix{ComplexF64} ||
-        throw(ArgumentError("Cartesian input/output requires strided complex binary64"))
+    T = Complex{source_type(source.data.grid.arithmetic)}
+    output isa StridedMatrix{T} && state isa StridedMatrix{T} ||
+        throw(ArgumentError("Cartesian input/output differs from its source arithmetic"))
     size(output) == size(state) == size(source.band.band) ||
         throw(DimensionMismatch("Cartesian source input/output does not match preparation"))
     _spatial_operator_position(source.data.operator, position)
@@ -390,7 +444,8 @@ function (source::CartesianSource)(output, state, position::Float64)
 end
 
 """
-    RadialSourceData(modal::ModalSourceData, spatial_rate, pad_scale)
+    RadialSourceData(modal::ModalSourceData, spatial_rate, pad_scale;
+                     arithmetic=modal.grid.arithmetic)
 
 Bind scalar radial QDHT material records and a separate fixed spatial loss operator.
 
@@ -401,16 +456,24 @@ nonnegative node rate (m⁻¹) forms `B=projection*diag(-rate/2)*(synthesis/pad_
 This fixed operator commutes with temporal transforms and is additive outside material
 prefactors and windows. A zero node rate retains an empty B and is an exact no-op.
 Preparation is serial; no separate BLAS pool changes the execution thread budget.
+Form `B` from the retained original binary64 maps, then narrow once to the source
+precision; folded/narrowed material maps are never substituted into its assembly.
+The arithmetic must match the modal records. Named range facts cover rate and B.
 Invalid maps/rates/scales or nonfinite composed coefficients raise `ArgumentError`.
 """
-struct RadialSourceData{M}
+struct RadialSourceData{M, S, B, A, R}
     modal::M
-    spatial_rate::Vector{Float64}
+    spatial_rate::S
     pad_scale::Float64
-    absorber::Matrix{Float64}
+    absorber::B
+    arithmetic::A
+    ranges::R
 end
 
-function RadialSourceData(modal::ModalSourceData, spatial_rate, pad_scale::Float64)
+function RadialSourceData(
+        modal::ModalSourceData, spatial_rate, pad_scale::Float64;
+        arithmetic::SourceArithmetic = modal.grid.arithmetic,
+    )
     nodes, modes = size(modal.map.synthesis)
     nodes == modes || throw(ArgumentError("a radial QDHT requires square scalar maps"))
     modal.map.taper.value isa Float64 && isone(modal.map.taper.value) ||
@@ -421,9 +484,11 @@ function RadialSourceData(modal::ModalSourceData, spatial_rate, pad_scale::Float
         throw(ArgumentError("radial spatial loss needs nonnegative binary64 node rates"))
     isfinite(pad_scale) && pad_scale > 0 ||
         throw(ArgumentError("radial temporal pad scale must be finite and positive"))
+    arithmetic == modal.grid.arithmetic ||
+        throw(ArgumentError("radial source and grid arithmetic differ"))
     absorber = if any(!iszero, spatial_rate)
         prepared = zeros(Float64, modes, modes)
-        synthesis, projection = modal.map.synthesis, modal.map.projection
+        synthesis, projection = modal.map.host_synthesis, modal.map.host_projection
         for column in 1:modes, row in 1:modes
             total = 0.0
             for node in 1:nodes
@@ -438,7 +503,12 @@ function RadialSourceData(modal::ModalSourceData, spatial_rate, pad_scale::Float
     else
         zeros(Float64, 0, 0)
     end
-    return RadialSourceData(modal, copy(spatial_rate), pad_scale, absorber)
+    rate, rate_range = _source_prepare_host(spatial_rate, arithmetic, :spatial_rate)
+    combined, combined_range = _source_prepare_host(absorber, arithmetic, :radial_absorber)
+    return RadialSourceData(
+        modal, rate, pad_scale, combined, arithmetic,
+        (spatial_rate = rate_range, absorber = combined_range),
+    )
 end
 
 """
@@ -446,7 +516,7 @@ end
 
 Own a scalar radial source with reused modal material kernels and additive spatial loss.
 
-The callable `source(out,state,z)` uses the modal source's disjoint binary64 matrix
+The callable `source(out,state,z)` uses the modal source's disjoint precision/scale
 contract and returns `nothing`. Varying radial material/operator profiles are preserved;
 this source does not replace their represented tables. Its fixed spatial loss is
 `B*state`, added only on active bins after material and temporal-source composition.
@@ -455,11 +525,11 @@ this source does not replace their represented tables. Its fixed spatial loss is
 Every mutable buffer is session-owned. Warmed CPU calls allocate nothing. Invalid
 preparation or aliases refuse outside kernels; numerical failures retain their codes.
 """
-mutable struct RadialSource{E, D, M}
+mutable struct RadialSource{E, D, M, A}
     execution::E
     data::D
     material::M
-    scratch::Matrix{ComplexF64}
+    scratch::A
     failures::Vector{Int}
     calls::Int
     ready::Bool
@@ -467,8 +537,10 @@ end
 
 function RadialSource(execution::KernelExecution, data::RadialSourceData; node_chunk::Int)
     material = ModalSource(execution, data.modal; node_chunk)
+    scalar = Complex{source_type(data.arithmetic)}
     return RadialSource(
-        execution, data, material, zeros(ComplexF64, data.modal.prefactor.shape),
+        execution, data, material,
+        dzeros(execution, scalar, data.modal.prefactor.shape...),
         zeros(Int, data.modal.prefactor.shape[2]), 0, false,
     )
 end

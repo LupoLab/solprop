@@ -92,3 +92,68 @@ the final addition. Proposition 4.5, equation (4.8), of
 `u*abs(sum) + gamma_(n-1)^2*sumabs` for `n*u<1`, including gradual underflow and
 excluding overflow. This controls accumulation of the represented panel terms;
 node, weight, rate, trigonometric and cutoff-conditioning errors remain separate.
+
+## Composed modal and spatial sources
+
+Every source preparation record retains the same `SourceArithmetic`; matching
+element types alone are insufficient because different state/field powers change
+the meaning of the maps. Translated inputs remain binary64. Constant arrays narrow
+once with named range facts. Binary64 preparations keep their existing finite-input
+ownership copies, including finite complex pairs whose magnitude would overflow;
+they do not acquire a binary32 admission restriction from this change.
+
+`ModalSourceMap.synthesis` folds `2^(es-ef)` and its projection folds `2^(ef-es)`.
+The independent positive taper is evaluated wide and rounded once per stage. The
+prepared map also retains original immutable binary64 host arrays, because a radial
+absorber must form
+
+```text
+B = projection * diag(-spatial_rate/2) * (synthesis/pad_scale)
+```
+
+from the original translated factors before its one narrowing. Substituting already
+rounded material maps would define a different represented operator. Binary64 host
+maps alias the owned prepared maps; binary32 host maps occupy separate retained
+storage and participate in ownership/alias checks and the session memory ledger.
+
+Represented source prefactors are direct values, never cumulative operators. A
+binary32 stage evaluates the original binary64 Chebyshev/expansion data, scans the
+entire resulting range, and only then writes the response-precision buffer. Scalar
+values are recomputed after admission rather than retained in state-sized mutable
+binary64 scratch. This preserves, for example, a represented value of one from
+`(2^25+1) - 2^25`; narrowing those coefficients first would erase that value.
+
+Raman's undamped rows, decay profiles, kernel reconstruction and kernel FFT remain
+host binary64, as in the NumPy single-precision oracle. The spectrum used by the
+pointwise convolution is normalized binary32 and carries its own stage block
+exponent. Its outside coefficient combines the material factor, density,
+`2^(2ef)` and that exponent before one binary32 rounding. The doubled drive,
+convolution FFTs and polarization are binary32. Kernel rebuild storage is owned
+independently of the normalized convolution spectrum; neither is an implicit cache.
+
+Cartesian/line reconstruction uses binary32 spatial and temporal FFTs. Its material
+pad scale absorbs `2^(es-ef)`, while the separated prefactor is evaluated from the
+original constant binary64 operator and absorbs `2^(ef-es)` before narrowing.
+Temporal/spatial additive absorbers act directly on stored state units and use
+neither homogeneity factor. Every pointwise material/absorber scalar is in the
+response precision. Original physical frequency and represented operator arrays
+remain immutable host preparation data; they are not mutable binary64 field scratch.
+
+The committed composition witnesses use direct DFTs, explicit causal convolution,
+and independent quadratic-rate populations. Their absolute envelopes are propagated
+before inverse/synthesis/projection/stream cancellation. The small modal fixtures
+have fewer than 8192 finite scalar operations on any dependency path; the spatial
+fixtures use 32768, with positive energy/current envelopes and explicit population
+derivative amplification. Their finite FFT error model also assumes a qualified
+twiddle-generation error: butterfly counts alone do not prove a vendor FFT bound.
+Envelope comparisons additionally include the unchanged cycle-refinement budget.
+The older binary64 fixture's tighter `2e-8` rule with only 16/32 nodes is retained as
+an explicit binary32 exhaustion witness. Accepted binary32 witnesses supply the
+production `2e-6` rule with 64/128/256/512 nodes; the implementation never changes
+either requested tolerance or rule sequence.
+
+These bounds qualify those finite, conditioned source fixtures and the tested CPU
+arithmetic. They are not an accuracy envelope for an arbitrary propagation, a proof
+of all possible ionisation-table conditioning, or a device qualification. Public
+single-precision admission, wide operator assembly, observation scaling and future
+intermediate-range checks remain separate integration obligations.

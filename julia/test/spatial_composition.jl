@@ -190,9 +190,9 @@ end
         end
     end
 end
-function radial_case(execution, kind; mixed = false)
-    base, unused = mixed ? composition_mixed_case(execution, kind) :
-        composition_case(execution, kind; raman = 2, plasma = true, temporal = true)
+function radial_case(execution, kind; mixed = false, cycle = nothing)
+    base, unused = mixed ? composition_mixed_case(execution, kind; cycle) :
+        composition_case(execution, kind; raman = 2, plasma = true, temporal = true, cycle)
     pad_scale = 2.0
     synthesis = pad_scale .* [1.2 0.2 -0.1; 0.3 0.8 0.1; -0.1 0.2 1.1]
     projection = [0.7 -0.1 0.2; 0.1 0.8 -0.2; -0.2 0.1 0.6]
@@ -283,6 +283,7 @@ end
             planes = reshape(view(band, :, :), 3, 2, 2)
             work = SP.CartesianBandWork(
                 execution, (2, 2), band, planes, SP.SpatialFFT(execution, planes, (2, 3)),
+                SP.SourceArithmetic(Float64),
             )
             overlapping = unsafe_wrap(Array, pointer(backing, 2), (3, 4); own = false)
             @test !Base.mightalias(overlapping, band)

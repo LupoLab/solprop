@@ -85,10 +85,10 @@ function composition_inverse(spectrum, n_time; real_signal = false, analytic = f
     return real_signal && !analytic ? real.(result) : result
 end
 
-function composition_cycle()
+function composition_cycle(; orders = (16, 32), moment_rtol = 2.0e-8)
     # Gauss-Legendre from its Jacobi eigenproblem, independent of the plasma kernel.
     nodes, weights, ends = Float64[], Float64[], Int[]
-    for count in (16, 32)
+    for count in orders
         off_diagonal = [index / sqrt(4index^2 - 1) for index in 1:(count - 1)]
         eigensystem = LinearAlgebra.eigen(
             LinearAlgebra.SymTridiagonal(zeros(count), off_diagonal)
@@ -98,11 +98,11 @@ function composition_cycle()
         push!(ends, length(nodes))
     end
     return SP.CycleQuadrature(
-        nodes, weights, Tuple(ends); moment_rtol = 2.0e-8, negligible_rate = 1.0e-30
+        nodes, weights, Tuple(ends); moment_rtol, negligible_rate = 1.0e-30
     )
 end
 
-function composition_channel(execution, scale, index, kind)
+function composition_channel(execution, scale, index, kind; cycle = nothing)
     lower, upper = 1.0e-12, 100.0
     coefficients = reshape([0.0, 0.0, 2.0, log(scale) + 2log(lower)], 4, 1)
     rate = SP.IonisationRateTable(
@@ -111,15 +111,17 @@ function composition_channel(execution, scale, index, kind)
     channel = SP.PlasmaChannel(rate, 1.1 + 0.2index, 0.3 + 0.1index)
     density = composition_profile(execution, 0.4 + 0.1index, 0.07index; edge = 0.31)
     initial = composition_profile(execution, 0.03index, 0.01index; edge = 0.62)
+    quadrature = kind == :field ? nothing : cycle === nothing ? composition_cycle() : cycle
     return SP.ModalPlasmaChannel(
         channel, density, initial;
-        quadrature = kind == :field ? nothing : composition_cycle(),
+        quadrature,
     )
 end
 
 function composition_case(
         execution, kind; kerr = true, raman = 0, plasma = false, thg = false,
         temporal = false, coarse = true, prefactor_kind = :constant,
+        cycle = nothing,
     )
     n_time, coarse_time = 16, 8
     crop = kind == :field ? collect(0:4) : [0, 1, 2, 3, 12, 13, 14, 15]
@@ -192,8 +194,8 @@ function composition_case(
     end
     plasma_data = if plasma
         channels = (
-            composition_channel(execution, 0.12, 1, kind),
-            composition_channel(execution, 0.07, 2, kind),
+            composition_channel(execution, 0.12, 1, kind; cycle),
+            composition_channel(execution, 0.07, 2, kind; cycle),
         )
         if kind == :field
             SP.ModalPlasma(execution, channels, SP.RunningIntegralRule([1.0], grid.dt))
@@ -228,10 +230,10 @@ function composition_scan(input, dt)
     return result
 end
 
-function composition_mixed_case(execution, kind)
+function composition_mixed_case(execution, kind; cycle = nothing)
     base, state = composition_case(
         execution, kind; raman = 2, plasma = true, temporal = true,
-        prefactor_kind = :expansion,
+        prefactor_kind = :expansion, cycle,
     )
     first_raman, second_raman = base.raman
     raman = (
@@ -536,12 +538,12 @@ end
             raman = (
                 response.data, response.drive, response.time_kernel, response.spectrum,
                 response.rates, response.weights, response.forward, response.convolution,
-                response.density,
+                response.density, response.host_spectrum, response.range, response.factor,
             )
             restored = SP._SourceRamanWork(raman...)
-            @test all(getfield(restored, index) === raman[index] for index in 1:9)
+            @test all(getfield(restored, index) === raman[index] for index in 1:12)
             @test_throws MethodError SP._SourceRamanWork(
-                raman[1:3]..., ComplexF32.(response.spectrum), raman[5:9]...
+                raman[1:3]..., ComplexF32.(response.spectrum), raman[5:12]...
             )
         end
     end

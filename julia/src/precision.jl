@@ -90,7 +90,9 @@ struct SourceRange
     smallest_nonzero::Float64
 end
 
-@inline _source_scaled(value::Real, exponent::Int) = ldexp(Float64(value)::Float64, exponent)
+@inline function _source_scaled(value::Real, exponent::Int)
+    return ldexp(Float64(value)::Float64, exponent)
+end
 @inline function _source_scaled(value::Complex, exponent::Int)
     return complex(
         ldexp(Float64(real(value))::Float64, exponent),
@@ -150,6 +152,21 @@ function _source_range(
     return fact, shift
 end
 
+function _source_host_narrow(
+        values::AbstractArray{S, N}, arithmetic::SourceArithmetic{T},
+        name::Symbol; exponent::Int = 0, normalize::Bool = false,
+    ) where {S <: Union{Real, Complex}, N, T}
+    fact, shift = _source_range(values, T, name, exponent, normalize)
+    all(dimension -> axes(values, dimension) == Base.OneTo(size(values, dimension)), 1:N) ||
+        throw(ArgumentError("$name source buffer must use one-based axes"))
+    storage = _source_storage_type(T, S)
+    prepared = Array{storage, N}(undef, size(values))
+    for index in CartesianIndices(prepared)
+        prepared[index] = _source_scaled(values[index], shift)
+    end
+    return prepared, fact
+end
+
 """
     source_narrow(execution, values, arithmetic, name; exponent=0, normalize=false)
 
@@ -168,16 +185,39 @@ Throw `ArgumentError` naming the buffer for nonfinite data, exponent overflow or
 unsupported range. Inputs are unchanged, including on refusal.
 """
 function source_narrow(
-        execution, values::AbstractArray{S, N}, arithmetic::SourceArithmetic{T},
-        name::Symbol; exponent::Int = 0, normalize::Bool = false,
-    ) where {S <: Union{Real, Complex}, N, T}
-    fact, shift = _source_range(values, T, name, exponent, normalize)
-    storage = _source_storage_type(T, S)
-    prepared = Array{storage, N}(undef, size(values))
-    for index in eachindex(prepared, values)
-        prepared[index] = _source_scaled(values[index], shift)
-    end
+        execution, values::AbstractArray, arithmetic::SourceArithmetic, name::Symbol;
+        exponent::Int = 0, normalize::Bool = false,
+    )
+    prepared, fact = _source_host_narrow(values, arithmetic, name; exponent, normalize)
     return upload(execution, prepared), fact
+end
+
+# Existing binary64 constructors already validate their finite inputs. A no-op
+# ownership copy is not a narrowing and must not impose the binary32 magnitude
+# admission (a finite complex pair can have an overflowing binary64 magnitude).
+function _source_prepare_host(
+        values::AbstractArray{S, N}, arithmetic::SourceArithmetic{T}, name::Symbol;
+        exponent::Int = 0,
+    ) where {S <: Union{Real, Complex}, N, T}
+    T === Float32 &&
+        return _source_host_narrow(values, arithmetic, name; exponent)
+    iszero(exponent) ||
+        throw(ArgumentError("binary64 source preparation requires unit scale"))
+    all(dimension -> axes(values, dimension) == Base.OneTo(size(values, dimension)), 1:N) ||
+        throw(ArgumentError("$name source buffer must use one-based axes"))
+    owned = Array{S, N}(undef, size(values))
+    for index in CartesianIndices(owned)
+        owned[index] = values[index]
+    end
+    return owned, nothing
+end
+
+function _source_prepare(
+        execution, values::AbstractArray, arithmetic::SourceArithmetic, name::Symbol;
+        exponent::Int = 0,
+    )
+    owned, fact = _source_prepare_host(values, arithmetic, name; exponent)
+    return upload(execution, owned), fact
 end
 
 """

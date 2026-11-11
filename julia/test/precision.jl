@@ -109,6 +109,11 @@ end
     empty, empty_fact = SJ.source_narrow(execution, Float64[], arithmetic, :empty)
     @test isempty(empty)
     @test empty_fact.smallest_nonzero == 0
+    indexed = PermutedDimsArray(reshape(collect(1.0:12.0), 3, 4), (2, 1))
+    narrowed, indexed_fact = SJ.source_narrow(execution, indexed, arithmetic, :cartesian)
+    @test narrowed == Float32.(indexed)
+    @test narrowed isa Matrix{Float32}
+    @test indexed_fact.largest == 12.0
 end
 
 @testset "Source range admission precedes every destination write" begin
