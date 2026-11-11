@@ -33,6 +33,7 @@ include("transforms.jl")
 include("tables.jl")
 include("power_weights.jl")
 include("operators.jl")
+include("spatial_operators.jl")
 include("runge_kutta.jl")
 include("adams.jl")
 include("low_storage.jl")
@@ -45,7 +46,9 @@ include("statistics.jl")
 include("monitor.jl")
 include("source.jl")
 include("composition.jl")
+include("spatial_composition.jl")
 include("observations.jl")
+include("spatial_observations.jl")
 include("quadrature_alarm.jl")
 include("march.jl")
 include("runge_kutta_observation.jl")
@@ -54,6 +57,7 @@ include("adams_observation.jl")
 include("adams_transfer.jl")
 include("low_storage_session.jl")
 include("observation_session.jl")
+include("spatial_session.jl")
 include("input_noise.jl")
 include("transfer.jl")
 include("monitor_transfer.jl")
@@ -83,5 +87,7 @@ function copy_preparation(values::AbstractArray{T, N}) where {T, N}
     copyto!(owned, values)
     return owned
 end
+
+include("precompile_workload.jl")
 
 end

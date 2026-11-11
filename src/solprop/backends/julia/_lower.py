@@ -127,6 +127,8 @@ def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
         responses.temporal_absorber_fine is not None
         and responses.absorber_scheme == "nonlinear"
     )
+    geometry = problem.transform.geometry
+    spatial_absorber = geometry is not None and bool(np.any(geometry.absorber_rate))
     return RunTransfer(
         control,
         owned(tableau.nodes),
@@ -148,8 +150,8 @@ def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
         request.observation.step_planes,
         START_GROWTH,
         _adams_policy(problem, request),
-        # lower_modal has already excluded general, spatial and atomic pipelines.
-        len(responses.response_order) == 1 and not in_stage,
+        # A physical-space collar remains a source even without material responses.
+        len(responses.response_order) == 1 and not in_stage and not spatial_absorber,
         low_storage,
         repr(request.integration.method),
         request.integration.method.history_key

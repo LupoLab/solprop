@@ -13,6 +13,15 @@ function _observation_populations(modal, transfer)
             for value in transfer.species_densities
     )
     data = modal.data
+    if data isa SolpropJulia.CartesianSourceData
+        return SolpropJulia.SpatialObservationPopulations(
+            data.plasma, data.grid; species_densities = profiles,
+            channel_species = pyconvert(Tuple{Vararg{Int}}, transfer.channel_species),
+            peak_species = pyconvert(Int, transfer.peak_species),
+            pad_scale = data.pad_scale,
+        )
+    end
+    data = data isa SolpropJulia.RadialSourceData ? data.modal : data
     return SolpropJulia.ObservationPopulations(
         data.plasma, data.grid, data.map; species_densities = profiles,
         channel_species = pyconvert(Tuple{Vararg{Int}}, transfer.channel_species),
@@ -44,12 +53,15 @@ function _observation_temporal(transfer)
     return SolpropJulia.TemporalObservationData(lowered, weights)
 end
 
-function prepare_observations(modal::SolpropJulia.ModalPreparation, transfer::Py)
+function prepare_observations(modal::SolpropJulia._ProblemPreparation, transfer::Py)
     execution = modal.execution
     grid = SolpropJulia.StatisticsGrid(
         copy_preparation(transfer.grid.omega), copy_preparation(transfer.grid.time),
         copy_preparation(transfer.grid.parseval);
         windows = copy_preparation(transfer.grid.windows),
+        spectral_density = pyis(transfer.grid.spectral_density, nothing) ? Float64[] :
+            copy_preparation(transfer.grid.spectral_density),
+        d_omega = pyconvert(Float64, transfer.grid.d_omega),
     )
     slots = Tuple(
         SolpropJulia.StatisticSlot(
@@ -68,18 +80,22 @@ function prepare_observations(modal::SolpropJulia.ModalPreparation, transfer::Py
         ),
     )
     n_modes = pyconvert(Int, transfer.n_modes)
-    prepared = SolpropJulia.ObservationPreparation(
-        execution, grid, selection;
-        kind = Symbol(pyconvert(String, transfer.kind)), n_modes,
-        power_weight = _power_weight(
-            execution, transfer.power_weight, (length(grid.omega), n_modes),
-        ),
-        profiles, axis_synthesis = _optional_copy(transfer.axis_synthesis),
-        taper = _profile(execution, transfer.taper, :taper),
-        intensity_factor = pyconvert(Float64, transfer.intensity_factor),
-        populations = _observation_populations(modal, transfer.populations),
-        temporal = _observation_temporal(transfer.temporal),
-    )
+    prepared = if !pyis(transfer.spatial, nothing)
+        _spatial_observation_preparation(modal, transfer, grid, selection, profiles)
+    else
+        SolpropJulia.ObservationPreparation(
+            execution, grid, selection;
+            kind = Symbol(pyconvert(String, transfer.kind)), n_modes,
+            power_weight = _power_weight(
+                execution, transfer.power_weight, (length(grid.omega), n_modes),
+            ),
+            profiles, axis_synthesis = _optional_copy(transfer.axis_synthesis),
+            taper = _profile(execution, transfer.taper, :taper),
+            intensity_factor = pyconvert(Float64, transfer.intensity_factor),
+            populations = _observation_populations(modal, transfer.populations),
+            temporal = _observation_temporal(transfer.temporal),
+        )
+    end
     policy = SolpropJulia.SessionObservationPolicy(
         prepared; period = pyconvert(Int, transfer.period),
         can_rest = pyconvert(Bool, transfer.can_rest),

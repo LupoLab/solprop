@@ -11,7 +11,7 @@ The completed implementation is left ready for maintainer review, not auto-merge
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
 | 1: package and runtime | Setup/package integrated; remaining runtime qualification deferred | Maintainer directs core implementation to proceed; failures remain tracked |
-| 2: CPU binary64 session | Scalar modal stepping, statistics, temporal monitoring, fixed groups, RK/Adams dense output, split absorption and input noise pass; remaining routes in progress | Common dense conformance passes; spatial attachment, preparation and measurements remain pending |
+| 2: CPU binary64 session | Scalar modal and spatial stepping/statistics attached; temporal monitoring, fixed groups, RK/Adams dense output, split absorption and input noise pass their recorded selections | Transverse attachment, remaining preparation controls and measurements remain pending |
 | 3: CPU binary32 | DF32 primitives, conservative function leaf and operand analysis reviewed; full execution pending | Whole-expression and device admission remain unqualified |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
@@ -54,8 +54,8 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Numerical transform/Adams agent | New `spatial_observations.jl` and focused tests; abstract observation bases and six monitor lifecycle annotation widenings in `observations.jl` | Spatial source chain `b9269485`, `9816ec8a`, `2140dd78` independently approved; physical-flux observations follow its frozen interface |
-| Numerical services agent | New `precompile_workload.jl` and focused test; precisely assigned optional-storage/type guards in shared constructors | RK dense chain integrated after review; precompile quality checks and subsequent modal alias correction #688 |
+| Numerical transform/Adams agent | New `transverse_observations.jl` and focused tests; shared transverse decision stages in `monitor.jl` | Spatial source and observation leaves independently approved and integrated; resumable transverse monitor follows the frozen interface |
+| Numerical services agent | New `fft_plans.jl`, Python `_fft_cache.py` and their focused tests | Precompile and source layout fixes #688/#689 reviewed and integrated; FFT planning/cache leaf in progress |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
 | Independent reviewer | Production code read-only; independent transaction tests returned to master | Group, dense scheduler/adapter and corrected input-noise leaf approved; independent integration review continues |
 
@@ -259,7 +259,7 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
 
 1. Attach the reviewed scalar radial/Cartesian/line source chain, then independently
    reviewed spatial statistics and transverse monitoring. General modal remains refused.
-2. Integrate precompile work and its precise type/presence guards; complete FFT-plan
+2. Complete FFT-plan
    persistence, shared host BLAS leases, memory-budget admission and CPU measurements.
 3. Complete binary32 execution and whole-expression DF32 bounds, then each vendor's
    public selection/qualification and the phase 5 documentation/evidence gates.
@@ -726,3 +726,38 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   admission correction #682 is committed as `af3edeb9`. The combined typed selection
   had 263 passes and one stale CI skip fixture; the corrected CI fixture's 56 tests
   pass. Formatting, scoped types and documentation checks accompany this milestone.
+
+- Representative precompile prerequisite `6c50a522` and workload `d7b29ca1` were
+  independently approved and integrated as `b26309fc` and `3cc78d05`. The prerequisite
+  selection passed 601 bounds-enabled assertions; the workload review passed 106,
+  including preservation of a nondefault planner policy. Full author quality passed
+  16 Aqua/JET checks with 1,225 definitions analyzed and none cached, plus a concrete
+  allocating-workload analysis. The three owned serial sessions exercise field RK,
+  envelope Adams and low-storage dispatch, responses, observations and monitoring.
+  A fresh native-target engine-cache diagnostic measured a 22.67 s cache build and
+  67.54 MB image; first representative execution was 6.93 ms versus 20.26 s with only
+  the workload macro disabled. These are local Apple arm64 cache diagnostics, not
+  quiet-machine propagation benchmarks or complete public-path compilation claims.
+  Two-thread dispatch still compiled a small specialization. Generic-target CI and
+  the required startup/worker campaign remain pending.
+- The latest pushed `dca5615e` completed all Python/native static, default, slow and
+  combined coverage checks successfully, including every coverage shard and the
+  coverage report. Both Julia jobs passed their engine tests and 774 Python checks,
+  with 30 declared skips, but each failed one first-SIGTERM-exit diagnostic through
+  the already recorded shutdown timeout. This remains visible under #610 and the
+  maintainer's deferred runtime work; no completed full gate is claimed.
+- Scalar spatial session attachment passes 104 managed checks across the affected
+  selections: 73 spatial cases, 23 modal split cases and eight modal observation
+  regressions. Eighteen initial comparison tests mistakenly requested a stage-only
+  quadrature diagnostic from the saved-field reference collector; the corrected
+  reference selection passes all 18, with the actual unavailable diagnostic checked
+  separately. The production implementation needed no adjustment for that test error.
+  The full two-thread bounds-enabled Core passes 116,924 assertions in 294 sets.
+  Integrated Aqua/JET passes all 16 checks over 1,409 definitions, none cached.
+  The new physical temporal-split leaf passes 64 assertions, including zero warmed
+  allocations; constant spatial noise phase passes three. Pure spatial transfer and
+  width-conditioning checks pass 21 cases. Independent source/observation reviews
+  cover transform order, flux normalization, aliasing and conditioned width bounds.
+  Actual bridge regressions cover nonzero launch phase, material-free physical
+  absorption and foreign-preparation export rejection (#690). Additional preparation,
+  transverse monitoring and per-route material/service witnesses remain outstanding.

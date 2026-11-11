@@ -20,6 +20,7 @@ from solprop.backends.julia._observations import ObservationTransfer, lower_obse
 from solprop.backends.julia._ownership import JuliaHandle, require_main_thread
 from solprop.backends.julia._runtime import JuliaRuntime, get_runtime
 from solprop.backends.julia._session import JuliaSession
+from solprop.backends.julia._spatial import lower_spatial
 from solprop.backends.protocol import ExecutionBackend, TimingProbe
 from solprop.backends.session import (
     ExecutionOptions,
@@ -35,6 +36,7 @@ from solprop.modes.protocol import Mode
 from solprop.monitor import BoundaryCheck
 from solprop.profiles import ZProfile
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.routes import SpatialRoute
 from solprop.translate.run_request import RunRequest
 
 __all__ = ["JuliaBackend", "JuliaPrepared"]
@@ -109,7 +111,10 @@ class JuliaBackend:
             )
         self._problem = problem
         self._request = request
-        self._lowered = lower_modal(problem)
+        self._spatial = isinstance(problem.route, SpatialRoute)
+        self._lowered = (
+            lower_spatial(problem) if self._spatial else lower_modal(problem)
+        )
         self._node_chunk = min(
             problem.transform.n_nodes,
             problem.transform.n_nodes if selected.chunk is None else selected.chunk,
@@ -226,7 +231,10 @@ class JuliaBackend:
         if self._preparation is None:
             runtime = get_runtime(setup_id=self._setup_id, device="cpu")
             handle = runtime.own_call(
-                "prepare_modal", self._lowered, runtime.threads, self._node_chunk
+                "prepare_spatial" if self._spatial else "prepare_modal",
+                self._lowered,
+                runtime.threads,
+                self._node_chunk,
             )
             self._runtime, self._preparation = runtime, handle
         assert self._runtime is not None

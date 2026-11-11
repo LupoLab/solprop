@@ -18,8 +18,9 @@ from dataclasses import dataclass, replace
 from typing import Literal, cast
 
 import numpy as np
-from jaxtyping import Bool, Float, Int
+from jaxtyping import Bool, Complex, Float, Int
 
+from solprop import fourier
 from solprop.backends.julia._descriptors import (
     CoefficientTransfer,
     TableTransfer,
@@ -28,6 +29,7 @@ from solprop.backends.julia._descriptors import (
     owned,
 )
 from solprop.backends.julia._profiles import ProfileLowering, lower_statistic_profile
+from solprop.backends.julia._spatial import SeparableTransfer, lower_separable
 from solprop.constants import EPS0, C
 from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
@@ -41,13 +43,15 @@ from solprop.monitor import (
 from solprop.profiles import ZProfile
 from solprop.stats import CATALOGUE
 from solprop.translate.problem import PropagationProblem
-from solprop.translate.routes import ModalRoute
+from solprop.translate.routes import ModalRoute, SpatialRoute
 from solprop.translate.run_request import MethodKind, RunRequest
 
 __all__ = [
     "ObservationProfilesTransfer",
     "ObservationTransfer",
     "PopulationObservationTransfer",
+    "SpatialObservationTransfer",
+    "SpatialWidthTransfer",
     "StatisticTransfer",
     "StatisticsGridTransfer",
     "TemporalObservationTransfer",
@@ -73,6 +77,24 @@ _STATISTICS = frozenset(
         "electron_density",
         "peak_ionisation_rate",
         "peak_intensity",
+        "quadrature_error",
+    )
+)
+_SPATIAL_STATISTICS = frozenset(
+    (
+        "energy",
+        "density",
+        "pressure",
+        "core_radius",
+        "species_ionisation",
+        "species_electron_density",
+        "electron_density",
+        "peak_ionisation_rate",
+        "peak_intensity",
+        "on_axis_intensity",
+        "beam_radius",
+        "fwhm_r",
+        "on_axis_spectrum",
         "quadrature_error",
     )
 )
@@ -130,12 +152,19 @@ class StatisticsGridTransfer:
     windows : numpy.ndarray
         Dense unpacked Boolean half-open frequency gates, shape
         ``(n_omega,n_windows)``. Every array is owned and read-only.
+    spectral_density : numpy.ndarray or None
+        Independent per-angular-frequency weights in seconds squared for spatial
+        axis spectra. Absent on modal paths.
+    d_omega : float
+        Angular-frequency spacing in rad/s for spatial widths; NaN otherwise.
     """
 
     omega: Float[np.ndarray, " n_omega"]
     time: Float[np.ndarray, " n_t"]
     parseval: Float[np.ndarray, " n_omega"]
     windows: Bool[np.ndarray, "n_omega n_windows"]
+    spectral_density: Float[np.ndarray, " n_omega"] | None = None
+    d_omega: float = math.nan
 
 
 @dataclass(frozen=True, eq=False)
@@ -260,6 +289,57 @@ class TemporalObservationTransfer:
 
 
 @dataclass(frozen=True, eq=False)
+class SpatialWidthTransfer:
+    """Own the physical axes and radial measure for spatial fluence widths.
+
+    Attributes
+    ----------
+    kind : str
+        Radial, Cartesian or line geometry.
+    x, y : numpy.ndarray
+        Physical coordinates in metres; y is empty for a radial grid.
+    weights : numpy.ndarray
+        Physical integration measure in square metres (metres on a line).
+    """
+
+    kind: str
+    x: Float[np.ndarray, " n_x"]
+    y: Float[np.ndarray, " n_y"]
+    weights: Float[np.ndarray, " n_nodes"]
+
+
+@dataclass(frozen=True, eq=False)
+class SpatialObservationTransfer:
+    """Own the independent spatial plane measure and coarse reconstruction metadata.
+
+    Attributes
+    ----------
+    flux : SeparableTransfer
+        Protected constant wave-number inputs to the axial admittance.
+    material : TableTransfer or None
+        Independently represented complex material square, inverse square metres.
+    light_speed : float
+        The shared speed of light, metres per second.
+    spectral_weights : numpy.ndarray
+        Transverse Parseval measure, shape ``(n_modes,)``, in the geometry's units.
+    on_axis : numpy.ndarray
+        Independent coarse axial synthesis, shape ``(n_modes,)``.
+    pad_scale : float
+        Fine-grid temporal scaling removed once from radial coarse synthesis.
+    widths : SpatialWidthTransfer or None
+        Physical axes retained only when a spatial width is requested.
+    """
+
+    flux: SeparableTransfer
+    material: TableTransfer | None
+    light_speed: float
+    spectral_weights: Float[np.ndarray, " n_modes"]
+    on_axis: Complex[np.ndarray, " n_modes"]
+    pad_scale: float
+    widths: SpatialWidthTransfer | None
+
+
+@dataclass(frozen=True, eq=False)
 class ObservationTransfer:
     """Own the numerical observations selected by one immutable run request.
 
@@ -277,8 +357,10 @@ class ObservationTransfer:
         One-based slot indices in the requested periodic order.
     width, period : int
         Total packed row width and positive periodic accepted-step cadence.
-    power_weight : CoefficientTransfer
-        Direct real modal power weights; no evaluation or independent fitting.
+    power_weight : CoefficientTransfer or None
+        Direct real modal power weights; absent for a spatial route.
+    spatial : SpatialObservationTransfer or None
+        Independent axial-flux preparation for a spatial route; absent otherwise.
     profiles : ObservationProfilesTransfer
         Requested independent scalar profile statistics and their measurements.
     axis_synthesis : numpy.ndarray or None
@@ -307,7 +389,7 @@ class ObservationTransfer:
     periodic_indices: tuple[int, ...]
     width: int
     period: int
-    power_weight: CoefficientTransfer
+    power_weight: CoefficientTransfer | None
     profiles: ObservationProfilesTransfer
     axis_synthesis: Float[np.ndarray, "n_components n_modes"] | None
     taper: float | TableTransfer
@@ -316,6 +398,7 @@ class ObservationTransfer:
     temporal: TemporalObservationTransfer | None
     split_rate: Float[np.ndarray, " n_t"] | None
     can_rest: bool
+    spatial: SpatialObservationTransfer | None = None
 
 
 def _admit(
@@ -340,15 +423,22 @@ def _admit(
         Naming an unsupported route, statistic or missing context.
     """
     names = request.observation.stats.names
-    unsupported = tuple(name for name in names if name not in _STATISTICS)
+    spatial = isinstance(problem.route, SpatialRoute)
+    catalogue = _SPATIAL_STATISTICS if spatial else _STATISTICS
+    unsupported = tuple(name for name in names if name not in catalogue)
     if unsupported:
-        raise BackendError(
-            f"julia scalar modal statistics do not evaluate {unsupported!r}"
-        )
+        raise BackendError(f"julia scalar statistics do not evaluate {unsupported!r}")
     checks = (
         (problem.precision.single, "binary32"),
         (problem.shape[1] != 1, "vector polarisation"),
-        (not isinstance(problem.route, ModalRoute), "non-modal routes"),
+        (
+            not isinstance(problem.route, (ModalRoute, SpatialRoute)),
+            "unsupported routes",
+        ),
+        (
+            isinstance(problem.route, SpatialRoute) and problem.route.kind == "planar",
+            "planar routes",
+        ),
         (problem.transform.modal_tables is not None, "general modal transforms"),
         (problem.linear.modal_metric is not None, "general modal power metrics"),
     )
@@ -357,7 +447,11 @@ def _admit(
             raise BackendError(f"julia observations refuse {capability}")
     if {"fwhm_t", "fwhm_t_outer"}.intersection(names) and grid is None:
         raise BackendError("julia half-maximum widths need the original time grid")
-    if "peak_intensity" in names and (modes is None or len(modes) != problem.shape[0]):
+    if (
+        not spatial
+        and "peak_intensity" in names
+        and (modes is None or len(modes) != problem.shape[0])
+    ):
         raise BackendError("julia peak_intensity needs the matching mode set")
     if {"energy_window", "peak_power_window"}.intersection(
         names
@@ -419,6 +513,16 @@ def _grid(
         owned(time),
         owned(parseval),
         owned(windows),
+        owned(
+            fourier.spectral_density(
+                np.ones(data.omega.size, dtype=complex), data.dt, kind=problem.grid_kind
+            )
+        )
+        if isinstance(problem.route, SpatialRoute)
+        else None,
+        float(2 * np.pi / (data.n_to * data.dt_fine))
+        if isinstance(problem.route, SpatialRoute)
+        else math.nan,
     )
 
 
@@ -450,6 +554,10 @@ def _slots(
         "species_ionisation": (n_species, problem.transform.n_nodes),
         "species_electron_density": (n_species,),
     }
+    if isinstance(problem.route, SpatialRoute):
+        shapes.update(
+            energy=(), beam_radius=(2,), on_axis_spectrum=(problem.shape[-1],)
+        )
     result: list[StatisticTransfer] = []
     offset = 1
     for name in request.observation.stats.names:
@@ -752,6 +860,44 @@ def _temporal(
     )
 
 
+def _spatial_observation(
+    problem: PropagationProblem, request: RunRequest
+) -> SpatialObservationTransfer | None:
+    """Copy scalar spatial flux and selected width geometry without modal weights.
+
+    Parameters
+    ----------
+    problem, request : PropagationProblem, RunRequest
+        Admitted numerical descriptor and selected spatial statistics.
+
+    Returns
+    -------
+    SpatialObservationTransfer or None
+        Independent represented flux and geometry, or None for a modal route.
+    """
+    route, geometry = problem.route, problem.transform.geometry
+    if not isinstance(route, SpatialRoute):
+        return None
+    assert geometry is not None
+    widths = None
+    if {"beam_radius", "fwhm_r"}.intersection(request.observation.stats.names):
+        widths = SpatialWidthTransfer(
+            route.kind,
+            owned(geometry.axes[0]),
+            owned(np.empty(0) if route.kind == "radial" else geometry.axes[1]),
+            owned(geometry.spatial_weights),
+        )
+    return SpatialObservationTransfer(
+        lower_separable(route.flux.base),
+        None if route.flux.material is None else lower_table(route.flux.material),
+        C,
+        owned(geometry.spectral_weights),
+        owned(geometry.on_axis),
+        problem.grids.pad_scale,
+        widths,
+    )
+
+
 def lower_observations(
     problem: PropagationProblem,
     request: RunRequest,
@@ -760,12 +906,12 @@ def lower_observations(
     modes: Sequence[Mode] | None = None,
     profiles: Mapping[str, ZProfile] | None = None,
 ) -> ObservationTransfer:
-    """Prepare one request's scalar modal statistics and temporal monitor numerically.
+    """Prepare one request's scalar statistics and temporal monitor numerically.
 
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
-        Validated scalar modal binary64 descriptor.
+        Validated scalar modal or spatial binary64 descriptor.
     request : solprop.translate.run_request.RunRequest
         This run's immutable statistic selection, periodic cadence and monitor.
     grid : solprop.grid.TimeGrid or None, optional
@@ -818,6 +964,11 @@ def lower_observations(
     monitor = request.boundary.monitor
     temporal = None if monitor is None else _temporal(problem, monitor, split_rate)
     names = request.observation.stats.names
+    spatial = _spatial_observation(problem, request)
+    geometry = problem.transform.geometry
+    resting_geometry = geometry is None or (
+        geometry.kind == "radial" and not np.any(geometry.absorber_rate)
+    )
     return ObservationTransfer(
         problem.grid_kind,
         problem.shape[0],
@@ -826,9 +977,11 @@ def lower_observations(
         tuple(names.index(name) + 1 for name in request.observation.stats.periodic),
         sum(slot.count for slot in slots),
         request.observation.stats.period,
-        _power_weight(problem),
+        _power_weight(problem) if spatial is None else None,
         _profiles(problem, request, profiles),
-        _axis(modes) if "peak_intensity" in names and modes is not None else None,
+        _axis(modes)
+        if spatial is None and "peak_intensity" in names and modes is not None
+        else None,
         lower_profile(problem.transform.taper_scale),
         0.5 * EPS0 * C,
         _populations(problem) if _POPULATIONS.intersection(names) else None,
@@ -838,5 +991,7 @@ def lower_observations(
         and request.integration.kind is not MethodKind.LOW_STORAGE
         and responses.temporal_absorber is not None
         and responses.absorber_scheme == "nonlinear"
-        and problem.linear.coupled_flow is None,
+        and problem.linear.coupled_flow is None
+        and resting_geometry,
+        spatial,
     )

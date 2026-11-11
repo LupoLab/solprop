@@ -30,9 +30,13 @@ __all__ = [
     "PlasmaTransfer",
     "RamanTransfer",
     "RateTransfer",
+    "SourceTransfer",
     "TableTransfer",
+    "lower_coefficient",
+    "lower_mapped",
     "lower_modal",
     "lower_profile",
+    "lower_source",
     "lower_table",
     "owned",
     "transfer_memory",
@@ -231,6 +235,46 @@ class PlasmaTransfer:
 
 
 @dataclass(frozen=True, eq=False)
+class SourceTransfer:
+    """Own scalar temporal-grid and material records for any admitted route.
+
+    Attributes
+    ----------
+    kind : str
+        Field or envelope representation.
+    n_time, dt : int, float
+        Fine temporal sample count and spacing in seconds.
+    crop_index : numpy.ndarray
+        Zero-based coarse-to-fine frequency indices.
+    omega, active, omega_window : numpy.ndarray
+        Coarse angular frequencies in rad/s, active mask and spectral source window.
+    source_window, source_window_derivative : numpy.ndarray
+        Fine temporal window and its inverse-second derivative.
+    temporal_rate : numpy.ndarray or None
+        In-stage power absorption, inverse metres; absent for split absorption.
+    carrier : numpy.ndarray or None
+        Fine-grid harmonic carrier.
+    kerr, raman, plasma : KerrTransfer or None, tuple, PlasmaTransfer or None
+        Independent material responses with unchanged translated coefficients.
+    """
+
+    kind: str
+    n_time: int
+    dt: float
+    crop_index: Int[np.ndarray, " n_omega"]
+    omega: Float[np.ndarray, " n_omega"]
+    active: Bool[np.ndarray, " n_omega"]
+    omega_window: Float[np.ndarray, " n_omega"]
+    source_window: Float[np.ndarray, " n_to"]
+    source_window_derivative: Float[np.ndarray, " n_to"]
+    temporal_rate: Float[np.ndarray, " n_to"] | None
+    carrier: Complex[np.ndarray, " n_to"] | None
+    kerr: KerrTransfer | None
+    raman: tuple[RamanTransfer, ...]
+    plasma: PlasmaTransfer | None
+
+
+@dataclass(frozen=True, eq=False)
 class ModalTransfer:
     """Own scalar modal field/envelope descriptors without a runtime or workspace.
 
@@ -248,7 +292,8 @@ class ModalTransfer:
         Independent positive dimensionless taper scale.
     prefactor, operator, power_weight : CoefficientTransfer
         Source coefficient, cumulative linear representation or constant generator,
-        and dimensionless export weights. No quantity is sampled at preparation.
+        and dimensionless export weights. The radial geometry has no modal export
+        weight and retains None. No quantity is sampled at preparation.
     crop_index : numpy.ndarray
         Zero-based coarse-to-fine frequency map.
     omega, active, omega_window : numpy.ndarray
@@ -272,7 +317,7 @@ class ModalTransfer:
     taper: float | TableTransfer
     prefactor: CoefficientTransfer
     operator: CoefficientTransfer
-    power_weight: CoefficientTransfer
+    power_weight: CoefficientTransfer | None
     crop_index: Int[np.ndarray, " n_omega"]
     omega: Float[np.ndarray, " n_omega"]
     active: Bool[np.ndarray, " n_omega"]
@@ -386,7 +431,7 @@ def lower_profile(table: PiecewiseChebyshev | None) -> float | TableTransfer:
     return lower_table(table)
 
 
-def _coefficient(
+def lower_coefficient(
     constant: np.ndarray | None,
     table: PiecewiseChebyshev | None,
     expansion: ParameterExpansion | None,
@@ -598,16 +643,41 @@ def lower_modal(problem: PropagationProblem) -> ModalTransfer:
     """
     if problem in _MODAL:
         return _MODAL[problem]
-    responses, transform, linear, grid = (
+    if not isinstance(problem.route, ModalRoute):
+        raise BackendError(
+            "this julia modal composition does not yet run non-modal routes"
+        )
+    result = lower_mapped(problem)
+    _MODAL[problem] = result
+    return result
+
+
+def lower_source(problem: PropagationProblem) -> SourceTransfer:
+    """Copy a scalar source grid and independent material data without runtime entry.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        Validated binary64 scalar descriptor; route admission belongs to its caller.
+
+    Returns
+    -------
+    SourceTransfer
+        Owned arrays retaining the translated units and frequency ordering.
+
+    Raises
+    ------
+    BackendError
+        Naming an unsupported precision, response or coupled representation.
+    """
+    responses, transform, linear = (
         problem.responses,
         problem.transform,
         problem.linear,
-        problem.grids,
     )
     checks = (
         (problem.precision.single, "binary32"),
         (problem.shape[1] != 1, "vector polarisation"),
-        (not isinstance(problem.route, ModalRoute), "non-modal routes"),
         (transform.modal_tables is not None, "general modal transforms"),
         (tdse_descriptor(problem.route) is not None, "TDSE responses"),
         (linear.coupled_flow is not None, "coupled flows"),
@@ -619,36 +689,13 @@ def lower_modal(problem: PropagationProblem) -> ModalTransfer:
     for refused, capability in checks:
         if refused:
             raise BackendError(
-                f"this julia modal composition does not yet run {capability}"
+                f"this julia scalar composition does not yet run {capability}"
             )
-    result = ModalTransfer(
+    grid = problem.grids
+    return SourceTransfer(
         problem.grid_kind,
         grid.n_to,
         grid.dt_fine,
-        owned(transform.synthesis),
-        owned(transform.projection),
-        None
-        if np.array_equal(transform.projection, transform.projection_coarse)
-        else owned(transform.projection_coarse),
-        lower_profile(transform.taper_scale),
-        _coefficient(
-            responses.prefactor_constant,
-            responses.prefactor,
-            responses.prefactor_expansion,
-            problem.shape,
-        ),
-        _coefficient(
-            linear.phi_constant,
-            linear.polynomial if linear.phi_expansion is None else None,
-            linear.phi_expansion,
-            (1, *problem.shape),
-        ),
-        _coefficient(
-            linear.power_weight_constant,
-            linear.power_weight,
-            linear.power_weight_expansion,
-            problem.shape,
-        ),
         owned(grid.crop_index),
         owned(grid.omega),
         owned(grid.active_mask),
@@ -666,8 +713,72 @@ def lower_modal(problem: PropagationProblem) -> ModalTransfer:
         ),
         _plasma(problem),
     )
-    _MODAL[problem] = result
-    return result
+
+
+def lower_mapped(problem: PropagationProblem) -> ModalTransfer:
+    """Copy admitted static modal or radial maps with shared scalar source data.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        Scalar binary64 descriptor with a nonempty static matrix transform.
+
+    Returns
+    -------
+    ModalTransfer
+        Owned maps, material records and exact represented spectral coefficients.
+
+    Raises
+    ------
+    BackendError
+        For an unsupported scalar response or a transform without static matrices.
+    """
+    source = lower_source(problem)
+    transform, linear, responses = problem.transform, problem.linear, problem.responses
+    if transform.synthesis.size == 0 or transform.projection.size == 0:
+        raise BackendError("julia matrix preparation requires nonempty static maps")
+    return ModalTransfer(
+        source.kind,
+        source.n_time,
+        source.dt,
+        owned(transform.synthesis),
+        owned(transform.projection),
+        None
+        if np.array_equal(transform.projection, transform.projection_coarse)
+        else owned(transform.projection_coarse),
+        lower_profile(transform.taper_scale),
+        lower_coefficient(
+            responses.prefactor_constant,
+            responses.prefactor,
+            responses.prefactor_expansion,
+            problem.shape,
+        ),
+        lower_coefficient(
+            linear.phi_constant,
+            linear.polynomial if linear.phi_expansion is None else None,
+            linear.phi_expansion,
+            (1, *problem.shape),
+        ),
+        None
+        if transform.geometry is not None
+        else lower_coefficient(
+            linear.power_weight_constant,
+            linear.power_weight,
+            linear.power_weight_expansion,
+            problem.shape,
+        ),
+        source.crop_index,
+        source.omega,
+        source.active,
+        source.omega_window,
+        source.source_window,
+        source.source_window_derivative,
+        source.temporal_rate,
+        source.carrier,
+        source.kerr,
+        source.raman,
+        source.plasma,
+    )
 
 
 def transfer_memory(transfer: object, *, exclude: object = None) -> dict[str, int]:

@@ -114,7 +114,7 @@ struct SessionObservationPolicy{P, R}
 end
 
 function SessionObservationPolicy(
-        prepared::ObservationPreparation;
+        prepared::_ObservationPreparation;
         period::Int = 1, can_rest::Bool = false, split_rate = nothing,
     )
     period > 0 || throw(ArgumentError("observation period must be positive"))
@@ -271,6 +271,9 @@ mutable struct ObservationServices{W, S, R, Q}
     end
 end
 
+_temporal_split_workspace(execution, data::ObservationPreparation, rate) =
+    TemporalSplitWorkspace(execution, data.kind, rate, data.n_modes)
+
 function ObservationServices(
         execution::KernelExecution, policy::SessionObservationPolicy;
         attempt_capacity::Int = 256, node_chunk::Int,
@@ -284,9 +287,8 @@ function ObservationServices(
         execution, data; node_chunk, noise_spectrum, temporal_continuation,
         continuation_plane,
     )
-    split = policy.split_rate === nothing ? nothing : TemporalSplitWorkspace(
-            execution, data.kind, policy.split_rate, data.n_modes,
-        )
+    split = policy.split_rate === nothing ? nothing :
+        _temporal_split_workspace(execution, data, policy.split_rate)
     slots, selected = data.selection.slots, data.selection.periodic
     slices = map(eachindex(selected) |> Tuple) do ordinal
         slot = slots[selected[ordinal]]
@@ -442,13 +444,17 @@ function _observation_launch_rest!(services, session)
     return nothing
 end
 
+_source_has_temporal(source) = false
+_source_has_temporal(source::ModalSource) = source.data.grid.temporal_rate !== nothing
+_source_has_temporal(source::RadialSource) = _source_has_temporal(source.material)
+_source_has_temporal(source::CartesianSource) = source.data.grid.temporal_rate !== nothing
+
 function _session_launch!(services::ObservationServices, session)
     _observation_service_entry(services, session)
     !services.started || throw(ArgumentError("observation services already launched"))
     if services.can_rest
-        session.source isa ModalSource &&
-            session.source.data.grid.temporal_rate !== nothing ||
-            throw(ArgumentError("quiet observation policy requires a temporal ModalSource"))
+        _source_has_temporal(session.source) ||
+            throw(ArgumentError("quiet observation policy requires a temporal source"))
     end
     row = observation_launch!(
         services.work, session.field, session.state.z, services.notices,
@@ -554,6 +560,10 @@ function _observation_quadrature!(services, source::ModalSource, execution)
             work, source.quadrature_fine, source.quadrature_coarse, execution,
         ) : NaN
     return nothing
+end
+
+function _observation_quadrature!(services, source::RadialSource, execution)
+    return _observation_quadrature!(services, source.material, execution)
 end
 
 function _observation_plane_rest!(services, session)

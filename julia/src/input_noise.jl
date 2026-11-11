@@ -12,7 +12,8 @@ Copy one supplied binary64 input-noise draw and allocate its numerical work.
 `spectrum` is a finite complex binary64 matrix `(n_omega,n_columns)` in the existing
 internal spectral amplitude units and FFT convention. `launch` is the problem's
 finite nonnegative launch position in m. `operator` is the already prepared binary64
-`DiagonalOperator`, `RepresentedOperator` or `ExpansionOperator` of the same shape;
+`DiagonalOperator`, `RepresentedOperator`, `ExpansionOperator` or
+`SeparableSpatialOperator` of the same shape;
 its immutable data are borrowed. No random draw, normalization or model is introduced.
 
 The record owns the copied `spectrum`, complex `scratch`, real `phase` and real
@@ -61,6 +62,9 @@ function _input_noise_shape(operator::ExpansionOperator)
         throw(ArgumentError("input noise requires a binary64 operator expansion"))
     return (size(operator.terms, 1), size(operator.terms, 2)), size(operator.terms, 3)
 end
+
+_input_noise_shape(operator::SeparableSpatialOperator) =
+    (_spatial_operator_shape(operator), 0)
 
 function _input_noise_shape(operator)
     throw(ArgumentError("input noise requires a supported prepared linear operator"))
@@ -140,6 +144,16 @@ function _input_noise_phase!(phase, scratch, weights, operator::DiagonalOperator
     rate = operator.rate
     each!(ex, size(phase)...) do row, column
         phase[row, column] = imag(rate[row, column]) * z
+    end
+    return nothing
+end
+
+function _input_noise_phase!(
+        phase, scratch, weights, operator::SeparableSpatialOperator, z, ex,
+    )
+    operator_rate!(scratch, operator, z, ex)
+    each!(ex, size(phase)...) do row, column
+        phase[row, column] = imag(scratch[row, column]) * z
     end
     return nothing
 end

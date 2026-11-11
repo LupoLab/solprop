@@ -13,6 +13,11 @@ Constant, tabulated and expanded
 operators, prefactors and power weights keep their full represented variation. Each
 material response uses its own density, decay and preionisation profiles; taper scaling
 follows the translated mode map.
+Scalar radial, Cartesian and line propagation is also attached. Radial propagation
+retains its translated quadrature and padding factors; Cartesian and line propagation
+use spatial FFTs and the represented longitudinal root. A physical transverse absorber
+remains a source term even when no material response is present. Spatial exports retain
+their spatial measure and do not apply the modal power-normalization flag.
 Julia owns the stepping loop, error control, bounded attempt history and event barriers.
 Plane and periodic scalar modal statistics are evaluated inside Julia from the current
 field. The packed catalogue, frequency windows and independently represented material
@@ -97,8 +102,8 @@ services before public backend selection is enabled.
 Unsupported combinations currently refuse by name at preparation. The standalone
 Statistics and temporal/transverse-monitor components have separate tests;
 their presence alone does not establish complete Python session support.
-The current session supports in-stage and split temporal absorption. Attachment of
-radial, Cartesian and line transforms remains pending. Vector
+The current session supports in-stage and split temporal absorption. Transverse monitor
+attachment remains in progress. Vector
 polarisation, tensor Raman, general modal and planar routes, coupled flows, TDSE and
 dispersive Kerr remain outside SEP 48's admitted scope and refuse by name.
 An explicit node chunk bounds the source's physical-node scratch; memory-budget
@@ -111,6 +116,11 @@ is NaN at launch and when no distinct embedded projection exists. Short same-fie
 comparisons use explicit transform and reduction bounds and certify temporal-width
 brackets separately; they do not assign a generic relative tolerance to material rates.
 Complete route/catalogue qualification remains part of phase 2.
+Spatial saved-field observations include physical flux energy, peak and on-axis
+intensity, on-axis spectrum and beam widths. Their closure uses a separately translated
+flux descriptor, including its own material representation. The on-axis spectrum uses
+the shared spectral-density normalization. Width comparisons require stable peak and
+threshold-crossing margins; a generic relative tolerance does not certify them.
 
 The binary32 work includes reviewed double-float exponential, phase-reduction and
 phi-function kernels. Their conservative function domain and underflow assumptions
@@ -118,6 +128,11 @@ are derived separately from the bounds on a complete run's operands. They are no
 yet selectable for propagation: admission must account for the actual replay steps,
 every represented operator interval and restored Adams history, including arithmetic
 that forms the exponent before these functions receive it.
+
+The engine precompiles representative serial CPU sessions during explicit setup. This
+reduces first-use compilation for those paths; new shapes, responses and thread
+configurations may still compile on their first use. The workload changes no process
+thread policy and stores no mutable simulation state.
 
 ## Install and inspect
 

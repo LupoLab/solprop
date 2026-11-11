@@ -6,7 +6,7 @@ module SolpropJuliaPythonCallExt
 import PythonCall: Py, PyArray, pyconvert, pyis, pyisinstance, pybuiltins
 import SolpropJulia
 import SolpropJulia: copy_preparation, prepare_modal, start_runge_kutta, start_adams
-import SolpropJulia: start_low_storage
+import SolpropJulia: start_low_storage, prepare_spatial
 import SolpropJulia: copy_session_noise_phase!
 import SolpropJulia: prepare_observations, copy_session_observations!
 import SolpropJulia: copy_session_monitor_rows!, restore_session_monitor!
@@ -76,6 +76,7 @@ function _operator(execution, transfer, shape)
 end
 
 function _power_weight(execution, transfer, shape)
+    pyis(transfer, nothing) && return nothing
     if !pyis(transfer.table, nothing)
         return SolpropJulia.ObservationWeight(_table(execution, transfer.table), shape)
     elseif !pyis(transfer.weights, nothing)
@@ -152,12 +153,10 @@ function _plasma(execution, transfer, dt)
     )
 end
 
-function prepare_modal(transfer::Py, threads::Int, node_chunk::Int)
-    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), threads)
-    dt = pyconvert(Float64, transfer.dt)
-    grid = SolpropJulia.ModalSourceGrid(
+function _source_grid(execution, transfer)
+    return SolpropJulia.ModalSourceGrid(
         execution; kind = Symbol(pyconvert(String, transfer.kind)),
-        n_time = pyconvert(Int, transfer.n_time), dt,
+        n_time = pyconvert(Int, transfer.n_time), dt = pyconvert(Float64, transfer.dt),
         crop_index = copy_preparation(transfer.crop_index),
         omega = copy_preparation(transfer.omega),
         active = copy_preparation(transfer.active),
@@ -167,6 +166,11 @@ function prepare_modal(transfer::Py, threads::Int, node_chunk::Int)
         temporal_rate = _optional_copy(transfer.temporal_rate),
         carrier = _optional_copy(transfer.carrier),
     )
+end
+
+function _modal_data(execution, transfer)
+    grid = _source_grid(execution, transfer)
+    dt = grid.dt
     map = SolpropJulia.ModalSourceMap(
         execution; synthesis = copy_preparation(transfer.synthesis),
         projection = copy_preparation(transfer.projection),
@@ -174,13 +178,19 @@ function prepare_modal(transfer::Py, threads::Int, node_chunk::Int)
         taper = _profile(execution, transfer.taper, :taper),
     )
     shape = (length(grid.omega), size(map.synthesis, 2))
-    data = SolpropJulia.ModalSourceData(
+    return SolpropJulia.ModalSourceData(
         grid, map, _prefactor(execution, transfer.prefactor, shape);
         kerr = _kerr(execution, transfer.kerr),
         raman = Tuple(_raman(execution, component, dt) for component in transfer.raman),
         plasma = _plasma(execution, transfer.plasma, dt),
     )
-    1 <= node_chunk <= size(map.synthesis, 1) ||
+end
+
+function prepare_modal(transfer::Py, threads::Int, node_chunk::Int)
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), threads)
+    data = _modal_data(execution, transfer)
+    shape = data.prefactor.shape
+    1 <= node_chunk <= size(data.map.synthesis, 1) ||
         throw(ArgumentError("node chunk must fit the prepared modal quadrature"))
     return SolpropJulia.ModalPreparation(
         execution, data, _operator(execution, transfer.operator, shape),
@@ -226,8 +236,8 @@ function _launch(preparation, transfer, field)
         replay_steps = copy_preparation(transfer.steps),
         replay_edges = copy_preparation(transfer.edges),
     )
-    source = SolpropJulia.ModalSource(
-        execution, preparation.data; node_chunk = preparation.node_chunk,
+    source = SolpropJulia._source_workspace(
+        execution, preparation.data, preparation.node_chunk,
     )
     operator = preparation.operator
     work = operator isa SolpropJulia.ExpansionOperator ?
@@ -246,16 +256,18 @@ function _launch_noise(preparation, transfer::Py)
 end
 
 function start_runge_kutta(
-        preparation::Union{SolpropJulia.ModalPreparation, SolpropJulia.SessionPreparation},
+        preparation::Union{
+            SolpropJulia._ProblemPreparation, SolpropJulia.SessionPreparation,
+        },
         transfer::Py, field,
         z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
         noise = nothing, resume::Bool = false,
     )
-    noise = _launch_noise(SolpropJulia._modal_preparation(preparation), noise)
+    noise = _launch_noise(SolpropJulia._problem_preparation(preparation), noise)
     services = SolpropJulia._observation_services(
         preparation; noise_spectrum = noise === nothing ? nothing : noise.spectrum,
     )
-    preparation = SolpropJulia._modal_preparation(preparation)
+    preparation = SolpropJulia._problem_preparation(preparation)
     execution = preparation.execution
     tableau = SolpropJulia.EmbeddedTableau(
         copy_preparation(transfer.nodes), copy_preparation(transfer.matrix),
@@ -306,16 +318,18 @@ function _adams_control(policy)
 end
 
 function start_adams(
-        preparation::Union{SolpropJulia.ModalPreparation, SolpropJulia.SessionPreparation},
+        preparation::Union{
+            SolpropJulia._ProblemPreparation, SolpropJulia.SessionPreparation,
+        },
         transfer::Py, field,
         z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
         noise = nothing, resume::Bool = false,
     )
-    noise = _launch_noise(SolpropJulia._modal_preparation(preparation), noise)
+    noise = _launch_noise(SolpropJulia._problem_preparation(preparation), noise)
     services = SolpropJulia._observation_services(
         preparation; noise_spectrum = noise === nothing ? nothing : noise.spectrum,
     )
-    preparation = SolpropJulia._modal_preparation(preparation)
+    preparation = SolpropJulia._problem_preparation(preparation)
     execution = preparation.execution
     policy = _adams_control(transfer.adams)
     state, norm, schedule, source, flow = _launch(preparation, transfer, field)
@@ -331,16 +345,18 @@ function start_adams(
 end
 
 function start_low_storage(
-        preparation::Union{SolpropJulia.ModalPreparation, SolpropJulia.SessionPreparation},
+        preparation::Union{
+            SolpropJulia._ProblemPreparation, SolpropJulia.SessionPreparation,
+        },
         transfer::Py, field,
         z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
         noise = nothing, resume::Bool = false,
     )
-    noise = _launch_noise(SolpropJulia._modal_preparation(preparation), noise)
+    noise = _launch_noise(SolpropJulia._problem_preparation(preparation), noise)
     services = SolpropJulia._observation_services(
         preparation; noise_spectrum = noise === nothing ? nothing : noise.spectrum,
     )
-    preparation = SolpropJulia._modal_preparation(preparation)
+    preparation = SolpropJulia._problem_preparation(preparation)
     execution = preparation.execution
     state, norm, schedule, source, flow = _launch(preparation, transfer, field)
     noise === nothing ||
@@ -364,7 +380,9 @@ end
 
 function export_session!(
         output::Union{Py, PyArray}, session, generation::Int,
-        preparation::Union{SolpropJulia.ModalPreparation, SolpropJulia.SessionPreparation},
+        preparation::Union{
+            SolpropJulia._ProblemPreparation, SolpropJulia.SessionPreparation,
+        },
         power::Bool, optics::Bool,
     )
     borrowed = _python_buffer(ComplexF64, Val(3), output)
@@ -384,6 +402,7 @@ function export_session!(
     return nothing
 end
 
+include("spatial.jl")
 include("observations.jl")
 include("monitor.jl")
 

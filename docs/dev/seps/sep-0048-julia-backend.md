@@ -1555,6 +1555,52 @@ The recoverable assignment and verification record is `julia/IMPLEMENTATION.md`.
 The full primary-source DF32 analysis and per-vendor qualification remain in phases 3
 and 4. All implementation changes remain on the single draft PR #611.
 
+### Representative CPU precompilation — 2026-11-11
+
+The engine now precompiles three small owned CPU session paths covering field RK,
+envelope Adams and low-storage stepping, material responses, observations and a monitor.
+Normal imports do not execute the workload. Cache construction retains no global mutable
+workspace, changes no thread or planner policy and loads no Python or vendor extension.
+The public-path preparation and thread specializations remain independently qualified.
+
+Independent bounds-enabled review passed 601 prerequisite assertions and 106 workload
+assertions. Author Aqua/JET passed all 16 checks with 1,225 analyzed definitions and
+zero cached roots, plus concrete workload analysis. A native-target Apple arm64 cache
+diagnostic measured 22.67 s to build a 67.54 MB engine image. Its next-process first
+three-session execution took 6.93 ms, compared with 20.26 s when only the workload macro
+was disabled. These representative cache measurements do not replace the mandatory
+quiet-machine startup and propagation campaign. Generic-target CI qualification,
+FFT-plan persistence and shared BLAS leases remain outstanding.
+
+### Scalar spatial session attachment — 2026-11-11
+
+Radial, Cartesian and line numerical preparations now create complete binary64 CPU
+sessions through the same shared preparation contract. Python copies translated inputs
+once; Julia owns reconstruction, material sources, physical transverse loss, stepping
+and spatial observations. Cartesian layouts retain the translated x-fast ordering and
+use FFTs rather than dense spatial maps. Radial maps retain their quadrature and temporal
+padding factors. Spatial export preserves its own measure; it does not synthesize or
+apply modal power weights.
+
+The flux observation descriptor is independent of the marching generator. Energy,
+local and on-axis intensity, on-axis spectrum and beam widths use its represented
+closure and the shared normalization. Same-field bounds separate SI quantities and
+condition width thresholds on checked margins, under the qualified componentwise CPU
+FFT model. Numerical exports now validate their actual source and flow preparation
+identity, rather than a shared absent-weight sentinel (#690).
+
+The affected managed selections pass 104 cases across runs: 73 spatial cases and 31
+modal observation/split regressions. These include short linear and Kerr runs, three
+reference refinements for nonlinear accuracy, material-free physical absorption,
+absolute input-noise phase at a nonzero launch and foreign-preparation rejection.
+An initial reference-harness mistake asked for a stage-only quadrature diagnostic in
+the saved-field collector; correcting that request made all 18 statistics comparisons
+pass, without a production workaround. The two-thread bounds-enabled Core passes
+116,924 assertions in 294 sets, including zero-allocation physical temporal splitting.
+Integrated Aqua/JET passes all 16 checks over 1,409 definitions, with no cached roots.
+Transverse monitoring, remaining preparation controls and the complete route/material
+qualification matrix still precede phase 2 completion.
+
 ## Part III — History
 
 - 2026-11-10: The maintainer accepted external hard-kill supervision for stalled Julia

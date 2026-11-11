@@ -113,7 +113,7 @@ function (sample::_AdamsSessionRate)(output, position, before)
     return nothing
 end
 
-_adams_varying_operator(::DiagonalOperator) = false
+_adams_varying_operator(::Union{DiagonalOperator, SeparableSpatialOperator}) = false
 _adams_varying_operator(::Union{RepresentedOperator, ExpansionOperator}) = true
 _adams_varying_operator(operator) =
     throw(ArgumentError("Adams requires a qualified diagonal cumulative operator"))

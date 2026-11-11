@@ -1,7 +1,8 @@
 # SPDX-FileCopyrightText: 2026 John C. Travers and contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-public ModalPreparation, prepare_modal, start_runge_kutta, start_adams
+public ModalPreparation, SpatialPreparation, prepare_modal, prepare_spatial
+public start_runge_kutta, start_adams
 public start_low_storage
 public advance_session, acknowledge_session, session_status, export_session!
 public session_attempts!, session_failure, session_memory, preparation_memory
@@ -13,6 +14,8 @@ public session_observations!
 public copy_session_observations!
 public copy_session_noise_phase!
 
+abstract type _ProblemPreparation end
+
 """
     ModalPreparation(execution, data, operator, power_weight, node_chunk)
 
@@ -23,7 +26,7 @@ operator, and `power_weight` an `ObservationWeight`. Each started session constr
 its own source, FFT plans, flow, exports and march storage. The positive `node_chunk`
 is the maximum physical nodes held at once; it does not change their quadrature.
 """
-struct ModalPreparation{E, D, O, W}
+struct ModalPreparation{E, D, O, W} <: _ProblemPreparation
     execution::E
     data::D
     operator::O
@@ -32,16 +35,53 @@ struct ModalPreparation{E, D, O, W}
 end
 
 """
-    SessionPreparation(modal, observations)
+    SpatialPreparation(execution, data, operator, power_weight, node_chunk)
 
-Pair immutable modal preparation with one request's immutable observation policy.
+Retain owned scalar radial or Cartesian numerical inputs shared by independent sessions.
 
-`modal` is a `ModalPreparation`, and `observations` a `SessionObservationPolicy`.
-Every start creates independent mutable observation work and bounded delivery storage.
-The additional preparation ledger excludes arrays already owned by `modal`.
+`data` is `RadialSourceData` or `CartesianSourceData`; `operator` is the translated
+linear representation, and `power_weight` the export normalization. Each session owns
+its mutable source, transforms and march. The positive `node_chunk` bounds fine-time
+physical-node storage without changing the transverse grid or quadrature.
 """
-struct SessionPreparation{M <: ModalPreparation, O <: SessionObservationPolicy}
-    modal::M
+struct SpatialPreparation{E, D, O, W} <: _ProblemPreparation
+    execution::E
+    data::D
+    operator::O
+    power_weight::W
+    node_chunk::Int
+end
+
+"""
+    prepare_spatial(transfer, threads, node_chunk)
+
+Copy an admitted scalar spatial transfer through the optional PythonCall extension.
+
+The transfer identifies a radial matrix map or Cartesian FFT shape and owns all
+represented coefficients. Positive `threads` and `node_chunk` are execution budgets.
+No Python owner or mutable session state is retained in the resulting preparation.
+"""
+function prepare_spatial end
+
+_source_workspace(execution, data::ModalSourceData, node_chunk) =
+    ModalSource(execution, data; node_chunk)
+_source_workspace(execution, data::RadialSourceData, node_chunk) =
+    RadialSource(execution, data; node_chunk)
+_source_workspace(execution, data::CartesianSourceData, node_chunk) =
+    CartesianSource(execution, data; node_chunk)
+
+"""
+    SessionPreparation(problem, observations)
+
+Pair immutable numerical preparation with one request's immutable observation policy.
+
+`problem` is a `ModalPreparation` or `SpatialPreparation`, and `observations` a
+`SessionObservationPolicy`.
+Every start creates independent mutable observation work and bounded delivery storage.
+The additional preparation ledger excludes arrays already owned by `problem`.
+"""
+struct SessionPreparation{M <: _ProblemPreparation, O <: SessionObservationPolicy}
+    problem::M
     observations::O
 end
 
@@ -55,12 +95,12 @@ numerical inputs with `modal`. No session or delivery cursor is constructed here
 """
 function prepare_observations end
 
-_modal_preparation(preparation::ModalPreparation) = preparation
-_modal_preparation(preparation::SessionPreparation) = preparation.modal
-_observation_services(preparation::ModalPreparation; noise_spectrum = nothing) =
+_problem_preparation(preparation::_ProblemPreparation) = preparation
+_problem_preparation(preparation::SessionPreparation) = preparation.problem
+_observation_services(preparation::_ProblemPreparation; noise_spectrum = nothing) =
     _NoSessionServices()
 function _observation_services(preparation::SessionPreparation; noise_spectrum = nothing)
-    modal = preparation.modal
+    modal = preparation.problem
     return ObservationServices(
         modal.execution, preparation.observations; node_chunk = modal.node_chunk,
         noise_spectrum,
@@ -79,6 +119,12 @@ function _FieldExport(execution, weight; noise = nothing)
     return _FieldExport(
         weight, dzeros(execution, Float64, weight.shape...),
         dzeros(execution, Float64, count), noise,
+    )
+end
+
+function _FieldExport(execution, ::Nothing; noise = nothing)
+    return _FieldExport(
+        nothing, dzeros(execution, Float64, 0, 0), dzeros(execution, Float64, 0), noise,
     )
 end
 
@@ -656,7 +702,7 @@ function export_session!(
     )
     _session_exportable(session, generation)
     field = _march_observed_field(session)
-    size(output) == size(field) == size(power_weight) ||
+    size(output) == size(field) && (!power || size(field) == size(power_weight)) ||
         throw(DimensionMismatch("session export dimensions disagree"))
     _transfer_writable_destination(output)
     (_retained_alias(output, session) || _transfer_arrays_alias(output, power_weight)) &&
@@ -816,12 +862,12 @@ end
 """
     preparation_memory(preparation)
 
-Return named array byte counts for immutable shared modal preparation.
+Return named array byte counts for immutable shared numerical preparation.
 
 The source records, represented operator and export weights are owned copies.
 Sessions refer to these arrays; their ledgers exclude them to avoid double counting.
 """
-function preparation_memory(preparation::ModalPreparation)
+function preparation_memory(preparation::_ProblemPreparation)
     ledger = Dict{Symbol, Int}()
     _memory_arrays!(ledger, IdDict{Any, Bool}(), "preparation", preparation)
     return _memory_record(ledger)
@@ -830,7 +876,7 @@ end
 function preparation_memory(preparation::SessionPreparation)
     ledger = Dict{Symbol, Int}()
     seen = IdDict{Any, Bool}()
-    _memory_arrays!(ledger, seen, "modal", preparation.modal)
+    _memory_arrays!(ledger, seen, "problem", preparation.problem)
     empty!(ledger)
     _memory_arrays!(ledger, seen, "observations", preparation.observations)
     return _memory_record(ledger)
@@ -842,22 +888,27 @@ function export_session!(
     )
     _retained_alias(output, preparation) &&
         throw(ArgumentError("an export must not alias retained numerical storage"))
-    return export_session!(output, session, generation, preparation.modal, power, optics)
+    return export_session!(output, session, generation, preparation.problem, power, optics)
 end
 
 function export_session!(
         output::AbstractMatrix{ComplexF64}, session, generation::Int,
-        preparation::ModalPreparation, power::Bool, optics::Bool,
+        preparation::_ProblemPreparation, power::Bool, optics::Bool,
     )
     _session_exportable(session, generation)
     storage = session.exports
-    storage !== nothing && storage.weight === preparation.power_weight ||
+    storage !== nothing && storage.weight === preparation.power_weight &&
+        session.source.data === preparation.data &&
+        session.flow.operator === preparation.operator ||
         throw(ArgumentError("session exports belong to another numerical preparation"))
     size(output) == size(session.field) ||
         throw(DimensionMismatch("session export dimensions disagree"))
     _transfer_writable_destination(output)
     (_retained_alias(output, session) || _retained_alias(output, preparation)) &&
         throw(ArgumentError("an export must not alias retained numerical storage"))
+    # Spatial amplitudes already carry their stored physical measure. The shared
+    # export contract ignores the modal power flag for these routes.
+    power = power && storage.weight !== nothing
     if power
         evaluate_weight!(
             storage.values, storage.weight, _march_observed_position(session),
