@@ -2,7 +2,7 @@
 
 Branch: `feature/sep-0048-julia-backend`; draft [PR 611](https://github.com/LupoLab/solprop/pull/611).
 Proposal 609 merged at `04e72192`; Part I is frozen. Leave the completed implementation
-ready for maintainer review, without merging it. Latest inspected CI head: `118e600c`.
+ready for maintainer review, without merging it. Latest inspected CI head: `cbf8e4d4`.
 
 **Completion baseline, amended by the maintainer on 11 November:** binary64 CPU and
 CUDA. Metal, ROCm/HIP and unfinished binary32/DF32 qualification are deferred. The
@@ -39,8 +39,8 @@ Shared interfaces and integration remain master-owned.
 
 | Owner | Exclusive active scope |
 |---|---|
-| Master | Shared interfaces, integration, CI and records; CUDA bridge, exports and services |
-| Independent reviewer | Complete CPU/CUDA integration; read-only service interface planning |
+| Master | Shared interfaces, integration, CI and records; CUDA bridge, RK dense observation and portable history |
+| Services agent | Independent bridge review, then modal statistics, temporal numerical readings/splits and quadrature |
 | Numerical agent | CUDA Raman/plasma composition, narrow validated coefficient-copy hooks, source tests/note |
 | Device agent | A40 storage qualification; binary64 Adams method/dense mirrors and tests |
 
@@ -128,6 +128,12 @@ both owned kernel launch forms. DF32 Metal is not qualified.
 
 ## Latest validation
 
+- The selected-execution bridge passes 84 pure Python checks, six managed CPU
+  cases against NumPy, 272 focused engine assertions and CPU Aqua/JET (16 checks;
+  all 2,292 definitions analyzed, none cached). Independent review approves the
+  bridge after 65 typed Python checks and 48 Julia assertions, including 32 original
+  ownership/refusal probes. Public CUDA admission remains closed. Device source and
+  service factory attachment are separate required work.
 - CUDA source review passes 858 host assertions, including 194 independent
   composition/session/ownership checks. Low-storage review passes 179 assertions,
   including 64 independent extreme-norm, early-refusal and analytic-phase checks;
@@ -148,10 +154,14 @@ both owned kernel launch forms. DF32 Metal is not qualified.
   40 testsets. The subsequent device storage/RK integration passes 1,353 targeted
   assertions; CPU Aqua/JET passes 16 checks with all 2,266 definitions analyzed and
   none cached. These are CPU checks, not CUDA hardware evidence.
-- CI at `118e600c` reports 15 qualification-test typing errors, corrected and
-  independently reviewed at `5a7d4300`, plus Linux package-mirror DNS failures (757).
-  Local types have zero errors and three unresolved-native-stub warnings; the local
-  command therefore exits nonzero. No full green CI result is claimed.
+- CI at `cbf8e4d4` confirms the 15 qualification-test typing errors are corrected:
+  full typing has zero errors or warnings. Two missing helper docstrings are fixed
+  at `bbe2cfe3`; targeted docstring, lint and spelling checks pass, and independent
+  review confirms unchanged code semantics. Linux gates again
+  fail before tests because the runner's Azure package mirror cannot resolve (757).
+  The independently reviewed remedy at `fc877681` retains the runner's official
+  Ubuntu archive/security fallbacks and its signed source configuration. Actual
+  replacement CI remains required.
 - Integrated Julia Core: 156,695 assertions in 484 testsets pass, bounds enabled,
   two threads. Aqua/JET: 16 checks pass, all 2,067 definitions analyzed, none cached.
 - Reviewed binary32 composition: 84 actual managed retained-owner cases plus 27 pure
@@ -187,8 +197,8 @@ source identities, validation counts and ownership handoffs.
 
 ## Next actions
 
-1. Run the integrated CUDA source/method/export host regressions and the next actual
-   device snapshot; no further binary32 campaign is on the baseline critical path.
+1. Run the next actual CUDA source/method/export device snapshot; the combined host
+   regressions pass. No further binary32 campaign is on the baseline critical path.
 2. Complete binary64 CUDA modal source, low-storage/Adams methods, observations,
    export and shared services; integrate the selected-device bridge and registry.
 3. Qualify actual CUDA kernels, ownership and complete session behavior on A40,
