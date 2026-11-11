@@ -615,11 +615,6 @@ def lower_modal(problem: PropagationProblem) -> ModalTransfer:
         (responses.dispersive_kerr is not None, "dispersive Kerr"),
         (responses.regional_responses is not None, "regional responses"),
         (problem.initial.noise_model == "modified", "modified noise"),
-        (
-            problem.flags.has_temporal_absorber
-            and responses.absorber_scheme != "nonlinear",
-            "split temporal absorbers",
-        ),
     )
     for refused, capability in checks:
         if refused:
@@ -662,6 +657,7 @@ def lower_modal(problem: PropagationProblem) -> ModalTransfer:
         owned(grid.t_window_fine_derivative),
         None
         if responses.temporal_absorber_fine is None
+        or responses.absorber_scheme != "nonlinear"
         else owned(responses.temporal_absorber_fine),
         None if grid.carrier_2w0 is None else owned(grid.carrier_2w0),
         _kerr(responses.kerr_coefficients, responses.density),

@@ -72,6 +72,21 @@ field. Snapshot requests wait until the owed planes are delivered, then save the
 committed endpoint and its history. Dense output remains incompatible with fixed replay
 and split temporal absorption, as in the shared policy.
 
+Adaptive DOPRI5 uses the shared continuous-extension weights for the same dense
+observation contract. Other tableaus without a shared extension refuse interpolation.
+Endpoint periodic rows accompany their accepted attempt before the first crossed
+plane is delivered; later dense planes do not repeat those rows. A plane consumes the
+previous stage's quadrature diagnostic, so another plane reached without new source
+work reports that diagnostic as unavailable. Both dense methods pass the common
+session ordering, snapshot and bounded-yield checks.
+
+Scalar modal runs also support the existing `split_step` temporal absorber. It applies
+one coarse-time amplitude factor `exp(-alpha*dz/2)` after each accepted trial, between
+the initial and final active-band masks. It is a one-sided Lie split with its existing
+order limitation; the default in-stage scheme is unchanged. Split finishing attaches
+even when no statistic or boundary monitor is requested, and a quiet monitor verdict
+never omits this factor. The split rate does not also enter the nonlinear source.
+
 Low-storage execution records preserve the established `source_evaluations` count
 of committed steps and separately report `attempted_source_evaluations` and completed
 `norm_evaluations`. If an in-place trial fails, its attempted calls remain visible and
@@ -82,8 +97,8 @@ services before public backend selection is enabled.
 Unsupported combinations currently refuse by name at preparation. The standalone
 Statistics and temporal/transverse-monitor components have separate tests;
 their presence alone does not establish complete Python session support.
-The current session supports in-stage temporal absorption. Split absorption,
-radial, Cartesian and line transforms, and Runge–Kutta dense attachment remain pending. Vector
+The current session supports in-stage and split temporal absorption. Attachment of
+radial, Cartesian and line transforms remains pending. Vector
 polarisation, tensor Raman, general modal and planar routes, coupled flows, TDSE and
 dispersive Kerr remain outside SEP 48's admitted scope and refuse by name.
 An explicit node chunk bounds the source's physical-node scratch; memory-budget

@@ -250,7 +250,6 @@ _march_select_observation!(session::_MarchSession, kind, plane) = nothing
 _march_observed_field(session) = session.field
 _march_observed_position(session) = session.state.z
 _march_pending_dense(session::_MarchSession) = false
-_march_defer_periodic(session) = false
 _march_dense_services(services) = nothing
 _march_landing_target(session) = session.schedule.planes[session.state.plane]
 function _march_plane_selected(session)
@@ -652,7 +651,8 @@ function advance!(
             if state.endpoint_pending
                 # One accepted dense window may cross many requested planes.
                 # Keep its endpoint owed across every acknowledged interior plane,
-                # before periodic endpoint rows, snapshots or a further trial.
+                # before snapshots or a further trial. Periodic rows were sampled
+                # at acceptance, while their attempt still belongs to this chunk.
                 if _march_pending_dense(session)
                     return _march_observation!(
                         session, :plane, state.plane - 1, began, previous_work,

@@ -11,7 +11,7 @@ The completed implementation is left ready for maintainer review, not auto-merge
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
 | 1: package and runtime | Setup/package integrated; remaining runtime qualification deferred | Maintainer directs core implementation to proceed; failures remain tracked |
-| 2: CPU binary64 session | Scalar modal stepping, statistics, temporal monitoring, fixed groups, adaptive Adams dense output and input noise pass; remaining services/routes in progress | Histories, same-field statistics and 24 common conformance cases pass; RK dense, split and spatial attachment remain pending |
+| 2: CPU binary64 session | Scalar modal stepping, statistics, temporal monitoring, fixed groups, RK/Adams dense output, split absorption and input noise pass; remaining routes in progress | Common dense conformance passes; spatial attachment, preparation and measurements remain pending |
 | 3: CPU binary32 | DF32 primitives, conservative function leaf and operand analysis reviewed; full execution pending | Whole-expression and device admission remain unqualified |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
@@ -54,8 +54,8 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Numerical transform/Adams agent | New `spatial_operators.jl`, `spatial_composition.jl` and focused tests; narrow shared response-validation extraction in `composition.jl` | Scalar radial, Cartesian and line kernels; frozen constructors, Python/services remain master-owned |
-| Numerical services agent | New `precompile_workload.jl` source and focused test only | RK dense slice `f4cf2ed4` awaits independent review; shared scheduler correction stays master-owned |
+| Numerical transform/Adams agent | New `spatial_observations.jl` and focused tests; abstract observation bases and six monitor lifecycle annotation widenings in `observations.jl` | Spatial source chain `b9269485`, `9816ec8a`, `2140dd78` independently approved; physical-flux observations follow its frozen interface |
+| Numerical services agent | New `precompile_workload.jl` and focused test; precisely assigned optional-storage/type guards in shared constructors | RK dense chain integrated after review; precompile quality checks and subsequent modal alias correction #688 |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
 | Independent reviewer | Production code read-only; independent transaction tests returned to master | Group, dense scheduler/adapter and corrected input-noise leaf approved; independent integration review continues |
 
@@ -64,6 +64,13 @@ constructors. It covers serial CPU session/source/observation dispatch without l
 Python or devices, retaining no global mutable workspace and publishing no calibration
 files. Parallel specialization and cold-cache evidence are qualified separately; the
 workload never changes the process's thread policy. Module inclusion remains master-owned.
+
+Spatial observations reuse the existing statistics and temporal-monitor reductions.
+Their separate flux descriptor retains the actual represented material and protected
+longitudinal-root inputs. Cartesian reconstruction uses transforms, never a dense
+node-to-node map. Coarse electric/closure pairs are allocated only for selected needs;
+fine population scratch is bounded by the node chunk. The master retains ownership
+of Python lowering, preparation factories and shared session-service hooks.
 
 The temporary CI assignments for `restore_control!`, CPU allocation and source/monitor
 constructors are complete and integrated after independent review. Their files return
@@ -88,8 +95,8 @@ The request-specific statistics bridge has passed integration and independent re
 Its first runtime pass found a PythonCall automatic-array-conversion dispatch gap;
 a distinct Python copy entry now transposes the packed destination explicitly.
 Transactional retries, buffer alias/admission and retained-array cleanup now pass.
-RK dense output, split absorption
-and admitted spatial routes still block phase 2 completion. The subsequent phases continue
+Admitted spatial routes, preparation and measurements still block phase 2 completion.
+The subsequent phases continue
 without another approval step; the completed implementation PR remains unmerged.
 The reviewer-authored statistic-bound helper is integrated at `8e8aa1c6` after
 master review. It uses exact rational reduction bounds, a declared CPU FFT envelope,
@@ -131,8 +138,10 @@ chooses every member turn; Python copies bounded transports and joins each membe
 chunk exactly once. Core group acknowledgment leaves member barriers held until the
 next Julia turn. Starts and owners transfer only after all member construction succeeds.
 Dense Adams attachment is independently approved with explicit observed-field/coordinate
-selectors while committed state stays monotone. Dense observations precede deferred
-endpoint periodic rows and snapshots. Shared replay-plus-interpolation refusal remains
+selectors while committed state stays monotone. Endpoint periodic rows accompany their
+accepted attempt before dense planes; snapshots follow all owed planes. The common
+conformance suite exposed and corrected the former row deferral in #687.
+Shared replay-plus-interpolation refusal remains
 unchanged.
 The temporal monitor transport `a7d77050` is integrated at `8c625d0b`, with its
 Python publication/service adapter independently approved. Julia owns decisions and
@@ -248,12 +257,12 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
 
 ## Next actions
 
-1. Owned execution options and recipe metadata are integrated at `d1feaa15`; execution
-   ownership and transactional groups are integrated at `a6f30aba`.
-2. Connect the general modal source, Adams/low-storage methods, statistics and monitors
-   to the tested Julia-owned session, using `SESSION_DESIGN.md`.
-3. Complete dense output, restart histories, binary64 input noise and member groups;
-   then CPU conformance and preparation-inclusive short-window measurements.
+1. Attach the reviewed scalar radial/Cartesian/line source chain, then independently
+   reviewed spatial statistics and transverse monitoring. General modal remains refused.
+2. Integrate precompile work and its precise type/presence guards; complete FFT-plan
+   persistence, shared host BLAS leases, memory-budget admission and CPU measurements.
+3. Complete binary32 execution and whole-expression DF32 bounds, then each vendor's
+   public selection/qualification and the phase 5 documentation/evidence gates.
 4. Revisit deferred runtime issues after core implementation; preserve all failed
    evidence and complete the accepted supervisor qualification before claiming it passed.
 
@@ -700,3 +709,20 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   not require source changes. Aqua/JET passes 16 checks over 1,236 definitions,
   none cached. Scoped types, docstrings, Ruff, Runic, spelling and Sphinx pass.
   Whole-package CI, standard performance records and remaining routes are pending.
+- DOPRI5 dense leaf `f4cf2ed4` and conditioning correction `844ac356` are integrated
+  as `0e9ff4ae` and `3e395988` after 779 independent bounds-enabled assertions.
+  Shared extension weights are copied from the actual tableau; endpoint rows and
+  dense planes retain their own coordinates. Common conformance exposed #687:
+  endpoint rows must accompany the accepted attempt before the first dense plane
+  drains it. The repaired source preserves warning continuation and snapshot order.
+  Core passes 112,291 assertions in 264 sets, including explicit diagnostic reset
+  without new source work. Aqua/JET passes 16 checks over 1,253 definitions, none
+  cached. The managed dense/monitor/common selection passes 53 cases and 22 declared
+  skips; all 23 split-collar cases pass. Initial split assertions incorrectly
+  assumed low-storage skips its zero source and that a quiet verdict meant actual
+  collar omission; tests now verify the actual call counts and continued damping.
+  No production workaround was required for those test assumptions. Independent
+  adapter review and 12 typed admission checks pass. The shared adapted-request
+  admission correction #682 is committed as `af3edeb9`. The combined typed selection
+  had 263 passes and one stale CI skip fixture; the corrected CI fixture's 56 tests
+  pass. Formatting, scoped types and documentation checks accompany this milestone.

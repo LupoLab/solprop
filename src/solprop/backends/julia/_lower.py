@@ -14,6 +14,7 @@ from solprop.exceptions import BackendError
 from solprop.stepper.controller import START_GROWTH, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import MarchPolicy, Multistep, march_policy
+from solprop.stepper.tableau import continuous_extension
 from solprop.translate.problem import PropagationProblem, validate_run
 from solprop.translate.run_request import ErrorControlSpec, MethodKind, RunRequest
 
@@ -55,6 +56,9 @@ class RunTransfer:
         Method representation retained as portable history provenance.
     history_key : str or None
         Shared Adams history identity, independent of execution choices and controls.
+    dense_weights : numpy.ndarray or None
+        The shared tableau's continuous-extension weights for interpolated RK
+        observations, absent for landed requests and other method families.
     """
 
     control: ErrorControlSpec
@@ -77,6 +81,7 @@ class RunTransfer:
     low_storage: bool = False
     method: str = "Runge-Kutta"
     history_key: str | None = None
+    dense_weights: Float[np.ndarray, " n_stages"] | None = None
 
 
 def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
@@ -107,12 +112,14 @@ def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
     validate_run(problem, request)
     if type(request.error_control.controller) is not PIController:
         raise BackendError("julia refuses custom controllers; use numpy_ref")
-    if request.observation.dense and request.integration.kind is not MethodKind.ADAMS:
-        raise BackendError(
-            "julia currently supports interpolated planes only with adaptive Adams; "
-            "use native or numpy_ref for other methods"
-        )
     tableau, control = request.integration.tableau, request.error_control
+    dense_weights = None
+    if request.observation.dense and request.integration.kind is MethodKind.RUNGE_KUTTA:
+        dense_weights = continuous_extension(tableau)
+        if dense_weights is None:
+            raise BackendError(
+                f"julia has no continuous extension for tableau {tableau.name!r}"
+            )
     replay = request.replay
     weights = control.controller.weights
     responses = problem.responses
@@ -148,6 +155,7 @@ def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
         request.integration.method.history_key
         if isinstance(request.integration.method, Multistep)
         else None,
+        None if dense_weights is None else owned(dense_weights),
     )
 
 

@@ -505,7 +505,10 @@ end
 function _observation_accepted_rest!(services, session)
     _observation_sync_collar!(services, session)
     _observation_crossing!(services, session, ObservationAcceptedRest) && return nothing
-    _march_defer_periodic(session) || _session_endpoint!(services, session)
+    # The first dense plane can deliver and drain this accepted attempt. Its
+    # periodic row must already belong to that same chunk (SEP 47 section 5.3).
+    # A warning continuation remains the shared explicit previous-chunk case.
+    _session_endpoint!(services, session)
     return nothing
 end
 

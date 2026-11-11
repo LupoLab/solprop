@@ -221,7 +221,31 @@ function dense_service_fixture(; tasks = 2, monitor = false, warn = 0.05, split 
     )
 end
 
-@testset "Dense services defer endpoint rows and preserve stale monitor checks" begin
+@testset "Dense planes consume the previous stage diagnostic once" begin
+    session = dense_service_fixture()
+    SP.acknowledge!(session, SP.advance!(session).generation)
+    # This fixture's source has no embedded quadrature. Supply a recognizable
+    # previous-stage diagnostic to test the existing per-plane reset contract.
+    session.services.quadrature_error = 0.125
+    first_plane = SP.advance!(session; deadline = 60.0)
+    @test first_plane.kind == SP.SESSION_PLANE && first_plane.z < session.state.z
+    @test session.services.quadrature_error == 0.125
+    @test !session.services.periodic_pending
+    @test session.services.rows.count == 1
+    @test session.services.rows.step[1] == 0
+    @test session.services.rows.z[1] == session.attempts.z[1]
+    calls = session.ledger.predictor + session.ledger.corrected + session.ledger.startup
+    SP.acknowledge!(session, first_plane.generation)
+    @test isnan(session.services.quadrature_error)
+    next_plane = SP.advance!(session; deadline = 60.0)
+    @test next_plane.kind == SP.SESSION_PLANE && next_plane.z < session.state.z
+    @test session.services.rows.count == 0
+    @test isnan(session.services.quadrature_error)
+    @test session.ledger.predictor + session.ledger.corrected +
+        session.ledger.startup == calls
+end
+
+@testset "Dense services retain endpoint chunks and preserve stale monitor checks" begin
     session = dense_service_fixture(; monitor = true)
     services, monitor = session.services, session.services.work.monitor
     events = Tuple{SP.SessionEvent, Float64}[]
@@ -262,7 +286,12 @@ end
             @test all(budget .> 0)
             @test all(abs.(services.plane_values[1:2] - expected) .<= budget)
             if report.z < session.state.z
-                @test services.periodic_pending && services.rows.count == 0
+                @test !services.periodic_pending
+                if services.rows.count > 0
+                    @test services.rows.step[1] >= 0
+                    @test session.attempts.z[services.rows.step[1] + 1] ==
+                        services.rows.z[1]
+                end
                 @test services.plane_z == report.z
             end
         end

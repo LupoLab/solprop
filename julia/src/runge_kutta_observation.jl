@@ -311,8 +311,6 @@ mutable struct _RungeKuttaSessionObservation{W}
     selected::Bool
 end
 
-_march_defer_periodic(session::RungeKuttaSession) = session.observation !== nothing
-
 function _march_landing_target(session::RungeKuttaSession)
     return session.observation === nothing ? session.schedule.planes[session.state.plane] :
         last(session.schedule.planes)

@@ -251,6 +251,7 @@ def test_python_phase_runs_the_whole_adapter_directory(pinned_tree, monkeypatch)
                     "test_cpu_group",
                     "test_cpu_dense",
                     "test_cpu_noise",
+                    "test_cpu_split",
                     "test_transfer_aliases",
                 )
             )
@@ -332,7 +333,6 @@ def test_conformance_evidence_accepts_only_declared_capability_and_bitwise_skips
     for message in (
         "the julia-cpu executor promises numerical error bounds, "
         "not bitwise repetition",
-        "the julia-cpu executor does not run a dense output",
         "the julia-cpu executor does not run a transverse",
     ):
         case = ElementTree.Element(

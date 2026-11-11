@@ -1517,6 +1517,40 @@ types, docstrings, formatting, spelling and Sphinx pass. These remain integratio
 milestones: remaining routes, split/RK dense attachment, preparation and performance
 records still block phase 2 completion; later phases continue on the same branch.
 
+### DOPRI5 dense observations and split temporal absorption — 2026-11-11
+
+Adaptive DOPRI5 now receives the shared continuous-extension weights and retains its
+own accepted window. All observed fields, statistics and exports use the requested
+plane coordinate while the committed state stays monotone. Independent leaf review
+passes 779 bounds-enabled assertions, including actual NumPy extension witnesses,
+endpoint conditioning (#681), exact copies and zero warmed allocation.
+
+Scalar modal split absorption uses the existing accepted-step service independently
+of statistics or monitoring. The coarse amplitude factor is applied once, after the
+initial mask and before the final mask; the same rate is excluded from the nonlinear
+source. Twenty-three real field/envelope cases cover three integrators, one/eight
+steps, independent uniform decay, observer combinations, field restart and a quiet
+monitor whose split still removes the expected energy. Existing physics defaults and
+the split method's order are unchanged. The test bound converts the declared
+componentwise FFT envelope to the norm used by its contraction argument (#686).
+
+Common conformance exposed a periodic-row ownership bug (#687): deferring endpoint
+rows until after dense planes could separate them from their accepted attempt. The
+corrected ordering follows SEP 47: endpoint rows precede the first dense plane, while
+all owed planes precede snapshots and another trial. The first plane consumes its
+previous-stage quadrature diagnostic; another plane without new source work sees NaN.
+Shared validation also rechecks dense exclusions after request adaptation (#682).
+
+The repaired managed-runtime selection passes 53 dense, monitor and common-conformance
+cases, with 22 named skips for bitwise repetition and pending transverse attachment.
+The complete bounds-enabled Core suite passes 112,291 assertions in 264 sets;
+Aqua/JET passes 16 checks over all 1,253 definitions with none cached. Independent
+adapter review and 12 additional typed admission checks pass. The spatial source leaf
+is independently approved with 4,154 assertions, including 440 actual NumPy witnesses;
+its public preparation and observation attachment remains in progress.
+These are partial phase 2 milestones; remaining preparation, route and performance
+qualification still precedes phase completion.
+
 The recoverable assignment and verification record is `julia/IMPLEMENTATION.md`.
 The full primary-source DF32 analysis and per-vendor qualification remain in phases 3
 and 4. All implementation changes remain on the single draft PR #611.

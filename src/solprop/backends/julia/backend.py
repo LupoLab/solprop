@@ -119,7 +119,12 @@ class JuliaBackend:
             lower_observations(
                 problem, request, grid=grid, modes=modes, profiles=profiles
             )
-            if request.observation.stats.names or request.boundary.monitor is not None
+            if request.observation.stats.names
+            or request.boundary.monitor is not None
+            or (
+                problem.responses.absorber_scheme == "split_step"
+                and problem.responses.temporal_absorber is not None
+            )
             else None
         )
         self._setup_id = setup_id
@@ -210,7 +215,12 @@ class JuliaBackend:
                 modes=self._modes,
                 profiles=self._profiles,
             )
-            if request.observation.stats.names or request.boundary.monitor is not None
+            if request.observation.stats.names
+            or request.boundary.monitor is not None
+            or (
+                problem.responses.absorber_scheme == "split_step"
+                and problem.responses.temporal_absorber is not None
+            )
             else None
         )
         if self._preparation is None:

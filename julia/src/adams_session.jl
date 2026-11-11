@@ -152,7 +152,8 @@ accepted field; a failure during accepted history/field mutation poisons the ses
 Services supply scalar quiet/cap decisions and candidate finishing through the
 shared march hooks. Interpolating sessions own one retained accepted dense window,
 observed separately from the committed state. Each crossed interior plane is delivered
-before endpoint periodic rows or snapshots, without another source evaluation.
+before snapshots, without another source evaluation. Periodic endpoint rows remain
+in their accepted attempt's chunk, before the first dense plane can drain it.
 `ledger.dense_observations` counts each successful observation strictly before the
 canonical committed endpoint once, including endpoint copies in a validated positive
 raw-to-canonical snap gap. Observations at the canonical endpoint do not increment it.
@@ -236,8 +237,6 @@ function AdamsSession(
         _AdamsSessionRate(flow), source_absent, observation,
     )
 end
-
-_march_defer_periodic(session::AdamsSession) = session.observation !== nothing
 
 function _march_pending_dense(session::AdamsSession)
     return session.observation !== nothing &&

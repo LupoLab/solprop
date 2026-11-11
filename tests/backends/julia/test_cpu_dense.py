@@ -41,9 +41,9 @@ pytestmark = [
 ]
 
 
-def _case(*, weighted=False):
+def _case(*, weighted=False, method="adams"):
     case = soliton(
-        integrator=Multistep(),
+        integrator=Multistep() if method == "adams" else None,
         interpolate=True,
         planes=np.linspace(0.02 / 16, 0.02, 16),
     )
@@ -89,13 +89,15 @@ def _case(*, weighted=False):
 
 
 @pytest.mark.parametrize("work_limit", [1, 256])
-def test_dense_fields_meet_a_converged_landed_reference(work_limit):
-    case = _case()
+@pytest.mark.parametrize("method", ["rk", "adams"])
+def test_dense_fields_meet_a_converged_landed_reference(work_limit, method):
+    case = _case(method=method)
     with _start(case) as session:
         actual = drive(Started(session), export=IDENTITY, work_limit=work_limit)
         assert actual.status.outcome is Outcome.COMPLETED
-        calls = session.execution_record()["response_calls"]
-        assert isinstance(calls, dict) and calls["dense_observations"] > 0
+        if method == "adams":
+            calls = session.execution_record()["response_calls"]
+            assert isinstance(calls, dict) and calls["dense_observations"] > 0
     references = []
     for steps in (128, 256):
         base = cpu_case(steps=steps)
@@ -121,8 +123,9 @@ def test_dense_fields_meet_a_converged_landed_reference(work_limit):
         assert np.linalg.norm((got - fine).ravel()) <= 1e-8 * scale
 
 
-def test_dense_statistics_snapshots_and_monitor_keep_distinct_coordinates():
-    case = _case()
+@pytest.mark.parametrize("method", ["rk", "adams"])
+def test_dense_statistics_snapshots_and_monitor_keep_distinct_coordinates(method):
+    case = _case(method=method)
     oracle = select(
         "numpy_ref", case.problem, case.request, grid=window(), modes=(fibre().mode,)
     )
@@ -158,8 +161,11 @@ def test_dense_statistics_snapshots_and_monitor_keep_distinct_coordinates():
                     snapshot_positions.append(event.z)
                     assert event.ticket is not None
                     history_snapshot = session.march_snapshot(event.ticket)
-                    assert history_snapshot is not None
-                    assert history_snapshot.z == status.z
+                    if method == "adams":
+                        assert history_snapshot is not None
+                        assert history_snapshot.z == status.z
+                    else:
+                        assert history_snapshot is None
                     assert observed_positions[1:] == [
                         z for z in case.request.observation.save_planes if z <= status.z
                     ]
@@ -170,8 +176,9 @@ def test_dense_statistics_snapshots_and_monitor_keep_distinct_coordinates():
         assert _record(session)["planes"]["z"] == observed_positions
 
 
-def test_dense_power_export_uses_observation_weight_and_retains_owned_arrays():
-    case = _case(weighted=True)
+@pytest.mark.parametrize("method", ["rk", "adams"])
+def test_dense_power_export_uses_observation_weight_and_retains_owned_arrays(method):
+    case = _case(weighted=True, method=method)
     recipe = ExportRecipe(power=True, optics=True)
     retained = []
     interior = 0
@@ -206,8 +213,9 @@ def test_dense_power_export_uses_observation_weight_and_retains_owned_arrays():
     assert all(value.tobytes() == saved for value, saved in retained)
 
 
-def test_dense_plane_restarts_from_its_field_without_future_history():
-    case = _case()
+@pytest.mark.parametrize("method", ["rk", "adams"])
+def test_dense_plane_restarts_from_its_field_without_future_history(method):
+    case = _case(method=method)
     restart = None
     with _start(case) as session:
         while restart is None:

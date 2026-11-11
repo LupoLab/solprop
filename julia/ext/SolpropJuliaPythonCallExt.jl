@@ -269,6 +269,8 @@ function start_runge_kutta(
         execution, state, z, pyconvert(Float64, transfer.control.dz_init), tableau, policy,
         norm, schedule, source, flow; stop, plane_index = plane, plane_pending, services,
         exports = SolpropJulia._FieldExport(execution, preparation.power_weight; noise),
+        dense_weights = pyis(transfer.dense_weights, nothing) ? nothing :
+            copy_preparation(transfer.dense_weights),
     )
 end
 
@@ -395,7 +397,9 @@ function copy_session_noise_phase!(
         throw(ArgumentError("a Python phase destination must be C-contiguous"))
     GC.@preserve output borrowed begin
         address = Base.unsafe_convert(Ptr{Float64}, borrowed)
-        columns = unsafe_wrap(Array, address, (frequencies, components * modes); own = false)
+        columns = unsafe_wrap(
+            Array, address, (frequencies, components * modes); own = false,
+        )
         copy_session_noise_phase!(columns, session, generation)
     end
     return nothing

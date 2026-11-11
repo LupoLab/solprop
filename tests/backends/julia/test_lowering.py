@@ -26,6 +26,7 @@ from solprop.backends.julia.backend import JuliaBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.exceptions import BackendError
 from solprop.stepper.multistep import ComparisonMultistep, Multistep, march_policy
+from solprop.stepper.tableau import DOPRI5, continuous_extension
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.precision import SINGLE
 from solprop.translate.responses import ResponseStage
@@ -103,6 +104,20 @@ def test_dense_adams_separates_observation_planes_from_step_landings():
     assert transfer.adams.save_planes == ()
     np.testing.assert_array_equal(transfer.planes, request.observation.save_planes)
     assert not transfer.planes.flags.writeable
+
+
+def test_dense_runge_kutta_copies_only_the_shared_extension_weights():
+    case = cpu_case(steps=None)
+    request = replace(
+        case.request, observation=replace(case.request.observation, dense=True)
+    )
+    transfer = lower_run(case.problem, request)
+    shared = continuous_extension(DOPRI5)
+    assert transfer.dense_weights is not None and shared is not None
+    np.testing.assert_array_equal(transfer.dense_weights, shared)
+    assert not transfer.dense_weights.flags.writeable
+    assert not np.shares_memory(transfer.dense_weights, shared)
+    assert lower_run(case.problem, case.request).dense_weights is None
 
 
 @pytest.mark.parametrize("order", [1, 5, 6])
