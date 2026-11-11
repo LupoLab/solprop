@@ -49,6 +49,7 @@ function _observation_transverse(execution, prepared, transfer::Py)
         n_frequency = length(prepared.grid.omega), rows = copy_preparation(transfer.rows),
         lines = Tuple(_transverse_line(line) for line in transfer.lines),
         declared = pyconvert(Bool, transfer.declared),
+        arithmetic = prepared.arithmetic,
     )
 end
 

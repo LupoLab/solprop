@@ -21,6 +21,7 @@ import shutil
 import sys
 import types
 import warnings
+from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -34,6 +35,7 @@ from solprop.backends.session import ExecutionOptions
 from solprop.driver import SimulationSettings
 from solprop.exceptions import BackendError
 from solprop.stepper import PIController, RungeKutta
+from solprop.translate.precision import SINGLE
 
 pytestmark = pytest.mark.real_auto
 
@@ -44,6 +46,25 @@ def test_the_reference_backend_is_always_available():
     """It needs nothing beyond the package's own dependencies, so it is always there."""
     assert "numpy_ref" in available()
     assert set(available()) <= set(BACKENDS)
+
+
+@pytest.mark.parametrize("name", ["native", "julia"])
+def test_translated_precision_refuses_before_dependency_or_runtime_probes(
+    name, linear_problem, narrow_grid, monkeypatch
+):
+    problem, request = linear_problem(narrow_grid, save_planes=[LENGTH])
+    problem = replace(problem, precision=SINGLE)
+    # The same admission table serves settings, availability and translated
+    # descriptors. A future added backend must still obey the selected table.
+    monkeypatch.setattr(registry, "SINGLE_PRECISION_BACKENDS", ("numpy_ref",))
+
+    def no_probe(*args, **kwargs):
+        pytest.fail("unsupported precision must precede dependency/runtime probes")
+
+    monkeypatch.setattr(registry, "_satisfied", no_probe)
+    monkeypatch.setattr(registry, "_construct", no_probe)
+    with pytest.raises(BackendError, match=f"{name!r}.*precision='single'"):
+        select(name, problem, request)
 
 
 def test_automatic_selection_probes_without_importing_or_caching(monkeypatch):

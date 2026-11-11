@@ -57,12 +57,14 @@ end
 
 function _spatial_observation_preparation(preparation, transfer, grid, selection, profiles)
     spatial, execution, data = transfer.spatial, preparation.execution, preparation.data
+    arithmetic = SolpropJulia._prepared_arithmetic(data)
     map = if data isa SolpropJulia.RadialSourceData
         SolpropJulia.RadialObservationMap(
-            data.modal.map.synthesis; pad_scale = pyconvert(Float64, spatial.pad_scale),
+            data.modal.map.host_synthesis;
+            pad_scale = pyconvert(Float64, spatial.pad_scale), arithmetic,
         )
     elseif data isa SolpropJulia.CartesianSourceData
-        SolpropJulia.CartesianObservationMap(data.shape)
+        SolpropJulia.CartesianObservationMap(data.shape; arithmetic)
     else
         throw(ArgumentError("spatial observations require a matching spatial source"))
     end
@@ -85,5 +87,6 @@ function _spatial_observation_preparation(preparation, transfer, grid, selection
         intensity_factor = pyconvert(Float64, transfer.intensity_factor), widths, profiles,
         populations = _observation_populations(preparation, transfer.populations),
         temporal = _observation_temporal(transfer.temporal),
+        arithmetic,
     )
 end

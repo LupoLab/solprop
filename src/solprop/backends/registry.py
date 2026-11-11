@@ -560,7 +560,8 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
         usable.
     BackendError
         If ``name`` is a backend that has been removed, or one that does not form a
-        statistic the problem asks for; the message says what to use instead.
+        precision or statistic the problem asks for; the message says what to use
+        instead.
     ImportError
         If ``name`` is known but its dependencies are missing; the message says what
         to install.
@@ -575,6 +576,12 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
     entry = BACKENDS.get(name)
     if entry is not None and options is not None:
         options.check_backend_options(name, entry.options)
+    if (
+        entry is not None
+        and problem.precision.single
+        and name not in SINGLE_PRECISION_BACKENDS
+    ):
+        raise BackendError(f"{name!r} does not support precision='single'")
     _check_execution_device(name, problem, options)
     _check_required_device(name, None if options is None else options.device)
     if name == "native":

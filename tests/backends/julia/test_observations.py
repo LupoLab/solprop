@@ -701,10 +701,22 @@ def test_repeated_problem_preparation_does_not_cache_request_or_context(field_ca
     assert not np.shares_memory(first.grid.omega, grid.omega)
 
 
-def test_scalar_binary64_admission_precedes_preparation():
+def test_scalar_admission_precedes_observation_preparation():
     case = cpu_case()
     for problem, message in (
-        (replace(case.problem, precision=SINGLE), "binary32"),
+        (
+            replace(
+                case.problem,
+                precision=SINGLE,
+                initial=replace(
+                    case.problem.initial,
+                    noise_model="input",
+                    noise0=np.zeros(case.problem.shape, dtype=np.complex128),
+                ),
+                flags=replace(case.problem.flags, has_noise=True),
+            ),
+            "binary32 input noise",
+        ),
         (
             replace(case.problem, shape=(1, 2, case.problem.shape[-1])),
             "vector polarisation",
@@ -714,6 +726,19 @@ def test_scalar_binary64_admission_precedes_preparation():
             lower_observations(problem, _request(case))
     with pytest.raises(BackendError, match=r"julia peak_intensity.*matching mode set"):
         lower_observations(case.problem, _request(case, ("peak_intensity",)))
+
+
+def test_binary32_observation_lowering_preserves_owned_wide_inputs():
+    case = cpu_case()
+    problem = replace(case.problem, precision=SINGLE)
+    transfer = lower_observations(problem, _request(case, ("energy",)))
+    assert transfer.width == problem.shape[0]
+    assert transfer.grid.parseval.dtype == np.float64
+    assert transfer.power_weight is not None
+    assert transfer.power_weight.values is not None
+    assert transfer.power_weight.values.dtype == np.float64
+    assert not transfer.power_weight.values.flags.writeable
+    assert not np.shares_memory(transfer.grid.omega, problem.grids.omega)
 
 
 @pytest.mark.parametrize("invalid", [0.0, -1.0, np.inf, np.nan, 1 + 1j])

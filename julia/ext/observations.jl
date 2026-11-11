@@ -89,6 +89,7 @@ function prepare_observations(
     )
     modal = SolpropJulia.with_node_chunk(original, node_chunk)
     execution = modal.execution
+    arithmetic = SolpropJulia._prepared_arithmetic(modal.data)
     grid = SolpropJulia.StatisticsGrid(
         copy_preparation(transfer.grid.omega), copy_preparation(transfer.grid.time),
         copy_preparation(transfer.grid.parseval);
@@ -131,6 +132,7 @@ function prepare_observations(
                 modal, transfer.axis_populations
             ),
             temporal = _observation_temporal(transfer.temporal),
+            arithmetic,
         )
     end
     policy = SolpropJulia.SessionObservationPolicy(

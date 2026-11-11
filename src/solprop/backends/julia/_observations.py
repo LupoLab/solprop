@@ -517,7 +517,10 @@ def _admit(
     if unsupported:
         raise BackendError(f"julia scalar statistics do not evaluate {unsupported!r}")
     checks = (
-        (problem.precision.single, "binary32"),
+        (
+            problem.precision.single and problem.initial.noise_model != "none",
+            "binary32 input noise",
+        ),
         (problem.shape[1] != 1, "vector polarisation"),
         (
             not isinstance(problem.route, (ModalRoute, SpatialRoute)),
@@ -1121,7 +1124,7 @@ def lower_observations(
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
-        Validated scalar modal or spatial binary64 descriptor.
+        Validated scalar modal or spatial descriptor.
     request : solprop.translate.run_request.RunRequest
         This run's immutable statistic selection, periodic cadence and monitor.
     grid : solprop.grid.TimeGrid or None, optional

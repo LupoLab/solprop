@@ -167,7 +167,7 @@ def lower_spatial(problem: PropagationProblem) -> RadialTransfer | CartesianTran
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
-        Validated scalar binary64 spatial descriptor.
+        Validated scalar spatial descriptor.
 
     Returns
     -------

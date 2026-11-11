@@ -250,15 +250,45 @@ def test_low_storage_refuses_an_adaptive_request_before_runtime_entry(monkeypatc
         JuliaBackend(case.problem, case.request)
 
 
-def test_binary32_refuses_before_a_runtime_is_selected(monkeypatch):
+def test_binary32_lowering_stays_lazy_and_preserves_wide_coefficients(monkeypatch):
     case = cpu_case()
 
     def no_runtime(**_):
-        pytest.fail("admission must precede Julia initialization")
+        pytest.fail("lowering must not initialize Julia")
 
     monkeypatch.setattr(backend, "get_runtime", no_runtime)
-    with pytest.raises(BackendError, match="binary32"):
-        JuliaBackend(replace(case.problem, precision=SINGLE), case.request)
+    problem = replace(case.problem, precision=SINGLE)
+    owner = JuliaBackend(problem, case.request)
+    transfer = lower_modal(problem)
+    assert transfer.arithmetic.name == "single"
+    assert transfer.arithmetic.state_exponent == transfer.arithmetic.field_exponent
+    assert transfer.synthesis.dtype == np.float64
+    assert transfer.operator.values is not None
+    assert transfer.operator.values.dtype == np.complex128
+    assert not transfer.operator.values.flags.writeable
+    assert not np.shares_memory(transfer.synthesis, problem.transform.synthesis)
+    owner.close()
+
+
+def test_binary32_input_noise_refuses_before_coefficient_lowering(monkeypatch):
+    case = cpu_case()
+    problem = replace(
+        case.problem,
+        precision=SINGLE,
+        initial=replace(
+            case.problem.initial,
+            noise_model="input",
+            noise0=np.zeros(case.problem.shape, dtype=np.complex128),
+        ),
+        flags=replace(case.problem.flags, has_noise=True),
+    )
+
+    def no_runtime(**_):
+        pytest.fail("binary32 noise admission must precede Julia initialization")
+
+    monkeypatch.setattr(backend, "get_runtime", no_runtime)
+    with pytest.raises(BackendError, match="binary32 input noise"):
+        JuliaBackend(problem, case.request)
 
 
 @pytest.mark.parametrize(

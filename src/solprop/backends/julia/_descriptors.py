@@ -636,7 +636,7 @@ def lower_modal(problem: PropagationProblem) -> ModalTransfer:
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
-        Validated binary64 descriptor with a scalar static modal transform.
+        Validated scalar descriptor with a static modal transform.
 
     Returns
     -------
@@ -665,7 +665,7 @@ def lower_source(problem: PropagationProblem) -> SourceTransfer:
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
-        Validated binary64 scalar descriptor; route admission belongs to its caller.
+        Validated scalar descriptor; route admission belongs to its caller.
 
     Returns
     -------
@@ -683,7 +683,10 @@ def lower_source(problem: PropagationProblem) -> SourceTransfer:
         problem.linear,
     )
     checks = (
-        (problem.precision.single, "binary32"),
+        (
+            problem.precision.single and problem.initial.noise_model != "none",
+            "binary32 input noise",
+        ),
         (problem.shape[1] != 1, "vector polarisation"),
         (transform.modal_tables is not None, "general modal transforms"),
         (tdse_descriptor(problem.route) is not None, "TDSE responses"),
@@ -729,7 +732,7 @@ def lower_mapped(problem: PropagationProblem) -> ModalTransfer:
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
-        Scalar binary64 descriptor with a nonempty static matrix transform.
+        Scalar descriptor with a nonempty static matrix transform.
 
     Returns
     -------

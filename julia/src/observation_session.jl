@@ -176,6 +176,8 @@ function SessionObservationPolicy(
         prepared isa SpatialObservationPreparation &&
             transverse isa TransversePreparation ||
             throw(ArgumentError("transverse monitoring requires scalar spatial inputs"))
+        transverse.arithmetic == prepared.arithmetic ||
+            throw(ArgumentError("transverse and observation arithmetic must agree"))
         transverse.n_frequency == length(prepared.grid.omega) &&
             transverse.n_columns == prepared.n_modes &&
             _observation_same_map(prepared.map, transverse.map) ||
@@ -348,7 +350,9 @@ mutable struct ObservationServices{W, S, R, Q, T}
 end
 
 _temporal_split_workspace(execution, data::ObservationPreparation, rate) =
-    TemporalSplitWorkspace(execution, data.kind, rate, data.n_modes)
+    TemporalSplitWorkspace(
+    execution, data.kind, rate, data.n_modes; arithmetic = data.arithmetic,
+)
 
 function ObservationServices(
         execution::KernelExecution, policy::SessionObservationPolicy;
@@ -390,7 +394,8 @@ function ObservationServices(
         policy.can_rest, rows,
         zeros(data.selection.width),
         any(slot -> slot.code == 20, slots) ?
-            QuadratureWorkspace(execution, data.n_modes) : nothing,
+            QuadratureWorkspace(execution, data.n_modes; arithmetic = data.arithmetic) :
+            nothing,
     )
 end
 

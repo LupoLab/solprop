@@ -7,9 +7,13 @@ struct _CartesianTemporalSplit{B, T}
 end
 
 function _temporal_split_workspace(execution, data::SpatialObservationPreparation, rate)
-    temporal = TemporalSplitWorkspace(execution, data.kind, rate, data.n_modes)
+    temporal = TemporalSplitWorkspace(
+        execution, data.kind, rate, data.n_modes; arithmetic = data.arithmetic,
+    )
     data.map isa RadialObservationMap && return temporal
-    band = CartesianBandWork(execution, data.map.shape, length(data.grid.omega))
+    band = CartesianBandWork(
+        execution, data.map.shape, length(data.grid.omega); arithmetic = data.arithmetic,
+    )
     return _CartesianTemporalSplit(band, temporal)
 end
 

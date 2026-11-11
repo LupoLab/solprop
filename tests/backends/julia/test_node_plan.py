@@ -38,7 +38,7 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.spatial_absorber import SpatialAbsorber, SpatialAbsorberDesign
 from solprop.stats import StatsSpec
-from solprop.translate.precision import SINGLE
+from solprop.translate.precision import DOUBLE, SINGLE
 from solprop.translate.problem import Initial, Translation, assemble
 from solprop.transverse_monitor import TransverseEdge
 
@@ -246,9 +246,66 @@ def test_plan_retains_only_frozen_scalar_inventory(modal):
         )
 
 
-def test_binary32_admission_is_named(modal):
-    with pytest.raises(BackendError, match="binary32"):
-        plan_julia_nodes(replace(modal.problem, precision=SINGLE), modal.request)
+def test_binary32_budget_distinguishes_numerical_storage_from_host_metadata(modal):
+    observed = _statistics(modal, ("energy", "quadrature_error"))
+    wide = plan_julia_nodes(observed.problem, observed.request)
+    narrow = plan_julia_nodes(
+        replace(observed.problem, precision=SINGLE), observed.request
+    )
+    assert narrow.per_node_bytes < wide.per_node_bytes
+    rows, original = _inventory(narrow), _inventory(wide)
+    assert rows["observations.packed_values"] == original["observations.packed_values"]
+    assert rows["observations.quadrature"].full_volume_bytes * 2 == (
+        original["observations.quadrature"].full_volume_bytes
+    )
+    assert rows["observations.spectrum"].full_volume_bytes * 2 == (
+        original["observations.spectrum"].full_volume_bytes
+    )
+    assert rows["observations.statistics_scales"].full_volume_bytes == (
+        8 * observed.problem.shape[0]
+    )
+
+
+@pytest.mark.parametrize("kind", ["field", "envelope"])
+def test_binary32_raman_keeps_host_kernel_and_adds_a_narrow_spectrum(kind):
+    case, _, _ = material_case(kind, "raman")
+    wide = _inventory(plan_julia_nodes(case.problem, case.request))
+    narrow = _inventory(
+        plan_julia_nodes(replace(case.problem, precision=SINGLE), case.request)
+    )
+    key = "source.raman.0.kernel_and_resonances"
+    assert narrow[key].fixed_bytes - wide[key].fixed_bytes == (
+        8 * (case.problem.grids.n_to + 1)
+    )
+    assert narrow["source.raman_shared"].per_node_bytes * 2 == (
+        wide["source.raman_shared"].per_node_bytes
+    )
+
+
+@pytest.mark.parametrize("kind", ["field", "envelope"])
+def test_binary32_population_host_readings_and_scale_metadata_are_budgeted(kind):
+    case, _, _ = material_case(kind, "plasma")
+    names = ("species_ionisation", "electron_density", "peak_ionisation_rate")
+    if kind == "field":
+        names += ("plasma_undershoot", "plasma_work_defect", "plasma_boundary_level")
+    case = _statistics(case, names)
+    wide = _inventory(plan_julia_nodes(case.problem, case.request))
+    narrow = _inventory(
+        plan_julia_nodes(replace(case.problem, precision=SINGLE), case.request)
+    )
+    assert narrow["observations.population_species"].fixed_bytes == (
+        wide["observations.population_species"].fixed_bytes
+    )
+    assert narrow["observations.population_species"].full_volume_bytes * 2 == (
+        wide["observations.population_species"].full_volume_bytes
+    )
+    assert narrow["observations.statistics_scales"].full_volume_bytes == (
+        8 * (case.problem.shape[0] + case.problem.transform.n_nodes)
+    )
+    if kind == "field":
+        row = narrow["observations.plasma_diagnostics"]
+        assert row.fixed_bytes == 6 * 8
+        assert row.per_node_bytes == 6 * 4 + 3 * 8
 
 
 def test_unsupported_statistics_refuse_before_planning(modal):
@@ -505,12 +562,35 @@ def _check_retained_bound(plan, small, large, request):
 @_MANAGED
 @pytest.mark.medium
 @pytest.mark.parametrize("kind", ["field", "envelope"])
-@pytest.mark.parametrize("geometry", ["modal", "radial", "cartesian", "line"])
-@pytest.mark.parametrize("response", ["kerr", "raman", "mixed"])
-def test_retained_array_chunk_increment_is_within_the_inventory(
+@pytest.mark.parametrize("geometry", ["modal", "line"])
+@pytest.mark.parametrize("response", ["raman", "mixed"])
+def test_binary32_source_payload_keeps_wide_coefficients_in_its_bound(
     kind, geometry, response, request
 ):
     case, grid, mode = _memory_case(kind, geometry, response)
+    case = Translation(
+        replace(case.problem, precision=SINGLE),
+        case.request.for_run(stats=StatsSpec(names=(), periodic=())),
+    )
+    plan = plan_julia_nodes(case.problem, case.request)
+    small = _retained(case, grid, mode if geometry == "modal" else None, 1)
+    large = _retained(case, grid, mode if geometry == "modal" else None, 3)
+    _check_retained_bound(plan, small, large, request)
+    assert any("host_spectrum" in name for name in small)
+    assert not any(name.startswith("session.services.") for name in small)
+
+
+@_MANAGED
+@pytest.mark.medium
+@pytest.mark.parametrize("kind", ["field", "envelope"])
+@pytest.mark.parametrize("geometry", ["modal", "radial", "cartesian", "line"])
+@pytest.mark.parametrize("response", ["kerr", "raman", "mixed"])
+@pytest.mark.parametrize("precision", [DOUBLE, SINGLE], ids=["double", "single"])
+def test_retained_array_chunk_increment_is_within_the_inventory(
+    kind, geometry, response, precision, request
+):
+    case, grid, mode = _memory_case(kind, geometry, response)
+    case = Translation(replace(case.problem, precision=precision), case.request)
     plan = plan_julia_nodes(case.problem, case.request)
     small = _retained(case, grid, mode if geometry == "modal" else None, 1)
     large = _retained(case, grid, mode if geometry == "modal" else None, 3)
@@ -524,10 +604,21 @@ def test_retained_array_chunk_increment_is_within_the_inventory(
 @pytest.mark.parametrize("kind", ["field", "envelope"])
 @pytest.mark.parametrize("geometry", ["radial", "cartesian", "line"])
 @pytest.mark.parametrize("collar", [False, True])
+@pytest.mark.parametrize("precision", [DOUBLE, SINGLE], ids=["double", "single"])
 def test_transverse_trace_increment_is_within_the_joint_node_bound(
-    kind, geometry, collar, request
+    kind, geometry, collar, precision, request
 ):
     case, grid, edge = _edge_memory_case(kind, geometry, collar)
+    if precision.single:
+        # Binary32 never admits input noise. Preserve the binary64 noisy-owner
+        # qualification and separately measure actual narrow monitor owners.
+        problem = replace(
+            case.problem,
+            precision=precision,
+            initial=Initial(case.problem.initial.field0, None, "none", 0.0),
+            flags=replace(case.problem.flags, has_noise=False),
+        )
+        case = Translation(problem, case.request)
     plan = plan_julia_nodes(case.problem, case.request)
     small, large = (_retained(case, grid, None, chunk) for chunk in (1, 3))
     _check_retained_bound(plan, small, large, request)
@@ -540,7 +631,10 @@ def test_transverse_trace_increment_is_within_the_joint_node_bound(
 @_MANAGED
 @pytest.mark.medium
 @pytest.mark.parametrize("kind", ["field", "envelope"])
-def test_optional_modal_windows_axis_coarse_projection_and_split_fit(kind, request):
+@pytest.mark.parametrize("precision", [DOUBLE, SINGLE], ids=["double", "single"])
+def test_optional_modal_windows_axis_coarse_projection_and_split_fit(
+    kind, precision, request
+):
     original, grid, _ = split_case(kind, observers=("monitor",))
     mode = MarcatiliMode(50e-6, cladding=1.45, loss=False)
     responses = original.problem.responses
@@ -584,7 +678,11 @@ def test_optional_modal_windows_axis_coarse_projection_and_split_fit(kind, reque
         energy_windows=np.array([[-np.inf, grid.omega0], [grid.omega0, np.inf]]),
     )
     case = Translation(
-        replace(case.problem, route=replace(case.problem.route, transform=transform)),
+        replace(
+            case.problem,
+            precision=precision,
+            route=replace(case.problem.route, transform=transform),
+        ),
         case.request.for_run(stats=spec, monitor=original.request.boundary.monitor),
     )
     plan = plan_julia_nodes(case.problem, case.request)

@@ -36,6 +36,9 @@ if TYPE_CHECKING:
 
 __all__ = ["JuliaNodePlan", "NodeBuffer", "plan_julia_nodes"]
 
+_HOST_REAL = np.dtype(np.float64).itemsize
+_HOST_COMPLEX = np.dtype(np.complex128).itemsize
+_INDEX = np.dtype(np.int64).itemsize
 _TEMPORAL = frozenset(
     {"peak_power", "peak_power_total", "analytic_flux", "fwhm_t", "fwhm_t_outer"}
 )
@@ -171,7 +174,7 @@ def _dimensions(problem: PropagationProblem) -> _Dimensions:
     Raises
     ------
     BackendError
-        For a route, precision or polarisation outside this inventory.
+        For a route or polarisation outside this inventory.
     """
     route, transform = problem.route, problem.transform
     if (
@@ -181,8 +184,6 @@ def _dimensions(problem: PropagationProblem) -> _Dimensions:
         raise BackendError("julia node planning refuses general modal routes")
     if isinstance(route, SpatialRoute) and route.kind == "planar":
         raise BackendError("julia node planning refuses planar routes")
-    if problem.precision.single:
-        raise BackendError("julia node planning currently refuses binary32")
     if problem.shape[1] != 1 or transform.n_pol != 1:
         raise BackendError("julia node planning refuses vector polarisation")
     grids = problem.grids
@@ -259,7 +260,7 @@ def _source_inventory(problem: PropagationProblem, d: _Dimensions) -> list[NodeB
         rows.append(
             NodeBuffer(
                 "source.prefactor_weights",
-                fixed_bytes=0 if weights is None else r * weights.n_terms,
+                fixed_bytes=0 if weights is None else _HOST_REAL * weights.n_terms,
             )
         )
         if d.spatial:
@@ -291,7 +292,9 @@ def _source_inventory(problem: PropagationProblem, d: _Dimensions) -> list[NodeB
             rows.append(
                 NodeBuffer(
                     f"source.raman.{index}.kernel_and_resonances",
-                    fixed_bytes=2 * time * r + (time + 1) * c + 2 * term.n_terms * r,
+                    fixed_bytes=(2 * time + 2 * term.n_terms) * _HOST_REAL
+                    + (time + 1) * _HOST_COMPLEX
+                    + ((time + 1) * c if problem.precision.single else 0),
                 )
             )
     if responses.population_channels:
@@ -310,7 +313,7 @@ def _source_inventory(problem: PropagationProblem, d: _Dimensions) -> list[NodeB
             NodeBuffer(
                 "source.plasma_factors",
                 fixed_bytes=2 * frequency * c
-                + 2 * len(responses.population_channels) * r,
+                + 2 * len(responses.population_channels) * _HOST_REAL,
             )
         )
     return rows
@@ -364,7 +367,7 @@ def _population_inventory(
         (
             NodeBuffer(
                 "observations.population_species",
-                fixed_bytes=species * r,
+                fixed_bytes=species * _HOST_REAL,
                 full_volume_bytes=2 * d.nodes * species * r,
             ),
             NodeBuffer(
@@ -416,7 +419,9 @@ def _observation_inventory(
     rows.append(
         NodeBuffer(
             "observations.packed_values",
-            fixed_bytes=2 * sum(slot.count for slot in _slots(problem, request)) * r,
+            fixed_bytes=2
+            * sum(slot.count for slot in _slots(problem, request))
+            * _HOST_REAL,
         )
     )
     if "quadrature_error" in names:
@@ -426,6 +431,14 @@ def _observation_inventory(
             "observations.statistics_work",
             fixed_bytes=n * r,
             full_volume_bytes=(n * m + 2 * m + 3 * x * (d.spatial or population)) * r,
+        )
+    )
+    rows.append(
+        NodeBuffer(
+            "observations.statistics_scales",
+            full_volume_bytes=(m + x * (d.spatial or population)) * _INDEX
+            if problem.precision.single
+            else 0,
         )
     )
     if d.spatial:
@@ -438,7 +451,7 @@ def _observation_inventory(
         rows.append(
             NodeBuffer(
                 "observations.power_weight_work",
-                fixed_bytes=0 if expansion is None else expansion.n_terms * r,
+                fixed_bytes=0 if expansion is None else expansion.n_terms * _HOST_REAL,
             )
         )
         if names & _TEMPORAL or "peak_intensity" in names:
@@ -467,7 +480,11 @@ def _observation_inventory(
     rows.extend(_axis_population_inventory(problem, names, d))
     if names & _PLASMA_DIAGNOSTICS:
         rows.append(
-            NodeBuffer("observations.plasma_diagnostics", 6 * r, fixed_bytes=6 * r)
+            NodeBuffer(
+                "observations.plasma_diagnostics",
+                6 * r + (3 * _INDEX if problem.precision.single else 0),
+                fixed_bytes=6 * _HOST_REAL,
+            )
         )
     if monitor is not None:
         crossing = problem.split_crossing if split else None
@@ -477,7 +494,7 @@ def _observation_inventory(
         rows.append(
             NodeBuffer(
                 "observations.temporal_monitor",
-                fixed_bytes=(n + 2 * buckets) * r,
+                fixed_bytes=n * r + 2 * buckets * _HOST_REAL,
                 full_volume_bytes=(f * c + n * d.scalar) * m,
             )
         )
@@ -485,7 +502,7 @@ def _observation_inventory(
         rows.append(
             NodeBuffer(
                 "observations.temporal_split",
-                fixed_bytes=n * r,
+                fixed_bytes=n * (_HOST_REAL + (r if problem.precision.single else 0)),
                 full_volume_bytes=(n * d.scalar + f * c) * m
                 + (f * m * c if d.cartesian else 0),
             )
@@ -520,7 +537,7 @@ def _axis_population_inventory(
         NodeBuffer(
             "observations.axis_populations",
             fixed_bytes=d.fine_time * (3 * d.scalar + 5 * d.real + 1)
-            + 3 * problem.responses.n_species * d.real
+            + problem.responses.n_species * (_HOST_REAL + 2 * d.real)
             + 8 * (d.frequency + d.fine_frequency),
             full_volume_bytes=(d.fine_frequency * d.complex + d.fine_time * d.scalar)
             * d.modes,
@@ -567,7 +584,9 @@ def _spatial_observation_inventory(
     route = problem.route
     assert isinstance(route, SpatialRoute)
     if route.flux.material is not None:
-        rows.append(NodeBuffer("observations.material_index", fixed_bytes=f * c))
+        rows.append(
+            NodeBuffer("observations.material_index", fixed_bytes=f * _HOST_COMPLEX)
+        )
     if physical:
         rows.append(
             NodeBuffer(
@@ -617,14 +636,14 @@ def _transverse_inventory(request: RunRequest, d: _Dimensions) -> list[NodeBuffe
     rows.append(
         NodeBuffer(
             "transverse.column_and_node_readings",
-            full_volume_bytes=(d.nodes + 5 * d.modes) * d.real,
+            full_volume_bytes=d.nodes * d.real + 5 * d.modes * _HOST_REAL,
         )
     )
     lines = edge.reduction.lines
     rows.append(
         NodeBuffer(
             "transverse.small_readings",
-            fixed_bytes=(4 * len(lines) + 3 * len(lines)) * d.real,
+            fixed_bytes=(4 * len(lines) + 3 * len(lines)) * _HOST_REAL,
         )
     )
     for index, line in enumerate(lines):
@@ -686,7 +705,7 @@ def plan_julia_nodes(
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
-        Validated scalar binary64 modal, radial, Cartesian or line description.
+        Validated scalar modal, radial, Cartesian or line description.
     request : solprop.translate.run_request.RunRequest
         Selected statistics and boundary services; no existing measured monitor
         state is consulted or retained.

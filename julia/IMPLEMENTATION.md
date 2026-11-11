@@ -33,11 +33,29 @@ and integrated through `ff9dedf6`. Corrections preserve actual weighted products
 per-node fluence exponents, physical identity and retained-buffer aliases (#715–717).
 The reviewer passes 3,895 assertions, including 2,672 additional product, weak-node
 and alias witnesses; the author passes 1,223 assertions at both thread budgets and
-Aqua/JET across all 1,897 definitions. Reconstruction, shared service attachment and
-node-memory accounting remain in progress. Public binary32 selection stays closed
-until these paths compose. Derived observation exponents are bounded metadata,
+Aqua/JET across all 1,897 definitions. Public binary32 selection stays closed until
+the complete service and source paths compose. Derived observation exponents are bounded metadata,
 separate from base amplitude scales (#721), integrated at `a8bb94ca`. Independent
 review passes 439 assertions, including extreme finite restoration and subnormals.
+
+Reconstruction is independently approved and integrated at `0d7590f8` and `888e16ff`.
+The reviewer passes 4,319 existing binary64, 2,591 new binary32 and 133 additional
+scale, cadence, reuse and ownership assertions. All warmed allocation checks are zero.
+The accepted coefficient-conversion contract retains an explicit absolute underflow
+allowance for weak normalized coefficients; the note and witness do not promise a
+small relative error for ill-conditioned input representation. Shared attachment
+passes 134 composed Julia assertions, including eight-step propagation with split
+statistics, and Aqua/JET passes 16 checks across all 2,011 definitions, zero cached.
+Independent attachment review adds 178 actual PythonCall factory assertions and
+seven registry controls. The complete retained-owner matrix passes all 84 managed
+cases, with 27 accompanying pure tests, in 411.75 s. The broader integrated Julia
+Core run remains in progress; no pass is claimed for that run yet.
+
+Binary32 quadrature is independently approved at `b6091f7b`: both maxima and sums
+use state precision, with protected scaled reductions and a host physical ratio.
+The master repeats 815 bounds-enabled assertions at two threads. Foreign storage
+and index-owner aliases refuse before work (#722). Its five per-column entries are
+included in the planner at their actual scalar size.
 
 DF32 actual-start and restored-rate binding is independently approved at `f6931a82`.
 It retains actual replay lengths, configured Adams reach, old history coordinates
@@ -55,21 +73,30 @@ and corrected a tiny-collar regression (#720): binary32 must use the existing SE
 the correction. The corrected leaf passes 522 authored and 566 independent assertions,
 including candidate preservation after overflow and strided retries. Final Aqua/JET
 passes 16 checks across all 1,949 definitions, zero cached. Binary64's original product
-graph is unchanged. Shared observation factories still await matching preparations.
+graph is unchanged. Shared observation factories now forward the exact precision
+and amplitude scales; mismatched source, observation and transverse records refuse.
 
-The binary32 node-inventory update is in progress: 27 pure tests pass, but eight new
-managed source-owner cases stop at the intentional current descriptor admission guard.
-They are not qualified or counted as passing. The complete bridge attachment must
-remove that guard in coordination with the remaining observation work. Fixed source
+The binary32 node-inventory update is qualified. The earlier eight managed source
+cases stopped at the private descriptor guard; coherent lowering now admits their
+noise-free scalar inputs. Actual retained-owner tests pass at two node capacities
+for every admitted geometry and material family, including statistics, temporal splits
+and transverse monitoring in both precisions. Fixed source
 coefficient buffers and physical readouts remain host-wide; the inventory counts them
 separately from narrow state scratch and integer exponent metadata.
+Typed Python attachment and registry checks pass 183 tests; the separately enabled
+84 managed cases also pass. Registry selection now checks the same precision table as settings
+and availability before dependency or runtime entry (#726).
 
-The CPU campaign at `5fc63437` passes 23 managed CPU/inventory smoke checks and is
-collecting twelve standard short-window cases at one and 64 threads. Every case has
-completed two rounds; round three is underway. Four earlier successful comparisons and
-their retained failures are documented in `docs/dev/benchmarks.md`. CPU-only CUDA
-artifact preparation has passed with an isolated depot; first A40 loading and offline
-execution are pending. No cloud resources have been rented; spend remains zero.
+The CPU campaign at `5fc63437` passes 23 managed CPU/inventory smoke checks and
+completed two rounds of all twelve short-window cases at one and 64 threads. Its
+210-minute stage deadline interrupted the third round with three 64-thread pairs
+unfinished. A bounded continuation repeats only those pairs with the same source,
+toolchain and exclusive placement; the original timeout remains in the record.
+Four earlier successful comparisons and their retained failures are documented in
+`docs/dev/benchmarks.md`. CPU-only CUDA artifact preparation and isolated-network
+A40 loading, broadcast, matrix multiplication and FFT round trips now pass in both
+precisions. This is artifact/primitive evidence, not device propagation qualification.
+No cloud resources have been rented; spend remains zero.
 
 CI for `984444ce` is running. Static checks, native quality, device compilation,
 distribution wheels, Python platform and lowest-dependency tests, both slow lanes,
@@ -129,9 +156,9 @@ Current assignments after resumption:
 | Owner | Exclusive files and task |
 |---|---|
 | Master | Shared Python/Julia bridge and service attachment; `observation_session.jl`, `spatial_session.jl` and temporal split precision tests; node inventory, module/test inclusion, CI and compute records |
-| Observation agent | Observation/statistics/monitor/power-weight files and tests; reviewed numerical corrections complete, binary32 reconstruction underway |
+| Observation agent | Reconstruction complete; independent read-only review of master's service, bridge, precision admission and node-inventory attachment |
 | Wide arithmetic agent | New `df32_flow.jl`, focused tests and `DF32_EXECUTION.md`; narrow pretrial hooks in `source.jl`, `runge_kutta.jl`, `low_storage.jl`, `march.jl`, `low_storage_session.jl`; master retains transfer/bridge/admission |
-| Quadrature/review agent | Split and observation correction review complete; `quadrature_alarm.jl`, new `quadrature_precision.jl` tests and `QUADRATURE_PRECISION.md` for binary32 diagnostic arithmetic |
+| Quadrature/review agent | Quadrature and reconstruction reviews complete; independent DF32 actual-flow review in the wide arithmetic worktree |
 
 The maintainer explicitly moved remaining runtime investigation off the critical path
 on 2026-11-10. Continue core implementation using the experiment's numerical work,

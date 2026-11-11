@@ -29,8 +29,10 @@ Let `T` be fine time samples, `N` coarse time samples, `F` coarse spectral bins,
 and `Q` fine spectral bins
 (`T/2+1` for fields, `T` for envelopes), `M` retained spectral columns, `X` physical
 nodes and `K` the selected chunk. Let `r`, `c`, `i` and `b` be the real, complex,
-index and status element widths. The initial admitted path uses 8, 16, 8 and 1
-bytes. Let `s=r` for fields and `s=c` for envelopes. Counts below are array payload
+index and status element widths. Binary64 uses 8, 16, 8 and 1 bytes; binary32
+uses 4, 8, 8 and 1. Host physical readings and coefficient work retain width `h=8`
+(and `2*h` for complex coefficients). Let `s=r` for fields and `s=c` for envelopes.
+Counts below are array payload
 sizes; a repeated reference or view does not create another data array.
 
 - Modal/radial source nodes and polarisation cost `2*T*s*K`. The failure vector
@@ -63,11 +65,14 @@ fine spectrum, prefactor/optional quadrature spectra, and the conservative fixed
 portion of the failure vector. A radial source additionally holds `F*M*c+i*M`
 for independent loss work. A Cartesian source has `F*X*c+i*X` for its band and
 failures. Every source holds two padding maps, `i*(F+Q)` bytes. An expanded modal
-prefactor adds one real vector of the represented expansion's term count.
+prefactor adds one host binary64 vector of the represented expansion's term count.
 
-Analytic modal work adds `2*T*M*c` outside the chunk. Each Raman component adds
-`2*T*r+(T+1)*c+2*n_terms*r`. Plasma adds two complex spectral factor vectors and
-two real parameters per channel; modal/radial plasma also adds
+Analytic modal work adds `2*T*M*c` outside the chunk. Each Raman component retains
+its host kernel, host spectrum and profile work, `(2*T+2*n_terms)*h+(T+1)*2*h`.
+Binary64 aliases the convolution spectrum to its host spectrum; binary32 adds
+an independent `(T+1)*c` narrowed spectrum. Plasma adds two complex spectral
+factor vectors in state precision and two host binary64 parameters per channel;
+modal/radial plasma also adds
 `(2+2*C)*T*M*s` in projected columns. These allocations occur once per source,
 not once per pass or physical node.
 
@@ -85,14 +90,17 @@ All observation workspaces retain a coarse spectrum, `F*M*c`, a statistics power
 matrix, `N*M*r`, two per-column reduction vectors, `2*M*r`, and a total-power
 vector, `N*r`. Three complete per-node real vectors are present for spatial
 observations and for modal population statistics. Selected packed statistic
-values and the plane copy cost `2*width*r`; the quadrature alarm adds `5*M*r`.
+values and the plane copy cost `2*width*h`; the quadrature alarm adds `5*M*r`.
+Binary32 additionally retains `i*M` column exponents and `i*X` node exponents
+where node statistics are present. These are independent owned arrays, not scalars.
 
 Modal observations always retain `F*M*r` power weights and, for an expanded
-weight, one real term vector. Analytic samples plus spectra, both ordinary and
+weight, one host binary64 term vector. Analytic samples plus spectra, both ordinary
+and
 power weighted, cost `4*N*M*c`; each requested window repeats that pair. The
 coarse on-axis peak uses two complex matrices with at most two physical components,
 bounded by `4*N*c` even though the propagated modal polarisation is scalar.
-Population species densities cost `n_species*r`, and fractions/peaks cost
+Population species densities cost `n_species*h`, and fractions/peaks cost
 `2*X*n_species*r`.
 Their fine modal reconstruction costs `(Q*c+T*s)*M`; the Cartesian version uses
 the already-counted chunk spectra and a full `F*X*c` spatial band. Each owns its
@@ -100,7 +108,8 @@ two padding maps independently of the source.
 
 The four resolved-modal on-axis population rows own another independent fine
 reconstruction: `(Q*c+T*s)*M`, at most `2*T*s` component samples, one `T*s` scalar
-column, five `T*r` recurrence columns, `T` status bytes, three `n_species*r` vectors,
+column, five `T*r` recurrence columns, `T` status bytes, one `n_species*h` density
+vector and two `n_species*r` result vectors,
 and `i*(F+Q)` padding indices. This storage is independent of the node chunk.
 The original axis map and represented species profiles are immutable preparation;
 FFT plans retain the stated opaque-storage exclusion. Envelope collinearity can
@@ -108,7 +117,8 @@ reduce the component allocation, but the planner conservatively charges both row
 
 Spatial observations retain `F*M*r` weights only for spectral statistics and
 `F*M*c` closure values only when physical or axis reconstruction is requested.
-A material-index vector costs `F*c` when present. Physical spectra/closures cost
+A material-index vector costs `F*2*h` when present; it is host coefficient work.
+Physical spectra/closures cost
 `2*F*X*c`, plus `F*X*c` for the Cartesian band; analytic intensity adds
 `4*N*X*c`. The axis pair costs `2*F*c`, plus `4*N*c` for axis intensity. The
 radial-average scratch is bounded by `X*r`: its half-pixel lattice covers the
@@ -116,10 +126,14 @@ smaller physical axis, so it cannot exceed that axis's sample count or the total
 number of physical nodes. Prepared width-grid angles and weights are immutable
 preparation, outside this workspace inventory.
 
-A temporal monitor holds `F*M*c+N*M*s+N*r` plus two real occupancy vectors of the
-complete shared split-rate bucket count, including empty buckets. An attached
-split collar holds `N*r+N*M*s+F*M*c`; the Cartesian split adds its independent
-`F*M*c` band.
+A temporal monitor holds `F*M*c+N*M*s+N*r` plus two host binary64 occupancy
+vectors of the complete shared split-rate bucket count, including empty buckets.
+An attached split collar holds `N*h+N*M*s+F*M*c`; binary32 adds its `N*r` damping
+corrections, evaluated from the wide rate/step with `expm1` before one narrowing.
+The Cartesian split adds its independent `F*M*c` band.
+
+Selected field-plasma diagnostics retain `6*K*r+6*h`. Binary32 adds `3*K*i`
+exponents; its physical aggregate maxima remain binary64.
 
 Every transverse line owns one complex twice-padded strip spectrum and, when an
 onset stencil exists, three complex current rows. Its contribution is
@@ -128,7 +142,7 @@ same coefficient times `K`. Sum this over every line, since all workspaces coexi
 The spatial band, previous/noise column readings and complete node vector remain
 full-volume. Optional resumed or noise data must not reduce the prepared bound.
 
-The transverse fixed/full-volume bound is `F*X*c+(X+5*M)*r+7*n_lines*r`.
+The transverse fixed/full-volume bound is `F*X*c+X*r+5*M*h+7*n_lines*h`.
 The five per-column vectors conservatively cover previous/noise state, the live
 reading, an optional noise reading and optional clean columns. Each global
 reading has two strip columns per line; each line also owns a one-column,
@@ -158,5 +172,8 @@ embedded coarse projection, temporal monitoring and split damping. The window
 views retain their shared data owner, so the public ledger counts each physical
 array once rather than counting an aliased reshape again.
 
-These checks qualify retained CPU binary64 array payloads only. They neither measure
-RSS nor qualify vendor plans or later binary32/DF32 workspaces.
+The existing managed checks qualify retained CPU binary64 array payloads. Pure
+binary32 checks distinguish narrow arrays from host coefficient/readout storage and
+integer scaling metadata. Complete binary32 retained-owner comparisons await the
+observation reconstruction attachment; the planner alone does not admit public
+binary32 execution. These checks neither measure RSS nor qualify vendor plans.

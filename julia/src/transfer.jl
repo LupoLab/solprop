@@ -112,6 +112,14 @@ The additional preparation ledger excludes arrays already owned by `problem`.
 struct SessionPreparation{M <: _ProblemPreparation, O <: SessionObservationPolicy}
     problem::M
     observations::O
+
+    function SessionPreparation(problem::M, observations::O) where {
+            M <: _ProblemPreparation, O <: SessionObservationPolicy,
+        }
+        _prepared_arithmetic(problem.data) == observations.observation.arithmetic ||
+            throw(ArgumentError("source and observation arithmetic must agree"))
+        return new{M, O}(problem, observations)
+    end
 end
 
 """
