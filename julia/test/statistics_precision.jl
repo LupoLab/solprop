@@ -353,3 +353,254 @@ end
         @test eltype(low.work.fluence) === eltype(low.work.radial_average) === Float32
     end
 end
+
+@testset "Actual weighted products retain dominant contributions" begin
+    # Positive sums have condition number one. Each term uses <=4 individually
+    # normalized factors (<=7 conversion/product roundings), then Sum2s and one
+    # host restoration. 64u bounds both these operations and the two-sum ratio.
+    bound = 64big(2.0)^-24
+    @test bound > 0
+    for tasks in (1, 2)
+        execution = SolpropJulia.KernelExecution(
+            SolpropJulia.KernelAbstractions.CPU(), tasks, true
+        )
+        work = SolpropJulia.StatisticsWorkspace(
+            execution, Float32;
+            n_time = 2, n_columns = 2, n_nodes = 2
+        )
+        tiny = nextfloat(0.0f0)
+        fractions = Float32[tiny 1; 2tiny 0.5]
+        densities = [2.0^700, 2.0^-700]
+        population = SolpropJulia.PopulationStatisticsInput(
+            densities, fractions,
+            zeros(Float32, 2, 2)
+        )
+        output = fill(-7.0, 4)
+        SolpropJulia.population_statistics!(
+            output, SolpropJulia.StatisticSlot(:electron_density, 1, 1),
+            population, work, execution
+        )
+        expected = maximum(
+            [
+                sum(
+                    BigFloat.(densities) .* BigFloat.(
+                        fractions[
+                            node,
+                            :,
+                        ]
+                    )
+                ) for node in 1:2
+            ]
+        )
+        @test abs(BigFloat(output[1]) - expected) <= bound * expected
+        @test output[1] > 0
+        axis = SolpropJulia.PopulationStatisticsInput(
+            densities, fractions[
+                1:1,
+                :,
+            ], zeros(Float32, 1, 2)
+        )
+        SolpropJulia.axis_population_statistics!(
+            output,
+            SolpropJulia.StatisticSlot(:on_axis_electron_density, 1, 1), axis,
+            work, execution
+        )
+        expected = sum(BigFloat.(densities) .* BigFloat.(fractions[1, :]))
+        @test abs(BigFloat(output[1]) - expected) <= bound * expected
+        inactive = SolpropJulia.PopulationStatisticsInput(
+            [2.0^100, 1.0],
+            Float32[0 0.5; 0 0.25], zeros(Float32, 2, 2)
+        )
+        SolpropJulia.population_statistics!(
+            output, SolpropJulia.StatisticSlot(:electron_density, 1, 1),
+            inactive, work, execution
+        )
+        @test output[1] == 0.5
+        inventory = SolpropJulia.PopulationStatisticsInput(
+            [1.0], reshape(Float32[tiny, 1], 2, 1),
+            zeros(Float32, 2, 1); node_weights = densities, potentials = [1.0]
+        )
+        SolpropJulia.population_statistics!(
+            output,
+            SolpropJulia.StatisticSlot(:species_ionisation_energy, 1, 1),
+            inventory, work, execution
+        )
+        expected = BigFloat(densities[1]) * tiny + BigFloat(densities[2])
+        @test abs(BigFloat(output[1]) - expected) <= bound * expected
+
+        samples = reshape(ComplexF32[2.0f0^-100, 2.0f0^100, 0, 0], 2, 2)
+        weights = repeat(reshape(Float32[2.0f0^100, 2.0f0^-100], 2, 1), 1, 2)
+        grid = SolpropJulia.StatisticsGrid(
+            [1.0, 2.0], [0.0, 1.0], ones(2);
+            windows = reshape(Bool[1, 0, 0, 1], 2, 2), spectral_density = ones(2)
+        )
+        spectral = SolpropJulia.SpectralStatisticsInput(samples, weights; total = true)
+        selection = precision_statistics_selection(
+            (
+                (:energy, 1), (
+                    :energy_window,
+                    2,
+                ), (:omega0, 2),
+            )
+        )
+        packed = zeros(selection.width)
+        inputs = SolpropJulia.StatisticsInputs(; spectral)
+        SolpropJulia.statistics!(packed, selection, grid, inputs, work, execution)
+        density = abs2.(Complex{BigFloat}.(samples[:, 1])) .* BigFloat.(weights[:, 1])
+        @test abs(BigFloat(packed[1]) - sum(density)) <= bound * sum(density)
+        @test all(abs.(BigFloat.(packed[2:3]) - density) .<= bound .* density)
+        centroid = sum(density .* BigFloat.(grid.omega)) / sum(density)
+        @test abs(BigFloat(packed[4]) - centroid) <= bound * centroid
+        @test isnan(packed[5])
+        @test precision_statistics_allocations(
+            packed, selection, grid, inputs,
+            work, execution
+        ) == 0
+
+        # Signed Hermitian members have opposing large components. A per-operand
+        # scale would erase every actual product; bound cancellation by sum|ab|.
+        first = reshape(ComplexF32[2.0f0^100, 2.0f0^-100, 0, 0], 2, 2)
+        second = reshape(ComplexF32[2.0f0^-100, -2.0f0^100, 0, 0], 2, 2)
+        temporal = SolpropJulia.TemporalStatisticsInput(first, second)
+        SolpropJulia.temporal_statistics!(
+            output, SolpropJulia.StatisticSlot(:peak_power, 1, 2),
+            grid, temporal, work, execution
+        )
+        @test abs(output[1] - 1.0) <= Float64(bound)
+        @test output[2] == 0.0
+        @test work.power[1, 1] > 0 && work.power[2, 1] < 0
+
+        # An all-zero column must not determine the scale of a tiny live column.
+        tiny_spectrum = fill(ComplexF32(0), 2, 2)
+        tiny_spectrum[:, 1] .= tiny
+        tiny_input = SolpropJulia.SpectralStatisticsInput(
+            tiny_spectrum,
+            ones(Float32, 2, 2); total = true
+        )
+        SolpropJulia.spectral_statistics!(
+            output, SolpropJulia.StatisticSlot(:energy, 1, 1),
+            grid, tiny_input, work, execution
+        )
+        expected_tiny = 2BigFloat(tiny)^2
+        @test abs(BigFloat(output[1]) - expected_tiny) <= bound * expected_tiny
+        @test output[1] > 0
+    end
+end
+
+@testset "Scaled physical weights do not acquire identity by default" begin
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 1, true)
+    grid = SolpropJulia.StatisticsGrid([1.0], [0.0], ones(1); spectral_density = ones(1))
+    work = SolpropJulia.StatisticsWorkspace(execution, Float32; n_time = 1, n_columns = 1)
+    for exponent in (-1, 1)
+        input = SolpropJulia.SpectralStatisticsInput(
+            ones(ComplexF32, 1, 1),
+            ones(Float32, 1, 1); weight_exponent = exponent
+        )
+        @test !input.identity_weight
+        for name in (:physical_energy, :spectral_flux)
+            output = [-7.0]
+            @test_throws ArgumentError SolpropJulia.spectral_statistics!(
+                output, SolpropJulia.StatisticSlot(name, 1, 1), grid, input, work, execution
+            )
+            @test output == [-7.0]
+        end
+    end
+    exact = SolpropJulia.SpectralStatisticsInput(
+        ones(ComplexF32, 1, 1),
+        fill(0.5f0, 1, 1); weight_exponent = 1, identity_weight = true
+    )
+    output = zeros(1)
+    SolpropJulia.spectral_statistics!(
+        output, SolpropJulia.StatisticSlot(:physical_energy, 1, 1),
+        grid, exact, work, execution
+    )
+    @test output == [1.0]
+end
+
+@testset "Spatial moments retain weak nodes until their weights are applied" begin
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 2, true)
+    widths = SolpropJulia.SpatialWidthGrid(
+        :radial, [1.0, 2.0], Float64[],
+        [2.0^700, 2.0^-700]
+    )
+    samples = reshape(ComplexF32[2.0f0^-100, 2.0f0^100], 1, 2)
+    axis = ones(ComplexF32, 1, 1)
+    input = SolpropJulia.SpatialStatisticsInput(;
+        spectrum = samples, closure = copy(samples),
+        axis_spectrum = axis, axis_closure = copy(axis), factor = 1.0,
+        source_columns = 2, widths
+    )
+    grid = SolpropJulia.StatisticsGrid(
+        [1.0], [0.0],
+        [1.0]; spectral_density = [1.0], d_omega = 1.0
+    )
+    work = SolpropJulia.StatisticsWorkspace(
+        execution, Float32; n_time = 1,
+        n_columns = 2, n_nodes = 2
+    )
+    output, slot = zeros(2), SolpropJulia.StatisticSlot(:beam_radius, 1, 2)
+    SolpropJulia.spatial_statistics!(output, slot, grid, input, work, execution)
+    powers = abs2.(Complex{BigFloat}.(vec(samples)))
+    weighted = powers .* BigFloat.(widths.weights)
+    expected = sqrt(2sum(weighted .* BigFloat.(widths.x) .^ 2) / sum(weighted))
+    bound = 64big(2.0)^-24
+    @test abs(BigFloat(output[1]) - expected) <= bound * expected
+    @test all(>(0), work.fluence)
+    @test work.scales.nodes[1] != work.scales.nodes[2]
+    @test sizeof(work.scales.nodes) == 2sizeof(Int)
+    @test abs(
+        BigFloat(
+            ldexp(
+                Float64(work.fluence[1]),
+                work.scales.nodes[1]
+            )
+        ) - powers[1]
+    ) <= bound * powers[1]
+    selection = precision_statistics_selection(((:beam_radius, 2),))
+    @test precision_statistics_allocations(
+        output, selection, grid,
+        SolpropJulia.StatisticsInputs(; spatial = input), work, execution
+    ) == 0
+end
+
+@testset "Node exponent ownership and signed fluence stay independent" begin
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 2, true)
+    first = fill(ComplexF32(2.0f0^100, 2.0f0^-100), 1, 2)
+    second = fill(ComplexF32(2.0f0^-100, 2.0f0^100), 1, 2)
+    widths = SolpropJulia.SpatialWidthGrid(:radial, [1.0, 2.0], Float64[], ones(2))
+    input = SolpropJulia.SpatialStatisticsInput(;
+        spectrum = first, closure = second, axis_spectrum = first[:, 1:1],
+        axis_closure = second[:, 1:1], factor = 1.0, source_columns = 2, widths,
+    )
+    grid = SolpropJulia.StatisticsGrid(
+        [1.0], [0.0], [1.0];
+        spectral_density = [1.0], d_omega = 1.0
+    )
+    work = SolpropJulia.StatisticsWorkspace(
+        execution, Float32;
+        n_time = 1, n_columns = 2, n_nodes = 2
+    )
+    output, slot = zeros(2), SolpropJulia.StatisticSlot(:beam_radius, 1, 2)
+    SolpropJulia.spatial_statistics!(output, slot, grid, input, work, execution)
+    # Both real products are exactly1, although |a|*|b| is about2^200.
+    # The value and diagnostic scale must be independent. Final sqrt rounding
+    # admits a positive4u64 allowance for this exactly represented moment ratio.
+    @test abs(output[1] - sqrt(5.0)) <= 4eps(Float64) * sqrt(5.0)
+    @test all(ldexp.(Float64.(work.fluence), work.scales.nodes) .== 2.0)
+    @test work.scales.spatial > maximum(work.scales.nodes)
+    nodes = work.scales.nodes
+    previous = copy(nodes)
+    GC.@preserve nodes begin
+        foreign = unsafe_wrap(Array, Ptr{Float64}(pointer(nodes)), (2,); own = false)
+        @test_throws ArgumentError SolpropJulia.spatial_statistics!(
+            foreign, slot, grid, input, work, execution
+        )
+        @test nodes == previous
+    end
+    resize!(nodes, 1)
+    output .= -7.0
+    @test_throws DimensionMismatch SolpropJulia.spatial_statistics!(
+        output, slot, grid, input, work, execution
+    )
+    @test output == [-7.0, -7.0]
+end

@@ -75,3 +75,37 @@ end
     @test_throws ArgumentError SolpropJulia._observation_restore_ratio(1.0f0, 0, (), (0.0,))
     @test_throws ArgumentError SolpropJulia._observation_restore_ratio(1.0f0, 2000, (), ())
 end
+
+function product_precision_allocated(factors, exponent)
+    SolpropJulia._observation_product_exponent(factors)
+    SolpropJulia._observation_product(factors, exponent)
+    return @allocated begin
+        SolpropJulia._observation_product_exponent(factors)
+        SolpropJulia._observation_product(factors, exponent)
+    end
+end
+
+@testset "Product exponents follow actual mixed-precision terms" begin
+    cases = (
+        (nextfloat(0.0f0), 2.0^700),
+        (2.0f0^100, 2.0f0^-100, 2.0^-700),
+        (-2.0f0^100, 2.0f0^-100, 3.0, 0.125f0),
+        (nextfloat(0.0), nextfloat(0.0f0), floatmax(Float64), 2.0f0^100),
+        (0.75f0, 0.5, -0.875f0, 0.625, 0.75f0, 0.5, 0.875f0, 0.625),
+    )
+    for factors in cases
+        exponent = SolpropJulia._observation_product_exponent(factors)
+        value = SolpropJulia._observation_product(factors, exponent)
+        expected = prod(BigFloat.(factors)) * big(2.0)^-exponent
+        k = length(factors)
+        gamma = (2k - 1) * big(2.0)^-24 / (1 - (2k - 1) * big(2.0)^-24)
+        @test gamma > 0
+        @test abs(BigFloat(value) - expected) <= gamma * abs(expected)
+        @test isfinite(value) && abs(value) >= 2.0f0^-8
+        @test product_precision_allocated(factors, exponent) == 0
+    end
+    @test SolpropJulia._observation_product_exponent((0.0f0, 2.0^1000)) == typemin(Int)
+    @test SolpropJulia._observation_product((0.0f0, 2.0^1000), -2000) == 0.0f0
+    @test_throws ArgumentError SolpropJulia._observation_product((), 0)
+    @test_throws ArgumentError SolpropJulia._observation_product(ntuple(_ -> 1.0f0, 9), 0)
+end

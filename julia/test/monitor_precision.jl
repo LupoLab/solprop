@@ -4,6 +4,7 @@
 using Test: @test, @testset, @test_throws
 import SolpropJulia
 
+
 function precision_monitor_allocations(
         reading, samples, weights, power, execution, spectrum, exponent
     )
@@ -236,5 +237,145 @@ end
         @test precision_strip_current_allocations(
             reading, strips, currents, execution, node_exponent
         ) == 0
+    end
+end
+
+@testset "Monitor foreign scratch preserves every observed input" begin
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 1, true)
+    for T in (Float32, Float64)
+        samples = reshape(T.(1:8), 4, 2)
+        weights = SolpropJulia.TemporalMonitorWeights(ones(4, 4), ones(2))
+        reading, original = SolpropJulia.TemporalReading(), copy(samples)
+        GC.@preserve samples begin
+            power = unsafe_wrap(Array, pointer(samples, 2), (4,); own = false)
+            @test !Base.mightalias(power, samples)
+            @test_throws ArgumentError SolpropJulia.temporal_reading!(
+                reading, samples, weights, power, execution
+            )
+            @test samples == original && reading.total == 0.0
+            @test_throws ArgumentError SolpropJulia.split_reading!(
+                reading, samples, 0.125, weights, power, execution
+            )
+            @test samples == original && !reading.has_found
+        end
+        # Ordinary independent scratch remains accepted after the refused call.
+        SolpropJulia.temporal_reading!(reading, samples, weights, zeros(T, 4), execution)
+        @test reading.total == 204.0
+    end
+    samples = reshape(Float32.(1:16), 4, 4)
+    tables = precision_transverse_tables()
+    reading, original = SolpropJulia.TransverseReading(4, 2), copy(samples)
+    GC.@preserve samples begin
+        nodes = unsafe_wrap(Array, pointer(samples, 2), (4,); own = false)
+        @test !Base.mightalias(nodes, samples)
+        @test_throws ArgumentError SolpropJulia.transverse_reading!(
+            reading, samples, copy(samples), tables, nodes, execution
+        )
+        @test samples == original && !reading.has_faces
+    end
+end
+
+@testset "Monitor products scale before unrelated weights can erase them" begin
+    # At most five factors, their normalization/conversion and product rounding,
+    # then a positive Sum2s and host restoration fit64u on these short sums.
+    # No tolerance is relative to a different, larger reading family.
+    bound = 64big(2.0)^-24
+    @test bound > 0
+    for tasks in (1, 2)
+        execution = SolpropJulia.KernelExecution(
+            SolpropJulia.KernelAbstractions.CPU(), tasks, true
+        )
+        samples = reshape(Float32[2.0f0^-100, 2.0f0^100], 1, 2)
+        weights = SolpropJulia.TemporalMonitorWeights(
+            ones(1, 4), [
+                2.0^100,
+                2.0^-100,
+            ]; buckets = [1 2]
+        )
+        reading, power = SolpropJulia.TemporalReading(2), zeros(Float32, 1)
+        spectrum = ComplexF32.(samples)
+        SolpropJulia.temporal_reading!(
+            reading, samples, weights, power,
+            execution; spectrum
+        )
+        expected = [
+            BigFloat(weights.columns[column]) * abs2(
+                BigFloat(
+                    samples[
+                        1,
+                        column,
+                    ]
+                )
+            ) for column in 1:2
+        ]
+        @test abs(BigFloat(reading.total) - sum(expected)) <= bound * sum(expected)
+        @test all(abs.(BigFloat.(reading.occupancy) - expected) .<= bound .* expected)
+        @test all(>(0), reading.occupancy)
+        @test precision_monitor_allocations(
+            reading, samples, weights, power,
+            execution, spectrum, 0
+        ) == 0
+
+        # An apparently insignificant power row becomes dominant in a separately
+        # weighted region. Its source must survive until that region is evaluated.
+        samples = reshape(Float32[2.0f0^-100, 2.0f0^100], 2, 1)
+        regions = [2.0^700 0.0 1.0 2.0^-100; 2.0^-700 0.0 1.0 2.0^-500]
+        weights = SolpropJulia.TemporalMonitorWeights(regions, [1.0])
+        reading, power = SolpropJulia.TemporalReading(), zeros(Float32, 2)
+        SolpropJulia.temporal_reading!(reading, samples, weights, power, execution)
+        expected_power = abs2.(BigFloat.(vec(samples)))
+        expected_region = sum(expected_power .* BigFloat.(regions[:, 1]))
+        @test abs(BigFloat(reading.regions[1]) - expected_region) <= bound * expected_region
+        @test reading.regions[2] == 0.0
+        SolpropJulia.split_reading!(reading, samples, 0.125, weights, power, execution)
+        expected_removed = sum(expected_power .* -expm1.(-BigFloat.(regions[:, 4]) ./ 8))
+        expected_found = sum(
+            expected_power .* exp.(
+                -BigFloat.(
+                    regions[
+                        :,
+                        4,
+                    ]
+                ) ./ 16
+            ) .* BigFloat.(regions[:, 1])
+        )
+        @test abs(BigFloat(reading.removed) - expected_removed) <= bound * expected_removed
+        @test abs(BigFloat(reading.found[2]) - expected_found) <= bound * expected_found
+        @test precision_split_allocations(
+            reading, samples, weights, power,
+            execution, 0
+        ) == 0
+
+        nodes = reshape(ComplexF32[2.0f0^-100, 2.0f0^100, 0, 0], 1, 4)
+        face = zeros(4, 4)
+        face[1:2, 1] .= [2.0^700, 2.0^-700]
+        tables = SolpropJulia.TransverseTables(
+            face, copy(face), copy(face), ones(4),
+            [0.0, 1.0, 3.0, 6.0], [1, 2, 3, 4], zeros(4);
+            face_ranks = (2, 1), noise_face_share = 0.25, noise_modes = 16
+        )
+        edge, scratch = SolpropJulia.TransverseReading(4, 1), zeros(Float32, 4)
+        SolpropJulia.transverse_reading!(edge, nodes, nodes, tables, scratch, execution)
+        @test abs(BigFloat(edge.faces[1]) - expected_region) <= bound * expected_region
+        @test precision_transverse_allocations(
+            edge, nodes, nodes, tables,
+            scratch, execution, 0, 0
+        ) == 0
+
+        strips = (
+            SolpropJulia.TransverseStripLine(
+                reshape(vec(nodes), 4, 1), 1.0,
+                1.0, 1, 1
+            ),
+        )
+        SolpropJulia.transverse_strip!(edge, strips, execution)
+        expected_inward = BigFloat(2.0)^-200 / 4
+        @test abs(BigFloat(edge.strip[1, 1]) - expected_inward) <= bound * expected_inward
+        @test edge.strip[1, 1] > 0
+        # The large sample lies outside the actual three-point current stencil.
+        field = reshape(ComplexF32[0, 2.0f0^-100, im * 2.0f0^-100, 2.0f0^100], 4, 1)
+        current = (SolpropJulia.TransverseCurrentLine(field, 2, 1, 3, 1.0, 1.0),)
+        SolpropJulia.transverse_current!(edge, current, 1.0)
+        @test abs(BigFloat(edge.current) - BigFloat(2.0)^-200) <= bound * BigFloat(2.0)^-200
     end
 end

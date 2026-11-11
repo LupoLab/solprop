@@ -124,3 +124,46 @@ end
     )
     @test constant.constant == retained
 end
+
+@testset "Subnormal weight conversion and reduction have separate bounds" begin
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 1, true)
+    eta = Float64(nextfloat(0.0f0))
+    original = reshape([1.0, 0.75eta], 2, 1)
+    prepared = SolpropJulia.NormalizedObservationWeight(
+        execution, SolpropJulia.ObservationWeight(execution, original),
+        SolpropJulia.SourceArithmetic(Float32),
+    )
+    numerical = zeros(Float32, 2, 1)
+    work = SolpropJulia.ObservationWeightWorkspace(prepared)
+    exponent = SolpropJulia.evaluate_weight!(numerical, prepared, 0.0, execution; work)
+    spectrum = reshape(ComplexF32[0, 2.0f0^100], 2, 1)
+    grid = SolpropJulia.StatisticsGrid([1.0, 2.0], [0.0], ones(2))
+    input = SolpropJulia.SpectralStatisticsInput(
+        spectrum, numerical;
+        weight_exponent = exponent, identity_weight = work.identity
+    )
+    statistics = SolpropJulia.StatisticsWorkspace(
+        execution, Float32;
+        n_time = 1, n_columns = 1
+    )
+    output = zeros(1)
+    SolpropJulia.spectral_statistics!(
+        output,
+        SolpropJulia.StatisticSlot(:energy, 1, 1), grid, input, statistics, execution
+    )
+    intensity = abs2.(Complex{BigFloat}.(spectrum))
+    represented = sum(intensity .* BigFloat.(numerical)) * big(2.0)^exponent
+    wide = sum(intensity .* BigFloat.(original))
+    # The pointwise reduction is bounded relative to its represented inputs.
+    # The independently rounded subnormal weight has an additive eta/2 error;
+    # its weighted effect must be propagated separately, not called a relative
+    # working-precision error on the original tiny coefficient (SEP33§4.3).
+    reduction_bound = 32big(2.0)^-24 * represented
+    conversion_bound = BigFloat(eta) / 2 * sum(intensity) * big(2.0)^exponent
+    @test reduction_bound > 0 && conversion_bound > 0
+    @test abs(BigFloat(output[1]) - represented) <= reduction_bound
+    @test abs(represented - wide) <= conversion_bound
+    @test abs(BigFloat(output[1]) - wide) <= reduction_bound + conversion_bound
+    @test abs(BigFloat(output[1]) - wide) > wide / 10
+    @test numerical[2] > 0
+end

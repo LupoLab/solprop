@@ -79,3 +79,34 @@ end
     )
     @test work.maxima == retained
 end
+
+@testset "Diagnostic products ignore large inactive factors" begin
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 2, true)
+    population = SolpropJulia.PopulationWorkspace(
+        execution, Float32,
+        SolpropJulia.ResponseLayout(4, 1, 1)
+    )
+    tiny = nextfloat(0.0f0)
+    samples = reshape(Float32[2.0f0^100, 2.0f0^-100, 0, 0], 4, 1)
+    population.fraction[:, 1] .= Float32[tiny, 1, 1, 1]
+    population.rate[:, 1] .= Float32[2.0f0^-100, 2.0f0^100, 2.0f0^100, 2.0f0^100]
+    rule = SolpropJulia.RunningIntegralRule(Float32[1.25, -0.125], 2.0f0^-100)
+    work = SolpropJulia.PlasmaDiagnosticWorkspace(execution, Float32, 1)
+    case = (; samples, population, rule, work)
+    SolpropJulia.plasma_diagnostics!(work, samples, population, rule, execution)
+    reference = plasma_statistics_reference(samples, population, rule)
+    bound = 64big(2.0)^-24
+    @test bound > 0
+    @test all(abs.(BigFloat.(work.maxima) - reference) .<= bound .* abs.(reference))
+    @test work.maxima[5] > Float64(tiny)
+    @test plasma_statistics_allocated(case, execution) == 0
+    # A tiny nonzero paid-work numerator also survives when freed fraction is0;
+    # the defect's scale must not default to unit magnitude.
+    population.fraction .= 0.0f0
+    population.rate .= 2.0f0^-100
+    SolpropJulia.reset_plasma_diagnostics!(work)
+    SolpropJulia.plasma_diagnostics!(work, samples, population, rule, execution)
+    reference = plasma_statistics_reference(samples, population, rule)
+    @test abs(BigFloat(work.maxima[3]) - reference[3]) <= bound * reference[3]
+    @test 0 < work.maxima[3] < Float64(tiny)
+end

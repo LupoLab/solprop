@@ -73,6 +73,107 @@ end
     return real(scaled) * real(scaled) + imag(scaled) * imag(scaled)
 end
 
+# Choose scales from actual products, not independently from their operands:
+# a large coefficient can make a tiny sample the dominant physical term.
+# At most eight mantissas in [1/2,1) are multiplied, so every intermediate is
+# normal. Only the final alignment can underflow. Zero uses a scale sentinel
+# that cannot determine the exponent of a nonzero reduction.
+@inline function _observation_product_exponent(values::Tuple)
+    1 <= length(values) <= 8 ||
+        throw(ArgumentError("observation products require one to eight factors"))
+    any(iszero, values) && return typemin(Int)
+    return _observation_exponent_sum(values)
+end
+
+@inline _observation_exponent_sum(::Tuple{}) = 0
+@inline _observation_exponent_sum(values::Tuple) =
+    last(frexp(first(values))) + _observation_exponent_sum(Base.tail(values))
+
+@inline _observation_product_scale(exponent::Int) =
+    exponent == typemin(Int) ? 0 : exponent
+
+@inline _observation_align(value::Float32, exponent::Int) = ldexp(value, exponent)
+@inline _observation_host_align(value::Float32, exponent::Int) =
+    ldexp(Float64(value), exponent)
+
+@inline _observation_shifted_exponent(exponent::Int, shift::Int) =
+    exponent == typemin(Int) ? exponent : exponent + shift
+
+@inline function _observation_product(values::Tuple, exponent::Int)
+    1 <= length(values) <= 8 ||
+        throw(ArgumentError("observation products require one to eight factors"))
+    any(iszero, values) && return 0.0f0
+    product, power = _observation_product_parts(values, 1.0f0, 0)
+    return ldexp(product, power - exponent)
+end
+
+# Tuple recursion specializes each mixed-precision host coefficient separately;
+# iterating a heterogeneous tuple can box frexp's mixed result on this Julia pin.
+@inline _observation_product_parts(::Tuple{}, product::Float32, exponent::Int) =
+    (product, exponent)
+@inline function _observation_product_parts(values::Tuple, product::Float32, exponent::Int)
+    mantissa, shift = frexp(first(values))
+    return _observation_product_parts(
+        Base.tail(values), product * Float32(mantissa), exponent + shift
+    )
+end
+
+@inline function _observation_dot_exponent(first, second, factors::Tuple = ())
+    return max(
+        _observation_product_exponent((real(first), real(second), factors...)),
+        _observation_product_exponent((imag(first), imag(second), factors...)),
+    )
+end
+
+@inline function _observation_dot(first, second, exponent, factors::Tuple = ())
+    return _observation_product((real(first), real(second), factors...), exponent) +
+        _observation_product((imag(first), imag(second), factors...), exponent)
+end
+
+function _observation_dot_exponent(first::AbstractArray, second::AbstractArray)
+    exponent = typemin(Int)
+    for index in eachindex(first, second)
+        exponent = max(exponent, _observation_dot_exponent(first[index], second[index]))
+    end
+    return _observation_product_scale(exponent)
+end
+
+function _observation_dot_column_exponent(first, second, column, window = 1)
+    exponent = typemin(Int)
+    for row in axes(first, 1)
+        exponent = max(
+            exponent,
+            _observation_dot_exponent(
+                first[row, column, window], second[
+                    row,
+                    column, window,
+                ]
+            ),
+        )
+    end
+    return _observation_product_scale(exponent)
+end
+
+@inline function _observation_abs_parts(value)
+    largest = max(abs(real(value)), abs(imag(value)))
+    iszero(largest) && return (0.0f0, 0)
+    exponent = last(frexp(largest))
+    return abs(_observation_scaled(value, exponent)), exponent
+end
+
+@inline function _observation_abs_exponent(first, second, factors::Tuple)
+    a, a_exponent = _observation_abs_parts(first)
+    b, b_exponent = _observation_abs_parts(second)
+    scale = _observation_product_exponent((a, b, factors...))
+    return scale == typemin(Int) ? scale : scale + a_exponent + b_exponent
+end
+
+@inline function _observation_abs_product(first, second, factors::Tuple, exponent)
+    a, a_exponent = _observation_abs_parts(first)
+    b, b_exponent = _observation_abs_parts(second)
+    return _observation_product((a, b, factors...), exponent - a_exponent - b_exponent)
+end
+
 function _observation_restore(value::Real, exponent::Int, factor::Float64 = 1.0)
     isfinite(value) && isfinite(factor) ||
         throw(ArgumentError("observation physical result must be finite"))
@@ -112,11 +213,12 @@ end
 
 mutable struct _ObservationScales{V}
     columns::V
+    nodes::V
     spectral::Int
     temporal::Int
     windows::Int
     spatial::Int
     axis::Int
 end
-_ObservationScales(columns::Int) =
-    _ObservationScales(zeros(Int, columns), 0, 0, 0, 0, 0)
+_ObservationScales(columns::Int, nodes::Int = 0) =
+    _ObservationScales(zeros(Int, columns), zeros(Int, nodes), 0, 0, 0, 0, 0)

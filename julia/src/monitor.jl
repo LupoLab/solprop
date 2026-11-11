@@ -248,9 +248,12 @@ function _monitor_temporal_power!(power, samples, weights, execution)
         throw(DimensionMismatch("temporal monitor samples and scratch disagree"))
     all(isfinite, samples) || throw(ArgumentError("temporal monitor samples are nonfinite"))
     (
-        Base.mightalias(power, samples) || Base.mightalias(power, weights.regions) ||
-            Base.mightalias(power, weights.columns) ||
-            (weights.buckets !== nothing && Base.mightalias(power, weights.buckets))
+        _transfer_arrays_alias(power, samples) || _transfer_arrays_alias(
+            power,
+            weights.regions
+        ) ||
+            _transfer_arrays_alias(power, weights.columns) ||
+            (weights.buckets !== nothing && _transfer_arrays_alias(power, weights.buckets))
     ) &&
         throw(ArgumentError("temporal monitor scratch aliases its input"))
     columns = weights.columns
@@ -273,84 +276,95 @@ function _single_monitor_power!(power, samples, weights, execution)
         throw(DimensionMismatch("temporal monitor samples and scratch disagree"))
     all(isfinite, samples) || throw(ArgumentError("temporal monitor samples are nonfinite"))
     (
-        Base.mightalias(power, samples) || Base.mightalias(power, weights.regions) ||
-            Base.mightalias(power, weights.columns) ||
-            (weights.buckets !== nothing && Base.mightalias(power, weights.buckets))
+        _transfer_arrays_alias(power, samples) || _transfer_arrays_alias(
+            power,
+            weights.regions
+        ) ||
+            _transfer_arrays_alias(power, weights.columns) ||
+            (weights.buckets !== nothing && _transfer_arrays_alias(power, weights.buckets))
     ) && throw(ArgumentError("temporal monitor scratch aliases its input"))
-    sample_scale = _observation_exponent(samples)
-    column_scale = _observation_exponent(weights.columns)
+    scale = typemin(Int)
     columns = weights.columns
+    for column in axes(samples, 2), row in axes(samples, 1)
+        sample = samples[row, column]
+        scale = max(scale, _observation_dot_exponent(sample, sample, (columns[column],)))
+    end
+    product_scale = _observation_product_scale(scale)
     each!(execution, length(power), 1) do row, _
         sum = _Float32Sum()
         for column in axes(samples, 2)
-            value = _observation_scaled(columns[column], column_scale) *
-                _observation_square(samples[row, column], sample_scale)
+            sample = samples[row, column]
+            value = _observation_dot(sample, sample, product_scale, (columns[column],))
             sum = _float32_add(sum, value)
         end
         power[row] = _float32_value(sum)
     end
     all(isfinite, power) || throw(ArgumentError("temporal monitor power overflowed"))
-    return 2sample_scale + column_scale
+    return product_scale
 end
 
-function _single_monitor_region_add(
-        regions::NTuple{N, _Float32Sum}, value, weights, row, scales,
-    ) where {N}
-    return ntuple(Val(N)) do region
-        _float32_add(
-            regions[region], value *
-                _observation_scaled(weights[row, region], scales[region])
+@inline function _single_monitor_factor(weights, row, mode, step)
+    mode == 0 && return 1.0
+    rate = Float64(weights.regions[row, 4])
+    return mode == 1 ? -expm1(-rate * step) : exp(-0.5 * rate * step)
+end
+
+@inline _single_monitor_bucket(::Nothing, row, column, bucket) = iszero(bucket)
+@inline _single_monitor_bucket(buckets::AbstractMatrix, row, column, bucket) =
+    iszero(bucket) || buckets[row, column] == bucket
+
+# Each final weighted reading starts from the original field. Reusing normalized
+# power would lose a weak row before a large region weight can make it dominant.
+function _single_monitor_sum(
+        samples, weights, region, mode, step, physical; bucket::Int = 0,
+    )
+    _float32_sum_count(length(samples))
+    buckets = weights.buckets
+    bucket > 0 && buckets === nothing &&
+        throw(ArgumentError("monitor bucket reduction needs prepared indices"))
+    scale = typemin(Int)
+    for column in axes(samples, 2), row in axes(samples, 1)
+        !_single_monitor_bucket(buckets, row, column, bucket) && continue
+        factors = (
+            weights.columns[column], region == 0 ? 1.0 : weights.regions[row, region],
+            _single_monitor_factor(weights, row, mode, step),
         )
+        sample = samples[row, column]
+        scale = max(scale, _observation_dot_exponent(sample, sample, factors))
     end
-end
-
-function _single_monitor_region_restore(
-        regions::NTuple{N, _Float32Sum}, scales, physical,
-    ) where {N}
-    return ntuple(Val(N)) do region
-        _observation_restore(_float32_value(regions[region]), physical + scales[region])
+    scale = _observation_product_scale(scale)
+    sum = _Float32Sum()
+    for column in axes(samples, 2), row in axes(samples, 1)
+        !_single_monitor_bucket(buckets, row, column, bucket) && continue
+        factors = (
+            weights.columns[column], region == 0 ? 1.0 : weights.regions[row, region],
+            _single_monitor_factor(weights, row, mode, step),
+        )
+        sample = samples[row, column]
+        sum = _float32_add(sum, _observation_dot(sample, sample, scale, factors))
     end
-end
-
-function _single_monitor_regions(power, weights, power_scale)
-    scales = ntuple(region -> _observation_column_exponent(weights.regions, region), 4)
-    total = _Float32Sum()
-    regions = (_Float32Sum(), _Float32Sum(), _Float32Sum(), _Float32Sum())
-    for row in eachindex(power)
-        value = power[row]
-        total = _float32_add(total, value)
-        regions = _single_monitor_region_add(regions, value, weights.regions, row, scales)
-    end
-    physical_total = _observation_restore(_float32_value(total), power_scale)
-    physical_regions = _single_monitor_region_restore(regions, scales, power_scale)
-    return physical_total, physical_regions
+    return _observation_restore(_float32_value(sum), scale + physical)
 end
 
 function _single_temporal_reading!(
         reading, samples, weights, power, execution, spectrum, amplitude_exponent,
     )
+    _float32_sum_count(length(samples))
     weights.buckets === nothing || _float32_sum_count(length(spectrum))
     eltype(reading.occupancy) === Float64 ||
         throw(ArgumentError("monitor control readings require binary64 result storage"))
-    power_scale = _single_monitor_power!(power, samples, weights, execution)
-    total, regions = _single_monitor_regions(
-        power, weights, power_scale + 2amplitude_exponent
+    _single_monitor_power!(power, samples, weights, execution)
+    physical = 2amplitude_exponent
+    total = _single_monitor_sum(samples, weights, 0, 0, 0.0, physical)
+    regions = ntuple(
+        region -> _single_monitor_sum(
+            samples, weights, region, 0, 0.0, physical
+        ), 4
     )
     if weights.buckets !== nothing
-        spectrum_scale = _observation_exponent(spectrum)
-        column_scale = _observation_exponent(weights.columns)
-        physical = 2spectrum_scale + column_scale + 2amplitude_exponent
-        # The output is the final physical control reading; every accumulation is
-        # binary32. Validate all physical buckets before publishing any of them.
+        # Validate all physical buckets before publishing any of them.
         for pass in 1:2, bucket in eachindex(reading.occupancy)
-            sum = _Float32Sum()
-            for column in axes(spectrum, 2), row in axes(spectrum, 1)
-                weights.buckets[row, column] == bucket || continue
-                value = _observation_scaled(weights.columns[column], column_scale) *
-                    _observation_square(spectrum[row, column], spectrum_scale)
-                sum = _float32_add(sum, value)
-            end
-            value = _observation_restore(_float32_value(sum), physical)
+            value = _single_monitor_sum(spectrum, weights, 0, 0, 0.0, physical; bucket)
             pass == 2 && (reading.occupancy[bucket] = value)
         end
     end
@@ -361,30 +375,16 @@ end
 function _single_split_reading!(
         reading, samples, step, weights, power, execution, add, amplitude_exponent,
     )
-    power_scale = _single_monitor_power!(power, samples, weights, execution)
-    physical = power_scale + 2amplitude_exponent
-    region_scales = ntuple(
-        region -> _observation_column_exponent(weights.regions, region), 3
-    )
-    taken = total = _Float32Sum()
-    regions = (_Float32Sum(), _Float32Sum(), _Float32Sum())
-    for row in eachindex(power)
-        rate = Float64(weights.regions[row, 4])
-        # Exponentials are host scalar coefficients evaluated wide then rounded
-        # once, as SEP33 requires. Pointwise field products remain binary32.
-        removed = Float32(-expm1(-rate * step))
-        factor = Float32(exp(-0.5 * rate * step))
-        half = power[row] * factor
-        taken = _float32_add(taken, power[row] * removed)
-        total = _float32_add(total, half)
-        regions = _single_monitor_region_add(
-            regions, half, weights.regions, row, region_scales
-        )
-    end
-    removed = _observation_restore(_float32_value(taken), physical)
+    _float32_sum_count(length(samples))
+    _single_monitor_power!(power, samples, weights, execution)
+    physical = 2amplitude_exponent
+    removed = _single_monitor_sum(samples, weights, 0, 1, step, physical)
     add && (removed += reading.removed)
-    physical_regions = _single_monitor_region_restore(regions, region_scales, physical)
-    found = (_observation_restore(_float32_value(total), physical), physical_regions...)
+    found = ntuple(
+        region -> _single_monitor_sum(
+            samples, weights, region - 1, 2, step, physical
+        ), 4
+    )
     isfinite(removed) || throw(ArgumentError("split monitor reduction overflowed"))
     reading.removed, reading.found = removed, found
     reading.has_found = true
@@ -418,13 +418,16 @@ function temporal_reading!(
             throw(DimensionMismatch("temporal crossing requires matching raw spectra"))
         all(isfinite, spectrum) || throw(ArgumentError("crossing spectrum is nonfinite"))
         (
-            Base.mightalias(power, spectrum) || Base.mightalias(power, buckets) ||
-                Base.mightalias(power, reading.occupancy) ||
-                Base.mightalias(reading.occupancy, spectrum) ||
-                Base.mightalias(reading.occupancy, buckets) ||
-                Base.mightalias(reading.occupancy, weights.columns) ||
-                Base.mightalias(reading.occupancy, weights.regions) ||
-                Base.mightalias(reading.occupancy, samples)
+            _transfer_arrays_alias(
+                power,
+                spectrum
+            ) || _transfer_arrays_alias(power, buckets) ||
+                _transfer_arrays_alias(power, reading.occupancy) ||
+                _transfer_arrays_alias(reading.occupancy, spectrum) ||
+                _transfer_arrays_alias(reading.occupancy, buckets) ||
+                _transfer_arrays_alias(reading.occupancy, weights.columns) ||
+                _transfer_arrays_alias(reading.occupancy, weights.regions) ||
+                _transfer_arrays_alias(reading.occupancy, samples)
         ) &&
             throw(ArgumentError("temporal crossing buffers alias their inputs"))
     elseif !isempty(reading.occupancy)
@@ -489,7 +492,7 @@ function split_reading!(
     )
     isfinite(step) && step > 0 ||
         throw(ArgumentError("split monitor step must be positive"))
-    Base.mightalias(power, reading.occupancy) &&
+    _transfer_arrays_alias(power, reading.occupancy) &&
         throw(ArgumentError("split scratch aliases the retained crossing occupancy"))
     if eltype(power) === Float32
         _observation_scale_exponents((amplitude_exponent,))
@@ -1183,11 +1186,17 @@ function TransverseReading(n_columns::Int, n_lines::Int = 0)
 end
 
 function _transverse_alias_tables(buffer, tables)
-    return Base.mightalias(buffer, tables.faces) || Base.mightalias(buffer, tables.clip) ||
-        Base.mightalias(buffer, tables.totals) ||
-        Base.mightalias(buffer, tables.column_weights) ||
-        Base.mightalias(buffer, tables.kappa) || Base.mightalias(buffer, tables.order) ||
-        Base.mightalias(buffer, tables.ramp_rates)
+    return _transfer_arrays_alias(
+        buffer,
+        tables.faces
+    ) || _transfer_arrays_alias(buffer, tables.clip) ||
+        _transfer_arrays_alias(buffer, tables.totals) ||
+        _transfer_arrays_alias(buffer, tables.column_weights) ||
+        _transfer_arrays_alias(
+        buffer,
+        tables.kappa
+    ) || _transfer_arrays_alias(buffer, tables.order) ||
+        _transfer_arrays_alias(buffer, tables.ramp_rates)
 end
 
 function _transverse_numerical_check(reading, node_spectrum, column_spectrum, tables, nodes)
@@ -1201,39 +1210,47 @@ function _transverse_numerical_check(reading, node_spectrum, column_spectrum, ta
         throw(ArgumentError("transverse monitor spectra are nonfinite"))
     # Explicit calls specialize on each buffer type; no heterogeneous dynamic scan.
     (
-        Base.mightalias(nodes, node_spectrum) || Base.mightalias(nodes, column_spectrum) ||
+        _transfer_arrays_alias(
+            nodes,
+            node_spectrum
+        ) || _transfer_arrays_alias(nodes, column_spectrum) ||
             _transverse_alias_tables(nodes, tables) ||
-            Base.mightalias(nodes, reading.columns) ||
-            Base.mightalias(nodes, reading.strip) ||
-            Base.mightalias(reading.columns, node_spectrum) ||
-            Base.mightalias(reading.columns, column_spectrum) ||
+            _transfer_arrays_alias(nodes, reading.columns) ||
+            _transfer_arrays_alias(nodes, reading.strip) ||
+            _transfer_arrays_alias(reading.columns, node_spectrum) ||
+            _transfer_arrays_alias(reading.columns, column_spectrum) ||
             _transverse_alias_tables(reading.columns, tables) ||
-            Base.mightalias(reading.columns, reading.strip)
+            _transfer_arrays_alias(reading.columns, reading.strip)
     ) &&
         throw(ArgumentError("transverse reduction storage aliases its inputs"))
     return nothing
 end
 
-function _single_monitor_weighted(values, weights, column, physical_scale)
-    _float32_sum_count(length(values))
-    value_scale = _observation_exponent(values)
-    weight_scale = _observation_column_exponent(weights, column)
-    sum = _Float32Sum()
-    for row in eachindex(values)
-        value = _observation_scaled(values[row], value_scale) *
-            _observation_scaled(weights[row, column], weight_scale)
-        sum = _float32_add(sum, value)
+function _single_monitor_weighted(spectrum, weights, column, physical_scale)
+    _float32_sum_count(length(spectrum))
+    scale = typemin(Int)
+    for node in axes(spectrum, 2), row in axes(spectrum, 1)
+        value = spectrum[row, node]
+        scale = max(
+            scale, _observation_dot_exponent(value, value, (weights[node, column],))
+        )
     end
-    return _observation_restore(
-        _float32_value(sum), physical_scale + value_scale + weight_scale
-    )
+    scale = _observation_product_scale(scale)
+    sum = _Float32Sum()
+    for node in axes(spectrum, 2), row in axes(spectrum, 1)
+        value = spectrum[row, node]
+        sum = _float32_add(
+            sum, _observation_dot(value, value, scale, (weights[node, column],))
+        )
+    end
+    return _observation_restore(_float32_value(sum), physical_scale + scale)
 end
 
 function _single_transverse_reading!(
         reading, node_spectrum, column_spectrum, tables, nodes,
         execution, full, node_exponent, column_exponent,
     )
-    _float32_sum_count(length(nodes))
+    _float32_sum_count(length(node_spectrum))
     _float32_sum_count(size(node_spectrum, 1))
     _float32_sum_count(size(column_spectrum, 1))
     eltype(reading.columns) === eltype(reading.strip) === Float64 ||
@@ -1249,15 +1266,24 @@ function _single_transverse_reading!(
         nodes[node] = _float32_value(sum)
     end
     all(isfinite, nodes) || throw(ArgumentError("transverse node reduction overflowed"))
-    physical_scale = 2(node_scale + node_exponent)
+    physical_scale = 2node_exponent
     faces = ntuple(
-        face -> _single_monitor_weighted(nodes, tables.faces, face, physical_scale), 4
+        face -> _single_monitor_weighted(
+            node_spectrum, tables.faces, face,
+            physical_scale
+        ), 4
     )
     clip = ntuple(
-        face -> _single_monitor_weighted(nodes, tables.clip, face, physical_scale), 4
+        face -> _single_monitor_weighted(
+            node_spectrum, tables.clip, face,
+            physical_scale
+        ), 4
     )
     totals = ntuple(
-        face -> _single_monitor_weighted(nodes, tables.totals, face, physical_scale), 4
+        face -> _single_monitor_weighted(
+            node_spectrum, tables.totals, face,
+            physical_scale
+        ), 4
     )
     # Columns are final physical control readings, not reduction scratch. Their
     # independent scales retain weak occupied columns for the crossing policy.
@@ -1392,20 +1418,30 @@ function _single_strip_values(line, amplitude_exponent)
     _float32_sum_count(length(line.spectrum))
     spectrum, count = line.spectrum, size(line.spectrum, 1)
     count == 0 && return (0.0, 0.0)
-    scale = _observation_exponent(spectrum)
+    inward_scale = total_scale = typemin(Int)
+    for column in axes(spectrum, 2), row in axes(spectrum, 1)
+        value = spectrum[row, column]
+        scale = _observation_dot_exponent(value, value)
+        total_scale = max(total_scale, scale)
+        line.first <= row <= line.last && (inward_scale = max(inward_scale, scale))
+    end
+    inward_scale = _observation_product_scale(inward_scale)
+    total_scale = _observation_product_scale(total_scale)
     inward, total = _Float32Sum(), _Float32Sum()
     for column in axes(spectrum, 2), row in axes(spectrum, 1)
-        energy = _observation_square(spectrum[row, column], scale)
-        total = _float32_add(total, energy)
-        line.first <= row <= line.last && (inward = _float32_add(inward, energy))
+        value = spectrum[row, column]
+        total = _float32_add(total, _observation_dot(value, value, total_scale))
+        if line.first <= row <= line.last
+            inward = _float32_add(inward, _observation_dot(value, value, inward_scale))
+        end
     end
     factors, divisors = (line.spacing, line.measure), (Float64(count),)
     return (
         _observation_restore_ratio(
-            _float32_value(inward), 2(scale + amplitude_exponent), factors, divisors
+            _float32_value(inward), inward_scale + 2amplitude_exponent, factors, divisors
         ),
         _observation_restore_ratio(
-            _float32_value(total), 2(scale + amplitude_exponent), factors, divisors
+            _float32_value(total), total_scale + 2amplitude_exponent, factors, divisors
         ),
     )
 end
@@ -1427,12 +1463,12 @@ spectra for the observed field before invoking this reduction.
 function transverse_strip!(reading, lines::Tuple, execution; amplitude_exponent::Int = 0)
     size(reading.strip) == (length(lines), 2) ||
         throw(DimensionMismatch("transverse strip destination does not match its lines"))
-    Base.mightalias(reading.strip, reading.columns) &&
+    _transfer_arrays_alias(reading.strip, reading.columns) &&
         throw(ArgumentError("strip output aliases retained column energies"))
     for (index, line) in pairs(lines)
         spectrum = line.spectrum
         all(isfinite, spectrum) || throw(ArgumentError("strip spectrum is nonfinite"))
-        Base.mightalias(reading.strip, spectrum) &&
+        _transfer_arrays_alias(reading.strip, spectrum) &&
             throw(ArgumentError("strip output aliases its spectrum"))
         if eltype(spectrum) === ComplexF32
             _observation_scale_exponents((amplitude_exponent,))
@@ -1509,18 +1545,62 @@ function _single_current_line(line, k_min, amplitude_exponent)
     _float32_sum_count(size(line.samples, 2))
     line.node == 0 && return 0.0
     samples = line.samples
-    scale = _observation_exponent(samples)
+    scale = typemin(Int)
+    for column in axes(samples, 2)
+        center = samples[line.node, column]
+        for row in (line.before, line.after)
+            value = samples[row, column]
+            scale = max(
+                scale,
+                _observation_product_exponent((real(center), imag(value))),
+                _observation_product_exponent((imag(center), real(value)))
+            )
+        end
+    end
+    scale = _observation_product_scale(scale)
     sum = _Float32Sum()
     for column in axes(samples, 2)
-        center = _observation_scaled(samples[line.node, column], scale)
-        before = _observation_scaled(samples[line.before, column], scale)
-        after = _observation_scaled(samples[line.after, column], scale)
-        difference = after - before
-        current = real(center) * imag(difference) - imag(center) * real(difference)
-        sum = _float32_add(sum, max(current, 0.0f0))
+        center = samples[line.node, column]
+        before, after = samples[line.before, column], samples[line.after, column]
+        # Expand the two centered products before scaling; an unrelated large
+        # sample or zero-paired component cannot erase the actual stencil flux.
+        current = _Float32Sum()
+        current = _float32_add(
+            current, _observation_product(
+                (
+                    real(center),
+                    imag(after),
+                ), scale
+            )
+        )
+        current = _float32_add(
+            current, -_observation_product(
+                (
+                    real(center),
+                    imag(before),
+                ), scale
+            )
+        )
+        current = _float32_add(
+            current, -_observation_product(
+                (
+                    imag(center),
+                    real(after),
+                ), scale
+            )
+        )
+        current = _float32_add(
+            current, _observation_product(
+                (
+                    imag(center),
+                    real(before),
+                ), scale
+            )
+        )
+        sum = _float32_add(sum, max(_float32_value(current), 0.0f0))
     end
     return _observation_restore_ratio(
-        _float32_value(sum), 2(scale + amplitude_exponent),
+        _float32_value(sum), scale + 2amplitude_exponent,
         (line.measure,), (line.onset_step, Float64(k_min)),
     )
 end
@@ -1715,11 +1795,11 @@ function _transverse_check(state, tables, reading; full = false)
         all(value -> isfinite(value) && value >= 0, reading.columns) ||
         throw(ArgumentError("transverse observation is nonfinite or negative"))
     (
-        Base.mightalias(state.last_columns, reading.columns) ||
-            Base.mightalias(state.noise_columns, reading.columns) ||
-            Base.mightalias(state.last_columns, state.noise_columns) ||
-            Base.mightalias(state.last_columns, reading.strip) ||
-            Base.mightalias(state.noise_columns, reading.strip) ||
+        _transfer_arrays_alias(state.last_columns, reading.columns) ||
+            _transfer_arrays_alias(state.noise_columns, reading.columns) ||
+            _transfer_arrays_alias(state.last_columns, state.noise_columns) ||
+            _transfer_arrays_alias(state.last_columns, reading.strip) ||
+            _transfer_arrays_alias(state.noise_columns, reading.strip) ||
             _transverse_alias_tables(state.last_columns, tables) ||
             _transverse_alias_tables(state.noise_columns, tables)
     ) &&
@@ -1864,8 +1944,8 @@ function _transverse_begin_launch!(
             all(value -> isfinite(value) && value >= 0, clean_columns) ||
             throw(ArgumentError("clean launch columns must be finite nonnegative"))
         (
-            Base.mightalias(clean_columns, state.last_columns) ||
-                Base.mightalias(clean_columns, state.noise_columns)
+            _transfer_arrays_alias(clean_columns, state.last_columns) ||
+                _transfer_arrays_alias(clean_columns, state.noise_columns)
         ) &&
             throw(ArgumentError("control storage aliases clean launch columns"))
     end

@@ -208,7 +208,8 @@ end
 
 """
     SpectralStatisticsInput(spectrum, power_weight; total=false,
-        amplitude_exponent=0, weight_exponent=0, identity_weight=all(isone,power_weight))
+        amplitude_exponent=0, weight_exponent=0,
+        identity_weight=iszero(weight_exponent) && all(isone,power_weight))
 
 Retain observed `(n_omega,n_columns)` complex spectra and matching real power weights.
 
@@ -221,7 +222,9 @@ Binary32 numerical buffers retain independent physical powers of two in
 `amplitude_exponent` and `weight_exponent`, each in `[-1074,1023]`. Final host energy
 restores their degree-two/degree-one factors. `identity_weight` classifies the wide
 represented physical weight before narrowing, so a rounded near-unit value cannot
-admit identity-only statistics. Binary64 inputs require both exponents to be zero.
+admit identity-only statistics. The default requires a zero weight exponent and
+stored ones; a proven normalized identity must be supplied explicitly. Binary64 inputs
+require both exponents to be zero.
 """
 struct SpectralStatisticsInput{S, W}
     spectrum::S
@@ -233,7 +236,8 @@ struct SpectralStatisticsInput{S, W}
 end
 SpectralStatisticsInput(
     spectrum, weight; total::Bool = false, amplitude_exponent::Int = 0,
-    weight_exponent::Int = 0, identity_weight::Bool = all(isone, weight),
+    weight_exponent::Int = 0,
+    identity_weight::Bool = iszero(weight_exponent) && all(isone, weight),
 ) = SpectralStatisticsInput(
     spectrum, weight, total, amplitude_exponent, weight_exponent, identity_weight,
 )
@@ -506,8 +510,9 @@ and `column_moment` have `n_columns`, and `node_total`, `fluence`, `magnitude` h
 `n_nodes`. `radial_average` has `n_radii`. These are the complete retained workspace
 arrays; output and all input arrays are caller-owned and must be disjoint. Counts
 must be nonnegative, with positive temporal/column dimensions.
-Binary32 also retains one Int exponent per column plus scalar family exponents in
-`scales`. Per-time powers and per-node reductions remain binary32. Every protected
+Binary32 also retains one Int exponent per column and per node, plus scalar family
+exponents in `scales`. Node metadata occupies exactly `sizeof(Int)*n_nodes` bytes.
+Per-time powers and per-node reductions remain binary32. Every protected
 sum admits fewer than `2^24` terms; physical packed results remain binary64. Binary64
 has `scales=nothing` and preserves its existing operation order.
 """
@@ -525,7 +530,7 @@ end
 StatisticsWorkspace(power, total, energy, moment, nodes, fluence, magnitude, radial) =
     StatisticsWorkspace(
     power, total, energy, moment, nodes, fluence, magnitude, radial,
-    eltype(power) === Float32 ? _ObservationScales(length(energy)) : nothing,
+    eltype(power) === Float32 ? _ObservationScales(length(energy), length(nodes)) : nothing,
 )
 function StatisticsWorkspace(
         execution, ::Type{T}; n_time::Int, n_columns::Int,
@@ -683,11 +688,12 @@ function _stat_buffers(output, workspace, grid, input)
     _stat_buffer_tuple(buffers, grid, input)
     if workspace.scales !== nothing
         grid === nothing || _float32_sum_count(length(grid.omega))
-        length(workspace.scales.columns) == length(workspace.column_energy) ||
+        length(workspace.scales.columns) == length(workspace.column_energy) &&
+            length(workspace.scales.nodes) == length(workspace.fluence) ||
             throw(DimensionMismatch("statistics scale metadata has incorrect dimensions"))
+        _stat_buffer_tuple((workspace.scales.columns, workspace.scales.nodes), grid, input)
         _stat_disjoint_tuple(workspace.scales.columns, buffers)
-        _stat_disjoint(workspace.scales.columns, grid)
-        _stat_disjoint(workspace.scales.columns, input)
+        _stat_disjoint_tuple(workspace.scales.nodes, buffers)
     end
     return nothing
 end
@@ -772,38 +778,64 @@ function _half_width(time, trace, outer)
     return right - left
 end
 
+function _single_spectral_scale(
+        spectrum, weight, coefficients, masks, column, window
+    )::Int
+    scale = typemin(Int)
+    for row in axes(spectrum, 1)
+        window > 0 && !masks[row, window] && continue
+        factors = coefficients === nothing ? (weight[row, column],) :
+            (weight[row, column], coefficients[row])
+        sample = spectrum[row, column]
+        scale = max(scale, _observation_dot_exponent(sample, sample, factors))
+    end
+    return _observation_product_scale(scale)
+end
+
 function _single_spectral_columns!(workspace, grid, input, code, window, execution)
     _float32_sum_count(size(input.spectrum, 1))
     spectrum, weight = input.spectrum, input.power_weight
     energy, moment, scales = workspace.column_energy, workspace.column_moment,
         workspace.scales.columns
-    omega, parseval, masks = grid.omega, grid.parseval, grid.windows
-    coordinate_exponent = _observation_exponent(code == 1 ? omega : parseval)
+    coefficients, masks = code == 1 ? grid.omega : grid.parseval, grid.windows
+    selected = code == 3 ? window : 0
     each_column!(execution, size(spectrum, 2)) do column
-        amplitude = _observation_column_exponent(spectrum, column)
-        metric = _observation_column_exponent(weight, column)
+        scale = _single_spectral_scale(
+            spectrum, weight, coefficients, masks,
+            column, selected
+        )
+        density_scale = code == 1 ?
+            _single_spectral_scale(spectrum, weight, nothing, masks, column, 0) : 0
         numerator = denominator = _Float32Sum()
         for row in axes(spectrum, 1)
-            code == 3 && !masks[row, window] && continue
-            density = _observation_square(spectrum[row, column], amplitude) *
-                _observation_scaled(weight[row, column], metric)
-            coefficient = _observation_scaled(
-                code == 1 ? omega[row] : parseval[row], coordinate_exponent,
+            selected > 0 && !masks[row, selected] && continue
+            sample = spectrum[row, column]
+            numerator = _float32_add(
+                numerator, _observation_dot(
+                    sample, sample, scale, (weight[row, column], coefficients[row])
+                )
             )
-            numerator = _float32_add(numerator, density * coefficient)
-            code == 1 && (denominator = _float32_add(denominator, density))
+            if code == 1
+                denominator = _float32_add(
+                    denominator, _observation_dot(
+                        sample, sample, density_scale, (weight[row, column],)
+                    )
+                )
+            end
         end
         energy[column], moment[column] =
             _float32_value(numerator), _float32_value(denominator)
-        scales[column] = 2amplitude + metric
+        scales[column] = scale
     end
     all(isfinite, energy) && all(isfinite, moment) ||
         throw(ArgumentError("normalized spectral statistic overflowed"))
-    workspace.scales.spectral = coordinate_exponent
     return nothing
 end
 
-function _single_spectral_statistics!(output, slot, grid, input, workspace, execution)
+function _single_spectral_statistics!(
+        output, slot::StatisticSlot, grid::StatisticsGrid, input::SpectralStatisticsInput,
+        workspace::StatisticsWorkspace{A, V, S}, execution,
+    ) where {A, V <: AbstractVector{Float32}, S <: _ObservationScales}
     _float32_sum_count(size(input.spectrum, 2))
     eltype(output) === Float64 ||
         throw(ArgumentError("binary32 statistics need binary64 exported results"))
@@ -815,40 +847,56 @@ function _single_spectral_statistics!(output, slot, grid, input, workspace, exec
     physical = 2input.amplitude_exponent + input.weight_exponent
     for window in 1:windows
         _single_spectral_columns!(workspace, grid, input, code, window, execution)
-        coordinate = workspace.scales.spectral
-        common = maximum(exponents)
+        common = _observation_product_scale(_single_profile_exponent(energy, exponents))
         if total
             result = _Float32Sum()
             for column in eachindex(energy)
                 result = _float32_add(
-                    result, ldexp(energy[column], exponents[column] - common),
+                    result, _observation_align(energy[column], exponents[column] - common),
                 )
             end
             output[offset + window - 1] = _observation_restore(
-                _float32_value(result), common + coordinate + physical,
+                _float32_value(result), common + physical,
             )
         else
-            largest = 0.0
+            largest, density_common = 0.0, typemin(Int)
             if code == 1 && input.identity_weight
                 for column in eachindex(moment)
+                    scale = _single_spectral_scale(
+                        input.spectrum, input.power_weight, nothing, grid.windows, column, 0
+                    )
+                    density_common = max(
+                        density_common, _observation_shifted_exponent(
+                            _observation_product_exponent((moment[column],)), scale
+                        )
+                    )
+                end
+                density_common = _observation_product_scale(density_common)
+                for column in eachindex(moment)
+                    scale = _single_spectral_scale(
+                        input.spectrum, input.power_weight, nothing, grid.windows, column, 0
+                    )
                     largest = max(
-                        largest, ldexp(Float64(moment[column]), exponents[column] - common),
+                        largest,
+                        _observation_host_align(moment[column], scale - density_common)
                     )
                 end
             end
             for column in eachindex(energy)
                 result = if code == 1
+                    scale = _single_spectral_scale(
+                        input.spectrum, input.power_weight, nothing, grid.windows, column, 0
+                    )
                     denominator = Float64(moment[column])
                     below = input.identity_weight &&
-                        ldexp(denominator, exponents[column] - common) <=
+                        _observation_host_align(moment[column], scale - density_common) <=
                         eps(Float64) * largest
                     iszero(denominator) || below ? NaN : _observation_restore(
-                            Float64(energy[column]) / denominator, coordinate,
+                            Float64(energy[column]) / denominator,
+                            exponents[column] - scale,
                         )
                 else
-                    _observation_restore(
-                        energy[column], exponents[column] + coordinate + physical
-                    )
+                    _observation_restore(energy[column], exponents[column] + physical)
                 end
                 output[offset + (window - 1) * length(energy) + column - 1] = result
             end
@@ -1037,46 +1085,58 @@ function _single_temporal_power!(workspace, grid, input, execution)
     power, total, exponents = workspace.power, workspace.total_power,
         workspace.scales.columns
     each_column!(execution, size(power, 2)) do column
-        a = _observation_column_exponent(first, column)
-        b = _observation_column_exponent(second, column)
-        exponents[column] = a + b
+        scale = _observation_dot_column_exponent(first, second, column)
+        exponents[column] = scale
         for row in axes(power, 1)
-            power[row, column] = _observation_pair(
-                first[row, column], second[row, column], a, b
+            power[row, column] = _observation_dot(
+                first[row, column], second[
+                    row,
+                    column,
+                ], scale
             )
         end
     end
-    common = maximum(exponents)
+    common = typemin(Int)
+    for column in axes(power, 2), row in axes(power, 1)
+        common = max(
+            common, _observation_shifted_exponent(
+                _observation_product_exponent((power[row, column],)), exponents[column]
+            )
+        )
+    end
+    common_scale = _observation_product_scale(common)
     each!(execution, length(total), 1) do row, _
         value = _Float32Sum()
         for column in axes(power, 2)
             value = _float32_add(
-                value, ldexp(power[row, column], exponents[column] - common),
+                value, _observation_align(
+                    power[row, column], exponents[column] - common_scale
+                ),
             )
         end
         total[row] = _float32_value(value)
     end
     all(isfinite, power) && all(isfinite, total) ||
         throw(ArgumentError("normalized temporal statistic overflowed"))
-    workspace.scales.temporal = common
+    workspace.scales.temporal = common_scale
     return nothing
 end
 
 function _single_pair_peak(first, second, rows)
     _stat_pair_shape(first, second, rows)
     _float32_sum_count(size(first, 2))
-    a, b = _observation_exponent(first), _observation_exponent(second)
+    scale = _observation_dot_exponent(first, second)
     peak = -Inf32
     for row in 1:rows
         value = _Float32Sum()
         for column in axes(first, 2)
             value = _float32_add(
-                value, _observation_pair(first[row, column], second[row, column], a, b),
+                value, _observation_dot(first[row, column], second[row, column], scale),
             )
         end
         peak = max(peak, _float32_value(value))
     end
-    return peak, a + b
+    return peak, scale
 end
 
 function _single_window_power!(output, slot, grid, input, workspace, execution)
@@ -1092,14 +1152,13 @@ function _single_window_power!(output, slot, grid, input, workspace, execution)
     physical = 2input.amplitude_exponent + input.weight_exponent
     for window in 1:windows
         each_column!(execution, columns) do column
-            a = _observation_column_exponent(first, column, window)
-            b = _observation_column_exponent(second, column, window)
-            exponents[column] = a + b
+            scale = _observation_dot_column_exponent(first, second, column, window)
+            exponents[column] = scale
             peak = -Inf32
             for row in axes(first, 1)
                 peak = max(
-                    peak, _observation_pair(
-                        first[row, column, window], second[row, column, window], a, b,
+                    peak, _observation_dot(
+                        first[row, column, window], second[row, column, window], scale,
                     )
                 )
             end
@@ -1228,22 +1287,34 @@ function _single_population_statistics!(output, slot, input, workspace, executio
         throw(ArgumentError("binary32 population statistics require binary64 output"))
     densities, fractions, peaks = input.densities, input.fractions, input.peak_rates
     total = workspace.node_total
-    density_exponent = _observation_exponent(densities)
-    fraction_exponent = _observation_exponent(fractions)
-    exponent = density_exponent + fraction_exponent
+    exponent = typemin(Int)
     n_nodes, n_species = size(fractions)
+    for species in 1:n_species, node in 1:n_nodes
+        exponent = max(
+            exponent, _observation_product_exponent(
+                (densities[species], fractions[node, species])
+            )
+        )
+    end
+    product_scale = _observation_product_scale(exponent)
     each!(execution, n_nodes, 1) do node, _
         sum = _Float32Sum()
         for species in 1:n_species
             sum = _float32_add(
-                sum, _observation_scaled(densities[species], density_exponent) *
-                    _observation_scaled(fractions[node, species], fraction_exponent)
+                sum, _observation_product(
+                    (
+                        densities[species], fractions[
+                            node,
+                            species,
+                        ],
+                    ), product_scale
+                )
             )
         end
         total[node] = _float32_value(sum)
     end
     all(isfinite, total) || throw(ArgumentError("electron density reduction overflowed"))
-    workspace.scales.spatial = exponent
+    workspace.scales.spatial = product_scale
     densest = 1
     for node in 2:n_nodes
         total[node] > total[densest] && (densest = node)
@@ -1268,7 +1339,7 @@ function _single_population_statistics!(output, slot, input, workspace, executio
         end
     elseif code == 16
         _stat_count(slot, 1)
-        output[offset] = _observation_restore(total[densest], exponent)
+        output[offset] = _observation_restore(total[densest], product_scale)
     elseif code == 27
         _stat_count(slot, n_species)
         for species in 1:n_species
@@ -1317,18 +1388,31 @@ function _single_population_inventory!(output, offset, input)
         isfinite(input.measure_factor) && input.measure_factor > 0 ||
         throw(ArgumentError("species inventory measure must be finite and nonnegative"))
     _float32_sum_count(n_nodes)
-    weight_exponent = _observation_exponent(weights)
     for species in 1:n_species
-        fraction_exponent = _observation_column_exponent(fractions, species)
+        exponent = typemin(Int)
+        for node in 1:n_nodes
+            exponent = max(
+                exponent, _observation_product_exponent(
+                    (weights[node], fractions[node, species])
+                )
+            )
+        end
+        exponent = _observation_product_scale(exponent)
         sum = _Float32Sum()
         for node in 1:n_nodes
             sum = _float32_add(
-                sum, _observation_scaled(weights[node], weight_exponent) *
-                    _observation_scaled(fractions[node, species], fraction_exponent)
+                sum, _observation_product(
+                    (
+                        weights[node], fractions[
+                            node,
+                            species,
+                        ],
+                    ), exponent
+                )
             )
         end
         output[offset + species - 1] = _observation_restore_ratio(
-            _float32_value(sum), weight_exponent + fraction_exponent,
+            _float32_value(sum), exponent,
             (input.densities[species], potentials[species], input.measure_factor), (),
         )
     end
@@ -1494,14 +1578,27 @@ function _single_axis_population_statistics!(output, slot, input)
     density, fraction, peaks = input.densities, input.fractions, input.peak_rates
     code, offset = slot.code, slot.offset
     if code == 30
-        density_exponent = _observation_exponent(density)
-        fraction_exponent = _observation_exponent(fraction)
-        exponent = density_exponent + fraction_exponent
+        _float32_sum_count(length(density))
+        exponent = typemin(Int)
+        for species in eachindex(density)
+            exponent = max(
+                exponent, _observation_product_exponent(
+                    (density[species], fraction[1, species])
+                )
+            )
+        end
+        exponent = _observation_product_scale(exponent)
         total = _Float32Sum()
         for species in eachindex(density)
             total = _float32_add(
-                total, _observation_scaled(density[species], density_exponent) *
-                    _observation_scaled(fraction[1, species], fraction_exponent)
+                total, _observation_product(
+                    (
+                        density[species], fraction[
+                            1,
+                            species,
+                        ],
+                    ), exponent
+                )
             )
         end
         output[offset] = _observation_restore(_float32_value(total), exponent)
@@ -1718,89 +1815,208 @@ function _single_fluence!(workspace, grid, input, execution)
     length(workspace.fluence) == length(workspace.magnitude) == n_nodes ||
         throw(DimensionMismatch("fluence workspace does not match physical nodes"))
     first, second, weights = input.spectrum, input.closure, grid.parseval
-    first_scale, second_scale = _observation_exponent(first), _observation_exponent(second)
-    weight_scale = _observation_exponent(weights)
-    fluence, magnitude = workspace.fluence, workspace.magnitude
+    fluence, magnitude, exponents = workspace.fluence, workspace.magnitude,
+        workspace.scales.nodes
+    bound_scale = typemin(Int)
+    for node in axes(first, 2), row in axes(first, 1)
+        bound_scale = max(
+            bound_scale, _observation_abs_exponent(
+                first[row, node], second[row, node], (weights[row],)
+            )
+        )
+    end
+    magnitude_scale = _observation_product_scale(bound_scale)
     each_column!(execution, n_nodes) do node
+        scale = typemin(Int)
+        for row in axes(first, 1)
+            scale = max(
+                scale, _observation_dot_exponent(
+                    first[row, node], second[row, node], (weights[row],)
+                )
+            )
+        end
+        scale = _observation_product_scale(scale)
         value, bound = _Float32Sum(), _Float32Sum()
         for row in axes(first, 1)
-            a = _observation_scaled(first[row, node], first_scale)
-            b = _observation_scaled(second[row, node], second_scale)
-            weight = _observation_scaled(weights[row], weight_scale)
-            pair = real(a) * real(b) + imag(a) * imag(b)
-            value = _float32_add(value, weight * pair)
-            bound = _float32_add(bound, weight * abs(a) * abs(b))
+            a, b, factors = first[row, node], second[row, node], (weights[row],)
+            value = _float32_add(value, _observation_dot(a, b, scale, factors))
+            bound = _float32_add(
+                bound, _observation_abs_product(
+                    a, b, factors, magnitude_scale
+                )
+            )
         end
         fluence[node], magnitude[node] = _float32_value(value), _float32_value(bound)
+        exponents[node] = scale
     end
     all(isfinite, fluence) && all(isfinite, magnitude) ||
-        throw(ArgumentError("spatial fluence reduction overflowed"))
-    workspace.scales.spatial = first_scale + second_scale + weight_scale
+        throw(ArgumentError("normalized spatial fluence reduction overflowed"))
+    workspace.scales.spatial = magnitude_scale
     # The same absolute-product admission as binary64 uses the precision of the
     # actual synthesis/pair arithmetic. Its transform error hypothesis is recorded
     # with the observation precision contract; this is not an empirical tolerance.
-    budget = 8.0 * (length(grid.omega) + Float64(input.source_columns)) * eps(Float32) *
-        maximum(magnitude)
+    budget = 8.0 * (length(grid.omega) + Float64(input.source_columns)) *
+        eps(Float32) * maximum(magnitude)
     isfinite(budget) || throw(ArgumentError("spatial fluence error bound overflowed"))
-    any(value -> value < -budget, fluence) &&
-        throw(ArgumentError("beam widths require nonnegative fluence beyond roundoff"))
+    for node in eachindex(fluence)
+        _observation_host_align(
+            fluence[node], exponents[node] - magnitude_scale
+        ) < -budget &&
+            throw(ArgumentError("beam widths require nonnegative fluence beyond roundoff"))
+    end
     each!(execution, n_nodes, 1) do node, _
         fluence[node] = max(fluence[node], 0.0f0)
     end
     return nothing
 end
 
-function _single_axis_density(input, grid, row, first_scale, second_scale, weight_scale)
+function _single_axis_scale(input, grid, first_row, last_row)
+    scale = typemin(Int)
+    for row in first_row:last_row, column in axes(input.axis_spectrum, 2)
+        scale = max(
+            scale, _observation_dot_exponent(
+                input.axis_spectrum[row, column], input.axis_closure[row, column],
+                (grid.spectral_density[row],)
+            )
+        )
+    end
+    return _observation_product_scale(scale)
+end
+
+function _single_axis_density(input, grid, row, scale)
     sum = _Float32Sum()
     for column in axes(input.axis_spectrum, 2)
-        value = _observation_pair(
+        value = _observation_dot(
             input.axis_spectrum[row, column], input.axis_closure[row, column],
-            first_scale, second_scale
+            scale, (grid.spectral_density[row],)
         )
         sum = _float32_add(sum, value)
     end
-    return _observation_scaled(grid.spectral_density[row], weight_scale) *
-        _float32_value(sum)
+    return _float32_value(sum)
 end
 
-function _single_radial_widths(widths, fluence, axis)::NTuple{3, Float64}
+function _single_radial_widths(
+        widths, fluence, exponents, axis,
+        axis_scale
+    )::NTuple{3, Float64}
     _float32_sum_count(length(fluence))
     radius, weights = widths.x, widths.weights
     length(fluence) == length(radius) ||
         throw(DimensionMismatch("radial fluence does not match its geometry"))
     isfinite(axis) && axis >= 0 ||
         throw(ArgumentError("radial width requires finite nonnegative axial fluence"))
-    weight_scale, radius_scale = _observation_exponent(weights),
-        _observation_exponent(radius)
+    energy_scale = moment_scale = typemin(Int)
+    for node in eachindex(fluence)
+        energy_scale = max(
+            energy_scale, _observation_shifted_exponent(
+                _observation_product_exponent((weights[node], fluence[node])),
+                exponents[node]
+            )
+        )
+        moment_scale = max(
+            moment_scale, _observation_shifted_exponent(
+                _observation_product_exponent(
+                    (
+                        weights[node], fluence[node],
+                        radius[node], radius[node],
+                    )
+                ),
+                exponents[node]
+            )
+        )
+    end
+    energy_scale = _observation_product_scale(energy_scale)
+    moment_scale = _observation_product_scale(moment_scale)
     energy, moment = _Float32Sum(), _Float32Sum()
     for node in eachindex(fluence)
-        weighted = _observation_scaled(weights[node], weight_scale) * fluence[node]
-        normalized_radius = _observation_scaled(radius[node], radius_scale)
-        energy = _float32_add(energy, weighted)
-        moment = _float32_add(moment, weighted * (normalized_radius * normalized_radius))
+        energy = _float32_add(
+            energy, _observation_product(
+                (weights[node], fluence[node]), energy_scale - exponents[node]
+            )
+        )
+        moment = _float32_add(
+            moment, _observation_product(
+                (weights[node], fluence[node], radius[node], radius[node]),
+                moment_scale - exponents[node]
+            )
+        )
     end
     energy_value, moment_value = _float32_value(energy), _float32_value(moment)
     isfinite(energy_value) && isfinite(moment_value) ||
         throw(ArgumentError("radial fluence moments overflowed"))
     energy_value <= 0 && return (NaN, NaN, NaN)
+    # Split the exponent before sqrt, so the second moment itself need not fit
+    # binary64 when its square root (the requested physical radius) does.
+    power, odd = fldmod(moment_scale - energy_scale, 2)
     second = _observation_restore(
-        sqrt(2.0 * Float64(moment_value) / Float64(energy_value)), radius_scale
+        sqrt(ldexp(2.0 * Float64(moment_value) / Float64(energy_value), odd)), power
     )
     return (
-        second, _radial_crossing(radius, fluence, axis, exp(-2.0)),
-        2 * _radial_crossing(radius, fluence, axis, 0.5),
+        second, _single_radial_crossing(
+            radius, fluence, exponents, axis,
+            axis_scale, exp(-2.0)
+        ),
+        2 * _single_radial_crossing(radius, fluence, exponents, axis, axis_scale, 0.5),
     )
 end
 
-function _single_linear_fluence(fluence, x, coordinate, scale)
+function _single_profile_exponent(fluence, exponents)
+    scale = typemin(Int)
+    for index in eachindex(fluence)
+        scale = max(
+            scale, _observation_shifted_exponent(
+                _observation_product_exponent((fluence[index],)), exponents[index]
+            )
+        )
+    end
+    return scale
+end
+
+@inline _single_profile_value(fluence, exponents, index, scale) =
+    _observation_align(fluence[index], exponents[index] - scale)
+
+function _single_radial_crossing(radius, fluence, exponents, axis, axis_scale, fraction)
+    scale = _single_profile_exponent(fluence, exponents)
+    scale = max(
+        scale, _observation_shifted_exponent(
+            _observation_product_exponent((axis,)), axis_scale
+        )
+    )
+    scale = _observation_product_scale(scale)
+    scaled_axis = _observation_align(axis, axis_scale - scale)
+    peak = scaled_axis
+    for index in eachindex(fluence)
+        peak = max(peak, _single_profile_value(fluence, exponents, index, scale))
+    end
+    level = fraction * peak
+    scaled_axis < level && return NaN
+    left, position = Float64(scaled_axis), 0.0
+    for index in eachindex(radius)
+        right = Float64(_single_profile_value(fluence, exponents, index, scale))
+        right < level && return position +
+            (left - level) / (left - right) * (radius[index] - position)
+        left, position = right, radius[index]
+    end
+    return NaN
+end
+
+function _single_linear_fluence(fluence, exponents, common, x, coordinate, scale)
     position = clamp((coordinate - x[1]) / (x[2] - x[1]), 0, length(x) - 1)
     left = min(floor(Int, position), length(x) - 2)
     fraction = Float32(position - left)
-    return (1.0f0 - fraction) * (fluence[left + 1] / scale) +
-        fraction * (fluence[left + 2] / scale)
+    return (1.0f0 - fraction) * (
+        _single_profile_value(
+            fluence, exponents,
+            left + 1, common
+        ) / scale
+    ) +
+        fraction * (_single_profile_value(fluence, exponents, left + 2, common) / scale)
 end
 
-function _single_bilinear_fluence(fluence, x, y, horizontal, vertical, scale)
+function _single_bilinear_fluence(
+        fluence, exponents, common, x, y, horizontal,
+        vertical, scale
+    )
     horizontal = clamp((horizontal - x[1]) / (x[2] - x[1]), 0, length(x) - 1)
     vertical = clamp((vertical - y[1]) / (y[2] - y[1]), 0, length(y) - 1)
     ix, iy = min(floor(Int, horizontal), length(x) - 2),
@@ -1809,15 +2025,15 @@ function _single_bilinear_fluence(fluence, x, y, horizontal, vertical, scale)
     first = iy * length(x) + ix + 1
     second = first + length(x)
     return (1.0f0 - fy) * (
-        (1.0f0 - fx) * (fluence[first] / scale) +
-            fx * (fluence[first + 1] / scale)
+        (1.0f0 - fx) * (_single_profile_value(fluence, exponents, first, common) / scale) +
+            fx * (_single_profile_value(fluence, exponents, first + 1, common) / scale)
     ) + fy * (
-        (1.0f0 - fx) * (fluence[second] / scale) +
-            fx * (fluence[second + 1] / scale)
+        (1.0f0 - fx) * (_single_profile_value(fluence, exponents, second, common) / scale) +
+            fx * (_single_profile_value(fluence, exponents, second + 1, common) / scale)
     )
 end
 
-function _single_cartesian_widths(widths, fluence, averaged)::NTuple{3, Float64}
+function _single_cartesian_widths(widths, fluence, exponents, averaged)::NTuple{3, Float64}
     _float32_sum_count(length(fluence))
     _float32_sum_count(length(widths.cosines))
     x, y = widths.x, widths.y
@@ -1826,41 +2042,99 @@ function _single_cartesian_widths(widths, fluence, averaged)::NTuple{3, Float64}
         throw(DimensionMismatch("Cartesian fluence does not match its axes"))
     length(averaged) >= widths.radius_capacity ||
         throw(DimensionMismatch("radial-average scratch is too short"))
-    scale = maximum(fluence)
+    common = _observation_product_scale(_single_profile_exponent(fluence, exponents))
+    scale = 0.0f0
+    for index in eachindex(fluence)
+        scale = max(scale, _single_profile_value(fluence, exponents, index, common))
+    end
     scale == 0 && return (NaN, NaN, NaN)
-    x_scale, y_scale = _observation_exponent(x), _observation_exponent(y)
+    horizontal_scale = vertical_scale = typemin(Int)
+    for iy in 1:ny, ix in 1:nx
+        index = ix + nx * (iy - 1)
+        sample = fluence[index]
+        horizontal_scale = max(
+            horizontal_scale,
+            _observation_shifted_exponent(
+                _observation_product_exponent(
+                    (
+                        sample,
+                        x[ix],
+                    )
+                ), exponents[index]
+            )
+        )
+        vertical_scale = max(
+            vertical_scale,
+            _observation_shifted_exponent(
+                _observation_product_exponent(
+                    (
+                        sample,
+                        y[iy],
+                    )
+                ), exponents[index]
+            )
+        )
+    end
+    horizontal_scale = _observation_product_scale(horizontal_scale)
+    vertical_scale = _observation_product_scale(vertical_scale)
     total, horizontal, vertical = _Float32Sum(), _Float32Sum(), _Float32Sum()
     for iy in 1:ny, ix in 1:nx
-        sample = fluence[ix + nx * (iy - 1)] / scale
-        total = _float32_add(total, sample)
-        horizontal = _float32_add(horizontal, sample * _observation_scaled(x[ix], x_scale))
-        vertical = _float32_add(vertical, sample * _observation_scaled(y[iy], y_scale))
+        index = ix + nx * (iy - 1)
+        sample = fluence[index]
+        total = _float32_add(total, _observation_align(sample, exponents[index] - common))
+        horizontal = _float32_add(
+            horizontal, _observation_product(
+                (
+                    sample,
+                    x[ix],
+                ), horizontal_scale - exponents[index]
+            )
+        )
+        vertical = _float32_add(
+            vertical, _observation_product(
+                (sample, y[iy]),
+                vertical_scale - exponents[index]
+            )
+        )
     end
     total_value = Float64(_float32_value(total))
     center_x = _observation_restore(
-        Float64(_float32_value(horizontal)) / total_value, x_scale
+        Float64(_float32_value(horizontal)) / total_value, horizontal_scale - common
     )
     center_y = _observation_restore(
-        Float64(_float32_value(vertical)) / total_value, y_scale
+        Float64(_float32_value(vertical)) / total_value, vertical_scale - common
     )
-    extent = 0.0
+    moment_scale = typemin(Int)
     for iy in 1:ny, ix in 1:nx
         distance = ny == 1 ? abs(x[ix] - center_x) :
             hypot(x[ix] - center_x, y[iy] - center_y)
-        extent = max(extent, distance)
+        isfinite(distance) || throw(ArgumentError("Cartesian width distances overflowed"))
+        index = ix + nx * (iy - 1)
+        moment_scale = max(
+            moment_scale, _observation_shifted_exponent(
+                _observation_product_exponent(
+                    (
+                        fluence[index], distance,
+                        distance,
+                    )
+                ), exponents[index]
+            )
+        )
     end
+    moment_scale = _observation_product_scale(moment_scale)
     moment = _Float32Sum()
     for iy in 1:ny, ix in 1:nx
         distance = ny == 1 ? abs(x[ix] - center_x) :
             hypot(x[ix] - center_x, y[iy] - center_y)
-        normalized_distance = Float32(distance / extent)
-        value = (fluence[ix + nx * (iy - 1)] / scale) *
-            (normalized_distance * normalized_distance)
+        value = _observation_product(
+            (fluence[ix + nx * (iy - 1)], distance, distance),
+            moment_scale - exponents[ix + nx * (iy - 1)]
+        )
         moment = _float32_add(moment, value)
     end
     ratio = Float64(_float32_value(moment)) / total_value
-    second = ny == 1 ? 2 * extent * sqrt(ratio) : extent * sqrt(2 * ratio)
-    isfinite(second) || throw(ArgumentError("Cartesian fluence moments overflowed"))
+    power, odd = fldmod(moment_scale - common, 2)
+    second = _observation_restore(sqrt(ldexp((ny == 1 ? 4 : 2) * ratio, odd)), power)
     limit = min(center_x - x[1], x[end] - center_x)
     ny > 1 && (limit = min(limit, center_y - y[1], y[end] - center_y))
     spacing = widths.spacing
@@ -1870,15 +2144,21 @@ function _single_cartesian_widths(widths, fluence, averaged)::NTuple{3, Float64}
         radius = (index - 1) * spacing
         if ny == 1
             averaged[index] = 0.5f0 * (
-                _single_linear_fluence(fluence, x, center_x - radius, scale) +
-                    _single_linear_fluence(fluence, x, center_x + radius, scale)
+                _single_linear_fluence(
+                    fluence, exponents, common, x,
+                    center_x - radius, scale
+                ) +
+                    _single_linear_fluence(
+                    fluence, exponents, common, x,
+                    center_x + radius, scale
+                )
             )
         else
             value = _Float32Sum()
             for angle in eachindex(widths.cosines)
                 value = _float32_add(
                     value, _single_bilinear_fluence(
-                        fluence, x, y,
+                        fluence, exponents, common, x, y,
                         center_x + radius * widths.cosines[angle],
                         center_y + radius * widths.sines[angle], scale
                     )
@@ -1901,19 +2181,18 @@ function _single_spatial_statistics!(output, slot, grid, input, workspace, execu
     if code == 18
         _stat_count(slot, 1)
         _stat_pair_shape(input.analytic, input.analytic_closure, length(grid.time))
-        first_scale = _observation_exponent(input.analytic)
-        second_scale = _observation_exponent(input.analytic_closure)
+        scale = _observation_dot_exponent(input.analytic, input.analytic_closure)
         peak = -Inf32
         for index in eachindex(input.analytic, input.analytic_closure)
             peak = max(
-                peak, _observation_pair(
-                    input.analytic[index], input.analytic_closure[index],
-                    first_scale, second_scale
+                peak, _observation_dot(
+                    input.analytic[index], input.analytic_closure[index], scale
                 )
             )
         end
         output[offset] = _observation_restore(
-            peak, first_scale + second_scale + physical_scale, Float64(input.factor)
+            peak, scale + physical_scale,
+            Float64(input.factor)
         )
     elseif code == 19
         _stat_count(slot, 1)
@@ -1929,16 +2208,11 @@ function _single_spatial_statistics!(output, slot, grid, input, workspace, execu
     elseif code == 23
         _stat_count(slot, length(grid.omega))
         _axis_spectral_check(input, grid)
-        first_scale = _observation_exponent(input.axis_spectrum)
-        second_scale = _observation_exponent(input.axis_closure)
-        weight_scale = _observation_exponent(grid.spectral_density)
         for row in eachindex(grid.omega)
-            value = _single_axis_density(
-                input, grid, row, first_scale, second_scale, weight_scale
-            )
+            scale = _single_axis_scale(input, grid, row, row)
+            value = _single_axis_density(input, grid, row, scale)
             output[offset + row - 1] = _observation_restore(
-                value, first_scale + second_scale + weight_scale + physical_scale,
-                Float64(input.factor)
+                value, scale + physical_scale, Float64(input.factor)
             )
         end
     else
@@ -1950,25 +2224,26 @@ function _single_spatial_statistics!(output, slot, grid, input, workspace, execu
             _axis_spectral_check(input, grid)
             isfinite(grid.d_omega) ||
                 throw(ArgumentError("radial axial fluence needs frequency-bin spacing"))
-            first_scale = _observation_exponent(input.axis_spectrum)
-            second_scale = _observation_exponent(input.axis_closure)
-            weight_scale = _observation_exponent(grid.spectral_density)
+            _float32_sum_count(length(input.axis_spectrum))
+            scale = _single_axis_scale(
+                input, grid, firstindex(grid.omega),
+                lastindex(grid.omega)
+            )
             sum = _Float32Sum()
             for row in eachindex(grid.omega)
-                sum = _float32_add(
-                    sum, _single_axis_density(
-                        input, grid, row, first_scale, second_scale, weight_scale
-                    )
-                )
+                sum = _float32_add(sum, _single_axis_density(input, grid, row, scale))
             end
-            axis = _observation_restore(
-                _float32_value(sum), first_scale + second_scale + weight_scale -
-                    workspace.scales.spatial, Float64(grid.d_omega)
+            value = _float32_value(sum)
+            axis_scale = _observation_product_scale(
+                _observation_product_exponent((value, grid.d_omega))
             )
-            result = _single_radial_widths(widths, workspace.fluence, axis)
+            axis = _observation_product((value, grid.d_omega), axis_scale)
+            result = _single_radial_widths(
+                widths, workspace.fluence, workspace.scales.nodes, axis, axis_scale + scale
+            )
         else
             result = _single_cartesian_widths(
-                widths, workspace.fluence, workspace.radial_average
+                widths, workspace.fluence, workspace.scales.nodes, workspace.radial_average
             )
         end
         output[offset] = result[code == 21 ? 1 : 3]

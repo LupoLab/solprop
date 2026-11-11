@@ -52,25 +52,56 @@ An all-zero buffer uses `e=0`. Component maxima avoid overflowing the modulus of
 finite complex value. The normalized components lie in `[-1,1]`; squaring and paired
 Hermitian products therefore do not overflow at finite input extremes.
 
-For independent buffers `a` and `b`, evaluate
+Weighted products use the actual participating factors to choose a scale. Independent
+whole-buffer maxima are insufficient: a tiny sample paired with a large coefficient
+can dominate the physical result even when that sample disappears after an unrelated
+normalization. For a term with `k` nonzero real factors, write each represented input
+exactly as `x_j = m_j * 2^e_j` using `frexp`, with `1/2 <= |m_j| < 1`. Round a wide
+mantissa once to binary32, multiply the binary32 mantissas, and align the product to
 
 \[
- q_i=\operatorname{Re}\{\overline{(2^{-e_a}a_i)}(2^{-e_b}b_i)\}
+ E=\max_i \sum_{j=1}^{k_i} e_{ij},
 \]
 
-in binary32 and retain `e_a+e_b`. Squared norms use `2*e_a`. Numerical weights receive
-their own exponent before multiplication. Independent per-column exponents preserve
-weak occupied columns; a total aligns their normalized partial sums to a common
-exponent before adding them. Alignment can lose a term below the working absolute
-rounding scale and is accounted for in a normwise, rather than elementwise-relative,
-error bound.
+where the maximum includes only nonzero products in this reduction. Zero products
+cannot select the scale. The implementation admits at most eight factors per scalar
+product. All mantissa intermediates are therefore normal, even when the original
+factors are subnormal or their unscaled product would overflow. Only the final
+power-of-two alignment can underflow. No binary64 sample product is formed.
 
-Scaling an existing normal value by an exactly representable power of two is exact
-until the subnormal region is reached. Every inexact binary32 normalization or
-product then has absolute underflow error at most `eta/2`, where `eta=2^-149` is the
-smallest positive binary32 subnormal. The product analysis includes these additive
-terms; it must not assume every normalized component remains normal. Cancellation
-uses an absolute-product bound, not a relative bound on a potentially zero result.
+For binary64 inputs, at most `k` mantissa conversions and `k-1` products contribute
+rounding, so before alignment
+
+\[
+ |\widehat p-p| \le \gamma_{2k-1}|p|.
+\]
+
+A binary32 input's mantissa conversion is exact and reduces this count. With gradual
+underflow, alignment adds at most `eta/2`, where `eta=2^-149`, in the chosen normalized
+units. Each Hermitian pair adds its real and imaginary products once; include that
+addition's error and both absolute products before applying the Sum2s bound. The
+largest nonzero normalized product has magnitude at least `2^-8` before rounding,
+so this absolute-underflow allowance cannot hide loss of a dominant positive term.
+Signed cancellation still requires an absolute-product bound; no uniform relative
+accuracy near a zero signed sum is claimed.
+
+Spectral numerator and denominator, population mixtures and inventories, temporal
+pairs, and each final monitor region use their own actual-product exponents. Monitor
+region, split and transverse weighted sums start from original samples or spectra;
+they do not amplify a previously normalized scratch value. A per-column or per-node
+partial carries its own exponent until all amplifying factors have been applied.
+Zero partials do not choose a later merge scale. Merges include both the partial's
+prior error and the protected merge error.
+
+Spatial fluence retains one exponent per node and a separate common scale for the
+absolute-magnitude error diagnostic. Moment reductions combine each node exponent
+with its actual quadrature/coordinate products. Only the final unweighted profile
+used for a half-height crossing or angular interpolation aligns nodes to a common
+peak scale. At that point the normalized peak lies in `[1/2,1]`; alignment loses at
+most `eta/2` per ordinate, and interpolation uses nonnegative weights summing to one.
+There is no later large physical weight to amplify that loss. Its width effect must
+still be divided by the bracket's crossing slope, as described below. This treatment
+does not add a normal-range refusal for a weak spatial node.
 
 `_observation_restore` and `_observation_restore_ratio` combine binary64 mantissas and
 integer exponents at the final host result boundary. They do not first form `2^e`,
@@ -106,21 +137,24 @@ This does not open public session admission or qualify device execution.
 
 - `StatisticsWorkspace` retains binary32 per-time power, total power, per-column
   energy/moment, per-node total/fluence/magnitude and radial-average buffers. One
-  Int exponent per column and small scalar family exponents accompany them.
-- Spectral column reductions normalize amplitudes and metric weights independently.
-  Per-bin spectral flux gives each bin its own amplitude exponent. Temporal pairs
-  normalize both analytic members independently; their signed pairing is preserved.
-  Species inventories normalize the node weights and each species' fractions before
-  multiplication. Density, potential and physical transverse measure are combined
-  only at the final binary64 result boundary; no large intermediate factor is formed.
+  Int exponent per column and per node, plus small scalar family exponents, accompany
+  them. The node metadata adds exactly `sizeof(Int)*n_nodes` retained array bytes.
+- Spectral column reductions normalize actual weighted products; centroid numerator
+  and denominator have independent exponents. Per-bin spectral flux gives each bin
+  its own exponent. Temporal pairs preserve signed Hermitian products. Species
+  inventories scale actual node-weight/fraction products before multiplication.
+  Density, potential and physical transverse measure enter only at the final host
+  result boundary. Default identity admission is conservative when a weight exponent
+  is nonzero; explicit identity metadata must come from the original wide values.
 - Transverse node energies, temporal power and strip/current products remain
   binary32. Their final reading arrays, occupancy vectors and control scalars stay
   binary64, with the same physical thresholds and continuation representation.
 - `PlasmaDiagnosticWorkspace` owns six binary32 parts per active-node capacity and
   three Int exponents per node. Its six global maxima are host binary64. Raw
   exposure increments, paid-work defect and fraction/field integrands have separate
-  scales. The freed-fraction denominator remains unscaled and cannot disappear when
-  the paid work is large. All chunks and channels share one field scale, which
+  actual-product scales. Inactive rates and zero fractions cannot determine them.
+  The freed-fraction denominator remains unscaled and cannot disappear when the paid
+  work is large. All chunks and channels share one field scale, which
   cancels from the boundary-level ratio. The paid-work sum uses `n_time-1` terms.
 - `NormalizedObservationWeight` retains the immutable original binary64 direct
   table/expansion for varying weights, or an independently owned normalized binary32
@@ -137,3 +171,22 @@ nonfinite or overflowing results raise before a reading or statistic row is publ
 The binary64 branches retain their existing arithmetic order and array element
 types. The new optional metadata is absent on those paths. Composition into modal,
 spatial and transverse observation workspaces is a separate qualification milestone.
+
+## Wide-coefficient conversion is a separate error source
+
+The reduction contract starts from the supplied represented binary32 numerical
+arrays. `source_narrow` retains the oracle's direct-fold admission. SEP 33 section 4.3
+bounds the block's well-scaled entries (within `2^-126` of its largest entry); it does
+not promise uniform relative accuracy for every subnormal tail. A positive normalized
+power weight may remain subnormal after its one wide-to-binary32 rounding. Its error
+is an additive `eta/2` in normalized weight units, and must be multiplied by the
+actual squared field or other participating factors in the composed error budget.
+
+For example, normalizing wide weights `(1, 3*eta/4)` rounds the second to `eta`.
+A field supported only on that second entry can have a small rounding error relative
+to the represented-weight reduction and a substantial relative difference from the
+original wide-weight expression. The committed witness asserts these two bounds
+separately. Product-aware reduction prevents additional avoidable loss; it cannot
+recover information already discarded by the required coefficient conversion.
+Existing preparation admission is preserved, and no uniform relative guarantee for
+such original tiny weights is inferred.

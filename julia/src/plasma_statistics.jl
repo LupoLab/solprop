@@ -191,33 +191,58 @@ function plasma_diagnostics!(
     return nothing
 end
 
-function _single_plasma_diagnostics!(work, samples, population, rule, execution, count)
+@inline function _single_plasma_defect(paid::Float32, paid_scale::Int, freed::Float32)
+    scale = _observation_product_scale(
+        max(
+            _observation_shifted_exponent(
+                _observation_product_exponent((paid,)), paid_scale
+            ), _observation_product_exponent((freed,))
+        )
+    )
+    return abs(ldexp(paid, paid_scale - scale) - ldexp(freed, -scale)), scale
+end
+
+function _single_plasma_diagnostics!(
+        work::PlasmaDiagnosticWorkspace{<:AbstractMatrix{Float32}},
+        samples::AbstractMatrix{Float32}, population::PopulationWorkspace{Float32},
+        rule::RunningIntegralRule{Float32}, execution, count::Int,
+    )
     parts, scales = work.parts, work.scales
     scales === nothing &&
         throw(ArgumentError("binary32 plasma diagnostic scales are missing"))
     rate, exposure, fraction = population.rate, population.exposure, population.fraction
     half_width = length(rule.taps) - 1
     reach = half_width <= size(samples, 1) ÷ 2 ? 2half_width : size(samples, 1)
-    dt_mantissa, dt_exponent = frexp(rule.dt)
-    half_dt = Float32(dt_mantissa) * 0.5f0
+    dt = rule.dt
     each_column!(execution, size(parts, 2)) do node
         dip = rise = defect = freed = early = peak = 0.0f0
         exposure_scale = work_scale = field_scale = 0
         if node <= count
             exposure_scale = _observation_column_exponent(exposure, node)
-            rate_scale = _observation_column_exponent(rate, node)
-            sample_scale = _observation_column_exponent(samples, node)
-            fraction_scale = _observation_column_exponent(fraction, node)
-            field_scale = sample_scale + fraction_scale
-            paid_scale = rate_scale + dt_exponent
-            work_scale = max(0, paid_scale)
+            field_scale = paid_scale = typemin(Int)
+            for row in axes(samples, 1)
+                field_scale = max(
+                    field_scale, _observation_product_exponent(
+                        (fraction[row, node], samples[row, node])
+                    )
+                )
+                paid_scale = max(
+                    paid_scale, _observation_product_exponent(
+                        (rate[row, node], 1.0f0 - fraction[row, node], dt, 0.5f0)
+                    )
+                )
+            end
+            field_scale = _observation_product_scale(field_scale)
+            paid_scale = _observation_product_scale(paid_scale)
             paid = _Float32Sum()
-            previous = _observation_scaled(rate[1, node], rate_scale) *
-                (1.0f0 - fraction[1, node])
+            previous = _observation_product(
+                (rate[1, node], 1.0f0 - fraction[1, node], dt, 0.5f0), paid_scale
+            )
             for row in axes(samples, 1)
                 integrand = abs(
-                    _observation_scaled(fraction[row, node], fraction_scale) *
-                        _observation_scaled(samples[row, node], sample_scale)
+                    _observation_product(
+                        (fraction[row, node], samples[row, node]), field_scale
+                    )
                 )
                 peak = max(peak, integrand)
                 row <= reach && (early = max(early, integrand))
@@ -225,16 +250,19 @@ function _single_plasma_diagnostics!(work, samples, population, rule, execution,
                     increment = _observation_scaled(exposure[row, node], exposure_scale) -
                         _observation_scaled(exposure[row - 1, node], exposure_scale)
                     dip, rise = max(dip, -increment), max(rise, increment)
-                    current = _observation_scaled(rate[row, node], rate_scale) *
-                        (1.0f0 - fraction[row, node])
-                    paid = _float32_add(paid, half_dt * (previous + current))
+                    current = _observation_product(
+                        (
+                            rate[row, node], 1.0f0 - fraction[row, node], dt,
+                            0.5f0,
+                        ), paid_scale
+                    )
+                    paid = _float32_add(paid, previous + current)
                     previous = current
                 end
             end
             change = fraction[end, node] - fraction[1, node]
-            defect = abs(
-                ldexp(_float32_value(paid), paid_scale - work_scale) -
-                    ldexp(change, -work_scale)
+            defect, work_scale = _single_plasma_defect(
+                _float32_value(paid), paid_scale, change
             )
             # The denominator has its own scale; aligning it with a huge paid
             # work numerator could otherwise erase a valid positive population.
