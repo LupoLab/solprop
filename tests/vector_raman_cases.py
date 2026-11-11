@@ -15,6 +15,7 @@ import math
 
 import numpy as np
 
+from _session_probe_rest import run_session, saved
 from former_raman import (
     FORMER_CH4,
     FORMER_D2,
@@ -119,13 +120,18 @@ def vector_translation(family="envelope", material="H2", route="axis", steps=8):
 
 
 def result(backend_class, problem, run_request, grid, modes, options=CHUNK):
-    """Return the first stage, final state, statistics and buffer ledger."""
+    """Return the first stage, final state, statistics and buffer ledger.
+
+    The run goes through the backend's session (SEP 47 phase 5); the first stage is the
+    reference's own nonlinear pass, or the native state's first stage of a trial from
+    the launch, loaded into the state itself.
+    """
     backend = backend_class(
         problem, run_request, grid=grid, modes=modes, options=options
     )
     try:
-        backend.set_initial(problem.initial.field0, None)
         if backend.name == "numpy_ref":
+            backend.set_initial(problem.initial.field0, None)
             backend._hoist(0.0)
             bundle = backend._stage_scalars(0.0, 0.0)
             rhs = backend._nonlinear(
@@ -134,17 +140,22 @@ def result(backend_class, problem, run_request, grid, modes, options=CHUNK):
                 np.ones((1, *problem.shape), complex),
             )
         else:
-            backend._trial_step(0.0, LENGTH / 8)
-            if backend.name == "native":
-                rhs = backend._native_state.stage_to_host(0).copy()
-            else:
-                rhs = backend._stages[0].copy()
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(LENGTH)
+            assert backend.name == "native"
+            assert problem.initial.noise0 is None
+            backend._staged_rows()
+            state = backend._native_state
+            launch = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
+            state.set_initial(launch.reshape(-1), np.empty(0, dtype=np.complex128))
+            nodes = [float(node) for node in run_request.stepper.tableau.nodes]
+            state.rk_trial(0.0, LENGTH / 8, nodes, prepare_only=False)
+            rhs = np.array(state.stage_to_host(0))
+        run = run_session(backend, problem, run_request, owns=False)
+        (final, state), *_ = reversed(saved(run))
+        assert final.z == LENGTH
         return (
             rhs.reshape(2, -1),
-            backend.observe().require_field().copy().reshape(2, -1),
-            backend.stats(run_request.observation.stats),
+            state.reshape(2, -1),
+            dict(final.stats),
             backend.memory_ledger(),
         )
     finally:

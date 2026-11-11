@@ -23,7 +23,6 @@ import pytest
 from driver.test_field_free_planes import cartesian, low_storage
 from driver.test_runner import capillary
 from solprop import fourier
-from solprop.backends.driver import StepDriver
 from solprop.backends.events import ObservationReady
 from solprop.backends.export import ExportRecipe
 from solprop.backends.host.driver import HostDriver
@@ -243,22 +242,16 @@ STORED: dict[str, Callable[[str], Simulation]] = {
 def _copied_observations(monkeypatch: pytest.MonkeyPatch) -> list[np.ndarray]:
     """Copy each observed field as its backend returned it, before any conversion."""
     copies: list[np.ndarray] = []
-    # The reference's driver and the native backend's inherited one each observe for
-    # themselves.
-    for driver in (StepDriver, HostDriver):
+    # The reference's driver observes for its session.
+    observe: Callable[..., Observation] = HostDriver.observe
 
-        def copying(
-            self: StepDriver | HostDriver,
-            *,
-            field: bool = True,
-            observe: Callable[..., Observation] = driver.observe,
-        ) -> Observation:
-            observation = observe(self, field=field)
-            if observation.field is not None:
-                copies.append(np.array(observation.field))
-            return observation
+    def copying(self: HostDriver, *, field: bool = True) -> Observation:
+        observation = observe(self, field=field)
+        if observation.field is not None:
+            copies.append(np.array(observation.field))
+        return observation
 
-        monkeypatch.setattr(driver, "observe", copying)
+    monkeypatch.setattr(HostDriver, "observe", copying)
     # The native session observes its resident state: the identity export is that
     # state, copied, at each observation it reports.
     if importlib.util.find_spec("solprop_native") is not None:

@@ -33,7 +33,6 @@ from flow_parity import LENGTH as FLOW_LENGTH
 from flow_parity import build as flow_case
 from march_bounds import TIGHTER, assert_in_envelope
 from solprop.backends import available
-from solprop.backends.driver import StepDriver
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import select
@@ -282,11 +281,15 @@ def test_a_snapshot_over_the_default_size_is_never_copied(
         pytest.skip(f"{backend} is not installed")
     monkeypatch.setattr(run_module, "MARCH_SNAPSHOT_AUTO_BYTES", 1)
 
-    def refuse(self):
+    def refuse(*_):
         pytest.fail("a snapshot over the limit was taken")
 
-    for driver in (StepDriver, HostDriver):
-        monkeypatch.setattr(driver, "march_snapshot", refuse)
+    # The reference's session takes its driver's; the native session its own.
+    monkeypatch.setattr(HostDriver, "march_snapshot", refuse)
+    if backend == "native":
+        monkeypatch.setattr(
+            "solprop_native.session.NativeSession.march_snapshot", refuse
+        )
     path = tmp_path / "run.h5"
     soliton(build_simulation, backend)().run(path, progress="none")
     assert resume(path).march is None
@@ -295,11 +298,12 @@ def test_a_snapshot_over_the_default_size_is_never_copied(
 @pytest.mark.parametrize(
     "integrator", [Multistep(), INTERACTION], ids=["exponential", "interaction"]
 )
-@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
-def test_a_snapshot_s_size_is_known_without_it(build_simulation, backend, integrator):
-    # Exact: both count the same arrays' bytes.
-    if backend not in available():
-        pytest.skip(f"{backend} is not installed")
+def test_a_snapshot_s_size_is_known_without_it(build_simulation, integrator):
+    # Exact: both count the same arrays' bytes. The native session's size is checked
+    # at every plane of both formulations by
+    # `sessions/test_native_session_history.py::test_the_session_exports_its_method_
+    # history`.
+    backend = "numpy_ref"
     simulation = soliton(build_simulation, backend, integrator=integrator)()
     problem = simulation.translate()
     run_request = simulation._run_request()

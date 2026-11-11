@@ -8,14 +8,13 @@ The native session evaluates them in its statistics plan
 (:mod:`solprop_native._statistics`): the axis row the mode profiles synthesise on the
 axis is scanned natively by the node scan's own pass, or a Radau rule's axis node is
 read when the evaluation scans the nodes anyway, and the species reduction is finished
-natively. The native backend's own plane statistics (``NativeBackend.stats``) scan the
-same row of the same field on the host
-(:func:`solprop.backends.populations.axis_row_populations`), so the two agree to the
-node scans' parity tolerance rather than bit for bit, except where both read the
-native node scan of a Radau rule's axis node. An envelope's scan reads the polarisation
-ellipse, so on a one-component transform whose modes have a y field on the axis the
-session scans the row's two components as one node of two. Each run is also held to
-the NumPy reference on the session's exported field at every observation.
+natively. At every observation the session's statistics are the plan's own
+evaluation of its exported field, loaded into the native state (bit for bit on a
+deterministic build), and are held to the NumPy reference's host scan of the same
+field (:func:`solprop.backends.populations.axis_row_populations`) within the node
+scans' parity tolerance. An envelope's scan reads the polarisation ellipse, so on a
+one-component transform whose modes have a y field on the axis the session scans the
+row's two components as one node of two.
 """
 
 import dataclasses
@@ -162,21 +161,48 @@ def _run(built, names):
     return seen
 
 
-def _reference(  # noqa: PLR0913 - the run, and which backend reads it
-    grid, modes, problem, request, names, seen, *, name="numpy_ref"
-):
-    """A backend's own statistics on each of the session's exported fields.
-
-    The NumPy reference's by default; ``"native"`` takes the native backend's own
-    plane statistics, which scan the axis row on the host.
-    """
+def _reference(grid, modes, problem, request, names, seen):
+    """The NumPy reference's statistics on each of the session's exported fields."""
     run = request.for_run(stats=StatsSpec(names=names))
     start = float(problem.initial.z)
     out = []
-    with closing(select(name, problem, run, grid=grid, modes=modes)) as backend:
+    with closing(select("numpy_ref", problem, run, grid=grid, modes=modes)) as backend:
         for record in seen:
             backend.set_initial(record.field, None, z=record.z, resume=record.z > start)
             values = backend.stats(run.observation.stats)
+            out.append({name: np.asarray(value) for name, value in values.items()})
+    return out
+
+
+def _plan(grid, modes, problem, request, names, seen):
+    """The native statistics plan's own evaluation of each exported field.
+
+    The plan is lowered once (:func:`solprop_native._statistics.lower`) and evaluated
+    by the native state itself, loaded with each field at its position: the session's
+    plane statistics are this evaluation, so on a deterministic build they are its
+    bits.
+    """
+    from solprop_native._statistics import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        lower,
+    )
+
+    assert problem.initial.noise0 is None
+    run = request.for_run(stats=StatsSpec(names=names))
+    lowering = lower(
+        problem,
+        run.observation.stats,
+        names,
+        grid=grid,
+        modes=modes,
+        z_end=float(request.stepper.z_end),
+    )
+    out = []
+    with closing(select("native", problem, run, grid=grid, modes=modes)) as backend:
+        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
+        for record in seen:
+            field = np.ascontiguousarray(record.field, dtype=np.complex128)
+            state.set_initial(field.reshape(-1), np.empty(0, dtype=np.complex128))
+            values = lowering.unpack(state.planned_statistics(lowering.plan, record.z))
             out.append({name: np.asarray(value) for name, value in values.items()})
     return out
 
@@ -263,31 +289,31 @@ def test_the_plan_needs_the_mode_set_for_them():
 
 @pytest.mark.parametrize("case", list(CASES))
 def test_the_session_s_axis_statistics_are_the_host_scan_s_and_the_reference_s(case):
-    """At every observation: the session against the host's scan and the reference.
+    """At every observation: the session against its plan and the reference.
 
-    On the session's own exported field, the native backend's plane statistics scan
-    the axis row on the host: the statistics differ by their evaluation alone, within
-    the node scans' parity tolerance, and are the same bits where both read a Radau
-    rule's axis node from the native node scan.
+    On the session's own exported field, the native statistics plan evaluated by the
+    native state is the session's evaluation itself: the same bits on a deterministic
+    build, within the node scans' parity tolerance otherwise. The NumPy reference's
+    host scan of the same field is held to that tolerance.
     """
     build, names = CASES[case]
     grid, modes, problem, request = build()
     skip_device_refused(problem)
     built = (grid, modes, problem, request)
     session = _run(built, names)
-    host = _reference(grid, modes, problem, request, names, session, name="native")
+    planned = _plan(grid, modes, problem, request, names, session)
     reference = _reference(grid, modes, problem, request, names, session)
-    assert len(session) == len(host) == 3
+    assert len(session) == len(planned) == 3
     same_field = EXECUTORS["native-session"].deterministic
-    for mine, theirs, want in zip(session, host, reference, strict=True):
+    for mine, theirs, want in zip(session, planned, reference, strict=True):
         for name in ON_AXIS_PLASMA_STATISTICS:
             what = f"{case} {name} at {mine.z}"
             got = mine.stats[name]
-            if case == "radau" and same_field:
+            if same_field:
                 np.testing.assert_array_equal(
                     got, np.reshape(theirs[name], np.shape(got)), what
                 )
-            _within(got, np.asarray(theirs[name]), f"{what} (host scan)")
+            _within(got, np.asarray(theirs[name]), f"{what} (plan)")
             _within(got, want[name], f"{what} (numpy_ref)")
     assert max(
         float(np.max(seen.stats["on_axis_electron_density"])) for seen in session
@@ -391,22 +417,20 @@ def test_the_plan_s_axis_row_is_the_host_scan_s_and_the_reference_s(kind):
         # A y field on the axis, on a transform resolving x alone.
         assert problem.transform.n_pol == 1
         assert np.any(_on_axis(modes)[1])
-    values = {}
-    for name in ("numpy_ref", "native"):
-        with closing(select(name, problem, run, grid=grid, modes=modes)) as backend:
-            backend.set_initial(problem.initial.field0, None)
-            values[name] = backend.stats(spec)
-    with closing(select("native", problem, run, grid=grid, modes=modes)) as backend:
+    with closing(select("numpy_ref", problem, run, grid=grid, modes=modes)) as backend:
         backend.set_initial(problem.initial.field0, None)
-        lowering = lower(problem, spec, names, grid=grid, modes=modes, z_end=0.02)
+        values = backend.stats(spec)
+    assert problem.initial.noise0 is None
+    with closing(select("native", problem, run, grid=grid, modes=modes)) as backend:
         state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
+        launch = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
+        state.set_initial(launch.reshape(-1), np.empty(0, dtype=np.complex128))
+        lowering = lower(problem, spec, names, grid=grid, modes=modes, z_end=0.02)
         got = lowering.unpack(state.planned_statistics(lowering.plan, 0.0))
     for name in names:
-        want = np.reshape(values["numpy_ref"][name], np.shape(got[name]))
-        host = np.reshape(values["native"][name], np.shape(got[name]))
+        want = np.reshape(values[name], np.shape(got[name]))
         assert float(np.max(want)) > 0.0
         _within(got[name], want, f"{kind} {name} (numpy_ref)")
-        _within(got[name], host, f"{kind} {name} (host scan)")
 
 
 def test_an_envelope_s_y_row_on_a_one_component_scan_opens_the_native_session():
@@ -465,12 +489,12 @@ def test_a_native_group_scans_an_envelope_s_y_row():
         recorded = _group_planes(group)
     for index, ours in enumerate(recorded):
         grid, modes, problem, request = built[index]
-        host = _reference(grid, modes, problem, request, names, ours, name="native")
+        planned = _plan(grid, modes, problem, request, names, ours)
         reference = _reference(grid, modes, problem, request, names, ours)
-        assert len(ours) == len(host) == 3
-        for mine, other, want in zip(ours, host, reference, strict=True):
+        assert len(ours) == len(planned) == 3
+        for mine, other, want in zip(ours, planned, reference, strict=True):
             for name in names:
                 what = f"member {index} {name} at {mine.z}"
                 got = mine.stats[name]
-                _within(got, np.asarray(other[name]), f"{what} (host scan)")
+                _within(got, np.asarray(other[name]), f"{what} (plan)")
                 _within(got, want[name], f"{what} (numpy_ref)")
