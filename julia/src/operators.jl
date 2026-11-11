@@ -239,9 +239,10 @@ end
 end
 
 @inline function _operator_aliases(output, state, exponent)
-    Base.mightalias(output, exponent) &&
+    _transfer_writable_destination(output)
+    _transfer_arrays_alias(output, exponent) &&
         throw(ArgumentError("the output must not overwrite its exponent"))
-    Base.mightalias(output, state) && output !== state &&
+    _transfer_arrays_alias(output, state) && output !== state &&
         throw(ArgumentError("partially overlapping state buffers are not supported"))
     return nothing
 end
@@ -276,8 +277,10 @@ ones in both arrays. Return `(forward, inverse)` after synchronous completion.
 """
 function propagator_pair!(forward, inverse, exponent, execution::KernelExecution)
     _operator_shapes(forward, inverse, exponent)
-    if Base.mightalias(forward, inverse) || Base.mightalias(forward, exponent) ||
-            Base.mightalias(inverse, exponent)
+    _transfer_admit_destinations((forward, inverse))
+    if _transfer_arrays_alias(forward, inverse) ||
+            _transfer_arrays_alias(forward, exponent) ||
+            _transfer_arrays_alias(inverse, exponent)
         throw(ArgumentError("propagator-pair buffers must be disjoint"))
     end
     unit = one(eltype(forward))

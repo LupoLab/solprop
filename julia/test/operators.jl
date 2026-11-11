@@ -1,6 +1,39 @@
 # SPDX-FileCopyrightText: 2026 John C. Travers and contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+@testset "Propagator outputs reject hidden overlap and repeated writable indices" begin
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 1)
+    owner = reshape(ComplexF64[1, 2, 3, 4, 5], 5, 1)
+    saved = copy(owner)
+    exponent = zeros(ComplexF64, 4, 1)
+    other = fill(7.0 + 2.0im, 4, 1)
+    GC.@preserve owner begin
+        input = unsafe_wrap(Array, pointer(owner), (4, 1); own = false)
+        output = unsafe_wrap(Array, pointer(owner, 2), (4, 1); own = false)
+        for operation in (SolpropJulia.propagate!, SolpropJulia.linear_increment!)
+            @test_throws ArgumentError operation(output, input, exponent, execution)
+            @test_throws ArgumentError operation(output, other, input, execution)
+            @test owner == saved
+        end
+        @test_throws ArgumentError SolpropJulia.propagator_pair!(
+            output, input, exponent, execution,
+        )
+        @test_throws ArgumentError SolpropJulia.propagator_pair!(
+            output, other, input, execution,
+        )
+        @test owner == saved && all(==(7.0 + 2.0im), other)
+    end
+    repeated = view(other, [1, 1, 3, 4], :)
+    for operation in (SolpropJulia.propagate!, SolpropJulia.linear_increment!)
+        @test_throws ArgumentError operation(repeated, exponent, exponent, execution)
+        @test all(==(7.0 + 2.0im), other)
+    end
+    @test_throws ArgumentError SolpropJulia.propagator_pair!(
+        repeated, copy(other), exponent, execution,
+    )
+    @test all(==(7.0 + 2.0im), other)
+end
+
 function operator_cycle!(output, inverse, exponent, state, operator, execution)
     SolpropJulia.operator_exponent!(exponent, operator, 0.25, 0.75, execution)
     SolpropJulia.propagate!(output, state, exponent, execution)

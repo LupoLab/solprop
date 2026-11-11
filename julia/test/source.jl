@@ -1,6 +1,55 @@
 # SPDX-FileCopyrightText: 2026 John C. Travers and contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+function linear_flow_allocations(flow, output, input)
+    flow(output, input, 0.0, 1.0)
+    return @allocated flow(output, input, 0.0, 1.0)
+end
+
+@testset "Linear flow refuses caller and retained storage overlap before writes" begin
+    for tasks in unique((1, min(2, Threads.nthreads(:default))))
+        execution = SolpropJulia.KernelExecution(
+            SolpropJulia.KernelAbstractions.CPU(), tasks, true,
+        )
+        rate = zeros(ComplexF64, 4, 1)
+        flow = SolpropJulia.LinearFlow(
+            execution, SolpropJulia.DiagonalOperator(execution, rate), rate,
+        )
+        owner = reshape(ComplexF64[1, 2, 3, 4, 5], 5, 1)
+        saved = copy(owner)
+        GC.@preserve owner begin
+            input = unsafe_wrap(Array, pointer(owner), (4, 1); own = false)
+            output = unsafe_wrap(Array, pointer(owner, 2), (4, 1); own = false)
+            @test !Base.mightalias(input, output)
+            @test_throws ArgumentError flow(output, input, 0.0, 1.0)
+            @test owner == saved
+        end
+        output = fill(7.0 + 2.0im, 4, 1)
+        for retained in (flow.exponent, flow.operator.rate)
+            fill!(retained, 2.0 + 3.0im)
+            before = copy(retained)
+            @test_throws ArgumentError flow(output, retained, 0.0, 1.0)
+            @test retained == before
+            @test all(==(7.0 + 2.0im), output)
+            @test_throws ArgumentError flow(retained, output, 0.0, 1.0)
+            @test retained == before
+        end
+        fill!(flow.operator.rate, 0)
+        input = reshape(ComplexF64[1, 2, 3, 4], 4, 1)
+        repeated = view(output, [1, 1, 3, 4], :)
+        @test_throws ArgumentError flow(repeated, input, 0.0, 1.0)
+        @test all(==(7.0 + 2.0im), output)
+        @test linear_flow_allocations(flow, output, input) == 0
+        # Zero-generator copies and exact same-array updates are structural contracts.
+        @test output == input
+        @test linear_flow_allocations(flow, input, input) == 0
+        @test input == output
+        strided = view(zeros(ComplexF64, 8, 1), 1:2:7, :)
+        flow(strided, input, 0.0, 1.0)
+        @test strided == input
+    end
+end
+
 function source_data_fixture(
         execution; synthesis, projection, prefactor, omega_window, source_window,
         kerr, density, carrier = nothing,

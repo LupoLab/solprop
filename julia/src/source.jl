@@ -77,10 +77,13 @@ function LinearFlow(
 end
 
 function (flow::LinearFlow)(output, input, origin::Float64, destination::Float64)
-    output !== input && Base.mightalias(output, input) &&
-        throw(ArgumentError("the linear flow refuses partial input/output overlap"))
     size(output) == size(input) == size(flow.exponent) ||
         throw(DimensionMismatch("linear flow buffers do not match their preparation"))
+    _transfer_writable_destination(output)
+    output !== input && _transfer_arrays_alias(output, input) &&
+        throw(ArgumentError("the linear flow refuses partial input/output overlap"))
+    (_retained_alias(output, flow) || _retained_alias(input, flow)) &&
+        throw(ArgumentError("caller arrays must be disjoint from linear flow storage"))
     operator_exponent!(
         flow.exponent, flow.operator, origin, destination, flow.execution; work = flow.work
     )

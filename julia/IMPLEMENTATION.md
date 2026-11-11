@@ -771,3 +771,9 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   cases, including both acquisition/release orders and abandoned-owner cleanup.
   Actual controller widths are metadata. The separately planned macOS Accelerate
   forwarding remains unimplemented; no provider-selection qualification is inferred.
+- Linear-flow and propagator outputs now reject hidden foreign-header overlap and
+  inputs aliasing retained operator/exponent storage before any write (#691).
+  Focused bounds-enabled tests pass 40 flow and 15 propagator assertions, alongside
+  the existing operator/source checks. Independent original probes pass 28 assertions
+  at task budgets one and two, including offset foreign headers, negative strides,
+  exact in-place operation, failure preservation and zero warmed allocations.
