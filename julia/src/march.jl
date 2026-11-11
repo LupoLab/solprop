@@ -364,8 +364,12 @@ function _prepare_march(
         norm::MarchNorm, schedule::MarchSchedule;
         plane_index::Union{Nothing, Int}, plane_pending::Bool,
     ) where {T <: Union{Float32, Float64}}
-    all(isfinite, state) && size(state, 1) == length(norm.active) &&
-        size(state, 2) > 0 || throw(ArgumentError("invalid initial march field"))
+    oncpu(execution) || T === Float64 ||
+        throw(ArgumentError("device march preparation requires binary64 state"))
+    size(state, 1) == length(norm.active) && size(state, 2) > 0 ||
+        throw(ArgumentError("invalid initial march field"))
+    _march_initial_finite(state, execution) ||
+        throw(ArgumentError("invalid initial march field"))
     first(schedule.breakpoints) <= z <= last(schedule.planes) &&
         isfinite(proposal) && proposal > 0.0 ||
         throw(ArgumentError("invalid starting position or proposal"))
@@ -397,6 +401,18 @@ function _prepare_march(
     progress = _MarchState(z, proposal, plane, replay)
     progress.launched = !plane_pending
     return owned, progress
+end
+
+function _march_initial_finite(state, execution)
+    if oncpu(execution) || _transfer_storage_space(state) isa _HostStorageSpace
+        return all(isfinite, state)
+    end
+    # The bridge may already own the uploaded launch. Validate it in the selected
+    # stream without an ambient vendor reduction or a full-field host readback.
+    copy_device!(state, state, execution)
+    status = DeviceReadback(execution, Int, size(state, 2))
+    _source_failure_rows!(status.device, state, execution)
+    return all(iszero, readback!(status, execution))
 end
 
 @inline _march_slack(z, target) = 8eps(max(abs(z), abs(target)))

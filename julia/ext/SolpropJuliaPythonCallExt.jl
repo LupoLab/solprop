@@ -43,6 +43,17 @@ end
 
 _optional_copy(value) = pyis(value, nothing) ? nothing : copy_preparation(value)
 
+_coefficient_execution(execution) = SolpropJulia.oncpu(execution) ? execution :
+    SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 1)
+
+function _preparation_execution(threads, device)
+    device == "cpu" && return SolpropJulia.KernelExecution(
+        SolpropJulia.KernelAbstractions.CPU(), threads,
+    )
+    device == "cuda" && return SolpropJulia.device_execution(Val(:cuda), 0, threads)
+    throw(ArgumentError("Julia preparation does not admit device '$device'"))
+end
+
 function _arithmetic(transfer)
     name = pyconvert(String, transfer.name)
     name in ("double", "single") || throw(ArgumentError("unknown state precision"))
@@ -57,18 +68,21 @@ function _profile(execution, value, name)
     if pyisinstance(value, pybuiltins.float)
         return SolpropJulia.SourceProfile(pyconvert(Float64, value); name)
     end
-    return SolpropJulia.SourceProfile(_table(execution, value); name)
+    return SolpropJulia.SourceProfile(
+        _table(_coefficient_execution(execution), value); name,
+    )
 end
 
 function _prefactor(execution, transfer, shape, arithmetic)
     if !pyis(transfer.table, nothing)
         return SolpropJulia.SourcePrefactor(
-            _table(execution, transfer.table), shape; arithmetic,
+            execution, _table(_coefficient_execution(execution), transfer.table), shape;
+            arithmetic,
         )
     elseif !pyis(transfer.weights, nothing)
         return SolpropJulia.SourcePrefactor(
             execution, copy_preparation(transfer.values),
-            _table(execution, transfer.weights); arithmetic,
+            _table(_coefficient_execution(execution), transfer.weights); arithmetic,
         )
     end
     return SolpropJulia.SourcePrefactor(
@@ -93,11 +107,13 @@ end
 function _power_weight(execution, transfer, shape)
     pyis(transfer, nothing) && return nothing
     if !pyis(transfer.table, nothing)
-        return SolpropJulia.ObservationWeight(_table(execution, transfer.table), shape)
+        return SolpropJulia.ObservationWeight(
+            execution, _table(_coefficient_execution(execution), transfer.table), shape,
+        )
     elseif !pyis(transfer.weights, nothing)
         return SolpropJulia.ObservationWeight(
             execution, copy_preparation(transfer.values),
-            _table(execution, transfer.weights),
+            _table(_coefficient_execution(execution), transfer.weights),
         )
     end
     return SolpropJulia.ObservationWeight(execution, copy_preparation(transfer.values))
@@ -210,8 +226,12 @@ function _modal_data(execution, transfer)
     )
 end
 
-function prepare_modal(transfer::Py, threads::Int, node_chunk::Int)
-    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), threads)
+function prepare_modal(
+        transfer::Py, threads::Int, node_chunk::Int, device::String = "cpu",
+    )
+    device == "cpu" || pyconvert(String, transfer.arithmetic.name) == "double" ||
+        throw(ArgumentError("device modal preparation requires binary64 state"))
+    execution = _preparation_execution(threads, device)
     data = _modal_data(execution, transfer)
     shape = data.prefactor.shape
     1 <= node_chunk <= size(data.map.synthesis, 1) ||
@@ -318,7 +338,9 @@ function start_runge_kutta(
     return SolpropJulia.RungeKuttaSession(
         execution, state, z, pyconvert(Float64, transfer.control.dz_init), tableau, policy,
         norm, schedule, source, flow; stop, plane_index = plane, plane_pending, services,
-        exports = SolpropJulia._FieldExport(execution, preparation.power_weight; noise),
+        exports = SolpropJulia._FieldExport(
+            execution, preparation.power_weight; noise, shape = size(state),
+        ),
         dense_weights = pyis(transfer.dense_weights, nothing) ? nothing :
             copy_preparation(transfer.dense_weights),
         arithmetic = SolpropJulia._prepared_arithmetic(preparation.data),
@@ -384,7 +406,9 @@ function start_adams(
         policy, norm, schedule, source, flow;
         stop, plane_index = plane, plane_pending, services,
         source_absent = pyconvert(Bool, transfer.source_absent),
-        exports = SolpropJulia._FieldExport(execution, preparation.power_weight; noise),
+        exports = SolpropJulia._FieldExport(
+            execution, preparation.power_weight; noise, shape = size(state),
+        ),
         arithmetic = SolpropJulia._prepared_arithmetic(preparation.data),
     )
 end
@@ -413,7 +437,9 @@ function start_low_storage(
         execution, state, z, SolpropJulia.RK4IPTableau(), norm, schedule, source, flow;
         stop, plane_index = plane, plane_pending, services,
         arithmetic = SolpropJulia._prepared_arithmetic(preparation.data),
-        exports = SolpropJulia._FieldExport(execution, preparation.power_weight; noise),
+        exports = SolpropJulia._FieldExport(
+            execution, preparation.power_weight; noise, shape = size(state),
+        ),
     )
 end
 

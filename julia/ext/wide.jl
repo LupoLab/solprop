@@ -6,7 +6,7 @@ function _launch_flow(
         adams_policy = nothing,
     )
     work = operator isa SolpropJulia.ExpansionOperator ?
-        zeros(size(operator.terms, 3)) : nothing
+        SolpropJulia.dzeros(execution, Float64, size(operator.terms, 3)) : nothing
     return SolpropJulia.LinearFlow(
         execution, operator, state; work,
         tabulate = pyconvert(Bool, transfer.tabulate_flow),

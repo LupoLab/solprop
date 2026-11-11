@@ -11,6 +11,8 @@ end
 
 function _planning_preparation(preparation::SolpropJulia._ProblemPreparation, planning)
     original = preparation.execution
+    SolpropJulia.oncpu(original) ||
+        throw(ArgumentError("persisted FFTW planning applies only to CPU execution"))
     execution = SolpropJulia.KernelExecution(
         original.backend, original.tasks, original.check_body; planning,
     )

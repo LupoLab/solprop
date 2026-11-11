@@ -344,6 +344,7 @@ def boundary(monkeypatch, setup_record):
     monkeypatch.setattr(owner, "_lowered", (), raising=False)
     owner._options = {}
     owner._wide = "binary64"
+    owner._device = "cpu"
     owner._df32_operator = None
     owner._node_chunk = 1
     owner._tabulate_flow = False

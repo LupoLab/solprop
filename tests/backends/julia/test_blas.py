@@ -362,6 +362,59 @@ def test_preparation_owns_the_blas_hold_until_main_thread_release(
     runtime.owners.close()
 
 
+@pytest.mark.parametrize("fail", [False, True])
+def test_device_preparation_forwards_target_without_cpu_blas_or_fft_resources(
+    monkeypatch, setup_record, fail
+):
+    monkeypatch.setattr(_runtime, "_STATE", _runtime._State())
+    selected = []
+    arguments = []
+
+    def construct(*args):
+        arguments.append(args)
+        if fail:
+            raise RuntimeError("device preparation failure")
+        return object()
+
+    def cpu_only(*args, **kwargs):
+        pytest.fail("device preparation must not request CPU BLAS or FFT resources")
+
+    runtime = JuliaRuntime(
+        setup_record, 2, None, SimpleNamespace(prepare_modal=construct), 1
+    )
+
+    def get_runtime(*, setup_id, device):
+        selected.append((setup_id, device))
+        return runtime
+
+    monkeypatch.setattr(backend, "get_runtime", get_runtime)
+    monkeypatch.setattr(backend, "acquire_blas", cpu_only)
+    monkeypatch.setattr(backend, "load_planning_cache", cpu_only)
+    case = cpu_case()
+    owner = JuliaBackend(case.problem, case.request)
+    # Public admission remains closed until hardware qualification. Exercise the
+    # internal transaction after the separate, pure capability admission boundary.
+    owner._device = "cuda"
+    if fail:
+        with pytest.raises(BackendError, match="device preparation failure"):
+            owner.prepare(case.problem, case.request)
+        assert owner._preparation is None and owner._runtime is None
+        assert not runtime.owners._entries
+    else:
+        prepared = owner.prepare(case.problem, case.request)
+        assert prepared._owner is owner
+        assert owner._preparation is not None
+    assert selected == [(None, "cuda")]
+    assert len(arguments) == 1
+    assert arguments[0][1:] == (2, owner._node_chunk, "cuda")
+    assert owner._blas is None and owner._fft_cache is None
+    assert owner.metadata()["device"] == "cuda"
+    assert "blas_threads_requested" not in owner.metadata()
+    owner.close()
+    assert not runtime.owners._entries
+    runtime.owners.close()
+
+
 def test_failed_numerical_preparation_releases_its_unpublished_blas_hold(
     libraries, monkeypatch, setup_record
 ):

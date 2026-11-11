@@ -104,7 +104,7 @@ class JuliaBackend:
         require_main_thread()
         selected = ExecutionOptions() if options is None else options
         selected.check_backend_options(self.name, ("wide", "setup_id"))
-        selected.check_device(self.name, "cpu")
+        self._device = selected.check_device(self.name, "cpu")
         self._options = dict(selected.backend_options)
         self._execution_options = selected
         wide = self._options.get("wide", "binary64")
@@ -305,21 +305,23 @@ class JuliaBackend:
         )
 
     def _prepare_numerical(self) -> None:
-        """Publish numerical preparation and its BLAS lifetime as one transaction."""
-        runtime = get_runtime(setup_id=self._setup_id, device="cpu")
-        fft_cache = load_planning_cache(runtime)
+        """Publish execution-owned numerical preparation as one transaction."""
+        runtime = get_runtime(setup_id=self._setup_id, device=self._device)
+        fft_cache = load_planning_cache(runtime) if self._device == "cpu" else None
         blas: BlasHold | None = None
         handle: JuliaHandle | None = None
         try:
             with _interrupts.committing():
-                blas = acquire_blas(provider=runtime.cpu_blas)
+                if self._device == "cpu":
+                    blas = acquire_blas(provider=runtime.cpu_blas)
                 handle = runtime.own_call(
                     "prepare_spatial" if self._spatial else "prepare_modal",
                     self._lowered,
                     runtime.threads,
                     self._node_chunk,
-                    owners=(blas,),
-                    on_release=blas.close,
+                    self._device,
+                    owners=() if blas is None else (blas,),
+                    on_release=None if blas is None else blas.close,
                 )
                 self._runtime, self._preparation, self._blas = runtime, handle, blas
                 self._fft_cache = fft_cache
@@ -355,7 +357,7 @@ class JuliaBackend:
         runtime = self._runtime
         record: dict[str, object] = {
             "backend": self.name,
-            "device": "cpu",
+            "device": self._device,
             "precision": self._problem.precision.name,
             "wide": self._wide,
             "propagator_mode": "tabulate" if self._tabulate_flow else "recompute",

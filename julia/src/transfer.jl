@@ -97,12 +97,13 @@ function with_node_chunk(preparation::_ProblemPreparation, node_chunk::Int)
 end
 
 """
-    prepare_spatial(transfer, threads, node_chunk)
+    prepare_spatial(transfer, threads, node_chunk, device="cpu")
 
 Copy an admitted scalar spatial transfer through the optional PythonCall extension.
 
 The transfer identifies a radial matrix map or Cartesian FFT shape and owns all
 represented coefficients. Positive `threads` and `node_chunk` are execution budgets.
+`device` identifies the execution target; spatial device composition remains refused.
 No Python owner or mutable session state is retained in the resulting preparation.
 """
 function prepare_spatial end
@@ -227,13 +228,17 @@ function _FieldExport(execution, ::Nothing; noise = nothing, shape = (0, 0))
 end
 
 """
-    prepare_modal(transfer, threads, node_chunk)
+    prepare_modal(transfer, threads, node_chunk, device="cpu")
 
 Convert a Python modal transfer once through the PythonCall extension.
 
 Every numerical array is copied into Julia-owned storage; no Python object is
 retained. `threads` and `node_chunk` are positive execution budgets. Pure Python
 admission precedes this entry; typed numerical constructors recheck the data.
+The optional `device` selects CPU or the already loaded CUDA extension's first
+device. GPU state is binary64; unsupported device names and precisions refuse.
+Scalar response profiles remain host-owned, while numerical coefficient tables use
+the selected execution. This internal bridge does not change public admission.
 """
 function prepare_modal end
 

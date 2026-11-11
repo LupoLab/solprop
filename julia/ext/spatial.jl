@@ -19,8 +19,12 @@ function _separable(execution, transfer)
     )
 end
 
-function prepare_spatial(transfer::Py, threads::Int, node_chunk::Int)
-    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), threads)
+function prepare_spatial(
+        transfer::Py, threads::Int, node_chunk::Int, device::String = "cpu",
+    )
+    device == "cpu" ||
+        throw(ArgumentError("device spatial composition is not qualified yet"))
+    execution = _preparation_execution(threads, device)
     kind = pyconvert(String, transfer.kind)
     if kind == "radial"
         modal = prepare_modal(transfer.modal, threads, node_chunk)

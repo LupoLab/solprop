@@ -41,6 +41,7 @@ if group == "Core"
     include("device_march.jl")
     include("device_export.jl")
     include("low_storage_device.jl")
+    include("device_initial.jl")
     include("control.jl")
     include("adams_control.jl")
     include("responses.jl")
