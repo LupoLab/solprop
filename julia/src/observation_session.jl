@@ -221,7 +221,8 @@ selection's periodic order. One packed plane vector and at most two monitor plan
 are retained until valid acknowledgment; one temporal notice causes an immediate barrier.
 
 No field, session, source, Python callback or delivery receipt is retained. Numerical
-hooks use the caller's current committed field. `quadrature_error` is an explicit
+acceptance hooks use the committed field; plane hooks use the selected observation,
+which may lie inside the last accepted Adams window. `quadrature_error` is an explicit
 master-owned alarm scalar, initially NaN when unavailable; it is never inferred from
 stale RHS scratch. Copy-out accessors do not drain. The containing session validates
 generations and owns event/plane cursors. Refuse invalid capacity or preparation.
@@ -252,6 +253,7 @@ mutable struct ObservationServices{W, S, R, Q}
     committed_z::Float64
     quadrature_error::Float64
     quadrature_work::Q
+    periodic_pending::Bool
 
     function ObservationServices(
             work::W, split::S, row_slices::R, period::Int, attempt_capacity::Int,
@@ -264,7 +266,7 @@ mutable struct ObservationServices{W, S, R, Q}
             plane_values, false, NaN, fill(blank, 2), 0,
             MonitorNotices(1), nothing, ObservationNoBarrier, ObservationNoContinuation,
             NaN, (quiet = false, step_cap = Inf), false, false, false, 0, NaN, NaN,
-            quadrature_work,
+            quadrature_work, false,
         )
     end
 end
@@ -503,7 +505,21 @@ end
 function _observation_accepted_rest!(services, session)
     _observation_sync_collar!(services, session)
     _observation_crossing!(services, session, ObservationAcceptedRest) && return nothing
+    _march_defer_periodic(session) || _session_endpoint!(services, session)
+    return nothing
+end
+
+function _session_endpoint!(services::ObservationServices, session)
+    _observation_service_entry(services, session)
+    services.periodic_pending || return nothing
     _observation_periodic!(services, session)
+    services.periodic_pending = false
+    return nothing
+end
+
+function _march_dense_services(services::ObservationServices)
+    services.split === nothing ||
+        throw(ArgumentError("interpolated observations refuse the per-step split collar"))
     return nothing
 end
 
@@ -520,6 +536,7 @@ function _session_accepted!(services::ObservationServices, session, dz)
         services.work, session.field, state.z, dz, services.notices,
     )
     services.accepted_seen, services.committed_z = state.accepted, state.z
+    services.periodic_pending = true
     _observation_pause!(services, ObservationAcceptedRest, state.z) && return nothing
     _observation_accepted_rest!(services, session)
     return nothing
@@ -540,8 +557,9 @@ function _observation_plane_rest!(services, session)
     _observation_crossing!(services, session, ObservationPlaneRest) && return nothing
     services.monitor_count < length(services.monitor_rows) ||
         throw(DimensionMismatch("observation monitor row buffer is full"))
-    _observation_monitor_row!(services, observation_plane!(services.work, session.state.z))
-    _observation_plane_values!(services, session.field, session.state.z)
+    position = _march_observed_position(session)
+    _observation_monitor_row!(services, observation_plane!(services.work, position))
+    _observation_plane_values!(services, _march_observed_field(session), position)
     return nothing
 end
 
@@ -566,14 +584,35 @@ function _session_observe!(services::ObservationServices, session, kind, plane)
         throw(ArgumentError("landed observations require the committed endpoint"))
     monitor = services.work.monitor
     if monitor !== nothing && monitor.stale
-        services.decision = observation_check!(
-            services.work, session.field, session.state.z, services.notices,
-        )
+        services.decision = _observation_check_plane!(services, session)
         _observation_pause!(services, ObservationPlaneRest, session.state.z) &&
             return nothing
     end
     _observation_plane_rest!(services, session)
     return nothing
+end
+
+function _observation_check_plane!(services, session)
+    work = services.work
+    field, position = _march_observed_field(session), _march_observed_position(session)
+    if position == session.state.z
+        return observation_check!(work, field, position, services.notices)
+    end
+    # The shared/native dense-plane rule checks the interpolated field only if
+    # the committed step was skipped. temporal_step!'s plane path leaves its
+    # committed cursor ahead and counts the skipped step only once.
+    _observation_field(work, field, position)
+    monitor = work.monitor
+    monitor !== nothing && monitor.stale && position < monitor.committed &&
+        !work.monitor_work.captured ||
+        throw(ArgumentError("a dense monitor check needs a stale committed step ahead"))
+    _observation_read!(work, field)
+    temporal_step!(
+        monitor, work.data.temporal.policy, work.monitor_work.reading,
+        position, services.notices; plane = true,
+    )
+    _observation_drain!(work.monitor_work.reading)
+    return _observation_decision(work)
 end
 
 function _observation_finish_rest!(services, session)
@@ -650,7 +689,7 @@ function _session_acknowledge!(services::ObservationServices, session, generatio
     !state.closed && state.pending && generation == state.generation ||
         throw(ArgumentError("the observation acknowledgment generation is not pending"))
     services.rows.count = services.monitor_count = 0
-    services.plane_valid && (services.quadrature_error = NaN)
+    services.plane_valid && !services.periodic_pending && (services.quadrature_error = NaN)
     services.plane_valid = false
     reset_notices!(services.notices)
     services.crossing_refusal = nothing

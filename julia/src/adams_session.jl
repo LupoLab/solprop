@@ -98,6 +98,12 @@ struct _AdamsSessionRate{F}
     flow::F
 end
 
+mutable struct _AdamsSessionObservation{W}
+    work::W
+    z::Float64
+    selected::Bool
+end
+
 function (sample::_AdamsSessionRate)(output, position, before)
     flow = sample.flow
     operator_rate!(
@@ -118,14 +124,15 @@ _adams_varying_operator(operator) =
                  exports=nothing, plane_index=nothing, plane_pending=true,
                  source_absent=false)
 
-Own a landed binary64 exponential Adams session and bounded delivery state.
+Own a binary64 exponential Adams session and bounded delivery state.
 
 `state` is a complex binary64 matrix `(n_omega,n_columns)` in internal units; `z`
 and `proposal` are metres. The launch is copied and hard-masked. `policy` is the
 translated `AdamsControlPolicy`; `norm` and `schedule` have the shared march meanings.
-The policy and schedule must retain identical full save-plane, hard-kink and operator
-breakpoint arrays and the same landing stretch; restart import changes the cursor,
-not those authoritative request arrays.
+The policy and schedule retain identical hard-kink/operator breakpoint arrays and
+landing stretch. Landed policy save planes equal the schedule; interpolating policy
+save planes are empty, while the schedule retains every requested observation.
+Restart import changes the cursor, not those authoritative request arrays.
 `source` and `flow::LinearFlow` are independently owned numerical compositions.
 Constant, represented-table and expansion diagonal operators are admitted on CPU.
 Varying operators use transported compensation unless `source_absent=true`, which
@@ -143,13 +150,18 @@ Every completed rejected trial is recorded before a floor failure, matching the
 shared Julia actual-work convention. Candidate-only failures retain an eligible
 accepted field; a failure during accepted history/field mutation poisons the session.
 Services supply scalar quiet/cap decisions and candidate finishing through the
-shared march hooks. Dense observation, restart import and Python delivery are separate.
+shared march hooks. Interpolating sessions own one retained accepted dense window,
+observed separately from the committed state. Each crossed interior plane is delivered
+before endpoint periodic rows or snapshots, without another source evaluation.
+`ledger.dense_observations` counts each successful strict interior evaluation once;
+canonical endpoint observations copy the committed field and do not increment it.
 
-Throw `ArgumentError` for interpolation, unsupported execution/flow, inconsistent
-run end or incompatible initial arrays before numerical advancement. Advance errors
-become the shared terminal failure event; no Python callback runs inside a trial.
+Throw `ArgumentError` for interpolation with replay or a per-step split collar,
+unsupported execution/flow, inconsistent run topology or incompatible initial arrays.
+Advance errors become the shared terminal failure event; no Python callback runs
+inside a trial.
 """
-struct AdamsSession{E, A, P, H, W, N, S, F, B, O, X} <: _MarchSession
+struct AdamsSession{E, A, P, H, W, N, S, F, B, O, X, D} <: _MarchSession
     execution::E
     field::A
     policy::P
@@ -175,6 +187,7 @@ struct AdamsSession{E, A, P, H, W, N, S, F, B, O, X} <: _MarchSession
     exponent::_AdamsSessionExponent{F}
     rate::_AdamsSessionRate{F}
     source_absent::Bool
+    observation::D
 end
 
 function AdamsSession(
@@ -185,23 +198,31 @@ function AdamsSession(
         plane_pending::Bool = true, source_absent::Bool = false,
     )
     oncpu(execution) || throw(ArgumentError("Adams sessions currently require CPU"))
-    policy.interpolate &&
-        throw(ArgumentError("this Adams session refuses interpolated observations"))
+    policy.interpolate && !isempty(schedule.replay_steps) &&
+        throw(ArgumentError("interpolated planes require adaptive Adams; replay lands"))
     flow isa LinearFlow || throw(ArgumentError("Adams sessions require LinearFlow"))
     capacity > 0 || throw(ArgumentError("attempt capacity must be positive"))
     policy.z_end == last(schedule.planes) ||
         throw(ArgumentError("Adams policy and schedule ends disagree"))
-    policy.save_planes == schedule.planes && policy.hard_kinks == schedule.hard_kinks &&
+    matching_planes = policy.interpolate ?
+        isempty(policy.save_planes) : policy.save_planes == schedule.planes
+    matching_planes && policy.hard_kinks == schedule.hard_kinks &&
         policy.breakpoints == schedule.breakpoints && policy.stretch == schedule.stretch ||
         throw(ArgumentError("Adams policy and schedule topology disagree"))
     size(flow.exponent) == size(state) ||
         throw(DimensionMismatch("Adams linear flow and state shapes disagree"))
     compensated = _adams_varying_operator(flow.operator) && !source_absent
+    policy.interpolate && _march_dense_services(services)
     owned, progress = _prepare_march(
         execution, state, z, proposal, norm, schedule; plane_index, plane_pending,
     )
     ledger = AdamsCallLedger()
     order = policy.variable_order ? 1 : policy.order
+    # AdamsObservationWork is included after this method definition. Preparation
+    # runs after module loading, so no include cycle or mutable global is needed.
+    observation = policy.interpolate ? _AdamsSessionObservation(
+            AdamsObservationWork(execution, owned, policy.order; compensated), NaN, false,
+        ) : nothing
     return AdamsSession(
         execution, owned, policy,
         AdamsHistory(execution, owned, policy.order; compensated),
@@ -211,8 +232,49 @@ function AdamsSession(
         zeros(policy.order + 1), zeros(Int, policy.order + 1),
         zeros(3), zeros(Int, capacity),
         _AdamsSessionSource(source, ledger), _AdamsSessionExponent(flow),
-        _AdamsSessionRate(flow), source_absent,
+        _AdamsSessionRate(flow), source_absent, observation,
     )
+end
+
+_march_defer_periodic(session::AdamsSession) = session.observation !== nothing
+
+function _march_pending_dense(session::AdamsSession)
+    return session.observation !== nothing &&
+        session.state.plane <= length(session.schedule.planes) &&
+        session.schedule.planes[session.state.plane] < session.state.z
+end
+
+function _march_select_observation!(session::AdamsSession, kind, plane)
+    observation = session.observation
+    observation === nothing && return nothing
+    observation.selected = false
+    kind === :plane || return nothing
+    position = session.schedule.planes[plane + 1]
+    # Canonical endpoints use the exact committed field. The shared reached rule
+    # may also classify a nearby plane ahead as landed; preserve that existing
+    # committed-coordinate behavior rather than extrapolating a dense polynomial.
+    position < session.state.z || return nothing
+    counted = Base.Checked.checked_add(session.ledger.dense_observations, 1)
+    observe_adams!(observation.work, position, session.norm.active, session.execution)
+    observation.z, observation.selected = position, true
+    session.ledger.dense_observations = counted
+    return nothing
+end
+
+function _march_observed_field(session::AdamsSession)
+    observation = session.observation
+    if observation !== nothing && observation.selected && _march_plane_selected(session)
+        return observation.work.field
+    end
+    return session.field
+end
+
+function _march_observed_position(session::AdamsSession)
+    observation = session.observation
+    if observation !== nothing && observation.selected && _march_plane_selected(session)
+        return observation.z
+    end
+    return session.state.z
 end
 
 function _adams_session_reset!(session)
@@ -427,6 +489,10 @@ function _march_trial!(session::AdamsSession, began)
     _source_finite!(
         session.flow.failures, candidate, session.execution, :finished_candidate,
     )
+    if session.observation !== nothing
+        session.observation.selected = false
+        retain_adams_observation!(session.observation.work, session, landing.destination)
+    end
     choice = adams_choose_order(
         session.policy, stencil.order, stencil.orders, session.norms,
         stencil.n_orders, landing.dz; quiet = _session_quiet(session.services, session),

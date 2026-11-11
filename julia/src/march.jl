@@ -158,8 +158,10 @@ end
 
 Describe one closed numerical event without exporting the field.
 
-`kind` is a `SessionEvent`. `z` is metres, `plane` the zero-based requested plane or -1
-for launch. `generation` binds exports to this pending event. Counts are cumulative;
+`kind` is a `SessionEvent`. `z` is metres at the selected observation for a plane,
+or at the committed endpoint for every other event. Dense planes may lie behind the
+committed endpoint without replacing it. `plane` is the zero-based requested plane or
+-1 for launch. `generation` binds exports to this pending event. Counts are cumulative;
 the plane summary spans yields since the previous observation. Norms are dimensionless
 and `wall_time` is numerical work in seconds. A poisoned failure cannot export a field.
 """
@@ -235,10 +237,25 @@ _session_quiet_interval(::_NoSessionServices, session) = nothing
 _session_barrier(::_NoSessionServices, session) = :none
 _session_continue!(::_NoSessionServices, session) = :none
 _session_acknowledge!(::_NoSessionServices, session, generation) = nothing
+_session_endpoint!(services, session) = nothing
 
 # Concrete methods own numerical trials; this internal common surface owns event
 # barriers, bounded delivery, cancellation, acknowledgment and failure persistence.
 abstract type _MarchSession end
+
+# Dense methods select an observation without replacing their committed field.
+# While an event is pending, its kind takes precedence over an interrupted plane:
+# warning/failure exports must still describe the eligible committed endpoint.
+_march_select_observation!(session::_MarchSession, kind, plane) = nothing
+_march_observed_field(session) = session.field
+_march_observed_position(session) = session.state.z
+_march_pending_dense(session::_MarchSession) = false
+_march_defer_periodic(session) = false
+_march_dense_services(services) = nothing
+function _march_plane_selected(session)
+    state = session.state
+    return state.pending ? state.pending_kind === :plane : state.observation_kind === :plane
+end
 
 """
     RungeKuttaSession(execution, state, z, proposal, tableau, control, norm, schedule,
@@ -409,7 +426,7 @@ function _march_issue!(session, kind; plane = session.state.plane - 1)
     state.generation += 1
     accepted = state.plane_attempts - state.plane_rejected
     return SessionReport(
-        _session_event(kind), state.z, plane, state.generation,
+        _session_event(kind), _march_observed_position(session), plane, state.generation,
         state.attempts, state.rejected,
         state.plane_attempts, state.plane_rejected, state.plane_max,
         accepted == 0 ? 0.0 : state.plane_sum / accepted, state.plane_work,
@@ -473,6 +490,7 @@ end
 function _march_observation!(session, kind, plane, began, previous_work)
     state = session.state
     state.observation_kind, state.observation_plane = kind, plane
+    _march_select_observation!(session, kind, plane)
     _session_observe!(session.services, session, kind, plane)
     barrier = _march_service_barrier!(session, began, previous_work)
     barrier === nothing || return barrier
@@ -597,6 +615,17 @@ function advance!(
         worked = false
         while true
             if state.endpoint_pending
+                # One accepted dense window may cross many requested planes.
+                # Keep its endpoint owed across every acknowledged interior plane,
+                # before periodic endpoint rows, snapshots or a further trial.
+                if _march_pending_dense(session)
+                    return _march_observation!(
+                        session, :plane, state.plane - 1, began, previous_work,
+                    )
+                end
+                _session_endpoint!(session.services, session)
+                barrier = _march_service_barrier!(session, began, previous_work)
+                barrier === nothing || return barrier
                 state.endpoint_pending = false
                 if _session_reached(session, session.schedule.planes[state.plane])
                     plane = state.plane - 1

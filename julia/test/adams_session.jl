@@ -309,10 +309,11 @@ end
         stretch = 1.1, step_planes = 0,
     )
     prepared = adams_session_fixture()
-    @test_throws ArgumentError SP.AdamsSession(
+    admitted = SP.AdamsSession(
         prepared.execution, prepared.field, 0.0, 0.01, interpolated,
         prepared.norm, schedule, prepared.source, prepared.flow,
     )
+    @test admitted.observation !== nothing
 end
 
 @testset "landed Adams owns bounded adaptive and replay histories" begin
