@@ -4,7 +4,9 @@
 
 """Keep Julia's physical scale tied to the scientific launch, not execution choices."""
 
+import gc
 import pickle
+import weakref
 from dataclasses import FrozenInstanceError, replace
 
 import numpy as np
@@ -32,7 +34,7 @@ def test_binary64_scales_need_no_launch_transform(monkeypatch):
 def test_binary32_launch_scale_is_covariant_under_exact_powers(shift):
     problem = replace(cpu_case().problem, precision=SINGLE)
     baseline = lower_arithmetic(problem)
-    field = problem.initial.field0
+    field = np.asarray(problem.initial.field0, dtype=np.complex128)
     changed = np.ldexp(field.real, shift) + 1j * np.ldexp(field.imag, shift)
     scaled = replace(problem, initial=replace(problem.initial, field0=changed))
     result = lower_arithmetic(scaled)
@@ -43,7 +45,8 @@ def test_binary32_launch_scale_is_covariant_under_exact_powers(shift):
     )
     assert pickle.loads(pickle.dumps(result)) == result
     with pytest.raises(FrozenInstanceError):
-        result.state_exponent = 0
+        # Exercise the forbidden mutation without bypassing the frozen setter.
+        result.state_exponent = 0  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def test_zero_launch_retains_unit_scales_and_no_mutable_state():
@@ -58,3 +61,24 @@ def test_zero_launch_retains_unit_scales_and_no_mutable_state():
         "state_exponent",
         "field_exponent",
     }
+
+
+def test_launch_arithmetic_cache_reuses_lowering_without_retaining_the_problem(
+    monkeypatch,
+):
+    cache = weakref.WeakKeyDictionary()
+    monkeypatch.setattr(_precision, "_ARITHMETIC", cache)
+    problem = replace(cpu_case().problem, precision=SINGLE)
+    first = lower_arithmetic(problem)
+    reference = weakref.ref(problem)
+
+    def forbidden(*_):
+        pytest.fail("an immutable problem's launch must be lowered only once")
+
+    monkeypatch.setattr(_precision, "launch_peak", forbidden)
+    assert lower_arithmetic(problem) is first
+    assert len(cache) == 1
+    del problem
+    gc.collect()
+    assert reference() is None
+    assert not cache

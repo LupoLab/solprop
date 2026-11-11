@@ -9,6 +9,35 @@ function precision_export_allocated(output, session, generation, weights)
     return @allocated SJ.export_session!(output, session, generation, weights, true, true)
 end
 
+@testset "Physical power conversion refuses atomically after finite restoration" begin
+    for T in (Float32, Float64), low in (false, true), optics in (false, true)
+        arithmetic = SJ.SourceArithmetic(T; state_exponent = T === Float32 ? 1023 : 0)
+        raw = T === Float32 ? ComplexF32(1.5, 0.5) :
+            ComplexF64(ldexp(1.5, 1023), ldexp(0.5, 1023))
+        session, _ = session_precision_fixture(;
+            low, arithmetic, initial = fill(raw, 4, 2),
+        )
+        report = SJ.advance!(session; work_limit = 1, deadline = 0.0)
+        initial = copy(session.field)
+        output = fill(7.0 + 8.0im, 4, 2)
+        before = copy(output)
+        @test all(isfinite, SJ._physical_state_value.(initial, Ref(arithmetic)))
+        @test_throws "physical field export exceeds binary64 range" SJ.export_session!(
+            output, session, report.generation, fill(4.0, 4, 2), true, optics,
+        )
+        @test isequal(output, before)
+        @test isequal(session.field, initial)
+        @test session.state.pending && session.state.generation == report.generation
+        SJ.export_session!(
+            output, session, report.generation, ones(4, 2), true, optics,
+        )
+        @test all(isfinite, output)
+        @test session.state.pending
+        SJ.acknowledge!(session, report.generation)
+        SJ.close_session!(session)
+    end
+end
+
 function physical_probe_cycle!(probe, output)
     SJ.trial_probe!(probe)
     SJ.copy_trial_probe_field!(output, probe; physical = true)

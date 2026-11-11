@@ -70,3 +70,19 @@ import SolpropJulia as SJ
     end
     @test_throws ArgumentError SJ._prepare_scaled_state(execution, zeros(2, 1), wide)
 end
+
+@testset "Launch scaling owns Cartesian-indexed and strided matrix copies" begin
+    execution = SJ.KernelExecution(SJ.KernelAbstractions.CPU(), 1)
+    values = reshape(ComplexF64.(1:24, -24:-1), 4, 6)
+    for input in (PermutedDimsArray(values, (2, 1)), view(values, 1:2:4, 2:2:6))
+        original = copy(input)
+        for T in (Float32, Float64)
+            arithmetic = SJ.SourceArithmetic(T; state_exponent = T === Float32 ? 3 : 0)
+            state = SJ._prepare_scaled_state(execution, input, arithmetic)
+            expected = Complex{T}.(original ./ (T === Float32 ? 8.0 : 1.0))
+            @test isequal(state, expected)
+            @test !Base.mightalias(state, input)
+            @test isequal(input, original)
+        end
+    end
+end

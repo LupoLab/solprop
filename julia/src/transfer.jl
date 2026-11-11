@@ -766,7 +766,9 @@ weight. For `optics=true`, then conjugate and multiply by `(-1)^(omega_index-1)`
 This is the shared destination-export recipe in its specified operation order.
 The complex products retain their explicit zero terms to preserve signed zeros;
 globally unit power weights skip their multiplication as in the shared recipe.
-Generation, shape and alias validation precede writes. The PythonCall extension maps
+Generation, shape, alias and complete-result finite checks precede writes. A physical
+or format-conversion overflow refuses without changing the destination or receipt.
+The PythonCall extension maps
 the validated C-contiguous Python destination onto these frequency-first columns.
 """
 function export_session!(
@@ -782,28 +784,44 @@ function export_session!(
         throw(ArgumentError("an export must not alias session storage"))
     arithmetic = eltype(field) === ComplexF32 ? session.arithmetic :
         SourceArithmetic(Float64)
-    if eltype(field) === ComplexF32
-        all(value -> isfinite(_physical_state_value(value, arithmetic)), field) ||
+    scale = power && !all(isone, power_weight)
+    # Validate the complete specified recipe: a finite restored amplitude can still
+    # overflow when the physical power factor is applied. Re-evaluate on copy rather
+    # than retain another full-sized buffer, preserving retryable destination writes.
+    for column in axes(field, 2), row in axes(field, 1)
+        weight = scale ? power_weight[row, column] : 1.0
+        isfinite(
+            _export_field_value(
+                field[row, column], arithmetic, weight, row,
+                scale, optics
+            )
+        ) ||
             throw(ArgumentError("physical field export exceeds binary64 range"))
     end
-    scale = power && !all(isone, power_weight)
     each!(session.execution, size(field)...) do row, column
-        value = _physical_state_value(field[row, column], arithmetic)
-        re, im = real(value), imag(value)
-        if scale
-            root = sqrt(power_weight[row, column])
-            # The shared NumPy recipe promotes the real root to a complex factor.
-            # Keep its zero terms and operation order, including signed-zero results.
-            re, im = re * root - im * 0.0, re * 0.0 + im * root
-        end
-        if optics
-            conjugate = -im
-            sign = isodd(row) ? 1.0 : -1.0
-            re, im = sign * re - 0.0 * conjugate, sign * conjugate + 0.0 * re
-        end
-        output[row, column] = ComplexF64(re, im)
+        weight = scale ? power_weight[row, column] : 1.0
+        output[row, column] = _export_field_value(
+            field[row, column], arithmetic, weight, row, scale, optics
+        )
     end
     return nothing
+end
+
+@inline function _export_field_value(value, arithmetic, weight, row, scale, optics)
+    physical = _physical_state_value(value, arithmetic)
+    re, im = real(physical), imag(physical)
+    if scale
+        root = sqrt(weight)
+        # The shared NumPy recipe promotes the real root to a complex factor.
+        # Keep its zero terms and operation order, including signed-zero results.
+        re, im = re * root - im * 0.0, re * 0.0 + im * root
+    end
+    if optics
+        conjugate = -im
+        sign = isodd(row) ? 1.0 : -1.0
+        re, im = sign * re - 0.0 * conjugate, sign * conjugate + 0.0 * re
+    end
+    return ComplexF64(re, im)
 end
 
 """

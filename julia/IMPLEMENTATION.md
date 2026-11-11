@@ -8,12 +8,18 @@ The completed implementation is left ready for maintainer review, not auto-merge
 ## Current status
 
 Resumed on 11 November 2026 after the maintainer's brief network pause.
-The latest local checkpoint contains unfinished binary32 physical-export and portable
-history attachment. It passes 80 pure Python tests, 2,535 affected Julia assertions
-and scoped types with no errors or warnings. It still needs binary32 Adams session
-composition, managed history/export tests and independent review. Public binary32
-selection remains closed. All three implementation/review assignments have resumed;
-the existing remote CPU qualification retains its time limits.
+The binary32 physical-export and portable-history attachment now composes with Adams
+sessions. It passes 81 pure Python tests, 3,338 affected Julia assertions and 23 managed
+binary64 history/public-CPU tests. Independent review adds 390 raw-history, 58 actual
+PythonCall mixed-buffer and 135 field-export/probe assertions. Review corrected complete
+physical-format overflow before destination writes (#718). Public binary32 selection
+remains closed pending complete observation composition. Package quality exposed
+abstract-argument inference errors in launch and physical conversion; explicit scalar
+types and Cartesian indexing address them, with twelve additional exact view/ownership
+checks. The final Aqua/JET gate passes all 16 checks, analyzing all 1,858 definitions
+with zero cached. Runic, changed-file spelling and whitespace checks pass.
+Whole-package Python types have zero errors and three existing missing-native-source
+warnings; the changed scope has zero errors or warnings.
 
 The binary64 CPU source/session/services path is integrated. Device-selection and
 execution-option transport are reviewed; actual device execution remains refused.
@@ -50,8 +56,9 @@ analytic-Kerr fixture; neither completed its gate. The documentation formatting 
 is fixed locally. Corrected fixtures pass 57 Python tests and 105 Julia assertions,
 including the axis-observation record added after the pushed revision. All twelve
 CPU benchmark cases completed their first round at one and 64 threads; two further
-rounds remain. No full qualification is claimed from targeted checks. No cloud
-resources have been rented; campaign spend remains zero.
+rounds remain. GPU-free CUDA artifact preparation is running in a separate CPU
+allocation with an isolated depot. No full qualification is claimed from targeted
+checks. No cloud resources have been rented; campaign spend remains zero.
 
 Observation leaf `077211b5` remains unapproved: #715 tracks foreign
 monitor-scratch aliases, #716 lost dominant products under separate normalization,
@@ -59,7 +66,11 @@ and #717 physical identity classification. The observation agent owns correction
 none is integrated as qualified. Adams session precision is checkpointed separately
 at `ad893886`: 6,177 affected assertions and package Aqua/JET pass, with a private
 concrete-analysis harness correction, one-thread repeat and independent review pending.
-The numerical author has resumed these checks. The observation correction retains a
+Adams session precision is independently approved and integrated at `f1e71a80`.
+The master passed 645 bounds-enabled assertions, including 288 additional precision,
+scale, order and bounded-delivery checks against MPFR. Author qualification completes
+the one-thread repeat and 21 concrete-analysis/fixture checks. The observation
+correction retains a
 bounded integer exponent per spatial node, avoiding a new public range refusal while
 preserving weak terms before coordinate/quadrature weighting; its inventory counts
 that storage explicitly. The reviewer is also inspecting the master export/history
@@ -105,10 +116,22 @@ receive disjoint files in separate worktrees after these rules are committed.
 Assignments and ownership handoffs are recorded here before overlapping work begins.
 An independent reviewer reviews each package they did not author before integration.
 
+Current assignments after resumption:
+
+| Owner | Exclusive files and task |
+|---|---|
+| Master | Shared Python/Julia bridge, export/history attachment, module/test inclusion, CI, integration and compute records |
+| Observation agent | Observation/statistics/monitor/power-weight leaves and their tests; correct #715–717, then attach binary32 reconstruction |
+| Wide arithmetic agent | New `_wide.py`, `wide_binding.jl`, focused tests and `DF32_INTEGRATION.md`; bind actual run/history geometry before execution wiring |
+| Dense/review agent | `runge_kutta_observation.jl` and a new spatial dense test; qualify separable spatial operators, then resume independent observation review |
+
 The maintainer explicitly moved remaining runtime investigation off the critical path
 on 2026-11-10. Continue core implementation using the experiment's numerical work,
 retaining the accepted main-thread boundary and visible runtime failures. This changes
 the work order, not the accuracy requirements or a claim of completed qualification.
+
+The following table preserves earlier handoffs; completed assignments no longer confer
+file ownership.
 
 | Assignment | Exclusive files | State |
 |---|---|---|

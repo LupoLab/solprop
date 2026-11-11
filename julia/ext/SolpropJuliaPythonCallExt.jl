@@ -378,6 +378,7 @@ function start_adams(
         stop, plane_index = plane, plane_pending, services,
         source_absent = pyconvert(Bool, transfer.source_absent),
         exports = SolpropJulia._FieldExport(execution, preparation.power_weight; noise),
+        arithmetic = SolpropJulia._prepared_arithmetic(preparation.data),
     )
 end
 
