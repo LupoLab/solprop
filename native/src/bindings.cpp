@@ -3133,8 +3133,10 @@ nb::dict build_record() {
 } // namespace
 
 NB_MODULE(_core, module_) {
-  nb::exception<native::EnvelopeConvergenceError>(module_, "EnvelopeConvergenceError");
-  nb::exception<native::BackendRefusal>(module_, "BackendRefusal");
+  // Each registration makes the Python exception type; the handle need not outlive it.
+  const nb::exception<native::EnvelopeConvergenceError> envelope_convergence_error(
+      module_, "EnvelopeConvergenceError");
+  const nb::exception<native::BackendRefusal> backend_refusal(module_, "BackendRefusal");
   module_.doc() = "Private nanobind seam for solprop-native";
   module_.def("initialize_runtime", &initialize_kokkos, "threads"_a, "kernels"_a = 0,
               "fft"_a = 0, "raman_fft"_a = 0, "raman_tail_fft"_a = 0,
@@ -4284,8 +4286,8 @@ NB_MODULE(_core, module_) {
       .def_prop_ro("closed", &BoundState::closed)
       .def("close", &BoundState::close, nb::call_guard<nb::gil_scoped_release>());
   // solprop SEP 47: the native execution session and its compact event records.
-  nb::exception<native::session::LifecycleError>(module_, "SessionLifecycleError",
-                                                 PyExc_RuntimeError);
+  const nb::exception<native::session::LifecycleError> lifecycle_error(
+      module_, "SessionLifecycleError", PyExc_RuntimeError);
   nb::class_<native::session::Event>(module_, "SessionEvent")
       .def_prop_ro("kind",
                    [](const native::session::Event& event) {
