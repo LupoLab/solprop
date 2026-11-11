@@ -1,0 +1,1 @@
+Translation no longer makes the caller's arrays read-only: an absorber's rate arrays, a memoised ionisation rate table and the arrays passed to the translation layer's tables are now copied before they are frozen, and `save_planes` given to the stepper settings is no longer held by reference (#759).

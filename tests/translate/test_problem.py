@@ -1101,6 +1101,27 @@ def test_the_stepper_group_refuses_planes_that_do_not_increase():
         )
 
 
+def test_the_stepper_group_leaves_the_caller_s_planes_writeable():
+    planes = np.array([0.5, 1.0])
+    settings = StepperSettings(
+        DOPRI5,
+        PIController(rtol=1e-8, atol=1e-14),
+        1e-9,
+        0.1,
+        1e-3,
+        1.1,
+        None,
+        planes,
+        "tabulate",
+    )
+    held = cast("np.ndarray", settings.save_planes)
+    assert planes.flags.writeable
+    assert not held.flags.writeable
+    # Not a view either: writing the caller's array later leaves the settings alone.
+    planes[0] = 0.25
+    assert held[0] == 0.5
+
+
 def _stepper(controller, integrator):
     """Return stepper settings with one controller and one integrator."""
     return StepperSettings(

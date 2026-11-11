@@ -90,6 +90,7 @@ from solprop.translate.chebyshev import (
     DEFAULT_MAX_INTERVALS,
     DEFAULT_TOL,
     PiecewiseChebyshev,
+    _frozen_copy,
     build_from_paths,
 )
 from solprop.translate.envelope_plasma import (
@@ -715,18 +716,20 @@ def dispersive_terms(
         carrier=envelope and first.thg,
         labels=tuple(labels),
         coefficients=tuple(float(one.coefficient) for one in responses),
-        positive=_readonly(sampled[0].positive),
-        filters=_readonly(np.stack([one.filter for one in sampled])),
-        outputs=_readonly(np.stack([cast("np.ndarray", one.output) for one in sampled]))
+        positive=_frozen_copy(sampled[0].positive),
+        filters=_frozen_copy(np.stack([one.filter for one in sampled])),
+        outputs=_frozen_copy(
+            np.stack([cast("np.ndarray", one.output) for one in sampled])
+        )
         if polynomial
         else None,
-        products=_readonly(np.array([one.products for one in sampled], dtype=float))
+        products=_frozen_copy(np.array([one.products for one in sampled], dtype=float))
         if polynomial
         else None,
         densities=tuple(densities),
         regions=None
         if regions is None
-        else _readonly(np.asarray(regions, dtype=np.int32)),
+        else _frozen_copy(np.asarray(regions, dtype=np.int32)),
     )
 
 
@@ -1138,7 +1141,7 @@ class RamanCoefficients:
         TranslationError
             Naming the offending field.
         """
-        rows = _readonly(np.asarray(self.undamped, dtype=np.float64))
+        rows = _frozen_copy(np.asarray(self.undamped, dtype=np.float64))
         object.__setattr__(self, "undamped", rows)
         object.__setattr__(self, "decay_rates", tuple(self.decay_rates))
         if rows.ndim != 2 or rows.shape[0] < 1:
@@ -1156,7 +1159,7 @@ class RamanCoefficients:
             raise TranslationError(msg)
         if not np.all(np.isfinite(rows)):
             raise TranslationError("undamped Raman kernels must be finite")
-        weights = _readonly(np.asarray(self.tensor_weights, dtype=np.float64))
+        weights = _frozen_copy(np.asarray(self.tensor_weights, dtype=np.float64))
         if weights.shape != (rows.shape[0], 2):
             raise TranslationError("tensor_weights must have shape (n_terms, 2)")
         if not np.all(
@@ -1958,10 +1961,7 @@ class CompiledResponses:
         if not self.species_densities:
             object.__setattr__(self, "species_densities", (self.density,))
         if self.prefactor_constant is not None:
-            constant = np.ascontiguousarray(
-                self.prefactor_constant, dtype=np.complex128
-            )
-            constant.setflags(write=False)
+            constant = _frozen_copy(self.prefactor_constant, np.complex128)
             object.__setattr__(self, "prefactor_constant", constant)
             if constant.shape != self.prefactor_value_shape:
                 msg = (
@@ -2474,10 +2474,10 @@ def _prefactor_table(  # noqa: PLR0913 - the build's knobs, as `build_phi` has t
             tol,
         )
     return PiecewiseChebyshev(
-        _readonly(table.coefficients),
-        _readonly(table.breakpoints),
-        _readonly(table.degrees),
-        _readonly(table.hard_kinks),
+        _frozen_copy(table.coefficients),
+        _frozen_copy(table.breakpoints),
+        _frozen_copy(table.degrees),
+        _frozen_copy(table.hard_kinks),
         table.budget_exceeded,
     )
 
@@ -3646,36 +3646,11 @@ def _frozen_table(table: RateTable) -> RateTable:
     solprop.translate.ionisation.RateTable
         The same values, not writeable.
     """
-    if (
-        not table.log_rate.flags.writeable
-        and not table.coefficients.flags.writeable
-        and table.log_rate.flags.c_contiguous
-        and table.coefficients.flags.c_contiguous
-    ):
+    log_rate = _frozen_copy(table.log_rate)
+    coefficients = _frozen_copy(table.coefficients)
+    if log_rate is table.log_rate and coefficients is table.coefficients:
         return table
-    return replace(
-        table,
-        log_rate=_readonly(table.log_rate),
-        coefficients=_readonly(table.coefficients),
-    )
-
-
-def _readonly(values: np.ndarray) -> np.ndarray:
-    """Return a C-contiguous, read-only copy of an array.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array to freeze.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same values, C-contiguous and not writeable.
-    """
-    frozen = np.ascontiguousarray(values)
-    frozen.setflags(write=False)
-    return frozen
+    return replace(table, log_rate=log_rate, coefficients=coefficients)
 
 
 def _response_order(
@@ -3839,7 +3814,7 @@ def raman_coefficients(  # noqa: PLR0913 - the leaf needs the grid, the path and
         dtype=np.float64,
     )
     return RamanCoefficients(
-        _readonly(samples),
+        _frozen_copy(samples),
         tables,
         raman.scale,
         thg=raman.thg,

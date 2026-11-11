@@ -101,7 +101,7 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import DOPRI5, Tableau, continuous_extension
-from solprop.translate.chebyshev import DEFAULT_TOL, PiecewiseChebyshev
+from solprop.translate.chebyshev import DEFAULT_TOL, PiecewiseChebyshev, _frozen_copy
 from solprop.translate.coupled import (
     CF4_GROWTH_LIMIT,
     CoupledFlowTables,
@@ -674,7 +674,7 @@ class StepperSettings:
         TranslationError
             Naming the offending field.
         """
-        planes = _readonly(np.asarray(self.save_planes, dtype=np.float64).reshape(-1))
+        planes = _frozen_copy(np.reshape(self.save_planes, -1), np.float64)
         object.__setattr__(self, "save_planes", planes)
         if planes.size == 0 or not np.all(np.diff(planes) > 0.0):
             msg = f"save_planes must be non-empty and increasing, got {planes}"
@@ -784,24 +784,6 @@ class _RunPolicy(NamedTuple):
 
     stepper: StepperSettings
     stats: StatsSpec
-
-
-def _readonly(values: np.ndarray) -> np.ndarray:
-    """Return a C-contiguous, read-only view or copy of an array.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array to freeze.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same values, C-contiguous and not writeable.
-    """
-    frozen = np.ascontiguousarray(values)
-    frozen.setflags(write=False)
-    return frozen
 
 
 _HELD: weakref.WeakValueDictionary[int, np.ndarray] = weakref.WeakValueDictionary()
@@ -5457,10 +5439,10 @@ def _general_prefactor(
     values = np.zeros((1, 1, n_modes, n_pol, grid.n_omega), dtype=np.complex128)
     values[:, :, :, :, grid.active_mask] = grid.crop_scale
     return PiecewiseChebyshev(
-        _readonly(values),
-        _readonly(np.asarray(linear.z_span, dtype=np.float64)),
-        _readonly(np.zeros(1, dtype=np.intp)),
-        _readonly(np.zeros(0)),
+        _frozen_copy(values),
+        _frozen_copy(np.asarray(linear.z_span, dtype=np.float64)),
+        _frozen_copy(np.zeros(1, dtype=np.intp)),
+        _frozen_copy(np.zeros(0)),
     )
 
 

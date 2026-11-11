@@ -41,7 +41,7 @@ from solprop.grid import TimeGrid
 from solprop.modes.protocol import GEOMETRY_PATH_NAMES, Mode
 from solprop.modes.quadrature import TransverseQuadrature, mode_matrix, taper_scale
 from solprop.nonlinear.normalisation import sqrtw_to_vm
-from solprop.translate.chebyshev import DEFAULT_TOL, PiecewiseChebyshev
+from solprop.translate.chebyshev import DEFAULT_TOL, PiecewiseChebyshev, _frozen_copy
 from solprop.translate.linop import tabulate
 from solprop.translate.modal_tables import ModalTransformTables
 from solprop.translate.spatial import SpatialGeometry
@@ -162,8 +162,7 @@ class Transform:
             Naming the offending field.
         """
         for name in ("synthesis", "projection", "projection_coarse"):
-            values = np.ascontiguousarray(getattr(self, name), dtype=np.float64)
-            values.setflags(write=False)
+            values = _frozen_copy(getattr(self, name), np.float64)
             object.__setattr__(self, name, values)
         if self.node_weights is not None:
             weights = np.array(self.node_weights, dtype=float, copy=True)

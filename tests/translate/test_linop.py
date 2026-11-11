@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import dataclasses
 import itertools
 import logging
 import math
@@ -738,6 +739,23 @@ def test_evaluating_outside_the_table_is_refused(z):
         delta_phi(table, 0.0, z)
     with pytest.raises(TranslationError, match="lies outside the table"):
         unitary_phase(table, z)
+
+
+def test_the_group_leaves_the_caller_s_arrays_writeable():
+    table = constant_phi(np.zeros(4, dtype=complex), 1.0)
+    assert table.phi_coefficients is not None
+    assert table.phi_constant is not None
+    mine = {
+        "phi_breakpoints": np.array(table.phi_breakpoints, dtype=np.float64),
+        "phi_degrees": np.array(table.phi_degrees, dtype=np.intp),
+        "phi_coefficients": np.array(table.phi_coefficients, dtype=np.complex128),
+        "phi_constant": np.array(table.phi_constant, dtype=np.complex128),
+    }
+    held = dataclasses.replace(table, **mine)
+    for name, values in mine.items():
+        assert values.flags.writeable, name
+        assert not getattr(held, name).flags.writeable, name
+        assert not np.shares_memory(getattr(held, name), values), name
 
 
 def test_the_group_refuses_a_breakpoint_count_that_does_not_match():

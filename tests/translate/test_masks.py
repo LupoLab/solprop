@@ -90,6 +90,22 @@ def test_the_arrays_are_frozen(grid):
         assert values.flags.c_contiguous, name
 
 
+def test_freezing_the_group_leaves_the_caller_s_arrays_writeable(grid):
+    # Each is already contiguous and of the field's dtype, the case that once froze the
+    # caller's own array in place.
+    mine = {
+        "omega": grid.omega.copy(),
+        "crop_index": np.array(grid.crop_index, dtype=np.intp),
+        "active_mask": np.array(grid.active_mask, dtype=np.bool_),
+        "omega_window": grid.omega_window.copy(),
+    }
+    masks = masks_with(grid, **mine)
+    for name, values in mine.items():
+        assert values.flags.writeable, name
+        assert not getattr(masks, name).flags.writeable, name
+        assert not np.shares_memory(getattr(masks, name), values), name
+
+
 def test_the_in_band_region_is_inside_the_active_band(grid):
     masks = build_masks(grid)
     assert np.all(masks.active_mask[masks.inband_mask])
@@ -111,6 +127,10 @@ def test_the_temporal_rates_are_the_boundary_module_s_own(grid):
     assert coarse.shape == (grid.n_t,)
     assert fine.shape == (grid.n_to,)
     assert not coarse.flags.writeable
+    assert not fine.flags.writeable
+    # Frozen copies: the absorber's own arrays are left as they were.
+    assert collar.temporal_rate.flags.writeable
+    assert collar.temporal_rate_fine.flags.writeable
 
 
 def test_no_absorber_means_no_rates():

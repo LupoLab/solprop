@@ -66,6 +66,7 @@ from solprop.translate.chebyshev import (
     INITIAL_DEGREE,
     SAMPLING_NOISE_FACTOR,
     PiecewiseChebyshev,
+    _frozen_copy,
     build,
     interleave_axis,
     lobatto_points,
@@ -200,12 +201,8 @@ class ParameterExpansion:
             Naming the offending field.
         """
         for name, dtype in (("ranges", np.float64), ("degrees", np.intp)):
-            values = np.ascontiguousarray(getattr(self, name), dtype=dtype)
-            values.setflags(write=False)
-            object.__setattr__(self, name, values)
-        terms = np.ascontiguousarray(self.terms)
-        terms.setflags(write=False)
-        object.__setattr__(self, "terms", terms)
+            object.__setattr__(self, name, _frozen_copy(getattr(self, name), dtype))
+        object.__setattr__(self, "terms", _frozen_copy(self.terms))
         n_params = len(self.parameters)
         if self.ranges.shape != (n_params, 2) or self.degrees.size != n_params:
             msg = (
@@ -222,7 +219,7 @@ class ParameterExpansion:
             raise TranslationError(msg)
         expected = int(np.prod(self.degrees + 1))
         if self.endpoint_degrees is not None:
-            endpoint = _readonly(np.asarray(self.endpoint_degrees, dtype=np.intp))
+            endpoint = _frozen_copy(self.endpoint_degrees, np.intp)
             object.__setattr__(self, "endpoint_degrees", endpoint)
             if endpoint.shape != self.degrees.shape or np.any(endpoint < 0):
                 msg = (
@@ -536,10 +533,10 @@ def _joined_weights(
     )
     return replace(
         table,
-        coefficients=_readonly(table.coefficients),
-        breakpoints=_readonly(table.breakpoints),
-        degrees=_readonly(table.degrees),
-        hard_kinks=_readonly(np.union1d(integral.hard_kinks, endpoint.hard_kinks)),
+        coefficients=_frozen_copy(table.coefficients),
+        breakpoints=_frozen_copy(table.breakpoints),
+        degrees=_frozen_copy(table.degrees),
+        hard_kinks=_frozen_copy(np.union1d(integral.hard_kinks, endpoint.hard_kinks)),
     )
 
 
@@ -1091,10 +1088,10 @@ def _weight_tables(  # noqa: PLR0913 - one call site; every argument is a distin
     if integrate:
         table = table.integral()
     return PiecewiseChebyshev(
-        _readonly(table.coefficients),
-        _readonly(table.breakpoints),
-        _readonly(table.degrees),
-        _readonly(table.hard_kinks),
+        _frozen_copy(table.coefficients),
+        _frozen_copy(table.breakpoints),
+        _frozen_copy(table.degrees),
+        _frozen_copy(table.hard_kinks),
         table.budget_exceeded,
     )
 
@@ -1170,24 +1167,6 @@ def _mapped(
         )
         raise TranslationError(msg)
     return np.clip(mapped, -1.0, 1.0)
-
-
-def _readonly(values: np.ndarray) -> np.ndarray:
-    """Return a C-contiguous, read-only copy of an array.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array to freeze.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same values, C-contiguous and not writeable.
-    """
-    frozen = np.ascontiguousarray(values)
-    frozen.setflags(write=False)
-    return frozen
 
 
 def _log_expansion(expansion: ParameterExpansion) -> None:

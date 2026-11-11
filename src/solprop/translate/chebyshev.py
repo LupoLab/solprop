@@ -27,6 +27,7 @@ from typing import Final
 import numpy as np
 from jaxtyping import Float, Inexact, Int
 from numpy.polynomial import chebyshev as chebyshev_basis
+from numpy.typing import ArrayLike
 
 from solprop._helpers import PLAIN, Helpers
 from solprop.exceptions import TranslationError
@@ -2015,3 +2016,83 @@ def trim_axis(
     (1, 1)
     """
     return np.moveaxis(_trim(np.moveaxis(coefficients, axis, 0)), 0, axis)
+
+
+def _frozen_copy(
+    values: ArrayLike, dtype: np.dtype | type[np.generic] | None = None
+) -> np.ndarray:
+    """Return the values read-only and C-contiguous, sharing no writeable memory.
+
+    Every array that crosses the seam is read-only, and the translation layer freezes
+    its tables with this one helper. It copies, so that freezing never reaches an
+    array the caller still holds: ``numpy.ascontiguousarray`` returns its argument
+    itself when that is already contiguous and of the dtype asked for, so clearing
+    the write flag on what it returns would freeze the caller's own array. An array
+    that is already read-only, and read-only all the way down to the memory it views,
+    is returned as it stands, so a table frozen once is not copied again each time it
+    is handed on.
+
+    It lives here because this module is the root of the translation layer's imports:
+    every module that freezes a table can import it without a cycle, and the
+    piecewise Chebyshev tables are most of what they freeze.
+
+    Parameters
+    ----------
+    values : array_like
+        The values to freeze, of any shape.
+    dtype : numpy.dtype or type or None, optional
+        The element type of the result; None keeps the input's.
+
+    Returns
+    -------
+    numpy.ndarray
+        The same values and shape, C-contiguous and not writeable: `values` itself when
+        it already is all of that, with `dtype`, and no writeable array lies beneath
+        it; otherwise a new copy.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.translate.chebyshev import _frozen_copy
+    >>> mine = np.arange(3.0)
+    >>> frozen = _frozen_copy(mine)
+    >>> bool(mine.flags.writeable), bool(frozen.flags.writeable)
+    (True, False)
+    >>> _frozen_copy(frozen) is frozen
+    True
+    """
+    if (
+        isinstance(values, np.ndarray)
+        and (dtype is None or values.dtype == dtype)
+        and values.flags.c_contiguous
+        and not _writeable_beneath(values)
+    ):
+        return values
+    frozen = np.array(values, dtype=dtype, order="C", copy=True)
+    frozen.setflags(write=False)
+    return frozen
+
+
+def _writeable_beneath(values: np.ndarray) -> bool:
+    """Return whether an array, or any array whose memory it views, can be written.
+
+    A read-only view of a writeable array still changes when that array is written,
+    so its own flag is not enough. A base that is not an array (a buffer of another
+    kind) is counted as writeable, since its flags cannot be read here.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The array.
+
+    Returns
+    -------
+    bool
+        True when `values` or anything beneath it may be written.
+    """
+    array: object = values
+    while isinstance(array, np.ndarray):
+        if array.flags.writeable:
+            return True
+        array = array.base
+    return array is not None

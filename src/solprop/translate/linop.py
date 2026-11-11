@@ -76,6 +76,7 @@ from solprop.translate.chebyshev import (
     DEFAULT_TOL,
     ENVELOPE_FLOOR,
     PiecewiseChebyshev,
+    _frozen_copy,
     build,
     build_from_paths,
     clenshaw,
@@ -333,23 +334,17 @@ class LinearOperator:
             ("phi_degrees", np.intp),
             ("hard_kinks", np.float64),
         ):
-            values = np.ascontiguousarray(getattr(self, name), dtype=dtype)
-            values.setflags(write=False)
-            object.__setattr__(self, name, values)
+            object.__setattr__(self, name, _frozen_copy(getattr(self, name), dtype))
         for name in ("phi_coefficients", "phi_constant"):
             optional = getattr(self, name)
             if optional is None:
                 continue
-            frozen = np.ascontiguousarray(optional, dtype=np.complex128)
-            frozen.setflags(write=False)
-            object.__setattr__(self, name, frozen)
+            object.__setattr__(self, name, _frozen_copy(optional, np.complex128))
         if self.power_weight_constant is not None:
             object.__setattr__(
                 self,
                 "power_weight_constant",
-                _readonly(
-                    np.ascontiguousarray(self.power_weight_constant, dtype=np.float64)
-                ),
+                _frozen_copy(self.power_weight_constant, np.float64),
             )
         self._check_representation()
         n_intervals = self.phi_degrees.size
@@ -700,30 +695,12 @@ def tabulate(
     )
     table = build(func, z0, z1, tol=tol, mandatory_breakpoints=edges)
     return PiecewiseChebyshev(
-        _readonly(table.coefficients),
-        _readonly(table.breakpoints),
-        _readonly(table.degrees),
-        _readonly(table.hard_kinks),
+        _frozen_copy(table.coefficients),
+        _frozen_copy(table.breakpoints),
+        _frozen_copy(table.degrees),
+        _frozen_copy(table.hard_kinks),
         table.budget_exceeded,
     )
-
-
-def _readonly(values: np.ndarray) -> np.ndarray:
-    """Return a C-contiguous, read-only copy of an array.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array to freeze.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same values, C-contiguous and not writeable.
-    """
-    frozen = np.ascontiguousarray(values)
-    frozen.setflags(write=False)
-    return frozen
 
 
 def profile_table(
@@ -785,7 +762,7 @@ def profile_table(
             row[:] = _zero_edges(row, bool(vacuum[index]), bool(vacuum[index + 1]), tol)
     if np.array_equal(coefficients, table.coefficients):
         return table
-    return replace(table, coefficients=_readonly(coefficients))
+    return replace(table, coefficients=_frozen_copy(coefficients))
 
 
 def _zero_edges(
@@ -1441,10 +1418,10 @@ def with_power_weight(
     if index is not None or all(mode.z_constant for mode in modes):
         constant = sample(0.0)
         table = PiecewiseChebyshev(
-            _readonly(constant[None, None]),
-            _readonly(np.array(linear.z_span)),
-            _readonly(np.array([0], dtype=np.intp)),
-            _readonly(np.array([])),
+            _frozen_copy(constant[None, None]),
+            _frozen_copy(np.array(linear.z_span)),
+            _frozen_copy(np.array([0], dtype=np.intp)),
+            _frozen_copy(np.array([])),
         )
         return replace(
             linear,
@@ -1510,10 +1487,10 @@ def with_power_weight(
     )
     table = replace(
         table,
-        coefficients=_readonly(table.coefficients),
-        breakpoints=_readonly(table.breakpoints),
-        degrees=_readonly(table.degrees),
-        hard_kinks=_readonly(table.hard_kinks),
+        coefficients=_frozen_copy(table.coefficients),
+        breakpoints=_frozen_copy(table.breakpoints),
+        degrees=_frozen_copy(table.degrees),
+        hard_kinks=_frozen_copy(table.hard_kinks),
     )
     return replace(linear, power_weight_representation="table", power_weight=table)
 

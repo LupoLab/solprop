@@ -33,6 +33,7 @@ from solprop.exceptions import TranslationError
 from solprop.grid import TimeGrid
 from solprop.noise import NoiseRealisation
 from solprop.nonlinear.responses import thg_carrier
+from solprop.translate.chebyshev import _frozen_copy
 
 __all__ = [
     "DEFAULT_ABSORBER_SCHEME",
@@ -187,12 +188,9 @@ class Grids:
             ("t_window_fine", np.float64),
             ("t_window_fine_derivative", np.float64),
         ):
-            values = np.ascontiguousarray(getattr(self, name), dtype=dtype)
-            values.setflags(write=False)
-            object.__setattr__(self, name, values)
+            object.__setattr__(self, name, _frozen_copy(getattr(self, name), dtype))
         if self.carrier_2w0 is not None:
-            carrier = np.ascontiguousarray(self.carrier_2w0, dtype=np.complex128)
-            carrier.setflags(write=False)
+            carrier = _frozen_copy(self.carrier_2w0, np.complex128)
             object.__setattr__(self, "carrier_2w0", carrier)
         n_omega = self.omega.size
         for name in (
@@ -418,10 +416,8 @@ def temporal_rates(
             scheme,
         )
         return None, None
-    coarse = np.ascontiguousarray(absorber.temporal_rate, dtype=np.float64)
-    fine = np.ascontiguousarray(absorber.temporal_rate_fine, dtype=np.float64)
-    coarse.setflags(write=False)
-    fine.setflags(write=False)
+    coarse = _frozen_copy(absorber.temporal_rate, np.float64)
+    fine = _frozen_copy(absorber.temporal_rate_fine, np.float64)
     logger.debug(
         "temporal absorber (%s): peak rate %.6e 1/m over %d coarse and %d fine samples",
         scheme,
