@@ -37,7 +37,7 @@ from solprop.backends.numpy_ref.single import (
     running_integral,
     stable_population,
 )
-from solprop.backends.protocol import Backend, Observation
+from solprop.backends.protocol import Backend, Observation, stepping
 from solprop.backends.registry import (
     available,
     select,
@@ -159,7 +159,7 @@ def loaded(simulation: Simulation, cleanup: ExitStack | None = None) -> Backend:
     backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     if cleanup is not None:
         cleanup.callback(backend.close)
-    backend.set_initial(problem.initial.field0, None)
+    stepping(backend).set_initial(problem.initial.field0, None)
     return backend
 
 
@@ -167,8 +167,8 @@ def finish(simulation: Simulation) -> np.ndarray:
     """Run to the last save plane and return the observed field."""
     backend = loaded(simulation)
     try:
-        backend.propagate_to(float(simulation.settings.save_planes[-1]))
-        field = backend.observe().field
+        stepping(backend).propagate_to(float(simulation.settings.save_planes[-1]))
+        field = stepping(backend).observe().field
         assert field is not None
         return field
     finally:
@@ -336,9 +336,9 @@ def run_to_end(simulation: Simulation, backend: str) -> Observation:
     with ExitStack() as cleanup:
         made = select(backend, problem, run_request, grid=simulation.grid)
         cleanup.callback(made.close)
-        made.set_initial(problem.initial.field0, None)
-        made.propagate_to(float(simulation.settings.save_planes[-1]))
-        return made.observe()
+        stepping(made).set_initial(problem.initial.field0, None)
+        stepping(made).propagate_to(float(simulation.settings.save_planes[-1]))
+        return stepping(made).observe()
 
 
 def test_an_adaptive_trial_that_overflows_binary32_is_rejected_and_shrunk():
@@ -469,8 +469,10 @@ def test_scaling_by_a_power_of_two_is_exact():
                 backend = loaded(simulation, cleanup)
                 if exponent is not None:
                     rescaled(backend, exponent)
-                backend.propagate_to(float(simulation.settings.save_planes[-1]))
-                results.append(backend.observe().field)
+                stepping(backend).propagate_to(
+                    float(simulation.settings.save_planes[-1])
+                )
+                results.append(stepping(backend).observe().field)
         assert np.array_equal(results[0], results[1])
         assert np.array_equal(results[0], results[2])
 
@@ -932,9 +934,9 @@ def test_the_statistics_are_taken_from_the_widened_state():
         single = loaded(capillary("single"), cleanup)
         double = loaded(capillary("double"), cleanup)
         for backend in (single, double):
-            backend.propagate_to(0.001)
+            stepping(backend).propagate_to(0.001)
         spec = StatsSpec(names=("energy", "electron_density"))
-        ours, theirs = single.stats(spec), double.stats(spec)
+        ours, theirs = stepping(single).stats(spec), stepping(double).stats(spec)
     assert set(ours) == set(theirs)
     assert_within(np.asarray(ours["energy"]), np.asarray(theirs["energy"]), 1e-5)
 
@@ -1087,7 +1089,7 @@ def test_low_storage_with_the_split_collar_stays_in_binary32(route, monkeypatch)
     with ExitStack() as cleanup:
         backend = loaded(low_storage_split(route, "single"), cleanup)
         with pytest.raises(BackendError, match="the finished state as complex128"):
-            backend.propagate_to(float(simulation.settings.save_planes[-1]))
+            stepping(backend).propagate_to(float(simulation.settings.save_planes[-1]))
 
 
 def test_a_single_precision_batch_takes_each_member_s_own_trial():
@@ -1210,8 +1212,8 @@ def test_the_envelope_plasma_runs_in_binary32_on_the_oracle():
     with ExitStack() as cleanup:
         single, double = (loaded(build(p), cleanup) for p in ("single", "double"))
         for backend in (single, double):
-            backend.propagate_to(length / 4)
-        fields = [backend.observe().field for backend in (single, double)]
+            stepping(backend).propagate_to(length / 4)
+        fields = [stepping(backend).observe().field for backend in (single, double)]
     assert fields[0] is not None and fields[1] is not None
     assert_within(fields[0], fields[1], 1e-5)
 

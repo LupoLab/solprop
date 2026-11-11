@@ -945,6 +945,8 @@ Withdrawn (development-process record, not a design decision).
   `native` keeps them resident when every bin of the block's sections is on the eigenbasis
   route and the block has at most 16 channels, and otherwise runs them on the host. A
   section edge is not a kink unless declared; a declared kink restarts the history.
+  *Amended 2026-11-10 (SEP 47 phase 4):* `native` keeps them resident at any width and
+  whichever route each bin takes, on a CPU and a device build alike.
 
 ## ADR-045 — `Multistep()` is the default integrator; `RungeKutta()` names the march
 - **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md)); amended by

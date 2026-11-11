@@ -3541,10 +3541,33 @@ def _fluence_rings(
     # one-ulp change in the limiting radius can change every interpolation
     # point through ceil/linspace, amplifying roundoff into sampling error.
     radii = spacing * np.arange(math.floor(limit / spacing) + 1)
+    return _FluenceRings(radii, *_ring_angles(x, y))
+
+
+def _ring_angles(
+    x: Float[np.ndarray, " n_x"], y: Float[np.ndarray, " n_y"]
+) -> tuple[Float[np.ndarray, " n_angles"], Float[np.ndarray, " n_angles"]]:
+    """Return the cosines and sines of the angles every ring of a plane samples.
+
+    An angular spacing no larger than half the finest pixel spacing on the largest
+    circle inside the axes: fixed by the axes alone, whatever the centroid, so a
+    backend that finishes the widths natively forms them once (SEP 47 section 6.4).
+
+    Parameters
+    ----------
+    x, y : numpy.ndarray
+        Uniform increasing physical axes in m, of at least two samples each.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The cosines and the sines, shape ``(n_angles,)``, at least eight of each.
+    """
+    spacing = min(x[1] - x[0], y[1] - y[0]) / 2
     largest_circle = min(x[-1] - x[0], y[-1] - y[0]) / 2
     n_angles = max(8, math.ceil(2 * np.pi * largest_circle / spacing))
     angles = 2 * np.pi * np.arange(n_angles) / n_angles
-    return _FluenceRings(radii, np.cos(angles), np.sin(angles))
+    return np.cos(angles), np.sin(angles)
 
 
 def _ring_fluence_widths(

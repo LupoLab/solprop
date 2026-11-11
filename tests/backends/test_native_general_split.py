@@ -34,6 +34,7 @@ from general_parity import (
     ten_step_bound,
 )
 from modal_provider_cases import general_grid, split_guide
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.backend import _general_maps
 from solprop.boundaries import absorber
@@ -72,14 +73,17 @@ def native_class():
 
 
 def run(backend_class, problem, run_request, grid, length=LENGTH):
-    """Return the final state of the problem's fixed steps on one backend."""
+    """Return the final state of the problem's fixed steps on one backend.
+
+    The backend's own session runs them (SEP 47 phase 5) to the last plane, `length`.
+    """
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(length)
-        return backend.observe().require_field().copy()
+        landed = session_run(backend, problem, run_request)
     finally:
         backend.close()
+    assert landed.observations[-1].z == pytest.approx(length, rel=1e-12)
+    return landed.fields[-1]
 
 
 def departure(got, expected):

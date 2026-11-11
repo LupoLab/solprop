@@ -89,7 +89,6 @@ using ComplexStorage = std::vector<std::complex<double>>;
 using RealStorage = std::vector<double>;
 
 class BoundState;
-class BoundBatch;
 class BoundSession;
 
 template <class Array> Array exact_array(const nb::handle value) {
@@ -103,7 +102,6 @@ struct RuntimeState {
   // The BLAS thread policy the package applied at start-up, if any.
   std::string blas_policy;
   std::vector<BoundState*> states;
-  std::vector<BoundBatch*> batches;
 };
 
 RuntimeState runtime_state;
@@ -834,9 +832,16 @@ native::stage::Tables stage_tables_from(const nb::dict values) {
     tables.plasma_preionisation = stage_table_list(values["plasma_preionisation"]);
     tables.raman_densities = stage_table_list(values["raman_densities"]);
     tables.dispersive_densities = stage_table_list(values["dispersive_densities"]);
-    tables.chord = static_cast<native::stage::Chord>(nb::cast<int>(values["chord"]));
+    const int chord = nb::cast<int>(values["chord"]);
+    if (chord < static_cast<int>(native::stage::Chord::none) ||
+        chord > static_cast<int>(native::stage::Chord::table))
+      throw std::invalid_argument("the stage tables are inconsistent: chord kind " +
+                                  std::to_string(chord) + " is unknown");
+    tables.chord = static_cast<native::stage::Chord>(chord);
     tables.chord_rate = nb::cast<double>(values["chord_rate"]);
     tables.chord_terms = nb::cast<std::vector<double>>(values["chord_terms"]);
+    if (values.contains("chord_table"))
+      tables.chord_table = stage_table_from(values["chord_table"]);
     tables.flow.edges = nb::cast<std::vector<double>>(values["flow_edges"]);
     tables.flow.degrees = nb::cast<std::size_t>(values["flow_degrees"]);
     tables.flow.slack = nb::cast<double>(values["flow_slack"]);
@@ -864,6 +869,8 @@ native::stage::Tables stage_tables_from(const nb::dict values) {
       tables.plasma_densities.size() != tables.plasma_preionisation.size() ||
       (tables.chord == native::stage::Chord::expansion &&
        (!expansion || tables.chord_terms.size() != tables.phi_weights.n_values)) ||
+      (tables.chord == native::stage::Chord::table &&
+       (!tables.chord_table.present() || tables.chord_table.n_values != 1)) ||
       (tables.flow.present() && tables.flow.edges.size() < 2) ||
       (tables.transform.present() && tables.transform.edges.size() < 2))
     throw std::invalid_argument("the stage tables are inconsistent");
@@ -880,37 +887,6 @@ exponential_weights_at(const RealInput nodes, const IndexInput slots,
   return native::stage::weights(nodes.data(), element_count(nodes), slot_values.data(),
                                 slot_values.size(), order, orders.data(), orders.size(),
                                 compensated);
-}
-
-// One Adams trial's coefficient tables (solprop SEP 16 phase 3b): the history rows,
-// newest first, and the weights over them; `rows` is (n_rows, width), at most three.
-native::AdamsWeights adams_weights(const IndexInput slots, const RealInput predictor,
-                                   const RealInput corrector, const RealInput rows,
-                                   const std::size_t order) {
-  native::AdamsWeights weights;
-  const auto slot_values = index_vector(slots);
-  const auto predictor_values = real_vector(predictor);
-  const auto corrector_values = real_vector(corrector);
-  const auto row_values = real_vector(rows);
-  const std::size_t width = corrector_values.size();
-  if (width > native::adams_max_samples || slot_values.size() + 1 < width ||
-      predictor_values.size() != order || order > slot_values.size() ||
-      (width > 0 && row_values.size() % width != 0) ||
-      (width > 0 && row_values.size() / width > 3))
-    throw std::invalid_argument("Adams coefficient tables have inconsistent extents");
-  for (std::size_t t = 0; t < slot_values.size() && t < native::adams_max_samples; ++t)
-    weights.slot[t] = slot_values[t];
-  for (std::size_t t = 0; t < order; ++t)
-    weights.predictor[t] = predictor_values[t];
-  for (std::size_t t = 0; t < width; ++t)
-    weights.corrector[t] = corrector_values[t];
-  weights.order = order;
-  weights.width = width;
-  weights.n_rows = width > 0 ? row_values.size() / width : 0;
-  for (std::size_t row = 0; row < weights.n_rows; ++row)
-    for (std::size_t t = 0; t < width; ++t)
-      weights.rows[row][t] = row_values[row * width + t];
-  return weights;
 }
 
 // One exponential trial's tables (solprop SEP 16 phase 3b): `predictor` is
@@ -1302,6 +1278,9 @@ native::session::MonitorPlan monitor_plan_from(const nb::dict values) {
     if (values.contains("edge") && !values["edge"].is_none())
       plan.edge =
           native::bindings::transverse_config_from(nb::cast<nb::dict>(values["edge"]));
+    if (values.contains("edge_noise") && !values["edge_noise"].is_none())
+      plan.edge_noise = native::bindings::transverse_noise_from(
+          nb::cast<nb::dict>(values["edge_noise"]));
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("a session's boundary monitor has the wrong types");
   } catch (const nb::python_error&) {
@@ -1819,6 +1798,14 @@ public:
     require_open();
     return general_state_->flow_actions_to_host(inverse);
   }
+  std::vector<native::Complex> adams_block_to_host() {
+    require_open();
+    return general_state_->adams_block_to_host();
+  }
+  std::vector<native::Complex> adams_exponent_to_host() {
+    require_open();
+    return general_state_->adams_exponent_to_host();
+  }
   std::vector<double> form_flow_actions(const std::size_t section, const double dz,
                                         const std::vector<double>& fractions) {
     require_open();
@@ -2147,6 +2134,10 @@ public:
     require_built();
     return general_state_->rk_source_evaluations();
   }
+  std::size_t axis_scans() const {
+    require_built();
+    return general_state_->axis_scans();
+  }
   double quadrature_error() const {
     require_open();
     return general_state_->quadrature_error();
@@ -2170,10 +2161,6 @@ public:
   std::size_t response_team_size() const {
     require_built();
     return general_state_->response_team_size();
-  }
-  std::shared_ptr<native::GeneralState> batch_member() {
-    require_open();
-    return general_state_;
   }
   std::size_t columns() const noexcept { return columns_; }
   std::size_t stages() const noexcept { return stages_; }
@@ -2271,6 +2258,16 @@ public:
       throw std::logic_error("native state is not leased by this session");
     return built_state();
   }
+  // A z table's `Phi` at `z` (`_ZTables.values`), for the session that leases the
+  // state, under its lock: the noise phase at a plane, through the one slot cache.
+  std::vector<native::Complex> leased_table_phi(const BoundSession* session,
+                                                const double z) {
+    auto& state = leased_state(session);
+    if (!z_slots_.phi)
+      throw std::logic_error("native state holds no z table of Phi");
+    const std::size_t slot = z_slots_.load(state, {z}).front();
+    return state.table_terms_to_host(native::TableKind::phi, slot);
+  }
   // A session leases the state exclusively: the host's own march and loads refuse.
   void lease(BoundSession* session) {
     require_unleased();
@@ -2335,51 +2332,6 @@ private:
   bool march_compensated_ = false;
   bool march_interpolate_ = false;
   std::optional<native::engines::MarchFault> march_fault_;
-};
-
-class BoundBatch {
-public:
-  explicit BoundBatch(const nb::list& members) : count_(members.size()) {
-    std::vector<std::shared_ptr<native::GeneralState>> held;
-    held.reserve(count_);
-    for (const auto& member : members)
-      held.push_back(nb::cast<BoundState&>(member).batch_member());
-    batch_ = std::make_unique<native::GeneralBatch>(std::move(held));
-    const std::scoped_lock lock(runtime_state.mutex);
-    runtime_state.batches.push_back(this);
-  }
-  ~BoundBatch() {
-    close();
-    const std::scoped_lock lock(runtime_state.mutex);
-    const auto found =
-        std::find(runtime_state.batches.begin(), runtime_state.batches.end(), this);
-    if (found != runtime_state.batches.end())
-      runtime_state.batches.erase(found);
-  }
-  BoundBatch(const BoundBatch&) = delete;
-  BoundBatch& operator=(const BoundBatch&) = delete;
-  std::vector<double> accept(const double dz) {
-    if (!batch_)
-      throw std::logic_error("native batch is closed");
-    return batch_->accept(dz);
-  }
-  std::map<std::string, std::size_t> memory_ledger() const {
-    return batch_ ? batch_->memory_ledger() : std::map<std::string, std::size_t>{};
-  }
-  native::CpuSizing execution_sizing() const {
-    return batch_ ? batch_->execution_sizing() : native::CpuSizing{};
-  }
-  std::size_t count() const noexcept { return count_; }
-  void close() noexcept {
-    if (batch_) {
-      batch_->close();
-      batch_.reset();
-    }
-  }
-
-private:
-  std::size_t count_{};
-  std::unique_ptr<native::GeneralBatch> batch_;
 };
 
 // solprop SEP 47: a native execution session over a leased state. It keeps that state
@@ -2508,6 +2460,22 @@ public:
       return nb::none();
     return watch_record_to(*record);
   }
+  // The resident state's quadrature peak since the last read; takes the lock.
+  double quadrature_peak() {
+    const nb::gil_scoped_release release;
+    return session_->quadrature_peak();
+  }
+  // The split collar's crossing cap the monitor holds, m, or None; takes the lock.
+  nb::object monitor_cap() {
+    std::optional<double> cap;
+    {
+      const nb::gil_scoped_release release;
+      cap = session_->monitor_cap();
+    }
+    if (!cap)
+      return nb::none();
+    return nb::float_(*cap);
+  }
   // solprop SEP 47 section 5.5: the Adams march's state with the orders of its
   // accepted steps from `since` (the call ledger), or None for a Runge-Kutta march;
   // read under the session's lock, between advances.
@@ -2538,7 +2506,7 @@ public:
   // The Adams march's history at the pending batch's committed state, its ticket
   // `(sequence, generation)` (SEP 47 section 5.4): the march's state, the accepted
   // field as the state holds it and each persistent history row, each copied once,
-  // losslessly (`AdamsMarch.snapshot`); None for a Runge-Kutta march or before any
+  // losslessly (`HostAdamsMarch.snapshot`); None for a Runge-Kutta march or before any
   // history.
   nb::object march_snapshot(const std::uint64_t sequence,
                             const std::uint64_t generation) {
@@ -2581,6 +2549,22 @@ public:
                         {extents[index][0], extents[index][1], extents[index][2]});
     return nb::make_tuple(march_state_to(*state), owned_complex(std::move(field), {n}),
                           held);
+  }
+  // A z table's `Phi` at `z`, the noise phase at the pending ticket
+  // `(sequence, generation)`'s plane (`_ZTables.values`); takes the session's lock.
+  ComplexOutput table_phi(const std::uint64_t sequence, const std::uint64_t generation,
+                          const double z) {
+    std::vector<native::Complex> values;
+    {
+      const nb::gil_scoped_release release;
+      session_->read(sequence, generation,
+                     [&](const native::session::Method& /*method*/,
+                         native::session::Resident& /*resident*/) {
+                       values = owner_->leased_table_phi(this, z);
+                     });
+    }
+    const std::size_t columns = owner_->columns();
+    return complex_output(values, {columns, values.size() / columns});
   }
   // Issue a failed terminal batch for a failure outside the session; takes its lock.
   std::optional<BatchRecord> fail_outside() {
@@ -2691,6 +2675,8 @@ public:
       plan->weight_table = table_from<double>(values["weight_table"]);
       plan->on_axis = real_vector(exact_array<RealInput>(values["on_axis"]));
       plan->taper = table_from<double>(values["taper"]);
+      plan->pad_scale = nb::cast<double>(values["pad_scale"]);
+      plan->axis_node = nb::cast<std::int64_t>(values["axis_node"]);
       plan->plasma_density = table_from<double>(values["plasma_density"]);
       plan->plasma_preionisation = table_from<double>(values["plasma_preionisation"]);
       plan->channel_preionisation = tables_from(values["channel_preionisation"]);
@@ -2726,6 +2712,21 @@ public:
       plan->n_absorbed = nb::cast<std::size_t>(values["n_absorbed"]);
       plan->root = table_from<std::complex<double>>(values["root"]);
       plan->spectral_prefactor = nb::cast<double>(values["spectral_prefactor"]);
+      const auto widths = nb::cast<int>(values["widths"]);
+      if (widths < 0 || widths > 4)
+        throw std::invalid_argument("a statistics plan's width rule is 0 to 4");
+      plan->widths = static_cast<statistics::Widths>(widths);
+      plan->width_x = real_vector(exact_array<RealInput>(values["width_x"]));
+      plan->width_y = real_vector(exact_array<RealInput>(values["width_y"]));
+      plan->width_weights =
+          real_vector(exact_array<RealInput>(values["width_weights"]));
+      plan->width_n_x = nb::cast<std::size_t>(values["width_n_x"]);
+      plan->width_n_y = nb::cast<std::size_t>(values["width_n_y"]);
+      plan->width_terms = nb::cast<std::size_t>(values["width_terms"]);
+      plan->ring_cosines = real_vector(exact_array<RealInput>(values["ring_cosines"]));
+      plan->ring_sines = real_vector(exact_array<RealInput>(values["ring_sines"]));
+      plan->e2_fraction = nb::cast<double>(values["e2_fraction"]);
+      plan->zdw = tables_from(values["zdw"]);
     } catch (const nb::cast_error&) {
       throw std::invalid_argument("a statistics plan has the wrong types");
     } catch (const nb::python_error&) {
@@ -2795,8 +2796,6 @@ std::unique_ptr<BoundSession> start_session(BoundState& state, const std::string
 
 void shutdown_kokkos() {
   const std::scoped_lock lock(runtime_state.mutex);
-  for (auto* batch : runtime_state.batches)
-    batch->close();
   for (auto* state : runtime_state.states)
     state->close();
   if (runtime_state.owns_runtime && Kokkos::is_initialized() &&
@@ -3192,9 +3191,50 @@ NB_MODULE(_core, module_) {
                               native::statistics::strict_probe(a, b, c),
                               native::rk::low_storage::strict_probe(a, b, c),
                               native::transverse::strict_probe(a, b, c),
-                              native::dense::strict_probe(a, b, c));
+                              native::dense::strict_probe(a, b, c),
+                              native::statistics::widths::strict_probe(a, b, c));
       },
       "a"_a, "b"_a, "c"_a);
+  // solprop SEP 47: the fluence widths' native finishing on given profiles, for the
+  // tests that hold it to solprop's own (`solprop.spatial.radial_fluence_widths`,
+  // `_line_fluence_widths`).
+  module_.def(
+      "radial_fluence_widths",
+      [](const RealInput radius, const RealInput fluence, const RealInput weights,
+         const double axis_fluence, const double e2_fraction) {
+        if (radius.ndim() != 1 || fluence.ndim() != 1 || weights.ndim() != 1 ||
+            fluence.shape(0) != radius.shape(0) || weights.shape(0) != radius.shape(0))
+          throw std::invalid_argument("a radial profile's samples are one-dimensional "
+                                      "and of one length");
+        const auto widths = native::statistics::widths::radial(
+            radius.data(), fluence.data(), weights.data(), radius.shape(0),
+            axis_fluence, e2_fraction);
+        return nb::make_tuple(widths[0], widths[1], widths[2]);
+      },
+      "radius"_a.noconvert(), "fluence"_a.noconvert(), "weights"_a.noconvert(),
+      "axis_fluence"_a, "e2_fraction"_a);
+  module_.def(
+      "fluence_block_widths",
+      [](const BoundStatisticsPlan& plan, const RealInput block) {
+        if (block.ndim() != 1)
+          throw std::invalid_argument("a fluence block is one-dimensional");
+        const auto widths =
+            native::statistics::widths::of_block(*plan.plan(), real_vector(block));
+        return nb::make_tuple(widths[0], widths[1], widths[2]);
+      },
+      "plan"_a, "block"_a.noconvert());
+  module_.def(
+      "line_fluence_widths",
+      [](const RealInput x, const RealInput samples, const double e2_fraction) {
+        if (x.ndim() != 1 || samples.ndim() != 1 || samples.shape(0) != x.shape(0) ||
+            x.shape(0) < 2)
+          throw std::invalid_argument("a line's samples are one-dimensional and of "
+                                      "one length, at least two");
+        const auto widths = native::statistics::widths::line(
+            real_vector(x), real_vector(samples), e2_fraction);
+        return nb::make_tuple(widths[0], widths[1], widths[2]);
+      },
+      "x"_a.noconvert(), "samples"_a.noconvert(), "e2_fraction"_a);
   module_.def(
       "watch_due",
       [](const nb::dict policy, const nb::dict state, const double z) {
@@ -3384,44 +3424,6 @@ NB_MODULE(_core, module_) {
           "preionisation"_a.noconvert(), "raman_rates"_a.noconvert(),
           "material"_a = nb::none(), "prepare_only"_a = false)
       .def(
-          "adams_source",
-          [](BoundState& self, const ComplexInput input, const RealInput phi_delta,
-             const RealInput phi_at, const RealInput prefactor, const RealInput density,
-             const RealInput taper, const RealInput preionisation,
-             const RealInput raman_rates, const nb::dict material) {
-            // solprop's Adams source (SEP 14 phase 2): the trial's scalar layout, every
-            // stage's row the evaluation position's, of which stage zero is read.
-            auto scalars = trial_from(phi_delta, phi_at, prefactor, density, taper,
-                                      preionisation, raman_rates);
-            scalars.kerr_density =
-                real_vector(exact_array<RealInput>(material["kerr_density"]));
-            scalars.plasma_densities =
-                real_vector(exact_array<RealInput>(material["plasma_densities"]));
-            scalars.plasma_preionisation =
-                real_vector(exact_array<RealInput>(material["plasma_preionisation"]));
-            scalars.raman_densities =
-                real_vector(exact_array<RealInput>(material["raman_densities"]));
-            // A moving guide's maps are combined at the evaluation position, as a
-            // trial's stages are.
-            if (material.contains("transform_weights"))
-              scalars.transform_weights =
-                  real_vector(exact_array<RealInput>(material["transform_weights"]));
-            if (material.contains("dispersive_densities"))
-              scalars.dispersive_densities =
-                  real_vector(exact_array<RealInput>(material["dispersive_densities"]));
-            const auto held = complex_vector(input);
-            std::vector<native::Complex> values;
-            {
-              const nb::gil_scoped_release release;
-              values = self.adams_source(held, scalars);
-            }
-            return complex_output(values,
-                                  {self.columns(), values.size() / self.columns()});
-          },
-          "input"_a.noconvert(), "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(),
-          "prefactor"_a.noconvert(), "density"_a.noconvert(), "taper"_a.noconvert(),
-          "preionisation"_a.noconvert(), "raman_rates"_a.noconvert(), "material"_a)
-      .def(
           "adopt",
           [](BoundState& self, const ComplexInput field, const double dz) {
             const auto held = complex_vector(field);
@@ -3484,11 +3486,6 @@ NB_MODULE(_core, module_) {
           "slot"_a, "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(),
           "prefactor"_a.noconvert(), "density"_a.noconvert(), "taper"_a.noconvert(),
           "preionisation"_a.noconvert(), "raman_rates"_a.noconvert(), "material"_a)
-      .def("adams_magnitude",
-           [](BoundState& self) {
-             const nb::gil_scoped_release release;
-             return self.open_state().adams_magnitude();
-           })
       .def(
           "adams_scale",
           [](BoundState& self, const double rtol, const double atol,
@@ -3498,32 +3495,6 @@ NB_MODULE(_core, module_) {
             self.open_state().adams_scale(rtol, atol, values);
           },
           "rtol"_a, "atol"_a, "weights"_a.noconvert())
-      .def(
-          "adams_fused_trial",
-          [](BoundState& self, const double dz, const IndexInput slots,
-             const RealInput predictor, const RealInput corrector, const RealInput rows,
-             const RealInput divisor, const RealInput phi_delta, const RealInput phi_at,
-             const RealInput prefactor, const RealInput density, const RealInput taper,
-             const RealInput preionisation, const RealInput raman_rates,
-             const nb::dict material) {
-            const auto weights =
-                adams_weights(slots, predictor, corrector, rows, predictor.size());
-            const auto scale = real_vector(divisor);
-            const auto scalars =
-                adams_scalars(phi_delta, phi_at, prefactor, density, taper,
-                              preionisation, raman_rates, material);
-            std::vector<double> norms;
-            {
-              const nb::gil_scoped_release release;
-              norms = self.open_state().adams_fused_trial(dz, weights, scale, scalars);
-            }
-            return real_output(std::move(norms), 1);
-          },
-          "dz"_a, "slots"_a.noconvert(), "predictor"_a.noconvert(),
-          "corrector"_a.noconvert(), "rows"_a.noconvert(), "divisor"_a.noconvert(),
-          "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(), "prefactor"_a.noconvert(),
-          "density"_a.noconvert(), "taper"_a.noconvert(), "preionisation"_a.noconvert(),
-          "raman_rates"_a.noconvert(), "material"_a)
       .def(
           "adams_fused_accept",
           [](BoundState& self, const double dz, const IndexInput keep,
@@ -3651,11 +3622,10 @@ NB_MODULE(_core, module_) {
           "weights"_a.noconvert())
       .def(
           "adams_observe",
-          [](BoundState& self, const RealInput weights, const bool hermite,
-             const RealInput phi_delta, const RealInput phi_at,
-             const RealInput prefactor, const RealInput density, const RealInput taper,
-             const RealInput preionisation, const RealInput raman_rates,
-             const nb::dict material) {
+          [](BoundState& self, const RealInput weights, const RealInput phi_delta,
+             const RealInput phi_at, const RealInput prefactor, const RealInput density,
+             const RealInput taper, const RealInput preionisation,
+             const RealInput raman_rates, const nb::dict material) {
             native::AdamsWeights table;
             const auto values = real_vector(weights);
             if (values.size() > native::adams_max_samples)
@@ -3668,12 +3638,11 @@ NB_MODULE(_core, module_) {
                 adams_scalars(phi_delta, phi_at, prefactor, density, taper,
                               preionisation, raman_rates, material);
             const nb::gil_scoped_release release;
-            self.open_state().adams_observe(table, hermite, scalars);
+            self.open_state().adams_observe(table, scalars);
           },
-          "weights"_a.noconvert(), "hermite"_a, "phi_delta"_a.noconvert(),
-          "phi_at"_a.noconvert(), "prefactor"_a.noconvert(), "density"_a.noconvert(),
-          "taper"_a.noconvert(), "preionisation"_a.noconvert(),
-          "raman_rates"_a.noconvert(), "material"_a)
+          "weights"_a.noconvert(), "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(),
+          "prefactor"_a.noconvert(), "density"_a.noconvert(), "taper"_a.noconvert(),
+          "preionisation"_a.noconvert(), "raman_rates"_a.noconvert(), "material"_a)
       .def(
           "adams_exponential_trial",
           [](BoundState& self, const double dz, const IndexInput slots,
@@ -3816,11 +3785,10 @@ NB_MODULE(_core, module_) {
           [](BoundState& self, const double z, const double dz, const RealInput nodes,
              const IndexInput slots, const std::size_t order,
              const std::vector<std::size_t>& orders, const bool compensated,
-             const RealInput divisor, const RealInput carrier) {
+             const RealInput carrier) {
             auto weights =
                 exponential_weights_at(nodes, slots, order, orders, compensated);
             carrier_frame(weights, carrier, weights.width - 1);
-            const auto scale = real_vector(divisor);
             const double end = z + dz;
             auto trial = self.stage_trial(z, end);
             const auto rate =
@@ -3829,33 +3797,31 @@ NB_MODULE(_core, module_) {
             {
               const nb::gil_scoped_release release;
               norms = self.open_state().adams_exponential_trial(
-                  dz, weights, scale, trial.step, trial.sample, rate);
+                  dz, weights, {}, trial.step, trial.sample, rate);
             }
             return real_output(std::move(norms), 1);
           },
           "z"_a, "dz"_a, "nodes"_a.noconvert(), "slots"_a.noconvert(), "order"_a,
-          "orders"_a, "compensated"_a, "divisor"_a.noconvert(), "carrier"_a.noconvert())
+          "orders"_a, "compensated"_a, "carrier"_a.noconvert())
       .def(
           "adams_fused_trial_at",
           [](BoundState& self, const double z, const double dz, const RealInput nodes,
              const IndexInput slots, const std::size_t order,
-             const std::vector<std::size_t>& orders, const RealInput divisor) {
+             const std::vector<std::size_t>& orders) {
             const auto slot_values = index_vector(slots);
             const auto weights = native::stage::fused_weights(
                 nodes.data(), element_count(nodes), slot_values.data(),
                 slot_values.size(), order, orders.data(), orders.size());
-            const auto scale = real_vector(divisor);
             const auto trial = self.stage_trial(z, z + dz);
             std::vector<double> norms;
             {
               const nb::gil_scoped_release release;
-              norms =
-                  self.open_state().adams_fused_trial(dz, weights, scale, trial.step);
+              norms = self.open_state().adams_fused_trial(dz, weights, {}, trial.step);
             }
             return real_output(std::move(norms), 1);
           },
           "z"_a, "dz"_a, "nodes"_a.noconvert(), "slots"_a.noconvert(), "order"_a,
-          "orders"_a, "divisor"_a.noconvert())
+          "orders"_a)
       .def(
           "adams_stage_scalars",
           [](BoundState& self, const double z0, const double z1) {
@@ -3951,6 +3917,26 @@ NB_MODULE(_core, module_) {
             return real_output(std::move(measured), 1);
           },
           "section"_a, "dz"_a, "fractions"_a.noconvert())
+      // solprop SEP 47 phase 4: the last exponential Adams trial's coupled block and
+      // exponent, observations for tests.
+      .def("adams_block_to_host",
+           [](BoundState& self) {
+             std::vector<native::Complex> values;
+             {
+               const nb::gil_scoped_release release;
+               values = self.adams_block_to_host();
+             }
+             return complex_output(values, {values.size()});
+           })
+      .def("adams_exponent_to_host",
+           [](BoundState& self) {
+             std::vector<native::Complex> values;
+             {
+               const nb::gil_scoped_release release;
+               values = self.adams_exponent_to_host();
+             }
+             return complex_output(values, {values.size()});
+           })
       .def(
           "flow_actions_to_host",
           [](BoundState& self, const bool inverse) {
@@ -4279,6 +4265,7 @@ NB_MODULE(_core, module_) {
       .def_prop_ro("fsal_ready", [](BoundState& self) { return self.fsal_ready(); })
       .def_prop_ro("rk_source_evaluations",
                    [](BoundState& self) { return self.rk_source_evaluations(); })
+      .def_prop_ro("axis_scans", [](BoundState& self) { return self.axis_scans(); })
       .def_prop_ro("quadrature_error",
                    [](BoundState& self) { return self.quadrature_error(); })
       .def("quadrature_peak", [](BoundState& self) { return self.quadrature_peak(); })
@@ -4408,12 +4395,15 @@ NB_MODULE(_core, module_) {
       .def("status", &BoundSession::status)
       .def_prop_ro("elements", &BoundSession::elements)
       .def("monitor_record", &BoundSession::monitor_record)
+      .def("monitor_cap", &BoundSession::monitor_cap)
+      .def("quadrature_peak", &BoundSession::quadrature_peak)
       .def("continue_monitor", &BoundSession::continue_monitor, "record"_a, "plane"_a,
            "unwatched"_a, "edge_record"_a)
       .def("edge_record", &BoundSession::edge_record)
       .def("march_state", &BoundSession::march_state, "since"_a)
       .def("march_snapshot", &BoundSession::march_snapshot, "sequence"_a,
            "generation"_a)
+      .def("table_phi", &BoundSession::table_phi, "sequence"_a, "generation"_a, "z"_a)
       .def("fail_outside", &BoundSession::fail_outside)
       .def("close", &BoundSession::close, nb::call_guard<nb::gil_scoped_release>());
   // solprop SEP 47 section 6.4: the owning boundary monitor alone, for solprop's tests
@@ -4485,28 +4475,6 @@ NB_MODULE(_core, module_) {
       .def_prop_ro("step_cap", &native::watch::Monitor::cap)
       .def_prop_ro("rests", &native::watch::Monitor::rests)
       .def("steps_to_check", &native::watch::Monitor::steps_to_check);
-  nb::class_<BoundBatch>(module_, "BatchState")
-      .def(nb::init<const nb::list&>())
-      .def(
-          "accept",
-          [](BoundBatch& self, const double dz) {
-            std::vector<double> partials;
-            {
-              const nb::gil_scoped_release release;
-              partials = self.accept(dz);
-            }
-            return real_output(std::move(partials), 3 * self.count());
-          },
-          "dz"_a)
-      .def("memory_ledger",
-           [](const BoundBatch& self) {
-             nb::dict result;
-             for (const auto& [name, bytes] : self.memory_ledger())
-               result[name.c_str()] = bytes;
-             return result;
-           })
-      .def_prop_ro("execution_sizing", &BoundBatch::execution_sizing)
-      .def("close", &BoundBatch::close);
   if (Py_AtExit(&shutdown_after_interpreter) != 0)
     throw std::runtime_error(
         "cannot register the Kokkos runtime's shutdown at interpreter exit");

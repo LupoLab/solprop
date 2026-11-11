@@ -11,6 +11,7 @@ tests so that a probe does not import a pytest module with its fixtures.
 """
 
 import dataclasses
+import itertools
 import warnings
 from typing import Any, cast
 
@@ -21,6 +22,10 @@ from backends.dispersive_cases import capillary as dispersive_capillary
 from backends.matched import fixed_order
 from backends.planar_cases import planar_case
 from capability_routes import ROUTES
+from sessions.runs import bare, load_native, native_trial, run
+from solprop.backends.events import ObservationReady
+from solprop.backends.multistep import CallLedger
+from solprop.backends.session import Start
 from solprop.boundaries import absorber
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
@@ -94,34 +99,35 @@ def adams_matched(option: str):
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        backend.set_initial(problem.initial.field0, None)
-        for plane in run_request.stepper.save_planes:
-            backend.propagate_to(float(plane))
-        observed = backend.observe()
-        return {"field": observed.require_field().copy()}, _sizing(backend)
+        # No statistics, as the direct march evaluated none (SEP 47 phase 5).
+        result = run(backend, problem, bare(run_request))
+        return {"field": result.fields[-1]}, _sizing(backend)
     finally:
         backend.close()
 
 
 def adams_route(option: str):
-    """March a route of ``capability_routes`` adaptively, ``<route>|<formulation>``."""
+    """March a route of ``capability_routes`` adaptively, ``<route>|<formulation>``.
+
+    The native session's Adams march is the resident one: its calls are the session's
+    ledger, and its steps every attempt the run made.
+    """
     route, formulation = option.split("|")
     simulation, problem, run_request = route_adams_problem(route, formulation)
     backend = _native()(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
+    record: dict[str, object] = {}
     try:
-        march = backend._adams
-        assert march is not None
-        assert type(march._engine).__name__ == "_ResidentAdams"
-        backend.set_initial(problem.initial.field0, None)
-        for plane in run_request.stepper.save_planes:
-            backend.propagate_to(float(plane))
-        observed = backend.observe()
+        # No statistics, as the direct march evaluated none (SEP 47 phase 5).
+        result = run(backend, problem, bare(run_request), record=record)
+        calls = CallLedger.from_record(
+            cast("dict[str, object]", record["response_calls"])
+        )
         return {
-            "field": observed.require_field().copy(),
-            "calls": np.array(march.ledger.total),
-            "dz": np.asarray(observed.step_history.dz).copy(),
+            "field": result.fields[-1],
+            "calls": np.array(calls.total),
+            "dz": np.asarray(result.joined[0].dz).copy(),
         }, _sizing(backend)
     finally:
         backend.close()
@@ -173,13 +179,14 @@ def capillary():
     problem, run_request = replayed_capillary(CAPILLARY_ROW_NAMES)
     backend = _native()(problem, run_request, grid=field_grid())
     try:
-        backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(0.1)
-        observed = backend.observe()
-        rows = observed.step_stats
+        # The launch and the first plane: the session closes there.
+        result = run(backend, problem, observations=2)
+        observed, attempts, rows = result.assembled()[1]
+        assert isinstance(observed, ObservationReady)
+        assert observed.z == 0.1
         arrays = {
-            "field": observed.require_field().copy(),
-            "steps": np.array(summary.n_steps),
+            "field": result.fields[1],
+            "steps": np.array(attempts.n_steps),
             "z": np.asarray(rows.z).copy(),
             "step": np.asarray(rows.step).copy(),
         }
@@ -207,11 +214,15 @@ def dispersive(option: str):
     assert problem.transform.n_nodes == 33
     fields = []
     for _ in range(2):
-        backend = _native()(problem, run_request, grid=simulation.grid)
+        backend = _native()(
+            problem,
+            run_request,
+            grid=simulation.grid,
+            modes=simulation.modes,
+            profiles=simulation.profiles,
+        )
         try:
-            backend.set_initial(problem.initial.field0, None)
-            backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-            fields.append(backend.observe().require_field().copy())
+            fields.append(run(backend, problem).fields[-1])
             sizing = _sizing(backend)
         finally:
             backend.close()
@@ -237,9 +248,7 @@ def planar(march: str):
     for _ in range(2):
         backend = _native()(problem, run_request, grid=grid)
         try:
-            backend.set_initial(problem.initial.field0, None)
-            backend.propagate_to(grid.length)
-            fields.append(backend.observe().require_field().copy())
+            fields.append(run(backend, problem).fields[-1])
             sizing = _sizing(backend)
         finally:
             backend.close()
@@ -298,9 +307,8 @@ def noisy(march: str):
         problem, run_request, grid, noise = noisy_problem(march, draw=draw)
         backend = _native()(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
         try:
-            backend.set_initial(problem.initial.field0, noise)
-            backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-            fields[name] = backend.observe().require_field().copy()
+            start = Start.entrance(problem, noise=noise)
+            fields[name] = run(backend, problem, start=start).fields[-1]
             if draw:
                 sizing = _sizing(backend)
         finally:
@@ -352,9 +360,9 @@ def wide_transverse(march: str = "march"):
     problem, run_request, grid = wide_transverse_problem(march)
     backend = _native()(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-        return {"field": backend.observe().require_field().copy()}, _sizing(backend)
+        # No statistics, as the direct march evaluated none (SEP 47 phase 5).
+        result = run(backend, problem, bare(run_request))
+        return {"field": result.fields[-1]}, _sizing(backend)
     finally:
         backend.close()
 
@@ -392,18 +400,21 @@ def accept_problem():
 
 
 def accept():
-    """One trial's partials beside the states they reduce, the launch and the result."""
+    """One trial's partials beside the states they reduce, the launch and the result.
+
+    The trial is the backend's native state's own, loaded with the launch.
+    """
     simulation, problem, run_request = accept_problem()
     backend = _native()(problem, run_request, grid=simulation.grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        launch = backend._native_state.field_to_host().copy()
-        partials = np.array(backend._prepare_trial(0.0, ACCEPT_STEP), dtype=np.float64)
-        backend._finish(backend._native_state, ACCEPT_STEP)
+        state = load_native(backend, problem.initial.field0)
+        launch = state.field_to_host().copy()
+        partials = native_trial(backend, 0.0, ACCEPT_STEP)
+        state.finish(ACCEPT_STEP)
         return {
             "launch": launch,
             "partials": partials,
-            "advanced": backend._native_state.field_to_host().copy(),
+            "advanced": state.field_to_host().copy(),
             "mask": np.asarray(problem.grids.norm_mask),
         }, _sizing(backend)
     finally:
@@ -430,27 +441,34 @@ def linear_cartesian(mode: str):
 
 
 def folds(mode: str):
-    """March the linear beam, saving every step's squared norm from the engine."""
-    from backends.test_low_storage import CARTESIAN_CHUNK  # noqa: PLC0415
+    """March the linear beam on the resident engine, saving every step's squared norm.
+
+    Each step is the resident low-storage engine's on the backend's native state, as
+    ``test_native_synthetic_operator.py``'s ``resident_step`` takes one, followed by the
+    state's finish, as the march accepts a step. The squared norm over the norm mask is
+    the one the engine's threaded reduction hands the accept, so a width's norms test
+    that reduction's order, and its state the folds.
+    """
+    # Optional wheel: absent from the base environment.
+    from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        _ResidentLowStorage,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    from backends.test_low_storage import CARTESIAN_CHUNK, MARCH  # noqa: PLC0415
 
     problem, run_request, grid = linear_cartesian(mode)
+    edges = np.asarray(run_request.stepper.schedule.edges)  # pyright: ignore[reportOptionalMemberAccess]
     backend = _native()(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
-    norms = []
     try:
-        engine = backend._low_storage._engine  # pyright: ignore[reportOptionalMemberAccess]
-        step = engine.step
-
-        def recorded(z, dz):
-            norms.append(step(z, dz))
-            return norms[-1]
-
-        engine.step = recorded
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-        return {
-            "field": backend.observe().require_field().copy(),
-            "norms": np.array(norms),
-        }, _sizing(backend)
+        state = load_native(backend, problem.initial.field0)
+        engine = _ResidentLowStorage(backend, MARCH)
+        norms = []
+        for z, end in itertools.pairwise(edges):
+            dz = float(end - z)
+            norms.append(engine.step(float(z), dz))
+            state.finish(dz)
+        field = np.asarray(state.field_to_host()).reshape(problem.shape).copy()
+        return {"field": field, "norms": np.array(norms)}, _sizing(backend)
     finally:
         backend.close()
 
@@ -489,12 +507,12 @@ def flow(name: str):
     problem, run_request, grid, dz = linear_flow_problem(name)
     backend = _native()(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        partials = np.array(backend._prepare_trial(0.0, dz), dtype=np.float64)
-        backend._finish(backend._native_state, dz)
+        state = load_native(backend, problem.initial.field0)
+        partials = native_trial(backend, 0.0, dz)
+        state.finish(dz)
         return {
             "partials": partials,
-            "field": backend._native_state.field_to_host().copy(),
+            "field": state.field_to_host().copy(),
         }, _sizing(backend)
     finally:
         backend.close()
@@ -503,20 +521,24 @@ def flow(name: str):
 def flow_kerr(name: str):
     """Ten steps of a ``test_native_coupled_flow.py`` case, with its source."""
     from driver.test_native_coupled_flow import CASES as FLOWS  # noqa: PLC0415
-    from driver.test_native_coupled_flow import propagate  # noqa: PLC0415
 
     case = FLOWS[name]()
-    backend_class = _native()
-    sizing: dict[str, dict[str, int]] = {}
-
-    class Sized(backend_class):
-        """The backend, keeping what it sized for the probe to read after the close."""
-
-        def close(self) -> None:
-            sizing.update(_sizing(self))
-            super().close()
-
-    return {"field": propagate(case, Sized)}, sizing
+    problem = case.problem
+    # The plain backend, kept open past its session so its sizing can be read (the
+    # native session runs NativeBackend itself, never a subclass).
+    backend = _native()(problem, case.run_request, grid=case.grid)
+    try:
+        result = run(
+            backend,
+            problem,
+            bare(case.run_request),
+            Start(field=problem.initial.field0, z=float(problem.initial.z)),
+            owns=False,
+        )
+        sizing = _sizing(backend)
+    finally:
+        backend.close()
+    return {"field": result.fields[-1].copy()}, sizing
 
 
 CASES: dict[str, Any] = {

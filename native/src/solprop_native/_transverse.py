@@ -25,11 +25,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
-from solprop.backends.driver import (
-    _declared_discard,  # pyright: ignore[reportPrivateUsage] - one predicate
-)
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.spatial_absorber import RAMP_K_FLOOR
+from solprop.translate.routes import transverse_of
 from solprop.transverse_monitor import (
     _UNWATCHED_MESSAGE,  # pyright: ignore[reportPrivateUsage] - the edge's texts
     _UNWATCHED_REASON,  # pyright: ignore[reportPrivateUsage]
@@ -66,6 +64,7 @@ __all__ = [
     "edge_config",
     "log_declared",
     "log_finish",
+    "noise_readings",
     "notice_error",
     "notice_warning",
     "record_of",
@@ -175,7 +174,8 @@ def declared(problem: PropagationProblem) -> bool:
     bool
         True when its transverse specification sets ``discard_above``.
     """
-    return _declared_discard(problem)
+    design = transverse_of(problem.route)
+    return design is not None and design.specification.discard_above is not None
 
 
 def edge_config(
@@ -188,7 +188,7 @@ def edge_config(
     edge : solprop.transverse_monitor.TransverseEdge
         The run's fresh edge; it is not changed.
     problem : solprop.translate.problem.PropagationProblem
-        The translated problem: its declared content, as ``StepDriver.attach_monitor``
+        The translated problem: its declared content, as ``HostDriver.attach_monitor``
         hands it to the edge's launch.
     stepper : solprop.translate.problem.StepperSettings
         The run's stepper section: its fixed schedule, if any.
@@ -277,6 +277,56 @@ def config_of(
             "noise_modes": float(modes),
         }
     )
+
+
+def noise_readings(
+    edge: TransverseEdge, noise: np.ndarray, clean: np.ndarray | None
+) -> dict[str, object]:
+    """Return the input noise's readings a native launch carries, formed as solprop's.
+
+    :meth:`~solprop.transverse_monitor.TransverseEdge.launch` reads its input noise on
+    the host with its own reductions: each column's energy, the weighted node energy
+    its allowance takes, the weighted columns' energy in the safety ramp's band and a
+    requested collar's strip. They are formed here from the same draw, the same way,
+    once (``transverse::Noise``), so the native launch judges the same numbers.
+
+    Parameters
+    ----------
+    edge : solprop.transverse_monitor.TransverseEdge
+        The run's fresh edge; it is not changed.
+    noise : numpy.ndarray
+        The input noise's draw, shape ``(n_modes, n_pol, n_omega)``, a host array.
+    clean : numpy.ndarray or None
+        Each column's unweighted launch energy without that noise
+        (``NativeBackend._launch_clean_columns``), or ``None``.
+
+    Returns
+    -------
+    dict
+        The readings, as ``transverse::Noise`` takes them.
+    """
+    reduction = edge.reduction
+    columns = reduction.column_power(noise)
+    weights = edge._weights  # pyright: ignore[reportPrivateUsage]
+    design = edge.design
+    ramp = 0.0
+    if design is not None:
+        power = edge._column_power(columns)  # pyright: ignore[reportPrivateUsage]
+        ramp = float(np.sum(power[design.ramp_rate > 0.0]))
+    strip = np.empty(0, dtype=np.float64)
+    if edge.every_step:
+        strip = np.ascontiguousarray(reduction.strip(noise), dtype=np.float64).reshape(
+            -1
+        )
+    return {
+        "columns": np.ascontiguousarray(columns, dtype=np.float64),
+        "energy": float(np.sum(weights * reduction.node_power(noise))),
+        "ramp": ramp,
+        "strip": strip,
+        "clean": None
+        if clean is None
+        else np.ascontiguousarray(clean, dtype=np.float64),
+    }
 
 
 def resumption(record: object, faces: int) -> dict[str, object]:

@@ -40,6 +40,8 @@ import pytest
 
 from backends.planar_cases import CASES, planar_case
 from bounds import gamma, step_evaluations
+from sessions.executors import committed_steps
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
@@ -111,12 +113,15 @@ def with_steps(run_request, steps, length):
 
 
 def run(backend_class, problem, run_request, grid, length):
-    """Propagate the problem's launch and return the state and the summary."""
+    """Run the problem's launch to `length`, its last plane, in the backend's session.
+
+    Returns the state there and the accepted steps.
+    """
+    assert float(run_request.stepper.save_planes[-1]) == length
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(length)
-        return backend.observe().require_field().copy(), summary
+        landed = session_run(backend, problem, run_request)
+        return landed.fields[-1], committed_steps(landed)
     finally:
         backend.close()
 
@@ -164,7 +169,7 @@ def test_a_step_and_a_run_are_the_reference_s(
     bound = ladder_bound(name, grid, space, problem, run_request, count, length)
     reference, summary = run(NumpyRefBackend, problem, run_request, grid, length)
     actual, ours = run(native.NativeBackend, problem, run_request, grid, length)
-    assert ours.n_steps == summary.n_steps == count
+    assert ours == summary == count
     measured = relative(actual, reference)
     record_property("measured", measured)
     record_property("bound", bound)

@@ -12,6 +12,7 @@ import pytest
 
 from bounds import scan_bound
 from rate_oracles import adk_oracle
+from sessions.runs import run as session_run
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.envelope_plasma import (
@@ -178,11 +179,11 @@ def test_one_eight_steps_and_complete_host_run(
     for cls in (NumpyRefBackend, equivalence_backend_class):
         backend = cls(problem, run_request, grid=grid)
         try:
-            backend.set_initial(problem.initial.field0, None)
-            first = backend.propagate_to(1e-6)
-            one = backend.observe().require_field().copy()
-            final = backend.propagate_to(8e-6)
-            eight = backend.observe().require_field().copy()
+            result = session_run(backend, problem)
+            # The launch and the two save planes, 1 um and 8 um.
+            assert [event.z for event in result.observations] == [0.0, 1e-6, 8e-6]
+            first, final = (event.summary for event in result.observations[1:])
+            one, eight = result.fields[1:]
             assert first.met_tolerance and final.met_tolerance
             assert first.n_steps == 1 and final.n_steps == 7
             assert np.all(np.isfinite(eight))
@@ -362,15 +363,16 @@ def test_paired_backend_executes_envelope_sources(host_case):
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     actual = native.NativeBackend(problem, run_request, grid=grid)
     try:
-        for owner in (reference, actual):
-            owner.set_initial(problem.initial.field0, None)
-            owner.propagate_to(1e-6)
-        target = reference.observe().require_field()
+        # The launch and the first save plane, 1 um: the sessions close there.
+        target, found = (
+            session_run(owner, problem, observations=2).fields[1]
+            for owner in (reference, actual)
+        )
         # One seven-stage step includes temporal FFT and modal projection sums;
         # the independent source witnesses separately bound angular error.
         bound = 128 * grid.n_to * 7 * np.finfo(float).eps
         np.testing.assert_allclose(
-            actual.observe().require_field(),
+            found,
             target,
             rtol=bound,
             atol=bound * np.max(np.abs(target)),

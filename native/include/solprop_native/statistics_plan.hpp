@@ -43,8 +43,9 @@ enum class Route : int { modal = 0, spatial = 1, general = 2 };
 
 /** Each statistic a plan can emit, by its solprop catalogue name, and the per-node
     channel populations (`node_populations`, final fraction and peak rate at each
-    node and channel), which a host axis statistic reuses (SEP 19). The values are the
-    Python adapter's (`solprop_native._statistics.STATISTIC_IDS`). */
+    node and channel), which the transitional session's host axis statistics reuse
+    (SEP 19). The values are the Python adapter's
+    (`solprop_native._statistics.STATISTIC_IDS`). */
 enum class Stat : int {
   omega0 = 0,
   energy = 1,
@@ -80,10 +81,17 @@ enum class Stat : int {
   pressure = 31,
   core_radius = 32,
   node_populations = 33,
+  beam_radius = 34,
+  fwhm_r = 35,
+  zdw = 36,
+  on_axis_electron_density = 37,
+  on_axis_peak_ionisation_rate = 38,
+  on_axis_species_electron_density = 39,
+  on_axis_species_peak_ionisation_rate = 40,
 };
 
 /** The number of `Stat` values. */
-inline constexpr int stat_count = 34;
+inline constexpr int stat_count = 41;
 
 /** A piecewise Chebyshev table of z: on interval `k` of `edges`, `coefficients[(k *
     n_terms + i) * n_values + j]` is value `j`'s coefficient of degree `i`. A position
@@ -116,6 +124,12 @@ enum class Weight : int { none = 0, constant = 1, expansion = 2, table = 3 };
     the effective area at z, or the node weights over the taper's square. */
 enum class Transverse : int { none = 0, spatial = 1, aeff = 2, nodes = 3 };
 
+/** The rule a spatial route's fluence widths (`beam_radius`, `fwhm_r`) take, by its
+    geometry (`solprop.backends.spatial.signed_fluence_widths`,
+    `plane_fluence_widths`): none asked, a radial profile, a planar slab's profile in
+    y integrated over x, a line, or a Cartesian plane's reductions and rings. */
+enum class Widths : int { none = 0, radial = 1, slab = 2, line = 3, plane = 4 };
+
 /** One evaluation's fixed arguments, with its outputs in order. */
 struct Plan {
   Route route = Route::modal;
@@ -141,9 +155,14 @@ struct Plan {
   std::vector<double> weight;
   RealTable weight_table;
   // The on-axis synthesis at the reference position, rows times modes, which the
-  // taper rescales (`StepDriver._on_axis_synthesis`), and the taper's table.
+  // taper rescales (`HostDriver._on_axis_synthesis`), and the taper's table.
   std::vector<double> on_axis;
   RealTable taper;
+  // The on-axis plasma statistics (solprop SEP 19): the pad scale their row carries
+  // (`solprop.backends.populations.axis_row_matrix`), and a Radau rule's node on the
+  // axis, whose populations they read when the node scan runs anyway, or -1.
+  double pad_scale = 1.0;
+  std::int64_t axis_node = -1;
   // A single population's density and preionisation, and every channel's
   // preionisation.
   RealTable plasma_density;
@@ -162,6 +181,10 @@ struct Plan {
       propagation's own where it carries the path, else the profile lowered at
       preparation with its error measured and recorded. */
   std::array<RealTable, 3> profiles;
+  /** Each mode's zero-dispersion wavelength as a table of z, m: the value itself for a
+      z-independent mode, else the root lowered at preparation with its error measured
+      and recorded (`solprop_native._statistics`); NaN where the band holds no zero. */
+  std::vector<RealTable> zdw;
   // A spatial route: whether `on_axis_spectrum` comes from the far-field pass (a
   // Cartesian or line grid), and the far-field tables, `(n_apertures,
   // far_field_aperture_constants + n_omega)`
@@ -179,6 +202,21 @@ struct Plan {
   // prefactor, s^2.
   ComplexTable root;
   double spectral_prefactor = 0.0;
+  // A spatial route's fluence widths: the rule; its axis, the radii, x, or a slab's y;
+  // a plane's y; the transverse weights of a radial or slab profile; a slab's
+  // `(n_x, n_y)`; the fluence's term count, `n_pol n_t + n_modes`, which fixes its
+  // rounding budget; a plane's ring cosines and sines, which its axes alone fix
+  // (`solprop.spatial._fluence_rings`); and `exp(-2)` as the host forms it.
+  Widths widths = Widths::none;
+  std::vector<double> width_x;
+  std::vector<double> width_y;
+  std::vector<double> width_weights;
+  std::size_t width_n_x = 0;
+  std::size_t width_n_y = 0;
+  std::size_t width_terms = 0;
+  std::vector<double> ring_cosines;
+  std::vector<double> ring_sines;
+  double e2_fraction = 0.0;
 
   [[nodiscard]] bool empty() const noexcept { return outputs.empty(); }
   /** Check every extent before anything is evaluated. */
@@ -203,6 +241,47 @@ struct Plan {
 /** `a b + c` as session_statistics.cpp rounds it (solprop #135's witness); never
     inlined, as `session::strict_probe`. */
 [[nodiscard, gnu::noinline]] double strict_probe(double a, double b, double c);
+
+/*
+ * A spatial route's fluence widths, finished natively (session_widths.cpp, strict):
+ * solprop's host finishing of the reductions the native passes leave
+ * (`solprop.backends.spatial.signed_fluence_widths`, `plane_fluence_widths`,
+ * `solprop.spatial.radial_fluence_widths`, `cartesian_fluence_widths`), with each
+ * of NumPy's sums in its pairwise order. Each returns the second-moment, the 1/e^2
+ * and the FWHM widths, m, and throws `std::invalid_argument` with the reference's
+ * message where it refuses.
+ */
+namespace widths {
+
+/** NumPy's pairwise sum of `n` contiguous values (`np.add.reduce`), bit for bit. */
+[[nodiscard]] double pairwise_sum(const double* values, std::size_t n);
+
+/** `solprop.spatial.radial_fluence_widths`: the radii, the fluence and the weights,
+    `n` each, the axis fluence, and `exp(-2)` as the host forms it. */
+[[nodiscard]] std::array<double, 3> radial(const double* radius, const double* fluence,
+                                           const double* weights, std::size_t n,
+                                           double axis_fluence, double e2_fraction);
+
+/** `solprop.spatial._line_fluence_widths`: a validated uniform axis and the fluence
+    divided by its maximum. */
+[[nodiscard]] std::array<double, 3> line(const std::vector<double>& x,
+                                         const std::vector<double>& samples,
+                                         double e2_fraction);
+
+/** The widths of a separable or radial fluence block, `spatial_statistics` flag 16:
+    the signed fluence at each node, the axis fluence and the largest magnitude. */
+[[nodiscard]] std::array<double, 3> of_block(const Plan& plan,
+                                             const std::vector<double>& block);
+
+/** A Cartesian plane's widths from its moments, flag 32, and the trace `state` forms
+    of the scaled fluence those moments left. */
+[[nodiscard]] std::array<double, 3> of_plane(GeneralState& state, const Plan& plan,
+                                             const std::vector<double>& moments);
+
+/** `a b + c` as session_widths.cpp rounds it (solprop #135's witness). */
+[[nodiscard, gnu::noinline]] double strict_probe(double a, double b, double c);
+
+} // namespace widths
 
 } // namespace statistics
 } // namespace solprop_native

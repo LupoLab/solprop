@@ -31,7 +31,7 @@ import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from benchmarks.records import (
     Record,
@@ -59,7 +59,7 @@ __all__ = [
 if TYPE_CHECKING:
     import numpy as np
 
-    from solprop.backends.protocol import Backend
+    from solprop.backends.protocol import Backend, HostStepping
     from solprop.driver import Simulation
     from solprop.monitor import BoundaryMonitor
     from solprop.output.schema import FieldRetention, Output
@@ -200,8 +200,10 @@ class _Loaded:
     resets the backend's counters and masks and uploads the state. The timed window
     and the counted evaluations start where they always did: once the state is
     loaded, before the output opens and the launch plane is saved. Within the block
-    the backend's ``set_initial`` is wrapped to read the clock and the counter as it
-    returns; it is restored on exit.
+    the backend's load is wrapped to read the clock and the counter as it returns; it
+    is restored on exit. The load is the native backend's own ``_load`` where it has
+    one (SEP 47 phase 5), else ``set_initial``, the reference's and an earlier
+    native build's.
 
     Attributes
     ----------
@@ -213,20 +215,28 @@ class _Loaded:
 
     def __init__(self, engine: Backend) -> None:
         self._engine = engine
+        self._name = (
+            "_load"
+            if callable(getattr(type(engine), "_load", None))
+            else ("set_initial")
+        )
         self.ended = 0
         self.calls: int | None = None
 
-    def _load(self, *args: object, **keywords: object) -> None:
-        type(self._engine).set_initial(self._engine, *args, **keywords)  # pyright: ignore[reportArgumentType]
+    def _load(self, *args: object, **keywords: object) -> object:
+        loaded = getattr(type(self._engine), self._name)(
+            self._engine, *args, **keywords
+        )
         self.calls = source_calls(self._engine)
         self.ended = time.perf_counter_ns()
+        return loaded
 
     def __enter__(self) -> _Loaded:
-        self._engine.set_initial = self._load  # type: ignore[method-assign]  # pyright: ignore[reportAttributeAccessIssue]
+        setattr(self._engine, self._name, self._load)
         return self
 
     def __exit__(self, kind: type[BaseException] | None, *rest: object) -> None:
-        del self._engine.set_initial  # pyright: ignore[reportAttributeAccessIssue]
+        delattr(self._engine, self._name)
         if kind is None and not self.ended:
             msg = "the run never loaded its backend, so nothing was timed"
             raise SuiteError(msg)
@@ -288,7 +298,9 @@ def timed_run(  # noqa: PLR0913 - the run and how it is observed
     if Start is None:
         # A build from before SEP 47's sessions: run_problem takes a loaded backend,
         # so the load comes first and the window starts after it, as it did then.
-        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        cast("HostStepping", engine).set_initial(
+            problem.initial.field0, None, z=problem.initial.z
+        )
         before = source_calls(engine)
         loaded_at = time.perf_counter_ns()
         run_problem(problem, engine, handler, **observed)
@@ -528,12 +540,14 @@ def warm_up(engine: Backend, problem: PropagationProblem, until: float) -> None:
     """
     Start = _session_start()  # noqa: N806 - the class, or None before SEP 47
     if Start is None:
-        # Before SEP 47: load, march and observe the backend directly.
-        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        # Before SEP 47: load, march and observe the backend directly, through the
+        # stepping seam every backend had then.
+        stepped = cast("HostStepping", engine)
+        stepped.set_initial(problem.initial.field0, None, z=problem.initial.z)
         if until > problem.initial.z:
-            engine.propagate_to(until)
-        engine.observe(field=True)
-        engine.stats(_before_request(problem).stats_spec)
+            stepped.propagate_to(until)
+        stepped.observe(field=True)
+        stepped.stats(_before_request(problem).stats_spec)
         return
     from solprop.backends.events import ObservationReady  # noqa: PLC0415
     from solprop.backends.export import ExportRecipe  # noqa: PLC0415

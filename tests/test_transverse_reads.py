@@ -29,7 +29,7 @@ import math
 import re
 import warnings
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import pytest
@@ -122,11 +122,13 @@ def packet_run(  # noqa: PLR0913 - the settings these runs vary, each independen
     space: LineGrid | None = None,
     dz_init: float = 1e-4,
     backend: str = "numpy_ref",
+    noise: Literal["input"] | None = None,
 ) -> Simulation:
     """Return `packet` as a free-space run on `space` (its own line by default).
 
     ``rtol = 1e-5``, ``dz_init = 1e-4 L``, ``auto_init`` and ``dz_max = L``: the
-    settings of Part II's table of committed steps. `dz_init` is in units of ``L``.
+    settings of Part II's table of committed steps. `dz_init` is in units of ``L``;
+    `noise` launches the input noise, seeded, beside the packet.
     """
     length = packet.length
     grid = EnvelopeGrid.from_limits(length, WAVELENGTH, (790e-9, 810e-9), packet.window)
@@ -158,7 +160,8 @@ def packet_run(  # noqa: PLR0913 - the settings these runs vary, each independen
         launch,
         settings=settings,
         frame=frame,
-        noise=None,
+        noise=noise,
+        seed=None if noise is None else 5,
     )
 
 
@@ -411,8 +414,8 @@ def _driver_class(backend: str) -> type:
 
 @pytest.mark.parametrize(
     ("backend", "route"),
-    [("numpy_ref", "host"), ("native", "session"), ("native", "bridge")],
-    ids=["numpy_ref", "native", "native-bridge"],
+    [("numpy_ref", "host"), ("native", "session")],
+    ids=["numpy_ref", "native"],
 )
 def test_a_plane_the_step_already_read_reduces_nothing_more(
     backend: str, route: str, monkeypatch: pytest.MonkeyPatch
@@ -420,14 +423,10 @@ def test_a_plane_the_step_already_read_reduces_nothing_more(
     # Every step of this schedule is longer than the spacing, so each reads the edge,
     # and a plane landing on one has nothing to add. Its read used to cross the state,
     # synthesise it and only then find the gap zero: on a device, a whole state's copy
-    # for nothing. The bridge, which still serves what the native session refuses,
-    # reads through the backend's `_edge_reading`; the native session reads its edge
-    # resident (`Session::edge_plane` skips the plane), with no reading through Python.
+    # for nothing. The reference reads through its driver's `_edge_reading`; the
+    # native session reads its edge resident (`Session::edge_plane` skips the plane),
+    # with no reading through Python.
     _require(backend)
-    if route == "bridge":
-        monkeypatch.setattr(
-            "solprop_native.session.session_refusal", lambda *_: "the bridge"
-        )
     packet = REREVIEW
     length = packet.length
     planes = [length / 4, length / 2, length]

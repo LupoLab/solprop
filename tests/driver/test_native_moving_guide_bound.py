@@ -10,8 +10,9 @@ the step-index pair and of the complex basis at the flow's bound, below 1e-9, at
 over 1e-4 m, with ``imag(connection) > 1`` asserted. What survived was the C++ synthetic
 source and a looser ten-step run (1e-9 J over 2e-4 m, ``moving_parity_bound`` with no
 ceiling). The bounds and cases here are the originals', from ``general_parity`` and
-``flow_parity``, fixed before the compiled run. Native's source at a position is read
-through ``_adams_lab_source``, the same stage kernel at that position's weights.
+``flow_parity``, fixed before the compiled run. Native's source at a position is its
+resident Adams engine's first history sample there, the same stage kernel at that
+position's weights; the reference's is its ``_adams_lab_source``.
 """
 
 import dataclasses
@@ -30,12 +31,13 @@ from driver.test_moving_guide import (
 )
 from general_parity import conditioning, moving_count, source_bound
 from modal_provider_cases import GENERAL_CHI3, grin_grid, make_provider
+from sessions.runs import load_native
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.backend import _general_maps
 from solprop.driver import Simulation
 from solprop.modes.guide import ModalGuide, circular_pair, provider_channels
 from solprop.modes.material import MaterialKerr
-from solprop.stepper import FixedSchedule
+from solprop.stepper import FixedSchedule, Multistep
 from solprop.translate.stage import scalars
 
 pytestmark = pytest.mark.filterwarnings(
@@ -131,12 +133,31 @@ def step_problem(descriptors, *, blocks=(), basis_block=None):
 def source_at(implementation, problem, run_request, grid, positions):
     """Return each position's lab-frame source on the launch."""
     state = problem.initial.field0
-    backend = implementation(problem, run_request, grid=grid)
+    if implementation is NumpyRefBackend:
+        backend = implementation(problem, run_request, grid=grid)
+        try:
+            backend.set_initial(state, None)
+            # The backend's private hook keeps the state's leading axis of one.
+            held = state[np.newaxis]
+            return [np.array(backend._adams_lab_source(held, z)) for z in positions]
+        finally:
+            backend.close()
+    # Native's resident Adams engine, on the same problem under the Adams march: its
+    # history's first sample, which the engine evaluates at the native state loaded
+    # with the launch, is the complete source there in the lab frame, the stage
+    # kernel reading that position's weights from its tables.
+    assert problem.initial.noise0 is None
+    stepper = dataclasses.replace(run_request.stepper, integrator=Multistep())
+    backend = implementation(problem, run_request.with_stepper(stepper), grid=grid)
     try:
-        backend.set_initial(state, None)
-        # The backend's private hook keeps the state's leading axis of one.
-        held = state[np.newaxis]
-        return [np.array(backend._adams_lab_source(held, z)) for z in positions]
+        engine = backend._resident
+        assert type(engine).__name__ == "_ResidentAdams"
+        sources = []
+        for z in positions:
+            load_native(backend, state, clear_fsal=False)
+            engine.start(float(z), stored=True)
+            sources.append(np.array(engine.snapshot_rows()["store"][0]))
+        return sources
     finally:
         backend.close()
 

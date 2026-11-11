@@ -23,7 +23,9 @@ from backends.matched import stash_bound
 from backends.test_band_plasma_parity import case as band_case
 from backends.test_band_plasma_parity import options_for
 from bounds import assert_within
+from sessions.runs import launch_statistics, run
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import Start
 from solprop.modes.capillary import MarcatiliMode
 from solprop.nonlinear.ionisation import RunningIntegral
 from solprop.nonlinear.optmat_rates import OptmatRate
@@ -93,13 +95,14 @@ def test_every_statistic_matches_the_reference(field_grid):
         "peak_intensity",
     )
     spec = StatsSpec(names=(*names, "quadrature_error"))
+    request = run_request.for_run(stats=spec)
 
     def statistics(backend_class, launch):
-        backend = backend_class(problem, run_request, grid=field_grid, modes=modes)
+        # Each backend's own session, from `launch` to the plane at 2 mm.
+        backend = backend_class(problem, request, grid=field_grid, modes=modes)
         try:
-            backend.set_initial(launch, None)
-            backend.propagate_to(2e-3)
-            return backend.stats(spec)
+            start = Start(field=np.array(launch), z=float(problem.initial.z))
+            return run(backend, problem, request, start).all_planes()[-1].stats
         finally:
             backend.close()
 
@@ -145,12 +148,12 @@ def test_the_trapezoid_statistics_are_the_reference_scan(field_grid):
         ),
     )
     spec = StatsSpec(names=("electron_density", "peak_ionisation_rate"))
+    request = run_request.for_run(stats=spec)
     values = {}
     for backend_class in (NumpyRefBackend, NativeBackend):
-        backend = backend_class(problem, run_request, grid=field_grid, modes=modes)
+        backend = backend_class(problem, request, grid=field_grid, modes=modes)
         try:
-            backend.set_initial(problem.initial.field0, None)
-            values[backend_class] = backend.stats(spec)
+            values[backend_class] = launch_statistics(backend, problem, request)
         finally:
             backend.close()
     theirs, ours = values[NumpyRefBackend], values[NativeBackend]

@@ -28,6 +28,7 @@ from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import assemble
 
 from legacy_geometry import LEGACY_GRID
+from session_runs import committed_steps, run
 
 BETA2 = -11.83e-27
 GAMMA = 0.11
@@ -58,19 +59,17 @@ problem, run_request = assemble(
 )
 backend = select("native", problem, run_request, grid=grid)
 try:
-    backend.set_initial(problem.initial.field0, None)
-    summary = backend.propagate_to(LENGTH)
-    field = backend.observe().require_field()
+    result = run(backend, problem, run_request)
     info = solprop_native.build_info()
     sizing = backend.metadata()["execution_sizing"]
 finally:
     backend.close()
-np.save(sys.argv[1], field)
+np.save(sys.argv[1], result.fields[-1])
 print(
     json.dumps(
         {
             "samples": grid.n_to,
-            "steps": summary.n_steps,
+            "steps": committed_steps(result),
             "threads": info.thread_count,
             "execution_sizing": sizing,
         },

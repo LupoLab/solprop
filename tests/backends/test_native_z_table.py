@@ -25,6 +25,7 @@ import pytest
 
 from bounds import EPS
 from march_bounds import FIXED_ORDER, assert_matched, march_bound
+from sessions.runs import run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.exceptions import BackendError, MaterialRangeWarning
@@ -181,12 +182,11 @@ def launch_phase(problem, run_request, grid):
 
 
 def replay(backend_class, problem, run_request, grid):
-    """Replay the schedule to its plane; return the observed field."""
+    """Replay the schedule to its plane in the backend's session; return the field."""
+    assert float(run_request.stepper.save_planes[-1]) == LENGTH
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(LENGTH)
-        field = backend.observe().require_field().copy()
+        field = run(backend, problem, run_request).fields[-1]
     finally:
         backend.close()
     assert np.all(np.isfinite(field))

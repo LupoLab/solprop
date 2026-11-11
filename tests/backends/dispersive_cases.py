@@ -29,6 +29,8 @@ from typing import Any
 import numpy as np
 
 from bounds import gamma
+from sessions.runs import run as session_run
+from sessions.runs import summary as run_summary
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
@@ -40,6 +42,7 @@ from solprop.physdata import MaterialSelection
 from solprop.physdata.nonlinear_data import OptmatKerr
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
+from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, Multistep, PIController
 from solprop.translate.problem import PropagationProblem, assemble
 from solprop.translate.run_request import RunRequest
@@ -226,12 +229,19 @@ def run(
     grid: Any,
     **options: object,
 ) -> tuple[np.ndarray, Any]:
-    """Propagate to the last save plane and return the field and the summary."""
+    """Run the session to the last save plane; return the field and the run's summary.
+
+    The summary spans the run, every plane's attempts together
+    (:func:`sessions.runs.summary`).
+    """
     backend = backend_class(problem, run_request, grid=grid, **options)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-        return backend.observe().require_field().copy(), summary
+        # The step driver's march computed no statistic, which a case's profiles
+        # would be needed for.
+        result = session_run(
+            backend, problem, backend.request.for_run(stats=StatsSpec())
+        )
+        return result.fields[-1], run_summary(result)
     finally:
         backend.close()
 

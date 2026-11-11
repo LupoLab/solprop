@@ -2,41 +2,41 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Compare native batch updates with independently owned Kokkos trajectories."""
+"""Native groups against their members alone.
+
+A native group (solprop SEP 47 section 6.7) runs each member in its own native session;
+the transitional lockstep batch it replaced was deleted in SEP 47's phase 5, with the
+fused batch update state it stepped.
+"""
 
 from __future__ import annotations
 
 import dataclasses
 import math
-from contextlib import ExitStack
-from typing import cast
 
 import numpy as np
 import pytest
 from bounds import assert_within, gamma, step_bound
 from conftest import PhaseACase
-from solprop.backends.protocol import BatchBackend
-from solprop.exceptions import HostMarchWarning
+from session_runs import alone, assert_same, grouped, one_thread
+from solprop.backends.session import Start
 from solprop.stats import StatsSpec
-from solprop.stepper import FixedSchedule, Multistep
+from solprop.stepper import FixedSchedule
 
-from solprop_native import (
-    NativeBackend,
-    NativeBatchBackend,
-    _core,  # pyright: ignore[reportPrivateUsage]
-)
+from solprop_native import NativeBackend
 
 
 @pytest.mark.parametrize("count", [1, 3])
 @pytest.mark.parametrize("weighted", [False, True])
-def test_batch_matches_member_fields_histories_and_statistics(
+def test_group_members_match_their_lone_sessions(
     phase_a_case: PhaseACase, count: int, weighted: bool
 ) -> None:
-    """Each batch member agrees with the same member run alone.
+    """Each member of a native group agrees with the same member run alone.
 
-    Both replay one prescribed schedule with the explicit pair: the same discrete
-    computation, which the batch's lockstep reductions may order differently, so the
-    two agree to rounding (solprop SEP 25), not bits. Bounds, fixed beforehand:
+    Both replay one prescribed schedule with the explicit pair, each member in its own
+    native session (solprop SEP 47 section 6.7): bit for bit at one thread, where the
+    reductions' order is fixed, and otherwise to rounding (solprop SEP 25). Bounds,
+    fixed beforehand:
 
     - the field, the transforms' budget of four steps (:func:`bounds.step_bound`);
     - the step positions, lengths, acceptances and row positions exactly, as the
@@ -55,7 +55,6 @@ def test_batch_matches_member_fields_histories_and_statistics(
         controller = dataclasses.replace(
             controller, weights=np.linspace(0.5, 1.5, grid.n_omega)
         )
-    problem = original
     run_request = run_request.with_stepper(
         dataclasses.replace(
             run_request.stepper,
@@ -63,125 +62,47 @@ def test_batch_matches_member_fields_histories_and_statistics(
             schedule=FixedSchedule.uniform(0.0, 1e-3, 2.5e-4),
         )
     ).for_run(stats=spec)
-    with ExitStack() as cleanup:
-        members: list[NativeBackend] = []
-        singles: list[NativeBackend] = []
-        for index in range(count):
-            one = dataclasses.replace(
-                problem,
-                initial=dataclasses.replace(
-                    problem.initial, field0=problem.initial.field0 * (index + 1)
-                ),
-            )
-            for destination in (members, singles):
-                owner = NativeBackend(one, run_request, grid=grid)
-                cleanup.callback(owner.close)
-                owner.set_initial(one.initial.field0, None)
-                destination.append(owner)
-        batch = NativeBatchBackend(members)
-        cleanup.callback(batch.close)
-        assert isinstance(batch, BatchBackend)
-        assert batch.max_batch == count
-        batch.propagate_to(1e-3)
-        statistics = batch.stats(spec)
-        field_bound = step_bound(grid.n_to, 4)
-        statistic_bound = 2 * math.sqrt(grid.n_to) * field_bound + gamma(grid.n_to)
-        for index, (actual, single) in enumerate(
-            zip(batch.observe_members(), singles, strict=True)
-        ):
-            single.propagate_to(1e-3)
-            expected = single.observe()
-            assert_within(
-                actual.require_field(),
-                expected.require_field(),
-                field_bound,
-                what="field",
-            )
+    problems = [
+        dataclasses.replace(
+            original,
+            initial=dataclasses.replace(
+                original.initial, field0=original.initial.field0 * (index + 1)
+            ),
+        )
+        for index in range(count)
+    ]
+    requests = [run_request] * count
+    group = grouped(
+        [NativeBackend(one, run_request, grid=grid) for one in problems],
+        problems,
+        requests,
+        [Start.entrance(one) for one in problems],
+    )
+    singles = [
+        alone(NativeBackend(one, run_request, grid=grid), one, run_request, start)
+        for one, start in ((one, Start.entrance(one)) for one in problems)
+    ]
+    field_bound = step_bound(grid.n_to, 4)
+    statistic_bound = 2 * math.sqrt(grid.n_to) * field_bound + gamma(grid.n_to)
+    for member, single in zip(group, singles, strict=True):
+        assert [plane["z"] for plane in member] == [plane["z"] for plane in single]
+        if one_thread():
+            assert_same(member, single)
+        for actual, expected in zip(member, single, strict=True):
+            assert_within(actual["field"], expected["field"], field_bound, what="field")
             for name in ("z", "dz", "accepted"):
                 np.testing.assert_array_equal(
-                    getattr(actual.step_history, name),
-                    getattr(expected.step_history, name),
-                    err_msg=name,
+                    actual["attempts"][name], expected["attempts"][name], err_msg=name
                 )
             np.testing.assert_allclose(
-                actual.step_history.error_norm,
-                expected.step_history.error_norm,
+                actual["attempts"]["error_norm"],
+                expected["attempts"]["error_norm"],
                 rtol=field_bound,
                 # Twice: the weighted controller's bin weights reach 1.5.
                 atol=2 * step_bound(grid.n_to, 1) / controller.rtol,
             )
-            np.testing.assert_array_equal(actual.step_stats.z, expected.step_stats.z)
-            np.testing.assert_array_equal(
-                actual.step_stats.step, expected.step_stats.step
-            )
-            for name in expected.step_stats.values:
-                assert_within(
-                    actual.step_stats.values[name],
-                    expected.step_stats.values[name],
-                    statistic_bound,
-                    what=name,
-                )
-            for name, value in single.stats(spec).items():
-                assert_within(statistics[name][index], value, statistic_bound)
-        assert batch.metadata()["batch_fused_operations"] == ("accept_error_partials",)
-        sizing = cast(
-            dict[str, dict[str, int]], batch.metadata()["batch_execution_sizing"]
-        )
-        elements = count * math.prod(problem.shape)
-        assert sizing[f"kernels.stage.{elements}"]["elements"] == elements
-        assert sizing[f"kernels.stage.{elements}"]["threads"] >= 1
-        assert batch.memory_ledger()["batch/update_descriptors"] > 0
-        batch.close()
-        batch.close()
-        assert batch.memory_ledger() == {}
-
-
-def test_native_batch_rejects_unprepared_and_closed_members(
-    phase_a_case: PhaseACase,
-) -> None:
-    problem, run_request, grid = phase_a_case
-    with ExitStack() as cleanup:
-        owner = NativeBackend(problem, run_request, grid=grid)
-        cleanup.callback(owner.close)
-        owner.set_initial(problem.initial.field0, None)
-        state = owner._native_state  # pyright: ignore[reportPrivateUsage]
-        batch = _core.BatchState([state])
-        cleanup.callback(batch.close)
-        with pytest.raises(RuntimeError, match="prepare this trial"):
-            batch.accept(1e-4)
-        owner.close()
-        with pytest.raises(RuntimeError, match="closed"):
-            batch.accept(1e-4)
-        batch.close()
-        with pytest.raises(RuntimeError, match="closed"):
-            batch.accept(1e-4)
-
-
-def test_a_batch_of_adams_members_replays_on_solprop_s_march(
-    phase_a_case: PhaseACase,
-) -> None:
-    """A lockstep batch replays its Adams members through solprop's march (SEP 39).
-
-    The batch advances each member's `replay_step`, the Python march, so it says so
-    once and its members' marches record it.
-    """
-    problem, run_request, grid = phase_a_case
-    run_request = run_request.with_stepper(
-        dataclasses.replace(
-            run_request.stepper,
-            integrator=Multistep(),
-            schedule=FixedSchedule.uniform(0.0, 1e-3, 2.5e-4),
-        )
-    )
-    with ExitStack() as cleanup:
-        members: list[NativeBackend] = []
-        for _ in range(2):
-            owner = NativeBackend(problem, run_request, grid=grid)
-            cleanup.callback(owner.close)
-            owner.set_initial(problem.initial.field0, None)
-            members.append(owner)
-        with pytest.warns(HostMarchWarning, match="lockstep"):
-            batch = NativeBatchBackend(members)
-        cleanup.callback(batch.close)
-        for member in members:
-            assert member.metadata()["adams_march"] == "host"
+            np.testing.assert_array_equal(actual["row_z"], expected["row_z"])
+            for name, values in expected["rows"].items():
+                assert_within(actual["rows"][name], values, statistic_bound, what=name)
+            for name, value in expected["stats"].items():
+                assert_within(actual["stats"][name], value, statistic_bound, what=name)

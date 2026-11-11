@@ -23,7 +23,7 @@ because a problem can be assembled by something other than
 having been careful.
 """
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from typing import Final
 
 import numpy as np
@@ -40,7 +40,12 @@ from solprop.translate.linop import LinearOperator
 from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL, ModalTransformTables
 from solprop.translate.problem import MAX_N_COMPONENTS, PropagationProblem
 
-__all__ = ["FLOW_METHODS", "refuse_coupled_flow", "refuse_general_route"]
+__all__ = [
+    "FLOW_METHODS",
+    "refuse_coupled_flow",
+    "refuse_general_leaves",
+    "refuse_general_route",
+]
 
 FLOW_METHODS: Final[tuple[SectionMethod, ...]] = (
     "constant_schur",
@@ -54,6 +59,56 @@ leaf. A backend that executes fewer passes its own subset to
 :func:`refuse_coupled_flow`; ``"cf4"`` is executed by the reference alone: it is not yet
 implemented on the native backend.
 """
+
+
+def refuse_general_leaves(
+    problem: PropagationProblem, backend: str, *, admits: Sequence[str] = ()
+) -> None:
+    """Refuse, by name, each schema-12 general-modal leaf a backend cannot execute.
+
+    The four optional leaves of the general modal route arrived at kernel schema 12
+    with no backend behind them. A
+    schema check alone cannot stand in for this: a separately built backend compares
+    against solprop's imported constant, so a freshly built wheel would accept a
+    problem carrying a representation it does not implement and silently run the old
+    physical model. Each leaf is therefore named here, one refusal each, and each
+    check is deleted only when that backend executes that exact representation.
+
+    Every backend in this repository names all four leaves and admits through the
+    shared list in this module, so this refusal guards
+    a separately built backend. A backend that executes a leaf names it in `admits` and
+    checks the exact representation it supports itself: admitting a leaf is a statement
+    about one combination of contents, not about the field being present.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The problem to check.
+    backend : str
+        The backend's registry name, used in the refusal.
+    admits : sequence of str, optional
+        Dotted leaf names this backend executes, for example
+        ``("transform.modal_tables",)``. Empty by default: a backend refuses every
+        one until it has a kernel for it.
+
+    Raises
+    ------
+    BackendError
+        Naming the backend and the leaf it cannot execute.
+    """
+    for name, leaf in (
+        ("linear.coupled_flow", problem.linear.coupled_flow),
+        ("linear.modal_metric", problem.linear.modal_metric),
+        ("transform.modal_tables", problem.transform.modal_tables),
+        ("responses.regional_responses", problem.responses.regional_responses),
+    ):
+        if leaf is not None and name not in admits:
+            msg = (
+                f"{backend} does not execute {name}: the general modal route is not "
+                "implemented on this backend, and a leaf silently ignored would run, "
+                "converge and be the wrong physics"
+            )
+            raise BackendError(msg)
 
 
 def refuse_general_route(

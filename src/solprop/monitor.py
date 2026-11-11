@@ -37,7 +37,7 @@ admittance-weighted flux. The quantities are relative, so the proxy's scale canc
 
 **Where the reduction runs.** A check needs five numbers of the state, its energy and
 its four weighted energies (:class:`BoundaryEnergies`), and the backend forms them
-where its state lives (``StepDriver._boundary_energies``): only the five cross to the
+where its state lives (``HostDriver._boundary_energies``): only the five cross to the
 host. :meth:`BoundaryMonitor.energies` and :meth:`BoundaryMonitor.split_sums` are
 the host reductions, the reference every backend is held to.
 

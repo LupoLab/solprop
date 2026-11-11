@@ -16,6 +16,7 @@ import importlib.util
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
@@ -117,6 +118,7 @@ def geometry_options(geometry):
 
 if __name__ == "__main__":
     from backends.forced_threads import record_sizing
+    from sessions.runs import run
 
     record_sizing(sys.argv[1])
     solprop_native = importlib.import_module("solprop_native")
@@ -125,10 +127,11 @@ if __name__ == "__main__":
         problem, run_request, grid=grid, options=geometry_options("free")
     )
     try:
-        backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(grid.length)
-        arrays = {
-            "field": backend.observe().require_field(),
+        result = run(backend, problem)
+        # The run's one save plane is its end: its summary spans the run.
+        summary = result.observations[-1].summary
+        arrays: dict[str, Any] = {
+            "field": result.fields[-1],
             "steps": np.array(summary.n_steps),
             "met_tolerance": np.array(summary.met_tolerance),
         }

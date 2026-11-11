@@ -24,8 +24,8 @@ import solprop.driver.run as run_module
 from driver.test_abandoned_step import built as low_storage
 from driver.test_resume import run_until
 from driver.test_resume_history import AFRESH, soliton
-from solprop.backends.driver_session import DriverSession
 from solprop.backends.host.driver import HostDriver
+from solprop.backends.host.session import HostSession
 from solprop.backends.session import SessionError
 from solprop.exceptions import SolpropWarning
 from solprop.output import (
@@ -322,7 +322,7 @@ def test_a_history_write_cut_short_warns_once_on_resume(
 
 
 def test_a_monitor_continuation_is_given_once_and_before_it_watches():
-    session = object.__new__(DriverSession)
+    session = object.__new__(HostSession)
     session._attached = False
     given = {"record": None, "plane": True, "unwatched": ()}
     session._monitor_resume = given

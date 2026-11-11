@@ -2111,8 +2111,8 @@ def _adopted(values: np.ndarray) -> np.ndarray:
 
     The driver's route (:func:`solprop.driver.run.run_problem`) for what an observation
     holds. Only for an array that nothing writes to again, as
-    :meth:`solprop.backends.protocol.Backend.observe` promises, and never for a batch
-    member, whose view would pin the whole batch.
+    :meth:`solprop.backends.protocol.HostStepping.observe` promises, and never for a
+    batch member, whose view would pin the whole batch.
 
     Parameters
     ----------

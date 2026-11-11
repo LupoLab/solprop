@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // The native session's transverse edge actions (solprop SEP 40 section 5.3, SEP 47
-// sections 5.3 and 6.4): `StepDriver.attach_monitor`'s launch of the edge,
+// sections 5.3 and 6.4): `HostDriver.attach_monitor`'s launch of the edge,
 // `_read_transverse` at a committed endpoint and at a plane, and the barrier each
 // warning makes. The edge itself is `transverse::Edge`; the readings are the resident
 // state's (`Resident::edge_reading`), so nothing here returns to Python.
@@ -21,7 +21,7 @@
 namespace solprop_native::session {
 
 double Session::next_step() const {
-  // `StepDriver._next_step`: a replay's scheduled step, none past its end, else the
+  // `HostDriver._next_step`: a replay's scheduled step, none past its end, else the
   // controller's proposal.
   return std::visit(
       [this](const auto& method) {
@@ -69,8 +69,11 @@ bool Session::edge_launch(Batch& batch) {
   const bool resumed = edge_->resumed();
   const transverse::Reading reading =
       edge_reading(true, !resumed, edge_->every_step() && resumed);
-  return edge_judged(batch, edge_->launch(reading, position()),
-                     Continuation::edge_launch);
+  // The input noise's readings, on a resumed launch too: the reads judge above them.
+  const auto& noise = plan_.monitor->edge_noise;
+  return edge_judged(
+      batch, edge_->launch(reading, position(), nullptr, noise ? &*noise : nullptr),
+      Continuation::edge_launch);
 }
 
 bool Session::edge_endpoint(Batch& batch) {

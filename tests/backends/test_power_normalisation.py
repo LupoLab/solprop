@@ -13,6 +13,10 @@ import pytest
 from backends.matched import fixed_order
 from bounds import EPS, assert_within, gamma, step_evaluations
 from power_identity import constant_fill_m2
+from sessions.executors import IDENTITY, entrance
+from sessions.runs import launch_statistics, run
+from solprop.backends.events import ObservationReady, Terminal, join_attempts
+from solprop.backends.sessions import start_session
 from solprop.constants import EPS0, C
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.linear import Frame
@@ -25,6 +29,40 @@ from solprop.stats import StatsSpec, _poynting_statistics, analytic_field, energ
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.linop import _dispersion_phi, power_weight_at
 from solprop.translate.problem import assemble
+
+
+def _first_steps(backend, problem, request, count):
+    """Return the launch and the first `count` accepted steps' states, in order.
+
+    `request` observes every accepted step; `backend`'s own session runs from the
+    entrance and is closed after the `count`-th. Each step is asserted to be one
+    accepted attempt and no rejection: the attempts its observation delivers.
+    """
+    session = start_session(backend, problem, request, entrance(problem), owns=False)
+    states = []
+    chunks = []
+    try:
+        while len(states) <= count:
+            assert not session.finished, "the run ended before its steps"
+            batch = session.advance(work_limit=1)
+            for event in batch.events:
+                if isinstance(event, Terminal) and event.error is not None:
+                    raise event.error
+                history = getattr(event, "history", None)
+                if history is not None:
+                    chunks.append((history, getattr(event, "step_stats", None)))
+                if not isinstance(event, ObservationReady) or len(states) > count:
+                    continue
+                attempts, _ = join_attempts(chunks)
+                chunks = []
+                if states:
+                    assert attempts.n_steps == 1
+                    assert bool(np.all(attempts.accepted))
+                states.append(np.array(session.export(event.ticket, IDENTITY)))
+            session.acknowledge(batch.receipt)
+    finally:
+        session.close()
+    return np.stack(states)
 
 
 # One backend of the two is enough to hold the medium tier's budget: the identity is
@@ -103,17 +141,12 @@ def test_constant_fill_internal_trajectory_is_unchanged(backend_class):
     )
     histories = []
     assert run_request.stepper.schedule is not None
+    # Each backend's own session observes every accepted step: the first ten edges.
+    every_step = run_request.with_stepper(replace(run_request.stepper, step_planes=1))
     for source in (problem, reference):
-        owner = backend_class(source, run_request, grid=grid, modes=simulation.modes)
+        owner = backend_class(source, every_step, grid=grid, modes=simulation.modes)
         try:
-            owner.set_initial(source.initial.field0, None)
-            history = [owner.observe().require_field().copy()]
-            for position in run_request.stepper.schedule.edges[1:11]:
-                summary = owner.propagate_to(float(position))
-                assert summary.n_steps == 1
-                assert summary.n_rejected == 0
-                history.append(owner.observe().require_field().copy())
-            histories.append(np.stack(history))
+            histories.append(_first_steps(owner, source, every_step, 10))
         finally:
             owner.close()
     n_to = grid.n_to
@@ -165,15 +198,13 @@ def test_gnlse_route_is_unchanged(backend_class):
         initial=replace(problem.initial, field0=field),
     )
     spec = StatsSpec(names=("energy", "peak_power", "fwhm_t"))
+    run_request = run_request.for_run(stats=spec)
     results = []
     for source in (problem, reference):
         backend = backend_class(source, run_request, grid=grid, modes=(gnlse.mode,))
         try:
-            backend.set_initial(source.initial.field0, None)
-            backend.propagate_to(grid.length)
-            results.append(
-                (backend.observe().require_field().copy(), backend.stats(spec))
-            )
+            landed = run(backend, source, run_request)
+            results.append((landed.fields[-1], landed.all_planes()[-1].stats))
         finally:
             backend.close()
     bound = 10 * 16 * EPS
@@ -202,10 +233,10 @@ def test_backend_temporal_statistics_use_the_hermitian_flux(backend_class, grid_
         dz_max=0.01,
         dz_init=0.001,
     )
+    run_request = run_request.for_run(stats=spec)
     backend = backend_class(problem, run_request, grid=grid, modes=(mode,))
     try:
-        backend.set_initial(problem.initial.field0, None)
-        values = backend.stats(spec)
+        values = launch_statistics(backend, problem, run_request)
         a = analytic_field(grid, problem.initial.field0)
         aw = analytic_field(
             grid, problem.initial.field0 * power_weight_at(problem, 0.0)
@@ -262,18 +293,20 @@ def test_true_energy_is_conserved_along_a_lossless_gradient(backend_class, grid_
         dz_max=grid.length / 10,
         dz_init=grid.length / 10,
     )
-    backend = backend_class(problem, run_request, grid=grid, modes=(mode,))
     spec = StatsSpec(names=("energy",))
+    run_request = run_request.for_run(stats=spec)
+    backend = backend_class(problem, run_request, grid=grid, modes=(mode,))
     try:
-        backend.set_initial(problem.initial.field0, None)
-        entrance = backend.stats(spec)["energy"]
-        backend.propagate_to(grid.length)
-        final = backend.observe().require_field()
+        # The backend's own session, from the launch plane to the last.
+        landed = run(backend, problem, run_request)
+        launch = landed.observations[0]
+        assert launch.z == 0.0
+        start = launch.stats["energy"]
+        final = landed.fields[-1]
+        last = landed.all_planes()[-1].stats
         # The conservation bound, set before measurement.
         bound = 10 * grid.n_omega * np.finfo(float).eps
-        np.testing.assert_allclose(
-            backend.stats(spec)["energy"], entrance, rtol=bound, atol=0
-        )
+        np.testing.assert_allclose(last["energy"], start, rtol=bound, atol=0)
         ratio = (
             power_weight_at(problem, 0.0)[0, 0, frequency]
             / power_weight_at(problem, grid.length)[0, 0, frequency]
@@ -316,8 +349,7 @@ def test_energy_statistics_equal_the_weighted_sum(backend_class, grid_class):
     )
     backend = backend_class(problem, run_request, grid=grid, modes=(mode,))
     try:
-        backend.set_initial(problem.initial.field0, None)
-        actual = backend.stats(spec)
+        actual = launch_statistics(backend, problem, run_request)
         expected = energy(
             grid, problem.initial.field0 * np.sqrt(power_weight_at(problem, 0.0))
         )

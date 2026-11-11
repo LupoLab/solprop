@@ -15,8 +15,8 @@ statistic — and that structure is precisely what a fast backend exists to chan
 A backend is constructed from a validated
 :class:`solprop.translate.problem.PropagationProblem`, takes host arrays and returns
 host arrays; its buffers, layout and plans are private, and the state is never a
-parameter of :meth:`Backend.propagate_to` or :meth:`Backend.observe`. Selection by name
-and the availability rules are in :mod:`solprop.backends.registry`.
+parameter of :meth:`HostStepping.propagate_to` or :meth:`HostStepping.observe`.
+Selection by name and the availability rules are in :mod:`solprop.backends.registry`.
 
 **Sign convention.** Every complex array crossing this seam, in either direction, is in
 the **FFT convention** of ``docs/dev/conventions.md`` section 2, with the phase origin
@@ -44,7 +44,7 @@ from solprop.stats import StatsSpec
 
 if TYPE_CHECKING:
     # The session module builds on this one's records, so its start is a forward name.
-    from solprop.backends.session import PreparedExecution, Start
+    from solprop.backends.session import PreparedExecution, PreparedGroup, Start
     from solprop.translate.problem import PropagationProblem
     from solprop.translate.run_request import RunRequest
 
@@ -52,10 +52,12 @@ __all__ = [
     "Backend",
     "BackendHistory",
     "BatchBackend",
+    "HostStepping",
     "Observation",
     "StepStats",
     "StepSummary",
     "TimingProbe",
+    "stepping",
 ]
 
 logger = logging.getLogger(__name__)
@@ -406,7 +408,7 @@ class Observation:
         state array, frozen and left behind by the next step, and always ``False``
         without a field. The session that observed it, its only holder, converts an
         owned field to output units where it is, rather than into a new array
-        (:meth:`solprop.backends.driver_session.DriverSession.export`); for any other
+        (:meth:`solprop.backends.host.session.HostSession.export`); for any other
         field that conversion is what detaches it from the backend (SEP 47
         section 5.4).
 
@@ -539,7 +541,7 @@ class Observation:
 
 @dataclass(frozen=True, eq=False)
 class StepSummary:
-    """What one call to :meth:`Backend.propagate_to` cost and achieved.
+    """What one call to :meth:`HostStepping.propagate_to` cost and achieved.
 
     A handful of host scalars, so that a driver can report progress and warn about a
     tolerance that was not met without pulling the whole step history across the seam
@@ -682,17 +684,11 @@ class Backend(Protocol):
     >>> from solprop.backends.protocol import Backend
     >>> names = [name for name in sorted(dir(Backend)) if not name.startswith("_")]
     >>> names[:4]
-    ['attach_monitor', 'available_device_memory', 'close', 'closed']
+    ['available_device_memory', 'close', 'closed', 'edge_memory']
     >>> names[4:8]
-    ['edge_memory', 'in_flight', 'march_export_refusal', 'march_snapshot']
-    >>> names[8:12]
-    ['march_snapshot_nbytes', 'memory_ledger', 'metadata', 'observe']
-    >>> names[12:16]
-    ['prepare', 'propagate_to', 'request', 'restore_call_ledgers']
-    >>> names[16:19]
-    ['restore_march', 'set_initial', 'set_progress']
-    >>> names[19:]
-    ['set_stop', 'stats', 'timing_probe']
+    ['march_export_refusal', 'memory_ledger', 'metadata', 'prepare']
+    >>> names[8:]
+    ['prepare_group', 'request', 'timing_probe']
     """
 
     name: str
@@ -729,6 +725,158 @@ class Backend(Protocol):
             The prepared execution, whose ``start`` opens the backend's session.
         """
         ...
+
+    def prepare_group(
+        self,
+        members: "Sequence[Backend]",  # noqa: UP037 - bound after the class body
+        problems: "Sequence[PropagationProblem]",  # noqa: UP037
+        requests: "Sequence[RunRequest]",  # noqa: UP037
+    ) -> "PreparedGroup":  # noqa: UP037 - the session module imports this one
+        """Prepare a group of compatible members of this backend (SEP 47 section 6.7).
+
+        Called on the group's first member, ``members[0]``, so that the backend, not
+        the run layer, chooses the group it runs
+        (:func:`solprop.backends.sessions.start_group`). A backend that runs no group
+        raises :class:`~solprop.exceptions.BackendError` saying so.
+
+        Parameters
+        ----------
+        members : collections.abc.Sequence of Backend
+            One constructed backend per member, this one first, all of this backend,
+            holding no state yet.
+        problems : sequence of solprop.translate.problem.PropagationProblem
+            Each member's independently translated problem.
+        requests : sequence of solprop.translate.run_request.RunRequest
+            Each member's run request, with its own fresh boundary monitor.
+
+        Returns
+        -------
+        solprop.backends.session.PreparedGroup
+            The prepared group, whose ``start`` opens the backend's group session.
+        """
+        ...
+
+    def metadata(self) -> dict[str, object]:
+        """Return what this execution is, for the run's record.
+
+        A saved run has to say what produced it, not only what was computed: the
+        thread configuration alone moved one step by a factor of nine
+        (``docs/dev/backends.md`` section 3.4), so a result whose execution is not
+        recorded is not reproducible. The driver writes this into
+        :attr:`solprop.output.schema.RunMetadata.backend`, which is outside the resume
+        key -- a run continued on the other backend is the same run.
+
+        Returns
+        -------
+        dict
+            JSON-serialisable scalars keyed by name. ``backend`` and
+            ``propagator_mode`` are always present; pools, plan flags and wisdom
+            digests are a backend's own.
+        """
+        ...
+
+    def march_export_refusal(self) -> str | None:
+        """Return why this backend's Adams march cannot carry its history, or ``None``.
+
+        Returns
+        -------
+        str or None
+            The reason, or ``None`` when it can or when the march keeps none.
+        """
+        ...
+
+    def edge_memory(self, space: object) -> int:
+        """Return what reading the transverse edge holds in the state's memory space.
+
+        Parameters
+        ----------
+        space : object
+            The run's transverse grid.
+
+        Returns
+        -------
+        int
+            The bytes, from the grid alone; zero for a read on the host.
+        """
+        ...
+
+    def timing_probe(
+        self,
+        start: "Start",  # noqa: UP037 - the session module imports this one
+    ) -> TimingProbe:
+        """Load a start and return single trials of this run's march from it.
+
+        The start's field, noise, position and resume flag are loaded as a session
+        loads them; its method history, ledgers and monitor continuation are not read.
+
+        Parameters
+        ----------
+        start : solprop.backends.session.Start
+            Where the trials start; its field is taken.
+
+        Returns
+        -------
+        TimingProbe
+            The probe (SEP 47 section 6.6).
+        """
+        ...
+
+    def available_device_memory(self) -> int | None:
+        """Return currently free device bytes, or None for a host backend.
+
+        Returns
+        -------
+        int or None
+            Free device memory excluding live allocations and allocator reserves.
+            Host memory is admitted independently by the controller.
+        """
+        ...
+
+    def memory_ledger(self) -> dict[str, int]:
+        """Return the size of every buffer the backend holds.
+
+        Returns
+        -------
+        dict
+            Buffer name to bytes, including transform work areas. Every buffer is named
+            even when it is empty.
+        """
+        ...
+
+    def close(self) -> None:
+        """Release the buffers and plans. Idempotent."""
+        ...
+
+    @property
+    def closed(self) -> bool:
+        """Return whether the backend has released its buffers, as a failure may.
+
+        Returns
+        -------
+        bool
+            ``True`` when it can run no other input.
+        """
+        ...
+
+
+@runtime_checkable
+class HostStepping(Backend, Protocol):
+    """The host stepping seam a host-owned session drives (SEP 47 section 6.6).
+
+    The reference (:class:`solprop.backends.host.driver.HostDriver`) loads, steps,
+    observes and restores its state through these members, which its own session
+    (:class:`solprop.backends.host.session.HostSession`) and its lockstep group call.
+    They are no part of :class:`Backend`: the native backend runs only in its native
+    session and has none of them (SEP 47 section 6.8). A caller holding a
+    :class:`Backend` it knows steps on the host narrows it with :func:`stepping`.
+
+    Examples
+    --------
+    >>> from solprop.backends.protocol import Backend, HostStepping
+    >>> added = set(dir(HostStepping)) - set(dir(Backend))
+    >>> sorted(name for name in added if not name.startswith("_"))[:4]
+    ['attach_monitor', 'in_flight', 'march_snapshot', 'march_snapshot_nbytes']
+    """
 
     def set_initial(
         self,
@@ -865,25 +1013,6 @@ class Backend(Protocol):
         """
         ...
 
-    def metadata(self) -> dict[str, object]:
-        """Return what this execution is, for the run's record.
-
-        A saved run has to say what produced it, not only what was computed: the
-        thread configuration alone moved one step by a factor of nine
-        (``docs/dev/backends.md`` section 3.4), so a result whose execution is not
-        recorded is not reproducible. The driver writes this into
-        :attr:`solprop.output.schema.RunMetadata.backend`, which is outside the resume
-        key -- a run continued on the other backend is the same run.
-
-        Returns
-        -------
-        dict
-            JSON-serialisable scalars keyed by name. ``backend`` and
-            ``propagator_mode`` are always present; pools, plan flags and wisdom
-            digests are a backend's own.
-        """
-        ...
-
     def restore_call_ledgers(
         self, logical: Mapping[str, object], atomic: Mapping[str, object] | None = None
     ) -> None:
@@ -923,16 +1052,6 @@ class Backend(Protocol):
         """
         ...
 
-    def march_export_refusal(self) -> str | None:
-        """Return why this backend's Adams march cannot carry its history, or ``None``.
-
-        Returns
-        -------
-        str or None
-            The reason, or ``None`` when it can or when the march keeps none.
-        """
-        ...
-
     def restore_march(self, snapshot: MarchSnapshot) -> str | None:
         """Continue the Adams march from a snapshot at the loaded position.
 
@@ -948,82 +1067,9 @@ class Backend(Protocol):
         """
         ...
 
-    def edge_memory(self, space: object) -> int:
-        """Return what reading the transverse edge holds in the state's memory space.
-
-        Parameters
-        ----------
-        space : object
-            The run's transverse grid.
-
-        Returns
-        -------
-        int
-            The bytes, from the grid alone; zero for a read on the host.
-        """
-        ...
-
-    def timing_probe(
-        self,
-        start: "Start",  # noqa: UP037 - the session module imports this one
-    ) -> TimingProbe:
-        """Load a start and return single trials of this run's march from it.
-
-        The start's field, noise, position and resume flag are loaded as a session
-        loads them; its method history, ledgers and monitor continuation are not read.
-
-        Parameters
-        ----------
-        start : solprop.backends.session.Start
-            Where the trials start; its field is taken.
-
-        Returns
-        -------
-        TimingProbe
-            The probe (SEP 47 section 6.6).
-        """
-        ...
-
-    def available_device_memory(self) -> int | None:
-        """Return currently free device bytes, or None for a host backend.
-
-        Returns
-        -------
-        int or None
-            Free device memory excluding live allocations and allocator reserves.
-            Host memory is admitted independently by the controller.
-        """
-        ...
-
-    def memory_ledger(self) -> dict[str, int]:
-        """Return the size of every buffer the backend holds.
-
-        Returns
-        -------
-        dict
-            Buffer name to bytes, including transform work areas. Every buffer is named
-            even when it is empty.
-        """
-        ...
-
-    def close(self) -> None:
-        """Release the buffers and plans. Idempotent."""
-        ...
-
-    @property
-    def closed(self) -> bool:
-        """Return whether the backend has released its buffers, as a failure may.
-
-        Returns
-        -------
-        bool
-            ``True`` when it can run no other input.
-        """
-        ...
-
 
 @runtime_checkable
-class BatchBackend(Backend, Protocol):
+class BatchBackend(HostStepping, Protocol):
     """Advance compatible loaded members and return their separate observations.
 
     Construct through :func:`solprop.backends.registry.select_batch` after loading
@@ -1044,7 +1090,7 @@ class BatchBackend(Backend, Protocol):
         ----------
         field : bool, optional
             Whether each member's field and noise phase cross to the host, as for
-            :meth:`solprop.backends.protocol.Backend.observe`. Default ``True``.
+            :meth:`solprop.backends.protocol.HostStepping.observe`. Default ``True``.
 
         Returns
         -------
@@ -1104,3 +1150,31 @@ class BatchBackend(Backend, Protocol):
         A warning raised as an error fails that member alone (:attr:`member_stops`).
         """
         ...
+
+
+def stepping(backend: Backend) -> HostStepping:
+    """Return a backend as the host stepping seam it implements.
+
+    Parameters
+    ----------
+    backend : Backend
+        A backend that steps on the host: the reference, or a test's scripted one.
+
+    Returns
+    -------
+    HostStepping
+        The same object.
+
+    Raises
+    ------
+    solprop.exceptions.BackendError
+        If it does not implement the seam: the native backend runs only in its
+        session (SEP 47 section 6.8).
+    """
+    if not isinstance(backend, HostStepping):
+        msg = (
+            f"{backend.name} runs in its own session, not through the host stepping "
+            "seam: start a run with backend.prepare(problem, request).start(start)"
+        )
+        raise BackendError(msg)
+    return backend

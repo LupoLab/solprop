@@ -122,7 +122,7 @@ recorded no subset reads back as an **empty channel** rather than an error, so a
 there is one.
 
 **A row is the plane's own number.** The channel evaluates through the same
-{py:meth}`~solprop.backends.protocol.Backend.stats` a save plane uses, on the state the
+{py:meth}`~solprop.backends.protocol.HostStepping.stats` a save plane uses, on the state the
 accepted step committed, so a row that lands on a plane is what that plane records, to
 the statistic's rounding. There is one definition of each statistic and no second implementation to drift
 from the first.

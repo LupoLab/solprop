@@ -11,6 +11,7 @@ from typing import cast
 import numpy as np
 import pytest
 from conftest import PhaseACase
+from session_runs import run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FreeGrid, LineGrid
@@ -270,23 +271,17 @@ def test_a_line_of_one_y_row_matches_the_reference(collar: float) -> None:
     assert geometry is not None
     assert geometry.shape == (24, 1)
     names = ("energy", "peak_intensity", "on_axis_intensity", "beam_radius", "fwhm_r")
+    run_request = run_request.for_run(stats=StatsSpec(names=names))
     rows: list[tuple[np.ndarray, dict[str, np.ndarray]]] = []
     for implementation in (NumpyRefBackend, NativeBackend):
         backend = implementation(problem, run_request, grid=grid, options=options)
-        try:
-            if isinstance(backend, NativeBackend):
-                ledger = backend.memory_ledger()
-                assert ledger["transverse_scratch"] == 2 * 24 * grid.n_omega * 16
-            backend.set_initial(problem.initial.field0, None)
-            backend.propagate_to(length)
-            field = np.array(backend.observe().require_field(), copy=True)
-            statistics = {
-                name: np.asarray(value)
-                for name, value in backend.stats(StatsSpec(names=names)).items()
-            }
-            rows.append((field, statistics))
-        finally:
-            backend.close()
+        if isinstance(backend, NativeBackend):
+            ledger = backend.memory_ledger()
+            assert ledger["transverse_scratch"] == 2 * 24 * grid.n_omega * 16
+        result = run(backend, problem, run_request, owns=True)
+        last = result.all_planes()[-1]
+        assert last.z == pytest.approx(length)
+        rows.append((result.fields[-1], last.stats))
     (reference, reference_stats), (actual, actual_stats) = rows
     # Solprop's Cartesian ladder bound for ten steps (tests/backends/test_free_ladders):
     # 70 evaluations of 32 eps per FFT level over log2(n_to) + log2(24) levels.
@@ -355,23 +350,17 @@ def test_the_hybrid_planar_kind_matches_the_reference(phase_a_case: PhaseACase) 
     assert geometry is not None
     assert geometry.kind == "slab"
     names = ("energy", "peak_intensity", "on_axis_intensity", "beam_radius", "fwhm_r")
+    run_request = run_request.for_run(stats=StatsSpec(names=names))
     rows: list[tuple[np.ndarray, dict[str, np.ndarray]]] = []
     length = 1e-3
     for implementation in (NumpyRefBackend, NativeBackend):
         backend = implementation(
             problem, run_request, grid=grid, options=_planar_options(space)
         )
-        try:
-            backend.set_initial(problem.initial.field0, None)
-            backend.propagate_to(length)
-            field = np.array(backend.observe().require_field(), copy=True)
-            statistics = {
-                name: np.asarray(value)
-                for name, value in backend.stats(StatsSpec(names=names)).items()
-            }
-            rows.append((field, statistics))
-        finally:
-            backend.close()
+        result = run(backend, problem, run_request, owns=True)
+        last = result.all_planes()[-1]
+        assert last.z == pytest.approx(length)
+        rows.append((result.fields[-1], last.stats))
     (reference, reference_stats), (actual, actual_stats) = rows
     # 70 evaluations of 32 eps per FFT level and per term of the two x contractions,
     # and the operator's square root over the run (8 eps beta_max L).

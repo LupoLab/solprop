@@ -16,6 +16,9 @@ from typing import cast
 import numpy as np
 import numpy.typing as npt
 import pytest
+from session_runs import drain, run
+from solprop.backends.events import Outcome
+from solprop.backends.session import Start
 from solprop.exceptions import ConvergenceError
 from solprop.stats import StatsSpec
 from test_envelope_plasma import envelope_case, envelope_options, terms
@@ -54,18 +57,27 @@ def test_the_statistics_refuse_and_a_quiet_field_recovers(
         return payload
 
     monkeypatch.setattr(adapter, "_native_problem", corrupt_payload)
+    # The launch plane's statistics meet the bad rule before any step.
+    run_request = run_request.for_run(stats=SPEC)
     owner = NativeBackend(
         problem, run_request, grid=grid, options=envelope_options(geometry)
     )
     try:
-        owner.set_initial(
-            np.asarray(10.0 * problem.initial.field0, dtype=np.complex128), None
+        loud = np.asarray(10.0 * problem.initial.field0, dtype=np.complex128)
+        session = owner.prepare(problem, run_request).start(
+            Start(field=loud, z=0.0), owns=False
         )
-        with pytest.raises(ConvergenceError, match="angular refinement"):
-            owner.stats(SPEC)
+        try:
+            terminal = drain(session)
+        finally:
+            session.close()
+        assert terminal.outcome is Outcome.FAILED
+        assert isinstance(terminal.error, ConvergenceError), terminal.error
+        assert "angular refinement" in str(terminal.error)
+        assert terminal.z == 0.0
         # A quiet field below threshold: no refinement, and no failure left behind.
-        owner.set_initial(np.zeros_like(problem.initial.field0), None)
-        quiet = owner.stats(SPEC)
-        assert np.all(np.asarray(quiet["peak_ionisation_rate"]) == 0.0)
+        quiet = Start(field=np.zeros_like(problem.initial.field0), z=0.0)
+        launched = run(owner, problem, run_request, quiet).all_planes()[0]
+        assert np.all(np.asarray(launched.stats["peak_ionisation_rate"]) == 0.0)
     finally:
         owner.close()

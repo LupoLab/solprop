@@ -55,6 +55,8 @@ class State:
         self, section: int, dz: float, fractions: npt.NDArray[np.float64]
     ) -> npt.NDArray[np.float64]: ...
     def flow_actions_to_host(self, inverse: bool) -> npt.NDArray[np.complex128]: ...
+    def adams_block_to_host(self) -> npt.NDArray[np.complex128]: ...
+    def adams_exponent_to_host(self) -> npt.NDArray[np.complex128]: ...
     def weighted_error(
         self, scale: npt.NDArray[np.float64]
     ) -> npt.NDArray[np.float64]: ...
@@ -99,18 +101,6 @@ class State:
         channel_preionisation: npt.NDArray[np.float64] | None = None,
         power_weight: npt.NDArray[np.float64] | None = None,
     ) -> npt.NDArray[np.float64]: ...
-    def adams_source(
-        self,
-        input: npt.NDArray[np.complex128],
-        phi_delta: npt.NDArray[np.float64],
-        phi_at: npt.NDArray[np.float64],
-        prefactor: npt.NDArray[np.float64],
-        density: npt.NDArray[np.float64],
-        taper: npt.NDArray[np.float64],
-        preionisation: npt.NDArray[np.float64],
-        raman_rates: npt.NDArray[np.float64],
-        material: dict[str, npt.NDArray[np.float64] | int],
-    ) -> npt.NDArray[np.complex128]: ...
     def adopt(self, field: npt.NDArray[np.complex128], dz: float) -> None: ...
     def low_storage_step(
         self,
@@ -143,27 +133,9 @@ class State:
         raman_rates: npt.NDArray[np.float64],
         material: dict[str, npt.NDArray[np.float64] | int],
     ) -> None: ...
-    def adams_magnitude(self) -> float: ...
     def adams_scale(
         self, rtol: float, atol: float, weights: npt.NDArray[np.float64]
     ) -> None: ...
-    def adams_fused_trial(
-        self,
-        dz: float,
-        slots: npt.NDArray[np.uint64],
-        predictor: npt.NDArray[np.float64],
-        corrector: npt.NDArray[np.float64],
-        rows: npt.NDArray[np.float64],
-        divisor: npt.NDArray[np.float64],
-        phi_delta: npt.NDArray[np.float64],
-        phi_at: npt.NDArray[np.float64],
-        prefactor: npt.NDArray[np.float64],
-        density: npt.NDArray[np.float64],
-        taper: npt.NDArray[np.float64],
-        preionisation: npt.NDArray[np.float64],
-        raman_rates: npt.NDArray[np.float64],
-        material: dict[str, npt.NDArray[np.float64] | int],
-    ) -> npt.NDArray[np.float64]: ...
     def adams_fused_accept(
         self,
         dz: float,
@@ -214,7 +186,6 @@ class State:
         order: int,
         orders: list[int],
         compensated: bool,
-        divisor: npt.NDArray[np.float64],
         carrier: npt.NDArray[np.float64],
     ) -> npt.NDArray[np.float64]: ...
     def adams_stage_scalars(self, z0: float, z1: float) -> dict[str, list[float]]: ...
@@ -235,7 +206,6 @@ class State:
         slots: npt.NDArray[np.uint64],
         order: int,
         orders: list[int],
-        divisor: npt.NDArray[np.float64],
     ) -> npt.NDArray[np.float64]: ...
     def adams_march_run(
         self, state: dict[str, object], bounds: dict[str, object]
@@ -318,7 +288,6 @@ class State:
     def adams_observe(
         self,
         weights: npt.NDArray[np.float64],
-        hermite: bool,
         phi_delta: npt.NDArray[np.float64],
         phi_at: npt.NDArray[np.float64],
         prefactor: npt.NDArray[np.float64],
@@ -397,6 +366,8 @@ class State:
     @property
     def rk_source_evaluations(self) -> int: ...
     @property
+    def axis_scans(self) -> int: ...
+    @property
     def quadrature_error(self) -> float: ...
     def quadrature_peak(self) -> float: ...
     @property
@@ -422,7 +393,20 @@ def half_width(
 ) -> float: ...
 def strict_witness(
     a: float, b: float, c: float
-) -> tuple[float, float, float, float, float, float, float, float, float]: ...
+) -> tuple[float, float, float, float, float, float, float, float, float, float]: ...
+def radial_fluence_widths(
+    radius: npt.NDArray[np.float64],
+    fluence: npt.NDArray[np.float64],
+    weights: npt.NDArray[np.float64],
+    axis_fluence: float,
+    e2_fraction: float,
+) -> tuple[float, float, float]: ...
+def fluence_block_widths(
+    plan: StatisticsPlan, block: npt.NDArray[np.float64]
+) -> tuple[float, float, float]: ...
+def line_fluence_widths(
+    x: npt.NDArray[np.float64], samples: npt.NDArray[np.float64], e2_fraction: float
+) -> tuple[float, float, float]: ...
 def watch_check(
     policy: dict[str, object],
     state: dict[str, object],
@@ -504,15 +488,6 @@ def vector_exp_complex(
     real: npt.NDArray[np.float64],
     imag: npt.NDArray[np.float64],
 ) -> None: ...
-
-class BatchState:
-    def __init__(self, members: list[State]) -> None: ...
-    def accept(self, dz: float) -> npt.NDArray[np.float64]: ...
-    def memory_ledger(self) -> dict[str, int]: ...
-    @property
-    def execution_sizing(self) -> dict[str, dict[str, int]]: ...
-    def close(self) -> None: ...
-
 def available_device_memory() -> int | None: ...
 
 class EnvelopeConvergenceError(RuntimeError): ...
@@ -628,6 +603,8 @@ class Session:
     @property
     def elements(self) -> int: ...
     def monitor_record(self) -> dict[str, Any] | None: ...
+    def monitor_cap(self) -> float | None: ...
+    def quadrature_peak(self) -> float: ...
     def continue_monitor(
         self,
         record: dict[str, object],
@@ -647,6 +624,9 @@ class Session:
         ]
         | None
     ): ...
+    def table_phi(
+        self, sequence: int, generation: int, z: float
+    ) -> npt.NDArray[np.complex128]: ...
     def fail_outside(self) -> SessionBatch | None: ...
     def close(self) -> None: ...
 

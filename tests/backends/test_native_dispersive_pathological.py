@@ -37,6 +37,7 @@ from backends.dispersive_route_cases import (
 from backends.dispersive_route_cases import run as march
 from backends.dispersive_route_cases import source as launch_source
 from bounds import assert_within, step_evaluations
+from sessions.runs import native_source
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
@@ -92,6 +93,8 @@ def source_at(backend_class, problem, run_request, grid, z):
     """Return one evaluation of the lab-frame source on the launch at position `z`."""
     backend = backend_class(problem, run_request, grid=grid)
     try:
+        if backend.name == "native":
+            return native_source(backend, problem.initial.field0, z)
         backend.set_initial(problem.initial.field0, None)
         return np.array(backend._adams_lab_source(problem.initial.field0[None], z))
     finally:

@@ -37,6 +37,8 @@ from modal_provider_cases import (
     GENERAL_Z_END as Z_END,
 )
 from modal_provider_cases import general_case as strand_case
+from sessions.runs import launch_statistics
+from sessions.runs import run as session_run
 from solprop import fourier
 from solprop import stats as stats_module
 from solprop.backends import select
@@ -837,20 +839,30 @@ def test_both_backends_check_the_whitelist_before_the_spatial_branch(name):
         pytest.importorskip("solprop_native")
     grid, problem, run_request = spatial_case()
     built = select(name, problem, run_request, grid=grid)
+    launch = problem.initial.field0
     try:
-        built.set_initial(problem.initial.field0, None)
         for asked in ("physical_energy", "analytic_flux"):
             with pytest.raises(
                 BackendError, match=f"{asked} is unavailable for this spatial run"
             ):
-                built.stats(StatsSpec(names=(asked,)))
+                launch_statistics(
+                    built, problem, field=launch, stats=StatsSpec(names=(asked,))
+                )
         # And the spatial run's own statistics still come back.
-        assert built.stats(StatsSpec(names=("fwhm_r",)))
+        assert launch_statistics(
+            built, problem, field=launch, stats=StatsSpec(names=("fwhm_r",))
+        )
     finally:
         built.close()
 
 
-@pytest.mark.parametrize("name", ["numpy_ref", "native"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "numpy_ref",
+        "native",
+    ],
+)
 def test_a_general_statistic_under_a_weight_that_is_not_one_is_refused(strand, name):
     """`physical_energy` and `analytic_flux` are the unit-weight arithmetic.
 
@@ -867,7 +879,6 @@ def test_a_general_statistic_under_a_weight_that_is_not_one_is_refused(strand, n
     grid, (problem, run_request) = strand.grid, general_problem(strand, state)
     built = select(name, problem, run_request, grid=grid)
     try:
-        built.set_initial(problem.initial.field0, None)
         object.__setattr__(
             problem.linear, "power_weight_constant", np.full(problem.shape, 1.5)
         )
@@ -879,7 +890,12 @@ def test_a_general_statistic_under_a_weight_that_is_not_one_is_refused(strand, n
             with pytest.raises(
                 BackendError, match=f"{asked} is unavailable for this run"
             ):
-                built.stats(StatsSpec(names=names))
+                launch_statistics(
+                    built,
+                    problem,
+                    field=problem.initial.field0,
+                    stats=StatsSpec(names=names),
+                )
     finally:
         built.close()
 
@@ -916,7 +932,7 @@ def test_the_reference_refuses_a_regional_response_it_cannot_execute(
 
     Checked through the backend's constructor rather than through
     `node_kerr_tensor`, because that is where it matters: the refusal is in the
-    admission list, which runs before `StepDriver.__init__` allocates a stage.
+    admission list, which runs before the backend allocates a stage.
     """
     problem, run_request = spoiled_problem(
         strand,
@@ -2051,9 +2067,7 @@ def test_native_runs_ten_steps_of_the_route_as_numpy_ref_does(
     def run(implementation, one):
         backend = implementation(one, run_request, grid=grid)
         try:
-            backend.set_initial(one.initial.field0, None)
-            backend.propagate_to(length)
-            return backend.observe().require_field()
+            return session_run(backend, one).fields[-1]
         finally:
             backend.close()
 

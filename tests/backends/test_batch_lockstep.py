@@ -2,10 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Check the member-workspace lockstep baseline against independent fixed runs.
+"""Check the reference's member-workspace lockstep group against independent fixed runs.
 
 A batch member and its solo run take one method on one fixed schedule, so they agree
-within a rounding budget (SEP 25), not to the bit.
+within a rounding budget (SEP 25), not to the bit. The native backend's group is its
+group session (``solprop_native.group``, ``tests/sessions/test_native_group.py``); its
+members are held to the reference's lockstep group here, within the singleton ladder.
 """
 
 import dataclasses
@@ -20,13 +22,14 @@ import pytest
 
 from bounds import assert_within, gamma, ladder_bound
 from solprop.backends import Backend, BatchBackend, select, select_batch
-from solprop.backends import batch as batch_module
-from solprop.backends.batch import LockstepRunner
-from solprop.backends.driver import StepDriver
+from solprop.backends.events import ObservationReady
+from solprop.backends.export import ExportRecipe
 from solprop.backends.host import group as group_module
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.group import HostGroup
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_group
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, BoundaryError
 from solprop.monitor import BoundaryCheck, BoundaryMonitor
@@ -74,9 +77,12 @@ def loaded(simulation, cleanup):
         profiles=simulation.profiles,
     )
     cleanup.callback(owner.close)
+    if owner.name == "native":
+        # The native backend loads a start only in its session (SEP 47).
+        return cast("Any", owner)
+    # The reference's own driver, which a group steps directly.
+    assert isinstance(owner, HostDriver)
     owner.set_initial(problem.initial.field0, simulation.noise)
-    # The reference's own driver, or the native bridge's inherited one (SEP 47).
-    assert isinstance(owner, (StepDriver, HostDriver))
     return cast("Any", owner)
 
 
@@ -139,8 +145,7 @@ def statistics_bound(field, bound=FIELD_BOUND):
     [
         ("numpy_ref", HostGroup),
         ("numpy_ref", NumpyBatchBackend),
-        ("native", LockstepRunner),
-        ("native", select_batch),
+        ("numpy_ref", select_batch),
     ],
 )
 @pytest.mark.parametrize("count", [1, 3])
@@ -149,8 +154,6 @@ def statistics_bound(field, bound=FIELD_BOUND):
 def test_lockstep_preserves_member_physics_noise_and_statistics(
     backend, runner_factory, count, noise, weighted
 ):
-    if backend == "native":
-        pytest.importorskip("solprop_native")
     with ExitStack() as cleanup:
         simulations = [simulation(index, backend, noise) for index in range(count)]
         if weighted:
@@ -213,22 +216,60 @@ def test_lockstep_interleaves_members_at_each_fixed_step(monkeypatch):
         assert len({(z, dz) for _, z, dz in visited[start : start + 3]}) == 1
 
 
-@pytest.mark.parametrize("backend", ["native"])
+def _native_group_fields(candidates, cleanup):
+    """Run native members through their group session; return each last field."""
+    problems = [one.translate() for one in candidates]
+    owners = [
+        select(
+            one.settings.backend,
+            problem,
+            one._run_request(),
+            grid=one.grid,
+            modes=one.modes,
+            profiles=one.profiles,
+        )
+        for one, problem in zip(candidates, problems, strict=True)
+    ]
+    for owner in owners:
+        cleanup.callback(owner.close)
+    group = start_group(
+        owners,
+        problems,
+        [one._run_request() for one in candidates],
+        [
+            Start.entrance(problem, noise=one.noise)
+            for one, problem in zip(candidates, problems, strict=True)
+        ],
+    )
+    cleanup.callback(group.close)
+    last: list[np.ndarray | None] = [None] * len(candidates)
+    identity = ExportRecipe(power=False, optics=False)
+    while not group.finished:
+        batch = group.advance()
+        for member, events in enumerate(batch.members):
+            for event in events:
+                if isinstance(event, ObservationReady):
+                    last[member] = np.array(
+                        group.export(member, event.ticket, identity)
+                    )
+        group.acknowledge(batch.receipt)
+    return last
+
+
 @pytest.mark.parametrize("noise", [None, "input", "modified"])
-def test_batch_agrees_with_numpy_oracle(backend, noise):
-    if backend == "native":
-        pytest.importorskip("solprop_native")
+def test_the_native_group_agrees_with_the_numpy_oracle(noise):
+    # The native group session's members against the reference's lockstep group,
+    # within the singleton ladder: the oracle the native lockstep batch was held to.
+    pytest.importorskip("solprop_native")
     with ExitStack() as cleanup:
-        candidates = [simulation(index, backend, noise) for index in range(3)]
+        candidates = [simulation(index, "native", noise) for index in range(3)]
         # The established singleton ladder allows 16 eps per step on the host,
         # with seven FFT round trips per step in the predeclared device bound.
         bound = ladder_bound(
-            backend, 4 * 16 * np.finfo(float).eps, candidates[0].grid.n_to, 4 * 7
+            "native", 4 * 16 * np.finfo(float).eps, candidates[0].grid.n_to, 4 * 7
         )
         assert bound > 0
-        actual = select_batch(
-            cast(Sequence[Backend], tuple(loaded(one, cleanup) for one in candidates))
-        )
+        fields = _native_group_fields(candidates, cleanup)
         reference = select_batch(
             cast(
                 Sequence[Backend],
@@ -237,16 +278,12 @@ def test_batch_agrees_with_numpy_oracle(backend, noise):
                 ),
             )
         )
-        cleanup.callback(actual.close)
         cleanup.callback(reference.close)
-        actual.propagate_to(0.001)
         reference.propagate_to(0.001)
-        for ours, oracle in zip(
-            actual.observe_members(), reference.observe_members(), strict=True
-        ):
-            relative = np.linalg.norm(
-                ours.require_field() - oracle.require_field()
-            ) / np.linalg.norm(oracle.require_field())
+        for ours, oracle in zip(fields, reference.observe_members(), strict=True):
+            assert ours is not None
+            expected = oracle.require_field()
+            relative = np.linalg.norm(ours - expected) / np.linalg.norm(expected)
             assert relative < bound
 
 
@@ -254,37 +291,27 @@ def test_lockstep_refuses_mixed_backends(monkeypatch):
     pytest.importorskip("solprop_native")
     # Each copy's own refusals, which the test session's annotation hook would
     # otherwise preempt: a member of the other family is not its driver type.
-    for module, names in (
-        (group_module, ("_validate_members", "_refuse_mixed_precisions")),
-        (batch_module, ("_validate_members",)),
-    ):
-        for name in names:
-            monkeypatch.setattr(module, name, inspect.unwrap(getattr(module, name)))
+    for name in ("_validate_members", "_refuse_mixed_precisions"):
+        monkeypatch.setattr(
+            group_module, name, inspect.unwrap(getattr(group_module, name))
+        )
     with ExitStack() as cleanup:
         members = tuple(
             loaded(simulation(0, name), cleanup) for name in ("numpy_ref", "native")
         )
-        for runner in (HostGroup, LockstepRunner):
-            with pytest.raises(BackendError, match="mixed backends"):
-                inspect.unwrap(runner.__init__)(runner.__new__(runner), members)
+        with pytest.raises(BackendError, match="mixed backends"):
+            inspect.unwrap(HostGroup.__init__)(HostGroup.__new__(HostGroup), members)
 
 
 GROUPS = [
     pytest.param("numpy_ref", HostGroup, id="host"),
-    pytest.param("native", select_batch, id="bridge"),
+    pytest.param("numpy_ref", select_batch, id="registry"),
 ]
-"""The reference's group, and the native batch on the bridge's lockstep runner."""
-
-
-def grouped(backend):
-    """Skip a native group where the native package is not installed."""
-    if backend == "native":
-        pytest.importorskip("solprop_native")
+"""The reference's group, built directly and through the registry's runner."""
 
 
 @pytest.mark.parametrize(("backend", "group"), GROUPS)
 def test_lockstep_refuses_adaptive_schedule(backend, group):
-    grouped(backend)
     one = simulation(0, backend)
     one.settings = dataclasses.replace(one.settings, schedule=None)
     with ExitStack() as cleanup:
@@ -305,16 +332,12 @@ def test_lockstep_refuses_shared_history_observation_and_closes_members():
             owner.observe()
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
-def test_a_field_free_observation_moves_no_field_and_keeps_each_member_s_record(
-    backend,
-):
+def test_a_field_free_observation_moves_no_field_and_keeps_each_member_s_record():
     # solprop #299: a scan that keeps no field of a plane asks for none. Each member's
     # position, history and statistics are what the same march observes with its field.
-    if backend == "native":
-        pytest.importorskip("solprop_native")
+    backend = "numpy_ref"
     spec = StatsSpec(names=("energy", "peak_power"), periodic=("energy",), period=2)
-    group = HostGroup if backend == "numpy_ref" else LockstepRunner
+    group = HostGroup
     with ExitStack() as cleanup:
         kept = group(tuple(loaded(simulation(i, backend), cleanup) for i in range(2)))
         cleanup.callback(kept.close)
@@ -347,20 +370,11 @@ def test_a_field_free_observation_moves_no_field_and_keeps_each_member_s_record(
         last = free.observe_members()
         for theirs, ours in zip(kept.observe_members(), last, strict=True):
             np.testing.assert_array_equal(ours.field, theirs.field)
-        if backend == "native":
-            # One field to the host in that last observation, and none before it.
-            field = cast(np.ndarray, last[0].field)
-            for member in cast(Sequence[Any], free._members):
-                assert (
-                    member._native_state.crossed_bytes()[0]
-                    == math.prod(field.shape) * 16
-                )
 
 
-@pytest.mark.parametrize("runner", [HostGroup, LockstepRunner])
-def test_lockstep_refuses_empty_members(runner):
+def test_lockstep_refuses_empty_members():
     with pytest.raises(BackendError, match="at least one member"):
-        runner([])
+        HostGroup([])
 
 
 def test_batch_registry_adopts_members_and_exposes_independent_observations():
@@ -379,7 +393,6 @@ def test_a_low_storage_group_stops_to_save_and_refuses_to_run_out(backend, group
     # Each member's own march takes the common step (SEP 24); every third step's end
     # is saved (SEP 14 phase 3), so the group returns there, short of its target, and
     # goes on from there. Past the schedule's last edge it cannot go.
-    grouped(backend)
     simulations = [simulation(index, backend) for index in range(2)]
     for one in simulations:
         one.settings = dataclasses.replace(
@@ -397,14 +410,12 @@ def test_a_low_storage_group_stops_to_save_and_refuses_to_run_out(backend, group
             runner.propagate_to(0.00102)
 
 
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize(("backend", "group"), GROUPS)
 def test_an_adams_group_names_the_member_behind_an_invalid_norm(
     backend, group, monkeypatch
 ):
     # Each Adams member replays the common step through its own march; a norm that
     # the member's own step record refuses is refused with the member's index.
-    grouped(backend)
     simulations = [simulation(index, backend) for index in range(2)]
     for one in simulations:
         one.settings = dataclasses.replace(one.settings, integrator=Multistep())
@@ -421,7 +432,6 @@ def test_an_adams_group_names_the_member_behind_an_invalid_norm(
 
 @pytest.mark.parametrize(("backend", "group"), GROUPS)
 def test_lockstep_gives_every_member_its_own_boundary_monitor(backend, group):
-    grouped(backend)
     with ExitStack() as cleanup:
         simulations = [simulation(index, backend) for index in range(2)]
         members = tuple(loaded(one, cleanup) for one in simulations)
@@ -446,7 +456,6 @@ def test_lockstep_gives_every_member_its_own_boundary_monitor(backend, group):
 def test_a_member_s_stop_ends_its_watch_alone(backend, group):
     # A check strict enough to refuse any launch stops the first member before its
     # first step; the second, unwatched, and the batch go on.
-    grouped(backend)
     with ExitStack() as cleanup:
         simulations = [simulation(index, backend) for index in range(2)]
         members = tuple(loaded(one, cleanup) for one in simulations)
@@ -467,7 +476,6 @@ def test_a_member_s_stop_ends_its_watch_alone(backend, group):
 
 @pytest.mark.parametrize(("backend", "group"), GROUPS)
 def test_lockstep_refuses_a_monitor_per_member_miscount(backend, group):
-    grouped(backend)
     with ExitStack() as cleanup:
         members = tuple(loaded(simulation(i, backend), cleanup) for i in range(2))
         runner = group(members)
@@ -486,5 +494,9 @@ def test_batch_registry_refuses_empty_and_mixed_owners():
         )
         with pytest.raises(BackendError, match="mixed backends"):
             select_batch(cast(Sequence[Backend], members))
-        for member in members:
-            assert member.observe().z == 0.0
+        # The native backend's group is its own group session, with no runner.
+        with pytest.raises(BackendError, match="no runner for backend 'native'"):
+            select_batch(cast(Sequence[Backend], members[1:]))
+        # Each refusal leaves its members open, and the reference's where it was.
+        assert not any(member.closed for member in members)
+        assert members[0].observe().z == 0.0

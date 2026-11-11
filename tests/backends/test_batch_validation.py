@@ -16,9 +16,8 @@ import numpy as np
 import pytest
 
 from backends import test_batch_lockstep as fixtures
-from scripted_driver import HostScriptedDriver, ScriptedDriver
+from scripted_driver import HostScriptedDriver
 from solprop.backends import Backend, select_batch
-from solprop.backends.batch import LockstepRunner
 from solprop.backends.host.group import HostGroup
 from solprop.backends.numpy_ref import passes
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
@@ -27,47 +26,39 @@ from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, Multistep, RungeKutta
 from solprop.stepper.tableau import TSIT5
 
-RUNNERS = [
-    pytest.param(HostGroup, "numpy_ref", id="host"),
-    pytest.param(LockstepRunner, "native", id="bridge"),
-]
-"""The reference's group over its members, and the native bridge's lockstep runner
-over native members (SEP 47 phase 2): the same validation, in two copies."""
+RUNNERS = [pytest.param(HostGroup, "numpy_ref", id="host")]
+"""The reference's group over its members; the native backend's group is its group
+session, validated in ``tests/sessions/test_native_group.py`` (SEP 47 phase 5)."""
 
 
 def _members_of(name: str) -> None:
-    """Skip a native family where the native package is not installed.
+    """Name the members' backend; every runner here is the reference's.
 
     Parameters
     ----------
     name : str
         The members' backend.
     """
-    if name == "native":
-        pytest.importorskip("solprop_native")
+    assert name == "numpy_ref"
 
 
-def test_batch_registry_dispatches_optional_native_without_installation(monkeypatch):
+def test_batch_registry_has_no_native_runner_and_imports_nothing(monkeypatch):
+    # The native row names no lockstep runner (SEP 47 phase 5): the registry refuses
+    # a native member by name without importing the native package, untouched.
     package = ModuleType("solprop_native")
-    batch_module = ModuleType("solprop_native.batch")
-    dispatched = []
-
-    def constructor(members):
-        dispatched.extend(members)
-        raise BackendError("native allocation intentionally unavailable")
-
-    monkeypatch.setattr(package, "NativeBackend", object, raising=False)
-    monkeypatch.setattr(batch_module, "NativeBatchBackend", constructor, raising=False)
     monkeypatch.setitem(sys.modules, "solprop_native", package)
-    monkeypatch.setitem(sys.modules, "solprop_native.batch", batch_module)
     with ExitStack() as cleanup:
         owner = fixtures.loaded(fixtures.simulation(0, "numpy_ref"), cleanup)
         monkeypatch.setattr(owner, "name", "native")
         with pytest.raises(
-            BackendError, match="native allocation intentionally unavailable"
+            BackendError,
+            match=r"no runner for backend 'native': .* its own prepared group, which "
+            r"solprop\.backends\.sessions\.start_group starts, as native's group "
+            r"session does",
         ):
             select_batch(cast(Sequence[Backend], [owner]))
-        assert dispatched == [owner]
+        assert owner.observe().z == 0.0
+    assert "solprop_native.batch" not in sys.modules
 
 
 @pytest.mark.parametrize(("runner", "name"), RUNNERS)
@@ -142,16 +133,14 @@ def test_batch_refuses_reloading_a_shared_field_and_mismatched_statistics(
         assert runner.available_device_memory() is None
 
 
-@pytest.mark.parametrize("kind", ["common", "numpy", "native"])
+@pytest.mark.parametrize("kind", ["common", "numpy"])
 @pytest.mark.parametrize("norm", [float("nan"), float("inf"), -1.0])
 def test_batch_names_the_member_behind_an_invalid_norm(monkeypatch, kind, norm):
     # The same value refuses the member's own BackendHistory/StepSummary, so a
     # singleton does not survive it either: what the batch owes its caller is the
     # index of the point that produced it, not an anonymous history error.
-    if kind == "native":
-        pytest.importorskip("solprop_native")
     with ExitStack() as cleanup:
-        name = "native" if kind == "native" else "numpy_ref"
+        name = "numpy_ref"
         healthy = fixtures.loaded(fixtures.simulation(1, name), cleanup)
         member = fixtures.loaded(fixtures.simulation(0, name), cleanup)
         solo = fixtures.loaded(fixtures.simulation(0, name), cleanup)
@@ -161,16 +150,8 @@ def test_batch_names_the_member_behind_an_invalid_norm(monkeypatch, kind, norm):
                     one, "_trial_step", lambda z, dz, one=one: (norm, one._state)
                 )
             runner = HostGroup([healthy, member])
-        elif kind == "numpy":
-            monkeypatch.setattr(passes, "error_norm", lambda *args: norm)
-            runner = select_batch(cast(Sequence[Backend], [healthy, member]))
         else:
-            # The patched scorer is solprop's loop's; the native march (SEP 45) scores
-            # its trials itself.
-            backend_module = pytest.importorskip("solprop_native.backend")
-            monkeypatch.setattr(backend_module, "_RK_MARCH", "host")
-            for one in (member, solo):
-                monkeypatch.setattr(one, "_score_trial", lambda *_: norm)
+            monkeypatch.setattr(passes, "error_norm", lambda *args: norm)
             runner = select_batch(cast(Sequence[Backend], [healthy, member]))
         cleanup.callback(runner.close)
         offender = 0 if kind == "numpy" else 1
@@ -211,20 +192,13 @@ def test_registry_refuses_unknown_backend_without_taking_ownership(monkeypatch):
         assert owner.observe().z == 0.0
 
 
-@pytest.mark.parametrize(
-    ("runner", "driver"),
-    [
-        pytest.param(HostGroup, HostScriptedDriver, id="host"),
-        pytest.param(LockstepRunner, ScriptedDriver, id="bridge"),
-    ],
-)
-def test_batch_requires_complete_backend_protocol(runner, driver):
+def test_batch_requires_complete_backend_protocol():
     simulation = fixtures.simulation(0, "numpy_ref")
-    owner = driver(simulation.translate(), simulation._run_request())
+    owner = HostScriptedDriver(simulation.translate(), simulation._run_request())
     try:
         owner.set_initial(simulation.translate().initial.field0, None)
         with pytest.raises(BackendError, match="backend protocol"):
-            runner([owner])
+            HostGroup([owner])
     finally:
         owner.close()
 
@@ -239,17 +213,15 @@ def assert_family_refused(factory, wrong_backend):
         initialize = inspect.unwrap(factory.__init__)
         with pytest.raises(BackendError, match="requires"):
             initialize(instance, [owner])
-        assert owner.observe().z == 0.0
+        # A native backend loads only in its session: it is left open.
+        assert not owner.closed
+        if wrong_backend != "native":
+            assert owner.observe().z == 0.0
 
 
 def test_the_reference_batch_checks_family_without_the_session_type_hook():
     pytest.importorskip("solprop_native")
     assert_family_refused(NumpyBatchBackend, "native")
-
-
-def test_the_native_batch_checks_family_without_the_session_type_hook():
-    batch = pytest.importorskip("solprop_native.batch")
-    assert_family_refused(batch.NativeBatchBackend, "numpy_ref")
 
 
 @pytest.mark.parametrize(("group", "name"), RUNNERS)

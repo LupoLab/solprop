@@ -33,9 +33,9 @@ from sessions.executors import (
     soliton,
     window,
 )
-from solprop.backends.driver_session import DriverSession
 from solprop.backends.events import ExportTicket, ObservationReady
 from solprop.backends.export import ExportRecipe, apply_recipe
+from solprop.backends.host.session import HostSession
 from solprop.backends.registry import available, select
 from solprop.driver.run import run_problem
 from solprop.driver.simulation import metadata_for
@@ -86,11 +86,10 @@ class _Spy:
 def _spied(monkeypatch: pytest.MonkeyPatch) -> _Spy:
     """Spy on the exports of every session a run may start.
 
-    The reference's own session derives from the driver session; a native run is
-    served by the native session where it admits the run.
+    The reference runs in its own session, a native run in the native session.
     """
     spy = _Spy()
-    monkeypatch.setattr(DriverSession, "export", spy.wrap(DriverSession.export))
+    monkeypatch.setattr(HostSession, "export", spy.wrap(HostSession.export))
     if "native" in available():
         from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
             NativeSession,
@@ -355,7 +354,7 @@ def test_the_native_pass_fills_a_destination_on_every_route(route, native_sessio
     """
     problem, run_request, context = ROUTES[route]()
     request = run_request.for_run(stats=StatsSpec())
-    skip_device_refused(problem, request)
+    skip_device_refused(problem)
     session = native_session.NativeSession(
         problem, request, entrance(problem), **context
     )
@@ -442,7 +441,7 @@ def test_the_native_session_writes_a_kept_field_once_into_its_row(
     route, native_session
 ):
     problem, run_request, context = ROUTES[route]()
-    skip_device_refused(problem, run_request)
+    skip_device_refused(problem)
     spy = _Spy()
     output = _Exported()
     status = _served(native_session, output, problem, run_request, context, spy)
@@ -460,7 +459,7 @@ def test_the_native_session_hands_a_file_one_new_array_per_kept_plane(
     tmp_path, native_session
 ):
     problem, run_request, context = ROUTES["cartesian"]()
-    skip_device_refused(problem, run_request)
+    skip_device_refused(problem)
     spy = _Spy()
     path = tmp_path / "run.h5"
     status = _served(

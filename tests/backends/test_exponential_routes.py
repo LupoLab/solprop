@@ -5,7 +5,7 @@
 """SEP 16 phase 2: the exponential formulation on every constant-operator route.
 
 The only route-specific part of the exponential formulation is its source sample,
-``StepDriver._adams_lab_source``: one evaluation of the route's own source pipeline,
+``HostDriver._adams_lab_source``: one evaluation of the route's own source pipeline,
 untransported. On each route it must be the source the transported formulation
 evaluates when the anchor is the sample's own position, where the propagator is one;
 and a short run must reproduce the Runge-Kutta march's field. The routes are the
@@ -27,6 +27,8 @@ from bounds import (
     fft_bound,
 )
 from capability_routes import ROUTES
+from sessions.runs import adams_ledger
+from sessions.runs import run as session_run
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stepper import PIController
@@ -115,22 +117,23 @@ def test_a_short_run_reproduces_runge_kutta(route):
 
 
 def _march_with(backend_class, route, integrator, rtol=1e-8):
-    """Run a route at `rtol`; return its final field, call total and steps."""
+    """Run a route's session at `rtol`; return its final field, call total and steps.
+
+    The steps are every attempt's, rejected ones included.
+    """
     simulation, problem, run_request = translated(route, integrator, rtol)
     backend = backend_class(
-        problem, run_request, grid=simulation.grid, modes=simulation.modes
+        problem,
+        run_request,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
     )
     try:
-        backend.set_initial(problem.initial.field0, None)
-        steps, field = [], None
-        for plane in run_request.stepper.save_planes:
-            backend.propagate_to(float(plane))
-            observed = backend.observe()
-            steps += list(observed.step_history.dz)
-            field = observed.field
-        march = backend._adams
-        assert march is not None and field is not None
-        return field, march.ledger.total, np.array(steps)
+        record: dict[str, object] = {}
+        result = session_run(backend, problem, record=record)
+        calls = adams_ledger(backend, record).total
+        return result.fields[-1], calls, np.asarray(result.joined[0].dz)
     finally:
         backend.close()
 

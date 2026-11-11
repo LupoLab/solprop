@@ -28,6 +28,7 @@ from backends.planar_cases import planar_case
 from backends.test_planar_native import chunked
 from backends.test_planar_native import planar_case as collar_family_case
 from bounds import assert_within, fft_bound, gamma
+from sessions.runs import launch_statistics, load_native
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stats import StatsSpec
 
@@ -107,11 +108,12 @@ def test_each_statistic_is_the_reference_s_on_the_same_state(name):
     spec = StatsSpec(names=names)
     state = run(NumpyRefBackend, problem, run_request, grid, grid.length)
 
+    request = run_request.for_run(stats=spec)
+
     def statistics(backend_class, field):
-        backend = backend_class(problem, run_request, grid=grid)
+        backend = backend_class(problem, request, grid=grid)
         try:
-            backend.set_initial(field, None)
-            return backend.stats(spec)
+            return launch_statistics(backend, problem, request, field=field)
         finally:
             backend.close()
 
@@ -162,8 +164,7 @@ def finished(problem, run_request, grid, rows, dz, options=None):
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid, options=options)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        native = backend._native_state
+        native = load_native(backend, problem.initial.field0, clear_fsal=False)
         native.adopt(np.ascontiguousarray(rows.reshape(-1)), dz)
         actual = native.field_to_host().reshape(problem.shape)
     finally:

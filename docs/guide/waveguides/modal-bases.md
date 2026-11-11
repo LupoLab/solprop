@@ -122,9 +122,10 @@ differently, and the same comparison reads 1e-3.
 which runs on `numpy_ref` alone and which the entry point refuses elsewhere before
 anything is translated. A **noise** model beside it is refused, because the shot-noise
 draw ({doc}`../media/noise`) is transported by the unitary phase of a *diagonal* flow and its
-transport through a coupled one has not been measured. The **lockstep batch** refuses a
-member carrying one, because it evaluates its own stage arithmetic and applies neither
-the flow action nor its residual. And a block whose exponent over the largest declared
+transport through a coupled one has not been measured. In a `Batch` group the reference
+takes a coupled member's trial member by member, because its member-axis batch evaluates
+its own stage arithmetic and applies neither the flow action nor its residual; a native
+`Batch` group runs each member in its own native session, flow and all. And a block whose exponent over the largest declared
 step exceeds `MAX_GENERAL_FLOW_EXPONENT` (1e3) is refused: the block carries every
 channel's departure from the reference, so a basis declared over channels that were
 never a degenerate group would put their whole dispersion difference into a matrix

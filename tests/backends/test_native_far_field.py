@@ -40,6 +40,8 @@ from backends.far_field_cases import (
 from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
 from bounds import assert_within, gamma
+from sessions.executors import IDENTITY
+from sessions.runs import launched, load_native
 from solprop.backends import select
 from solprop.backends.spatial import far_field_partials
 from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
@@ -102,26 +104,24 @@ def problem_of(  # noqa: PLR0913 - one state and what it is measured under
     return Translation(simulation.translate(), simulation._run_request())
 
 
-def held_state(owner, problem):
-    """The state a native backend holds, copied to the host."""
-    native = owner._native_state
-    return native.field_to_host().reshape(problem.shape)
-
-
 def native_stats(problem, run_request, grid, field, names):
-    """The native backend's statistics of `field`.
+    """The native session's statistics of `field`, observed as its launch plane.
 
-    Returns them with the state the backend holds, which loading masks to the
-    problem's band: the state every other backend is compared on.
+    Returns them with the state the session holds, which loading masks to the
+    problem's band, exported as it is held: the state every other backend is compared
+    on.
     """
     owner = NativeBackend(problem, run_request, grid=grid)
+    spec = dataclasses.replace(
+        run_request.observation.stats, names=tuple(names), periodic=()
+    )
+    request = run_request.for_run(stats=spec)
     try:
-        owner.set_initial(np.ascontiguousarray(field), None)
-        spec = dataclasses.replace(
-            run_request.observation.stats, names=tuple(names), periodic=()
-        )
-        values = owner.stats(spec)
-        held = held_state(owner, problem)
+        with launched(owner, problem, request, field=field) as (session, observation):
+            values = {
+                name: np.array(value) for name, value in observation.stats.items()
+            }
+            held = np.array(session.export(observation.ticket, IDENTITY))
     finally:
         owner.close()
     return values, held
@@ -611,8 +611,8 @@ def test_the_native_partials_are_held_to_the_byte():
         assert ledger["far_field_partials"] == partials
         # The axes, then the tables and packed output once a call has run.
         assert ledger["far_field_tables"] == 8 * (space.n_x + space.n_y)
-        owner.set_initial(problem.initial.field0, None)
-        owner.stats(run_request.observation.stats)
+        with launched(owner, problem, run_request, field=problem.initial.field0):
+            pass
         # Three apertures' rows and four boxes; twelve spectral rows (the beam, four
         # regions, three collected, three through the holes, the axis) and the five
         # absorbed powers.
@@ -642,8 +642,13 @@ def test_on_axis_intensity_reads_the_native_axis_slots():
         # Held from construction: no statistic allocates them.
         held = owner.memory_ledger()["far_field_partials"]
         assert held == 8 * n_bands * n_slots * grid.n_omega
-        owner.set_initial(problem.initial.field0, None)
-        values = owner.stats(run_request.observation.stats)
+        with launched(owner, problem, run_request, field=problem.initial.field0) as (
+            _,
+            observation,
+        ):
+            values = {
+                name: np.array(value) for name, value in observation.stats.items()
+            }
         assert owner.memory_ledger()["far_field_partials"] == held
     finally:
         owner.close()
@@ -720,13 +725,16 @@ def test_a_native_request_beyond_the_held_partials_grows_them():
     bare, bare_request = problem_of(grid, space, field, StatsSpec(names=("energy",)))
     assert far_field_partials(bare, bare_request.observation.stats) == (0, 0)
     owner = NativeBackend(bare, bare_request, grid=grid)
+    spec = spec_of(holes("rcos"))
+    request = bare_request.for_run(stats=spec)
     try:
         assert owner.memory_ledger()["far_field_partials"] == 0
-        owner.set_initial(np.ascontiguousarray(field), None)
-        spec = spec_of(holes("rcos"))
-        values = owner.stats(spec)
-        assert owner.memory_ledger()["far_field_partials"] > 0
-        field = held_state(owner, bare)
+        with launched(owner, bare, request, field=field) as (session, observation):
+            values = {
+                name: np.array(value) for name, value in observation.stats.items()
+            }
+            assert owner.memory_ledger()["far_field_partials"] > 0
+            field = np.array(session.export(observation.ticket, IDENTITY))
     finally:
         owner.close()
     tables = aperture_tables(spec, grid, space)
@@ -825,8 +833,7 @@ def test_the_native_refusals_name_what_is_missing():
     problem, run_request = problem_of(grid, space, field, spec_of(holes("tanh")))
     owner = NativeBackend(problem, run_request, grid=grid)
     try:
-        owner.set_initial(np.ascontiguousarray(field), None)
-        native = owner._native_state
+        native = load_native(owner, field, clear_fsal=False)
         apertures = np.zeros((1, NATIVE_CONSTANTS + grid.n_omega))
         unknown = apertures.copy()
         unknown[0, 8] = 7.0  # a profile code past supergauss

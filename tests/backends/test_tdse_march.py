@@ -13,9 +13,13 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
+from sessions.executors import IDENTITY, Started, drive
+from sessions.runs import run as session_run
 from solprop.backends import registry
 from solprop.backends.multistep import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, ResponseBudgetError
 from solprop.nonlinear.tdse import (
@@ -285,22 +289,44 @@ def test_tdse_runtime_statistics_refuse_legacy_rate_observables(march_problem, n
 def test_shared_rk_driver_refuses_persisted_response_budgets(
     narrow_grid, linear_problem, kind
 ):
-    """A Runge-Kutta backend keeps no logical ledger and refuses an atomic one."""
+    """A Runge-Kutta session keeps no logical ledger and refuses an atomic one.
+
+    The ledgers arrive with the run's start, as a resume hands them to the native
+    session (SEP 47 section 5.2).
+    """
     native = pytest.importorskip("solprop_native")
     problem, run_request = linear_problem(narrow_grid, save_planes=[1e-5], dz_init=1e-6)
+    logical = {"startup": 1} if kind == "logical" else {}
+    atomic = {"attempted": 1} if kind == "atomic" else {}
     backend = native.NativeBackend(problem, run_request, grid=narrow_grid)
     try:
-        backend.restore_call_ledgers({}, None)
-        logical = {"startup": 1} if kind == "logical" else {}
-        atomic = {"attempted": 1} if kind == "atomic" else None
+        plain = session_run(backend, problem, run_request)
+        start = Start(
+            field=problem.initial.field0,
+            z=float(problem.initial.z),
+            ledgers={"logical": logical, "atomic": atomic},
+        )
         if kind == "logical":
             # A Runge-Kutta march keeps no logical ledger: the counts stay with the
             # earlier execution as provenance, not installed (SEP 42 section 5.6).
-            backend.restore_call_ledgers(logical, atomic)
-            assert backend._adams is None
+            session = start_session(backend, problem, run_request, start, owns=False)
+            try:
+                run = drive(Started(session), export=IDENTITY)
+                assert "response_calls" not in session.execution_record()
+            finally:
+                session.close()
+            # Nothing installed changes nothing: the plain start's run, bitwise.
+            assert run.fields[-1].tobytes() == plain.fields[-1].tobytes()
+            assert run.accepted_ends().tobytes() == plain.accepted_ends().tobytes()
         else:
             with pytest.raises(BackendError, match="does not restore atomic"):
-                backend.restore_call_ledgers(logical, atomic)
+                session = start_session(
+                    backend, problem, run_request, start, owns=False
+                )
+                try:
+                    drive(Started(session))
+                finally:
+                    session.close()
     finally:
         backend.close()
 

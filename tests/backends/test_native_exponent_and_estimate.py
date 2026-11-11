@@ -21,6 +21,7 @@ from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports
 from backends.forced_thread_cases import route_adams_problem
 from backends.low_storage_cases import varying_capillary, with_mode
 from bounds import EPS, assert_within
+from sessions.runs import run
 from solprop.backends.memory import (
     reference_base_memory,
 )
@@ -65,12 +66,13 @@ def test_a_separable_exponent_is_the_host_volume():
     grid_simulation, _, _ = route_adams_problem("cartesian", "exponential")
     backend = NativeBackend(problem, run_request, grid=grid_simulation.grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        loaded = backend.observe().require_field().copy()
-        backend.propagate_to(end)
-        got = backend.observe().require_field().copy()
+        # The backend's session: its launch plane is the loaded state, masked to the
+        # band, and its last the state after the one step.
+        landed = run(backend, problem, run_request)
     finally:
         backend.close()
+    assert [event.z for event in landed.observations] == [0.0, end]
+    loaded, got = landed.fields[0], landed.fields[-1]
     # The exponent keeps the operator tables' leading axis of one.
     exponent = delta_phi(problem.linear, 0.0, end)[0]
     assert_within(

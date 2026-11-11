@@ -4,16 +4,15 @@
 
 """Which march steps a native Adams run (solprop SEP 39 section 6.6).
 
-The native march steps ``Multistep()`` in either formulation, and the one-order-higher
-PEC comparisons, adaptive or replayed, on the routes whose trial is one bundle of stage
-rows; any other configuration runs solprop's Python march on the same
-resident engine, with a ``HostMarchWarning`` that names the reason, and the run's
-metadata records which march stepped it. The private switch the benchmark harness uses
-selects the Python march without a warning. The other comparison variants are the
-reference's alone (solprop SEP 47 section 6.3): the backend refuses them by name before
-it allocates anything.
+The native march steps ``Multistep()`` in either formulation, adaptive or replayed, on
+every route the backend admits: since solprop SEP 47's phase 5 there is no Python march
+to fall back on, and what the native march does not step is refused by name before
+anything is allocated. The comparison family,
+``ComparisonMultistep``, is benchmark-only and the reference's alone (solprop SEP 47
+section 6.3): the backend refuses every variant by name before it allocates anything.
 """
 
+import copy
 import dataclasses
 import warnings
 
@@ -67,29 +66,17 @@ def test_the_default_march_is_native_without_a_warning(route):
         warnings.simplefilter("error", HostMarchWarning)
         backend = built(on_route(route, Multistep()))
     try:
-        assert backend._adams.native
         assert backend.metadata()["adams_march"] == "native"
     finally:
         backend.close()
 
 
-@pytest.mark.parametrize(
-    "integrator",
-    [
-        Multistep(formulation="interaction"),
-        ComparisonMultistep(corrector="pec", order=4, corrector_order=5),
-        ComparisonMultistep(
-            corrector="pec", order=4, corrector_order=5, interpolant="hermite"
-        ),
-    ],
-    ids=["interaction", "pec4/5", "pec4/5 hermite"],
-)
-def test_the_fused_methods_are_native(integrator):
+def test_the_fused_method_is_native():
     with warnings.catch_warnings():
         warnings.simplefilter("error", HostMarchWarning)
-        backend = built(on_route("gnlse", integrator))
+        backend = built(on_route("gnlse", Multistep(formulation="interaction")))
     try:
-        assert backend._adams.native
+        assert backend.metadata()["adams_march"] == "native"
     finally:
         backend.close()
 
@@ -109,7 +96,7 @@ def test_a_replayed_schedule_is_native():
         warnings.simplefilter("error", HostMarchWarning)
         backend = built(simulation)
     try:
-        assert backend._adams.native
+        assert backend.metadata()["adams_march"] == "native"
     finally:
         backend.close()
 
@@ -122,21 +109,74 @@ def test_a_replayed_schedule_is_native():
         ComparisonMultistep(corrector="none", order=3),
         ComparisonMultistep(corrector="pec", order=4),
         ComparisonMultistep(corrector="pec", order=4, corrector_order=4),
+        # The one-order-higher PEC variants, the selected recurrence under the
+        # comparison family's name, are benchmark-only too.
+        ComparisonMultistep(corrector="pec", order=4, corrector_order=5),
+        ComparisonMultistep(
+            corrector="pec", order=4, corrector_order=5, interpolant="hermite"
+        ),
+        ComparisonMultistep(
+            corrector="pec", order=4, corrector_order=5, variable_order=True
+        ),
     ],
-    ids=["pece4", "pece4/5", "ab3", "pec4 matched", "pec4/4"],
+    ids=[
+        "pece4",
+        "pece4/5",
+        "ab3",
+        "pec4 matched",
+        "pec4/4",
+        "pec4/5",
+        "pec4/5 hermite",
+        "pec4/5 variable",
+    ],
 )
-def test_a_comparison_variant_s_general_path_is_refused_before_allocation(
-    integrator, monkeypatch
+@pytest.mark.parametrize("device", [False, True], ids=["cpu", "device"])
+def test_every_comparison_variant_is_refused_before_allocation(
+    integrator, device, monkeypatch
 ):
-    # solprop SEP 47 section 6.3: reference-only, refused by name at admission. The
-    # native state, the first allocation, is never built.
+    # solprop SEP 47 section 6.3: benchmark-only and reference-only, refused by name
+    # at admission on CPU and device builds alike (the device patched in: the
+    # decision is the method's alone). The native state, the first allocation, is
+    # never built.
+    monkeypatch.setattr(backend_module, "_on_device", lambda: device)
     built_states = []
     monkeypatch.setattr(
         backend_module._core, "State", lambda *args: built_states.append(args)
     )
     with pytest.raises(BackendError, match="reference-only") as refused:
         built(on_route("gnlse", integrator))
-    assert f"comparison variant {integrator.name} " in str(refused.value)
+    message = str(refused.value)
+    assert f"comparison variant {integrator.name}: " in message
+    assert "backend='numpy_ref'" in message
+    assert built_states == []
+
+
+@pytest.mark.parametrize("leaf", ["operator", "prefactor"])
+def test_a_representation_the_stage_tables_do_not_read_is_refused_at_admission(
+    leaf, monkeypatch
+):
+    # solprop SEP 47 section 6.3: every representation the translation forms is read
+    # by the native stage tables, and the problem's own invariants keep each
+    # representation's leaves present, so no built-in configuration reaches a row
+    # the host forms. A problem stripped of its leaves anyway is refused by name at
+    # admission, before the native state is built, not stepped on host rows.
+    simulation = on_route("gnlse", Multistep())
+    problem = simulation.translate()
+    request = simulation._run_request()
+    owner = copy.copy(problem.linear if leaf == "operator" else problem.responses)
+    object.__setattr__(
+        owner, "phi_constant" if leaf == "operator" else "prefactor_constant", None
+    )
+    stripped = copy.copy(problem)
+    object.__setattr__(stripped, "linear" if leaf == "operator" else "responses", owner)
+    assert not backend_module.stage_tables_available(stripped)
+    built_states = []
+    monkeypatch.setattr(
+        backend_module._core, "State", lambda *args: built_states.append(args)
+    )
+    with pytest.raises(BackendError, match="does not read") as refused:
+        NativeBackend(stripped, request, grid=simulation.grid, modes=simulation.modes)
+    assert f"the {leaf}'s 'constant' representation" in str(refused.value)
     assert built_states == []
 
 
@@ -148,19 +188,18 @@ def test_moving_maps_and_coupled_flows_are_native(route):
         warnings.simplefilter("error", HostMarchWarning)
         backend = built(on_route(route, Multistep()))
     try:
-        assert backend._adams.native
+        assert backend.metadata()["adams_march"] == "native"
     finally:
         backend.close()
 
 
-def test_the_host_engine_takes_the_host_march(monkeypatch):
-    # A coupled flow off the eigenbasis route or wider than sixteen channels keeps the
-    # host engine (ADR-044), whose history the native march cannot reach.
-    monkeypatch.setattr(NativeBackend, "_adams_engine", lambda *_: None)
-    with pytest.warns(HostMarchWarning, match="the host engine"):
-        backend = built(on_route("capillary (coherent wall)", Multistep()))
+def test_the_untransported_witness_is_refused():
+    # The untransported compensation is the reference's test witness (SEP 16 Q8):
+    # native steps the transported one and refuses the witness by name.
+    backend = built(on_route("capillary (pressure gradient)", Multistep()))
     try:
-        assert not backend._adams.native
+        with pytest.raises(BackendError, match="untransported"):
+            backend._adams_engine(Multistep(), "untransported")
     finally:
         backend.close()
 
@@ -170,8 +209,8 @@ def test_the_host_engine_takes_the_host_march(monkeypatch):
     reason="device builds refuse the carrier frame by name",
 )
 def test_the_carrier_frame_is_native():
-    # The chord of a constant or an expanded operator is formed natively; a z table's
-    # stays solprop's.
+    # The chord of a constant, an expanded or a tabulated operator is formed natively
+    # (tests/sessions/test_native_session_carrier_table.py for the z table's).
     from backends.test_carrier_frame import (  # noqa: PLC0415 - a heavy module
         SCALAR,
         capillary,
@@ -181,20 +220,8 @@ def test_the_carrier_frame_is_native():
         warnings.simplefilter("error", HostMarchWarning)
         backend = built(capillary(SCALAR))
     try:
-        assert backend._adams.native
+        assert backend.metadata()["adams_march"] == "native"
         assert backend._adams._policy.carrier
-    finally:
-        backend.close()
-
-
-def test_the_private_switch_takes_the_host_march_quietly():
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", HostMarchWarning)
-        backend = built(on_route("gnlse", Multistep()), adams_march="host")
-    try:
-        assert not backend._adams.native
-        assert backend._adams.refusal == "the private switch asked for it"
-        assert backend.metadata()["adams_march"] == "host"
     finally:
         backend.close()
 

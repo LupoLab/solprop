@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -38,7 +39,7 @@
  *
  * The scheduler's decisions -- which plane is next, when a step plane, a statistics
  * row, a bounded yield or a snapshot falls due, and the reached and replay tolerances
- * -- are solprop's `DriverSession`, `StepDriver` and `solprop.backends.driver`
+ * -- are solprop's `DriverSession`, `HostDriver` and `solprop.backends.host.driver`
  * functions, transcribed. Like the marches they are compiled strict (no contraction, no
  * fast-math) in their own translation unit, so they round as solprop's Python does;
  * that unit also holds the export, whose recipe is `solprop.backends.export`'s
@@ -127,6 +128,9 @@ public:
   virtual void set_collar_quiet(bool /*quiet*/) {
     throw std::logic_error("this state cannot rest its collar");
   }
+  /** The largest accepted step's transverse quadrature score since the last read,
+      clearing it (`quadrature_peak`); NaN where none was scored. */
+  virtual double quadrature_peak() { return std::numeric_limits<double>::quiet_NaN(); }
   /** The committed state's transverse edge reading (`state.edge_reading`, SEP 44): the
       faces' sums and the columns when `faces`, with the clip and totals of every node
       when `whole`, the totals when `totals`, a collar's strip when `strip` and its
@@ -156,6 +160,9 @@ struct MonitorPlan {
   /** A free-space run's transverse edge, and the `transverse` record it continues. */
   std::optional<transverse::Config> edge;
   transverse::Resumption edge_record;
+  /** The input noise's readings the edge's launch carries, formed from its draw on the
+      host once (`TransverseEdge.launch`'s `noise`); none without input noise. */
+  std::optional<transverse::Noise> edge_noise;
 };
 
 /** The Adams march a session runs: its policy, state, replayed schedule and engine,
@@ -364,6 +371,13 @@ public:
   /** The boundary monitor's record (`BoundaryMonitor.summary`'s numbers), or none
       without a monitor; takes the session's lock. */
   [[nodiscard]] std::optional<watch::Record> monitor_record() const;
+  /** The split collar's crossing cap the monitor holds (`step_cap`), m, or none
+      without a monitor; takes the session's lock. Outside the record, whose layout is
+      the reference's. */
+  [[nodiscard]] std::optional<double> monitor_cap() const;
+  /** The resident state's quadrature peak since the last read (`Resident::
+      quadrature_peak`), NaN once closed; takes the session's lock. */
+  [[nodiscard]] double quadrature_peak();
   /** The transverse edge's record (`TransverseEdge.summary`'s numbers) and its finish,
       or none without an edge; takes the session's lock. */
   [[nodiscard]] std::optional<std::pair<transverse::Record, transverse::Finish>>
@@ -542,7 +556,7 @@ private:
     returned at `position` reached the plane it was sent to (`DriverSession.advance`).
  */
 [[nodiscard]] bool plane_reached(double position, double target);
-/** `solprop.backends.driver.replay_tolerance`: a replayed edge's slack at `position`,
+/** `solprop.stepper.schedule.replay_tolerance`: a replayed edge's slack at `position`,
     m, for a schedule of `steps` steps and length `length`. */
 [[nodiscard]] double replay_tolerance(std::size_t steps, double length, double position,
                                       int landing_ulps);

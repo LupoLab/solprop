@@ -417,6 +417,10 @@ CoupledFlowAction::CoupledFlowAction(const Problem& problem,
     upload(kernels_, right_, problem.flow_right);
     upload(kernels_, eigenvalues_, problem.flow_eigenvalues);
     upload(kernels_, route_, problem.flow_route);
+    section_fallback_.assign(sections_, 0U);
+    for (std::size_t index = 0; index < problem.flow_route.size(); ++index)
+      if (problem.flow_route[index] != 0)
+        section_fallback_[index / active_] = 1U;
     upload(kernels_, fallback_vectors_, problem.flow_fallback_vectors);
     upload(kernels_, fallback_triangular_, problem.flow_fallback_triangular);
   }
@@ -511,6 +515,10 @@ CoupledFlowAction::form_actions(const std::size_t section, const double dz,
             measured_host_.begin());
   ready_ = true;
   return measured_host_;
+}
+
+bool CoupledFlowAction::falls_back(const std::size_t section) const {
+  return section < section_fallback_.size() && section_fallback_[section] != 0U;
 }
 
 CoupledFlowAction::~CoupledFlowAction() { close(); }

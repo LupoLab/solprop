@@ -15,6 +15,7 @@ from tests.driver.test_run import NullBackend
 
 from solprop.backends.multistep import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.protocol import stepping
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -525,7 +526,7 @@ def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path
             )
             == 0
         )
-        assert backend.observe().z == 5e-6
+        assert stepping(backend).observe().z == 5e-6
         assert state.checkpoint is not None
         invalid = dataclasses.replace(
             state, checkpoint=dataclasses.replace(state.checkpoint, next_save_index=1)
@@ -566,7 +567,7 @@ def test_ordinary_resume_without_outcome_restores_plane_and_starts_fresh_ledgers
             )
             == 1
         )
-        observed = backend.observe()
+        observed = stepping(backend).observe()
         assert observed.z == 5e-6
         assert_array_equal(
             observed.require_field()[..., problem.grids.active_mask],
@@ -1170,7 +1171,7 @@ def test_a_resume_without_an_outcome_loads_the_field_without_restoring_ledgers(
             )
             == 0
         )
-        assert backend.observe().z == state.plane.z
+        assert stepping(backend).observe().z == state.plane.z
     finally:
         backend.close()
 
@@ -1230,8 +1231,8 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
         "numpy_ref", problem, run_request, grid=grid, modes=simulation.modes
     )
     try:
-        backend.set_initial(problem.initial.field0, None)
-        field = backend.observe().require_field().copy()
+        stepping(backend).set_initial(problem.initial.field0, None)
+        field = stepping(backend).observe().require_field().copy()
         state = ResumeState(
             simulation.metadata(),
             SavedPlane(z=5e-6, field=field),
@@ -1252,7 +1253,7 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
             )
             == 0
         )
-        restored = backend.observe()
+        restored = stepping(backend).observe()
         assert restored.z == state.plane.z
         assert_array_equal(restored.require_field(), field)
     finally:

@@ -20,6 +20,8 @@ import numpy as np
 import pytest
 
 from convergence_records import Column, Study, record
+from sessions.executors import IDENTITY
+from sessions.runs import launch_statistics, launched, run
 from solprop import fourier
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
@@ -98,12 +100,18 @@ def build(grid, modes, field0, **overrides):
         return assemble(grid, modes, responses, field0, **request)
 
 
-def propagate(backend_class, problem, run_request, grid, distance=LENGTH, options=None):
-    """Run a problem to a position and return the plane and the backend."""
+def propagate(backend_class, problem, run_request, grid, options=None, stats=()):
+    """Run a problem to its plane at `LENGTH` through the backend's own session.
+
+    Returns the plane, with the statistics named in `stats`, and the backend, still
+    open.
+    """
     backend = backend_class(problem, run_request, grid=grid, options=options)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(distance)
-    return backend.observe(), backend
+    if stats:
+        run_request = run_request.for_run(stats=StatsSpec(names=stats))
+    plane = run(backend, problem, run_request).final
+    assert plane.z == LENGTH
+    return plane, backend
 
 
 def peak_gap(got, want):
@@ -111,9 +119,25 @@ def peak_gap(got, want):
     return float(np.max(np.abs(got - want)) / np.max(np.abs(want)))
 
 
-def quadrature_alarm(backend):
-    """Read the last scored alarm from the implementation's owner."""
-    return backend._alarm
+def quadrature_alarm(plane):
+    """Read the alarm a session's plane reports as its statistic."""
+    return float(plane.stats["quadrature_error"])
+
+
+def scored_alarm(backend):
+    """Read the last step's quadrature score from the backend's own owner.
+
+    The reference keeps it on the backend; the native backend's state keeps the last
+    step's score its session's march left (``_core.State.quadrature_error``), which
+    is what the warning of the retired step driver quoted.
+    """
+    if backend.name == "numpy_ref":
+        return backend._alarm
+    return backend._native_state.quadrature_error
+
+
+ALARM = ("quadrature_error",)
+"""The statistics of a run whose alarm a test reads."""
 
 
 def pulse(grid, count=1, energy=ENERGY):
@@ -365,10 +389,10 @@ def test_the_alarm_fires_on_a_rule_too_coarse_for_the_field(
     rule = transverse_quadrature(modes, n_r=8, radial_rule="gauss_kronrod")
     problem, run_request = build(grid, modes, pulse(grid, 3), quadrature=rule)
     with caplog.at_level(logging.WARNING, logger="solprop.backends.numpy_ref.backend"):
-        _, backend = propagate(backend_class, problem, run_request, grid)
-    # Measured 1.6e-1: nine radial nodes cannot integrate the quartic of three Bessel
+        plane, _ = propagate(backend_class, problem, run_request, grid, stats=ALARM)
+    # Measured 2.4e-1: nine radial nodes cannot integrate the quartic of three Bessel
     # profiles, and no step size can fix that.
-    assert quadrature_alarm(backend) > 1e-6
+    assert quadrature_alarm(plane) > 1e-6
     assert (
         sum("transverse quadrature" in record.message for record in caplog.records) == 1
     )
@@ -383,10 +407,10 @@ def test_the_alarm_is_silent_on_a_rule_that_resolves_the_field(
     )
     problem, run_request = build(grid, modes, pulse(grid, 3), quadrature=rule)
     with caplog.at_level(logging.WARNING, logger="solprop.backends.numpy_ref.backend"):
-        _, backend = propagate(backend_class, problem, run_request, grid)
-    # Measured 7.2e-9, two orders below the alarm and falling by three orders for every
+        plane, _ = propagate(backend_class, problem, run_request, grid, stats=ALARM)
+    # Measured 1.8e-8, two orders below the alarm and falling by three orders for every
     # eight nodes added.
-    assert 0.0 < quadrature_alarm(backend) < 1e-6
+    assert 0.0 < quadrature_alarm(plane) < 1e-6
     assert not caplog.records
 
 
@@ -478,8 +502,8 @@ def test_a_rule_with_no_embedded_pair_reports_nothing_rather_than_zero(
     rule = transverse_quadrature(modes, n_r=8, radial_rule="gauss")
     problem, run_request = build(grid, modes, pulse(grid, 2), quadrature=rule)
     with caplog.at_level(logging.WARNING, logger="solprop.backends.numpy_ref.backend"):
-        _, backend = propagate(backend_class, problem, run_request, grid)
-    assert math.isnan(quadrature_alarm(backend))
+        plane, _ = propagate(backend_class, problem, run_request, grid, stats=ALARM)
+    assert math.isnan(quadrature_alarm(plane))
     assert not caplog.records
 
 
@@ -596,14 +620,9 @@ def test_the_two_routes_to_a_vector_run_agree_on_a_uniformly_polarised_pair(
     k = 2 * resolved_rule.n_nodes + 2
     unit = np.finfo(float).eps / 2
     bound = steps * 7 * k * unit / (1 - k * unit)
-    peak = np.max(np.abs(by_state.require_field()))
+    peak = np.max(np.abs(by_state.field))
     for component in range(2):
-        gap = np.max(
-            np.abs(
-                by_rows.require_field()[component, 0]
-                - by_state.require_field()[0, component]
-            )
-        )
+        gap = np.max(np.abs(by_rows.field[component, 0] - by_state.field[0, component]))
         assert gap / peak <= bound
 
 
@@ -652,14 +671,18 @@ def test_the_peak_intensity_is_taken_on_the_axis(backend_class, grid, capillary)
     rule = transverse_quadrature(modes, n_r=16, radial_rule="gauss_kronrod")
     problem, run_request = build(grid, modes, pulse(grid, 2), quadrature=rule)
     backend = backend_class(problem, run_request, grid=grid, modes=modes)
-    backend.set_initial(problem.initial.field0, None)
-    plane = backend.observe()
-    got = backend.stats(StatsSpec(names=("peak_intensity",)))["peak_intensity"]
+    # The launch plane of the backend's own session: the loaded state and its statistic.
+    with launched(
+        backend,
+        problem,
+        run_request.for_run(stats=StatsSpec(names=("peak_intensity",))),
+    ) as (session, launch):
+        field = np.array(session.export(launch.ticket, IDENTITY))
+        got = np.array(launch.stats["peak_intensity"])
+    backend.close()
     # Both routes evaluate the same Bessel profiles at r = 0 and the same analytic
     # signal, so they agree to the round-off of a two-term sum.
-    assert float(got) == pytest.approx(
-        on_axis_intensity(grid, modes, plane.field), rel=1e-14
-    )
+    assert float(got) == pytest.approx(on_axis_intensity(grid, modes, field), rel=1e-14)
 
 
 def test_the_on_axis_intensity_needs_the_mode_set(backend_class, grid, capillary):
@@ -668,9 +691,13 @@ def test_the_on_axis_intensity_needs_the_mode_set(backend_class, grid, capillary
     rule = transverse_quadrature(modes, n_r=16, radial_rule="gauss_kronrod")
     problem, run_request = build(grid, modes, pulse(grid, 2), quadrature=rule)
     backend = backend_class(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
     with pytest.raises(BackendError, match="needs the mode set"):
-        backend.stats(StatsSpec(names=("peak_intensity",)))
+        launch_statistics(
+            backend,
+            problem,
+            run_request.for_run(stats=StatsSpec(names=("peak_intensity",))),
+        )
+    backend.close()
 
 
 def test_the_alarm_is_reported_as_a_statistic(backend_class, grid, capillary):
@@ -680,8 +707,10 @@ def test_the_alarm_is_reported_as_a_statistic(backend_class, grid, capillary):
         modes, n_r=CONVERGED_N_R_SET, radial_rule="gauss_kronrod"
     )
     problem, run_request = build(grid, modes, pulse(grid, 3), quadrature=rule)
-    _, backend = propagate(backend_class, problem, run_request, grid)
-    values = backend.stats(StatsSpec(names=("quadrature_error", "energy")))
-    assert float(values["quadrature_error"]) == quadrature_alarm(backend)
+    plane, backend = propagate(
+        backend_class, problem, run_request, grid, stats=("quadrature_error", "energy")
+    )
+    values = plane.stats
+    assert float(values["quadrature_error"]) == scored_alarm(backend)
     assert values["quadrature_error"].shape == ()
     assert values["energy"].shape == (3, 1)

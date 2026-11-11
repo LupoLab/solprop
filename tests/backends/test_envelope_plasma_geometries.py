@@ -18,6 +18,7 @@ from backends.host_cases_envelope_plasma import (
 )
 from backends.matched import native_thread_fields
 from bounds import assert_within, device_backend
+from sessions.runs import run as session_run
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.numpy_ref.envelope_plasma import envelope_populations
@@ -40,10 +41,11 @@ def envelope_mixture():
 def run(backend_class, problem, run_request, grid, options=None):
     backend = backend_class(problem, run_request, grid=grid, options=options)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(grid.length)
+        result = session_run(backend, problem)
+        # The run's one save plane is its end: its summary spans the run.
+        summary = result.observations[-1].summary
         assert summary.met_tolerance and summary.n_steps == 2
-        return backend.observe().require_field().copy(), backend.memory_ledger()
+        return result.fields[-1], backend.memory_ledger()
     finally:
         backend.close()
 
@@ -220,16 +222,16 @@ def test_envelope_statistics_use_cycle_rates_on_all_host_geometries(
             options=geometry_options(geometry),
         )
         try:
-            backend.set_initial(problem.initial.field0, None)
-            initial = backend.stats(spec)
-            backend.propagate_to(grid.length)
-            final = backend.stats(spec)
-            rows = backend.observe().step_stats
+            result = session_run(backend, problem, export=None)
+            # The launch plane's statistics and the end's, the run's one save plane.
+            initial = result.observations[0].stats
+            final = result.observations[-1].stats
+            taken = result.joined[1]
             for name in periodic:
                 # The final periodic row and saved-plane scan see the same field, so
                 # they are one evaluation repeated: within the statistics' budget.
                 np.testing.assert_allclose(
-                    rows.values[name][-1],
+                    taken.values[name][-1],
                     final[name],
                     rtol=bound,
                     atol=bound * max(float(np.max(np.abs(final[name]))), 1e-300),

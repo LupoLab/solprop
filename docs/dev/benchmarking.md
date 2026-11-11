@@ -299,7 +299,7 @@ uv run python -m benchmarks ab --set sep47 --threads 1 --counters \
 | `group_batch` | the same four points on `Batch(4)`, replaying ten 1.6 mm steps with the split-step collar | ten common steps of four members |
 | `radial_filament_256_{saved,free}_{memory,hdf5}` | the radial filament's first 3 mm, four planes, every field kept or none, to memory or to HDF5 | four planes, transverse-edge reads and collar checks |
 | `cartesian_filament_128_{saved,free}_{memory,hdf5}` | the Cartesian filament's first 1 mm, likewise | the same on a 128² grid |
-| `taper_flow_4`, `taper_flow_17` | 40 µm of a He capillary tapering from 50 to 48 µm with taper coupling, 4 or 17 modes | a coupled flow on the native Adams march, and one wider than 16 channels on solprop's host march (`HostMarchWarning`) |
+| `taper_flow_4`, `taper_flow_17` | 40 µm of a He capillary tapering from 50 to 48 µm with taper coupling, 4 or 17 modes | a coupled flow on the native Adams march, and one wider than 16 channels, whose host passes hold each bin's channel vectors in a row of their own (a device build's passes hold none) |
 
 Today a snapshot controller needs `step_planes=1` and HDF5 output, so the snapshot cases
 save a plane at every step; their variant without step planes becomes possible with SEP
@@ -323,22 +323,21 @@ statistics call, an edge read, a field crossing or load, a low-storage or group 
 native session's `advance` or export): the per-attempt hooks are installed only while
 counting, and nothing else is computed, so no ledger entry was taken for them.
 
-A native run is served either by the native execution session
-(`solprop_native.session.NativeSession`, whenever it admits the run) or by the
-transitional bridge (`DriverSession` over the native backend's marches, for what the
-session refuses). Both are counted into the same record, so that an arm on the bridge
-and an arm on the session can be compared key for key; where the two differ in kind,
-the session's key starts `session_`. The record (`solprop_native._counters`, private to
+A native run is served by the native execution session
+(`solprop_native.session.NativeSession`), the only native executor since SEP 47 phase
+5. The record keeps the keys the transitional bridge's runs were counted under, so that
+an arm measured before phase 5 can be compared key for key with one after; the
+session's own keys start `session_`. The record (`solprop_native._counters`, private to
 the harness) holds:
 
-- `native_returns`: every return to Python, by cause. On the bridge, a native march
-  call's reason (`reached`, `monitor` for a boundary-monitor check by distance, `bound`
+- `native_returns`: every return to Python, by cause. For a native march called from
+  Python (the backend's own march, which no run takes since phase 5), a call's reason (`reached`, `monitor` for a boundary-monitor check by distance, `bound`
   for its attempt or time limit, `watch`, `capacity` and the errors), with `host_step`
   split by the driver's work due on its last step: `statistics`, `step_planes`,
   `monitor` (the check by steps), `transverse` (a collar's per-step current) or
   `transverse_read`, joined with `+` when several fall due together; then
   `host_attempt` for each attempt solprop's own loop steps, `low_storage_step` for the
-  low-storage march and `group_step` for a transitional native group's lockstep step.
+  low-storage march.
   A native session returns once per `advance`, by its batch's event:
   `session_observation`, `session_snapshot` (a requested snapshot serviced),
   `session_warning`, `session_terminal`, or `session_progress` with its cause,

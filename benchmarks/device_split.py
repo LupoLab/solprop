@@ -8,8 +8,10 @@ One input of a delay scan through :class:`solprop.driver.SimulationRunner`, with
 fields kept: a fused-silica Kerr beam at 260 nm on fixed low-storage RK4IP steps, with
 and a stated input identity. It runs with ``boundary_check=None`` and
 with the default check, budgets relaxed so that nothing stops, and profiles one point
-of each. Then it times what a plane can ask of a device: a state's copy to the host, an
-observation and the common statistics.
+of each. Then it times what a plane can ask of a device through the native session
+(``solprop_native.session``): a state's copy to the host, the launch plane's field
+exported in the internal convention and in the stored one, and the common statistics,
+each the launch of a session whose request asks for that statistic alone.
 
 Usage::
 
@@ -19,8 +21,10 @@ It prints one JSON object per section (``record``, ``setup``, ``point`` twice,
 ``calls``), and writes them to ``FILE`` too when given. ``point`` names each function's
 calls, own and cumulative seconds, and ``calls`` each crossing's minor page faults.
 The profiler inflates Python-heavy work, so compare ``walls_s``, which it doesn't run
-under. ``calls`` also splits a width: its native moments, and what the same azimuthal
-average takes on the host. The native backend is required, and a device build is what
+under. A statistic's time is a session's start and launch plane, the statistic evaluated
+natively there: subtract ``none``'s, which asks for none, for the statistic's share.
+``calls`` also splits a width: its native moments, and what the same azimuthal average
+takes on the host. The native backend is required, and a device build is what
 it's for; on a CPU build the crossings are plain copies.
 """
 
@@ -41,6 +45,10 @@ from typing import Any
 
 import numpy as np
 
+from solprop.backends.events import ObservationReady
+from solprop.backends.export import ExportRecipe
+from solprop.backends.registry import select
+from solprop.backends.session import Start
 from solprop.constants import EPS0, MU0, C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, FreeGrid
@@ -93,7 +101,11 @@ def _shell(command: str) -> str:
 
 
 def _simulation(
-    nx: int, steps: int, planes: int, check: BoundaryCheck | None
+    nx: int,
+    steps: int,
+    planes: int,
+    check: BoundaryCheck | None,
+    stats: StatsSpec | None = None,
 ) -> Simulation:
     length = STEP * steps
     half = 183e-6 * nx / 384 * 1.1
@@ -112,7 +124,7 @@ def _simulation(
         backend="native",
         boundary_check=check,
         fields="none",
-        stats=StatsSpec(names=("energy",)),
+        stats=StatsSpec(names=("energy",)) if stats is None else stats,
     )
     return Simulation.from_free(
         grid,
@@ -171,9 +183,66 @@ def _timed(call: Any, repeats: int) -> dict[str, float]:
     }
 
 
-def _calls(backend: Any) -> dict[str, Any]:
-    specs = {
-        name: StatsSpec(names=(name,))
+def _native(simulation: Simulation) -> tuple[Any, Any, Any]:
+    """Return a simulation's problem, run request and native backend.
+
+    Parameters
+    ----------
+    simulation : solprop.driver.Simulation
+        The simulation.
+
+    Returns
+    -------
+    tuple
+        The translated problem, its run request and a constructed native backend,
+        which the caller closes.
+    """
+    problem = simulation.translate()
+    request = simulation._run_request()
+    backend = select(
+        "native",
+        problem,
+        request,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
+    )
+    return problem, request, backend
+
+
+def _launch(backend: Any, problem: Any, request: Any) -> Any:
+    """Return a call that starts a session and takes its launch plane.
+
+    Parameters
+    ----------
+    backend : solprop_native.backend.NativeBackend
+        The backend, which each session leaves open.
+    problem, request : object
+        The run's problem and request.
+
+    Returns
+    -------
+    collections.abc.Callable
+        The call, returning the launch's statistics.
+    """
+    prepared = backend.prepare(problem, request)
+
+    def launch() -> object:
+        with prepared.start(Start.entrance(problem), owns=False) as session:
+            while True:
+                batch = session.advance()
+                for event in batch.events:
+                    if isinstance(event, ObservationReady):
+                        return dict(event.stats)
+                session.acknowledge(batch.receipt)
+
+    return launch
+
+
+def _calls(nx: int, steps: int, planes: int) -> dict[str, Any]:
+    specs = {"none": StatsSpec(names=())}
+    specs.update(
+        (name, StatsSpec(names=(name,)))
         for name in (
             "energy",
             "beam_spectrum",
@@ -183,26 +252,53 @@ def _calls(backend: Any) -> dict[str, Any]:
             "beam_radius",
             "fwhm_r",
         )
-    }
+    )
     specs["default"] = default_spec("free")
-    geometry = backend._problem.transform.geometry
+    problem, request, backend = _native(_simulation(nx, steps, planes, None))
+    geometry = problem.transform.geometry
     x, y = geometry.axes
     state = backend._native_state
-    return {
-        "crossings": {
-            "field_to_host": _timed(state.field_to_host, 3),
-            "observe_field": _timed(lambda: backend.observe(field=True), 3),
-            "observe_free": _timed(lambda: backend.observe(field=False), 3),
-        },
-        "statistics": {
-            name: _timed(lambda spec=spec: backend.stats(spec), 5)
-            for name, spec in specs.items()
-        },
+    try:
+        with backend.prepare(problem, request).start(
+            Start.entrance(problem), owns=False
+        ) as session:
+            batch = session.advance()
+            ticket = None
+            while True:
+                ticket = next(
+                    (
+                        event.ticket
+                        for event in batch.events
+                        if isinstance(event, ObservationReady)
+                    ),
+                    None,
+                )
+                if ticket is not None:
+                    break
+                session.acknowledge(batch.receipt)
+                batch = session.advance()
+            out = np.empty(problem.shape, dtype=np.complex128)
+            exports = {
+                "export_internal": _timed(
+                    lambda: session.export(
+                        ticket, ExportRecipe(power=False, optics=False), out
+                    ),
+                    3,
+                ),
+                "export_stored": _timed(
+                    lambda: session.export(
+                        ticket, ExportRecipe(power=False, optics=True), out
+                    ),
+                    3,
+                ),
+            }
+            session.acknowledge(batch.receipt)
+        crossings = {"field_to_host": _timed(state.field_to_host, 3), **exports}
         # A width's parts: the fluence and its moments, one native call; and what the
         # host's azimuthal average of a Gaussian's fluence takes on this machine.
-        "widths": {
+        widths = {
             "moments": _timed(
-                lambda: state.spatial_statistics(32, 0.5 * EPS0 * C, backend._z), 5
+                lambda: state.spatial_statistics(32, 0.5 * EPS0 * C, 0.0), 5
             ),
             "host_average": _timed(
                 lambda: cartesian_fluence_widths(
@@ -212,8 +308,19 @@ def _calls(backend: Any) -> dict[str, Any]:
                 ),
                 3,
             ),
-        },
-    }
+        }
+    finally:
+        backend.close()
+    statistics_ms: dict[str, Any] = {}
+    for name, spec in specs.items():
+        problem, request, backend = _native(
+            _simulation(nx, steps, planes, None, stats=spec)
+        )
+        try:
+            statistics_ms[name] = _timed(_launch(backend, problem, request), 3)
+        finally:
+            backend.close()
+    return {"crossings": crossings, "statistics": statistics_ms, "widths": widths}
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -282,8 +389,7 @@ def main(argv: list[str] | None = None) -> None:
             runner.run(field, progress="none", input_identity="profiled")
             profile.disable()
             emit("point", check=name, walls_s=walls, **_profile_summary(profile))
-            if check is None:
-                emit("calls", **_calls(runner.backend))
+    emit("calls", **_calls(arguments.nx, arguments.steps, arguments.planes))
     if sink is not None:
         sink.close()
 

@@ -402,11 +402,10 @@ class CalibrationNotice(SolpropWarning):
 class HostMarchWarning(SolpropWarning):
     """The native backend steps a run with solprop's Python march.
 
-    The native backend executes the ``Multistep()`` march (SEP 39) and the adaptive
-    ``RungeKutta()`` march (SEP 45) natively wherever it covers the configuration;
-    elsewhere it runs solprop's own march, the reference, with the same method and
-    accuracy at a higher host cost per step. The warning names the reason, and the
-    run's backend record says which march ran (``adams_march``, ``rk_march``).
+    No built-in backend issues it since SEP 47's phase 5: the native backend steps
+    every run it admits with its own ``Multistep()`` (SEP 39) and ``RungeKutta()``
+    (SEP 45) marches and refuses the rest by name. The class stays importable for
+    warning filters that name it.
     """
 
 

@@ -24,8 +24,8 @@ from flow_parity import (
     run,
     ten_step_bound,
 )
-from solprop.backends.driver import refuse_general_leaves
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.admission import refuse_general_leaves
 from solprop.backends.numpy_ref.backend import _coupled_flow_maps
 from solprop.exceptions import BackendError
 from solprop.translate.coupled import constant_schur_flow, orthonormal_metric

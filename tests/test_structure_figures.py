@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import passes
 from solprop.backends.protocol import Backend
 from solprop.output import schema
@@ -184,8 +184,8 @@ def test_the_stage_figure_draws_every_reference_pass():
     "name", [name for _, members in build.DRIVER_PARTS for name in members]
 )
 def test_every_driver_part_is_a_member_of_the_step_driver(name):
-    """Figure 5 breaks `StepDriver` into parts, and each part names real members."""
-    assert hasattr(StepDriver, name)
+    """Figure 5 breaks `HostDriver` into parts, and each part names real members."""
+    assert hasattr(HostDriver, name)
 
 
 @pytest.mark.parametrize("name", build.CONTROLLER_PARTS)

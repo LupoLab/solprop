@@ -7,12 +7,13 @@
 :class:`solprop_native.group.NativeGroupSession` marches each member through the
 common fixed schedule in its own native session, in rounds of common steps
 (:data:`solprop_native.group.ROUND_STEPS`). A member's trajectory is its lone native
-session's, which is also the transitional lockstep group's: these tests hold the two
-groups to the same fields, statistics, attempts and rows, bit for bit at one thread. A
+session's: these tests hold each member to the same problem run alone through the
+native session -- the same fields, statistics, attempts and rows, bit for bit at one
+thread. A
 failure is injected natively (``adams_march_fault``) to place the group's failures: a
 member ahead of the failing one in its round has committed and recorded its steps, and
 each member ends at its own committed position. The protocol's conformance tests,
-which both groups pass, are in ``test_group.py``.
+which the reference's group passes too, are in ``test_group.py``.
 """
 
 import dataclasses
@@ -26,7 +27,8 @@ import numpy as np
 import pytest
 
 from march_bounds import FIXED_ORDER
-from sessions.executors import DEVICE_GROUP, device_build
+from sessions.executors import Started, skip_device_refused
+from sessions.executors import drive as drive_session
 from sessions.test_group import (
     IDENTITY,
     PLANES,
@@ -36,7 +38,6 @@ from sessions.test_group import (
     group_of,
     member,
 )
-from solprop.backends.driver_session import DriverGroupSession
 from solprop.backends.events import (
     Eligibility,
     EventBatch,
@@ -54,8 +55,6 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import FixedSchedule
 
 group_module = pytest.importorskip("solprop_native.group")
-
-pytestmark = pytest.mark.skipif(device_build(), reason=DEVICE_GROUP)
 
 INTEGRATORS = {
     "runge_kutta": None,
@@ -85,7 +84,6 @@ def _started(
     cleanup: ExitStack,
     *,
     faults: Mapping[int, tuple[int, str]] | None = None,
-    transitional: bool = False,
 ) -> Any:
     """Start a group of members, arming native faults first; return the group.
 
@@ -98,8 +96,6 @@ def _started(
     faults : collections.abc.Mapping or None, optional
         Per member, how many runs of a march stage succeed and the stage that then
         fails (``adams_march_fault``, a backend failure).
-    transitional : bool, optional
-        Start the transitional group over the lockstep runner in place of the door's.
 
     Returns
     -------
@@ -112,8 +108,7 @@ def _started(
         owners[index]._native_state.adams_march_fault(stage, after, "backend")
     requests = [one._run_request() for one in simulations]
     starts = [Start.entrance(problem) for problem in problems]
-    kind = DriverGroupSession if transitional else start_group
-    group = kind(owners, problems, requests, starts)
+    group = start_group(owners, problems, requests, starts)
     cleanup.callback(group.close)
     return group
 
@@ -158,6 +153,61 @@ def _record(group: Any) -> list[list[dict[str, Any]]]:
     return planes
 
 
+def _lone(simulation: Any) -> list[dict[str, Any]]:
+    """Run one member alone through the native session; record it as :func:`_record`.
+
+    Parameters
+    ----------
+    simulation : solprop.driver.Simulation
+        The member.
+
+    Returns
+    -------
+    list
+        Per plane: the field, the plane statistics, the attempts, the periodic rows and
+        the noise phase.
+    """
+    from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        NativeSession,
+    )
+
+    problem = simulation.translate()
+    session = NativeSession(
+        problem,
+        simulation._run_request(),
+        Start.entrance(problem),
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
+    )
+    planes: list[dict[str, Any]] = []
+    try:
+        while not session.finished:
+            batch = session.advance()
+            for event in batch.events:
+                if isinstance(event, ObservationReady):
+                    history, rows = event.history, event.step_stats
+                    phase = session.noise_phase(event.ticket)
+                    planes.append(
+                        {
+                            "field": np.array(session.export(event.ticket, IDENTITY)),
+                            "stats": {k: np.asarray(v) for k, v in event.stats.items()},
+                            "attempts": np.stack(
+                                [history.z, history.dz, history.error_norm]
+                            ),
+                            "accepted": history.accepted.copy(),
+                            "row_z": rows.z.copy(),
+                            "row_step": rows.step.copy(),
+                            "rows": {k: v.copy() for k, v in rows.values.items()},
+                            "phase": None if phase is None else np.array(phase),
+                        }
+                    )
+            session.acknowledge(batch.receipt)
+    finally:
+        session.close()
+    return planes
+
+
 def _same(left: Any, right: Any) -> bool:
     """Return whether two recorded values agree exactly, nested containers included.
 
@@ -178,13 +228,11 @@ def _same(left: Any, right: Any) -> bool:
     return bool(np.array_equal(left, right))
 
 
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize("name", sorted(INTEGRATORS))
-def test_a_native_member_marches_as_the_transitional_group_bit_for_bit(name):
-    """Each member's fields, statistics, attempts and rows are the transitional
-    group's exactly: both march the member alone through its own native kernels in
-    one operation order, the lockstep's fused accepted update reducing each member's
-    norm as its lone run does (structural identity, one thread).
+def test_a_native_member_marches_as_its_lone_session_bit_for_bit(name):
+    """Each member's fields, statistics, attempts and rows are its lone native
+    session's exactly: the group marches each member alone through its own native
+    session, in one operation order (structural identity, one thread).
     """
     if not _one_thread():
         pytest.skip(
@@ -192,22 +240,19 @@ def test_a_native_member_marches_as_the_transitional_group_bit_for_bit(name):
             "default lane runs one (SOLPROP_NATIVE_THREADS=1)"
         )
     integrator = INTEGRATORS[name]
-    recorded = []
-    for transitional in (False, True):
-        with ExitStack() as cleanup:
-            simulations = [member(index, "native", integrator) for index in range(3)]
-            group = _started(simulations, cleanup, transitional=transitional)
-            expected = (
-                DriverGroupSession if transitional else group_module.NativeGroupSession
-            )
-            assert isinstance(group, expected)
-            recorded.append(_record(group))
-    native, lockstep = recorded
-    for index, (ours, theirs) in enumerate(zip(native, lockstep, strict=True)):
+    with ExitStack() as cleanup:
+        simulations = [member(index, "native", integrator) for index in range(3)]
+        group = _started(simulations, cleanup)
+        assert isinstance(group, group_module.NativeGroupSession)
+        native = _record(group)
+    alone = [_lone(member(index, "native", integrator)) for index in range(3)]
+    for index, (ours, theirs) in enumerate(zip(native, alone, strict=True)):
         assert len(ours) == len(theirs) == len(PLANES) + 1
         for plane, (one, other) in enumerate(zip(ours, theirs, strict=True)):
             for key in one:
                 assert _same(one[key], other[key]), (index, plane, key)
+    # The members differ: each is its own problem, not one copied.
+    assert not _same(native[0][-1]["field"], native[1][-1]["field"])
 
 
 def test_the_execution_record_names_the_group_and_keeps_the_session_s_counters():
@@ -232,7 +277,7 @@ def test_a_trial_failure_ends_the_group_at_each_member_s_own_position(
     """The second member's third trial fails, opening the second window. The first
     member took its turn first: with the default rounds it ran the whole window, with
     rounds of one step only the failed step, and in both it committed and recorded what
-    it ran -- eligible where it stands, unlike the transitional group's stepped but
+    it ran -- eligible where it stands, unlike a lockstep group's stepped but
     unrecorded member. The failing member keeps its committed state; the third never
     took its turn (SEP 47 section 6.7).
     """
@@ -468,23 +513,210 @@ def test_the_native_group_refuses_by_name_what_it_does_not_run():
             group_module.NativeGroupSession(reference, problems, requests, starts)
 
 
-def test_a_group_the_native_group_refuses_runs_in_the_transitional_group():
-    """A noise model is outside the native session: the door starts the transitional
-    group, which runs it; a group neither runs is refused by the lockstep's own check.
+@pytest.mark.parametrize("name", ["runge_kutta", "adams_fixed_order"])
+@pytest.mark.parametrize("noise", ["input", "modified"])
+def test_a_noisy_group_marches_as_its_lone_sessions_bit_for_bit(noise, name):
+    """Each member carries its own realisation, seeded per member, and its own
+    propagator: the door starts the native group, whose members' noise phases are
+    their lone sessions', and on one thread each member's fields, statistics,
+    attempts and rows are its lone session's exactly.
     """
-    simulations = [
-        member(index, "native", noise="default", seed=index) for index in range(2)
+    integrator = INTEGRATORS[name]
+
+    def members() -> list[Any]:
+        return [
+            member(index, "native", integrator, noise=noise, seed=11 + index)
+            for index in range(2)
+        ]
+
+    with ExitStack() as cleanup:
+        simulations = members()
+        problems, requests, starts = _requests(simulations)
+        assert all(one.initial.noise_model == noise for one in problems)
+        assert group_module.refusal(problems, requests, starts) is None
+        group = _started(simulations, cleanup)
+        assert isinstance(group, group_module.NativeGroupSession)
+        found: list[list[np.ndarray]] = [[] for _ in range(group.n_members)]
+        native: list[list[dict[str, Any]]] = [[] for _ in range(group.n_members)]
+        while not group.finished:
+            batch = group.advance()
+            for index, events in enumerate(batch.members):
+                for event in events:
+                    if isinstance(event, ObservationReady):
+                        phase = group.noise_phase(index, event.ticket)
+                        assert phase is not None
+                        found[index].append(np.array(phase))
+                        native[index].append(
+                            {
+                                "field": np.array(
+                                    group.export(index, event.ticket, IDENTITY)
+                                ),
+                                "stats": {
+                                    k: np.asarray(v) for k, v in event.stats.items()
+                                },
+                                "accepted": event.history.accepted.copy(),
+                            }
+                        )
+            group.acknowledge(batch.receipt)
+    alone = [_lone(one) for one in members()]
+    for index in range(2):
+        assert len(found[index]) == len(alone[index]) == len(PLANES) + 1
+        for got, expected in zip(found[index], alone[index], strict=True):
+            assert got.tobytes() == expected["phase"].tobytes(), index
+    # Each member's propagator is its own, so is its phase.
+    assert not np.array_equal(found[0][-1], found[1][-1])
+    if not _one_thread():
+        pytest.skip(
+            "the noise phases agree; the members are compared bit for bit on one "
+            "thread (SOLPROP_THREADS=1), where the reductions' order is fixed"
+        )
+    for index, (one, other) in enumerate(zip(native, alone, strict=True)):
+        for plane, (left, right) in enumerate(zip(one, other, strict=True)):
+            for key in left:
+                assert _same(left[key], right[key]), (index, plane, key)
+
+
+def _noisy_members(kind: str) -> list[Any]:
+    """Return two seeded noisy members on a common fixed schedule.
+
+    ``"edge"``: a radial run with the input noise beside its transverse edge and a
+    requested collar; ``"table"``: a linear walk-off with the modified noise, whose
+    propagator phase is a z table.
+    """
+    from backends.test_transverse_backends import (  # noqa: PLC0415 - beside its use
+        radial_collar,
+    )
+    from driver.test_specified_paths import LENGTH  # noqa: PLC0415
+    from sessions.test_native_session_history import _walkoff  # noqa: PLC0415
+    from solprop.stepper import RungeKutta  # noqa: PLC0415
+
+    members = []
+    for index in range(2):
+        if kind == "edge":
+            simulation = radial_collar(
+                "native", RungeKutta(), noise="input", seed=5 + index
+            )
+            length = 2e-3
+            planes = [length / 2, length]
+        else:
+            simulation = _walkoff("modified", RungeKutta(), seed=3 + index)
+            length = LENGTH
+            planes = [length / 3, 2 * length / 3, length]
+        simulation.settings = dataclasses.replace(
+            simulation.settings,
+            controller=None,
+            save_planes=planes,
+            schedule=FixedSchedule.uniform(
+                0.0, length, length / 64, save_planes=planes
+            ),
+        )
+        members.append(simulation)
+    return members
+
+
+def _alone(simulation: Any) -> tuple[list[dict[str, Any]], Any]:
+    """Run one member alone through the native session; return its planes, record."""
+    from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        NativeSession,
+    )
+
+    problem = simulation.translate()
+    request = simulation._run_request().for_run(monitor=simulation._boundary_monitor())
+    session = NativeSession(
+        problem,
+        request,
+        Start.entrance(problem),
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
+    )
+    planes: list[dict[str, Any]] = []
+
+    def observe(one: Any, batch: Any) -> None:
+        for event in batch.events:
+            if isinstance(event, ObservationReady):
+                planes.append(
+                    {
+                        "field": np.array(one.export(event.ticket, IDENTITY)),
+                        "phase": np.array(one.noise_phase(event.ticket)),
+                    }
+                )
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", BoundaryWarning)
+            drive_session(Started(session), between=observe)
+        return planes, session.monitor_record()
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("kind", ["edge", "table"])
+def test_a_noisy_edge_or_z_table_member_runs_in_the_native_group(kind):
+    """The input noise beside a transverse edge, and a noise model on a z table, run in
+    the native group: each member's noise phases are its lone native session's, and on
+    one thread its fields and its boundary-monitor record too.
+    """
+    simulations = _noisy_members(kind)
+    problems, _, starts = _requests(simulations)
+    requests = [
+        one._run_request().for_run(monitor=one._boundary_monitor())
+        for one in simulations
     ]
-    problems, requests, starts = _requests(simulations)
-    refused = group_module.refusal(problems, requests, starts)
-    assert refused is not None
-    assert "noise model (member 0)" in refused
+    skip_device_refused(problems[0])
+    assert group_module.refusal(problems, requests, starts) is None
+    found: list[list[dict[str, Any]]] = [[], []]
     with ExitStack() as cleanup:
         owners = [constructed(one, cleanup) for one in simulations]
         group = start_group(owners, problems, requests, starts)
         cleanup.callback(group.close)
-        assert isinstance(group, DriverGroupSession)
-        assert drive(group)[-1].outcome is Outcome.COMPLETED
+        assert isinstance(group, group_module.NativeGroupSession)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", BoundaryWarning)
+            while not group.finished:
+                batch = group.advance()
+                for index, events in enumerate(batch.members):
+                    for event in events:
+                        if isinstance(event, ObservationReady):
+                            found[index].append(
+                                {
+                                    "field": np.array(
+                                        group.export(index, event.ticket, IDENTITY)
+                                    ),
+                                    "phase": np.array(
+                                        group.noise_phase(index, event.ticket)
+                                    ),
+                                }
+                            )
+                group.acknowledge(batch.receipt)
+        records = [group.monitor_record(index) for index in range(2)]
+    alone = [_alone(one) for one in simulations]
+    for index, (planes, (expected, _)) in enumerate(zip(found, alone, strict=True)):
+        assert len(planes) == len(expected) > 2
+        for one, other in zip(planes, expected, strict=True):
+            assert one["phase"].tobytes() == other["phase"].tobytes(), index
+    if kind == "edge":
+        for record in records:
+            assert record is not None
+            edge = cast("Mapping[str, Any]", record["transverse"])
+            assert edge["noise_allowance"] > 0.0
+    if not _one_thread():
+        pytest.skip(
+            "the noise phases agree; the members are compared bit for bit on one "
+            "thread (SOLPROP_THREADS=1), where the reductions' order is fixed"
+        )
+    for index, (planes, (expected, record)) in enumerate(
+        zip(found, alone, strict=True)
+    ):
+        assert records[index] == record
+        for one, other in zip(planes, expected, strict=True):
+            assert one["field"].tobytes() == other["field"].tobytes(), index
+
+
+def test_a_group_the_native_group_does_not_run_is_refused_at_the_door():
+    """An adaptive group is refused by name through the door, before any member
+    session starts: a group is one common fixed schedule (SEP 47 section 6.7), and
+    no other native group stands behind it."""
     simulations = [member(index, "native", schedule=None) for index in range(2)]
     problems, requests, starts = _requests(simulations)
     assert "an adaptive march" in (
@@ -492,8 +724,13 @@ def test_a_group_the_native_group_refuses_runs_in_the_transitional_group():
     )
     with ExitStack() as cleanup:
         owners = [constructed(one, cleanup) for one in simulations]
-        with pytest.raises(BackendError, match="fixed schedule"):
+        with pytest.raises(
+            BackendError,
+            match=r"native group session does not run an adaptive march.*\(member 0\)",
+        ):
             start_group(owners, problems, requests, starts)
+        # Nothing was started: the members are still unloaded.
+        assert all(owner._loaded is None for owner in owners)
 
 
 def _terminals(batch: GroupBatch) -> list[Terminal]:

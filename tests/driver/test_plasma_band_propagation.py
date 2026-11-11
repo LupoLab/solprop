@@ -24,6 +24,8 @@ import pytest
 from convergence_records import Column, Study, record
 from driver.test_prop_capillary import build
 from legacy_geometry import LEGACY_GRID
+from solprop.backends.numpy_ref.backend import NumpyRefBackend
+from solprop.backends.registry import select
 from solprop.driver import prop_capillary
 from solprop.exceptions import (
     BackendError,
@@ -279,3 +281,41 @@ def test_a_band_rule_needs_field_plasma_channels():
     rule = design_running_integral(build().grid, "band")
     with pytest.raises(TranslationError, match="needs field plasma channels"):
         dataclasses.replace(problem.responses, plasma_integral=rule)
+
+
+def test_the_reference_s_diagnostics_refuse_a_problem_with_no_plasma_column():
+    """The reference's own check, for a caller that asks its statistics directly."""
+    simulation = build(
+        plasma=False, backend="numpy_ref", stats=StatsSpec(names=("plasma_undershoot",))
+    )
+    problem = simulation.translate()
+    backend = select(
+        "numpy_ref", problem, simulation._run_request(), grid=simulation.grid
+    )
+    try:
+        state = simulation._field0[np.newaxis]
+        with pytest.raises(BackendError, match="carries none"):
+            cast("NumpyRefBackend", backend)._backend_statistics(
+                ("plasma_undershoot",), state
+            )
+    finally:
+        backend.close()
+
+
+def test_the_reference_s_ionisation_refuses_a_problem_with_no_plasma():
+    """The reference's own check, for a caller that asks its statistics directly."""
+    simulation = build(
+        plasma=False, backend="numpy_ref", stats=StatsSpec(names=("electron_density",))
+    )
+    problem = simulation.translate()
+    backend = select(
+        "numpy_ref", problem, simulation._run_request(), grid=simulation.grid
+    )
+    try:
+        state = simulation._field0[np.newaxis]
+        with pytest.raises(BackendError, match="declares none"):
+            cast("NumpyRefBackend", backend)._backend_statistics(
+                ("electron_density",), state
+            )
+    finally:
+        backend.close()

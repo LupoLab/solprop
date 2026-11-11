@@ -53,7 +53,7 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | `initial` | frozen dataclass | section 6 (`translate.problem.Initial`) |
 | `route` | `ModalRoute \| GeneralRoute \| SpatialRoute` | the closed union of route descriptions (`translate.routes`), each variant carrying exactly the fields its executor needs: the transform (§4) and the route's own leaves. Below, under *The route union* |
 | `precision` | `translate.precision.Precision` | the arithmetic the run is held in ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md), ADR-054): `state` and `source`, each `"double"` or `"single"` and equal (a mixed record is refused). Every table here is binary64 either way; a backend that admits single precision narrows its tables on upload, each with its own power-of-two exponent, and holds the state at the launch's exact power-of-two scale. Under `"single"`, `validate` refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses, the dispersive electronic response, the far-field statistics and noise models; `native` refuses a single-precision problem by name. Default `DOUBLE`. Added in version 36 |
-| `split_crossing` | `SplitCrossing` or `None` | the split temporal collar's crossing limit (`boundaries.SplitCrossing`): `buckets`, each `(mode, frequency)` bin's walk-off bucket as `(n_modes,n_omega) uint8` (the fastest of its polarisations and positions, a coupled flow's channels with the generator's diagonal added to the shared carrier; `boundaries.split_rate_buckets`), the fastest rate a bin reaches `fastest` (the open first bucket's rate), the collar's `width` and the launch's limit `launch_limit`, which holds an adaptive `dz_max` and a fixed schedule at translation. A backend that reads the boundary monitor under the `"split_step"` scheme returns the state's energy per bucket with every reading (`BoundaryEnergies.occupancy`; native: `bind_occupancy`, then `monitor_reading`'s ten numbers followed by the 128 buckets); the monitor turns it into a cap on the steps until the next check (`StepDriver._split_capped`, the native Adams march's required `step_cap` bound), and a fixed schedule whose steps before the next check exceed it, at a check or when a resumed state is watched, stops with a `BoundaryError`. `None` under the in-stage scheme or without a temporal collar. Added in version 43 |
+| `split_crossing` | `SplitCrossing` or `None` | the split temporal collar's crossing limit (`boundaries.SplitCrossing`): `buckets`, each `(mode, frequency)` bin's walk-off bucket as `(n_modes,n_omega) uint8` (the fastest of its polarisations and positions, a coupled flow's channels with the generator's diagonal added to the shared carrier; `boundaries.split_rate_buckets`), the fastest rate a bin reaches `fastest` (the open first bucket's rate), the collar's `width` and the launch's limit `launch_limit`, which holds an adaptive `dz_max` and a fixed schedule at translation. A backend that reads the boundary monitor under the `"split_step"` scheme returns the state's energy per bucket with every reading (`BoundaryEnergies.occupancy`; native: `bind_occupancy`, then `monitor_reading`'s ten numbers followed by the 128 buckets); the monitor turns it into a cap on the steps until the next check (`HostDriver._split_capped`, the native Adams march's required `step_cap` bound), and a fixed schedule whose steps before the next check exceed it, at a check or when a resumed state is watched, stops with a `BoundaryError`. `None` under the in-stage scheme or without a temporal collar. Added in version 43 |
 `PropagationProblem` also carries two **properties**, which are not fields and so not rows
 above: `transform`, the route's transform, and `device_ready`, true when Φ (§3) and the prefactor (§5) are each a weighted sum
 of a fixed set of arrays, and false when either took the z table.
@@ -150,7 +150,7 @@ build-cost criterion on the short fixture.
 **The contract has no version number** (ADR-068). `KERNEL_SCHEMA_VERSION` is gone, and the last number taken was 47;
 "kernel schema N" elsewhere in these documents and in the code names the number a change
 took, as history. The tables of this document describe the contract as it stands. A
-change to it, to the protected surface of `StepDriver` or to the stage bundles of
+change to it, to the descriptors or to the stage bundles of
 `translate/stage.py` rewrites the frozen tables in `tests/backends/test_driver.py` in the
 same commit and adds a release-note fragment. solprop and solprop-native are released
 together and pinned to one version; `check_build` looks up every member the native adapter
@@ -158,28 +158,31 @@ relies on by name, and in an editable checkout compares the extension with its `
 sources by digest (`BuildInfo.source_digest`). An added optional field leaves every problem
 that does not use it unchanged.
 
-**Batches and device memory.** `BatchBackend` batches independently translated and loaded
-member backends, which carry their own parameter tables and noise across construction;
-successful batch construction adopts their lifetime. `observe_members()` returns one
+**Batches and device memory.** A group (`GroupSession`, from the first member's
+`prepare_group`; SEP 47 section 6.7) runs independently translated member backends, which
+carry their own parameter tables and noise. The native group runs one native session per
+member; the reference's runs a `BatchBackend`, its lockstep runner
+(`registry.select_batch`), whose successful construction adopts the loaded members'
+lifetime. `observe_members()` returns one
 ordinary host `Observation` per member, preserving independent error histories and
 periodic-statistics rows. `member_metadata()` returns each member's resolved policies plus
 batch settings. `Backend.available_device_memory()` returns current free device bytes,
 excluding live allocations and allocator reserves, or `None` for host execution;
-`StepDriver` provides the host default and a device backend overrides it. Common batch
+a host backend returns `None` and a device backend answers for itself. Common batch
 admission uses that probe before allocating a complete group, with 20% headroom and a
 conservative per-member upper bound from the complete memory ledger. Only compatible
 layouts under the same explicit fixed schedule can share a batch; mixed backend names are
 refused. The batch's `max_batch` is its constructed member count. Calling its
 single-observation API is refused because it would discard the independent diagnostic
-histories. The `StepDriver` signatures, stage bundles and singleton output schema are
-those of a singleton run.
+histories. The descriptors, stage bundles and singleton output schema are those of a
+singleton run.
 
 **The general-modal leaves.** `linear.coupled_flow` and `linear.modal_metric` (§3),
 `transform.modal_tables` (§4) and `responses.regional_responses` (§5) are optional. Each
 defaults to `None`, and a problem with all four `None` carries no field-sized or dense
 buffer for them. The leaves carry `int32` region and support indices beside float64,
 complex128, bool and intp. **A backend refuses by name each leaf it does not execute**,
-through `solprop.backends.driver.refuse_general_leaves(..., admits=...)`, or its own
+through `solprop.backends.numpy_ref.admission.refuse_general_leaves(..., admits=...)`, or its own
 equivalent check in a compiled backend's adapter (as `native`'s does), because the version check alone cannot fire
 for a backend compiled against the same constant. The combinations a backend executes
 are one shared list, `solprop.backends.numpy_ref.admission.refuse_general_route`, run
@@ -255,7 +258,8 @@ maps of one coefficient — reports `None`. A backend that does not evaluate mov
 refuses such a problem by name through the shared admission list.
 
 **The frozen literals and the contract tuples.** `tests/backends/test_driver.py` freezes
-`DRIVER_SURFACE`, `LINEAR_OPERATOR_FIELDS` (`dataclasses.fields(LinearOperator)`),
+`LINEAR_OPERATOR_FIELDS` (`dataclasses.fields(LinearOperator)`), the descriptor's and the
+request's fields,
 `STAGE_TERMS_FIELDS`, `STAGE_SCALARS_FIELDS` and `SEPARABLE_OPERATOR_FIELDS`; a change to
 the seam rewrites the literal it changes. `solprop-native` exports
 its own tuples of the names it relies on — `LINEAR_OPERATOR_FIELDS`, `TRANSFORM_FIELDS`,
@@ -284,17 +288,17 @@ too. The test that compares this document with the dataclass walks the tree by t
 in both directions; a second test checks the flags and counts named in the `flags` row of this section
 against the fields of `Flags`.
 
-**The transverse edge.** `StepDriver._edge_reading(state, edge, *, faces, current, full)`
+**The transverse edge.** `HostDriver._edge_reading(state, edge, *, faces, current, full)`
 returns an `_EdgeReading` ([SEP 44](seps/archive/sep-0044-native-edge-read.md)): region sums, each column's unweighted energy, each
 line's `(inward, windowed)` strip and the summed rectified current, never the field. The default forms them with
 `_HostEdgeReduction` on a host copy. An override takes the edge's `_EdgeTables` and `_EdgeLine`s, whose weights, strides,
 windows and onsets say all there is to know about the geometry, so a backend holds no face, mask or judgement of its own. It
 reads the state at a committed position, so it may use scratch that a step writes before reading, and it must leave the march
-as it was. `StepDriver.edge_memory(space)` says what binding holds, from the grid alone, for `estimate`: the default holds
+as it was. `HostDriver.edge_memory(space)` says what binding holds, from the grid alone, for `estimate`: the default holds
 nothing beyond the state, and native's is `_transverse_edge_bytes`, equal to its `transverse_edge` ledger row.
 
 **Source reservations in the shared Adams march.** The protected hooks
-`StepDriver._reserve_source_calls(count)` and `StepDriver._release_source_calls()`
+`HostDriver._reserve_source_calls(count)` and `HostDriver._release_source_calls()`
 bound the source evaluations of a trial. Before starting a trial, the shared march
 reserves its required source evaluations through these hooks; on every exit it
 releases unused capacity. The ordinary backend implementation needs no atomic
@@ -307,7 +311,7 @@ numerical history but preserves charged calls; startup is charged again. Atomic
 ledger restoration remains exclusive to the bound NumPy TDSE path.
 
 **The lab-frame source of the exponential formulation.**
-`StepDriver._adams_lab_source(lab, position, *, purpose)` is the complete source
+`HostDriver._adams_lab_source(lab, position, *, purpose)` is the complete source
 assembly at a lab-frame field and position -- the `modified` noise draw advanced to
 that position's absolute phase, the in-stage absorbers and, on the reference backend,
 the TDSE adapter with its labels -- returned in the lab frame, with no propagator
@@ -318,8 +322,8 @@ naming the backend, so a backend that has not implemented it refuses the formula
 rather than stepping it with another method. `Multistep.formulation` is
 `"interaction"` or `"exponential"`.
 
-**The Adams engine.** With `StepDriver._adams_engine(method, compensation)`,
-`AdamsMarch` keeps the controller -- orders, slots, rejection,
+**The Adams engine.** With `HostDriver._adams_engine(method, compensation)`,
+`HostAdamsMarch` keeps the controller -- orders, slots, rejection,
 restarts, the call budget and the ledger -- and hands every state-sized operation of
 its fused and exponential paths to an engine
 (`solprop.backends.multistep.AdamsEngine`): the startup sample, a trial's predictor,
@@ -327,10 +331,13 @@ source, corrector and scored defect norms, the adoption and transport of an acce
 step, holding and restoring the accepted state around a dense observation, and the
 observation itself. Only scalars, the coefficient tables and the norms cross the
 interface. The default returns `None`, and the march uses `HostHistory`, the host
-engine, over the other Adams hooks; `native` returns one resident in its native state.
-The general path (PECE and the comparison variants) keeps host arrays.
+engine, over the other Adams hooks; `native` always returns one resident in its native
+state, and refuses the untransported compensation witness by name (SEP 47 phase 5
+deleted its host-engine fallback, and with it its `_adams_source`, `_adams_lab_source`,
+`_adams_propagator`, `_adams_block` and `_adams_adopt` overrides). The general path
+(PECE and the comparison variants) keeps host arrays.
 
-`StepDriver._adams_source(lab, anchor, position, *, purpose)` takes a
+`HostDriver._adams_source(lab, anchor, position, *, purpose)` takes a
 `TDSEPurpose` label so startup, predictor, corrected-field and diagnostic
 observations retain their actual provenance. This is a host seam operation:
 the shared march neither accesses NumPy's private binding nor adds atomic
@@ -677,7 +684,8 @@ which is authoritative, or the automatic choice
 (`solprop.backends.node_chunk.plan_node_chunk`) -- records it in its execution metadata,
 and keeps it out of every identity and resume key. The native backend lowers the plan
 further (`solprop_native.backend.native_node_chunk`: whole y rows on the planar kind, and
-`device_node_chunk` for a device build's automatic plan).
+`device_node_chunk` for a device build's automatic plan: the host rule at a quarter of the
+accelerator's free bytes, never fewer nodes than the host plan, solprop issue #361).
 
 For radial geometry, `synthesis` is the inverse raw QDHT times the temporal pad
 scale, `projection` is the forward QDHT, and `projection_coarse` equals
@@ -1063,8 +1071,8 @@ The host binding protocol also labels its evaluations for an optional raw archiv
 an optional `density` label (m⁻³), and `record_trial(accepted=...)` reports the
 stepper's decision on the latest trial. The reference backend calls it from its
 step record (`_record`), which every Adams attempt reaches, rejected or accepted;
-it changes no step, charge or reservation. None of this is part of the protected
-`StepDriver` surface or the kernel problem, which compiled backends see, so it is
+it changes no step, charge or reservation. None of this is part of the descriptors
+or the kernel problem, which compiled backends see, so it is
 outside the kernel schema: the native backend refuses TDSE by name and never holds a
 binding.
 
@@ -1121,7 +1129,7 @@ The initial-state fields below are independent of that optional binding.
 | `noise_model` | `"none" \| "input" \| "modified"` | |
 | `z` | `float` | absolute initial position in m, non-negative and before the first requested save; true-power input is normalised at this position |
 
-No kernel indexes `field0`: `StepDriver.set_initial` accepts a state of any strides and
+No kernel indexes `field0`: `HostDriver.set_initial` accepts a state of any strides and
 copies it contiguous into the backend's own state, so since version 42 `field0` may be a
 zero-stride broadcast view. Every array of `Initial` is the problem's own, so that
 nothing a caller does afterwards to an array it passed changes the problem, and the
@@ -1154,7 +1162,7 @@ launch's remaining planes).
 | `schedule` | `(n_steps,) float64` or `None` | fixed schedule to replay (lockstep batches require it); its edges must contain every save plane and hard kink, which `FixedSchedule.uniform` guarantees for a plain fixed-step run |
 | `save_planes` | `(n_z,) float64` | z positions the driver will ask for; steps land on them unless `interpolate_planes` is set |
 | `propagator_mode` | `"auto" \| "tabulate" \| "recompute"` | ADR-004 and [backends.md §3.6](backends.md). `"auto"` is the default and is the backend's own choice, resolved at construction and written into the run's `backend` metadata group: `tabulate` for `numpy_ref` and `recompute` for `native` on a modal problem; `recompute` on every backend for a separable free-space operator, whose increment `D (z₂ − z₁)` is exact. Under the low-storage march `tabulate` is one volume of `exp(h D / 2)` reused while the step holds (a varying operator's `P` and `Q` for the step), admitted on the free and planar kinds too, and `"auto"` resolves to `tabulate` for a constant operator and `recompute` for a varying one (SEP 24 §4.3), and to `recompute` on a native device build, where an extra field read costs more than the exponential |
-| `integrator` | `Multistep \| LowStorageRungeKutta \| None` | The method stepping the problem instead of the tableau, or `None` for the Runge-Kutta march. `Multistep` ([SEP 13](seps/archive/sep-0013-expensive-response-steppers.md), [SEP 16](seps/archive/sep-0016-unified-multistep.md)) is the Adams march in its exponential or interaction formulation, with an optional carrier frame (`carrier_frame`, [SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md), added in version 37: `"off"` or `"scalar"`, the latter on `numpy_ref` and native CPU builds and refused by name elsewhere); it runs on `numpy_ref` and Kokkos on every diagonal-flow route, and beside the constant-Schur and frozen-residual coupled flows in the exponential formulation; with a `schedule` it replays the schedule's steps (`AdamsMarch._replay_to`); TDSE remains NumPy-only. `LowStorageRungeKutta` ([SEP 24](seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md)) is RK4 in the midpoint interaction picture in three registers: it replays a `schedule` and nothing else, records the norm 0.0 ("not estimated"), refuses a coupled flow, the TDSE response, interpolated planes and a step past RK4's negative-real interval 2.785, and runs on `numpy_ref` and solprop-native (a resident engine whose step is one native call) |
+| `integrator` | `Multistep \| LowStorageRungeKutta \| None` | The method stepping the problem instead of the tableau, or `None` for the Runge-Kutta march. `Multistep` ([SEP 13](seps/archive/sep-0013-expensive-response-steppers.md), [SEP 16](seps/archive/sep-0016-unified-multistep.md)) is the Adams march in its exponential or interaction formulation, with an optional carrier frame (`carrier_frame`, [SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md), added in version 37: `"off"` or `"scalar"`, the latter on `numpy_ref` and native CPU builds and refused by name elsewhere); it runs on `numpy_ref` and Kokkos on every diagonal-flow route, and beside the constant-Schur and frozen-residual coupled flows in the exponential formulation; with a `schedule` it replays the schedule's steps (`HostAdamsMarch._replay_to`); TDSE remains NumPy-only. `LowStorageRungeKutta` ([SEP 24](seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md)) is RK4 in the midpoint interaction picture in three registers: it replays a `schedule` and nothing else, records the norm 0.0 ("not estimated"), refuses a coupled flow, the TDSE response, interpolated planes and a step past RK4's negative-real interval 2.785, and runs on `numpy_ref` and solprop-native (a resident engine whose step is one native call) |
 | `interval_cap` | bool | whether a step is capped at the width of the operator-table interval it starts in. `assemble` turns it off on the diagonal-flow routes and on for a coupled flow or a reject-free controller, unless set ([SEP 14](seps/archive/sep-0014-stepper-efficiency.md) §4.1) |
 | `auto_init` | bool | whether the start-up rule takes the step after the first from the first step's own scaled norm (`PIController.start_factor`, at most 100 times `dz_init`). Set by the convenience interfaces when no `dz_init` is given; off for a coupled flow or a reject-free controller ([SEP 14](seps/archive/sep-0014-stepper-efficiency.md) §4.2) |
 | `interpolate_planes` | bool | steps across the save planes and observes each inside its accepted step, through DOPRI5's continuous extension or, with an `integrator`, the Adams march's own polynomial (ADR-039); the end of the run and the hard kinks are still landed on. Refused with a schedule, a Runge-Kutta tableau without an extension, the per-step collar, a coupled flow and the `modified` noise |
@@ -1248,15 +1256,24 @@ source and error-budget evidence, and adds a release-note fragment. It lands on
 `numpy_ref` and native CPU, in either order (ADR-068), unless its accepted SEP records
 an exception. There is no version counter to bump (ADR-068).
 
+A new **backend** extends no descriptor: it consumes this contract as it stands. It
+registers with one `BackendEntry` row in `solprop.backends.registry.BACKENDS`
+([backends.md §1](backends.md)), visits every route variant and component to prepare
+or refuse it by name, and runs through its own `prepare` (one run) and
+`prepare_group` (a group of compatible members, or a `BackendError` saying it runs
+none), so the run layer names no backend. It qualifies on the conformance suite in
+`tests/sessions` and against the reference.
+
 ## 11. The Adams march
 
 *Normative since kernel schema 39 ([SEP 39](seps/archive/sep-0039-native-adams-march.md),
 ADR-060). The native backend executes it on its CPU build for `Multistep()` in either
-formulation and the one-order-higher PEC comparisons, adaptive or replayed; every other
-configuration and backend runs the reference.*
+formulation, adaptive or replayed; every other configuration and backend runs the
+reference. The comparison methods (`ComparisonMultistep`) are the reference's alone:
+native refuses them by name ([SEP 47](seps/sep-0047-run-ownership.md) §6.3).*
 
 The step loop of `Multistep()` is one algorithm with one reference implementation,
-solprop's `AdamsMarch` and the controller core it calls (`solprop.backends.adams_core`).
+solprop's `HostAdamsMarch` and the controller core it calls (`solprop.backends.adams_core`).
 A backend may execute the same algorithm natively. It then receives every number the
 algorithm reads in one record, and holds no default and no constant of its own
 (`native/AGENTS.md`). [SEP 39](seps/archive/sep-0039-native-adams-march.md) §4 is the algorithm
@@ -1347,15 +1364,13 @@ quiet verdict, a replayed schedule passing the cap, or a split that found nothin
 (`Reason::capacity`) when the buffer fills where no other event falls. The host's
 monitor-cadence and distance returns are then not asked for.
 
-**What solprop does with a call** (`_NativeAdamsMarch`): before the call it polls the
-run's stop flag, which native code cannot read, as the reference polls before an attempt;
-inside one `committing()` it makes the call, adopts the state and books each row, an
-accepted row on which the driver has no work through `StepDriver._account_step` (with
-the reading the march took of it, replayed through the monitor) and every row through
-`StepDriver._record_attempt`; after the commit it reports progress per attempt, takes
-the event step's monitor work (its buffered reading) and statistics and its natural
-stop, holds the monitor's watch state to the march's (`BackendError` on a difference),
-and raises the error the reason names, with the reference's message.
+**What solprop does with a call.** The native session makes the calls, holds the march's
+state between them natively and turns each call's rows and readings into its events (SEP
+47); the record `_NativeAdamsMarch` hands it the policy and the start's history once. The
+decision-trace tests drive the march a call at a time over a scripted host backend
+(`tests/backends/native_trace_marches.py`), booking each row as the reference books its
+attempts, and hold its decisions, its monitor's watch state and its errors to the
+reference's.
 
 **Rounding.** The decisions are compiled without contraction or fast-math in their own
 translation unit and call no elementary function but `pow`, so that they round as
@@ -1372,11 +1387,12 @@ and the wheel stage's scan of the strict files' disassembly for a fused instruct
 
 *Normative from [SEP 45](seps/archive/sep-0045-native-rk-march.md) phase 3. `native` executes it
 (`native/src/rk_march.cpp`), adaptive or replayed, with `PIController`'s norm, weighted or
-not, on CPU and device builds; a controller with its own methods steps the reference, with
-a `HostMarchWarning` naming the reason.*
+not, on CPU and device builds; a controller that overrides one of `PIController`'s
+decisions is the reference's alone, and native refuses it by name
+([SEP 47](seps/sep-0047-run-ownership.md) §6.3).*
 
 The adaptive loop of `RungeKutta()` (`integrator is None`, §7) is one algorithm with one
-reference implementation, solprop's `StepDriver._march_to` and the controller core it
+reference implementation, solprop's `HostDriver._march_to` and the controller core it
 calls (`solprop.backends.rk_core`). A backend may execute the same algorithm natively,
 as §11's Adams march is executed. It then receives every number the algorithm reads in
 one record and holds no default and no constant of its own (`native/AGENTS.md`).
@@ -1399,8 +1415,8 @@ by `rk_policy`, with the landings of the run):
 
 **The state**: the position; the controller's proposal; the accepted-norm history, at
 most `lag + 2` values, oldest first; the accepted count; the replay cursor. It is a
-continuation between the calls of one march only. `StepDriver.set_initial` resets it, on
-a fresh launch and on a resume alike, and `march_snapshot()` is `None` for this march.
+continuation between the calls of one march only. A load resets it (the native
+backend's `_load`), on a fresh launch and on a resume alike, and `march_snapshot()` is `None` for this march.
 
 **One attempt**, in order (SEP 45 §4.3):
 
@@ -1435,7 +1451,7 @@ reference holds it there.
 planes to the run's end, and the call returns the accepted step that crosses its target
 unfinished (`dense`), with its equivalent norm; solprop records the step's extension from
 the state before it and finishes it with the reference's acceptance. *Replay:*
-`StepDriver._replay_to`, a call of steps at a time from the schedule's cursor: never a
+`HostDriver._replay_to`, a call of steps at a time from the schedule's cursor: never a
 rejection, each step recorded after its commit with its raw norm, the edges within the
 replay's slack; a non-finite norm returns `diverged`, the step uncommitted. *A coupled
 flow:* the stage rows carry the anchor's section and each stage's residual weights, and the

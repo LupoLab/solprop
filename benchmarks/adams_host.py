@@ -14,18 +14,21 @@ the suite's thread pools.
 Usage::
 
     uv run python -m benchmarks.adams_host CASE [--width N] [--length F] [--stepper S]
-        [--host-stages] [--host-march] [--step-planes N] [--row-period N]
+        [--step-planes N] [--row-period N]
 
-It prints one JSON record: the wall time, the accepted and rejected steps, the source
-calls, and the host and native time per trial in microseconds. The native backend is
-required; ``--stepper rk`` times a Runge-Kutta run, which has no host figure.
-``--host-stages`` has the host form a trial's stage rows and tables, as before SEP 39's
-phase 1, and ``--host-march`` steps an admitted run with solprop's Python march
-instead of the native one (phase 2), so that each phase is compared with its own
-build. ``--step-planes N`` adds a natural stop every N accepted steps and
-``--row-period N`` an energy row every N accepted steps (``StatsSpec.periodic``): with
-N = 1 each is a host event at every step, the frequent-event shapes of SEP 39 section
-7.6 (#273). A busy boundary monitor is `argon_blueshift_envelope`'s own.
+It prints one JSON record: the wall time, the accepted and rejected steps and the
+source calls. The native backend is required. Every run is the native execution
+session's, whose march is not ``_NativeAdamsMarch``'s ``march_to``, so the record has
+the host and native time per trial in microseconds only for a march that calls it; its
+``wall_seconds`` and the session's counters (``benchmarks.native_session``) are the
+comparison. The host-stage and host-march arms that compared SEP 39's phases on one
+build were retired with the transitional bridge they ran on (SEP 47 section 6.3,
+phase 5); the identical-input traces of the test suite
+(``tests/backends/adams_traces.py``) hold the native march to solprop's decisions.
+``--step-planes N`` adds a natural stop every N accepted steps and ``--row-period N``
+an energy row every N accepted steps (``StatsSpec.periodic``): with N = 1 each is a host
+event at every step, the frequent-event shapes of SEP 39 section 7.6 (#273). A busy
+boundary monitor is `argon_blueshift_envelope`'s own.
 """
 
 from __future__ import annotations
@@ -119,21 +122,18 @@ def install() -> HostTotals:
     return totals
 
 
-def _run(  # noqa: PLR0913
+def _run(
     case: str,
     stepper: str,
     width: int,
     fraction: float,
     *,
-    host_stages: bool,
-    host_march: bool,
     step_planes: int = 0,
     row_period: int = 0,
 ) -> dict[str, Any]:
     """Run the case in this process and return its record."""
     # Before any other OpenMP runtime on macOS.
-    import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-    import solprop_native.backend  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+    import solprop_native  # noqa: F401, PLC0415  # pyright: ignore[reportMissingImports, reportUnusedImport]
 
     from benchmarks.builders import build  # noqa: PLC0415
     from benchmarks.registry import CASES  # noqa: PLC0415
@@ -143,10 +143,6 @@ def _run(  # noqa: PLR0913
     from solprop.stats import StatsSpec  # noqa: PLC0415
 
     totals = install()
-    if host_march:
-        solprop_native.backend._ADAMS_MARCH = "host"
-    if host_stages:
-        solprop_native.backend.NativeBackend._stage_tables = lambda _self: None  # pyright: ignore[reportAttributeAccessIssue]
     configuration = CASES[case].configuration(stepper, width, "native", fraction)
     simulation = build(configuration)
     settings = simulation.settings
@@ -189,8 +185,6 @@ def _run(  # noqa: PLR0913
         stepper=stepper,
         width=width,
         fraction=fraction,
-        host_stages=host_stages,
-        host_march=host_march,
         step_planes=step_planes,
         row_period=row_period,
     )
@@ -207,8 +201,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--width", type=int, default=1)
     parser.add_argument("--length", type=float, default=1.0)
     parser.add_argument("--stepper", default="default")
-    parser.add_argument("--host-stages", action="store_true")
-    parser.add_argument("--host-march", action="store_true")
     parser.add_argument("--step-planes", type=int, default=0)
     parser.add_argument("--row-period", type=int, default=0)
     args = parser.parse_args(argv)
@@ -218,8 +210,6 @@ def main(argv: list[str] | None = None) -> int:
             args.stepper,
             args.width,
             args.length,
-            host_stages=args.host_stages,
-            host_march=args.host_march,
             step_planes=args.step_planes,
             row_period=args.row_period,
         )

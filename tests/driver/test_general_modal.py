@@ -23,10 +23,12 @@ and the envelope run has nothing of the sort. The collar's own effect is measure
 and recorded beside the comparison rather than folded into it.
 """
 
+import copy
 import dataclasses
 import inspect
 from collections.abc import Mapping
 from contextlib import ExitStack
+from types import SimpleNamespace
 from typing import Any, cast
 
 import numpy as np
@@ -48,10 +50,12 @@ from modal_provider_cases import (
     general_guide,
 )
 from solprop import fourier
-from solprop.backends import select, select_batch
-from solprop.backends.host.group import HostGroup
+from solprop.backends import select
+from solprop.backends.host.group import HostGroup, _general_leaves
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
+from solprop.backends.protocol import stepping
 from solprop.backends.session import Start
+from solprop.backends.sessions import start_group
 from solprop.constants import ROOM_TEMPERATURE, C
 from solprop.coupling import CouplingModel, CouplingReport
 from solprop.driver import Simulation, prop_gnlse, prop_waveguide
@@ -1144,12 +1148,14 @@ def test_the_backend_refuses_an_inadmissible_name_on_its_own(guide, grid):
     run_request = simulation._run_request()
     backend = select("numpy_ref", problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
+        stepping(backend).set_initial(problem.initial.field0, None)
         with pytest.raises(BackendError, match="peak_intensity is unavailable"):
-            backend.stats(StatsSpec(names=("peak_intensity",)))
+            stepping(backend).stats(StatsSpec(names=("peak_intensity",)))
         with pytest.raises(BackendError, match="energy is unavailable"):
-            backend.stats(StatsSpec(names=("energy",)))
-        assert backend.stats(StatsSpec(names=("physical_energy", "analytic_flux")))
+            stepping(backend).stats(StatsSpec(names=("energy",)))
+        assert stepping(backend).stats(
+            StatsSpec(names=("physical_energy", "analytic_flux"))
+        )
     finally:
         backend.close()
 
@@ -1273,7 +1279,7 @@ def test_a_general_guide_batch_is_what_its_members_run_alone(
             for bucket in (members, alone):
                 backend = select("numpy_ref", problem, run_request, grid=grid)
                 cleanup.callback(backend.close)
-                backend.set_initial(problem.initial.field0, simulation.noise)
+                stepping(backend).set_initial(problem.initial.field0, simulation.noise)
                 bucket.append(backend)
         runner = runner_factory(members)
         cleanup.callback(runner.close)
@@ -1333,29 +1339,69 @@ def test_two_guides_never_share_a_batch_group(guide, grid):
         for problem, run_request in zip(problems, requests, strict=True):
             backend = select("numpy_ref", problem, run_request, grid=grid)
             cleanup.callback(backend.close)
-            backend.set_initial(problem.initial.field0, None)
+            stepping(backend).set_initial(problem.initial.field0, None)
             loaded.append(backend)
         with pytest.raises(BackendError, match="identical guide/table/gauge identity"):
             HostGroup(loaded)
 
 
-def test_the_native_batch_refuses_two_guides_too(guide, grid):
-    """The native batch, on the bridge's lockstep runner, refuses the same group."""
+def test_the_native_group_refuses_two_guides_too(guide, grid):
+    """The native group session refuses the same group, before any member starts."""
     pytest.importorskip("solprop_native")
     runs = [
         batched_run(one, grid)
         for one in (guide, general_guide(grid=grid, radius=1.6e-6))
     ]
     with ExitStack() as cleanup:
-        loaded = []
+        owners, problems, requests = [], [], []
         for run in runs:
             problem, run_request = run.translate(), run._run_request()
             backend = select("native", problem, run_request, grid=grid)
             cleanup.callback(backend.close)
-            backend.set_initial(problem.initial.field0, None)
-            loaded.append(backend)
+            owners.append(backend)
+            problems.append(problem)
+            requests.append(run_request)
         with pytest.raises(BackendError, match="identical guide/table/gauge identity"):
-            select_batch(loaded)
+            start_group(
+                owners,
+                problems,
+                requests,
+                [Start.entrance(problem) for problem in problems],
+            )
+
+
+def _with_flow(problem, flow):
+    """Return the problem with a stand-in coupled flow, past the operator's checks."""
+    linear = copy.copy(problem.linear)
+    object.__setattr__(linear, "coupled_flow", flow)
+    return dataclasses.replace(problem, linear=linear)
+
+
+def test_the_native_group_compares_a_guide_s_flow_as_the_reference(guide, grid):
+    """The native group admits coupled flows, so its guide check's flow component is
+    live: it reads the reference group's leaves (``_general_leaves``), the flow's
+    gauge, certificate and section methods included, and compares flows by value."""
+    group = pytest.importorskip("solprop_native.group")
+    problem = batched_run(guide, grid).translate()
+    assert problem.transform.modal_tables is not None
+    one, same, other = (
+        _with_flow(
+            problem,
+            SimpleNamespace(
+                gauge_id="lab", certificate_id=certificate, section_methods=methods
+            ),
+        )
+        for certificate, methods in (
+            ("one", ("constant_schur",)),
+            ("one", ("constant_schur",)),
+            ("one", ("frozen_residual",)),
+        )
+    )
+    for candidate in (problem, one, same, other):
+        assert group._guide(candidate) == _general_leaves(candidate)
+    assert group._guide(one) == group._guide(same)
+    assert group._guide(one) != group._guide(other)
+    assert group._guide(one) != group._guide(problem)
 
 
 def test_the_driver_refuses_a_mixed_group_before_a_backend_is_reached(

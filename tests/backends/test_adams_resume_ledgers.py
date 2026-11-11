@@ -4,12 +4,17 @@
 
 """Preserve logical Adams budgets across every CPU backend's saved-run resume."""
 
+import dataclasses
 from typing import cast
 
 import numpy as np
 import pytest
 
+from sessions.runs import Records
+from sessions.runs import run as session_run
 from solprop.backends.multistep import CallLedger
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, ResponseBudgetError
 from solprop.output import resume
@@ -61,42 +66,67 @@ def test_saved_adams_resume_preserves_exhausted_call_budget(backend_name, tmp_pa
 
 
 def test_restored_adams_ledger_charges_fresh_startup(backend_name, backend_class):
+    # The run lands on the first step's end, 1e-6, as a plane of its own, and resumes
+    # there with the ledger but no method history: the resumed march starts afresh.
     simulation = tiny_adams(backend_name)
     problem = simulation.translate()
     run_request = simulation._run_request()
+    run_request = run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, save_planes=np.array([1e-6, 1e-5]))
+    )
     backend = backend_class(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(1e-6)
-        field = backend.observe().require_field().copy()
-        saved = backend.metadata()["response_calls"]
-        assert isinstance(saved, dict)
-        before = CallLedger.from_record(saved)
-        assert before.total == 2 and before.startup == 1
-    finally:
-        backend.close()
+    records = Records()
+    first = session_run(
+        backend, problem, run_request, owns=True, until=1e-6, between=records
+    )
+    plane = first.final
+    assert plane.z == 1e-6
+    plane_record = records.taken[-1][1]
+    assert plane_record is not None
+    saved = plane_record["response_calls"]
+    assert isinstance(saved, dict)
+    before = CallLedger.from_record(saved)
+    assert before.total == 2 and before.startup == 1
+    ledgers = {"logical": saved}
+    start = Start(
+        field=plane.field,
+        z=1e-6,
+        plane_index=1,
+        plane_pending=False,
+        resume=True,
+        ledgers=ledgers,
+    )
     resumed = backend_class(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
+    session = start_session(resumed, problem, run_request, start)
     try:
-        resumed.set_initial(field, None, z=1e-6)
-        resumed.restore_call_ledgers(saved)
-        # The saved metadata must be independently owned by the resumed march.
+        # The saved record must be independently owned by the resumed march.
         cast("list[list[int]]", saved["orders"]).append([5, 1])
         with pytest.raises(ResponseBudgetError, match="budget of 4") as caught:
-            resumed.propagate_to(1e-5)
-        record = resumed.metadata()["response_calls"]
-        assert isinstance(record, dict)
-        after = CallLedger.from_record(record)
-        assert caught.value.calls == after.total == 4
-        assert after.startup == 2
-        assert after.accepted_steps == before.accepted_steps + 1
-        assert after.orders == [*before.orders, 1]
-        assert caught.value.z > 1e-6
+            finish(session)
+        record = session.execution_record()["response_calls"]
     finally:
-        resumed.close()
+        session.close()
+    assert isinstance(record, dict)
+    after = CallLedger.from_record(record)
+    assert caught.value.calls == after.total == 4
+    assert after.startup == 2
+    assert after.accepted_steps == before.accepted_steps + 1
+    assert after.orders == [*before.orders, 1]
+    assert caught.value.z > 1e-6
+
+
+def finish(session):
+    """Advance a started session to its end; raise a failed run's error."""
+    while not session.finished:
+        batch = session.advance()
+        session.acknowledge(batch.receipt)
+        terminal = batch.terminal
+        if terminal is not None and terminal.error is not None:
+            raise terminal.error
 
 
 @pytest.mark.parametrize("kind", ["missing", "negative", "boolean"])
@@ -104,41 +134,52 @@ def test_adams_restore_rejects_invalid_logical_counts(
     backend_name, backend_class, kind
 ):
     simulation = tiny_adams(backend_name)
-    backend = backend_class(
-        simulation.translate(),
-        simulation._run_request(),
-        grid=simulation.grid,
-        modes=simulation.modes,
-    )
     valid = CallLedger().to_record()
     invalid = dict(valid)
     if kind == "missing":
         invalid.pop("startup")
     else:
         invalid["startup"] = -1 if kind == "negative" else True
-    try:
-        with pytest.raises(BackendError, match="logical call"):
-            backend.restore_call_ledgers(invalid)
-        assert backend.metadata()["response_calls"] == valid
-    finally:
-        backend.close()
+    refused_then_fresh(simulation, backend_class, {"logical": invalid}, "logical call")
 
 
 def test_compiled_adams_refuses_atomic_ledger_without_changing_logical_counts(
     equivalence_backend_class,
 ):
     simulation = tiny_adams("numpy_ref")
-    backend = equivalence_backend_class(
-        simulation.translate(),
-        simulation._run_request(),
-        grid=simulation.grid,
-        modes=simulation.modes,
+    ledgers = {"logical": CallLedger(startup=2).to_record(), "atomic": {"attempted": 1}}
+    refused_then_fresh(
+        simulation, equivalence_backend_class, ledgers, "does not restore atomic"
+    )
+
+
+def refused_then_fresh(simulation, backend_class, ledgers, match):
+    """A resume carrying `ledgers` is refused at its start, matching `match`, and
+    leaves the backend's next run with a fresh ledger.
+
+    The refusal acts on the backend's own ledger, which its metadata reports: a
+    restore that took part of the ledgers before refusing the rest would show there.
+    """
+    problem = simulation.translate()
+    run_request = simulation._run_request()
+    backend = backend_class(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        with pytest.raises(BackendError, match="does not restore atomic"):
-            backend.restore_call_ledgers(
-                CallLedger(startup=2).to_record(), {"attempted": 1}
-            )
+        start = Start(
+            field=problem.initial.field0,
+            z=float(problem.initial.z),
+            ledgers=ledgers,
+        )
+        with pytest.raises(BackendError, match=match):
+            session_run(backend, problem, run_request, start, owns=False)
         assert backend.metadata()["response_calls"] == CallLedger().to_record()
+        launch_records = Records()
+        fresh = session_run(
+            backend, problem, run_request, owns=False, until=0.0, between=launch_records
+        )
     finally:
         backend.close()
+    launch_record = launch_records.taken[0][1]
+    assert fresh.launch is not None and launch_record is not None
+    assert launch_record["response_calls"] == CallLedger().to_record()

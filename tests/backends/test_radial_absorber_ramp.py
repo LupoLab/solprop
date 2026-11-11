@@ -18,6 +18,8 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from sessions.runs import native_trial
+
 pytest.importorskip("solprop_native")
 
 
@@ -69,8 +71,7 @@ def test_a_ramped_rate_is_read_sample_by_sample(absorber_case):
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend._trial_step(0.0, LENGTH / 8)
+        native_trial(backend, 0.0, LENGTH / 8, field=problem.initial.field0)
         measured = backend._native_state.stage_to_host(0).reshape(expected.shape)
     finally:
         backend.close()

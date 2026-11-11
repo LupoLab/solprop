@@ -52,8 +52,11 @@ import numpy as np
 
 from bounds import rate_log_sensitivity
 from optmat_parity_cases import Case, build_case
+from sessions.runs import load_native, native_trial, saved, to_planes
+from sessions.runs import run as run_session
 from solprop import stats
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import Start
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.responses import PlasmaResponse
@@ -125,7 +128,7 @@ class Ladder:
     run_steps: int
 
 
-def _backend(backend_class, case: Case, problem=None):
+def _backend(backend_class, case: Case, problem=None, request=None):
     """Construct a backend on a case with the mode set and profiles the driver gives."""
     problem = case.problem if problem is None else problem
     options: dict[str, Any] = {"grid": case.grid}
@@ -133,7 +136,9 @@ def _backend(backend_class, case: Case, problem=None):
         options["modes"] = case.modes
     if case.simulation is not None and case.simulation.profiles:
         options["profiles"] = case.simulation.profiles
-    return backend_class(problem, case.run_request, **options)
+    return backend_class(
+        problem, case.run_request if request is None else request, **options
+    )
 
 
 def derivative(backend_class, case: Case) -> np.ndarray:
@@ -146,38 +151,44 @@ def derivative(backend_class, case: Case) -> np.ndarray:
     problem = case.problem
     backend = _backend(backend_class, case)
     try:
-        backend.set_initial(problem.initial.field0, None)
         if isinstance(backend, NumpyRefBackend):
+            backend.set_initial(problem.initial.field0, None)
             backend._hoist(0.0)
             return backend._nonlinear(
                 backend._require_state(),
                 backend._stage_scalars(0.0, 0.0),
                 np.ones((1, *problem.shape), complex),
             )[0]
-        backend._trial_step(0.0, 0.0)
-        values = (
-            backend._native_state.stage_to_host(0)
-            if backend.name == "native"
-            else backend._stages[0].copy()
-        )
-        return values.reshape(problem.shape)
+        # The native state itself, loaded with the launch, takes the zero-length trial
+        # on the staged rows, as the native backend's own trial does (SEP 47 phase 5).
+        assert backend.name == "native"
+        assert problem.initial.noise0 is None, "the ladder's cases launch no noise"
+        backend._staged_rows()
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        native_trial(backend, 0.0, 0.0)
+        return np.asarray(state.stage_to_host(0)).reshape(problem.shape)
     finally:
         backend.close()
 
 
 def _march(backend_class, case: Case, field, edges):
     """Return the states at each schedule edge given, and the statistics at the last."""
-    backend = _backend(backend_class, case)
-    try:
-        backend.set_initial(field, None)
-        states = []
-        for edge in edges:
-            backend.propagate_to(float(edge))
-            states.append(backend.observe().require_field().copy())
-        statistics = backend.stats(case.run_request.observation.stats)
-        return states, {name: np.asarray(v) for name, v in statistics.items()}
-    finally:
-        backend.close()
+    # Through the backend's session, which observes a plane at each edge and closes
+    # the backend (SEP 47 phase 5).
+    request = to_planes(case.run_request, [float(edge) for edge in edges])
+    run = run_session(
+        _backend(backend_class, case, request=request),
+        case.problem,
+        request,
+        Start(field=field, z=float(case.problem.initial.z)),
+        owns=True,
+    )
+    planes = saved(run)
+    assert [event.z for event, _ in planes] == [float(edge) for edge in edges]
+    statistics = planes[-1][0].stats
+    return [state for _, state in planes], {
+        name: np.asarray(value) for name, value in statistics.items()
+    }
 
 
 def _complete_run(backend_name: str, case: Case):
@@ -193,21 +204,18 @@ def _complete_run(backend_name: str, case: Case):
         backend = select(
             backend_name, problem, run_request, grid=case.grid, modes=case.modes
         )
-        try:
-            backend.set_initial(problem.initial.field0, None)
-            planes, statistics, steps = [], {}, 0
-            for plane in run_request.stepper.save_planes:
-                steps += backend.propagate_to(float(plane)).n_steps
-                planes.append(backend.observe().require_field().copy())
-                for name, value in backend.stats(run_request.observation.stats).items():
-                    statistics.setdefault(name, []).append(np.asarray(value))
-            return (
-                np.array(planes),
-                {name: np.array(values) for name, values in statistics.items()},
-                steps,
-            )
-        finally:
-            backend.close()
+        # Through the backend's session, which closes it (SEP 47 phase 5).
+        run = run_session(backend, problem, run_request, owns=True)
+        planes, statistics = [], {}
+        for event, state in saved(run):
+            planes.append(state)
+            for name, value in event.stats.items():
+                statistics.setdefault(name, []).append(np.asarray(value))
+        return (
+            np.array(planes),
+            {name: np.array(values) for name, values in statistics.items()},
+            run.attempts,
+        )
     simulation = copy.copy(case.simulation)
     simulation.settings = dataclasses.replace(
         case.simulation.settings, backend=backend_name

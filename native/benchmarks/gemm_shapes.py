@@ -15,6 +15,10 @@ and on a device build to find that device's crossover::
 
     OMP_NUM_THREADS=1 SOLPROP_NATIVE_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \\
         python benchmarks/gemm_shapes.py --output gemm-shapes.json
+
+Each repetition is one run of the backend's session (solprop SEP 47), whose start
+loads the launch before the clock starts; the timed region is its advances to the
+end. ``--nodes`` and ``--modes`` measure a subset of the shapes.
 """
 
 # ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
@@ -34,6 +38,8 @@ from typing import Any, TypedDict
 import solprop_native
 import numpy as np
 from solprop.backends.registry import select
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import FieldGrid, RadialGrid
 from solprop.nonlinear.responses import KerrResponse
@@ -130,12 +136,27 @@ def measure(simulation: Simulation, kind: str, size: int, envelope: bool | None)
                 str(native.synthesis_provider),
                 str(native.projection_provider),
             )
-        backend.set_initial(problem.initial.field0.copy(), None, z=0.0)
-        clock = time.perf_counter()
-        backend.propagate_to(float(request.stepper.save_planes[-1]))
-        seconds.append(time.perf_counter() - clock)
-        calls = 6 * int(backend.observe().n_steps) + 1
-        backend.close()
+        session = start_session(
+            backend, problem, request, Start.entrance(problem), owns=False
+        )
+        attempts = 0
+        try:
+            clock = time.perf_counter()
+            while not session.finished:
+                batch = session.advance()
+                for event in batch.events:
+                    history = getattr(event, "history", None)
+                    if history is not None:
+                        attempts += int(history.n_steps)
+                terminal = batch.terminal
+                if terminal is not None and terminal.error is not None:
+                    raise terminal.error
+                session.acknowledge(batch.receipt)
+            seconds.append(time.perf_counter() - clock)
+        finally:
+            session.close()
+            backend.close()
+        calls = 6 * attempts + 1
     return {
         "kind": kind,
         "size": size,
@@ -149,18 +170,38 @@ def measure(simulation: Simulation, kind: str, size: int, envelope: bool | None)
     }
 
 
+def _counts(text: str) -> tuple[int, ...]:
+    """Parse a comma-separated list of positive counts."""
+    counts = tuple(int(part) for part in text.split(",") if part.strip())
+    if any(count < 1 for count in counts):
+        raise argparse.ArgumentTypeError("counts must be positive")
+    return counts
+
+
 def main() -> None:
     """Measure every shape for the importable build and write the rows."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--nodes",
+        type=_counts,
+        default=(2, 4, 8, 16, 32, 64, 128, 256),
+        help="the radial node counts, comma-separated; empty for none",
+    )
+    parser.add_argument(
+        "--modes",
+        type=_counts,
+        default=(1, 2, 3, 6),
+        help="the capillary mode counts, comma-separated; empty for none",
+    )
     args = parser.parse_args()
     warnings.filterwarnings("ignore")
     rows: list[Row] = []
-    for nodes in (2, 4, 8, 16, 32, 64, 128, 256):
+    for nodes in args.nodes:
         for trange in (100e-15, 400e-15):
             rows.append(measure(radial(nodes, trange), "radial", nodes, None))
             print(rows[-1], flush=True)
-    for modes in (1, 2, 3, 6):
+    for modes in args.modes:
         for trange in (200e-15, 800e-15):
             for envelope in (False, True):
                 simulation = capillary(modes, trange, envelope=envelope)

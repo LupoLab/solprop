@@ -4,12 +4,14 @@
 
 #include "solprop_native/core.hpp"
 #include "solprop_native/coupled_flow.hpp"
+#include "solprop_native/flow_functions.hpp"
 
 #include "execution.hpp"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -455,12 +457,6 @@ TEST(CoupledFlow, ZeroWeightTermsAreSkippedWithoutMovingABit) {
   EXPECT_EQ(native_step(padded, flow, padded_trial), native_step(problem, flow, trial));
 }
 
-TEST(CoupledFlow, ABatchRefusesAFlowMember) {
-  auto state = std::make_shared<native::GeneralState>(flow_problem(false));
-  state->set_initial(initial(), {});
-  EXPECT_THROW(native::GeneralBatch({state}), std::invalid_argument);
-}
-
 // The engine forms the actions itself, from each section's
 // eigenbasis `W exp(+-l Lambda) Y` or, on the bins routed away from it, by solprop's
 // reference scaling, series and squaring of `l T` with the back-transform `Z F Z^H`.
@@ -745,4 +741,133 @@ TEST(CoupledFlowFormation, LedgerCountsTheFormationViews) {
   native::GeneralState plain(flow_problem(false));
   EXPECT_EQ(plain.memory_ledger().at("flow_eigenbasis"), 0U);
   EXPECT_EQ(plain.memory_ledger().at("flow_formation"), 0U);
+}
+
+// --- solprop SEP 47 phase 4: the augmented exponential of a bin off the route --------
+
+namespace {
+
+using HostRows = Kokkos::View<Complex****, Kokkos::HostSpace>;
+using HostBlocks = Kokkos::View<Complex***, Kokkos::HostSpace>;
+
+// phi_j(x) = sum_k x^k / (k + j)!, summed until the terms vanish: |x| <= 1 here, where
+// sixty terms reach below the double's last place.
+Complex phi_series(const Complex x, const std::size_t j) {
+  Complex total{};
+  Complex power(1.0, 0.0);
+  double factorial = 1.0;
+  for (std::size_t k = 1; k <= j; ++k)
+    factorial *= static_cast<double>(k);
+  for (std::size_t k = 0; k < 60; ++k) {
+    total += power / factorial;
+    power *= x;
+    factorial *= static_cast<double>(k + j + 1);
+  }
+  return total;
+}
+
+// phi_j'(x) = sum_k k x^(k-1) / (k + j)!.
+Complex phi_derivative(const Complex x, const std::size_t j) {
+  Complex total{};
+  Complex power(1.0, 0.0);
+  double factorial = 1.0;
+  for (std::size_t k = 1; k <= j + 1; ++k)
+    factorial *= static_cast<double>(k);
+  for (std::size_t k = 1; k < 60; ++k) {
+    total += static_cast<double>(k) * power / factorial;
+    power *= x;
+    factorial *= static_cast<double>(k + j + 1);
+  }
+  return total;
+}
+
+// The augmented row of `shift I + length T` for one 2 x 2 factor, `count` phi-blocks.
+HostRows augmented(const Complex shift, const double length,
+                   const std::array<Complex, 4>& factor, const std::size_t count) {
+  namespace flow = native::flow_functions;
+  HostBlocks upper("solprop_native.test.upper", 1, 2, 2);
+  for (std::size_t entry = 0; entry < 4; ++entry)
+    upper(0, entry / 2, entry % 2) = factor[entry];
+  HostRows rows("solprop_native.test.rows", 1, flow::augmented_blocks(count), 2, 2);
+  const int squarings = flow::augmented_squarings(shift, length, upper, 0, 2, count);
+  EXPECT_LE(squarings, flow::max_squarings);
+  flow::augmented_row(shift, length, upper, 0, 2, count, squarings, rows, 0);
+  return rows;
+}
+
+// solprop's formation bound (`tests/flow_parity.py`, `reference_formation_bound`) at
+// n (count + 1) <= 10 channels, a scaled norm of a half and s squarings is
+// rho_s <= 2^s 4.3e-14 + (2^s - 1) 1.6e-14 absolutely, times exp(||A||_2) with
+// ||A||_2 <= |x| + |y| + 1: at most 4.3e-13 times 14 (s = 3) in the first test and
+// 8.8e-13 times 61 (s = 4) in the second. The closed forms are exact to a few ulp.
+// Fixed before the first run.
+constexpr double kAugmentedBound = 1e-10;
+
+} // namespace
+
+TEST(CoupledFlowFunctions, TheAugmentedRowIsThePhiFunctionsOfADefectiveBlock) {
+  // X = [[x, y], [0, x]]: f(X) = [[f(x), y f'(x)], [0, f(x)]], a coincident pair no
+  // eigenbasis covers, at small and at squared arguments.
+  constexpr std::size_t count = 3;
+  for (const Complex shift : {Complex(-0.2, 0.3), Complex(0.4, -0.9)}) {
+    for (const double length : {0.5, 3.0}) {
+      const std::array<Complex, 4> factor{Complex(-0.1, 0.05), Complex(0.3, -0.2),
+                                          Complex{}, Complex(-0.1, 0.05)};
+      const auto rows = augmented(shift, length, factor, count);
+      const Complex x = shift + length * factor[0];
+      const Complex y = length * factor[1];
+      if (Kokkos::abs(x) > 1.0)
+        continue;
+      for (std::size_t j = 0; j <= count; ++j) {
+        EXPECT_LE(Kokkos::abs(rows(0, j, 0, 0) - phi_series(x, j)), kAugmentedBound)
+            << j;
+        EXPECT_LE(Kokkos::abs(rows(0, j, 1, 1) - phi_series(x, j)), kAugmentedBound)
+            << j;
+        EXPECT_LE(Kokkos::abs(rows(0, j, 0, 1) - y * phi_derivative(x, j)),
+                  kAugmentedBound)
+            << j;
+        EXPECT_EQ(rows(0, j, 1, 0), Complex{});
+      }
+    }
+  }
+}
+
+TEST(CoupledFlowFunctions, SquaringsKeepTheRecurrenceOfTheDiagonal) {
+  // A diagonal X of modulus near 3 takes four squarings; its phi-functions follow
+  // phi_(j+1)(x) = (phi_j(x) - 1/j!) / x from exp(x), which is accurate there.
+  constexpr std::size_t count = 4;
+  const std::array<Complex, 4> factor{Complex(-0.5, 2.0), Complex{}, Complex{},
+                                      Complex(0.25, -1.5)};
+  const double length = 1.5;
+  const auto rows = augmented(Complex{}, length, factor, count);
+  for (const std::size_t mode : {std::size_t{0}, std::size_t{1}}) {
+    const Complex x = length * factor[mode * 3];
+    Complex phi = Kokkos::exp(x);
+    double factorial = 1.0;
+    for (std::size_t j = 0; j <= count; ++j) {
+      EXPECT_LE(Kokkos::abs(rows(0, j, mode, mode) - phi),
+                kAugmentedBound * std::max(1.0, Kokkos::abs(phi)))
+          << mode << j;
+      phi = (phi - 1.0 / factorial) / x;
+      factorial *= static_cast<double>(j + 1);
+    }
+    EXPECT_EQ(rows(0, 2, 0, 1), Complex{});
+  }
+}
+
+TEST(CoupledFlowFunctions, AnExponentPastThirtySquaringsIsCounted) {
+  namespace flow = native::flow_functions;
+  HostBlocks upper("solprop_native.test.upper", 1, 1, 1);
+  upper(0, 0, 0) = Complex(1.0, 0.0);
+  EXPECT_EQ(flow::augmented_squarings(Complex{}, 0.25, upper, 0, 1, 0), 0);
+  // Row sum 0.25 + 1 for the identity beside it: ceil(log2(2.5)) squarings.
+  EXPECT_EQ(flow::augmented_squarings(Complex{}, 0.25, upper, 0, 1, 2), 2);
+  EXPECT_EQ(flow::augmented_squarings(Complex{}, 0x1p40, upper, 0, 1, 0),
+            flow::max_squarings + 1);
+  EXPECT_EQ(flow::augmented_squarings(Complex(std::nan(""), 0.0), 1.0, upper, 0, 1, 0),
+            flow::non_finite);
+  EXPECT_EQ(
+      flow::augmented_squarings(Complex(std::numeric_limits<double>::infinity(), 0.0),
+                                1.0, upper, 0, 1, 0),
+      flow::non_finite);
 }

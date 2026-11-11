@@ -11,11 +11,11 @@ call's steps are recorded -- leaves the run at the call's last accepted step, it
 state, position, history and ledger together, and a terminal checkpoint that a resume
 continues.
 
-Production runs the march in the native execution session (SEP 47), whose advance is
-the native call here; what the session refuses still runs on the backend's own march
-over the transitional session (the bridge), which the failure classes are also held on.
-Both are read through what the run persists: the file's outcome, ledger, checkpoint and
-method history.
+Every native run marches in the native execution session (SEP 47), whose advance is
+the native call here, read through what the run persists: the file's outcome, ledger,
+checkpoint and method history. Where a stop is a decision -- the budget, the floor --
+the native march is held to the reference's independent Adams march on the same
+problem.
 """
 
 import dataclasses
@@ -47,18 +47,6 @@ pytestmark = [
 backend_module = pytest.importorskip("solprop_native.backend")
 NativeAdamsMarch = backend_module._NativeAdamsMarch
 NativeSession = pytest.importorskip("solprop_native.session").NativeSession
-
-PATHS = ("session", "bridge")
-"""The native session, which production runs on, and the transitional session over the
-backend's own march, which serves what the session refuses."""
-
-
-def on_path(monkeypatch, path: str) -> None:
-    """Run on `path`: the bridge when the native session is made to refuse every run."""
-    if path == "bridge":
-        monkeypatch.setattr(
-            "solprop_native.session.session_refusal", lambda *_: "the test's bridge"
-        )
 
 
 def with_fault(monkeypatch, stage: str, after: int, category: str) -> list[Any]:
@@ -93,7 +81,6 @@ def ledger_of(part) -> dict[str, Any]:
         return dict(stored.outcome.logical_calls)
 
 
-@pytest.mark.parametrize("path", PATHS)
 @pytest.mark.parametrize(
     "fault",
     [
@@ -105,17 +92,15 @@ def ledger_of(part) -> dict[str, Any]:
     ids=lambda fault: f"{fault[0]}-{fault[1]}-{fault[2].__name__}",
 )
 def test_a_native_failure_raises_its_class_at_the_last_accepted_step(
-    build_simulation, tmp_path, monkeypatch, fault, path
+    build_simulation, tmp_path, monkeypatch, fault
 ):
     stage, category, raised = fault
-    on_path(monkeypatch, path)
     build = soliton(build_simulation, "native")
     part = tmp_path / "part.h5"
     armed = with_fault(monkeypatch, stage, 0 if stage == "startup" else 30, category)
     with pytest.raises(raised, match="an injected native failure"):
         build().run(part, progress="none")
-    (march,) = armed
-    assert march.native
+    assert len(armed) == 1
     ledger = ledger_of(part)
     if stage == "startup":
         # The startup sample was charged before it failed, and nothing was accepted:
@@ -400,16 +385,17 @@ def test_the_command_line_stops_a_one_plane_march_on_its_first_signal(
         assert stored.outcome.z == ONE_PLANE_LENGTH
 
 
-def two_marches(build, monkeypatch, part) -> dict[str, Any]:
-    """Run the simulation to `part` on the native march and on the host one; return
-    each march's outcome, as the file records it: the error's class and message, its
+def two_marches(make, monkeypatch, part) -> dict[str, Any]:
+    """Run the simulation to `part` on the native march and on the reference; return
+    each run's outcome, as the file records it: the error's class and message, its
     position and its ledger.
 
-    The native march runs in the native session; the host one, which the session
-    refuses, on the bridge."""
+    `make` takes a backend's name and returns the simulation's builder. The native
+    march runs in the native session; the reference's is its own independent Adams
+    march (SEP 47 section 6.6)."""
     found = {}
     original = NativeAdamsMarch.__init__
-    for march in ("native", "host"):
+    for backend in ("native", "numpy_ref"):
         marches: list[Any] = []
         served: list[str] = []
 
@@ -423,22 +409,25 @@ def two_marches(build, monkeypatch, part) -> dict[str, Any]:
             return session
 
         with monkeypatch.context() as patch:
-            patch.setattr(backend_module, "_ADAMS_MARCH", march)
             patch.setattr(NativeAdamsMarch, "__init__", recording)
             patch.setattr(sessions, "start_session", serving)
             try:
-                build().run(part)
+                make(backend)().run(part)
                 error = None
             except (ConvergenceError, ResponseBudgetError) as stopped:
-                error = (type(stopped), str(stopped))
-        (taken,) = marches
-        assert taken.native == (march == "native")
-        assert served == ["NativeSession" if march == "native" else "DriverSession"]
+                # The message names the backend; the rest is the march's.
+                error = (type(stopped), str(stopped).replace(backend, "BACKEND"))
+        if backend == "native":
+            assert len(marches) == 1
+            assert served == ["NativeSession"]
+        else:
+            assert marches == []
+            assert served == ["HostSession"]
         ledger = ledger_of(part)
         with open_file(part) as stored:
             assert stored.outcome is not None
             z = stored.outcome.z
-        found[march] = {
+        found[backend] = {
             "error": error,
             "z": z,
             "ledger": ledger["startup"] + ledger["predictor"] + ledger["corrected"],
@@ -447,51 +436,67 @@ def two_marches(build, monkeypatch, part) -> dict[str, Any]:
     return found
 
 
-def assert_same_stop(native: dict[str, Any], host: dict[str, Any]) -> None:
+def assert_same_stop(native: dict[str, Any], reference: dict[str, Any]) -> None:
     """Assert the two marches stopped alike: the same error and calls, and positions a
-    rounding apart (measured equal; SEP 25 asserts no bits)."""
-    assert native["error"] == host["error"]
-    assert (native["ledger"], native["steps"]) == (host["ledger"], host["steps"])
-    assert native["z"] == pytest.approx(host["z"], rel=1e-12, abs=0.0)
+    rounding apart (SEP 25 asserts no bits).
+
+    The reference forms each norm in its own order, so each proposal moves by the
+    norm's relative rounding, a few units in the last place of the field's sums, and
+    the steps' sum by at most their count times that: under 1e-10 of the position over
+    these fewer than a hundred steps (measured 9.4e-12 on the budget case)."""
+    assert native["error"] == reference["error"]
+    assert (native["ledger"], native["steps"]) == (
+        reference["ledger"],
+        reference["steps"],
+    )
+    assert native["z"] == pytest.approx(reference["z"], rel=1e-10, abs=0.0)
 
 
 def test_the_budget_stops_both_marches_at_the_same_step(
     build_simulation, tmp_path, monkeypatch
 ):
-    build = soliton(build_simulation, "native", integrator=Multistep(max_calls=60))
-    found = two_marches(build, monkeypatch, tmp_path / "b.h5")
-    native, host = found["native"], found["host"]
+    def make(backend):
+        return soliton(build_simulation, backend, integrator=Multistep(max_calls=60))
+
+    found = two_marches(make, monkeypatch, tmp_path / "b.h5")
+    native, reference = found["native"], found["numpy_ref"]
     assert native["error"] is not None and native["error"][0] is ResponseBudgetError
-    # Within one build both marches round alike (SEP 39 4.9): the same calls stop the
-    # run at the same step, with the same message.
-    assert_same_stop(native, host)
+    # The native march and the reference's independent one take the same decisions
+    # on this soliton: the same calls stop the run at the same step, with the same
+    # message.
+    assert_same_stop(native, reference)
 
 
 def test_the_floor_stops_both_marches_at_the_same_step(
     build_simulation, tmp_path, monkeypatch
 ):
-    # At this tolerance the steps want to be shorter than this floor.
-    tight = soliton(build_simulation, "native", rtol=1e-12)
+    def make(backend):
+        # At this tolerance the steps want to be shorter than this floor.
+        tight = soliton(build_simulation, backend, rtol=1e-12)
 
-    def build():
-        simulation = tight()
-        simulation.settings = dataclasses.replace(
-            simulation.settings, dz_min=5e-6, dz_init=5e-6
-        )
-        return simulation
+        def build():
+            simulation = tight()
+            simulation.settings = dataclasses.replace(
+                simulation.settings, dz_min=5e-6, dz_init=5e-6
+            )
+            return simulation
 
-    found = two_marches(build, monkeypatch, tmp_path / "f.h5")
-    native, host = found["native"], found["host"]
+        return build
+
+    found = two_marches(make, monkeypatch, tmp_path / "f.h5")
+    native, reference = found["native"], found["numpy_ref"]
     assert native["error"] is not None and native["error"][0] is ConvergenceError
     assert "below the floor" in native["error"][1]
-    assert_same_stop(native, host)
+    assert_same_stop(native, reference)
 
 
 def test_both_marches_take_the_same_steps(build_simulation, tmp_path, monkeypatch):
-    build = soliton(build_simulation, "native")
-    found = two_marches(build, monkeypatch, tmp_path / "s.h5")
+    def make(backend):
+        return soliton(build_simulation, backend)
+
+    found = two_marches(make, monkeypatch, tmp_path / "s.h5")
     assert found["native"]["error"] is None
-    assert_same_stop(found["native"], found["host"])
+    assert_same_stop(found["native"], found["numpy_ref"])
 
 
 @needs_default_sigterm

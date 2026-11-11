@@ -7,10 +7,8 @@
 Each case of the ``sep47`` set runs once, briefly, with the native adapter's structural
 counters on (``benchmarks.worker.measure(count_events=True)``), and its counts must show
 the events it was declared for: a statistics row at every accepted step, snapshots
-serviced, a group's common steps, the native or host march of a coupled flow. A run is
-served by the native execution session wherever it admits the run, as in production;
-the transitional bridge's counts are checked beside it where they document what the
-session removed (SEP 47 section 7.3).
+serviced, a group's common steps, the native march of a coupled flow. Every run is
+served by the native execution session, as in production (SEP 47 section 7.3).
 """
 
 import warnings
@@ -39,12 +37,6 @@ FIBRES = (
     "scan_local",
     "group_batch",
 )
-
-
-def _no_native_session(*args):
-    """Refuse every run to the native session, so the bridge serves it."""
-    del args
-    return "the test's bridge"
 
 
 def counted(name, tmp_path, fraction=0.125, repeats=0):
@@ -132,41 +124,6 @@ def test_period_one_statistics_take_a_row_at_every_accepted_step(name, tmp_path)
     assert counts["host_attempts"] == counts["transverse_reads"] == 0
     assert timed is not None
     assert (timed["accepted"], timed["rejected"]) == (run["accepted"], run["rejected"])
-
-
-@pytest.mark.parametrize("name", ["stats_period1_rk", "snapshots_sparse"])
-def test_the_bridge_counts_the_same_work_with_a_return_per_step(
-    name, tmp_path, monkeypatch
-):
-    # The transitional bridge still serves what the native session refuses. Measured
-    # the same way, it makes the same attempts, rows, planes and copies, and returns
-    # to Python at every step the session keeps native.
-    _, run, session = counted(name, tmp_path)
-    monkeypatch.setattr("solprop_native.session.session_refusal", _no_native_session)
-    _, bridged, bridge = counted(name, tmp_path / "bridge")
-    assert (bridged["accepted"], bridged["rejected"]) == (
-        run["accepted"],
-        run["rejected"],
-    )
-    same = (
-        "attempts",
-        "accepted",
-        "planes",
-        "statistics_rows",
-        "statistics_evaluations",
-        "field_bytes",
-        "field_loads",
-        "load_bytes",
-    )
-    assert {key: bridge[key] for key in same} == {key: session[key] for key in same}
-    assert (
-        sum(bridge["field_crossings"].values()) == session["field_crossings"]["export"]
-    )
-    assert set(bridge["field_crossings"]) == {"plane"}
-    cause = "statistics" if name.startswith("stats") else "step_planes"
-    assert bridge["native_returns"][f"host_step:{cause}"] >= run["accepted"] - 2
-    assert all(not key.startswith("session_") for key in bridge["native_returns"])
-    assert all(not key.startswith("host_step") for key in session["native_returns"])
 
 
 @pytest.mark.parametrize(
@@ -288,18 +245,16 @@ def test_counters_attribute_a_host_step_to_the_work_due_on_it():
     assert record["planes"] == 1
     assert (record["field_crossings"], record["field_bytes"]) == ({"export": 1}, 64)
     assert (record["field_loads"], record["load_bytes"]) == ({"start": 1}, 32)
-    # The per-attempt hooks live on the backend only while counting.
-    hooks = ("_record", "_record_step_stats")
+    # Counting installs nothing on the backend: every count is the session's or the
+    # state's own (SEP 47 phase 5).
+    before = dict(vars(NativeBackend))
     assert _counters.disable() is None
-    assert not any(name in NativeBackend.__dict__ for name in hooks)
     assert _counters.enable() is _counters.active
-    assert all(name in NativeBackend.__dict__ for name in hooks)
+    assert dict(vars(NativeBackend)) == before
     assert isinstance(_counters.disable(), _counters.Counters)
     assert _counters.active is None
-    assert not any(name in NativeBackend.__dict__ for name in hooks)
     # The reason names are the backend's, in march::Reason order.
     assert backend._REASONS[backend._HOST_STEP] == "host_step"
-    assert backend._reason_name(99) == "reason_99"
 
 
 def test_cases_that_set_their_integrator_refuse_an_override():
@@ -325,19 +280,15 @@ def test_unchecked_work_and_fields_are_never_a_match():
 
 
 @pytest.mark.slow
-def test_a_narrow_flow_marches_natively_and_a_wide_one_on_the_host(tmp_path):
-    # Both keep the wall tutorials' walk-off absorber and its warning.
+def test_a_narrow_and_a_wide_flow_march_natively(tmp_path):
+    # Both keep the wall tutorials' walk-off absorber and its warning. Either build
+    # steps a block of any width on the native Adams march, in the native session
+    # (SEP 47 phase 4).
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         _, _, narrow = counted("taper_flow_4", tmp_path, fraction=1.0)
-        found = {type(item.message) for item in caught}
-        assert HostMarchWarning not in found
         _, _, wide = counted("taper_flow_17", tmp_path / "wide", fraction=1.0)
-    assert HostMarchWarning in {type(item.message) for item in caught}
-    # The narrow flow runs in the native session, on its native Adams march.
-    assert narrow["march_calls"].get("session_adams", 0) > 0
-    assert narrow["host_attempts"] == 0
-    assert wide["march_calls"] == {}
-    assert wide["host_attempts"] == wide["native_returns"]["host_attempt"] > 0
-    # The host engine copies every accepted state to the host.
-    assert wide["field_crossings"]["step"] == wide["accepted"]
+    assert HostMarchWarning not in {type(item.message) for item in caught}
+    for counts in (narrow, wide):
+        assert counts["march_calls"].get("session_adams", 0) > 0
+        assert counts["host_attempts"] == 0

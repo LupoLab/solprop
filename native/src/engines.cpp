@@ -223,6 +223,8 @@ std::vector<double> GeneralResident::boundary_reading() {
   return state_.monitor_reading();
 }
 
+double GeneralResident::quadrature_peak() { return state_.quadrature_peak(); }
+
 transverse::Reading GeneralResident::edge_reading(const bool faces, const bool whole,
                                                   const bool totals, const bool strip,
                                                   const bool current) {

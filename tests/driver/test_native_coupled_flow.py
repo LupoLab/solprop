@@ -47,6 +47,7 @@ from driver.test_coherent_capillary import (
 )
 from driver.test_split_block import build
 from flow_parity import UNIT, formation_bound, radial_family
+from march_bounds import assert_points_matched
 from modal_provider_cases import (
     GENERAL_CHI3,
     GENERAL_Z_END,
@@ -56,9 +57,13 @@ from modal_provider_cases import (
     split_basis,
     split_guide,
 )
+from sessions.runs import bare, final_field
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
+from solprop.backends.session import Start
 from solprop.driver import Simulation
+from solprop.driver.executors import Batch, Local
+from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import (
     BackendError,
     DriverError,
@@ -232,16 +237,27 @@ def native_class():
 def propagate(case: Case, backend, field0=None) -> np.ndarray:
     """Run one case to its end on one backend and return the final state."""
     problem = case.problem
-    driver = backend(problem, case.run_request, grid=case.grid)
-    try:
-        driver.set_initial(problem.initial.field0 if field0 is None else field0, None)
-        driver.propagate_to(case.length)
-        return driver.observe().require_field().copy()
-    finally:
-        driver.close()
+    assert math.isclose(case.length, float(case.run_request.stepper.z_end))
+    # Through the backend's session, which closes it (SEP 47 phase 5).
+    return final_field(
+        backend(problem, case.run_request, grid=case.grid),
+        problem,
+        bare(case.run_request),
+        Start(
+            field=problem.initial.field0 if field0 is None else field0,
+            z=float(problem.initial.z),
+        ),
+        ended=True,
+        owns=True,
+    )
 
 
-def parity_bound(case: Case, expected: np.ndarray, linear: np.ndarray) -> float:
+def parity_bound(
+    case: Case,
+    expected: np.ndarray,
+    linear: np.ndarray,
+    formation: float | None = None,
+) -> float:
     """Return the ten-step bound on the native backend's departure from ``numpy_ref``.
 
     Written before any measurement. The two backends form their flow actions from
@@ -265,6 +281,8 @@ def parity_bound(case: Case, expected: np.ndarray, linear: np.ndarray) -> float:
       ``(T + 2 n) u`` for ``T`` terms and the two carries.
 
     Ten steps add, each amplifying the error carried in by ``1 + 3 rho + r``.
+    `formation`, when given, replaces ``eps_form`` (a run with bins off the
+    eigenbasis route: ``flow_parity.adams_formation_bound``).
     """
     problem = case.problem
     flow = problem.linear.coupled_flow
@@ -282,9 +300,9 @@ def parity_bound(case: Case, expected: np.ndarray, linear: np.ndarray) -> float:
     residual = float(np.max(flow.residual_norm_bound)) * dz
     assert flow.generator is not None
     terms = int(flow.generator.shape[0] * flow.generator.shape[1])
-    carry = 2 * channels * kappa * eps + kappa * formation_bound(
-        problem, case.run_request, dz
-    )
+    if formation is None:
+        formation = formation_bound(problem, case.run_request, dz)
+    carry = 2 * channels * kappa * eps + kappa * formation
     source = (
         2 * 512 * eps * math.log2(problem.grids.n_to)
         + (channels + 84 + 3 * nodes) * eps
@@ -323,9 +341,6 @@ def test_native_runs_ten_steps_of_the_flow_as_numpy_ref_does(name, record_proper
     assert departure <= bound
 
 
-# Off the eigenbasis route the flow keeps the host engine, which runs solprop's march
-# with the warning tests/backends/test_native_march_admission.py asserts (SEP 39).
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize("route", ["eigenbasis", "scaling_and_squaring"])
 def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_bound(
     route, monkeypatch
@@ -395,20 +410,6 @@ def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_boun
         backend.close()
 
 
-def test_an_action_needing_too_many_squarings_is_refused_by_name_on_native():
-    """The reference's squaring limit, on the section's row-sum norm, in its words."""
-    case = scalar_wall()
-    backend = native_class()(case.problem, case.run_request, grid=case.grid)
-    try:
-        backend.set_initial(case.problem.initial.field0, None)
-        whole = backend._stage_scalars(0.0, case.length / STEPS)
-        with pytest.raises(BackendError, match="native cannot take a coupled flow"):
-            backend._flow_trial(1e30, whole, [whole])
-        assert backend._flow_key is None
-    finally:
-        backend.close()
-
-
 def test_a_step_longer_than_the_certificate_is_refused_by_name_on_native():
     """The whole step's conditioning is measured per step and checked, as there.
 
@@ -431,12 +432,8 @@ def test_a_step_longer_than_the_certificate_is_refused_by_name_on_native():
         replace(case.run_request.stepper, integrator=None)
     )
     backend = native_class()(problem, run_request, grid=case.grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        with pytest.raises(BackendError, match="native measured a coupled flow"):
-            backend.propagate_to(case.length)
-    finally:
-        backend.close()
+    with pytest.raises(BackendError, match="native measured a coupled flow"):
+        final_field(backend, problem, bare(run_request), ended=True, owns=True)
 
 
 def test_cf4_is_refused_by_name_at_the_backend_and_the_entry_point():
@@ -450,27 +447,67 @@ def test_cf4_is_refused_by_name_at_the_backend_and_the_entry_point():
             varying(wall=CF4_WALL, backend=name).translate()
 
 
-def test_a_native_batch_refuses_a_coupled_flow_by_name():
-    """The fused accepted update applies no flow action, so a batch is refused."""
-    # Optional wheel: absent from the base environment.
-    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        NativeBatchBackend,
+def test_a_native_group_admits_a_coupled_flow():
+    """A coupled flow runs in a native group (SEP 47 section 6.7): each member's flow
+    is its own session's, so nothing of its step is fused. The members' numerics are
+    held to their lone sessions in ``native/tests/test_coupled_flow.py``."""
+    from solprop_native.group import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        NativeGroupSession,
+        refusal,
     )
 
-    case = scalar_wall()
+    from solprop.backends.session import Start  # noqa: PLC0415
+    from solprop.backends.sessions import start_group  # noqa: PLC0415
+
+    simulation = capillary(wall=CoherentWall(), energy=ENERGY, pressure=PRESSURE)
+    problem, request = simulation.translate(), simulation._run_request()
+    problems, requests = [problem] * 2, [request] * 2
+    starts = [Start.entrance(problem) for _ in range(2)]
+    assert refusal(problems, requests, starts) is None
     members = [
-        native_class()(case.problem, case.run_request, grid=case.grid) for _ in range(2)
+        native_class()(
+            problem,
+            request,
+            grid=simulation.grid,
+            modes=simulation.modes,
+            profiles=simulation.profiles,
+        )
+        for _ in range(2)
     ]
-    for member in members:
-        member.set_initial(case.problem.initial.field0, None)
+    group = start_group(members, problems, requests, starts)
     try:
-        with pytest.raises(
-            BackendError, match=r"does not execute linear\.coupled_flow"
-        ):
-            NativeBatchBackend(members)
+        assert isinstance(group, NativeGroupSession)
     finally:
-        for member in members:
-            member.close()
+        group.close()
+
+
+def _scan_point(point):
+    """Return one point of a power scan of the scalar wall, natively."""
+    return capillary(
+        wall=CoherentWall(), backend="native", energy=1e-9 * point.values["power"]
+    )
+
+
+def test_a_batched_scan_of_coupled_flows_runs_as_the_local_loop(tmp_path):
+    """A batched scan groups coupled-flow points into one native group, and each
+    point is the local loop's to the matched-march bound (SEP 25)."""
+    scan = Scan("coupled", power=[1.0, 2.0])
+    local = run_scan(
+        scan,
+        _scan_point,
+        output=tmp_path / "local.h5",
+        executor=Local(),
+        progress="none",
+    )
+    batched = run_scan(
+        scan,
+        _scan_point,
+        output=tmp_path / "batch.h5",
+        executor=Batch(2),
+        progress="none",
+    )
+    assert local.status.tolist() == batched.status.tolist() == ["done"] * 2
+    assert_points_matched(batched, local, scan, _scan_point, what="batch member")
 
 
 def test_the_flow_s_ledger_rows_are_its_views_and_zero_elsewhere():

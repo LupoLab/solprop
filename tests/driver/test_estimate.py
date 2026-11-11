@@ -13,6 +13,8 @@ import numpy as np
 import pytest
 
 from capability_routes import ROUTES
+from sessions.runs import load_native, native_trial
+from solprop.backends.protocol import stepping as host_stepping
 from solprop.backends.registry import available, select
 from solprop.backends.session import SessionError, Start
 from solprop.driver import Simulation
@@ -205,6 +207,26 @@ def _backend(simulation):
     )
 
 
+def _native_committed_nothing(problem, probed, fresh, dz):
+    """Assert a native probe left its loaded state; return the native state's trial.
+
+    The probed backend's native state holds the launch exactly, as a fresh native state
+    loaded with it does: nothing was committed. The trial is the same Runge-Kutta trial
+    from the launch, taken by a fresh native state itself on its staged rows and
+    finished as a kept step (SEP 47 phase 5: the native backend no longer steps or
+    observes outside its session).
+    """
+    assert problem.initial.noise0 is None
+    fresh._staged_rows()
+    state = load_native(fresh, problem.initial.field0, clear_fsal=False)
+    loaded = state.field_to_host()
+    held = probed._native_state.field_to_host()
+    assert held.tobytes() == loaded.tobytes()
+    native_trial(fresh, float(problem.initial.z), dz)
+    state.finish(dz)
+    return np.asarray(state.field_to_host()).reshape(problem.shape)
+
+
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
     """SEP 47 section 6.6: one trial from the loaded state, with a field readback."""
@@ -229,22 +251,27 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
         assert half.shape == whole.shape == problem.shape
         # The two lengths end in different states: the readback is the last trial's.
         assert not np.array_equal(half, whole)
-        # Nothing was committed: no attempt, the launch position, the loaded state.
-        fresh.set_initial(problem.initial.field0, None, z=problem.initial.z)
-        expected = fresh.observe()
-        observed = probed.observe()
-        assert observed.n_steps == 0
-        assert observed.z == problem.initial.z
-        assert observed.field is not None and expected.field is not None
-        assert np.array_equal(observed.field, expected.field)
         with pytest.raises(BackendError, match="take a trial"):
             probe.field()
-        # The readback is the trial's own state as a kept step finishes it: the same
-        # arithmetic again, on one thread layout in one process, so agreement to a few
-        # roundings of the field's largest magnitude bounds it (SEP 25).
-        stepping = cast("Any", fresh)  # the driver's own trial, as a kernel test does
-        _, state = stepping._trial_step(float(problem.initial.z), dz)
-        trial = np.asarray(stepping._observed_field(stepping._finish(state, dz)))[0]
+        if backend == "native":
+            trial = _native_committed_nothing(problem, probed, fresh, dz)
+        else:
+            # Nothing was committed: no attempt, the launch position, the loaded state.
+            host_stepping(fresh).set_initial(
+                problem.initial.field0, None, z=problem.initial.z
+            )
+            expected = host_stepping(fresh).observe()
+            observed = host_stepping(probed).observe()
+            assert observed.n_steps == 0
+            assert observed.z == problem.initial.z
+            assert observed.field is not None and expected.field is not None
+            assert np.array_equal(observed.field, expected.field)
+            # The readback is the trial's own state as a kept step finishes it: the
+            # same arithmetic again, on one thread layout in one process, so agreement
+            # to a few roundings of the field's largest magnitude bounds it (SEP 25).
+            stepping = cast("Any", fresh)  # the driver's own trial, as a kernel test
+            _, state = stepping._trial_step(float(problem.initial.z), dz)
+            trial = np.asarray(stepping._observed_field(stepping._finish(state, dz)))[0]
         scale = float(np.max(np.abs(trial)))
         np.testing.assert_allclose(whole, trial, rtol=0.0, atol=64e-16 * scale)
         # A copy the probe owns: a later trial does not write to it.

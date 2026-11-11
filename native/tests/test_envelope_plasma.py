@@ -12,15 +12,26 @@ import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
 import pytest
 from legacy_geometry import LEGACY_GRID
+from session_runs import (
+    alone,
+    assert_same,
+    drain,
+    grouped,
+    load_native,
+    native_trial,
+    one_thread,
+    run,
+)
+from solprop.backends.events import Outcome
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.session import ExecutionOptions
+from solprop.backends.session import ExecutionOptions, Start
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
 from solprop.modes import MarcatiliMode, ModeCollection, transverse_quadrature
@@ -175,17 +186,15 @@ def test_envelope_current_streams_use_large_radial_projection() -> None:
         NativeBackend(problem, run_request, grid=grid),
     )
     try:
-        for owner in (reference, actual):
-            owner.set_initial(problem.initial.field0, None)
+        reference.set_initial(problem.initial.field0, None)
         expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
             problem.initial.field0[None],
             reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
             np.ones((1, *problem.shape), complex),
         )[0]
-        actual._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
-        observed = np.asarray(
-            actual._native_state.stage_to_host(0)  # pyright: ignore[reportPrivateUsage]
-        ).reshape(problem.shape)
+        state = load_native(actual, problem.initial.field0, clear_fsal=False)
+        native_trial(actual, 0.0, 0.0)
+        observed = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
         info = build_info()
         if info.device_backend == "none" and info.gemm_provider in {
             "HYBRID",
@@ -306,6 +315,10 @@ def test_envelope_currents_steps_statistics_and_repeatability(
     route: str, n_pol: int
 ) -> None:
     problem, run_request, grid = envelope_case(route, n_pol)
+    # The launch, the first of the eight prescribed steps and the end.
+    run_request = run_request.with_stepper(
+        replace(run_request.stepper, save_planes=(grid.length / 8, grid.length))
+    )
     options = envelope_options(route)
     reference, actual = (
         NumpyRefBackend(problem, run_request, grid=grid, options=options),
@@ -313,16 +326,20 @@ def test_envelope_currents_steps_statistics_and_repeatability(
     )
     repeat = NativeBackend(problem, run_request, grid=grid, options=options)
     try:
-        for owner in (reference, actual, repeat):
-            owner.set_initial(problem.initial.field0, None)
-        for target in (0.0, grid.length / 8, grid.length):
-            if target:
-                for owner in (reference, actual, repeat):
-                    owner.propagate_to(target)
-            expected, got = (
-                reference.observe().require_field(),
-                actual.observe().require_field(),
-            )
+        wanted_run, got_run, repeat_run = (
+            run(owner, problem, run_request) for owner in (reference, actual, repeat)
+        )
+        targets = [0.0, grid.length / 8, grid.length]
+        assert [plane.z for plane in got_run.all_planes()] == targets
+        assert [plane.z for plane in wanted_run.all_planes()] == targets
+        for want, have, expected, got, again in zip(
+            wanted_run.all_planes(),
+            got_run.all_planes(),
+            wanted_run.fields,
+            got_run.fields,
+            repeat_run.fields,
+            strict=True,
+        ):
             # The shared-vs-SVD cycle oracle allows 2e-10; eight seven-stage
             # steps also sum node projections and temporal/spatial transforms.
             bound = (
@@ -335,15 +352,12 @@ def test_envelope_currents_steps_statistics_and_repeatability(
             # A repeat is the same discrete computation: rounding only.
             repeat_bound = native_bound(problem, grid)
             np.testing.assert_allclose(
-                repeat.observe().require_field(),
+                again,
                 got,
                 rtol=repeat_bound,
                 atol=repeat_bound * np.max(np.abs(got)),
             )
-            wanted, observed = (
-                reference.stats(run_request.observation.stats),
-                actual.stats(run_request.observation.stats),
-            )
+            wanted, observed = want.stats, have.stats
             for name in NAMES:
                 np.testing.assert_allclose(
                     observed[name], wanted[name], rtol=bound, atol=1e-30
@@ -410,6 +424,9 @@ def test_envelope_angular_failure_is_a_solprop_convergence_error(
     import solprop_native.backend as adapter
 
     problem, run_request, grid = envelope_case(geometry, n_pol, mixture=False)
+    # No statistics: the failure is the first step's, inside the native march, as the
+    # driver's was (the launch plane's populations would meet the bad rule first).
+    run_request = run_request.for_run(stats=StatsSpec())
     payload = _native_problem(
         problem,
         run_request,
@@ -434,87 +451,91 @@ def test_envelope_angular_failure_is_a_solprop_convergence_error(
     try:
         # Spatial pulses need enough local field to enter the angular rule; a
         # below-threshold sample correctly bypasses refinement even with bad nodes.
-        owner.set_initial(
-            np.asarray(10.0 * problem.initial.field0, dtype=np.complex128), None
+        loud = np.asarray(10.0 * problem.initial.field0, dtype=np.complex128)
+        session = owner.prepare(problem, run_request).start(
+            Start(field=loud, z=0.0), owns=False
         )
-        with pytest.raises(ConvergenceError, match="angular refinement"):
-            owner.propagate_to(grid.length / 8)
-        assert owner.observe().z == 0.0
+        try:
+            terminal = drain(session)
+        finally:
+            session.close()
+        assert terminal.outcome is Outcome.FAILED
+        assert isinstance(terminal.error, ConvergenceError)
+        assert "angular refinement" in str(terminal.error)
+        assert terminal.z == 0.0
         # Reusing the same allocation must reset a failed device reduction to
         # its success identity when every new sample lies below threshold.
-        owner.set_initial(np.zeros_like(problem.initial.field0), None)
-        owner.propagate_to(grid.length / 8)
-        assert owner.observe().z == grid.length / 8
+        quiet = Start(field=np.zeros_like(problem.initial.field0), z=0.0)
+        result = run(owner, problem, run_request, quiet)
+        assert result.all_planes()[-1].z == grid.length
     finally:
         owner.close()
 
 
-def test_envelope_native_batch_keeps_noisy_members_and_statistics_independent() -> None:
-    """Noisy members of a batch agree with the same members run alone.
+def test_envelope_native_group_keeps_noisy_members_and_statistics_independent() -> None:
+    """Noisy members of a native group agree with the same members run alone.
 
-    Each pair shares its stored noise draw and replays eight prescribed steps: the
-    same discrete computation on both sides over a short window, held to
+    Each member and its lone native session share a stored noise draw and replay
+    eight prescribed steps, each member in its own native session (solprop SEP 47
+    section 6.7): bit for bit at one thread, and otherwise held to
     :func:`native_bound` (solprop SEP 25), with the schedule's row positions exact.
+    Every step's periodic row is compared, and the plane statistics at the end.
     """
-    from contextlib import ExitStack
-
     from solprop.noise import modified_noise
-
-    from solprop_native import NativeBatchBackend
 
     problem, run_request, grid = envelope_case("modal", 2)
     bound = native_bound(problem, grid)
-    with ExitStack() as cleanup:
-        members: list[NativeBackend] = []
-        singletons: list[NativeBackend] = []
-        for index in range(2):
-            draw = modified_noise(
-                grid, np.random.default_rng(390 + index), n_modes=1, n_pol=2
+    problems: list[PropagationProblem] = []
+    starts: list[Start] = []
+    singles: list[list[dict[str, Any]]] = []
+    for index in range(2):
+        draw = modified_noise(
+            grid, np.random.default_rng(390 + index), n_modes=1, n_pol=2
+        )
+        initial = replace(
+            problem.initial,
+            field0=problem.initial.field0 * (1 + 0.125 * index),
+            noise0=draw.spectrum,
+            noise_model=draw.model,
+        )
+        one = replace(
+            problem, initial=initial, flags=replace(problem.flags, has_noise=True)
+        )
+        problems.append(one)
+        starts.append(Start.entrance(one, noise=draw))
+        owner = NativeBackend(
+            one, run_request, grid=grid, options=envelope_options("modal")
+        )
+        singles.append(alone(owner, one, run_request, Start.entrance(one, noise=draw)))
+    owners = [
+        NativeBackend(one, run_request, grid=grid, options=envelope_options("modal"))
+        for one in problems
+    ]
+    group = grouped(owners, problems, [run_request] * 2, starts)
+    periodic = set(run_request.observation.stats.periodic)
+    for member, single in zip(group, singles, strict=True):
+        # Every step's row reached the end plane.
+        assert set(single[-1]["rows"]) == periodic
+        assert len(single[-1]["row_z"]) == 8
+        if one_thread():
+            assert_same(member, single)
+        assert [plane["z"] for plane in member] == [plane["z"] for plane in single]
+        for got, expected in zip(member, single, strict=True):
+            field = expected["field"]
+            np.testing.assert_allclose(
+                got["field"], field, rtol=bound, atol=bound * np.max(np.abs(field))
             )
-            initial = replace(
-                problem.initial,
-                field0=problem.initial.field0 * (1 + 0.125 * index),
-                noise0=draw.spectrum,
-                noise_model=draw.model,
-            )
-            one = replace(
-                problem, initial=initial, flags=replace(problem.flags, has_noise=True)
-            )
-            for destination in (members, singletons):
-                owner = NativeBackend(
-                    one, run_request, grid=grid, options=envelope_options("modal")
-                )
-                cleanup.callback(owner.close)
-                owner.set_initial(initial.field0, draw)
-                destination.append(owner)
-        batch = NativeBatchBackend(members)
-        cleanup.callback(batch.close)
-        for target in (grid.length / 8, grid.length):
-            batch.propagate_to(target)
-            got = batch.stats(run_request.observation.stats)
-            for index, singleton in enumerate(singletons):
-                singleton.propagate_to(target)
-                field = singleton.observe().require_field()
+            for name in NAMES:
                 np.testing.assert_allclose(
-                    members[index].observe().require_field(),
-                    field,
+                    got["stats"][name], expected["stats"][name], rtol=bound, atol=1e-30
+                )
+            # Exact: the prescribed schedule's positions.
+            np.testing.assert_array_equal(got["row_z"], expected["row_z"])
+            assert got["rows"].keys() == expected["rows"].keys()
+            for name in expected["rows"]:
+                np.testing.assert_allclose(
+                    got["rows"][name],
+                    expected["rows"][name],
                     rtol=bound,
-                    atol=bound * np.max(np.abs(field)),
+                    atol=1e-30,
                 )
-                expected = singleton.stats(run_request.observation.stats)
-                for name in NAMES:
-                    np.testing.assert_allclose(
-                        got[name][index], expected[name], rtol=bound, atol=1e-30
-                    )
-                left, right = (
-                    members[index].observe().step_stats,
-                    singleton.observe().step_stats,
-                )
-                assert left is not None
-                assert right is not None
-                # Exact: the prescribed schedule's positions.
-                np.testing.assert_array_equal(left.z, right.z)
-                for name in run_request.observation.stats.periodic:
-                    np.testing.assert_allclose(
-                        left.values[name], right.values[name], rtol=bound, atol=1e-30
-                    )

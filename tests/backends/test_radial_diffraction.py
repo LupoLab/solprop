@@ -12,6 +12,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from hankel_oracles import complex_gaussian_bound, gamma, gaussian_axis_bound
+from sessions.runs import final_field, launch
 from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.hankel import QDHT
@@ -156,10 +157,12 @@ def test_gaussian_width_gouy_and_axis_intensity_include_nonparaxial_error(
     )
     backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        if distance:
-            backend.propagate_to(distance)
-        state = backend.observe().require_field()
+        # The launch plane's state at no distance, else the last plane's, at `stop`.
+        state = (
+            final_field(backend, problem, run_request, z=distance)
+            if distance
+            else launch(backend, problem, run_request).field
+        )
         radial_spectrum = state[:, 0, index] * math.sqrt(n_pol)
         measured = space.hankel.inverse(radial_spectrum)
         assert np.all(np.abs(measured - profile) <= error)

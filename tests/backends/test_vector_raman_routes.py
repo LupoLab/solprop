@@ -15,6 +15,7 @@ from backends.test_batch_responses import compare
 from backends.test_envelope_plasma_geometries import geometry_case, geometry_options
 from backends.test_radial_nonlinear import derivative
 from former_raman import FORMER_H2, FORMER_N2, former_response
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.exceptions import TranslationError
@@ -32,16 +33,14 @@ envelope_mixture = plasma_cases.envelope_mixture
 
 
 def run(backend_class, problem, run_request, grid, options=None):
-    """Return one source evaluation and a complete fixed-schedule run."""
+    """Return one source evaluation and a complete fixed-schedule run, the latter
+    through the backend's own session."""
     rhs = derivative(backend_class, problem, run_request, grid, options)
     owner = backend_class(problem, run_request, grid=grid, options=options)
-    try:
-        owner.set_initial(problem.initial.field0, None)
-        summary = owner.propagate_to(grid.length)
-        assert summary.met_tolerance
-        return rhs, owner.observe().require_field().copy()
-    finally:
-        owner.close()
+    ran = session_run(owner, problem, run_request, owns=True)
+    assert ran.final.z == grid.length
+    assert ran.met_tolerance
+    return rhs, ran.final.field
 
 
 def check_run(backend_class, problem, run_request, grid, options=None):
@@ -138,9 +137,11 @@ def test_raman_acts_on_synthesised_position_dependent_direction(
 
 @pytest.mark.medium
 @pytest.mark.parametrize("family", ["field_real", "field_analytic", "envelope"])
-def test_vector_fixed_batches_preserve_modified_noise_members(family, backend_class):
+def test_vector_fixed_batches_preserve_modified_noise_members(family):
+    # The reference's lockstep group; the native group runs each member as its own
+    # native session (SEP 47 phase 5), with no shared arithmetic to check.
     problem, run_request, grid, _ = vector_translation(family, steps=2)
-    compare(problem, run_request, grid, backend_class.name, options=CHUNK)
+    compare(problem, run_request, grid, "numpy_ref", options=CHUNK)
 
 
 @pytest.mark.medium

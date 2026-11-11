@@ -24,8 +24,9 @@ import pytest
 
 from bounds import assert_within, device_backend, fft_bound, gamma, rate_log_sensitivity
 from rate_oracles import adk_oracle
+from sessions.executors import IDENTITY
+from sessions.runs import launched, load_native, run
 from solprop.backends import select
-from solprop.backends.driver import StepDriver
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.populations import axis_node
@@ -68,7 +69,7 @@ def argon(m=1, phi=0.0):
     return MarcatiliMode(125e-6, "Ar", 1.0, m=m, cladding=1.45, loss=False, phi=phi)
 
 
-def problem_on(grid, table, modes, rule, start=None):
+def problem_on(grid, table, modes, rule, start=None, save_planes=(0.02,)):
     """An argon capillary with Kerr and plasma on a given rule; nothing propagated."""
     if start is None:
         built = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=ENERGY)
@@ -82,11 +83,25 @@ def problem_on(grid, table, modes, rule, start=None):
             [KerrResponse(chi3=2.2e-52, thg=True), PlasmaResponse(Gas.Ar, table)],
             start,
             controller=PIController(rtol=1e-8, atol=1e-16),
-            save_planes=[0.02],
+            save_planes=list(save_planes),
             dz_max=0.002,
             dz_init=1e-4,
             quadrature=rule,
         )
+
+
+def _native_axis_scans(session):
+    """Return the axis-row scans a native session's statistics have made.
+
+    The native state counts each scan of the axis row (``axis_populations``), and the
+    session reports those since it started in its record: the native counterpart of
+    the reference's ``axis_scans``.
+    """
+    return session.execution_record()["native_session"]["axis_scans"]
+
+
+def _stats(observation):
+    return {name: np.array(value) for name, value in observation.stats.items()}
 
 
 def entrance_stats(grid, problem, run_request, modes, spec):
@@ -219,16 +234,31 @@ def test_consecutive_planes_scan_their_own_field(grid, table, name):
         pytest.importorskip("solprop_native")
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
-    problem, run_request = problem_on(grid, table, [mode], rule)
+    problem, run_request = problem_on(grid, table, [mode], rule, save_planes=(0.004,))
+    run_request = run_request.for_run(stats=AXIS)
     with closing(
         select(name, problem, run_request, grid=grid, modes=[mode])
     ) as backend:
-        backend.set_initial(problem.initial.field0, None)
-        first = float(backend.stats(AXIS)["on_axis_electron_density"])
-        backend.propagate_to(0.004)
-        second = float(backend.stats(AXIS)["on_axis_electron_density"])
-        # select() returns the seam's protocol; the counter is the driver's.
-        assert cast("StepDriver | HostDriver", backend).axis_scans == 2
+        # The backend's own session observes the launch and the plane at 4 mm.
+        landed = run(backend, problem, run_request)
+        if name == "numpy_ref":
+            # select() returns the seam's protocol; the counter is the driver's.
+            assert cast("HostDriver", backend).axis_scans == 2
+        first, second = (
+            float(observation.stats["on_axis_electron_density"])
+            for observation in landed.observations
+        )
+        # The plane's value is a fresh scan of the plane's own field: the launch
+        # statistics of that field, loaded alone, are the same to the bit.
+        at_plane = landed.all_planes()[-1]
+        with launched(backend, problem, run_request, field=at_plane.field) as (
+            _,
+            fresh,
+        ):
+            for statistic in AXIS.names:
+                np.testing.assert_array_equal(
+                    fresh.stats[statistic], at_plane.stats[statistic], statistic
+                )
     assert first != second
 
 
@@ -325,14 +355,20 @@ BACKENDS = ["native"]
 
 
 def backend_stats(name, grid, problem, run_request, modes, spec):
-    """The statistics of the launch field on a named backend, and its scan count."""
+    """The statistics of the launch field in a named backend's own session, and its
+    axis-row scans: the reference's count, or the native plan's
+    (:func:`_native_axis_scans`)."""
     if name == "native":
         pytest.importorskip("solprop_native")
-    with closing(select(name, problem, run_request, grid=grid, modes=modes)) as backend:
-        backend.set_initial(problem.initial.field0, None)
-        values = backend.stats(spec)
+    request = run_request.for_run(stats=spec)
+    with (
+        closing(select(name, problem, request, grid=grid, modes=modes)) as backend,
+        launched(backend, problem, request) as (session, observation),
+    ):
+        if name == "native":
+            return _stats(observation), _native_axis_scans(session)
         # select() returns the seam's protocol; the counter is the driver's.
-        return values, cast("StepDriver | HostDriver", backend).axis_scans
+        return _stats(observation), cast("HostDriver", backend).axis_scans
 
 
 @pytest.mark.parametrize("name", BACKENDS)
@@ -473,16 +509,23 @@ def test_the_native_axis_row_leaves_the_state_on_the_device(grid, table, radial_
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule=radial_rule)
     problem, run_request = problem_on(grid, table, [mode], rule)
-    with closing(
-        select("native", problem, run_request, grid=grid, modes=[mode])
-    ) as backend:
-        backend.set_initial(problem.initial.field0, None)
-        held = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
-        backend._native_state = _StateRefused(held)  # pyright: ignore[reportAttributeAccessIssue]
-        try:
-            values = backend.stats(StatsSpec(names=AXIS.names))
-        finally:
-            backend._native_state = held  # pyright: ignore[reportAttributeAccessIssue]
+    run_request = run_request.for_run(stats=StatsSpec(names=AXIS.names))
+    with (
+        closing(
+            select("native", problem, run_request, grid=grid, modes=[mode])
+        ) as backend,
+        launched(backend, problem, run_request) as (session, observation),
+    ):
+        # The session counts every field it exports, and the native state every
+        # whole-state transfer to the host by any path (solprop SEP 44).
+        native = session.native  # pyright: ignore[reportAttributeAccessIssue]
+        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
+        assert native.status().exports == 0
+        assert state.crossed_bytes()[0] == 0
+        values = _stats(observation)
+        session.export(observation.ticket, IDENTITY)
+        assert native.status().exports == 1, "the count sees a crossing"
+        assert state.crossed_bytes()[0] > 0, "the state's count sees a crossing"
     assert np.all(values["on_axis_peak_ionisation_rate"] > 0)
 
 
@@ -497,7 +540,7 @@ def test_the_native_row_refuses_a_matrix_that_is_not_one_or_two_rows(grid, table
         state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
         with pytest.raises(RuntimeError, match="no initial field"):
             state.axis_spectrum(np.ones((1, 1)))
-        backend.set_initial(problem.initial.field0, None)
+        load_native(backend, problem.initial.field0, clear_fsal=False)
         with pytest.raises(ValueError, match="at most two rows"):
             state.axis_spectrum(np.ones((3, 1)))
         with pytest.raises(ValueError, match="two-dimensional"):
@@ -663,9 +706,10 @@ def test_a_backend_without_its_modes_cannot_synthesise_the_axis(grid, table, nam
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
     problem, run_request = problem_on(grid, table, [mode], rule)
+    run_request = run_request.for_run(stats=AXIS)
     with (
-        closing(select(name, problem, run_request, grid=grid)) as backend,
         pytest.raises(BackendError, match="need the mode set"),
+        closing(select(name, problem, run_request, grid=grid)) as backend,
+        launched(backend, problem, run_request),
     ):
-        backend.set_initial(problem.initial.field0, None)
-        backend.stats(AXIS)
+        pass
