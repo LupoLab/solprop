@@ -15,7 +15,8 @@ import pytest
 
 from solprop.backends.session import ExecutionOptions
 from solprop.driver import SimulationSettings
-from solprop.exceptions import BackendError
+from solprop.driver.simulation import _held_device
+from solprop.exceptions import BackendError, DriverError
 
 
 def _settings(**keywords):
@@ -183,3 +184,17 @@ for value in ["auto", "hip", "CPU", "", 0, ["cpu"], np.array(["cpu", "cuda"])]:
 assert "juliacall" not in sys.modules
 """
     subprocess.run([sys.executable, "-c", script], check=True, timeout=20)
+
+
+@pytest.mark.parametrize("device", ["auto", "hip", "CPU", "", 0, ["cpu"]])
+def test_settings_device_guard_preserves_the_parameter_and_refusal(device, monkeypatch):
+    # The subprocess above covers the public production entry. Unwrap only the
+    # test-installed annotation guards here so coverage also observes translation
+    # of the real options refusal into a settings error.
+    monkeypatch.setattr(
+        ExecutionOptions, "__init__", inspect.unwrap(ExecutionOptions.__init__)
+    )
+    with pytest.raises(DriverError, match="device must be") as caught:
+        inspect.unwrap(_held_device)(device)
+    assert caught.value.parameter == "device"
+    assert caught.value.__cause__ is None
