@@ -433,3 +433,41 @@ end
         end
     end
 end
+
+@testset "Spatial outputs refuse mutable gather layouts before writes (#689)" begin
+    budgets = unique((1, min(2, Threads.nthreads(:default))))
+    for tasks in budgets, kind in (:field, :envelope)
+        execution = SP.KernelExecution(SP.KernelAbstractions.CPU(), tasks, true)
+        cartesian, cartesian_state = spatial_case(execution, kind)
+        radial, radial_state = radial_case(execution, kind)
+        for (source, state, expected, scale) in (
+                (
+                    SP.CartesianSource(execution, cartesian; node_chunk = 4),
+                    cartesian_state,
+                    spatial_reference(cartesian, cartesian_state, 0.53)...,
+                ),
+                (
+                    SP.RadialSource(execution, radial; node_chunk = 2), radial_state,
+                    radial_reference(radial, radial_state, 0.53)...,
+                ),
+            )
+            arrays = source isa SP.RadialSource ?
+                (source.scratch, source.material.nodes) : (source.band.band, source.nodes)
+            composition_output_layouts(source, state, arrays, expected, scale, 32768)
+            if source isa SP.RadialSource
+                # The new outer boundary refuses before its material source is called.
+                calls = source.material.calls
+                output = view(similar(state), collect(axes(state, 1)), :)
+                @test_throws "immutable affine indices" source(output, state, 0.53)
+                @test source.material.calls == calls
+                # Read-only gathered radial inputs keep the existing modal contract.
+                input = view(state, collect(axes(state, 1)), :)
+                output = similar(state)
+                source(output, input, 0.53)
+                bound = 32768eps(Float64) / (1 - 32768eps(Float64)) * scale
+                @test maximum(abs.(output - expected)) <= bound
+                @test composition_allocations(source, output, input, 0.53) == 0
+            end
+        end
+    end
+end

@@ -680,6 +680,7 @@ work, as well as from each other; direct arrays, views, foreign offset buffers a
 reinterpreted aliases refuse before any numerical write. Mutable gather indices are
 part of their array's retained storage. It never changes `state`. All FFTs use one
 thread and numerical launches finish before return. Warmed calls allocate nothing.
+Outputs require a writable affine layout; read-only gathered inputs remain valid.
 Every inactive chunk cell is overwritten.
 
 Data records may be shared; all mutable stage values, plans and work belong to this
@@ -1160,6 +1161,7 @@ function (source::ModalSource)(output, state, position::Float64)
     eltype(state) === eltype(output) === ComplexF64 ||
         throw(ArgumentError("modal source input/output requires complex binary64 storage"))
     isfinite(position) || throw(ArgumentError("a source position must be finite"))
+    _transfer_writable_destination(output)
     _transfer_arrays_alias(output, state) &&
         throw(ArgumentError("a modal source must not overwrite its input state"))
     (_source_caller_alias(output, source) || _source_caller_alias(state, source)) &&

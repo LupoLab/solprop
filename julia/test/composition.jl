@@ -931,3 +931,52 @@ end
         @test state == copy(independent)
     end
 end
+
+function composition_output_layouts(source, state, retained, expected, scale, operations)
+    rows, columns = size(state)
+    # The caller's layout changes no arithmetic. The existing source fixture's
+    # independently propagated operation/magnitude bound applies to these outputs.
+    bound = operations * eps(Float64) / (1 - operations * eps(Float64)) * scale
+    @test bound > 0
+    saved_state = copy(state)
+    saved_retained = map(copy, retained)
+    backing = fill(7.0 + 8.0im, rows, columns)
+    repeated = collect(1:rows)
+    repeated[2] = 1
+    for output in (
+            view(backing, repeated, :), view(backing, collect(rows:-1:1), :),
+            PermutedDimsArray(view(backing, repeated, :), (1, 2)),
+            transpose(view(permutedims(backing), :, repeated)),
+        )
+        before = copy(output)
+        calls = source.calls
+        @test_throws ArgumentError source(output, state, 0.53)
+        @test source.calls == calls + 1 && !source.ready
+        @test output == before && state == saved_state
+        @test all(pair -> isequal(pair...), zip(retained, saved_retained))
+    end
+    for reversed in (false, true)
+        owner = fill(7.0 + 8.0im, 2rows + 1, columns)
+        indices = reversed ? ((2rows):-2:2) : (2:2:(2rows))
+        output = view(owner, indices, :)
+        source(output, state, 0.53)
+        @test source.ready
+        @test maximum(abs.(output - expected)) <= bound
+        @test all(==(7.0 + 8.0im), view(owner, 1:2:(2rows + 1), :))
+        @test state == saved_state
+        @test composition_allocations(source, output, state, 0.53) == 0
+    end
+    return nothing
+end
+
+@testset "Modal outputs refuse mutable gather layouts before writes (#689)" begin
+    budgets = unique((1, min(2, Threads.nthreads(:default))))
+    for tasks in budgets, kind in (:field, :envelope)
+        execution = SP.KernelExecution(SP.KernelAbstractions.CPU(), tasks, true)
+        data, state = composition_case(execution, kind; raman = 1, temporal = true)
+        source = SP.ModalSource(execution, data; node_chunk = 2)
+        expected, scale = composition_reference(data, state, 0.53)
+        retained = (source.modal_spectrum, source.nodes, source.projected)
+        composition_output_layouts(source, state, retained, expected, scale, 8192)
+    end
+end

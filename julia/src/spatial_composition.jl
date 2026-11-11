@@ -367,6 +367,7 @@ function (source::CartesianSource)(output, state, position::Float64)
     size(output) == size(state) == size(source.band.band) ||
         throw(DimensionMismatch("Cartesian source input/output does not match preparation"))
     _spatial_operator_position(source.data.operator, position)
+    _transfer_writable_destination(output)
     (
         _transfer_arrays_alias(output, state) || _source_caller_alias(output, source) ||
             _source_caller_alias(state, source)
@@ -489,6 +490,7 @@ end
 function (source::RadialSource)(output, state, position::Float64)
     source.calls += 1
     source.ready = false
+    _transfer_writable_destination(output)
     (
         _transfer_arrays_alias(output, state) || _source_caller_alias(output, source) ||
             _source_caller_alias(state, source)
