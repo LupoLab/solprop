@@ -2588,6 +2588,7 @@ def validate_run(problem: PropagationProblem, request: "RunRequest") -> None:  #
     True
     """
     problem._validate(_RunPolicy(request.stepper, request.observation.stats))
+    _admit_dense(problem, request.stepper)
 
 
 _EDGE_SLACK = 1e-9
@@ -4952,7 +4953,6 @@ def _validated(problem: "PropagationProblem", request: "RunRequest") -> None:  #
     """
     validate_run(problem, request)
     validate_coupled_flow(problem, request.stepper)
-    _admit_dense(problem, request.stepper)
 
 
 def _normalisation_rate(

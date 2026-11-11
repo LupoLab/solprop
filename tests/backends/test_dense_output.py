@@ -45,6 +45,7 @@ from solprop.stepper.tableau import (
     extension_value,
 )
 from solprop.translate.coupled import constant_schur_flow
+from solprop.translate.problem import validate_run
 
 COMPILED: list[type] = []
 if "native" in available():
@@ -264,6 +265,23 @@ def test_the_admission_matrix_refuses_noise_outside_the_interpolant(
         )
 
 
+def test_an_adapted_request_cannot_admit_dense_modified_noise(
+    narrow_grid, soliton_problem
+):
+    problem, request = soliton_problem(
+        narrow_grid,
+        1,
+        save_planes=[0.1],
+        noise=modified_noise(narrow_grid, np.random.default_rng(3)),
+    )
+    assert validate_run(problem, request) is None
+    changed = dataclasses.replace(
+        request, observation=dataclasses.replace(request.observation, dense=True)
+    )
+    with pytest.raises(TranslationError, match="'modified' noise model"):
+        validate_run(problem, changed)
+
+
 def test_the_admission_matrix_refuses_a_coupled_flow(narrow_grid, soliton_problem):
     from solprop.translate.problem import _admit_dense  # noqa: PLC0415 - private
 
@@ -318,6 +336,19 @@ def test_the_collar_scheme_refuses_interpolated_planes(dense):
     simulation = capillary(absorber_scheme="split_step", **dense)
     with pytest.raises(TranslationError, match="per-step temporal collar"):
         simulation.translate()
+
+
+@pytest.mark.parametrize("integrator", [RungeKutta(), Multistep()])
+def test_an_adapted_request_cannot_admit_dense_split_damping(integrator):
+    simulation = capillary(absorber_scheme="split_step", integrator=integrator)
+    problem = simulation.translate()
+    request = simulation._run_request()
+    assert validate_run(problem, request) is None
+    changed = dataclasses.replace(
+        request, observation=dataclasses.replace(request.observation, dense=True)
+    )
+    with pytest.raises(TranslationError, match="per-step temporal collar"):
+        validate_run(problem, changed)
 
 
 class StopError(RuntimeError):
