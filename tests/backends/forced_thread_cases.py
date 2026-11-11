@@ -18,6 +18,7 @@ from typing import Any, cast
 import numpy as np
 
 import flow_parity
+from _session_probe_rest import bare
 from backends._session_probe_b1 import (
     history,
     last_field,
@@ -105,7 +106,9 @@ def adams_matched(option: str):
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        return {"field": last_field(run(backend, problem))}, _sizing(backend)
+        # No statistics, as the direct march evaluated none (SEP 47 phase 5).
+        result = run(backend, problem, bare(run_request))
+        return {"field": last_field(result)}, _sizing(backend)
     finally:
         backend.close()
 
@@ -123,7 +126,8 @@ def adams_route(option: str):
     )
     record: dict[str, object] = {}
     try:
-        result = run(backend, problem, record=record)
+        # No statistics, as the direct march evaluated none (SEP 47 phase 5).
+        result = run(backend, problem, bare(run_request), record=record)
         calls = CallLedger.from_record(
             cast("dict[str, object]", record["response_calls"])
         )
@@ -363,7 +367,9 @@ def wide_transverse(march: str = "march"):
     problem, run_request, grid = wide_transverse_problem(march)
     backend = _native()(problem, run_request, grid=grid)
     try:
-        return {"field": last_field(run(backend, problem))}, _sizing(backend)
+        # No statistics, as the direct march evaluated none (SEP 47 phase 5).
+        result = run(backend, problem, bare(run_request))
+        return {"field": last_field(result)}, _sizing(backend)
     finally:
         backend.close()
 
@@ -521,21 +527,26 @@ def flow(name: str):
 
 def flow_kerr(name: str):
     """Ten steps of a ``test_native_coupled_flow.py`` case, with its source."""
+    from _session_probe_rest import run_session  # noqa: PLC0415
     from driver.test_native_coupled_flow import CASES as FLOWS  # noqa: PLC0415
-    from driver.test_native_coupled_flow import propagate  # noqa: PLC0415
 
     case = FLOWS[name]()
-    backend_class = _native()
-    sizing: dict[str, dict[str, int]] = {}
-
-    class Sized(backend_class):
-        """The backend, keeping what it sized for the probe to read after the close."""
-
-        def close(self) -> None:
-            sizing.update(_sizing(self))
-            super().close()
-
-    return {"field": propagate(case, Sized)}, sizing
+    problem = case.problem
+    # The plain backend, kept open past its session so its sizing can be read (the
+    # native session runs NativeBackend itself, never a subclass).
+    backend = _native()(problem, case.run_request, grid=case.grid)
+    try:
+        run = run_session(
+            backend,
+            problem,
+            bare(case.run_request),
+            Start(field=problem.initial.field0, z=float(problem.initial.z)),
+            owns=False,
+        )
+        sizing = _sizing(backend)
+    finally:
+        backend.close()
+    return {"field": run.fields[-1].copy()}, sizing
 
 
 CASES: dict[str, Any] = {
