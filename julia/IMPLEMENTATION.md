@@ -49,7 +49,12 @@ statistics, and Aqua/JET passes 16 checks across all 2,011 definitions, zero cac
 Independent attachment review adds 178 actual PythonCall factory assertions and
 seven registry controls. The complete retained-owner matrix passes all 84 managed
 cases, with 27 accompanying pure tests, in 411.75 s. The broader integrated Julia
-Core run remains in progress; no pass is claimed for that run yet.
+Core run found stale positional/synthetic test fixtures after the precision change
+(#728). The two transverse fixtures now independently pass all 414 assertions.
+The precompile negative fixture also retains its current record fields. Its
+independent five-assertion regression passes, and the remaining inventory retry
+requires the documented no-startup-file runner flag. A fresh complete aggregate
+run is in progress; it is not yet claimed as passing.
 
 Binary32 quadrature is independently approved at `b6091f7b`: both maxima and sums
 use state precision, with protected scaled reductions and a host physical ratio.
@@ -63,9 +68,13 @@ and original saved rates with conservative error provenance. Master review passe
 986 bounds-enabled Julia assertions, including 207 independent cubic-derivative,
 rate-radius and replay/history witnesses; 80 typed Python tests pass. Author
 Aqua/JET passes 16 package checks plus five concrete calls across 1,885 definitions.
-Completed starts validate storage without inventing a step (#723). Actual DF32
-flows, complete Adams factors and spatial assembly remain to be integrated; no
-public DF32 execution is claimed.
+Completed starts validate storage without inventing a step (#723). Actual CPU DF32 RK/low-storage flows are now independently approved and integrated
+at `5b93ef4e` and `f23b32f0`: 674 independent bounds-enabled assertions, zero warmed
+allocations, and Aqua/JET across 2,026 definitions plus 13 concrete calls. The review
+corrects exact zero-phase signed-zero copies (#727). Module inclusion is integrated at `cadbad36`; the master passes 793 focused
+assertions and Aqua/JET across all 2,067 definitions with zero cached. Factory
+integration, complete Adams factors, dense output and spatial assembly remain open; no public
+DF32 execution is claimed.
 
 Temporal split precision is independently approved through `dcc443bf`. Review found
 and corrected a tiny-collar regression (#720): binary32 must use the existing SEP33
@@ -87,23 +96,30 @@ Typed Python attachment and registry checks pass 183 tests; the separately enabl
 84 managed cases also pass. Registry selection now checks the same precision table as settings
 and availability before dependency or runtime entry (#726).
 
-The CPU campaign at `5fc63437` passes 23 managed CPU/inventory smoke checks and
-completed two rounds of all twelve short-window cases at one and 64 threads. Its
-210-minute stage deadline interrupted the third round with three 64-thread pairs
-unfinished. A bounded continuation repeats only those pairs with the same source,
-toolchain and exclusive placement; the original timeout remains in the record.
-Four earlier successful comparisons and their retained failures are documented in
-`docs/dev/benchmarks.md`. CPU-only CUDA artifact preparation and isolated-network
-A40 loading, broadcast, matrix multiplication and FFT round trips now pass in both
-precisions. This is artifact/primitive evidence, not device propagation qualification.
-No cloud resources have been rented; spend remains zero.
+The CPU campaign at `5fc63437` passes 23 managed CPU/inventory smoke checks.
+All 24 configurations now have three paired rounds with three repetitions per arm:
+144 arm samples and 432 timed repetitions. The original stage timeout is preserved;
+a bounded continuation completed only the three unfinished third-round pairs with
+identical source, environment and physical placement. All results are finite and
+accepted/rejected counts match. Independent recomputation matches every paired median and ratio. The complete
+timing, preparation-inclusive wall, window and accuracy records are in `docs/dev/benchmarks.md`; #729 tracks the measured
+radial/Cartesian performance costs without assuming their causes.
+CPU-only CUDA artifact preparation and isolated-network A40 loading, broadcast,
+matrix multiplication and FFT round trips pass in both precisions. This is
+artifact/primitive evidence, not device propagation qualification. No cloud resources
+have been rented; spend remains zero.
 
-CI for `984444ce` is running. Static checks, native quality, device compilation,
+CI for `984444ce` still has its macOS Julia lane running. Static checks, native quality, device compilation,
 distribution wheels, Python platform and lowest-dependency tests, both slow lanes,
 documentation and the no-native lane have passed. All six coverage shards pass;
 their combined report identifies two unmeasured device-refusal statements (#725).
 A focused correction passes 32 typed tests and confirms both lines are measured,
 without changing coverage policy; the combined report awaits the next CI run.
+Linux Julia Core and Aqua/JET pass, but the Python lane reports 1,274 passes and one
+missing finalization-marker failure in the shutdown subprocess, then a post-summary
+segmentation fault. Both observations remain on #669; runtime investigation stays
+off the critical path under the maintainer's instruction. The failure remains a
+qualification blocker and no assertion is suppressed.
 The Windows GUI lane found
 an immediate-resume event-log sharing violation after 424 passing tests; unrelated
 issue #724 retains the evidence. A targeted rerun must wait for the current workflow
@@ -115,7 +131,7 @@ and 105 Julia assertions. Required unfinished lanes remain visible.
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
 | 1: package and runtime | Setup/package integrated; remaining runtime qualification deferred | Maintainer directs core implementation to proceed; failures remain tracked |
-| 2: CPU binary64 session | Scalar modal/spatial sessions, services, providers, FFT persistence, public selection and budgeted preparation are integrated; combined materials pass | Initial CPU measurements and remaining CI corrections precede completion |
+| 2: CPU binary64 session | Scalar modal/spatial sessions, services, providers, FFT persistence, public selection and budgeted preparation are integrated; combined materials pass | Preliminary CPU matrix is complete; remaining conformance and CI failures precede completion |
 | 3: CPU binary32 | DF32 primitives, conservative function leaf and operand analysis reviewed; full execution pending | Whole-expression and device admission remain unqualified |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
@@ -155,10 +171,10 @@ Current assignments after resumption:
 
 | Owner | Exclusive files and task |
 |---|---|
-| Master | Shared Python/Julia bridge and service attachment; `observation_session.jl`, `spatial_session.jl` and temporal split precision tests; node inventory, module/test inclusion, CI and compute records |
-| Observation agent | Reconstruction complete; independent read-only review of master's service, bridge, precision admission and node-inventory attachment |
-| Wide arithmetic agent | New `df32_flow.jl`, focused tests and `DF32_EXECUTION.md`; narrow pretrial hooks in `source.jl`, `runge_kutta.jl`, `low_storage.jl`, `march.jl`, `low_storage_session.jl`; master retains transfer/bridge/admission |
-| Quadrature/review agent | Quadrature and reconstruction reviews complete; independent DF32 actual-flow review in the wide arithmetic worktree |
+| Master | Architecture, shared execution/copy declarations, Python/Julia bridge and wide-flow attachment; node inventory, module/test inclusion, CI and compute records |
+| CUDA agent | Attachment and fixture reviews complete; owns only `ext/SolpropJuliaCUDAExt.jl`, new `cuda_execution.jl` / `cuda_transforms.jl` extension and test files, and `CUDA_FOUNDATION.md` |
+| Wide arithmetic agent | RK/low-storage package reviewed and integrated; read-only complete-Adams design, including seed-before-trial ordering and retained-rate provenance; shared interfaces frozen for `df32_adams.jl`, `adams.jl` and `adams_session.jl`; complete-factor implementation active |
+| CPU qualification agent | DF32 independent review complete; new `tests/backends/julia/test_cpu_single.py` and `CPU_SINGLE_QUALIFICATION.md` only; actual binary32 methods, material routes and services against settled binary64 references |
 
 The maintainer explicitly moved remaining runtime investigation off the critical path
 on 2026-11-10. Continue core implementation using the experiment's numerical work,

@@ -3430,6 +3430,128 @@ campaign exits unsuccessfully. The completion fixes require a new campaign with
 the original settings. These four comparisons establish neither complete CPU
 qualification nor a performance conclusion for other problems or devices.
 
+## Julia CPU entrance windows: complete preliminary matrix
+
+On 2026-11-11, source `5fc63437537c21efcffc128fbbdca6887918019a` repeated the
+CPU comparison after the missing-statistics and propagator-table fixes. Hardware,
+physical-core placement, toolchains, BLAS limits and planning settings match the
+preceding partial campaign. The same tracking entrance-window command selected the
+12 admitted cases, excluding only the general-modal GRIN route's named refusal.
+There are 24 configurations: one thread and a 64-core budget, each with three paired
+rounds and three repetitions per arm. The reported budget is a maximum; it does not
+mean every kernel or FFT uses all those threads.
+
+| Case | Budget | Native window, s | Julia window, s | Julia/native | Paired range | Native wall, s | Julia wall, s |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `argon_blueshift` | 1 | 0.085465 | 0.537911 | 6.292 | 6.248–6.327 | 0.086601 | 0.799895 |
+| `argon_blueshift` | 64 | 0.030964 | 0.082478 | 2.679 | 2.578–2.761 | 0.032053 | 0.285441 |
+| `argon_blueshift_averaged` | 1 | 0.020565 | 0.046641 | 2.268 | 2.251–2.292 | 0.021653 | 0.271889 |
+| `argon_blueshift_averaged` | 64 | 0.020110 | 0.042976 | 2.149 | 2.117–2.155 | 0.021199 | 0.212028 |
+| `argon_blueshift_envelope` | 1 | 0.017380 | 0.036921 | 2.124 | 2.118–2.138 | 0.018426 | 0.161491 |
+| `argon_blueshift_envelope` | 64 | 0.018458 | 0.027130 | 1.475 | 1.470–1.483 | 0.019545 | 0.174185 |
+| `ctc` | 1 | 0.508556 | 2.980813 | 5.824 | 5.788–5.903 | 0.510720 | 3.331174 |
+| `ctc` | 64 | 0.620764 | 0.673524 | 1.083 | 1.074–1.094 | 0.627335 | 1.017897 |
+| `gnlse_raman_shock` | 1 | 0.107923 | 0.241130 | 2.246 | 2.234–2.247 | 0.108834 | 0.374934 |
+| `gnlse_raman_shock` | 64 | 0.076223 | 0.188322 | 2.475 | 2.411–2.524 | 0.077345 | 0.233165 |
+| `gnlse_soliton` | 1 | 0.017719 | 0.036907 | 2.078 | 2.063–2.093 | 0.018136 | 0.054434 |
+| `gnlse_soliton` | 64 | 0.018019 | 0.038132 | 2.116 | 2.021–2.210 | 0.018406 | 0.056144 |
+| `h2_raman_averaged` | 1 | 0.028172 | 0.076353 | 2.711 | 2.699–2.720 | 0.029242 | 0.299173 |
+| `h2_raman_averaged` | 64 | 0.027105 | 0.049977 | 1.861 | 1.659–2.166 | 0.028117 | 0.339609 |
+| `he_rdw_averaged` | 1 | 0.028725 | 0.063802 | 2.221 | 2.209–2.228 | 0.030023 | 0.278600 |
+| `he_rdw_averaged` | 64 | 0.026436 | 0.051773 | 1.968 | 1.937–1.985 | 0.027721 | 0.309934 |
+| `kerr_beam_192` | 1 | 4.304301 | 9.748890 | 2.271 | 2.248–2.487 | 4.372070 | 12.768153 |
+| `kerr_beam_192` | 64 | 0.404335 | 5.171880 | 13.067 | 10.488–13.102 | 0.411927 | 7.920632 |
+| `kerr_beam_384` | 1 | 44.239090 | 76.840021 | 1.737 | 1.736–1.748 | 44.832512 | 92.826727 |
+| `kerr_beam_384` | 64 | 2.165997 | 44.918612 | 20.630 | 20.275–21.446 | 2.223893 | 60.633271 |
+| `radial_filament_256` | 1 | 1.027121 | 34.292459 | 32.985 | 32.895–33.877 | 1.028677 | 34.789658 |
+| `radial_filament_256` | 64 | 3.965175 | 1.478619 | 0.374 | 0.341–0.392 | 3.981603 | 1.902705 |
+| `rdw` | 1 | 0.165777 | 1.183254 | 7.121 | 7.066–7.160 | 0.168346 | 1.534540 |
+| `rdw` | 64 | 0.330032 | 0.161092 | 0.488 | 0.486–0.497 | 0.334924 | 0.465325 |
+
+Times are medians of round medians; each round median contains three repetitions.
+Ratios and their ranges use paired round ratios, so the median ratio need not equal
+the quotient of the displayed median times. `wall_seconds` includes preparation for
+the run; neither window includes the worker's first warmup. Julia's combined
+fresh-worker warmups range from 24.88 to 110.52 s across these cases. They combine
+runtime entry, compilation and an initial propagation, and are not isolated startup
+or compilation measurements. Setup took 132.20 s with an existing dependency depot;
+the populated depot then occupied 2,281,236 KiB. This is not a fresh download size.
+
+| Case | End position, m | Accepted / rejected | Source evaluations, native / Julia |
+|---|---:|---:|---:|
+| `argon_blueshift` | 0.0002 | 17 / 2 | unavailable / 20 |
+| `argon_blueshift_averaged` | 0.0002 | 17 / 2 | unavailable / 20 |
+| `argon_blueshift_envelope` | 0.0002 | 11 / 0 | unavailable / 12 |
+| `ctc` | 0.00013 | 16 / 2 | unavailable / 19 |
+| `gnlse_raman_shock` | 0.00015 | 11 / 0 | 67 / 77 |
+| `gnlse_soliton` | 0.001327807546 | 11 / 0 | 67 / 77 |
+| `h2_raman_averaged` | 0.0004 | 25 / 2 | unavailable / 28 |
+| `he_rdw_averaged` | 0.0015 | 14 / 1 | unavailable / 16 |
+| `kerr_beam_192` | 2e-09 | 1 / 0 | 4 / 4 |
+| `kerr_beam_384` | 2e-09 | 1 / 0 | 4 / 4 |
+| `radial_filament_256` | 3e-05 | 12 / 0 | unavailable / 13 |
+| `rdw` | 0.0015 | 14 / 1 | unavailable / 16 |
+
+All 432 timed repetitions are finite; the harness records no busy samples. Each
+configuration has matching accepted/rejected counts across both arms, but native
+source counters are unavailable for the Adams cases. The saved round-zero final
+fields differ by relative L2 norms from 3.16e-17 to 1.27e-15. These are measured
+comparisons, not a replacement for converged-reference qualification. The soliton
+and Raman/shock source-count difference remains the endpoint-reuse work in
+[#711](https://github.com/LupoLab/solprop/issues/711).
+
+The full campaign reached its external deadline with three third-round pairs
+unfinished. Its exit status remains 124. A bounded continuation on the same physical
+allocation, source, environment and placement reran only those three pairs (RDW,
+helium averaged RDW and argon averaged blueshift, all at budget 64). The continuation
+finished successfully in 613.56 s. The combined result retains 138 original complete
+arm samples and six continuation samples; partial original pairs are preserved
+separately. Round order and paired aggregation use the original harness rules.
+The timeout is an incomplete campaign collection, with no reported failed numerical
+case; it is not relabelled as a successful original job.
+
+Most modal windows remain slower than native. Julia's wider-budget radial and RDW
+wins coexist with native slowdowns at that budget; comparison against each backend's
+best measured width gives a different conclusion. Cartesian scaling and serial
+radial cost require profiling before assigning a cause. These preliminary results
+are tracked in [#729](https://github.com/LupoLab/solprop/issues/729). They
+qualify neither the later binary32 work nor any device, and no CPU default or
+floating-point policy is changed from these ratios.
+
+## Julia CUDA artifact preparation and offline primitives
+
+On 2026-11-11, source `5fc63437` prepared a separate CUDA environment on a CPU
+allocation with no GPU. Julia 1.13.3 and JuliaCall/PythonCall 0.9.37 resolved CUDA.jl
+6.5.1 and CUDA runtime 13.4. Explicit setup, identity publication and artifact
+inventory verification completed in 508.56 s; the isolated depot occupied
+4,442,809,795 bytes. This includes the CPU and CUDA package/artifact closure.
+
+The first device qualification used an NVIDIA A40 with driver 595.71.05 and
+compute capability 8.6. A separate Linux user/network namespace exposed only the
+loopback interface. The child closed its inherited scheduler socket before importing
+the application, checked the namespace identity and retained no inherited sockets.
+CPU runtime initialization, subsequent CUDA extension loading, binary32 and binary64
+broadcast, a 16-by-16 matrix product, and 16-point complex FFT/inverse round trips
+all passed without networking. CPU and GPU references used the same represented
+inputs and explicit positive rounding budgets. Device scalar indexing was disabled.
+
+| Operation | Time, s |
+|---|---:|
+| Artifact inventory preflight | 1.033 |
+| Fresh-process CPU runtime entry | 5.387 |
+| Additional CUDA package loading | 3.820 |
+| First successful broadcast, matrix product and FFT checks | 17.515 |
+
+These are one-process startup observations, not propagation benchmarks or pristine
+compilation timings. An earlier offline attempt loaded both package environments
+successfully before the test harness used an invalid top-level FFTW import; the
+successful run therefore reused populated compilation caches. The earlier failures
+also retain a denied syscall-tracer attempt and an inherited-socket assertion. The
+final test uses kernel network isolation; it does not claim a measured count of
+network syscall attempts. Separate missing-artifact tests check refusal before any
+runtime import. Actual CUDA propagation and comparison with native remain pending;
+these A40 measurements do not select tuning for GPUs with full-rate binary64 units.
+
 ## The run record's cost
 
 [#309](https://github.com/LupoLab/solprop/issues/309) measured how a run's record grows with
