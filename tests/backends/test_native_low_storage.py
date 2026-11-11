@@ -9,15 +9,17 @@ passes in the route's own scratch, accepted in place. Its parity with ``numpy_re
 on every route the translation admits the march on, each case one schedule of at most
 ten steps within a rounding bound fixed before the comparison
 (:func:`low_storage_cases.parity_bound`). Then what is the engine's own: the ledger and
-the estimate, which agree to the byte, the varying operator's flows, the in-flight
-guard, and the commit a signal waits for. No agreement here is bitwise (SEP 25).
+the estimate, which agree to the byte, the varying operator's flows, and the load. No
+agreement here is bitwise (SEP 25). Every run is the native session's (SEP 47 phase
+5), which owns the loop: a step left in flight and the poisoned session are
+``tests/sessions/test_native_session_low_storage.py``'s, and a signal during an advance
+``tests/sessions/test_native_session_history.py``'s.
 """
 
 import dataclasses
 import functools
 import gc
 import math
-import signal
 import warnings
 import weakref
 from pathlib import Path
@@ -25,6 +27,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from backends._session_probe_b2 import launch_field, run_session
 from backends.forced_threads import assert_threaded
 from backends.low_storage_cases import (
     STEPS,
@@ -44,17 +47,17 @@ from backends.test_radial_nonlinear import make_problem as radial_problem
 from bounds import assert_within
 from general_parity import conditioning as general_conditioning
 from general_parity import nonlinear_scale, problem_for, scaled_case, source_bound
-from solprop._interrupts import handled
 from solprop.backends.memory import (
     low_storage_flows,
     low_storage_stage_register,
 )
 from solprop.backends.numpy_ref.backend import _general_maps
-from solprop.backends.session import ExecutionOptions
+from solprop.backends.session import ExecutionOptions, Start
+from solprop.backends.sessions import start_session
 from solprop.boundaries import Absorber, absorber
 from solprop.constants import C
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError, GeneralModalBasisWarning
+from solprop.exceptions import GeneralModalBasisWarning
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.noise import modified_noise, spatial_noise
 from solprop.nonlinear.gnlse import SpecifiedMode
@@ -63,6 +66,7 @@ from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.output.memory import MemoryOutput
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium
+from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.problem import assemble
@@ -156,8 +160,12 @@ def test_a_problem_without_a_response_agrees(linear_problem, narrow_grid, collar
 @pytest.mark.parametrize("mode", ["tabulate", "recompute"])
 def test_a_varying_capillary_with_raman_and_plasma_agrees(mode):
     simulation = varying_capillary()
+    # The states are compared, not the statistics, whose profiles a session would
+    # need at construction.
     problem, run_request = with_mode(
-        simulation.translate(), simulation._run_request(), mode
+        simulation.translate(),
+        simulation._run_request().for_run(stats=StatsSpec()),
+        mode,
     )
     assert not problem.flags.constant_linop
     assert problem.flags.has_raman and problem.flags.has_plasma
@@ -590,9 +598,9 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
     problem, run_request, grid, _ = cartesian_march(mode, collar=collar)
     field = 16 * math.prod(problem.shape)
     backend = NativeBackend(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-    ledger = backend.memory_ledger()
+    landed = run_session(backend, problem, run_request)
+    record, ledger = landed.record, landed.ledger
+    assert ledger is not None
     volumes = {row: ledger[row] for row in MARCH_ROWS}
     assert volumes == {
         "state": field,
@@ -608,14 +616,10 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
     assert sum(volumes.values()) == field * (3 + int(collar) + (mode == "tabulate"))
     for row in (*RUNGE_KUTTA_ROWS, "noise", "adams_history"):
         assert ledger[row] == 0, row
-    assert backend._low_storage is not None
-    engine = backend._low_storage.engine
-    assert engine.atomic and math.isnan(engine.stiffness)
-    metadata = backend.metadata()
     schedule = run_request.stepper.schedule
     assert schedule is not None
-    assert metadata["propagator_mode"] == mode
-    assert metadata["source_evaluations"] == 4 * schedule.n_steps
+    assert record["propagator_mode"] == mode
+    assert record["source_evaluations"] == 4 * schedule.n_steps
     backend.close()
 
 
@@ -665,101 +669,26 @@ def test_a_loaded_state_is_not_held_after_the_load(monkeypatch, model):
     )
     problem, run_request, grid, _ = cartesian_march("tabulate", noise=noise)
     backend = NativeBackend(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
-    loaded: list[weakref.ref[np.ndarray]] = []
-    apply_mask = backend._apply_mask
-
-    def watched(state: np.ndarray) -> object:
-        loaded.append(weakref.ref(state))
-        return apply_mask(state)
-
-    monkeypatch.setattr(backend, "_apply_mask", watched)
     temporary = np.full(problem.shape, 1.0 + 0.5j)
     given = weakref.ref(temporary)
-    backend.set_initial(temporary, noise)
+    start = Start(field=temporary, z=0.0, noise=noise)
     del temporary
-    # A second route to the upload, outside `set_initial`: the driver's own mask step.
-    loaded_again = np.full(problem.shape, 2.0 + 0.5j)
-    again = weakref.ref(loaded_again)
-    apply_mask(loaded_again)
-    observed = backend.observe().require_field()
-    del loaded_again
+    session = start_session(backend, problem, run_request, start, owns=False)
     gc.collect()
     assert given() is None
+    session.close()
+    # A resumed plane, which takes no input draw: the field crosses unchanged.
+    loaded_again = np.full(problem.shape, 2.0 + 0.5j)
+    again = weakref.ref(loaded_again)
+    start = Start(field=loaded_again, z=0.0, noise=noise, resume=True)
+    del loaded_again
+    observed = launch_field(backend, problem, run_request, start=start)
+    gc.collect()
     assert again() is None
-    assert len(loaded) == 1 and loaded[0]() is None
     # Exact: the state crosses twice without arithmetic, and the mask keeps or zeroes.
     mask = problem.grids.active_mask
     assert np.all(observed[..., mask] == 2.0 + 0.5j)
     assert np.all(observed[..., ~mask] == 0.0)
-    backend.close()
-
-
-def test_a_native_exception_leaves_the_backend_refusing(monkeypatch):
-    """Section 6.2's guard: a step that raises after its passes stays in flight."""
-    problem, run_request, grid, _ = cartesian_march("tabulate")
-    end = float(run_request.stepper.save_planes[-1])
-    backend = NativeBackend(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
-    backend.set_initial(problem.initial.field0, None)
-    assert backend._low_storage is not None
-    engine = backend._low_storage.engine
-    original = engine.step
-    calls = []
-
-    def failing(z, dz):
-        calls.append(z)
-        original(z, dz)
-        if len(calls) == 2:
-            raise RuntimeError("abandoned")
-        return 1.0
-
-    monkeypatch.setattr(engine, "step", failing)
-    with pytest.raises(RuntimeError, match="abandoned"):
-        backend.propagate_to(end)
-    for entry in (backend.observe, backend.march_snapshot):
-        with pytest.raises(BackendError, match="in flight"):
-            entry()
-    with pytest.raises(BackendError, match="in flight"):
-        backend.propagate_to(end)
-    # The abandoned step's start was the first edge: the guard names it.
-    schedule = run_request.stepper.schedule
-    assert schedule is not None
-    assert backend._in_flight == (calls[-1], float(schedule.steps[1]))
-    backend.set_initial(problem.initial.field0, None)
-    backend.observe()
-    backend.close()
-
-
-@pytest.mark.skipif(
-    not hasattr(signal, "SIGINT"), reason="Ctrl-C is delivered by a POSIX signal"
-)
-def test_a_signal_during_the_native_step_waits_for_its_commit(monkeypatch):
-    """Section 6.7: the native step, the finish and the move commit together.
-
-    A Ctrl-C raised while the engine steps is held to the end of the commit: the
-    step lands, the backend is not in flight, and the run can be observed.
-    """
-    problem, run_request, grid, _ = cartesian_march("tabulate")
-    end = float(run_request.stepper.save_planes[-1])
-    backend = NativeBackend(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
-    backend.set_initial(problem.initial.field0, None)
-    assert backend._low_storage is not None
-    engine = backend._low_storage.engine
-    original = engine.step
-
-    def interrupted(z, dz):
-        squared = original(z, dz)
-        # Ctrl-C in-process; os.kill would terminate the process on Windows.
-        signal.raise_signal(signal.SIGINT)
-        return squared
-
-    monkeypatch.setattr(engine, "step", interrupted)
-    with handled(), pytest.raises(KeyboardInterrupt):
-        backend.propagate_to(end)
-    assert backend._in_flight is None
-    schedule = run_request.stepper.schedule
-    assert schedule is not None
-    assert backend._z == float(schedule.edges[1])
-    assert np.all(np.isfinite(backend.observe().require_field()))
     backend.close()
 
 
@@ -822,8 +751,12 @@ def test_a_trial_step_on_a_low_storage_state_is_refused_by_name():
     problem, run_request, grid, _ = cartesian_march("tabulate")
     backend = NativeBackend(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
     try:
-        backend.set_initial(problem.initial.field0, None)
+        state = backend._native_state
+        field = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
+        state.set_initial(field.reshape(-1), np.empty(0, dtype=np.complex128))
+        backend._staged_rows()
+        nodes = [float(node) for node in run_request.stepper.tableau.nodes]
         with pytest.raises(RuntimeError, match=r"low-storage state .* no Runge-Kutta"):
-            backend._trial_step(0.0, run_request.stepper.dz_init)
+            state.rk_trial(0.0, run_request.stepper.dz_init, nodes, prepare_only=False)
     finally:
         backend.close()

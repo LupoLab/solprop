@@ -18,8 +18,10 @@ import warnings
 import numpy as np
 import pytest
 
+from backends._session_probe_b2 import run_session
 from capability_routes import ROUTES
 from solprop.backends import available
+from solprop.backends.events import Outcome
 from solprop.exceptions import BackendError, HostMarchWarning
 from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -45,7 +47,7 @@ FLOWS = ("capillary (coherent wall)",)
 
 
 def launched(route: str, **settings):
-    """Return a route's backend on the Runge-Kutta march, launched."""
+    """Return a route's backend on the Runge-Kutta march, its problem and request."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         simulation = ROUTES[route](None)
@@ -61,8 +63,7 @@ def launched(route: str, **settings):
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
-    backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
-    return backend
+    return backend, problem, run_request
 
 
 @pytest.mark.parametrize(
@@ -74,11 +75,15 @@ def launched(route: str, **settings):
     ],
 )
 def test_the_default_loop_is_native_without_a_warning(route, dense):
-    backend = launched(route, interpolate_planes=dense)
+    """The backend's session steps the whole run natively, warning of no host march."""
+    backend, problem, run_request = launched(route, interpolate_planes=dense)
     try:
         with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
             warnings.simplefilter("error", HostMarchWarning)
-            assert backend._rk_march() is not None
+            landed = run_session(backend, problem, run_request)
+        assert landed.run.terminal.outcome is Outcome.COMPLETED
+        assert landed.n_accepted > 0
         assert backend.metadata()["rk_march"] == "native"
     finally:
         backend.close()

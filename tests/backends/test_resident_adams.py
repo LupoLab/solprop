@@ -4,9 +4,10 @@
 
 """SEP 16 phase 3b: the Adams history resident in Kokkos's engine (ADR-043).
 
-Kokkos returns its own engine from ``StepDriver._adams_engine`` for the interaction
-formulation on the modal routes: the history's rows, the trial arithmetic, the norms,
-adoption, transport and dense observation stay in the native state. These tests pin
+Kokkos builds its own engine (``NativeBackend._resident``) for either formulation on
+the modal routes when a native session starts its Adams march: the history's rows, the
+trial arithmetic, the norms, adoption, transport and dense observation stay in the
+native state. These tests pin
 that every case takes the resident engine, since SEP 47's phase 5 the only one native
 has (the host-engine comparisons went with the inherited driver's fallbacks), and hold
 its device-formed divisor to the reference's. The generic Hermite interpolant is a
@@ -18,13 +19,17 @@ either against the reference backend is the shared suites'
 """
 
 import math
+from typing import cast
 
 import numpy as np
 import pytest
 
+from backends._session_probe_b2 import run_session
 from capability_routes import ROUTES
+from sessions.executors import entrance
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.sessions import start_session
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
 
@@ -59,11 +64,21 @@ def engine_of(route: str, integrator: Multistep) -> str:
     problem = simulation.translate()
     run_request = simulation._run_request()
     backend = NativeBackend(
-        problem, run_request, grid=simulation.grid, modes=simulation.modes
+        problem,
+        run_request,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
     )
     try:
-        assert backend._adams is not None
-        return type(backend._adams._engine).__name__
+        # The session builds its march over the engine when it starts.
+        session = start_session(
+            backend, problem, run_request, entrance(problem), owns=False
+        )
+        try:
+            return type(backend._resident).__name__
+        finally:
+            session.close()
     finally:
         backend.close()
 
@@ -110,21 +125,20 @@ def test_a_divisor_formed_on_the_host_takes_the_same_steps():
 
     def march(implementation):
         backend = implementation(
-            problem, run_request, grid=simulation.grid, modes=simulation.modes
+            problem,
+            run_request,
+            grid=simulation.grid,
+            modes=simulation.modes,
+            profiles=simulation.profiles,
         )
         try:
-            backend.set_initial(problem.initial.field0, None)
-            march = backend._adams
-            assert march is not None
+            landed = run_session(backend, problem, run_request)
+            run, record = landed.run, landed.record
             if implementation is NativeBackend:
-                assert type(march._engine).__name__ == "_ResidentAdams"
-            fields, steps = [], 0
-            for plane in run_request.stepper.save_planes:
-                backend.propagate_to(float(plane))
-                observed = backend.observe()
-                fields.append(observed.require_field().copy())
-                steps += observed.step_history.n_steps
-            return np.array(fields), march.ledger.total, steps
+                assert type(backend._resident).__name__ == "_ResidentAdams"
+            calls = cast("dict[str, int]", record["response_calls"])
+            total = calls["startup"] + calls["predictor"] + calls["corrected"]
+            return np.array(run.fields), total, run.attempts
         finally:
             backend.close()
 

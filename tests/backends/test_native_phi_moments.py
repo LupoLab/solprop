@@ -89,7 +89,8 @@ def read_moments(module, grid, values):
     backend_module = module.backend
     backend = module.NativeBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
+        # The payload and the step's resident rows are the backend's own; the state
+        # they open is this test's, so nothing is loaded into the backend's.
         payload = backend_module._native_problem(
             problem, run_request, backend._terms, None, None
         )

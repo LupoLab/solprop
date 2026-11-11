@@ -18,6 +18,11 @@ The norm decides every step, so a wrong one moves every adaptive run. Two levels
   norm, and the separation from the scalar form are as sharp as the original's.
 * **The decision.** Native's whole trial against the reference's whole trial, each with
   its own stages: the state's one-step bound over the controller's scale.
+
+Native's trials are its state's own (``rk_trial`` on the uploaded stage tables,
+scored by ``rk_score`` or ``rk_weighted_score``), called on the backend's native state
+directly: SEP 47 phase 5 retired the backend's driver calls, and a state after a real
+propagation is the one the backend's session leaves.
 """
 
 import dataclasses
@@ -26,11 +31,13 @@ import math
 import numpy as np
 import pytest
 
+from backends._session_probe_b2 import load_native, native_trial, run_session
 from bounds import EPS, gamma, higham_gamma
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stepper import PIController
 
 native = pytest.importorskip("solprop_native")
+core = pytest.importorskip("solprop_native._core")
 
 STEP_RELATIVE = 16 * EPS
 """The one-step rung of ``accuracy.md`` section 7, relative to the state."""
@@ -50,11 +57,27 @@ def _problem(capillary_problem, controller=None):
     )
 
 
+def _score(backend, run_request, partials):
+    """Reduce a trial's partials to its scaled norm, natively, as the march does."""
+    controller = run_request.stepper.controller
+    partials = np.ascontiguousarray(partials, dtype=np.float64)
+    if controller.weights is None:
+        return float(core.rk_score(partials, controller.rtol, controller.atol))
+    state = backend._native_state
+    state.rk_weights_configure([float(value) for value in controller.weights])
+    return float(state.rk_weighted_score(partials, controller.rtol, controller.atol))
+
+
+def _field(backend, problem):
+    """Return native's state on the host, in the problem's shape."""
+    return np.asarray(backend._native_state.field_to_host()).reshape(problem.shape)
+
+
 def _native_trial(problem, run_request, grid, dz):
     """Open native on a problem, take one trial, and return what it scored."""
     backend = native.NativeBackend(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
-    score, _ = backend._trial_step(0.0, dz)
+    load_native(backend, problem.initial.field0)
+    score = _score(backend, run_request, native_trial(backend, run_request, 0.0, dz))
     return backend, score
 
 
@@ -100,8 +123,8 @@ def test_the_rk_norm_is_the_reference_norm_of_native_s_operands(
             stages, run_request.stepper.tableau.error_weights, propagator, dz
         )
         before = problem.initial.field0
-        backend._finish(backend._native_state, dz)
-        after = backend.observe().require_field()
+        backend._native_state.finish(dz)
+        after = _field(backend, problem)
         wanted = reference._error_norm(carried, before[None], after[None])
         controller = run_request.stepper.controller
         mask = problem.grids.norm_mask
@@ -150,11 +173,11 @@ def test_each_norm_is_read_from_its_own_state(capillary_problem, field_grid):
     dz = 1e-2
     backend = native.NativeBackend(problem, run_request, grid=field_grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        partials = np.asarray(backend._prepare_trial(0.0, dz))
+        load_native(backend, problem.initial.field0)
+        partials = native_trial(backend, run_request, 0.0, dz)
         old, new = float(partials[0].sum()), float(partials[1].sum())
-        backend._finish(backend._native_state, dz)
-        after = backend.observe().require_field()
+        backend._native_state.finish(dz)
+        after = _field(backend, problem)
     finally:
         backend.close()
     mask = problem.grids.norm_mask
@@ -256,23 +279,30 @@ def test_the_recycled_stage_is_the_one_it_replaces(
     failed at 7.4e-7 there.
     """
     problem, run_request = capillary_problem()
+    # The session lands on 0.02 m as the run would, its last step accepted there, and
+    # leaves that step's recycled stage in the backend's native state.
+    run_request = run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, save_planes=np.array([0.02]))
+    )
     backend = native.NativeBackend(problem, run_request, grid=field_grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(0.02)
+        landed = run_session(backend, problem, run_request)
         state = backend._native_state
         assert state.fsal_ready
-        z = float(backend._z)
-        dz = float(backend._history[-1][1])
+        z = float(landed.run.observations[-1].z)
+        assert z == 0.02
+        history = [one for one in landed.run.histories if one.n_steps][-1]
+        assert history.accepted[-1]
+        dz = float(history.dz[-1])
         before = state.rk_source_evaluations
-        backend._trial_step(z, dz)
+        native_trial(backend, run_request, z, dz)
         # Six evaluations: the first stage was not evaluated, it was recycled.
         assert state.rk_source_evaluations == before + 6
         recycled = np.asarray(state.stage_to_host(0)).copy()
         # The same stage from scratch, at the same state and step.
         state.clear_fsal()
         before = state.rk_source_evaluations
-        backend._trial_step(z, dz)
+        native_trial(backend, run_request, z, dz)
         assert state.rk_source_evaluations == before + 7
         fresh = np.asarray(state.stage_to_host(0)).copy()
         gap = float(np.linalg.norm(recycled - fresh) / np.linalg.norm(fresh))
@@ -282,12 +312,12 @@ def test_the_recycled_stage_is_the_one_it_replaces(
         # gap it bounds, so the bound can still fail.
         rng = np.random.default_rng(7)
         delta = 1e-11
-        field = backend.observe().require_field().copy()
+        field = _field(backend, problem).copy()
         field *= 1.0 + delta * np.exp(2j * np.pi * rng.random(field.shape))
         backend._native_state.set_initial(
             np.ascontiguousarray(field.reshape(-1)), np.empty(0, dtype=np.complex128)
         )
-        backend._trial_step(z, dz)
+        native_trial(backend, run_request, z, dz)
         moved = np.asarray(state.stage_to_host(0))
         sensitivity = float(np.linalg.norm(moved - fresh) / np.linalg.norm(fresh))
         sensitivity /= delta

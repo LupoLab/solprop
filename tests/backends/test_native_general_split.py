@@ -22,6 +22,7 @@ import warnings
 import numpy as np
 import pytest
 
+from backends._session_probe_b2 import run_session
 from driver.test_native_moving_guide import grin_kinked, moving_parity_bound, propagate
 from general_parity import (
     LENGTH,
@@ -72,14 +73,17 @@ def native_class():
 
 
 def run(backend_class, problem, run_request, grid, length=LENGTH):
-    """Return the final state of the problem's fixed steps on one backend."""
+    """Return the final state of the problem's fixed steps on one backend.
+
+    The backend's own session runs them (SEP 47 phase 5) to the last plane, `length`.
+    """
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(length)
-        return backend.observe().require_field().copy()
+        landed = run_session(backend, problem, run_request)
     finally:
         backend.close()
+    assert landed.run.observations[-1].z == pytest.approx(length, rel=1e-12)
+    return landed.field
 
 
 def departure(got, expected):

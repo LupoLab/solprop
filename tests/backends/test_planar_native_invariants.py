@@ -15,6 +15,7 @@ import math
 import numpy as np
 import pytest
 
+from backends._session_probe_b2 import run_session
 from backends.planar_cases import planar_case
 from bounds import gamma, step_evaluations
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -73,12 +74,11 @@ def ladder_bound(name, grid, space, problem, run_request, steps, length):  # noq
 
 
 def propagate(backend_class, problem, run_request, grid, length, noise=None):
-    """Return the state a backend reaches at ``length``."""
+    """Return the state a backend's session reaches at ``length``, its last plane."""
+    assert float(run_request.stepper.save_planes[-1]) == length
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, noise)
-        backend.propagate_to(length)
-        return backend.observe().require_field().copy()
+        return run_session(backend, problem, run_request, noise=noise).field
     finally:
         backend.close()
 

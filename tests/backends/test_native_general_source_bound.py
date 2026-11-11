@@ -17,6 +17,7 @@ import warnings
 import numpy as np
 import pytest
 
+from backends._session_probe_b2 import native_trial, run_session
 from general_parity import (
     CASES,
     LENGTH,
@@ -66,14 +67,14 @@ def cases():
 
 
 def run(backend_class, problem, run_request, grid):
-    """Return the final state of ten fixed steps on one backend."""
+    """Return the final state of ten fixed steps on one backend, in its session."""
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(LENGTH)
-        return backend.observe().require_field().copy()
+        landed = run_session(backend, problem, run_request)
     finally:
         backend.close()
+    assert landed.run.observations[-1].z == pytest.approx(LENGTH, rel=1e-12)
+    return landed.field
 
 
 def departure(got, expected):
@@ -94,8 +95,7 @@ def test_one_stage_of_the_source_is_the_reference_within_the_bound(
     expected = reference_source(maps, state, grid) * grid.crop_scale
     backend = native.NativeBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend._trial_step(0.0, 0.0)
+        native_trial(backend, run_request, 0.0, 0.0, field=problem.initial.field0)
         got = np.asarray(backend._native_state.stage_to_host(0)).reshape(expected.shape)
     finally:
         backend.close()

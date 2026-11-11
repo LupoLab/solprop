@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from backends._session_probe_b2 import launch_statistics
 from hankel_oracles import gamma
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.spatial import collect_spatial
@@ -128,10 +129,10 @@ def test_radial_statistics_match_the_host_without_field_observation(
         state = oracle.observe().require_field()
         reference = collect(spec, grid, SavedPlane(z=0.0, field=state), flux=flux)
         bounds = statistic_bounds(grid, space, state, reference, flux)
-        backend.set_initial(state, None)
-        # Calling stats never calls observe(); the native lane transfers only its
-        # packed reductions. All exposed statistics are requested together, then singly.
-        actual = backend.stats(spec)
+        # The backend's own session observes the state as its launch plane; the
+        # native lane transfers only its packed reductions, no field. All exposed
+        # statistics are requested together, then singly.
+        actual = launch_statistics(backend, problem, run_request, state)
         for name, expected in reference.items():
             assert actual[name].shape == expected.shape
             assert np.all(np.abs(actual[name] - expected) <= bounds[name]), name
@@ -162,14 +163,21 @@ def test_radial_statistics_match_the_host_without_field_observation(
                     limit,
                     spatial_backend_class.name,
                 )
-            single = backend.stats(StatsSpec(names=(name,)))
+            single = launch_statistics(
+                backend,
+                problem,
+                run_request.for_run(stats=StatsSpec(names=(name,))),
+                state,
+            )
             assert_allclose(single[name], actual[name], rtol=0, atol=0, equal_nan=True)
         periodic = dataclasses.replace(
             spec,
             names=("energy", "on_axis_intensity", "peak_intensity"),
             periodic=("energy", "on_axis_intensity", "peak_intensity"),
         )
-        values = backend.stats(periodic)
+        values = launch_statistics(
+            backend, problem, run_request.for_run(stats=periodic), state
+        )
         for name in periodic.names:
             assert_allclose(values[name], actual[name], rtol=0, atol=0)
         if backend.name == "native":
@@ -196,10 +204,10 @@ def test_empty_spatial_widths_and_intensities(case, spatial_backend_class):
         dz_max=grid.length,
         dz_init=grid.length,
     )
+    run_request = run_request.for_run(stats=spec)
     backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        values = backend.stats(spec)
+        values = launch_statistics(backend, problem, run_request)
         for name in (
             "energy",
             "on_axis_intensity",

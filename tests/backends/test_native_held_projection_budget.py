@@ -27,6 +27,7 @@ import dataclasses
 import numpy as np
 import pytest
 
+from backends._session_probe_b2 import native_trial
 from backends.test_band_plasma_parity import bound, case
 from backends.test_radial_nonlinear import QuadraticRate
 from bounds import UNIT_ROUNDOFF, fft_bound, gamma
@@ -149,8 +150,7 @@ def test_embedded_current_projection_accumulates_partial_chunks(
     allowed = per_bin[0][..., None] * abs(inverse) + per_bin[1][..., None] * inverse**2
     backend = native.NativeBackend(problem, run_request, grid=grid, options=options)
     try:
-        backend.set_initial(state, None)
-        backend._trial_step(0.0, 0.0)
+        native_trial(backend, run_request, 0.0, 0.0, field=state)
         raw = np.asarray(backend._native_state.projected_to_host(True))
     finally:
         backend.close()
