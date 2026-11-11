@@ -873,7 +873,8 @@ class HostStepping(Backend, Protocol):
     Examples
     --------
     >>> from solprop.backends.protocol import Backend, HostStepping
-    >>> sorted(set(dir(HostStepping)) - set(dir(Backend)))[:4]
+    >>> added = set(dir(HostStepping)) - set(dir(Backend))
+    >>> sorted(name for name in added if not name.startswith("_"))[:4]
     ['attach_monitor', 'in_flight', 'march_snapshot', 'march_snapshot_nbytes']
     """
 
