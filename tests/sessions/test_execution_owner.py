@@ -12,7 +12,10 @@ import pytest
 from sessions import executors
 from sessions.executors import soliton, window
 from sessions.test_group import available, constructed, drive, member
+from solprop.backends.driver import StepDriver
+from solprop.backends.driver_session import DriverGroupSession
 from solprop.backends.events import Outcome
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.protocol import Backend, ExecutionBackend
 from solprop.backends.registry import select
 from solprop.backends.session import SessionError, Start
@@ -129,6 +132,47 @@ def test_owner_factory_refuses_foreign_members_before_consuming_fields(backend):
         with pytest.raises(BackendError, match="own member owners"):
             drivers[0].start_group(owners, problems, requests, starts)
         assert all(entrance.field is not None for entrance in starts)
+
+
+@pytest.mark.parametrize("door", [StepDriver.start_group, HostDriver.start_group])
+@pytest.mark.parametrize("invalid", ["same_owner", "foreign_owner"])
+def test_legacy_group_doors_preserve_ownership_on_refusal(door, invalid):
+    simulations = [member(index, "numpy_ref") for index in range(2)]
+    problems = [simulation.translate() for simulation in simulations]
+    requests = [simulation._run_request() for simulation in simulations]
+    starts = [Start.entrance(problem) for problem in problems]
+    fields = [start.field for start in starts]
+    with ExitStack() as cleanup:
+        owners = [constructed(simulation, cleanup) for simulation in simulations]
+        supplied = [
+            owners[0],
+            owners[0] if invalid == "same_owner" else _owner(owners[1]),
+        ]
+        message = (
+            "distinct member owners" if invalid == "same_owner" else "own member owners"
+        )
+        with pytest.raises(BackendError, match=message):
+            door(owners[0], supplied, problems, requests, starts)
+        assert all(
+            start.field is field for start, field in zip(starts, fields, strict=True)
+        )
+        assert all(not owner.closed for owner in owners)
+
+
+def test_transitional_group_refuses_one_owner_used_twice_before_loading():
+    simulations = [member(index, "numpy_ref") for index in range(2)]
+    problems = [simulation.translate() for simulation in simulations]
+    requests = [simulation._run_request() for simulation in simulations]
+    starts = [Start.entrance(problem) for problem in problems]
+    fields = [start.field for start in starts]
+    with ExitStack() as cleanup:
+        owner = constructed(simulations[0], cleanup)
+        with pytest.raises(SessionError, match="distinct member owners"):
+            DriverGroupSession([owner, owner], problems, requests, starts)
+        assert all(
+            start.field is field for start, field in zip(starts, fields, strict=True)
+        )
+        assert not owner.closed
 
 
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])
