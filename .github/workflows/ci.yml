@@ -131,6 +131,7 @@ jobs:
           path: wheelhouse
       - name: Install the native runtime libraries
         run: |
+          bash .github/scripts/apt-mirrors.sh
           sudo apt-get update
           sudo apt-get install --yes libfftw3-dev
       - run: uv python install 3.14
@@ -187,6 +188,7 @@ jobs:
           path: wheelhouse
       - name: Install the native runtime libraries
         run: |
+          bash .github/scripts/apt-mirrors.sh
           sudo apt-get update
           sudo apt-get install --yes libfftw3-dev
       - run: uv python install 3.14
@@ -235,6 +237,7 @@ jobs:
       - if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Linux'
         name: Install the native toolchain
         run: |
+          bash .github/scripts/apt-mirrors.sh
           sudo apt-get update
           sudo apt-get install --yes cmake g++-14 libfftw3-dev ninja-build pkg-config
       - if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Linux'
@@ -354,6 +357,7 @@ jobs:
           path: wheelhouse
       - name: Install the native runtime libraries
         run: |
+          bash .github/scripts/apt-mirrors.sh
           sudo apt-get update
           sudo apt-get install --yes libfftw3-dev
       - run: uv python install 3.14
@@ -419,6 +423,7 @@ jobs:
           path: wheelhouse
       - name: Install the native runtime libraries
         run: |
+          bash .github/scripts/apt-mirrors.sh
           sudo apt-get update
           sudo apt-get install --yes libfftw3-dev
       - run: uv python install 3.14
@@ -516,6 +521,7 @@ jobs:
           path: wheelhouse
       - name: Install the native runtime libraries
         run: |
+          bash .github/scripts/apt-mirrors.sh
           sudo apt-get update
           sudo apt-get install --yes libfftw3-dev
       - run: uv venv --python 3.14
@@ -589,6 +595,7 @@ jobs:
           node-version: "26"
       - name: Install the native toolchain
         run: |
+          bash .github/scripts/apt-mirrors.sh
           sudo apt-get update
           sudo apt-get install --yes clang-tidy cmake g++-14 libfftw3-dev ninja-build pkg-config
       - run: uv python install 3.14
@@ -621,6 +628,7 @@ jobs:
         run: |
           curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb -o keyring.deb
           sudo dpkg -i keyring.deb
+          bash .github/scripts/apt-mirrors.sh
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends cmake g++-14 libfftw3-dev libopenblas-dev ninja-build pkg-config cuda-compiler-12-8 cuda-libraries-dev-12-8
           df -h /
@@ -669,6 +677,7 @@ jobs:
           echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2 noble main" | sudo tee /etc/apt/sources.list.d/rocm.list
           # Ubuntu has an older hipcc whose version number sorts higher than AMD's.
           printf 'Package: *\nPin: origin repo.radeon.com\nPin-Priority: 1001\n' | sudo tee /etc/apt/preferences.d/rocm
+          bash .github/scripts/apt-mirrors.sh
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends cmake libfftw3-dev libopenblas-dev ninja-build pkg-config g++-14 hip-dev hipcc rocm-llvm rocm-device-libs rocm-cmake rocfft-dev rocblas-dev
           echo "ROCM_PATH=/opt/rocm" >> "$GITHUB_ENV"
@@ -719,6 +728,7 @@ jobs:
       # Qt's offscreen platform still loads EGL, OpenGL, xkbcommon and fontconfig.
       - if: runner.os == 'Linux'
         run: |
+          bash .github/scripts/apt-mirrors.sh
           sudo apt-get update
           sudo apt-get install --yes libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
       - if: runner.os == 'Linux'

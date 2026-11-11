@@ -79,6 +79,7 @@ jobs:
       - name: Install native runtime libraries
         if: runner.os == 'Linux'
         run: |
+          bash .github/scripts/apt-mirrors.sh
           sudo apt-get update
           sudo apt-get install --yes libfftw3-dev
       - name: Download the native wheel from this CI run

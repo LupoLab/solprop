@@ -250,6 +250,7 @@ jobs:
           path: wheelhouse
       - name: Install HDF5 for h5py's source build
         run: |
+          bash .github/scripts/apt-mirrors.sh
           sudo apt-get update
           sudo apt-get install --yes libhdf5-dev pkg-config
       - run: uv python install 3.15
