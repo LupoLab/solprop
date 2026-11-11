@@ -282,7 +282,7 @@ def test_a_flow_refused_mid_run_leaves_nothing_that_breaks_the_next_backend(back
     # Through the backend's session, which ends failed and closes it (SEP 47 phase 5).
     failing = cls(refused, refused_request, grid=grid)
     terminal = run_session(
-        failing, refused, bare(refused_request), recipe=None
+        failing, refused, bare(refused_request), recipe=None, raises=False
     ).terminal
     assert terminal.outcome is Outcome.FAILED
     assert isinstance(terminal.error, BackendError)
