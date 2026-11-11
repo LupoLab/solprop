@@ -101,8 +101,17 @@ def _run(fixture, **options):
     )["supervision"]
 
 
-@pytest.mark.parametrize("code", [-signal.SIGTERM, 128 + signal.SIGTERM])
-def test_prompt_term_exit_records_actual_status_without_escalation(supervision, code):
+def _returncode(code: int | str) -> int:
+    # Collection precedes skip evaluation, so POSIX-only names must be resolved
+    # inside a test that the module's platform mark has actually admitted.
+    return -int(getattr(signal, code)) if isinstance(code, str) else code
+
+
+@pytest.mark.parametrize("shell_exit", [False, True])
+def test_prompt_term_exit_records_actual_status_without_escalation(
+    supervision, shell_exit
+):
+    code = 128 + signal.SIGTERM if shell_exit else -signal.SIGTERM
     fixture = supervision
     _ready(fixture.output, fixture.process)
     fixture.process.outcomes = [(0.1, code)]
@@ -122,8 +131,9 @@ def test_prompt_term_exit_records_actual_status_without_escalation(supervision, 
     )
 
 
-@pytest.mark.parametrize("code", [-signal.SIGKILL, -signal.SIGTERM])
+@pytest.mark.parametrize("code", ["SIGKILL", "SIGTERM"])
 def test_expired_term_grace_records_own_kill_and_reaps(supervision, code):
+    code = _returncode(code)
     fixture = supervision
     _ready(fixture.output, fixture.process)
     fixture.process.outcomes = [(3.0, None), (0.2, code)]
@@ -188,8 +198,9 @@ def test_timeout_before_entry_is_failure_without_term(supervision):
     assert fixture.process.waits == []
 
 
-@pytest.mark.parametrize("code", [0, 1, -signal.SIGKILL])
+@pytest.mark.parametrize("code", [0, 1, "SIGKILL"])
 def test_exit_before_entry_is_failure_without_term(supervision, code):
+    code = _returncode(code)
     fixture = supervision
     fixture.process.returncode = code
     _ready(fixture.output, fixture.process)
@@ -207,8 +218,9 @@ def test_unowned_process_group_is_never_signalled(supervision, monkeypatch):
     assert fixture.signals == []
 
 
-@pytest.mark.parametrize("code", [0, 1, -signal.SIGSEGV, -signal.SIGKILL, 137])
+@pytest.mark.parametrize("code", [0, 1, "SIGSEGV", "SIGKILL", 137])
 def test_unexpected_exit_is_not_accepted_as_supervised_termination(supervision, code):
+    code = _returncode(code)
     fixture = supervision
     _ready(fixture.output, fixture.process)
     fixture.process.outcomes = [(0.1, code)]
@@ -219,8 +231,9 @@ def test_unexpected_exit_is_not_accepted_as_supervised_termination(supervision, 
     assert report["returncode"] == code and report["forced_escalation"] is False
 
 
-@pytest.mark.parametrize("code", [0, 1, -signal.SIGSEGV, 137])
+@pytest.mark.parametrize("code", [0, 1, "SIGSEGV", 137])
 def test_deadline_escalation_still_refuses_an_unrelated_exit(supervision, code):
+    code = _returncode(code)
     fixture = supervision
     _ready(fixture.output, fixture.process)
     fixture.process.outcomes = [(3.0, None), (0.1, code)]
