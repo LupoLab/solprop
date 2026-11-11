@@ -74,7 +74,9 @@ class Loaded:
     Attributes
     ----------
     field : numpy.ndarray
-        The state, flat and contiguous, carrying the ``input`` draw at the launch.
+        The state, flat and contiguous, carrying the ``input`` draw at the launch; empty
+        in the record a backend keeps once its native state holds it, so no host copy
+        outlives the load.
     noise : numpy.ndarray or None
         The ``modified`` model's realisation, shape ``(1, n_modes, n_pol, n_omega)``,
         which every stage adds; ``None`` under the other models.

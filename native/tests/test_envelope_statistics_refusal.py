@@ -32,13 +32,6 @@ from solprop_native.backend import (
 SPEC = StatsSpec(names=("electron_density", "peak_ionisation_rate"))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="until native/src/session.cpp failure_of maps EnvelopeConvergenceError "
-    "to Category::convergence, the native session reports a refinement failure "
-    "outside a march call as RuntimeError, not ConvergenceError",
-)
 @pytest.mark.parametrize(
     "geometry",
     ["mode_averaged", "free"],

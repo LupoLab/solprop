@@ -46,7 +46,15 @@ def test_an_input_draw_is_added_at_the_launch_alone():
     native, reference = _pair(problem, request, context)
     try:
         field = np.asarray(problem.initial.field0)
-        loaded = native._load(field, None, z=float(problem.initial.z), resume=False)
+        z = float(problem.initial.z)
+        # The load rule itself, whose record holds the field the state is given; the
+        # backend's kept record drops it once the state holds it.
+        loaded = native_load.load(
+            problem, request.stepper, field, None, z=z, resume=False
+        )
+        kept = native._load(field, None, z=z, resume=False)
+        assert kept.field.size == 0
+        assert np.array_equal(kept.floor, loaded.floor)
         reference.set_initial(field, None, z=float(problem.initial.z))
         host = cast("Any", reference)
         assert loaded.floor is not None and loaded.noise is None
@@ -55,7 +63,9 @@ def test_an_input_draw_is_added_at_the_launch_alone():
         assert np.array_equal(loaded.field, expected.reshape(-1))
         assert loaded.clean_columns is not None
         assert np.array_equal(loaded.clean_columns, host._clean_columns)
-        resumed = native._load(field, None, z=float(problem.initial.z), resume=True)
+        resumed = native_load.load(
+            problem, request.stepper, field, None, z=z, resume=True
+        )
         assert np.array_equal(resumed.field, np.ascontiguousarray(field).reshape(-1))
         assert resumed.clean_columns is None
     finally:

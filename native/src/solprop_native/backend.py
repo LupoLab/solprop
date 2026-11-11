@@ -622,7 +622,8 @@ class NativeBackend(StepDriver[_core.State]):
         Returns
         -------
         solprop_native._load.Loaded
-            The load, kept as the backend's (`_loaded`).
+            The load, kept as the backend's (`_loaded`), its field emptied once the
+            state holds it.
 
         Raises
         ------
@@ -646,8 +647,10 @@ class NativeBackend(StepDriver[_core.State]):
         if self._resident_low_storage is not None:
             self._resident_low_storage.reset()
         self._low_storage_evaluations = 0
-        self._loaded = loaded
-        return loaded
+        # The state holds the field now: the record keeps no host copy past the load.
+        kept = dataclasses.replace(loaded, field=_EMPTY)
+        self._loaded = kept
+        return kept
 
     def _install(self, field: ComplexArray) -> None:
         """Load a resumed history's own state, with the loaded noise realisation.
