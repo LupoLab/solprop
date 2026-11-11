@@ -13112,8 +13112,9 @@ void GeneralWorkspace::envelope_cycle(const std::size_t channel,
                                       const std::size_t node_count,
                                       const ComplexView2& field_rows,
                                       const std::size_t n_pol) {
-  // NOLINTNEXTLINE(performance-unnecessary-copy-initialization): the kernels capture
-  // the view by value, never the caller's reference, which a device cannot read.
+  // The kernels capture the view by value, never the caller's reference, which a
+  // device cannot read.
+  // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
   const auto field = field_rows;
   const auto parameters = channel_parameters_;
   const auto coefficients = channel_coefficients_;

@@ -3384,7 +3384,7 @@ class AdamsMarch:
     def replay_step(self, dz: float, end: float, slack: float) -> float:
         """Take one prescribed step from the backend's position and accept it.
 
-        The unit a replay advances by (:meth:`_replay_to`): the budget, the startup of
+        The unit a replay advances by (``_replay_to``): the budget, the startup of
         an empty history, the step and, when `end` is a hard kink, the restart.
 
         Parameters
