@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 public TransverseLineData, TransversePreparation, TransverseWorkspace
-public TransverseMonitorRecord, transverse_clean_columns
+public TransverseMonitorRecord, transverse_clean_columns, transverse_fallback_clean_columns
 public transverse_monitor_launch!, transverse_monitor_endpoint!, transverse_monitor_plane!
 public transverse_monitor_proceed!, transverse_monitor_ceiling
 public transverse_monitor_record, transverse_monitor_finish
@@ -242,6 +242,42 @@ function transverse_clean_columns(execution::KernelExecution, field, noise, acti
     return result
 end
 
+"""
+    transverse_fallback_clean_columns(execution, masked_field, original_noise)
+
+Prepare the shared later-start ramp judgement when no fresh clean launch was retained.
+
+The finite ComplexF64 matrices have equal `(n_frequency,n_columns)` shape. Return
+owned unweighted column sums of `abs2(masked_field-original_noise)`, preserving both
+inputs. This is the explicit shared driver fallback for a start which did not add a
+fresh draw and has no usable restored edge totals. It is not an estimate of an
+unknown pre-noise field: the original supplied realization is subtracted exactly as
+the shared monitor requires, including its inactive bins. Never use this helper for
+a fresh noisy launch; `transverse_clean_columns` preserves that launch's separate
+active/inactive rule. No noise is applied or phased here. Preparation may allocate;
+invalid shapes, nonfinite inputs or overflowing sums raise before returning.
+"""
+function transverse_fallback_clean_columns(execution::KernelExecution, field, noise)
+    oncpu(execution) && field isa StridedMatrix{ComplexF64} &&
+        noise isa StridedMatrix{ComplexF64} && size(field) == size(noise) &&
+        !isempty(field) ||
+        throw(DimensionMismatch("fallback transverse columns need matching CPU arrays"))
+    Base.require_one_based_indexing(field, noise)
+    all(isfinite, field) && all(isfinite, noise) ||
+        throw(ArgumentError("fallback transverse inputs must be finite"))
+    result = zeros(Float64, size(field, 2))
+    each_column!(execution, length(result)) do column
+        total = 0.0
+        for row in axes(field, 1)
+            total += _monitor_pair(field[row, column] - noise[row, column])
+        end
+        result[column] = total
+    end
+    all(isfinite, result) ||
+        throw(ArgumentError("fallback transverse column sums overflowed"))
+    return result
+end
+
 struct _TransverseLineWork{P, S, C, R}
     data::TransverseLineData
     spectrum::Matrix{ComplexF64}
@@ -292,9 +328,11 @@ Own scalar spatial monitor reductions, bounded strip transforms and warning stag
 `prepared` is a `TransversePreparation`; positive `trace_chunk` bounds each line's
 twice-padded FFT batch. All unused traces and padding cells are overwritten on reuse.
 Optional binary64 `noise_spectrum` is the independently supplied original realization,
-reduced once at preparation. It requires finite nonnegative `clean_columns` from
-`transverse_clean_columns`; no noise-free state is inferred by subtraction. Only
-the reduced noise data are retained. Optional `TransverseContinuation` preserves the
+reduced once at preparation. A fresh ramp judgement with noise requires explicit
+finite nonnegative `clean_columns` from the appropriate preparation helper; this
+workspace never infers them. No clean vector is required without a ramp or with
+usable positive restored totals, because neither path judges it. Only the reduced
+noise data are retained. Optional `TransverseContinuation` preserves the
 original launch and totals while a later resumed launch refreshes samples unjudged.
 This admitted scalar spatial attachment always reads the edge, as native sessions
 do; an off request creates no workspace. The generic eager control API separately
@@ -352,12 +390,14 @@ function TransverseWorkspace(
     )
     oncpu(execution) && trace_chunk > 0 ||
         throw(ArgumentError("transverse workspace requires CPU and a positive trace chunk"))
+    state = TransverseState(prepared.tables)
+    restore_transverse!(state, continuation)
     shape = (prepared.n_frequency, prepared.n_columns)
     if noise_spectrum !== nothing
         noise_spectrum isa StridedMatrix{ComplexF64} && size(noise_spectrum) == shape &&
             all(isfinite, noise_spectrum) ||
             throw(ArgumentError("transverse noise requires a finite matching spectrum"))
-        clean_columns !== nothing ||
+        (!prepared.policy.has_design || state.resumed || clean_columns !== nothing) ||
             throw(ArgumentError("transverse input noise requires explicit clean columns"))
     end
     if clean_columns !== nothing
@@ -373,8 +413,6 @@ function TransverseWorkspace(
     lines = map(
         line -> _TransverseLineWork(execution, prepared, line, trace_chunk), prepared.lines,
     )
-    state = TransverseState(prepared.tables)
-    restore_transverse!(state, continuation)
     reading = TransverseReading(prepared.n_columns, length(lines))
     noise = noise_spectrum === nothing ? nothing :
         TransverseReading(prepared.n_columns, length(lines))

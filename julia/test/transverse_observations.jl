@@ -343,6 +343,87 @@ end
     end
 end
 
+@testset "Later-start clean columns and unused resumed ramp inputs" begin
+    for tasks in (1, 2)
+        execution, prepared, field = transverse_observation_case(
+            :line; tasks, collar = false,
+        )
+        noise = 0.03 .* reverse(field; dims = 1)
+        active = Bool[false, true, true, false, true]
+        masked = copy(field)
+        masked[.!active, :] .= 0
+        for original_noise in (noise, masked .* (1 + 8eps(Float64)))
+            old_field, old_noise = copy(masked), copy(original_noise)
+            result = SolpropJulia.transverse_fallback_clean_columns(
+                execution, masked, original_noise,
+            )
+            reference = vec(
+                sum(
+                    abs2, Complex{BigFloat}.(masked) - Complex{BigFloat}.(original_noise);
+                    dims = 1,
+                )
+            )
+            envelope = vec(
+                sum(
+                    (
+                        abs.(Complex{BigFloat}.(masked)) +
+                            abs.(Complex{BigFloat}.(original_noise))
+                    ) .^ 2; dims = 1,
+                )
+            )
+            # Five complex differences, squared norms and positive additions.
+            # The envelope precedes subtraction, so cancellation cannot erase its
+            # allowance. These finite normal fixtures need no underflow term.
+            budget = 32eps(Float64) .* envelope
+            @test all(>(0), budget)
+            @test all(abs.(BigFloat.(result) - reference) .<= budget)
+            @test masked == old_field && original_noise == old_noise
+        end
+        fresh = SolpropJulia.transverse_clean_columns(execution, field, noise, active)
+        fallback = SolpropJulia.transverse_fallback_clean_columns(execution, masked, noise)
+        @test fresh != fallback
+        @test_throws DimensionMismatch SolpropJulia.transverse_fallback_clean_columns(
+            execution, masked, noise[:, 1:2],
+        )
+        @test_throws ArgumentError SolpropJulia.transverse_fallback_clean_columns(
+            execution, fill(ComplexF64(Inf), size(masked)), noise,
+        )
+        @test_throws ArgumentError SolpropJulia.transverse_fallback_clean_columns(
+            execution, fill(ComplexF64(floatmax(Float64)), size(masked)), -masked,
+        )
+        launch = SolpropJulia.TransverseWorkspace(
+            execution, prepared; trace_chunk = 2, noise_spectrum = noise,
+            clean_columns = fresh,
+        )
+        notices = SolpropJulia.MonitorNotices(1)
+        SolpropJulia.transverse_monitor_launch!(launch, masked, 0.0, notices)
+        @test notices.count == 0
+        continuation = SolpropJulia.transverse_continuation(launch.state)
+        resumed = SolpropJulia.TransverseWorkspace(
+            execution, prepared; trace_chunk = 2, noise_spectrum = noise, continuation,
+        )
+        @test resumed.clean_columns === nothing && resumed.state.resumed
+        SolpropJulia.transverse_monitor_launch!(resumed, masked, 0.5, notices)
+        @test notices.count == 0 && resumed.state.launch == continuation.launch
+        @test resumed.state.ramp_raw == continuation.ramp_raw
+        @test resumed.state.last_z == 0.5 && resumed.state.has_noise
+        names = fieldnames(SolpropJulia.TransversePolicy)
+        values = NamedTuple{names}(Tuple(getfield(prepared.policy, name) for name in names))
+        policy = SolpropJulia.TransversePolicy(; values..., has_design = false)
+        no_ramp = SolpropJulia.TransversePreparation(
+            execution, prepared.map, policy, prepared.tables;
+            n_frequency = prepared.n_frequency, rows = prepared.rows,
+            lines = (), declared = false,
+        )
+        work = SolpropJulia.TransverseWorkspace(
+            execution, no_ramp; trace_chunk = 2, noise_spectrum = noise,
+        )
+        @test work.clean_columns === nothing && work.noise !== nothing
+        SolpropJulia.transverse_monitor_launch!(work, masked, 0.0, notices)
+        @test notices.count == 0 && work.state.has_noise
+    end
+end
+
 @testset "Transverse unresolved strips, owner boundaries and early refusals" begin
     execution, prepared, field = transverse_observation_case(:line)
     empty_line = SolpropJulia.TransverseLineData(
