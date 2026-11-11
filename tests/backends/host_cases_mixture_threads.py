@@ -17,6 +17,7 @@ import importlib
 import importlib.util
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
@@ -58,6 +59,7 @@ def fixed_schedule(run_request, grid, steps=8):
 # was given are not array names: only a subprocess run saves the arrays.
 
 if __name__ == "__main__":
+    from backends._session_probe_b1 import history, last_field, rows, run
     from backends.forced_threads import record_sizing
 
     record_sizing(sys.argv[1])
@@ -68,19 +70,25 @@ if __name__ == "__main__":
     )
     backend = solprop_native.NativeBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(grid.length)
-        observed = backend.observe()
-        values = backend.stats(StatsSpec(names=NAMES))
-        arrays = {
-            "field": observed.require_field(),
-            "steps": np.array(summary.n_steps),
-            "z": observed.step_stats.z,
+        # The final plane's statistics are every name, its rows the periodic ones.
+        result = run(
+            backend,
+            problem,
+            run_request.for_run(
+                stats=StatsSpec(names=NAMES, periodic=PERIODIC, period=1)
+            ),
+        )
+        values = result.observations[-1].stats
+        taken = rows(result)
+        arrays: dict[str, Any] = {
+            "field": last_field(result),
+            "steps": np.array(history(result).n_steps),
+            "z": taken.z,
         }
         for name in NAMES:
             arrays[f"stats:{name}"] = values[name]
         for name in PERIODIC:
-            arrays[f"rows:{name}"] = observed.step_stats.values[name]
+            arrays[f"rows:{name}"] = taken.values[name]
         np.savez(
             sys.argv[1],
             runtime_threads=np.array(solprop_native.build_info().runtime_threads),

@@ -33,6 +33,8 @@ from typing import Any
 import numpy as np
 import pytest
 
+from backends._session_probe_b1 import launched_state, native_source
+from backends._session_probe_b1 import run as session_run
 from backends.dispersive_cases import (
     GRID_CASES,
     LENGTH,
@@ -120,8 +122,7 @@ def native_evaluation(
     """
     backend = NativeBackend(problem, run_request, grid=grid, options=options)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend._adams_lab_source(problem.initial.field0[None], 0.0)
+        native_source(backend, problem.initial.field0)
         native = backend._native_state
         return Evaluation(
             native.projected_to_host(False),
@@ -158,6 +159,8 @@ def source(
     """Return one evaluation's whole stage source at the launch."""
     backend = backend_class(problem, run_request, grid=grid)
     try:
+        if backend.name == "native":
+            return native_source(backend, problem.initial.field0)
         backend.set_initial(problem.initial.field0, None)
         return np.array(backend._adams_lab_source(problem.initial.field0[None], 0.0))
     finally:
@@ -276,9 +279,9 @@ def test_the_quadrature_alarm_is_the_reference_s(sector, evaluator):
     for backend_class in (NativeBackend, NumpyRefBackend):
         backend = backend_class(problem, run_request, grid=simulation.grid)
         try:
-            backend.set_initial(problem.initial.field0, None)
-            backend.propagate_to(LENGTH)
-            alarms.append(float(backend.stats(spec)["quadrature_error"]))
+            result = session_run(backend, problem, run_request.for_run(stats=spec))
+            assert result.observations[-1].z == LENGTH
+            alarms.append(float(result.observations[-1].stats["quadrature_error"]))
         finally:
             backend.close()
     ours, theirs = alarms
@@ -316,17 +319,31 @@ def test_node_chunks_accumulate_as_one(case, raman, evaluator):
 @pytest.mark.parametrize("evaluator", sorted(POLICIES))
 @pytest.mark.parametrize("thg", [True, False])
 def test_a_state_with_zero_frequency_content_matches_the_reference(thg, evaluator):
-    """The polynomial subtracts the bare analytic signal's zero-frequency constant.
+    """A launch with zero-frequency content is evaluated as the state native holds.
 
     ``Pi_+`` excludes the zero-frequency bin, which the engine's analytic family keeps.
+    The bin lies outside the active band here, so the native load masks it, as every
+    load and accepted step does: native's evaluation is of the masked launch, which
+    the reference's evaluation of the same state is held to. SEP 47 phase 5 deleted
+    the host-callable native evaluation that once read the unmasked field, and with
+    it the only native path that reached the bin's content.
     """
     simulation = capillary(evaluator, thg=thg)
     problem = simulation.translate()
     run_request = simulation._run_request()
+    active = np.asarray(problem.grids.active_mask)
+    assert not active[0]
     start = problem.initial.field0.copy()
     start[..., 0] = 1e-3 * np.abs(start).max()
+    backend = NativeBackend(problem, run_request, grid=simulation.grid)
+    try:
+        held = launched_state(backend, start).field_to_host().reshape(problem.shape)
+    finally:
+        backend.close()
+    np.testing.assert_array_equal(held[..., 0], 0.0)
+    np.testing.assert_array_equal(held, start * active)
     problem = dataclasses.replace(
-        problem, initial=dataclasses.replace(problem.initial, field0=start)
+        problem, initial=dataclasses.replace(problem.initial, field0=start * active)
     )
     assert_one_evaluation(problem, run_request, simulation.grid)
 

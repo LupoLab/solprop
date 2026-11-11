@@ -15,10 +15,11 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from backends._session_probe_b1 import last_field, launched_state, watched_run
+from backends._session_probe_b1 import run as session_run
 from bounds import fft_bound, higham_gamma
 from capability_routes import LENGTH, SPATIAL_GRID
 from capability_routes import ROUTES as CASES
-from solprop.backends.driver import StepDriver
 from solprop.backends.memory import low_storage_stage_register
 from solprop.backends.registry import available, select
 from solprop.driver import Simulation, SimulationSettings
@@ -67,7 +68,11 @@ def _noise_state(shape: tuple[int, ...], active: np.ndarray, seed: int) -> np.nd
 
 
 def _attached(simulation: Simulation, state: np.ndarray) -> Any:
-    """Return a native backend loaded with `state` and watched by the edge."""
+    """Return a native backend loaded with `state` and watched by the edge.
+
+    The state is loaded into the backend's native state and the monitor bound there,
+    as the native session binds its own (the backend's ``_bind_monitor``).
+    """
     problem = simulation.translate()
     run_request = simulation._run_request()
     backend = cast(
@@ -81,7 +86,7 @@ def _attached(simulation: Simulation, state: np.ndarray) -> Any:
             profiles=simulation.profiles,
         ),
     )
-    backend.set_initial(state, None)
+    launched_state(backend, state)
     monitor = simulation._boundary_monitor()
     assert monitor is not None
     assert monitor.transverse is not None
@@ -98,7 +103,7 @@ def _read_both(
     state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 41)
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._require_state(), edge, full=full)
+        native = backend._edge_reading(backend._native_state, edge, full=full)
         host = edge.reduction.reading(state, full=full)
     finally:
         backend.close()
@@ -136,8 +141,8 @@ def test_native_reads_a_state_it_holds_without_changing_it(route: str) -> None:
     backend, edge = _attached(simulation, state)
     try:
         before = backend._native_state.field_to_host()
-        backend._edge_reading(backend._require_state(), edge, full=True)
-        backend._edge_reading(backend._require_state(), edge)
+        backend._edge_reading(backend._native_state, edge, full=True)
+        backend._edge_reading(backend._native_state, edge)
         after = backend._native_state.field_to_host()
     finally:
         backend.close()
@@ -171,7 +176,7 @@ def test_one_lit_node_reaches_only_its_own_faces(
     state[:, 0, int(np.nonzero(active)[0][0])] = phase.reshape(-1)
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._require_state(), edge, full=True)
+        native = backend._edge_reading(backend._native_state, edge, full=True)
         host = edge.reduction.reading(state, full=True)
     finally:
         backend.close()
@@ -226,7 +231,7 @@ def test_two_polarisations_read_as_the_host_reads(route: str) -> None:
     state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 47)
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._require_state(), edge, full=True)
+        native = backend._edge_reading(backend._native_state, edge, full=True)
         host = edge.reduction.reading(state, full=True)
     finally:
         backend.close()
@@ -244,12 +249,13 @@ def test_two_polarisations_read_as_the_host_reads(route: str) -> None:
 )
 @pytest.mark.parametrize("route", ROUTES)
 def test_a_read_at_every_step_leaves_the_march_where_it_was(
-    route: str, march: object, monkeypatch: pytest.MonkeyPatch
+    route: str, march: object
 ) -> None:
     # A read takes the transverse scratch at a committed position, which every march
-    # has to write again before using. Against the same run with the host's read, which
-    # touches no scratch: same steps, same monitor, one process, so no rounding apart.
-    def final() -> tuple[np.ndarray, int]:
+    # has to write again before using. The native session reads at every step; against
+    # the same session unwatched, whose march touches no scratch for a read: same
+    # steps, one process, so no rounding apart. The reads are the reference's.
+    def final(name: str, watched: bool) -> tuple[np.ndarray, int]:
         simulation = _case(route)
         simulation.settings = dataclasses.replace(
             simulation.settings,
@@ -258,41 +264,30 @@ def test_a_read_at_every_step_leaves_the_march_where_it_was(
                 0.0, LENGTH, LENGTH / 4, save_planes=[LENGTH]
             ),
         )
+        if watched:
+            field, record, _ = watched_run(simulation, name)
+            return field, int(cast("dict[str, Any]", record["transverse"])["reads"])
         problem = simulation.translate()
-        run_request = simulation._run_request()
-        run_request = simulation._run_request()
-        backend = cast(
-            "Any",
-            select(
-                "native",
-                problem,
-                run_request,
-                grid=simulation.grid,
-                modes=simulation.modes,
-                profiles=simulation.profiles,
-            ),
+        backend = select(
+            name,
+            problem,
+            simulation._run_request(),
+            grid=simulation.grid,
+            modes=simulation.modes,
+            profiles=simulation.profiles,
         )
         try:
-            backend.set_initial(problem.initial.field0, None)
-            monitor = simulation._boundary_monitor()
-            assert monitor is not None
-            backend.attach_monitor(monitor)
-            backend.propagate_to(LENGTH)
-            record = cast("dict[str, Any]", monitor.summary())
-            return backend.observe(field=True).require_field(), int(
-                record["transverse"]["reads"]
-            )
+            return last_field(session_run(backend, problem)), 0
         finally:
             backend.close()
 
-    native, reads = final()
+    native, reads = final("native", watched=True)
     # Every step is longer than the spacing.
     assert reads >= 4
-    with monkeypatch.context() as patch:
-        patch.setattr(NativeBackend, "_edge_reading", StepDriver._edge_reading)
-        host, host_reads = final()
+    unwatched, _ = final("native", watched=False)
+    assert native.tobytes() == unwatched.tobytes()
+    _, host_reads = final("numpy_ref", watched=True)
     assert host_reads == reads
-    assert native.tobytes() == host.tobytes()
 
 
 @pytest.mark.parametrize("route", ["cartesian", "line"])
@@ -356,7 +351,7 @@ def test_each_region_reads_what_its_definition_says(route: str) -> None:
     state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 53)
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._require_state(), edge, full=True)
+        native = backend._edge_reading(backend._native_state, edge, full=True)
     finally:
         backend.close()
     assert native.faces is not None and native.totals is not None
@@ -383,7 +378,7 @@ def test_the_grids_total_is_its_columns_by_parseval(route: str) -> None:
     state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 59)
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._require_state(), edge, full=True)
+        native = backend._edge_reading(backend._native_state, edge, full=True)
     finally:
         backend.close()
     assert native.totals is not None and native.columns is not None
@@ -422,7 +417,7 @@ def test_a_nearly_cancelling_radial_read_stays_within_its_absolute_budget() -> N
     state[:, 0, :] = beam[:, None] * active[None, :]
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._require_state(), edge, full=True)
+        native = backend._edge_reading(backend._native_state, edge, full=True)
     finally:
         backend.close()
     assert native.faces is not None
@@ -484,16 +479,9 @@ def test_a_runner_reads_its_next_input_as_a_new_runner_would_after_a_stop() -> N
     assert field_after.tobytes() == field_alone.tobytes()
 
 
-def test_a_field_free_default_run_crosses_no_state(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # The principle of SEP 44: only numbers cross. Every state-sized read of the host
-    # goes through `_observed_field` on this route.
-
-    def refused(self: StepDriver[Any], state: Any) -> np.ndarray:
-        raise AssertionError("a field-free run brought the state to the host")
-
-    monkeypatch.setattr(NativeBackend, "_observed_field", refused)
+def test_a_field_free_default_run_crosses_no_state() -> None:
+    # The principle of SEP 44: only numbers cross, which native's own count of the
+    # bytes through its state's crossings sees.
     simulation = _case("cartesian")
     simulation.settings = dataclasses.replace(
         simulation.settings, fields="none", backend="native"
@@ -508,8 +496,7 @@ def test_a_field_free_default_run_crosses_no_state(
     outcome = cast("Any", output).outcome
     edge = outcome.execution["boundary_monitor"]["transverse"]
     assert edge["reads"] > 0
-    # Refusing `_observed_field` can't see a direct `field_to_host`, so native's own
-    # count says it too: nothing to the host, and the one load from it.
+    # Nothing to the host, and the one load from it.
     assert to_host == 0
     assert from_host == field.nbytes
 
@@ -547,7 +534,7 @@ def test_the_edge_holds_memory_only_once_a_monitor_binds_it(route: str) -> None:
     )
     try:
         assert backend.memory_ledger()["transverse_edge"] == 0
-        backend.set_initial(problem.initial.field0, None)
+        launched_state(backend, problem.initial.field0)
         assert backend.memory_ledger()["transverse_edge"] == 0
         monitor = simulation._boundary_monitor()
         assert monitor is not None
@@ -601,25 +588,30 @@ def _with_noise(route: str, model: str | None, *, ramp: bool) -> Simulation:
 @pytest.mark.parametrize("model", ["input", "modified", None], ids=str)
 @pytest.mark.parametrize("route", ["radial", "cartesian", "line"])
 def test_a_launch_with_noise_judges_as_the_host_does_with_no_transfer(
-    route: str, model: str | None, ramp: bool, monkeypatch: pytest.MonkeyPatch
+    route: str, model: str | None, ramp: bool
 ) -> None:
     # The clean columns are formed at the load, so judging a noisy launch needs no copy
-    # of the state to subtract the noise from. Against the same launch read on the host.
-    def launch() -> tuple[dict[str, Any], tuple[int, int]]:
+    # of the state to subtract the noise from. Against the same launch read on the
+    # host: the reference's run of it.
+
+    def launch(backend: str) -> tuple[dict[str, Any], tuple[int, int] | None]:
         simulation = _with_noise(route, model, ramp=ramp)
+        simulation.settings = dataclasses.replace(simulation.settings, backend=backend)
         field = np.asarray(simulation.translate().initial.field0)
         with simulation.runner() as runner, warnings.catch_warnings():
             warnings.simplefilter("ignore", BoundaryWarning)
             output = cast("Any", runner.run(field, progress="none"))
-            crossed = cast("Any", runner.backend)._native_state.crossed_bytes()
+            crossed = (
+                cast("Any", runner.backend)._native_state.crossed_bytes()
+                if backend == "native"
+                else None
+            )
         record = output.outcome.execution["boundary_monitor"]["transverse"]
         return cast("dict[str, Any]", record), crossed
 
-    native, (to_host, _) = launch()
-    assert to_host == 0
-    with monkeypatch.context() as patch:
-        patch.setattr(NativeBackend, "_edge_reading", StepDriver._edge_reading)
-        host, _ = launch()
+    native, crossed = launch("native")
+    assert crossed is not None and crossed[0] == 0
+    host, _ = launch("numpy_ref")
     assert native["launch_energy"] == pytest.approx(host["launch_energy"], rel=1e-11)
     assert native["noise_allowance"] == pytest.approx(
         host["noise_allowance"], rel=1e-11, abs=1e-30
@@ -672,7 +664,7 @@ def test_a_field_grid_reads_as_the_host_does() -> None:
         state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 79)
         backend, edge = _attached(simulation, state)
         try:
-            native = backend._edge_reading(backend._require_state(), edge, full=True)
+            native = backend._edge_reading(backend._native_state, edge, full=True)
             host = edge.reduction.reading(state, full=True)
         finally:
             backend.close()
@@ -709,8 +701,8 @@ def test_energy_in_one_extreme_bin_reads_as_the_host_does(where: str) -> None:
         state[nyquist, 0, active[0]] = 1.0
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._require_state(), edge, full=True)
-        held = backend.observe(field=True).require_field()
+        native = backend._edge_reading(backend._native_state, edge, full=True)
+        held = backend._native_state.field_to_host().reshape(problem.shape)
         host = edge.reduction.reading(held, full=True)
     finally:
         backend.close()
@@ -737,7 +729,7 @@ def test_a_planar_channel_above_the_first_reads_its_own_column() -> None:
     state[column, 0, active[0]] = 1.0
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._require_state(), edge, full=True)
+        native = backend._edge_reading(backend._native_state, edge, full=True)
         host = edge.reduction.reading(state, full=True)
     finally:
         backend.close()

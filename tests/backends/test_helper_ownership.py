@@ -24,6 +24,8 @@ import dataclasses
 import numpy as np
 import pytest
 
+from backends._session_probe_b1 import last_field
+from backends._session_probe_b1 import run as session_run
 from capability_routes import LENGTH, STEP, capillary_gradient
 from driver.test_specified_paths import GRID, PULSE, linear_walkoff
 from driver.test_specified_paths import LENGTH as MOVING_LENGTH
@@ -31,6 +33,7 @@ from solprop import _helpers
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.grid import EnvelopeGrid
+from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, RungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate import chebyshev
@@ -110,17 +113,16 @@ def translated(integrator):
 
 
 def propagate(backend_class, prepared):
-    """Construct the backend on a translated problem and run its two short steps."""
+    """Construct the backend on a translated problem and run its session's two steps."""
     simulation, problem, run_request = prepared
     backend = backend_class(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        backend.set_initial(problem.initial.field0, None)
-        for plane in run_request.stepper.save_planes:
-            backend.propagate_to(float(plane))
-        observed = backend.observe()
-        assert observed.field is not None
+        # The march alone, as the step driver's was: no plane statistic, whose
+        # profiles are evaluated on the host.
+        result = session_run(backend, problem, run_request.for_run(stats=StatsSpec()))
+        assert np.all(np.isfinite(last_field(result)))
     finally:
         backend.close()
 

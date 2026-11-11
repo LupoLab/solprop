@@ -26,6 +26,7 @@ import numpy as np
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
+from backends._session_probe_b1 import state_stats
 from mixture_cases import mixture_translation
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.grid import RadialGrid
@@ -93,8 +94,9 @@ def launch_statistics(backend_class, kerr, n_pol):
     grid, problem, run_request = launch_case(kerr, n_pol)
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        return backend.stats(run_request.observation.stats)
+        return state_stats(
+            backend, problem, problem.initial.field0, run_request.observation.stats
+        )
     finally:
         backend.close()
 

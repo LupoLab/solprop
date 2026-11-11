@@ -12,17 +12,17 @@ integral predicts. The rate is SEP 40's designed safety ramp, read from the
 translated problem's ``transverse`` design.
 """
 
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from backends._session_probe_b1 import last_field
+from backends._session_probe_b1 import run as session_run
 from backends.test_free_ladders import amplitude_bound
 from bounds import EPS, gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
-from solprop.backends.driver import StepDriver
-from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import SpatialAbsorber
 from solprop.driver import Simulation, SimulationSettings
@@ -33,6 +33,7 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController, RungeKutta
 from solprop.translate.routes import transverse_of
+from solprop.translate.stage import scalars
 
 
 def column_run(backend, *, ramp, schedule, rtol=1e-6):
@@ -123,11 +124,12 @@ def test_the_rate_never_reaches_the_noise_phase(backend):
         )
         problem = simulation.translate()
         run_request = simulation._run_request()
-        selected = select(backend, problem, run_request, grid=grid)
-        owner = cast("StepDriver | HostDriver", selected)
+        selected = cast("Any", select(backend, problem, run_request, grid=grid))
         try:
-            owner.set_initial(problem.initial.field0, None)
-            phases.append(owner._unitary_phase(owner._stage_scalars(0.0, 7e-4)).copy())
+            # The stage's scalars as either backend's march forms them, and the
+            # backend's own unitary phase of them.
+            bundle = scalars(problem, 0.0, 7e-4, helpers=selected.helpers)
+            phases.append(np.array(selected._unitary_phase(bundle)))
         finally:
             selected.close()
     # The rate is real: Im Phi is the same arithmetic, an exact structural identity.
@@ -173,7 +175,7 @@ def ramped_problem(steps):
 
 def test_the_backends_agree_on_a_run_carrying_the_rate(spatial_backend_class, request):
     steps = 10
-    grid, space, problem, run_request, length = ramped_problem(steps)
+    grid, space, problem, run_request, _ = ramped_problem(steps)
     operator = problem.linear.separable
     assert operator is not None and operator.kperp_rate is not None
     assert np.any(operator.kperp_rate > 0)
@@ -183,9 +185,7 @@ def test_the_backends_agree_on_a_run_carrying_the_rate(spatial_backend_class, re
     for implementation in (NumpyRefBackend, spatial_backend_class):
         backend = implementation(problem, run_request, grid=grid)
         try:
-            backend.set_initial(problem.initial.field0, None)
-            backend.propagate_to(length)
-            values.append(backend.observe().require_field().copy())
+            values.append(last_field(session_run(backend, problem)))
         finally:
             backend.close()
     reference, actual = values

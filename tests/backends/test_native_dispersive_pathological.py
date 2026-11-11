@@ -26,6 +26,7 @@ import warnings
 import numpy as np
 import pytest
 
+from backends._session_probe_b1 import native_source
 from backends.dispersive_cases import LENGTH, POLICIES, STEPS
 from backends.dispersive_route_cases import (
     ARGON_FILL,
@@ -92,6 +93,8 @@ def source_at(backend_class, problem, run_request, grid, z):
     """Return one evaluation of the lab-frame source on the launch at position `z`."""
     backend = backend_class(problem, run_request, grid=grid)
     try:
+        if backend.name == "native":
+            return native_source(backend, problem.initial.field0, z)
         backend.set_initial(problem.initial.field0, None)
         return np.array(backend._adams_lab_source(problem.initial.field0[None], z))
     finally:

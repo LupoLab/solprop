@@ -17,6 +17,7 @@ without a source, and what stays refused: the interaction formulation and the CF
 import dataclasses
 import math
 import warnings
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -24,6 +25,8 @@ from scipy.integrate import quad_vec
 from scipy.linalg import expm
 
 import flow_parity
+from backends._session_probe_b1 import adams_ledger, last_field
+from backends._session_probe_b1 import run as session_run
 from solprop.backends import available
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.multistep import (
@@ -162,7 +165,12 @@ def test_the_reference_carry_keeps_a_span_zero_sample_on_and_off_the_route():
 
 
 def run(name, integrator, rtol, backend_class=NumpyRefBackend, **overrides):
-    """Run a flow-parity case adaptively to its end; return the field and the march."""
+    """Run a flow-parity case adaptively to its end; return the field and the run.
+
+    The run's ``ledger`` is its Adams call ledger (``None`` for Runge-Kutta), and its
+    ``march`` the reference's own march (``None`` on native, whose march is the
+    session's).
+    """
     with warnings.catch_warnings():
         for category in flow_parity.QUIET:
             warnings.simplefilter("ignore", category)
@@ -182,13 +190,20 @@ def run(name, integrator, rtol, backend_class=NumpyRefBackend, **overrides):
         problem = simulation.translate()
         run_request = simulation._run_request()
     backend = backend_class(
-        problem, run_request, grid=simulation.grid, modes=simulation.modes
+        problem,
+        run_request,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
     )
     try:
-        backend.set_initial(problem.initial.field0, None)
-        for plane in run_request.stepper.save_planes:
-            backend.propagate_to(float(plane))
-        return backend.observe().require_field(), backend._adams
+        record: dict[str, object] = {}
+        field = last_field(session_run(backend, problem, record=record))
+        adams = isinstance(integrator, Multistep)
+        return field, SimpleNamespace(
+            march=backend._adams if backend.name == "numpy_ref" else None,
+            ledger=adams_ledger(backend, record) if adams else None,
+        )
     finally:
         backend.close()
 
@@ -198,7 +213,7 @@ def test_a_constant_schur_section_agrees_with_runge_kutta(name):
     # A strong pulse: the source changes the field by 8e-3 over the window.
     reference, _ = run(name, RungeKutta(), 1e-11, energy=2e-3)
     field, march = run(name, EXPONENTIAL, 1e-9, energy=2e-3)
-    assert march is not None and march.ledger.total < 20
+    assert march.ledger is not None and march.ledger.total < 20
     # Measured 2.6e-12 and 5.7e-13 at rtol 1e-9.
     error = np.linalg.norm(field - reference) / np.linalg.norm(reference)
     assert error < 1e-10
@@ -208,7 +223,7 @@ def test_without_a_source_the_coupled_flow_is_exact():
     # A negligible source (1e-20 J): the chord's matrix flow carries the state exactly.
     exact, _ = run("scalar", RungeKutta(), 1e-11, energy=1e-20)
     field, march = run("scalar", EXPONENTIAL, 1e-6, energy=1e-20)
-    assert march is not None
+    assert march.march is not None
     np.testing.assert_allclose(field, exact, rtol=0, atol=1e-12 * np.abs(exact).max())
 
 
@@ -227,7 +242,7 @@ def test_a_frozen_residual_flow_agrees_with_runge_kutta(name, bound):
     # 1.4e-8 on the taper at 1e-7: the error follows the tolerance.
     reference, _ = run(name, RungeKutta(), 1e-11, energy=2e-3)
     field, march = run(name, EXPONENTIAL, 1e-9, energy=2e-3)
-    assert march is not None and march._engine.compensated
+    assert march.march is not None and march.march._engine.compensated
     error = np.linalg.norm(field - reference) / np.linalg.norm(reference)
     assert error < bound
 
@@ -265,13 +280,11 @@ def test_a_compiled_backend_follows_the_reference_beside_a_coupled_flow(
     backend_name, name
 ):
     # Each backend exposes the reference's frozen block and residual, and its lab-frame
-    # source runs without the flow's pipeline: the native backend's resident passes
-    # take the same calls as the reference.
+    # source runs without the flow's pipeline: the native session's resident passes
+    # (SEP 16 phase 6) take the same calls as the reference.
     reference, march = run(name, EXPONENTIAL, 1e-8, energy=2e-3)
     field, compiled = run(name, EXPONENTIAL, 1e-8, COMPILED[backend_name], energy=2e-3)
-    assert march is not None and compiled is not None
-    # Kokkos steps a coupled block in its resident engine (SEP 16 phase 6).
-    assert type(compiled._engine).__name__ == "_ResidentAdams"
+    assert march.ledger is not None and compiled.ledger is not None
     assert compiled.ledger.total == march.ledger.total
     scale = np.max(np.abs(reference))
     np.testing.assert_allclose(field, reference, rtol=0, atol=1e-11 * scale)
