@@ -98,3 +98,111 @@ end
     @test_throws message SP._source_material!(source, 1.0, 1)
     @test source.nodes == ones(8, 1)
 end
+
+function precompile_process_state()
+    return (
+        environment = Dict(ENV), directory = pwd(),
+        threads = (Threads.nthreads(:default), Threads.nthreads(:interactive)),
+        fft_threads = SP.FFTW.get_num_threads(),
+        blas_threads = SP.LinearAlgebra.BLAS.get_num_threads(),
+        load_path = copy(LOAD_PATH), depot_path = copy(DEPOT_PATH),
+    )
+end
+
+@noinline function precompile_owner_references()
+    execution = SP.KernelExecution(SP.KernelAbstractions.CPU(), 1)
+    session = SP._precompile_session(execution, Val(:rk), Val(:field))
+    refs = (
+        WeakRef(session), WeakRef(session.field), WeakRef(session.source),
+        WeakRef(session.services), WeakRef(session.flow),
+    )
+    SP._precompile_drain!(session)
+    return refs
+end
+
+@testset "Precompile workload runs three bounded real session paths" begin
+    execution = SP.KernelExecution(SP.KernelAbstractions.CPU(), 1, true)
+    for (method, kind, family) in (
+            (:rk, :field, SP.RungeKuttaSession),
+            (:adams, :envelope, SP.AdamsSession),
+            (:low_storage, :envelope, SP.LowStorageSession),
+        )
+        session = SP._precompile_session(execution, Val(method), Val(kind))
+        @test session isa family
+        @test session.source.data.grid.kind == kind
+        @test session.source.data.kerr !== nothing
+        @test length(session.source.data.raman) == 1
+        @test length(session.source.data.plasma.channels) == 1
+        @test !session.state.launched
+        @test session.source.calls == 0
+        if method == :adams
+            @test SP._adams_session_free(session, 0, 0) == 1
+            session.slots[1] = 1
+            @test SP._adams_session_free(session, 1, 0) == 2
+            before_slots = copy(session.slots)
+            @test_throws MethodError SP._adams_session_free(session, true, 0)
+            @test session.slots == before_slots
+            session.slots[1] = 0
+        end
+        receipt = SP._precompile_drain!(session)
+        @test isbitstype(typeof(receipt))
+        @test receipt.accepted == 4
+        @test receipt.calls > 0
+        @test receipt.rows == 4
+        @test receipt.planes == 3 # launch plus the two requested planes
+        @test session.state.finished && session.state.closed
+        @test !session.state.pending
+        @test session.services.finished
+        @test all(isfinite, session.field)
+        @test all(iszero, session.field[.!session.norm.active, :])
+    end
+    @test_throws ArgumentError SP._precompile_material_case(execution, Val(:unknown))
+    @test_throws ArgumentError SP._precompile_session(execution, Val(:unknown), Val(:field))
+end
+
+@testset "Precompile preparations own independent sources and observation work" begin
+    execution = SP.KernelExecution(SP.KernelAbstractions.CPU(), 1)
+    for kind in (:field, :envelope)
+        first = SP._precompile_session(execution, Val(:rk), Val(kind))
+        second = SP._precompile_session(execution, Val(:rk), Val(kind))
+        @test !SP._retained_alias(first.field, second)
+        @test !SP._retained_alias(first.source.data.grid.active, second)
+        @test !SP._retained_alias(first.source.data.kerr.density.value.coefficients, second)
+        @test !SP._retained_alias(first.services.plane_values, second)
+        @test !SP._retained_alias(first.services.rows.values, second)
+        before = copy(second.field)
+        SP._precompile_drain!(first)
+        @test second.field == before
+        @test !second.state.launched && !second.services.started
+        @test second.source.calls == 0
+        SP.close_session!(second)
+    end
+end
+
+@testset "Precompile workload preserves process policy and retains no global work" begin
+    before = precompile_process_state()
+    @test SP._precompile_cpu_workload() === nothing
+    @test precompile_process_state() == before
+    @test SP._precompile_cpu_workload() === nothing
+    @test precompile_process_state() == before
+    bindings = filter(
+        name -> startswith(string(name), "_precompile_"), names(SP; all = true),
+    )
+    @test !isempty(bindings)
+    @test all(name -> getfield(SP, name) isa Function, bindings)
+    refs = precompile_owner_references()
+    GC.gc()
+    @test all(ref -> ref.value === nothing, refs)
+    @test Base.get_extension(SP, :SolpropJuliaPythonCallExt) === nothing
+    for name in (:SolpropJuliaCUDAExt, :SolpropJuliaAMDGPUExt, :SolpropJuliaMetalExt)
+        @test Base.get_extension(SP, name) === nothing
+    end
+end
+
+@testset "Precompile drain closes a session when its bounded workload refuses" begin
+    execution = SP.KernelExecution(SP.KernelAbstractions.CPU(), 1)
+    session = SP._precompile_session(execution, Val(:rk), Val(:field))
+    SP.close_session!(session)
+    @test_throws ArgumentError SP._precompile_drain!(session)
+    @test session.state.closed && !session.state.pending
+end
