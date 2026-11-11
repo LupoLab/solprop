@@ -35,8 +35,19 @@ The reviewer passes 3,895 assertions, including 2,672 additional product, weak-n
 and alias witnesses; the author passes 1,223 assertions at both thread budgets and
 Aqua/JET across all 1,897 definitions. Reconstruction, shared service attachment and
 node-memory accounting remain in progress. Public binary32 selection stays closed
-until these paths compose. The wide arithmetic agent is binding actual run/history
-geometry; no public DF32 execution is claimed.
+until these paths compose. Derived observation exponents are bounded metadata,
+separate from base amplitude scales (#721), integrated at `a8bb94ca`. Independent
+review passes 439 assertions, including extreme finite restoration and subnormals.
+
+DF32 actual-start and restored-rate binding is independently approved at `f6931a82`.
+It retains actual replay lengths, configured Adams reach, old history coordinates
+and original saved rates with conservative error provenance. Master review passes
+986 bounds-enabled Julia assertions, including 207 independent cubic-derivative,
+rate-radius and replay/history witnesses; 80 typed Python tests pass. Author
+Aqua/JET passes 16 package checks plus five concrete calls across 1,885 definitions.
+Completed starts validate storage without inventing a step (#723). Actual DF32
+flows, complete Adams factors and spatial assembly remain to be integrated; no
+public DF32 execution is claimed.
 
 Temporal split precision is independently approved through `dcc443bf`. Review found
 and corrected a tiny-collar regression (#720): binary32 must use the existing SEP33
@@ -55,13 +66,18 @@ separately from narrow state scratch and integer exponent metadata.
 
 The CPU campaign at `5fc63437` passes 23 managed CPU/inventory smoke checks and is
 collecting twelve standard short-window cases at one and 64 threads. Every case has
-completed round one; round two is underway. Four earlier successful comparisons and
+completed two rounds; round three is underway. Four earlier successful comparisons and
 their retained failures are documented in `docs/dev/benchmarks.md`. CPU-only CUDA
 artifact preparation has passed with an isolated depot; first A40 loading and offline
 execution are pending. No cloud resources have been rented; spend remains zero.
 
 CI for `984444ce` is running. Static checks, native quality, device compilation,
-distribution wheels and the no-native lane have passed. The Windows GUI lane found
+distribution wheels, Python platform and lowest-dependency tests, both slow lanes,
+documentation and the no-native lane have passed. All six coverage shards pass;
+their combined report identifies two unmeasured device-refusal statements (#725).
+A focused correction passes 32 typed tests and confirms both lines are measured,
+without changing coverage policy; the combined report awaits the next CI run.
+The Windows GUI lane found
 an immediate-resume event-log sharing violation after 424 passing tests; unrelated
 issue #724 retains the evidence. A targeted rerun must wait for the current workflow
 to finish. Earlier stale fixtures and the Windows skip declaration
@@ -114,7 +130,7 @@ Current assignments after resumption:
 |---|---|
 | Master | Shared Python/Julia bridge and service attachment; `observation_session.jl`, `spatial_session.jl` and temporal split precision tests; node inventory, module/test inclusion, CI and compute records |
 | Observation agent | Observation/statistics/monitor/power-weight files and tests; reviewed numerical corrections complete, binary32 reconstruction underway |
-| Wide arithmetic agent | New `_wide.py`, `wide_binding.jl`, focused tests and `DF32_INTEGRATION.md`; bind actual run/history geometry before execution wiring |
+| Wide arithmetic agent | New `df32_flow.jl`, focused tests and `DF32_EXECUTION.md`; narrow pretrial hooks in `source.jl`, `runge_kutta.jl`, `low_storage.jl`, `march.jl`, `low_storage_session.jl`; master retains transfer/bridge/admission |
 | Quadrature/review agent | Split and observation correction review complete; `quadrature_alarm.jl`, new `quadrature_precision.jl` tests and `QUADRATURE_PRECISION.md` for binary32 diagnostic arithmetic |
 
 The maintainer explicitly moved remaining runtime investigation off the critical path
