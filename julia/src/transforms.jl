@@ -408,24 +408,29 @@ function linear_map!(
 end
 
 """
-    synthesize!(nodal, modal, synthesis, execution; n_components, active_nodes)
+    synthesize!(nodal, modal, synthesis, execution;
+                n_components, active_nodes, first_node=1)
 
 Synthesize independent components from modes into flattened nodal columns.
 
 `synthesis[node, mode]` maps each modal component to a node. Column indices are
 `component + n_components*(mode-1)` for modal and
 `component + n_components*(node-1)` for nodal arrays. `active_nodes` defaults to all
-prepared nodes. Every inactive nodal column is zeroed. Return `nodal`.
+prepared nodes. `first_node` selects the first row in the complete owned map;
+nodal storage always starts at its first column. This permits bounded chunks without
+noncontiguous map views. Every inactive nodal column is zeroed. Return `nodal`.
 """
 function synthesize!(
         nodal, modal, synthesis::AbstractMatrix, execution::KernelExecution;
         n_components::Integer, active_nodes::Integer = size(synthesis, 1),
+        first_node::Integer = 1,
     )
     n_components > 0 || throw(ArgumentError("the component count must be positive"))
     n_modes = size(synthesis, 2)
     size(modal, 2) == n_components * n_modes && size(nodal, 1) == size(modal, 1) ||
         throw(DimensionMismatch("modal synthesis buffers do not match the map"))
-    0 <= active_nodes <= size(synthesis, 1) &&
+    1 <= first_node <= size(synthesis, 1) + 1 &&
+        0 <= active_nodes <= size(synthesis, 1) - (first_node - 1) &&
         n_components * active_nodes <= size(nodal, 2) ||
         throw(DimensionMismatch("active synthesis nodes exceed the prepared buffers"))
     Base.mightalias(nodal, modal) &&
@@ -438,7 +443,7 @@ function synthesize!(
         if node <= active_nodes
             for mode in 1:n_modes
                 total += modal[row, component + n_components * (mode - 1)] *
-                    synthesis[node, mode]
+                    synthesis[first_node + node - 1, mode]
             end
         end
         nodal[row, column] = total
@@ -447,23 +452,27 @@ function synthesize!(
 end
 
 """
-    project!(modal, nodal, projection, execution; n_components, active_nodes)
+    project!(modal, nodal, projection, execution;
+             n_components, active_nodes, first_node=1)
 
 Project flattened nodal columns into independent modal components.
 
 `projection[mode, node]` includes the translated quadrature and physical normalization.
 Flattened columns follow `synthesize!`. Only `active_nodes` are read and every modal
-output is overwritten; buffers are disjoint. Return `modal`.
+output is overwritten; buffers are disjoint. `first_node` selects the first column
+in the complete owned map, independently of the local nodal column index. Return `modal`.
 """
 function project!(
         modal, nodal, projection::AbstractMatrix, execution::KernelExecution;
         n_components::Integer, active_nodes::Integer = size(projection, 2),
+        first_node::Integer = 1,
     )
     n_components > 0 || throw(ArgumentError("the component count must be positive"))
     n_modes = size(projection, 1)
     size(modal, 2) == n_components * n_modes && size(nodal, 1) == size(modal, 1) ||
         throw(DimensionMismatch("modal projection buffers do not match the map"))
-    0 <= active_nodes <= size(projection, 2) &&
+    1 <= first_node <= size(projection, 2) + 1 &&
+        0 <= active_nodes <= size(projection, 2) - (first_node - 1) &&
         n_components * active_nodes <= size(nodal, 2) ||
         throw(DimensionMismatch("active projection nodes exceed the prepared buffers"))
     Base.mightalias(nodal, modal) &&
@@ -475,7 +484,7 @@ function project!(
         total = neutral
         for node in 1:active_nodes
             total += nodal[row, component + n_components * (node - 1)] *
-                projection[mode, node]
+                projection[mode, first_node + node - 1]
         end
         modal[row, column] = total
     end

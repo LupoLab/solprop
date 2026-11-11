@@ -6,6 +6,45 @@ public SourceProfile, SourcePrefactor, ModalSourceGrid, ModalSourceMap
 public ModalKerr, ModalRaman, ModalPlasmaChannel, ModalPlasma, ModalSourceData
 public ModalSource, SourcePlasmaError, set_temporal_source!
 
+# Device admission precedes uploads and workspace allocation. Scalar material
+# profiles remain host data; only numerical arrays enter device captures.
+function _source_execution_arithmetic(execution, arithmetic)
+    oncpu(execution) || source_type(arithmetic) === Float64 ||
+        throw(ArgumentError("device modal sources currently require binary64"))
+    return nothing
+end
+
+function _source_host_table(table::ChebyshevTable)
+    KernelAbstractions.get_backend(table.breakpoints) isa KernelAbstractions.CPU &&
+        KernelAbstractions.get_backend(table.coefficients) isa KernelAbstractions.CPU ||
+        throw(ArgumentError("scalar source profiles require host table storage"))
+    return nothing
+end
+
+function _copy_source_table(execution, table::ChebyshevTable)
+    return ChebyshevTable(
+        upload(execution, table.breakpoints), upload(execution, table.coefficients),
+        table.lower, table.upper,
+    )
+end
+
+@inline function _source_copy!(destination, source, execution)
+    oncpu(execution) ? copyto!(destination, source) :
+        copy_device!(destination, source, execution)
+    return nothing
+end
+
+function _source_zero!(array, execution)
+    if oncpu(execution)
+        fill!(array, 0)
+    else
+        each!(execution, length(array), 1) do index, unused
+            array[index] = zero(eltype(array))
+        end
+    end
+    return nothing
+end
+
 """
     SourceProfile(value::Float64; name=:profile)
     SourceProfile(table::ChebyshevTable; name=:profile)
@@ -13,7 +52,7 @@ public ModalSource, SourcePlasmaError, set_temporal_source!
 Own one independent scalar, direct-value material or taper profile.
 
 The constant or scalar binary64 Chebyshev table keeps its translated SI units and
-admitted position span. A table is copied, including its breakpoints. It is never
+admitted position span. A host table is copied, including its breakpoints. It is never
 interpreted as a cumulative operator. `name` identifies a failed stage evaluation.
 Throw `ArgumentError` for nonfinite constants or non-scalar/binary64 tables.
 """
@@ -34,6 +73,7 @@ function _copy_source_table(table::ChebyshevTable)
 end
 
 function SourceProfile(table::ChebyshevTable; name::Symbol = :profile)
+    _source_host_table(table)
     eltype(table.coefficients) === Float64 &&
         eltype(table.breakpoints) === Float64 && size(table.coefficients, 1) == 1 ||
         throw(ArgumentError("a source profile requires a scalar binary64 table"))
@@ -55,6 +95,7 @@ end
 """
     SourcePrefactor(execution, values::AbstractMatrix{ComplexF64}; arithmetic)
     SourcePrefactor(table::ChebyshevTable, shape::Tuple{Int,Int}; arithmetic)
+    SourcePrefactor(execution, table::ChebyshevTable, shape::Tuple{Int,Int}; arithmetic)
     SourcePrefactor(execution, terms::AbstractArray{ComplexF64,3}, weights; arithmetic)
 
 Own the translated modal source prefactor, including its existing crop scale.
@@ -63,6 +104,9 @@ Constant values have shape `(n_omega,n_modes)`. A complex binary64 table contain
 `prod(shape)` values in column-major order. Expansion terms have shape
 `(n_omega,n_modes,n_terms)` and their real binary64 weight table contains `n_terms`
 direct values. Neither table nor weights are cumulative. All arrays/tables are copied.
+The execution-aware table constructor copies numerical storage into its owned context;
+the two-argument table constructor retains its existing CPU copy behavior. Scalar
+material profiles use the separate host-only `SourceProfile` record.
 `arithmetic` defaults to `SourceArithmetic(Float64)`. Constants narrow once at
 preparation, with a named range fact. Varying tables/terms retain their original
 binary64 coefficients: each stage evaluates in binary64, admits the complete value
@@ -82,6 +126,7 @@ function SourcePrefactor(
         execution, values::AbstractMatrix{ComplexF64};
         arithmetic::SourceArithmetic = SourceArithmetic(Float64),
     )
+    _source_execution_arithmetic(execution, arithmetic)
     !isempty(values) && all(isfinite, values) ||
         throw(ArgumentError("constant source prefactors must be finite and nonempty"))
     owned, range = _source_prepare(execution, values, arithmetic, :source_prefactor)
@@ -89,9 +134,27 @@ function SourcePrefactor(
 end
 
 function SourcePrefactor(
+        execution::KernelExecution, table::ChebyshevTable, shape::Tuple{Int, Int};
+        arithmetic::SourceArithmetic = SourceArithmetic(Float64),
+    )
+    _source_execution_arithmetic(execution, arithmetic)
+    eltype(table.coefficients) === ComplexF64 &&
+        eltype(table.breakpoints) === Float64 && all(>(0), shape) ||
+        throw(ArgumentError("source prefactor tables require complex binary64 values"))
+    prod(shape) == size(table.coefficients, 1) ||
+        throw(DimensionMismatch("source prefactor table does not match its shape"))
+    return SourcePrefactor(
+        _copy_source_table(execution, table), nothing, shape, arithmetic, ()
+    )
+end
+
+function SourcePrefactor(
         table::ChebyshevTable, shape::Tuple{Int, Int};
         arithmetic::SourceArithmetic = SourceArithmetic(Float64),
     )
+    KernelAbstractions.get_backend(table.coefficients) isa KernelAbstractions.CPU &&
+        KernelAbstractions.get_backend(table.breakpoints) isa KernelAbstractions.CPU ||
+        throw(ArgumentError("device prefactor tables require their prepared execution"))
     eltype(table.coefficients) === ComplexF64 &&
         eltype(table.breakpoints) === Float64 && all(>(0), shape) ||
         throw(ArgumentError("source prefactor tables require complex binary64 values"))
@@ -104,6 +167,7 @@ function SourcePrefactor(
         execution, terms::AbstractArray{ComplexF64, 3}, weights::ChebyshevTable,
         ; arithmetic::SourceArithmetic = SourceArithmetic(Float64),
     )
+    _source_execution_arithmetic(execution, arithmetic)
     !isempty(terms) && all(isfinite, terms) &&
         eltype(weights.coefficients) === Float64 &&
         eltype(weights.breakpoints) === Float64 ||
@@ -111,7 +175,8 @@ function SourcePrefactor(
     size(terms, 3) == size(weights.coefficients, 1) ||
         throw(DimensionMismatch("source prefactor terms and weights disagree"))
     return SourcePrefactor(
-        copy(terms), _copy_source_table(weights), size(terms)[1:2], arithmetic, ()
+        upload(execution, terms), _copy_source_table(execution, weights),
+        size(terms)[1:2], arithmetic, (),
     )
 end
 
@@ -136,7 +201,7 @@ function _source_prefactor!(output, prefactor, position, weight_work, execution)
         elseif prefactor.data isa ChebyshevTable
             _check_table_position(prefactor.data, position)
         else
-            copyto!(output, prefactor.data)
+            _source_copy!(output, prefactor.data, execution)
             return prefactor.ranges.values
         end
         # Wide scalar evaluation is host preparation, not Float32 Clenshaw with
@@ -165,7 +230,7 @@ function _source_prefactor!(output, prefactor, position, weight_work, execution)
     elseif prefactor.data isa ChebyshevTable
         evaluate_table!(output, prefactor.data, position, execution)
     else
-        copyto!(output, prefactor.data)
+        _source_copy!(output, prefactor.data, execution)
     end
     return nothing
 end
@@ -179,7 +244,7 @@ end
 Own temporal/spectral data at the declared scalar source precision.
 
 `kind` is `:field` or `:envelope`; `n_time` is the even fine temporal count and `dt`
-its spacing in seconds. `crop_index` is the authoritative zero-based coarse-to-fine
+its spacing in seconds. `crop_index` is the owned host zero-based coarse-to-fine
 map. Coarse `omega` is in rad/s; every active bin is positive. Boolean `active` and
 dimensionless `omega_window` have the coarse extent. Fine `source_window` is in
 `[0,1]`, its supplied time derivative is in s⁻¹, and optional `temporal_rate` is a
@@ -215,6 +280,7 @@ function ModalSourceGrid(
         source_window_derivative::AbstractVector{Float64}, temporal_rate = nothing,
         carrier = nothing, arithmetic::SourceArithmetic = SourceArithmetic(Float64),
     )
+    _source_execution_arithmetic(execution, arithmetic)
     kind in (:field, :envelope) && n_time >= 4 && iseven(n_time) &&
         isfinite(dt) && dt > 0 || throw(ArgumentError("invalid modal source time grid"))
     n_frequency = kind == :field ? n_time ÷ 2 + 1 : n_time
@@ -227,7 +293,8 @@ function ModalSourceGrid(
         all(value -> isfinite(value) && 0 <= value <= 1, source_window) &&
         all(index -> !active[index] || omega[index] > 0, eachindex(omega)) ||
         throw(ArgumentError("invalid modal source frequencies, windows or active band"))
-    padding = SpectralPadding(execution, crop_index, n_frequency, 1.0, 1.0)
+    host_execution = KernelExecution(KernelAbstractions.CPU(), 1)
+    padding = SpectralPadding(host_execution, crop_index, n_frequency, 1.0, 1.0)
     if temporal_rate !== nothing
         temporal_rate isa AbstractVector{Float64} && length(temporal_rate) == n_time &&
             all(value -> isfinite(value) && value >= 0, temporal_rate) ||
@@ -279,7 +346,8 @@ name. General or changing modal bases are not represented by this record.
 Synthesis folds `2^(state_exponent-field_exponent)` and projection its reciprocal
 before the one narrowing. `arithmetic` and named `ranges` remain explicit. Original
 binary64 `host_synthesis`, `host_projection` and `host_coarse_projection` are retained
-for wide preparation of composed operators; they alias their prepared maps in binary64.
+for wide preparation of composed operators; they alias their prepared maps on binary64
+CPU, and are separate host copies when the numerical maps belong to a device.
 Throw `ArgumentError` or `DimensionMismatch` before workspace allocation for bad data.
 """
 struct ModalSourceMap{S, P, C, T, HS, HP, HC, A, R}
@@ -303,6 +371,7 @@ function ModalSourceMap(
         taper::SourceProfile = SourceProfile(1.0; name = :taper),
         arithmetic::SourceArithmetic = SourceArithmetic(Float64),
     )
+    _source_execution_arithmetic(execution, arithmetic)
     n_state_components == n_physical_components == 1 ||
         throw(ArgumentError("Julia modal source refuses vector polarisation"))
     nodes, modes = size(synthesis)
@@ -328,11 +397,11 @@ function ModalSourceMap(
             execution, coarse_projection, arithmetic, :source_embedded;
             exponent = -shift
         )
-    binary64 = source_type(arithmetic) === Float64
+    host_alias = source_type(arithmetic) === Float64 && oncpu(execution)
     return ModalSourceMap(
         forward, backward, embedded, n_state_components, n_physical_components, taper,
-        binary64 ? forward : copy(synthesis), binary64 ? backward : copy(projection),
-        binary64 || coarse_projection === nothing ? embedded : copy(coarse_projection),
+        host_alias ? forward : copy(synthesis), host_alias ? backward : copy(projection),
+        host_alias || coarse_projection === nothing ? embedded : copy(coarse_projection),
         arithmetic, (
             synthesis = forward_range, projection = backward_range,
             coarse_projection = embedded_range,
@@ -736,6 +805,8 @@ end
 @inline _source_alias(array, ::Nothing) = false
 @inline _source_alias(array, value::Float64) = false
 @inline _source_alias(array, owned::AbstractArray) = _transfer_arrays_alias(array, owned)
+@inline _source_alias(array, owned::DeviceReadback) =
+    _source_alias(array, (owned.device, owned.host))
 @inline _source_alias(array, ::Tuple{}) = false
 @inline function _source_alias(array, owned::Tuple{T, Vararg}) where {T}
     return _source_alias(array, first(owned)) || _source_alias(array, Base.tail(owned))
@@ -802,20 +873,26 @@ end
 end
 
 @inline function _source_alias(array, owned::_SourceAnalytic)
-    return _source_alias(array, (owned.modal, owned.spectrum, owned.nodes))
+    return _source_alias(array, (owned.modal, owned.spectrum, owned.nodes, owned.transform))
+end
+
+@inline function _source_alias(array, owned::TemporalFFT)
+    return _source_alias(
+        array, (_retained_storage(owned.forward), _retained_storage(owned.inverse))
+    )
 end
 
 @inline function _source_alias(array, owned::_SourceRamanWork)
     return _source_alias(
         array, (
             owned.time_kernel, owned.spectrum, owned.rates, owned.weights,
-            owned.host_spectrum,
+            owned.host_spectrum, _retained_storage(owned.forward),
         )
     )
 end
 
 @inline function _source_alias(array, owned::_SourceRamanBuffers)
-    return _source_alias(array, (owned.drive, owned.frequency))
+    return _source_alias(array, (owned.drive, owned.frequency, owned.transform))
 end
 
 @inline function _source_alias(array, owned::FieldPlasmaWorkspace)
@@ -849,7 +926,7 @@ end
 """
     ModalSource(execution, data::ModalSourceData; node_chunk)
 
-Prepare owned CPU work at the declared scalar field or envelope source precision.
+Prepare owned scalar field or envelope source work in the selected execution context.
 
 `node_chunk` is a positive maximum node count per block. Modal time/spectral arrays
 use `(n_time,n_modes)` and `(n_omega,n_modes)`; nodal arrays use `(n_time,node_chunk)`.
@@ -858,13 +935,17 @@ in state units per metre, and charges `calls` before any validation or physical 
 Both caller arrays must be disjoint from this source's retained numerical inputs and
 work, as well as from each other; direct arrays, views, foreign offset buffers and
 reinterpreted aliases refuse before any numerical write. Mutable gather indices are
-part of their array's retained storage. It never changes `state`. All FFTs use one
-thread and numerical launches finish before return. Warmed calls allocate nothing.
-Outputs require a writable affine layout; read-only gathered inputs remain valid.
+part of their array's retained storage. It never changes `state`. CPU FFTs use one
+thread; all numerical launches finish before return. Warmed CPU calls allocate nothing.
+CPU outputs require a writable affine layout; read-only gathered CPU inputs remain
+valid. Device inputs and outputs require dense owned arrays in the selected context.
 Every inactive chunk cell is overwritten.
 The caller state/output are `Complex{source_type(data.grid.arithmetic)}` in the
 declared scaled state units. Pointwise/FFT buffers use that precision; represented
 profiles and Raman kernel reconstruction retain their explicit host-wide roles.
+Device execution currently admits binary64 Kerr and in-stage temporal absorption;
+device Raman and plasma raise named refusals. Device finite checks read
+back only one failure-row index per prepared column, never evolving field data.
 
 Data records may be shared; all mutable stage values, plans and work belong to this
 instance. `ready` is true only after a successful call. When an embedded projection
@@ -877,7 +958,7 @@ Throw `ArgumentError` for unsupported execution or chunk sizes. Calls throw
 `NonfiniteSourceError`, `SourcePlasmaError`, `ArgumentError` or `DimensionMismatch`
 outside scalar kernels for invalid values, profiles or layouts.
 """
-mutable struct ModalSource{E, D, P, F, A, T, C, N, R, B, L, Q, H, V}
+mutable struct ModalSource{E, D, P, F, A, T, C, N, R, B, L, Q, H, V, W, J}
     execution::E
     data::D
     padding::P
@@ -895,10 +976,10 @@ mutable struct ModalSource{E, D, P, F, A, T, C, N, R, B, L, Q, H, V}
     raman_buffers::L
     plasma::Q
     prefactor::A
-    prefactor_weights::Vector{Float64}
+    prefactor_weights::W
     quadrature_fine::H
     quadrature_coarse::H
-    failures::Vector{Int}
+    failures::J
     calls::Int
     temporal_active::Bool
     ready::Bool
@@ -906,8 +987,8 @@ mutable struct ModalSource{E, D, P, F, A, T, C, N, R, B, L, Q, H, V}
 end
 
 function _source_caller_alias(array, source::ModalSource)
-    # The chunk views refer to map arrays already visited here. FFT plans retain
-    # executable metadata, not additional caller-addressable numerical storage.
+    # Chunk records refer to complete maps already visited here. Vendor plans may
+    # retain extra numerical scratch; inspect only their explicit storage hook.
     return _source_alias(
         array, (
             source.data, source.padding.crop, source.padding.uncrop,
@@ -916,6 +997,7 @@ function _source_caller_alias(array, source::ModalSource)
             source.analytic, source.raman, source.raman_buffers, source.plasma,
             source.prefactor, source.prefactor_weights, source.quadrature_fine,
             source.quadrature_coarse, source.failures,
+            source.transform,
         )
     )
 end
@@ -932,7 +1014,7 @@ function _source_analytic(execution::KernelExecution, data, modes::Int, capacity
     needed || return nothing
     T = source_type(grid.arithmetic)::Union{Type{Float32}, Type{Float64}}
     modal = dzeros(execution, Complex{T}, grid.n_time, modes)
-    spectrum = similar(modal)
+    spectrum = dzeros(execution, Complex{T}, size(modal)...)
     nodes = dzeros(execution, Complex{T}, grid.n_time, capacity)
     return _SourceAnalytic(modal, spectrum, nodes, TemporalFFT(execution, modal, spectrum))
 end
@@ -1019,9 +1101,39 @@ function _source_plasma(
     )
 end
 
+@inline _source_device_array(::Nothing, execution) = nothing
+@inline function _source_device_array(array::AbstractArray, execution)
+    copy_device!(array, array, execution)
+    return nothing
+end
+@inline function _source_device_array(table::ChebyshevTable, execution)
+    _source_device_array(table.breakpoints, execution)
+    _source_device_array(table.coefficients, execution)
+    return nothing
+end
+
+function _source_device_data(data, execution)
+    oncpu(execution) && return nothing
+    isempty(data.raman) ||
+        throw(ArgumentError("device modal Raman source is not yet attached"))
+    data.plasma === nothing ||
+        throw(ArgumentError("device modal plasma source is not yet attached"))
+    grid, maps, prefactor = data.grid, data.map, data.prefactor
+    for array in (
+            grid.active, grid.omega_window, grid.source_window,
+            grid.source_window_derivative, grid.temporal_rate, grid.carrier,
+            maps.synthesis, maps.projection, maps.coarse_projection,
+            prefactor.data, prefactor.weights,
+        )
+        _source_device_array(array, execution)
+    end
+    return nothing
+end
+
 function ModalSource(execution::KernelExecution, data::ModalSourceData; node_chunk::Int)
-    oncpu(execution) || throw(ArgumentError("this modal source currently requires CPU"))
+    _source_execution_arithmetic(execution, data.grid.arithmetic)
     node_chunk > 0 || throw(ArgumentError("the modal source node chunk must be positive"))
+    _source_device_data(data, execution)
     grid, maps = data.grid, data.map
     T = source_type(grid.arithmetic)
     nodes, modes = size(maps.synthesis)
@@ -1034,29 +1146,31 @@ function ModalSource(execution::KernelExecution, data::ModalSourceData; node_chu
     nodal = dzeros(execution, scalar, grid.n_time, capacity)
     chunks = map(1:capacity:nodes) do first
         last = min(first + capacity - 1, nodes)
-        rows = first:last
         return _SourceChunk(
-            first, length(rows), view(maps.synthesis, rows, :),
-            view(maps.projection, :, rows), maps.coarse_projection === nothing ? nothing :
-                view(maps.coarse_projection, :, rows),
+            first, last - first + 1, maps.synthesis, maps.projection,
+            maps.coarse_projection,
         )
     end
     padding = SpectralPadding(execution, grid.crop_index, frequency_count, one(T), one(T))
     raman, buffers = _source_raman(execution, data, layout)
     coarse = maps.coarse_projection !== nothing
-    coarse_projected = coarse ? similar(modal) : nothing
+    coarse_projected = coarse ? dzeros(execution, scalar, size(modal)...) : nothing
     coarse_source = coarse ?
         dzeros(execution, Complex{T}, data.prefactor.shape...) : nothing
-    fine_source = coarse ? similar(coarse_source) : nothing
+    fine_source = coarse ? dzeros(execution, Complex{T}, data.prefactor.shape...) : nothing
     n_weights = data.prefactor.weights === nothing ? 0 :
         size(data.prefactor.weights.coefficients, 1)
     return ModalSource(
         execution, data, padding, TemporalFFT(execution, modal, spectrum), spectrum,
-        modal, nodal, similar(nodal), similar(modal), similar(modal), coarse_projected,
+        modal, nodal, dzeros(execution, scalar, size(nodal)...),
+        dzeros(execution, scalar, size(modal)...),
+        dzeros(execution, scalar, size(modal)...), coarse_projected,
         chunks, _source_analytic(execution, data, modes, capacity), raman, buffers,
         _source_plasma(execution, data, layout, modal),
-        dzeros(execution, Complex{T}, data.prefactor.shape...), zeros(Float64, n_weights),
-        fine_source, coarse_source, zeros(Int, max(capacity, modes)), 0,
+        dzeros(execution, Complex{T}, data.prefactor.shape...),
+        dzeros(execution, Float64, n_weights), fine_source, coarse_source,
+        oncpu(execution) ? zeros(Int, max(capacity, modes)) :
+            DeviceReadback(execution, Int, max(capacity, modes)), 0,
         grid.temporal_rate !== nothing, false,
         T === Float32 ? SourceRange(:source_prefactor, 0, 0, false, 0.0, 0.0) : nothing,
     )
@@ -1167,8 +1281,13 @@ function _source_scale!(array, scale, execution)
     return nothing
 end
 
-function _source_project_add!(output, scratch, nodal, projection, taper, count, execution)
-    project!(scratch, nodal, projection, execution; n_components = 1, active_nodes = count)
+function _source_project_add!(
+        output, scratch, nodal, projection, taper, count, first_node, execution,
+    )
+    project!(
+        scratch, nodal, projection, execution;
+        n_components = 1, active_nodes = count, first_node,
+    )
     each!(execution, size(output)...) do row, column
         output[row, column] += scratch[row, column] / taper
     end
@@ -1219,7 +1338,7 @@ end
 function _source_material!(source, kerr_density, count)
     data, execution = source.data, source.execution
     layout = ResponseLayout(size(source.nodes, 1), 1, size(source.nodes, 2))
-    fill!(source.polarisation, 0)
+    _source_zero!(source.polarisation, execution)
     if data.kerr !== nothing
         coefficients, density = _source_kerr_parameters(data.kerr, kerr_density)
         samples = if data.grid.kind == :field && _source_analytic_cubic(coefficients)
@@ -1286,12 +1405,12 @@ function _source_plasma_chunk!(source, chunk, taper)
         )
         _source_project_add!(
             projected, source.projection_work, nodal, chunk.projection,
-            taper, chunk.count, execution,
+            taper, chunk.count, chunk.first, execution,
         )
         if coarse !== nothing
             _source_project_add!(
                 coarse, source.projection_work, nodal, chunk.coarse_projection,
-                taper, chunk.count, execution,
+                taper, chunk.count, chunk.first, execution,
             )
         end
     end
@@ -1299,14 +1418,15 @@ function _source_plasma_chunk!(source, chunk, taper)
 end
 
 function _clear_source_projection!(source)
-    fill!(source.projected, 0)
-    source.coarse_projected === nothing || fill!(source.coarse_projected, 0)
+    execution = source.execution
+    _source_zero!(source.projected, execution)
+    source.coarse_projected === nothing || _source_zero!(source.coarse_projected, execution)
     if source.plasma !== nothing
         work = source.plasma
-        fill!(work.projected_first, 0)
-        fill!(work.projected_second, 0)
-        work.coarse_first === nothing || fill!(work.coarse_first, 0)
-        work.coarse_second === nothing || fill!(work.coarse_second, 0)
+        _source_zero!(work.projected_first, execution)
+        _source_zero!(work.projected_second, execution)
+        work.coarse_first === nothing || _source_zero!(work.coarse_first, execution)
+        work.coarse_second === nothing || _source_zero!(work.coarse_second, execution)
     end
     return nothing
 end
@@ -1317,14 +1437,14 @@ function _source_over_nodes!(source, taper, kerr_density)
     for chunk in source.chunks
         synthesize!(
             source.nodes, source.modal_time, chunk.synthesis, execution;
-            n_components = 1, active_nodes = chunk.count,
+            n_components = 1, active_nodes = chunk.count, first_node = chunk.first,
         )
         _source_scale!(source.nodes, taper, execution)
         _source_finite!(source.failures, source.nodes, execution, :nodal_field)
         if source.analytic !== nothing
             synthesize!(
                 source.analytic.nodes, source.analytic.modal, chunk.synthesis, execution;
-                n_components = 1, active_nodes = chunk.count,
+                n_components = 1, active_nodes = chunk.count, first_node = chunk.first,
             )
             _source_scale!(source.analytic.nodes, taper, execution)
             _source_finite!(
@@ -1334,12 +1454,12 @@ function _source_over_nodes!(source, taper, kerr_density)
         _source_material!(source, kerr_density, chunk.count)
         _source_project_add!(
             source.projected, source.projection_work, source.polarisation,
-            chunk.projection, taper, chunk.count, execution,
+            chunk.projection, taper, chunk.count, chunk.first, execution,
         )
         if source.coarse_projected !== nothing
             _source_project_add!(
                 source.coarse_projected, source.projection_work, source.polarisation,
-                chunk.coarse_projection, taper, chunk.count, execution,
+                chunk.coarse_projection, taper, chunk.count, chunk.first, execution,
             )
         end
         _source_plasma_chunk!(source, chunk, taper)
@@ -1414,6 +1534,10 @@ function (source::ModalSource)(output, state, position::Float64)
     (_source_caller_alias(output, source) || _source_caller_alias(state, source)) &&
         throw(ArgumentError("caller arrays must be disjoint from source inputs and work"))
     execution, data = source.execution, source.data
+    if !oncpu(execution)
+        copy_device!(output, output, execution)
+        copy_device!(state, state, execution)
+    end
     _source_finite!(source.failures, state, execution, :input)
     material = data.kerr !== nothing || !isempty(data.raman) || data.plasma !== nothing
     if material || source.temporal_active
@@ -1435,7 +1559,7 @@ function (source::ModalSource)(output, state, position::Float64)
             plasma === nothing ? nothing : plasma.projected_second,
         )
         if source.quadrature_coarse !== nothing
-            copyto!(source.quadrature_fine, output)
+            _source_copy!(source.quadrature_fine, output, execution)
             _source_assemble!(
                 source.quadrature_coarse, source, source.coarse_projected,
                 plasma === nothing ? nothing : plasma.coarse_first,
@@ -1443,9 +1567,11 @@ function (source::ModalSource)(output, state, position::Float64)
             )
         end
     else
-        fill!(output, 0)
-        source.quadrature_fine === nothing || fill!(source.quadrature_fine, 0)
-        source.quadrature_coarse === nothing || fill!(source.quadrature_coarse, 0)
+        _source_zero!(output, execution)
+        source.quadrature_fine === nothing ||
+            _source_zero!(source.quadrature_fine, execution)
+        source.quadrature_coarse === nothing ||
+            _source_zero!(source.quadrature_coarse, execution)
     end
     source.temporal_active && _source_temporal!(output, source)
     _source_finite!(source.failures, output, execution, :source)
