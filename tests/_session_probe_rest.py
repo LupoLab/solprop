@@ -79,8 +79,12 @@ def run_session(  # noqa: PLR0913 - the session's start and its probes
     recipe: ExportRecipe | None = IDENTITY,
     between: Callable[[RunSession, EventBatch], None] | None = None,
     owns: bool = True,
+    raises: bool = True,
 ) -> Run:
     """Drive `backend`'s session from `start` to its end; return what it observed.
+
+    A run that fails raises its terminal error, as the step driver's march did, unless
+    `raises` is false.
 
     Parameters
     ----------
@@ -99,6 +103,8 @@ def run_session(  # noqa: PLR0913 - the session's start and its probes
         Called with the session and each batch before it is acknowledged.
     owns : bool, optional
         Whether the session closes the backend when it closes.
+    raises : bool, optional
+        Raise a failed run's terminal error; return the failed run when false.
 
     Returns
     -------
@@ -113,9 +119,13 @@ def run_session(  # noqa: PLR0913 - the session's start and its probes
         owns=owns,
     )
     try:
-        return drive(Started(session), export=recipe, between=between)
+        run = drive(Started(session), export=recipe, between=between)
     finally:
         session.close()
+    error = run.terminal.error
+    if raises and error is not None:
+        raise error
+    return run
 
 
 def final_field(
@@ -145,11 +155,8 @@ def final_field(
     numpy.ndarray
         The last plane's state, ``(n_modes, n_pol, n_omega)``, in the FFT convention.
     """
-    run = run_session(backend, problem, bare(request), start)
     # A failed run raises its error, as the step driver's march did.
-    error = run.terminal.error
-    if error is not None:
-        raise error
+    run = run_session(backend, problem, bare(request), start)
     last = run.observations[-1]
     assert isinstance(last, ObservationReady)
     # The run's end; a replay lands on its schedule's last edge, the steps' sum, which
@@ -257,7 +264,9 @@ def run_error(
         The failure.
     """
     try:
-        run = run_session(backend, problem, request, start, recipe=None, owns=owns)
+        run = run_session(
+            backend, problem, request, start, recipe=None, owns=owns, raises=False
+        )
     except Exception as error:
         return error
     return run.terminal.error

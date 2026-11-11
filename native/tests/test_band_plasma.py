@@ -553,9 +553,9 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
     existing seven-stage, two-step plasma budget before either backend runs.
 
     Both backends' sessions observe each of the two steps' planes. The native state
-    then holds the second step's score; a trial it never accepts, made on the state
-    itself, leaves the stored score and the accepted field; and a second session's
-    load resets the score and repeats the first step.
+    then holds the second step's score and the two steps' peak; a trial it never
+    accepts, made on the state itself, leaves the stored score and the accepted
+    field; and a second session's load resets the score and repeats the first step.
     """
     grid, problem, run_request = modal(kind)
     dz = float(run_request.stepper.save_planes[-1]) / STEPS
@@ -599,7 +599,11 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
         np.testing.assert_allclose(
             score, want["stats"]["quadrature_error"], rtol=0.0, atol=score_bound
         )
-        state.quadrature_peak()  # drained: no step is accepted below
+        # The largest accepted score since the load, which no session reads: the two
+        # steps' own, as their planes report them. Reading it drains it, and no step
+        # is accepted below.
+        steps = [plane["stats"]["quadrature_error"] for plane in planes[1:]]
+        assert state.quadrature_peak() == max(steps)
         assert math.isnan(state.quadrature_peak())
 
         # Leave an unaccepted trial in scratch: the stored score and the accepted
