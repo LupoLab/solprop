@@ -4,12 +4,13 @@
 
 """Lower resolved run policy without importing an execution backend."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from jaxtyping import Bool, Float
 
 from solprop.backends.julia._descriptors import owned
+from solprop.backends.julia._precision import ArithmeticTransfer, lower_arithmetic
 from solprop.exceptions import BackendError
 from solprop.stepper.controller import START_GROWTH, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -63,6 +64,9 @@ class RunTransfer:
         Retain exact-interval low-storage flow tables. Like the native owner, other
         march families recompute. Automatic low-storage selection tabulates only a
         constant operator; an explicit low-storage request can tabulate varying data.
+    arithmetic : ArithmeticTransfer
+        Scientific precision and original-launch scales, shared with source lowering.
+        Portable history rows retain this state precision without physical scaling.
     """
 
     control: ErrorControlSpec
@@ -87,6 +91,7 @@ class RunTransfer:
     history_key: str | None = None
     dense_weights: Float[np.ndarray, " n_stages"] | None = None
     tabulate_flow: bool = False
+    arithmetic: ArithmeticTransfer = field(default_factory=ArithmeticTransfer)
 
 
 def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
@@ -171,6 +176,7 @@ def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
                 and problem.flags.constant_linop
             )
         ),
+        lower_arithmetic(problem),
     )
 
 

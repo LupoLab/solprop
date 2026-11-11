@@ -6,6 +6,7 @@
 
 import math
 from dataclasses import dataclass
+from weakref import WeakKeyDictionary
 
 from solprop.translate.precision import PrecisionName, launch_peak, state_scale
 from solprop.translate.problem import PropagationProblem
@@ -34,6 +35,11 @@ class ArithmeticTransfer:
     field_exponent: int = 0
 
 
+_ARITHMETIC: WeakKeyDictionary[PropagationProblem, ArithmeticTransfer] = (
+    WeakKeyDictionary()
+)
+
+
 def lower_arithmetic(problem: PropagationProblem) -> ArithmeticTransfer:
     """Derive physical scaling from the immutable launch using the shared SEP 33 rule.
 
@@ -51,6 +57,10 @@ def lower_arithmetic(problem: PropagationProblem) -> ArithmeticTransfer:
     """
     if not problem.precision.single:
         return ArithmeticTransfer()
+    if problem in _ARITHMETIC:
+        return _ARITHMETIC[problem]
     scale = state_scale(launch_peak(problem.initial.field0, problem.grid_kind))
     exponent = math.frexp(scale)[1] - 1
-    return ArithmeticTransfer("single", exponent, exponent)
+    result = ArithmeticTransfer("single", exponent, exponent)
+    _ARITHMETIC[problem] = result
+    return result

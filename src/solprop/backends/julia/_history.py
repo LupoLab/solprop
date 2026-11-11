@@ -16,6 +16,7 @@ from solprop.backends.julia._ownership import JuliaHandle
 from solprop.backends.julia._runtime import JuliaRuntime
 from solprop.exceptions import BackendError
 from solprop.output.schema import MarchSnapshot
+from solprop.translate.precision import PrecisionName
 
 __all__ = [
     "CALL_COUNTERS",
@@ -208,7 +209,8 @@ class HistoryBuffers:
     slots : numpy.ndarray
         Zero-based int64 store rows, ``(n_entries,)``.
     store, states, rates : numpy.ndarray or None
-        Full complex128 stores, ``(n_slots, 1, n_modes, n_pol, n_omega)``.
+        Full stores, ``(n_slots, 1, n_modes, n_pol, n_omega)``. Source and sampled
+        states retain complex64 or complex128 state precision; rates are complex128.
         Sampled states and rates are absent for plain history. The bridge roots
         these owners while Julia borrows their pointers; sessions retain no buffer.
     """
@@ -232,10 +234,13 @@ class HistoryIdentity:
         Original method representation, retained as provenance only.
     key : str or None
         Shared method history key, independent of backend and execution settings.
+    precision : {'double', 'single'}
+        Scientific state precision, fixing portable source/sample-state row dtypes.
     """
 
     method: str
     key: str | None
+    precision: PrecisionName = "double"
 
 
 def _info(
@@ -339,13 +344,14 @@ def export_history(
     if info is None:
         return None
     stored = (info.n_slots, 1, *shape)
+    state_type = np.complex64 if identity.precision == "single" else np.complex128
     buffers = HistoryBuffers(
         np.empty(shape, dtype=np.complex128),
         np.empty(info.n_entries, dtype=np.float64),
         np.empty(info.n_entries, dtype=np.uint8),
         np.empty(info.n_entries, dtype=np.int64),
-        np.empty(stored, dtype=np.complex128),
-        np.empty(stored, dtype=np.complex128) if info.compensated else None,
+        np.empty(stored, dtype=state_type),
+        np.empty(stored, dtype=state_type) if info.compensated else None,
         np.empty(stored, dtype=np.complex128) if info.compensated else None,
     )
     # Each allocation is independent; offset foreign views cannot hide overlapping
@@ -411,11 +417,16 @@ def _history_refusal(
         ("states" in snapshot.rows) != ("rates" in snapshot.rows)
     ):
         return "the snapshot needs a source store and paired sampled states/rates"
-    return _storage_refusal(snapshot, transfer.adams.order + 2, shape)
+    return _storage_refusal(
+        snapshot, transfer.adams.order + 2, shape, transfer.arithmetic.name
+    )
 
 
 def _storage_refusal(
-    snapshot: MarchSnapshot, n_slots: int, shape: tuple[int, int, int]
+    snapshot: MarchSnapshot,
+    n_slots: int,
+    shape: tuple[int, int, int],
+    precision: PrecisionName,
 ) -> str | None:
     """Check exact host representation before any narrowing or pointer wrapping.
 
@@ -427,6 +438,8 @@ def _storage_refusal(
         Full engine store capacity.
     shape : tuple of int
         Required host state shape.
+    precision : {'double', 'single'}
+        Required source and sampled-state storage precision; rates stay binary64.
 
     Returns
     -------
@@ -440,13 +453,12 @@ def _storage_refusal(
     ):
         return "the snapshot state needs matching binary64 complex storage"
     stored = (n_slots, 1, *shape)
+    state_type = np.complex64 if precision == "single" else np.complex128
     for name, row in snapshot.rows.items():
-        if (
-            not isinstance(row, np.ndarray)
-            or row.shape != stored
-            or row.dtype != np.complex128
-        ):
-            return f"the snapshot {name!r} rows do not fit binary64 history {stored}"
+        dtype = np.complex128 if name == "rates" else state_type
+        if not isinstance(row, np.ndarray) or row.shape != stored or row.dtype != dtype:
+            bits = "binary32" if dtype == np.complex64 else "binary64"
+            return f"the snapshot {name!r} rows do not fit {bits} history {stored}"
     if any(kind not in ("accepted", "predicted") for kind in snapshot.identities):
         return "the snapshot sample kind is neither accepted nor predicted"
     if snapshot.positions.dtype != np.float64 or snapshot.slots.dtype != np.int64:
@@ -483,8 +495,7 @@ def _lower_history(
     if reason := _history_refusal(snapshot, transfer, shape):
         return reason
     rows = {
-        name: np.array(row, dtype=np.complex128, order="C", copy=True)
-        for name, row in snapshot.rows.items()
+        name: np.array(row, order="C", copy=True) for name, row in snapshot.rows.items()
     }
     return HistoryBuffers(
         np.array(snapshot.state, dtype=np.complex128, order="C", copy=True),

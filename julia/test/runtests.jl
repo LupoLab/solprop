@@ -63,6 +63,7 @@ if group == "Core"
     include("runge_kutta_observation.jl")
     include("session_precision.jl")
     include("trial_probe_precision.jl")
+    include("field_export_precision.jl")
     include("group_boundaries.jl")
     include("march_services.jl")
     include("adams_session.jl")

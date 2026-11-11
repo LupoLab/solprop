@@ -263,11 +263,13 @@ function trial_probe!(
 end
 
 """
-    copy_trial_probe_field!(output, probe)
+    copy_trial_probe_field!(output, probe; physical=false)
 
 Finish and copy the last unread embedded trial into caller-owned internal field storage.
 
-`output` is a writable complex matrix matching the stored precision. Validate shape, layout
+`output` is a writable complex matrix matching the stored precision. With `physical=true`,
+it instead uses `ComplexF64` and receives the widened, physically scaled candidate;
+this is the Python timing-probe boundary. Validate shape, layout
 and retained-storage/foreign-span alias freedom before any numerical write. Apply the
 active mask, optional temporal split and final mask once, then copy without power or
 optics conversion. Success consumes the unread trial; the loaded state stays unchanged.
@@ -277,10 +279,13 @@ Return `nothing`. Throw `ArgumentError` for a closed/failed probe, no unread tri
 low-storage family, unsupported destination or alias; incompatible shapes raise
 `DimensionMismatch`. The host owner allocates and keeps its own canonical copy.
 """
-function copy_trial_probe_field!(output, probe::TrialProbe{<:EmbeddedTableau})
+function copy_trial_probe_field!(
+        output, probe::TrialProbe{<:EmbeddedTableau}; physical::Bool = false,
+    )
     _trial_probe_open(probe)
     probe.state.ready || throw(ArgumentError("take a trial before reading its field"))
-    output isa AbstractMatrix && eltype(output) === eltype(probe.field) ||
+    storage = physical ? ComplexF64 : eltype(probe.field)
+    output isa AbstractMatrix && eltype(output) === storage ||
         throw(ArgumentError("timing-probe output must match its prepared state precision"))
     size(output) == size(probe.field) ||
         throw(DimensionMismatch("timing-probe output shape differs from its field"))
@@ -297,7 +302,18 @@ function copy_trial_probe_field!(output, probe::TrialProbe{<:EmbeddedTableau})
         end
         _source_finite!(probe.flow.failures, candidate, probe.execution, :probe_candidate)
         _trial_probe_mask!(candidate, probe.norm.active, probe.execution)
-        copyto!(output, candidate)
+        if physical
+            arithmetic = probe.arithmetic
+            all(value -> isfinite(_physical_state_value(value, arithmetic)), candidate) ||
+                throw(ArgumentError("physical probe export exceeds binary64 range"))
+            each!(probe.execution, size(candidate)...) do row, column
+                output[row, column] = _physical_state_value(
+                    candidate[row, column], arithmetic,
+                )
+            end
+        else
+            copyto!(output, candidate)
+        end
         probe.state.ready = false
     catch
         probe.state.ready, probe.state.failed = false, true

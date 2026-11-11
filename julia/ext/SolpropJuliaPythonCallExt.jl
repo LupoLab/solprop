@@ -202,7 +202,8 @@ function _modal_data(execution, transfer)
         grid, map, _prefactor(execution, transfer.prefactor, shape, grid.arithmetic);
         kerr = _kerr(execution, transfer.kerr, grid.arithmetic),
         raman = Tuple(
-            _raman(execution, component, dt, grid.arithmetic) for component in transfer.raman
+            _raman(execution, component, dt, grid.arithmetic)
+                for component in transfer.raman
         ),
         plasma = _plasma(execution, transfer.plasma, dt, grid.arithmetic),
     )
@@ -315,6 +316,7 @@ function start_runge_kutta(
         exports = SolpropJulia._FieldExport(execution, preparation.power_weight; noise),
         dense_weights = pyis(transfer.dense_weights, nothing) ? nothing :
             copy_preparation(transfer.dense_weights),
+        arithmetic = SolpropJulia._prepared_arithmetic(preparation.data),
     )
 end
 
@@ -402,6 +404,7 @@ function start_low_storage(
     return SolpropJulia.LowStorageSession(
         execution, state, z, SolpropJulia.RK4IPTableau(), norm, schedule, source, flow;
         stop, plane_index = plane, plane_pending, services,
+        arithmetic = SolpropJulia._prepared_arithmetic(preparation.data),
         exports = SolpropJulia._FieldExport(execution, preparation.power_weight; noise),
     )
 end
@@ -499,19 +502,19 @@ function _history_buffer(::Type{T}, ::Val{N}, value::Py) where {T, N}
     return borrowed
 end
 
-function _history_optional(value::Py)
+function _history_optional(value::Py, ::Type{T}) where {T}
     return pyis(value, pybuiltins.None) ? nothing :
-        _history_buffer(ComplexF64, Val(5), value)
+        _history_buffer(T, Val(5), value)
 end
 
-function _history_owners(buffers::Py)
+function _history_owners(buffers::Py, ::Type{T}) where {T}
     owners = (
         _history_buffer(ComplexF64, Val(3), buffers.state),
         _history_buffer(Float64, Val(1), buffers.positions),
         _history_buffer(UInt8, Val(1), buffers.identities),
         _history_buffer(Int64, Val(1), buffers.slots),
-        _history_buffer(ComplexF64, Val(5), buffers.store),
-        _history_optional(buffers.states), _history_optional(buffers.rates),
+        _history_buffer(T, Val(5), buffers.store),
+        _history_optional(buffers.states, T), _history_optional(buffers.rates, ComplexF64),
     )
     # Nonowning Julia arrays do not carry a foreign view's common Python parent.
     # Compare byte ranges before wrapping, rather than relying on mightalias there.
@@ -543,11 +546,11 @@ function _history_view(value::PyArray{ComplexF64, 3})
         (frequencies, components * modes); own = false,
     )
 end
-function _history_view(value::PyArray{ComplexF64, 5})
+function _history_view(value::PyArray{Complex{T}, 5}) where {T}
     slots, batch, modes, components, frequencies = size(value)
     batch == 1 || throw(ArgumentError("portable history rows require one trajectory"))
     return unsafe_wrap(
-        Array, Base.unsafe_convert(Ptr{ComplexF64}, value),
+        Array, Base.unsafe_convert(Ptr{Complex{T}}, value),
         (frequencies, components * modes, slots); own = false,
     )
 end
@@ -555,7 +558,7 @@ end
 function export_adams_history!(
         buffers::Py, session::SolpropJulia.AdamsSession, generation::Int, z::Float64,
     )
-    owners = _history_owners(buffers)
+    owners = _history_owners(buffers, eltype(session.field))
     GC.@preserve buffers owners begin
         borrowed = SolpropJulia.AdamsHistoryBuffers(map(_history_view, owners)...)
         export_adams_history!(borrowed, session, generation, z)
@@ -571,7 +574,7 @@ function restore_adams_history!(
         pyconvert(Int, snapshot.order), pyconvert(Int, snapshot.rejections),
         pyconvert(Bool, snapshot.last_rejected), pyconvert(Bool, snapshot.collar_was_quiet),
     )
-    owners = _history_owners(buffers)
+    owners = _history_owners(buffers, eltype(session.field))
     GC.@preserve buffers owners begin
         borrowed = SolpropJulia.AdamsHistoryBuffers(map(_history_view, owners)...)
         return restore_adams_history!(session, metadata, borrowed)

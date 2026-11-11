@@ -7,6 +7,14 @@ The completed implementation is left ready for maintainer review, not auto-merge
 
 ## Current status
 
+Paused at the maintainer's request on 11 November 2026; resume only on their return.
+The latest local checkpoint contains unfinished binary32 physical-export and portable
+history attachment. It passes 80 pure Python tests, 2,535 affected Julia assertions
+and scoped types with no errors or warnings. It still needs binary32 Adams session
+composition, managed history/export tests and independent review. Public binary32
+selection remains closed. Existing remote CPU qualification and CI may finish while
+the development session is paused; all jobs retain their existing time limits.
+
 The binary64 CPU source/session/services path is integrated. Device-selection and
 execution-option transport are reviewed; actual device execution remains refused.
 Reviewed completion fixes cover low-storage flow caching, default plasma/species
@@ -26,8 +34,9 @@ The author gate passes 2,552 affected assertions and Aqua/JET. Observation
 numerical leaf `077211b5` is under independent review; reconstruction is the next
 assigned slice. Master launch-scale records and source/launch bridge attachment pass
 51 Python checks, 235 bounds-enabled Julia assertions, 25 typed managed CPU/axis
-cases and scoped types with no errors or warnings. Independent review of that
-attachment remains required; it does not enable public single precision.
+cases and scoped types with no errors or warnings. Independent review approves that
+attachment with 2,545 Julia assertions (2,310 additional MPFR/range witnesses) and
+seven typed Python tests; it does not claim a second managed bridge run.
 Public single precision remains closed until source, observations, session export,
 portable history and all admitted routes compose correctly.
 
@@ -39,6 +48,14 @@ The current CI run is in progress. Its one documentation formatting failure is f
 locally; earlier fixture/supervisor corrections and the bounded two-hour Julia job
 allowance are in the pushed revision. No full qualification is claimed from targeted
 checks. No cloud resources have been rented; campaign spend remains zero.
+
+At the pause, observation leaf `077211b5` remains unapproved: #715 tracks foreign
+monitor-scratch aliases, #716 lost dominant products under separate normalization,
+and #717 physical identity classification. The observation agent owns corrections;
+none is integrated as qualified. Adams session precision is checkpointed separately
+at `ad893886`: 6,177 affected assertions and package Aqua/JET pass, with a private
+concrete-analysis harness correction, one-thread repeat and independent review pending.
+On resume, inspect those handoffs and the current CI/CPU campaign before further work.
 
 | Phase | Status | Evidence or prerequisite |
 |---|---|---|

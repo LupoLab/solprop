@@ -759,7 +759,9 @@ end
 
 Write a pending field into detached `(n_omega,n_columns)` binary64 destination storage.
 
-For `power=true`, first multiply by the square root of the positive dimensionless
+First widen the stored state and restore its physical power-of-two scale. Binary64
+uses unit scale and retains its original operations. For `power=true`, multiply by
+the square root of the positive dimensionless
 weight. For `optics=true`, then conjugate and multiply by `(-1)^(omega_index-1)`.
 This is the shared destination-export recipe in its specified operation order.
 The complex products retain their explicit zero terms to preserve signed zeros;
@@ -778,9 +780,15 @@ function export_session!(
     _transfer_writable_destination(output)
     (_retained_alias(output, session) || _transfer_arrays_alias(output, power_weight)) &&
         throw(ArgumentError("an export must not alias session storage"))
+    arithmetic = eltype(field) === ComplexF32 ? session.arithmetic :
+        SourceArithmetic(Float64)
+    if eltype(field) === ComplexF32
+        all(value -> isfinite(_physical_state_value(value, arithmetic)), field) ||
+            throw(ArgumentError("physical field export exceeds binary64 range"))
+    end
     scale = power && !all(isone, power_weight)
     each!(session.execution, size(field)...) do row, column
-        value = field[row, column]
+        value = _physical_state_value(field[row, column], arithmetic)
         re, im = real(value), imag(value)
         if scale
             root = sqrt(power_weight[row, column])

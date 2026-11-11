@@ -37,6 +37,7 @@ function SolpropJulia.start_trial_probe(
         execution, state, z, pyconvert(Float64, transfer.control.dz_init),
         tableau, norm, schedule, source, flow;
         split, noise = _launch_noise(problem, noise), resume,
+        arithmetic = SolpropJulia._prepared_arithmetic(problem.data),
     )
 end
 
@@ -56,7 +57,7 @@ function SolpropJulia.copy_trial_probe_field!(
         columns = unsafe_wrap(
             Array, address, (frequencies, components * modes); own = false,
         )
-        SolpropJulia.copy_trial_probe_field!(columns, probe)
+        SolpropJulia.copy_trial_probe_field!(columns, probe; physical = true)
     end
     return nothing
 end

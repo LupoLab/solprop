@@ -38,8 +38,10 @@ end
 
 Borrow detached CPU arrays for one portable Adams import or export call.
 
-The raw internal `state` has shape `(n_omega,n_columns)`, and each full numerical
-store has shape `(n_omega,n_columns,max_order+2)`, all `ComplexF64`. Column
+The raw internal `state` has shape `(n_omega,n_columns)` and `ComplexF64` storage,
+widened losslessly for a binary32 session without restoring physical scale. Each
+full numerical store has shape `(n_omega,n_columns,max_order+2)`. Source and sampled
+state stores use session precision; sampled rates always use `ComplexF64`. Column
 `polarisation+n_pol*(mode-1)` matches the canonical Python C-order snapshot rows
 `(n_slots,1,n_modes,n_pol,n_omega)` without numerical conversion. Inactive store rows
 are copied too. Compensated history requires both `states` and `rates`; plain history
@@ -90,11 +92,12 @@ function _adams_transfer_layout(buffers, session, count)
         return "the snapshot identities need one UInt8 sample kind per retained entry"
     _adams_transfer_shape(buffers.slots, Int64, (count,)) ||
         return "the snapshot slots need one Int64 row index per retained entry"
-    _adams_transfer_shape(buffers.store, ComplexF64, stored) ||
-        return "the snapshot source store does not fit the full binary64 history"
+    storage = eltype(session.history.source)
+    _adams_transfer_shape(buffers.store, storage, stored) ||
+        return "the snapshot source store differs from the session precision or shape"
     if session.history.compensated
-        _adams_transfer_shape(buffers.states, ComplexF64, stored) ||
-            return "the snapshot sampled states do not fit compensated history"
+        _adams_transfer_shape(buffers.states, storage, stored) ||
+            return "the snapshot sampled states differ from the session precision or shape"
         _adams_transfer_shape(buffers.rates, ComplexF64, stored) ||
             return "the snapshot sampled rates do not fit compensated history"
     elseif buffers.states !== nothing || buffers.rates !== nothing
@@ -163,7 +166,9 @@ function adams_history_info(
     1 <= count <= session.policy.order + 1 ||
         throw(ArgumentError("the retained Adams history count is invalid"))
     history = session.history
-    bytes = sizeof(session.field) + sizeof(history.source)
+    # The portable accepted state always widens to binary64. Source/sample-state
+    # rows retain their numerical precision, exactly as the shared NumPy schema.
+    bytes = sizeof(ComplexF64) * length(session.field) + sizeof(history.source)
     if history.compensated
         bytes += sizeof(history.states) + sizeof(history.rates)
     end
@@ -289,6 +294,10 @@ function _adams_transfer_refusal(session, metadata, buffers)
         return "the snapshot newest sample is not at its accepted position"
     _adams_transfer_finite(buffers) ||
         return "the snapshot raw state or full numerical store is nonfinite"
+    if eltype(session.field) === ComplexF32
+        all(value -> isequal(ComplexF64(ComplexF32(value)), value), buffers.state) ||
+            return "the snapshot raw state does not widen losslessly from binary32"
+    end
     return nothing
 end
 
@@ -300,12 +309,14 @@ Install a portable snapshot into a fresh unadvanced Adams session without evalua
 Return `nothing` on success, or a compatibility reason string before any write. A
 fresh session has no numerical work, service start, published event, outstanding
 snapshot request or retained history; `plane_pending=false` at construction is valid.
-Check exact binary64 shapes/types, finite raw state and every full store row, sample
+Check matching shapes/types, finite raw state and every full store row, sample
 kind/slot metadata, oldest-first coordinates, capacity and shared newest-position
 proximity. Retained input aliases refuse. Independent input arrays may overlap each
 other because they are read-only during import.
 
-Copy the snapshot raw field exactly, even if an independently converted launch differs
+Binary32 requires an exactly widened raw state and matching binary32 source/sample-state
+rows, with binary64 rates. Copy the raw field exactly, even if an independently converted
+launch differs
 in its last bits. Restore the chosen next order, rejection/collar flags and proposal;
 keep all retained entries independently of that order. Full inactive store rows remain
 unchanged. Rebuild slot occupancy and invalidate numerical trial/stencil scratch.

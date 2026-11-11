@@ -330,7 +330,7 @@ class JuliaBackend:
         record: dict[str, object] = {
             "backend": self.name,
             "device": "cpu",
-            "precision": "double",
+            "precision": self._problem.precision.name,
             "wide": self._wide,
             "propagator_mode": "tabulate" if self._tabulate_flow else "recompute",
             "backend_options": dict(self._options),

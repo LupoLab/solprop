@@ -213,7 +213,9 @@ class JuliaSession:
         initial = dict(record)
         initial["source_evaluations"] = 0
         self._adams = transfer.adams is not None
-        self._history_identity = HistoryIdentity(transfer.method, transfer.history_key)
+        self._history_identity = HistoryIdentity(
+            transfer.method, transfer.history_key, transfer.arithmetic.name
+        )
         self._march_refusal: str | None = None
         restored = lower_call_restore(start.ledgers, adams=self._adams)
         if self._adams:
