@@ -44,6 +44,7 @@ import math
 import numpy as np
 import pytest
 
+from sessions.runs import run
 from solprop import fourier
 from solprop.stepper import PIController
 from solprop.translate.linop import tabulate
@@ -215,11 +216,14 @@ def test_the_dissipative_solution_is_reproduced(
 ):
     """P2 and P2b: a smooth loss, and one that jumps at a declared hard kink."""
     problem, run_request, distance, loss_integral = dissipative(stepped=stepped)
-    backend = backend_class(problem, run_request, grid=soliton_grid)
-    backend.set_initial(problem.initial.field0, None)
-    summary = backend.propagate_to(distance)
-    plane = backend.observe()
-    backend.close()
+    plane = run(
+        backend_class(problem, run_request, grid=soliton_grid),
+        problem,
+        run_request,
+        owns=True,
+    ).final
+    assert plane.z == distance
+    summary = plane.summary
     reference = exact_spectrum(soliton_grid, distance, loss_integral)
     reference = reference * problem.grids.active_mask
     # Measured 1.01e-13 for the smooth loss and 9.89e-14 for the stepped one, over 395
@@ -231,7 +235,7 @@ def test_the_dissipative_solution_is_reproduced(
     assert summary.met_tolerance
     if stepped:
         assert problem.linear.hard_kinks.tolist() == [STEP_POSITION * Z0]
-        assert STEP_POSITION * Z0 in plane.step_history.z.tolist()
+        assert STEP_POSITION * Z0 in plane.history.z.tolist()
 
 
 def test_the_parameters_are_the_ones_the_design_note_records():

@@ -761,7 +761,7 @@ methods are explicitly separated from that promise.
 | Coupled flow off the eigenbasis path or above the current 16-channel march limit; other admitted non-exponential or untransported-compensation host-engine paths | Probe descriptor feasibility in phase 1; port admitted built-in cases in phase 4, preserving the chosen flow and arithmetic protections. Test small/large dimensions, transport variants, matched steps and converged short runs; lack of an existing performance case is not permission to drop a scientific capability. | Port and qualify on both CUDA and HIP in phase 4, explicitly including off-eigenbasis and more-than-16-channel coupled cases. Retain the existing constant-Schur/frozen-residual and exponential-Adams scope beside a coupled flow; no CF4 or new coupled formulation is admitted. |
 | Host-formed rows or operator/prefactor representations missing from native stage-table evaluation | Inventory/probe in phase 1; lower common representations in phase 3 and remaining admitted built-in cases in phase 4. Test each representation's values, trial and event lifecycle. Retire private host-row/debug switches as production execution modes; retain diagnostic witnesses through test interfaces. | Port admitted device-ready representations and qualify on both CUDA and HIP in phase 4. General operator/prefactor z tables that are not device-ready remain refused by name, as today. |
 | Carrier-frame general z table (#255) | Probe descriptor/history requirements in phase 1; port the native CPU gap in phase 4 without changing the carrier approximation. Test varying tables, history and restart. | All carrier-frame runs remain refused by name on both CUDA and HIP, as today. This CPU port does not admit device carrier frames or general z tables. |
-| Native members forced to host replay by lockstep/nominal batching | Native group session in phase 3, with actual member parameters and cursors. Preserve existing coupled-batch refusals; this does not newly admit every coupled flow as a group. | Port the existing fibre/general-guide groups and qualify on both CUDA and HIP in phase 4, including per-member events and partially advanced group failures. Coupled-flow groups remain refused. |
+| Native members forced to host replay by lockstep/nominal batching | Native group session in phase 3, with actual member parameters and cursors. Coupled-flow members are admitted: the group fuses nothing, so each member's own session carries its flow (amended 2026-11-11, Part III). | Port the existing fibre/general-guide groups and qualify on both CUDA and HIP in phase 4, including per-member events and partially advanced group failures. Coupled-flow members are admitted as the session admits each member. |
 | Low-storage replay's Python loop around resident native registers | Native session in phase 3 on the existing diagonal-flow routes; qualify replay, event bounds, stop and in-flight failure semantics. | Port admitted device-ready diagonal-flow cases to the session and qualify on both CUDA and HIP in phase 4. HIP is already qualified; CUDA is admitted but not yet qualified, so its session needs actual-device evidence before Final. |
 | Private host-engine or host-march forcing switches (`SOLPROP_ADAMS_MARCH`, `SOLPROP_RK_ROWS`, `SOLPROP_RK_MARCH`, the `adams_march="host"` keyword, and any added by concurrent work) | Retire from production; update `benchmarks/adams_host.py`; replace their diagnostic purpose with independent reference and identical-input control tests. | Retire on both CUDA and HIP as well; retain explicit test probes, not a production host executor. |
 
@@ -1679,7 +1679,7 @@ Intel Xeon Gold 6240 under shared load:
 
 **Issues filed:** #599, #600, #601 and #606, plus a comment on #78.
 
-### Milestone 2 (phase 3) — in progress
+### Milestone 2 (phase 3) — merged 2026-11-11 (#607)
 
 Branch `feature/sep-0047-native-session`
 ([#607](https://github.com/LupoLab/solprop/pull/607)), stacked on milestone 1 and
@@ -1790,6 +1790,110 @@ main before SEP 47, B = milestone 1 and C = this milestone. Geometric means, end
   measured `1.14e-13` on one CI platform and less on another. The recorded error is
   the measured one either way.
 - Device ports beyond the representative path are phase 4.
+- Coupled-flow groups are admitted by the native group session, which already ran them
+  before phase 5 removed the lockstep batch; §6.3's row keeping the coupled-batch
+  refusal is not applied to it. That refusal was the lockstep batch's, whose fused
+  accepted update applied no flow action; the native group fuses nothing, each member's
+  own session carrying its flow, so a member is bitwise its lone run on one thread
+  (`native/tests/test_coupled_flow.py`). On GPU builds a member is admitted as the
+  session admits it, not separately qualified. The reference's lockstep runner gives a
+  group with a coupled member its member-by-member group, each its own trial with its
+  flow (#241); its binary64 member-axis batch still refuses such a member itself. §6.3's
+  row was amended to match on 2026-11-11 (Part III).
+
+### Milestone 3 (phases 4–5) — in review (#650)
+
+Branch `feature/sep-0047-final`
+([#650](https://github.com/LupoLab/solprop/pull/650)), retargeted to `main` when #607
+merged. Work packages on sub-branches, each reviewed independently before merging, as
+before; the test conversion of phase 5 ran as five parallel packages with one review of
+the whole conversion.
+
+**Production owner after this milestone.**
+
+- *Native, every build:* the native execution session serves every run and the native
+  group session every group. There is no other native executor: the transitional
+  `DriverSession`, the lockstep runner and `NativeBatchBackend` are deleted, and
+  `NativeBackend` inherits nothing.
+- *The reference:* `HostSession`, by composition over `HostDriver`, and
+  `HostGroupSession` over the reference's group runner.
+- *Refused by name on native:* the comparison Adams family, custom `PIController`
+  overrides, TDSE, and device carrier frames and z tables that are not device-ready.
+
+**What landed.**
+
+- *Phase 4 ports into the native session:* coupled flows above 16 channels and off the
+  eigenbasis (wide and off-route bins, on CPU and device); host-formed stage rows
+  (#255's carrier z table among them); the on-axis plasma statistics and the envelope's
+  on-axis ellipse row; the session's device paths (spatial routes, low-storage, dense
+  output, the transverse edge, noise, groups); and the scan's opening record (C10).
+- *Phase 5 deletions:* `driver_session.py`, `batch.py` (`LockstepRunner`),
+  `solprop_native.batch`, `_core.BatchState`, native's Python march fallbacks and host
+  engine, the forcing switches `SOLPROP_ADAMS_MARCH`/`_RK_MARCH`/`_RK_ROWS`, the dead
+  C++ Hermite and divisor paths, `StepDriver`, `AdamsMarch`, `LowStorageMarch`, and the
+  native seam tables. `multistep.py` and `low_storage.py` keep the shared stateless
+  pieces (`CallLedger`, `HostHistory`, the kernels and engines).
+- *Native-owned start:* `solprop_native._load` (the load, input and modified noise,
+  clean launch columns, the replay cursor, stage caching), a native Adams start and
+  resume record, and a native timing probe behind the one protocol method
+  `Backend.timing_probe(start)`: one Runge-Kutta trial per `trial()`, four counted
+  evaluations per low-storage step.
+- *Protocol:* the stepping members moved from `Backend` to the host-only
+  `HostStepping`, narrowed by `stepping(backend)`; `Backend` keeps preparation, the
+  probe, records and lifetime.
+- *Ported, not dropped:* the transverse quadrature alarm (the reference's message,
+  logger, threshold and once-per-plane rule), the general route's weight refusal, a
+  monitor's grid refusal, the axis-scan count, and the session failure classes.
+- *#361:* a device build's automatic node chunk is the host rule at a quarter of the
+  free device bytes, never fewer nodes than the host plan; an explicit budget or chunk
+  wins (maintainer decision, Part III).
+- *#241:* the reference's lockstep runner takes coupled-flow members one by one.
+
+**Evidence.**
+
+- *Bitwise:* every deletion and move was held to a baseline of 21 native runs (RK, Adams
+  and its interaction formulation, dense output and step planes, low-storage, the
+  17-channel coupled flow, an edged free-space packet with input noise, RK, Adams and
+  low-storage groups, an Adams resume, and the three timing probes): identical on one
+  thread before and after.
+- *Tests:* about 150 test files moved off the native backend's direct driver API onto
+  the session or the native state's own bindings. Oracles were kept or strengthened;
+  an independent review of the conversion found eight weakened checks, each restored
+  with its measured value (the engine's threaded norm, the source's own parity, the
+  taper's native statistic, the host-transfer guard, the quadrature peak, the launch
+  columns, the ledger refusal, the low-storage signal pointer).
+- *AMD Instinct MI300X* (ROCm, gfx942), 2026-11-11: native `-m gpu` 31 passed;
+  solprop `-m gpu` 295 passed; the session paths 918 passed; the slow wide flow passed.
+- *NVIDIA H100* (CUDA 13, Hopper), 2026-11-11: native `-m gpu` 31 passed; the session
+  paths, CUDA low-storage included, 782 passed; the slow wide flow passed; solprop
+  `-m gpu` 294 of 295, the planar route meeting the reference at 9.1e-11 of the peak, so
+  a device's planes are held to 1e-9 of the peak (the CPU budget stays 1e-12).
+- *#361 on device* (three interleaved rounds, the same work, fields bitwise equal):
+
+  | Device | Case | One chunk / old default | Device bytes |
+  |---|---|---|---|
+  | MI300X | `cartesian_filament_128`, RK / Adams | 0.922 / 0.874 | 2.52 → 7.86 GB / 4.79 → 10.14 GB |
+  | MI300X | `radial_filament_256`, RK / Adams | 0.740 / 0.873 | 0.39 → 0.47 GB / 0.81 → 0.89 GB |
+  | H100 | `cartesian_filament_128`, RK / Adams | 0.901 / 0.936 (the new rule, one chunk) | 2.42 → 7.77 GB / 4.48 → 9.83 GB |
+  | H100 | `radial_filament_256`, RK / Adams | 1.00 / 1.00 | unchanged |
+
+**Fixed along the way.**
+
+- On arm64 builds the line and slab fluence second moment summed the centroid's terms
+  again (a refilled buffer); each sum now has its own vector.
+- `benchmarks ab --calibrate standard` passed a flag that does not exist, so milestone
+  2's timed series ran on automatic calibration profiles; fixed.
+- The scan's opening record carried a launch-time monitor record, 32 empty datasets a
+  point (C10).
+- A native load kept a host copy of the field it uploaded; it keeps none.
+
+**Deviations from Part I.**
+
+- §6.3's coupled-flow group row was amended (Part III, 2026-11-11).
+- The A/B/C paired report of §7.2 and the structural report follow this milestone's
+  merge, before Final.
+- Follow-ups: #356 (fused group kernels, now measured against the coarse group),
+  #618 (the remaining 4-D layouts and `Backend.max_batch`).
 
 ## Part III — History
 
@@ -2543,6 +2647,25 @@ The existing per-case and aggregate regression policies remain explicit safeguar
 This direction supersedes the earlier MLX-host-session and separate-optimization
 planning choices in the review responses above. Those reviews and responses are
 preserved as history; Part I states the current proposal.
+
+### Maintainer decisions during implementation — 2026-11-11
+
+John Travers decided these during phase 5, after Opus 5.5 put each question:
+
+1. **Coupled-flow groups (§6.3 amended).** The native group session admits coupled-flow
+   members, as it did from phase 3. The refusal §6.3 preserved belonged to the fused
+   lockstep update, which applied no flow action; the group fuses nothing, so each
+   member is its lone run. The reference's lockstep runner takes such members one by
+   one (#241). Fused group kernels stay separate work (§6.7): #356 records the
+   measurement that decides them, and #110 the batch axis they would need.
+2. **The device node chunk (#361).** A device build's automatic plan budgets a quarter
+   of the accelerator's free bytes through the host rule, never fewer nodes than the
+   host plan; an explicit budget or chunk wins. Accepted on the evidence of an AMD
+   Instinct MI300X (one chunk 0.74–0.92 of the default's time) and an NVIDIA H100
+   (6–10 % on a 128 × 128 Cartesian filament, fields bitwise unchanged), at the cost of
+   space-domain buffers for every node at once.
+3. **One PR.** The removal of `StepDriver` inheritance stays in PR-C rather than a
+   follow-up PR, with the protocol prune (`HostStepping`) and the test conversion.
 
 ### Maintainer decisions at acceptance — 2026-11-09
 

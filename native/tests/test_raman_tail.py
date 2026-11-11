@@ -14,6 +14,7 @@ from typing import cast
 import numpy as np
 import pytest
 from conftest import ComplexArray
+from session_runs import run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FieldGrid
@@ -24,7 +25,8 @@ from solprop.physdata import Gas
 from solprop.physdata.selection import MaterialSelection
 from solprop.pulses import GaussianPulse
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import assemble
+from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend, build_info
 
@@ -56,6 +58,21 @@ def _bound(samples: int) -> float:
         * eps
         * (7 * math.ceil(math.log2(samples)) + 8 * math.ceil(math.log2(2 * samples)))
     )
+
+
+def _final(
+    backend: NumpyRefBackend | NativeBackend,
+    problem: PropagationProblem,
+    run_request: RunRequest,
+    grid: FieldGrid | EnvelopeGrid,
+) -> ComplexArray:
+    """Run the backend's session to the window's end; return the field there.
+
+    The backend stays open, for its metadata, its ledger or another run.
+    """
+    result = run(backend, problem, run_request)
+    assert result.all_planes()[-1].z == pytest.approx(grid.length)
+    return result.fields[-1]
 
 
 @pytest.mark.gpu
@@ -104,9 +121,7 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
             problem, run_request, grid=grid, options=ExecutionOptions(node_chunk=chunk)
         )
         try:
-            backend.set_initial(problem.initial.field0, None)
-            backend.propagate_to(grid.length)
-            field = backend.observe().require_field().copy()
+            field = _final(backend, problem, run_request, grid)
             assert np.isfinite(field).all()
             fields.append(field)
             if isinstance(backend, NativeBackend):
@@ -164,17 +179,14 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
                         options=ExecutionOptions(node_chunk=peer_chunk),
                     )
                     try:
-                        peer.set_initial(problem.initial.field0, None)
-                        peer.propagate_to(grid.length / 8)
-                        assert np.isfinite(peer.observe().require_field()).all()
+                        peered = _final(peer, problem, run_request, grid)
+                        assert np.isfinite(peered).all()
                     finally:
                         peer.close()
                 # A repeat of the same prescribed march: rounding only, within the
                 # equivalence bound below (solprop SEP 25).
-                backend.set_initial(problem.initial.field0, None)
-                backend.propagate_to(grid.length)
                 np.testing.assert_allclose(
-                    backend.observe().require_field(),
+                    _final(backend, problem, run_request, grid),
                     field,
                     rtol=0.0,
                     atol=_bound(grid.n_to) * np.max(np.abs(field)),
@@ -237,9 +249,7 @@ def test_raman_modal_products_match_reference(
     for backend_class in (NumpyRefBackend, NativeBackend):
         backend = backend_class(problem, run_request, grid=grid)
         try:
-            backend.set_initial(problem.initial.field0, None)
-            backend.propagate_to(grid.length)
-            field = backend.observe().require_field().copy()
+            field = _final(backend, problem, run_request, grid)
             assert np.isfinite(field).all()
             fields.append(field)
             if isinstance(backend, NativeBackend):

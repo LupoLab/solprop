@@ -32,6 +32,7 @@ is how these tests reach that route without keeping separate code for it.
 import math
 import warnings
 from dataclasses import replace
+from typing import Any
 
 import numpy as np
 import pytest
@@ -60,14 +61,18 @@ from flow_parity import (
 from legacy_geometry import LEGACY_GRID
 from march_bounds import FIXED_ORDER
 from modal_provider_cases import GENERAL_Z_END
+from sessions.runs import bare, final_field, to_planes
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.boundaries import Absorber, absorber
 from solprop.driver import Simulation
 from solprop.exceptions import SolpropWarning
 from solprop.grid import FieldGrid
 from solprop.modes import CoherentWall
 from solprop.profiles import PiecewiseLinear
+from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
 from solprop.translate.coupled import flow_section, frozen_generator
 from solprop.translate.problem import PropagationProblem
@@ -183,13 +188,11 @@ def test_the_collar_is_carried_by_the_frozen_flow_alone(name):
     assert not GRID.inband_mask[index]
     launched = _launched_in(problem, index)
     expected = _frozen_product(problem, run_request, index)[:, 0]
+    # Through the backend's session, which closes it (SEP 47 phase 5).
     driver = backend(launched, run_request, grid=GRID)
-    try:
-        driver.set_initial(launched.initial.field0, None)
-        driver.propagate_to(LENGTH)
-        got = driver.observe().require_field()[:, 0, index].copy()
-    finally:
-        driver.close()
+    got = final_field(driver, launched, bare(run_request), ended=True, owns=True)[
+        :, 0, index
+    ]
     flow = problem.linear.coupled_flow
     assert flow is not None
     condition = float(np.max(flow.inverse_condition_bound))
@@ -225,6 +228,15 @@ function on the imaginary axis is far above one; 2.7 in band."""
 
 def _transient_case():
     """Return the miniature: a 4.9 cm taper and ten steps of straight bore after it."""
+    simulation = _transient_simulation()
+    with warnings.catch_warnings():
+        for category in (*QUIET, SolpropWarning):
+            warnings.simplefilter("ignore", category)
+        return simulation.translate(), simulation._run_request(), simulation.grid
+
+
+def _transient_simulation():
+    """Return the miniature's simulation (:func:`_transient_case`)."""
     total = TAPER_LENGTH + STEPS * TRANSIENT_STEP
     count = round(total / TRANSIENT_STEP)
     grid = FieldGrid.from_limits(total, 800e-9, (300e-9, 3e-6), 250e-15)
@@ -233,7 +245,7 @@ def _transient_case():
         # residual's advisory limit on purpose.
         for category in (*QUIET, SolpropWarning):
             warnings.simplefilter("ignore", category)
-        simulation = Simulation.from_capillary(
+        return Simulation.from_capillary(
             PiecewiseLinear.from_stages(
                 (0.0, TAPER_LENGTH, count * TRANSIENT_STEP), [100e-6, 60e-6, 60e-6]
             ),
@@ -256,7 +268,6 @@ def _transient_case():
             raman=False,
             noise=None,
         )
-        return simulation.translate(), simulation._run_request(), grid
 
 
 @pytest.fixture(scope="module")
@@ -276,18 +287,17 @@ def _seeded_growth(backend, problem, run_request, grid, collar, worst):
     seed = 1e-8 * float(np.max(abs(launch)))
     launch[..., collar] += seed
     start = TAPER_LENGTH - STEPS * TRANSIENT_STEP
-    driver = backend(problem, run_request, grid=grid)
-    try:
-        driver.set_initial(launch, None, z=start)
-        driver.propagate_to(TAPER_LENGTH)
-        final = driver.observe().require_field()
-    finally:
-        driver.close()
+    # A start inside the run, to the corner, through the backend's session (SEP 47
+    # phase 5): a run whose one plane is the corner, an edge of the schedule.
+    request = to_planes(run_request, [TAPER_LENGTH])
+    resumed = Start(field=launch, z=start, resume=True)
+    driver = backend(problem, request, grid=grid)
+    final = final_field(driver, problem, bare(request), resumed, ended=True, owns=True)
     return float(abs(final[3, 0, worst])) / seed
 
 
 @pytest.mark.parametrize("name", BACKENDS)
-def test_a_coupled_flow_keeps_its_collar_in_every_stage(transient, name):
+def test_a_coupled_flow_keeps_its_collar_in_every_stage(transient, name, monkeypatch):
     """A quiet collar is never left out beside a coupled flow, on any backend.
 
     The frozen flow carries the collar (SEP 21 D15), so the term stays in every
@@ -297,13 +307,40 @@ def test_a_coupled_flow_keeps_its_collar_in_every_stage(transient, name):
     backend = backend_class(name)
     problem, run_request, grid = transient
     assert problem.linear.coupled_flow is not None
-    driver = backend(problem, run_request, grid=grid)
-    try:
-        assert not driver._collar_can_rest()
-        driver._set_collar_quiet(True)
-        assert not driver._collar_quiet
-    finally:
-        driver.close()
+    if name == "numpy_ref":
+        # The reference's driver, whose collar rule the native session's mirrors.
+        driver: Any = backend(problem, run_request, grid=grid)
+        try:
+            assert not driver._collar_can_rest()
+            driver._set_collar_quiet(True)
+            assert not driver._collar_quiet
+        finally:
+            driver.close()
+        return
+    # The native session's monitor holds the collar's state natively: the rule
+    # reaches it in the monitor's configuration, which a monitored session of the
+    # flow is built with (SEP 47 phase 5).
+    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        _watch,
+    )
+
+    simulation = _transient_simulation()
+    monitor = simulation._boundary_monitor()
+    assert monitor is not None
+    request = run_request.for_run(stats=StatsSpec(), monitor=monitor)
+    asked: list[bool] = []
+    configured = _watch.monitor_config
+
+    def spied(monitor, crossing, *, can_rest):
+        asked.append(can_rest)
+        return configured(monitor, crossing, can_rest=can_rest)
+
+    monkeypatch.setattr(_watch, "monitor_config", spied)
+    session = start_session(
+        backend(problem, request, grid=grid), problem, request, Start.entrance(problem)
+    )
+    session.close()
+    assert asked == [False]
 
 
 @pytest.mark.medium

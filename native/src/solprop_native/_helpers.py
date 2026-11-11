@@ -5,7 +5,7 @@
 """The native backend's per-stage and per-step evaluations, for solprop's shared code.
 
 solprop's driver, Adams march and engines take the stage tables' Chebyshev rows and
-the Adams basis from the backend that runs them (``StepDriver.helpers``, solprop
+the Adams basis from the backend that runs them (``NativeBackend.helpers``, solprop
 SEP 29 section 6.6), so that a native run never reaches solprop's Python forms
 and the NumPy reference never reaches this package. :data:`NATIVE` is this backend's
 record: the C++ transcriptions in ``include/solprop_native/chebyshev.hpp`` and

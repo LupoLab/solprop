@@ -31,6 +31,8 @@ from numpy.testing import assert_allclose
 
 from legacy_geometry import LEGACY_GRID
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
+from sessions.runs import run as run_session
+from sessions.runs import run_error
 from solprop import stats
 from solprop.backends import select
 from solprop.driver import Simulation
@@ -723,9 +725,9 @@ def test_the_legacy_gate_says_nothing_about_a_handler_with_no_record():
 def test_both_cpu_backends_refuse_a_general_name_on_an_ordinary_run(backend):
     """The whitelist's backend door, on a run that carries no general identity.
 
-    A caller may build a backend and ask it for statistics directly, without the
-    run loop's admission; every CPU backend checks, and the message is the one the
-    loop would have given.
+    A caller may build a backend and ask a run of it for statistics directly,
+    without the driver's admission; every CPU backend's preparation checks, and the
+    message is the one the driver would have given.
     """
     if backend == "native":
         pytest.importorskip("solprop_native")
@@ -745,14 +747,16 @@ def test_both_cpu_backends_refuse_a_general_name_on_an_ordinary_run(backend):
     )
     problem = simulation.translate()
     run_request = simulation._run_request()
+    # Asked of a run (SEP 47 phase 5): refused by name, at the native preparation or
+    # at the reference session's first plane.
     built = select(backend, problem, run_request, grid=simulation.grid)
-    try:
-        built.set_initial(problem.initial.field0, None)
-        with pytest.raises(BackendError, match="is unavailable for this modal run"):
-            built.stats(StatsSpec(names=("physical_energy",)))
-        assert built.stats(StatsSpec(names=("energy",)))
-    finally:
-        built.close()
+    refused = run_request.for_run(stats=StatsSpec(names=("physical_energy",)))
+    error = run_error(built, problem, refused, owns=False)
+    assert isinstance(error, BackendError)
+    assert "is unavailable for this modal run" in str(error)
+    served = run_request.for_run(stats=StatsSpec(names=("energy",)))
+    run = run_session(built, problem, served, export=None, owns=True)
+    assert run.observations[0].stats["energy"]
 
 
 @pytest.mark.parametrize(

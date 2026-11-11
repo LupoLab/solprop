@@ -7,7 +7,8 @@
 Each case of ``tests/test_general_modal.py`` propagates the same ten fixed steps on
 both backends in this process; the script prints one JSON object per case with the
 derived parity bound, the measured departure, the window's nonlinear change and the
-propagation times (every repeat, ``propagate_to`` only, construction excluded).
+propagation times (every repeat, the run's session from its start to its end,
+construction excluded).
 Run it with the thread environment fixed, for example ``SOLPROP_NATIVE_THREADS=1
 OMP_PROC_BIND=false python tests/general_modal_benchmark.py``.
 It lives beside the tests, as the thread probes do, because it propagates their cases.
@@ -25,6 +26,8 @@ import solprop_native
 
 import numpy as np
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import Start
+from session_runs import run
 
 from test_general_modal import (
     CASES,
@@ -48,11 +51,12 @@ def _timed(
             case.problem, case.run_request, grid=case.simulation.grid
         )
         try:
-            backend.set_initial(case.state, None)
+            start = Start(field=case.state, z=0.0)
             started = time.perf_counter()
-            backend.propagate_to(Z_END)
+            result = run(backend, case.problem, case.run_request, start)
             seconds.append(time.perf_counter() - started)
-            field = backend.observe().require_field()
+            assert result.all_planes()[-1].z == Z_END
+            field = result.fields[-1]
             ledger = sum(
                 value
                 for name, value in backend.memory_ledger().items()

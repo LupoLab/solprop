@@ -123,7 +123,7 @@ void AdamsDense::observe(const double position) {
   // The trial's arrays from the step's anchor to the plane (`arrays(z, position)`).
   const auto scalars =
       stage::trial(tables_, stage::row(tables_, anchor_, z_, position));
-  state_.adams_observe(weights, false, scalars);
+  state_.adams_observe(weights, scalars);
 }
 
 void AdamsDense::restore() { state_.adams_restore(); }

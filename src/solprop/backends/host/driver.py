@@ -9,14 +9,11 @@ March, replay, landing, controller bookkeeping, history, the noise model and the
 evaluated: they touch the state and ``HostDriver._trial_step`` and nothing
 else. Written once here, they are the step control of every NumPy reference backend.
 
-**The reference owns this loop** since SEP 47 phase 2: :class:`HostDriver` is a copy of
-the inherited driver the native bridge still runs on
-(:class:`solprop.backends.driver.StepDriver`), so that the reference shares stateless
-numerical modules -- the controller cores, tableaux, coefficient evaluation and stage
-tables -- with that bridge, and transitionally the session lifecycle and the host
-engines (the exceptions :mod:`solprop.backends.host` records). The copies started
-identical; their decisions on identical inputs stay bit-identical (the decision traces
-of ``tests/backends``).
+**The reference owns this loop** since SEP 47 phase 2: :class:`HostDriver` began as a
+copy of the step driver the native backend inherited until phase 5, and shares only
+stateless numerical modules -- the controller cores, tableaux, coefficient evaluation,
+stage tables and host engines -- with the native backend. Its decisions on identical
+inputs are the native marches' (the decision traces of ``tests/backends``).
 What a backend supplies is ``_trial_step``, ``_apply_mask`` and ``stats``, plus
 ``_finish`` when it has boundary treatments of its own; two optional hooks,
 ``_begin_plane`` and ``_on_accepted_step``, are where a backend scores whatever a plane
@@ -49,7 +46,12 @@ from solprop.backends.protocol import (
     TimingProbe,
 )
 from solprop.backends.rk_core import rk_policy
-from solprop.backends.session import ExecutionOptions, PreparedExecution, Start
+from solprop.backends.session import (
+    ExecutionOptions,
+    PreparedExecution,
+    PreparedGroup,
+    Start,
+)
 from solprop.exceptions import BackendError, BoundaryError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter, StopFlag
@@ -62,7 +64,13 @@ from solprop.profiles import ZProfile
 from solprop.stats import StatsSpec
 from solprop.stepper.controller import ControlRecord, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule, StepTargets, landing
+from solprop.stepper.schedule import (
+    FixedSchedule,
+    StepTargets,
+    landing,
+    reached,
+    replay_tolerance,
+)
 from solprop.stepper.tableau import extension_coefficients, extension_value
 from solprop.translate.linop import delta_phi, unitary_phase
 from solprop.translate.masks import noise_spectrum
@@ -94,68 +102,6 @@ __all__ = [
 ]
 
 _StateT = TypeVar("_StateT")
-
-
-def reached(position: float, target: float) -> bool:
-    """Return whether a march at ``position`` has arrived at ``target``.
-
-    Parameters
-    ----------
-    position : float
-        Current position, m.
-    target : float
-        Position being marched to, m.
-
-    Returns
-    -------
-    bool
-        True when no further step is due.
-
-    Examples
-    --------
-    >>> from solprop.backends.host.driver import reached
-    >>> reached(0.5, 1.0), reached(1.0, 1.0)
-    (False, True)
-    """
-    tolerance = LANDING_ULPS * float(np.spacing(max(abs(position), abs(target))))
-    return bool(position >= target - tolerance)
-
-
-def replay_tolerance(schedule: FixedSchedule, position: float) -> float:
-    """Return how far a replayed schedule's edge may sit from a target it lands on, m.
-
-    A schedule's edges are the running sum of its steps, and a sum of ``n`` rounded
-    steps can drift from the position they were chosen to reach by about ``n`` ulps:
-    ``FixedSchedule(np.full(160, L / 160))`` ends 12 ulps short of ``L``. The slack
-    is therefore :data:`~solprop.stepper.schedule.LANDING_ULPS` or the step count,
-    whichever is larger, in ulps of the larger of the position and the schedule's
-    length -- still far inside the ``1e-9`` of the length that
-    :meth:`~solprop.translate.problem.PropagationProblem.validate` allows an edge to
-    miss a save plane by, so no step is ever skipped.
-
-    Parameters
-    ----------
-    schedule : solprop.stepper.schedule.FixedSchedule
-        The schedule being replayed.
-    position : float
-        The position the edge is compared with, m.
-
-    Returns
-    -------
-    float
-        The slack, m.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop.backends.host.driver import replay_tolerance
-    >>> from solprop.stepper.schedule import FixedSchedule
-    >>> schedule = FixedSchedule(np.full(160, 1e-3 / 160))
-    >>> bool(1e-3 - schedule.z_end <= replay_tolerance(schedule, 1e-3))
-    True
-    """
-    ulps = max(LANDING_ULPS, schedule.n_steps)
-    return ulps * float(np.spacing(max(schedule.total_length, abs(position))))
 
 
 INITIAL_STEP_STATS_CAPACITY = 64
@@ -952,19 +898,49 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         solprop.backends.session.PreparedExecution
             The prepared execution.
         """
-        from solprop.backends.driver_session import (  # noqa: PLC0415 - it builds on this module
-            DriverPrepared,
-        )
         from solprop.backends.host.session import (  # noqa: PLC0415 - it builds on this module
-            HostSession,
+            HostPrepared,
         )
 
         # A concrete driver is a backend: this base is the march, and the subclass
         # supplies the rest of the protocol (`memory_ledger`, `close`). They are not
         # abstract here, so that a batch's protocol check can refuse a driver without.
-        return DriverPrepared(
-            cast("Backend", self), problem, request, session=HostSession
+        return HostPrepared(cast("Backend", self), problem, request)
+
+    def prepare_group(
+        self,
+        members: Sequence[Backend],
+        problems: Sequence[PropagationProblem],
+        requests: Sequence[RunRequest],
+    ) -> PreparedGroup:
+        """Prepare a group of compatible members of this backend (SEP 47 section 6.7).
+
+        The reference's own group
+        (:class:`~solprop.backends.host.group_session.HostGroupSession`): its members
+        advance in lockstep through one fixed schedule on the reference's group runner
+        (:class:`~solprop.backends.host.group.HostGroup` or
+        :class:`~solprop.backends.numpy_ref.batch.NumpyBatchBackend`, chosen by
+        :func:`solprop.backends.registry.select_batch`).
+
+        Parameters
+        ----------
+        members : sequence of solprop.backends.protocol.Backend
+            One constructed backend per member, this one first.
+        problems : sequence of solprop.translate.problem.PropagationProblem
+            Each member's independently translated problem.
+        requests : sequence of solprop.translate.run_request.RunRequest
+            Each member's run request.
+
+        Returns
+        -------
+        solprop.backends.session.PreparedGroup
+            The prepared group.
+        """
+        from solprop.backends.host.group_session import (  # noqa: PLC0415 - it builds on this module
+            HostPreparedGroup,
         )
+
+        return HostPreparedGroup(members, problems, requests)
 
     @property
     def request(self) -> RunRequest:
@@ -1667,6 +1643,75 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             (``solprop.backends.low_storage``).
         """
         return self._in_flight
+
+    @property
+    def position(self) -> float:
+        """Return where the march stands, m.
+
+        Returns
+        -------
+        float
+            The committed state's position, or the end of a step a group took but
+            neither validated nor recorded, which leaves the state in flight
+            (:attr:`in_flight`).
+        """
+        return float(self._z)
+
+    @property
+    def halted(self) -> bool:
+        """Return whether the last march stopped at a requested halt short of its end.
+
+        Returns
+        -------
+        bool
+            True while the halt latch of :meth:`request_halt` or the yield check of
+            :meth:`set_halt_check` stopped it.
+        """
+        return self._halted
+
+    @property
+    def holding_plane(self) -> bool:
+        """Return whether a dense observation holds the state between endpoints.
+
+        Returns
+        -------
+        bool
+            True while this driver's own (a Runge-Kutta march's) or its Adams march's
+            observation holds an interpolated plane, the march ahead of it.
+        """
+        return self._dense_ahead is not None or (
+            self._adams is not None and self._adams._ahead is not None
+        )
+
+    def drain_attempts(self) -> Observation:
+        """Drain the attempts recorded since the last observation, with no field.
+
+        For a state left in flight, which :meth:`observe` refuses: the attempts and
+        periodic rows recorded before the abandoned step, drained once, as an
+        observation drains them.
+
+        Returns
+        -------
+        solprop.backends.protocol.Observation
+            The attempts and rows at :attr:`position`, with no field.
+        """
+        entries, self._history = self._history, []
+        history = BackendHistory(
+            z=np.array([entry[0] for entry in entries], dtype=np.float64),
+            dz=np.array([entry[1] for entry in entries], dtype=np.float64),
+            error_norm=np.array([entry[2] for entry in entries], dtype=np.float64),
+            accepted=np.array([entry[3] for entry in entries], dtype=np.bool_),
+            wall_time=np.array([entry[4] for entry in entries], dtype=np.float64),
+        )
+        return Observation(
+            z=self.position,
+            field=None,
+            noise_phase=None,
+            step_history=history,
+            n_steps=history.n_steps,
+            n_rejected=history.n_rejected,
+            step_stats=self._drain_step_stats(),
+        )
 
     def timing_probe(self, start: Start) -> TimingProbe:
         """Load a start and return single trials of this run's march from it.

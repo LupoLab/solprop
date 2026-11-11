@@ -13,6 +13,7 @@ from scipy.special import erfc
 
 from backends.test_radial_diffraction import diffraction_reference
 from bounds import gamma
+from sessions.runs import final_field, launch
 from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.spatial import SpatialFlux, SpatialMedium, beam_radius
@@ -80,7 +81,8 @@ def gaussian_reference(space, waist, wave, distance):
 
 
 def propagate(spatial_backend_class, grid, space, start, distance):
-    """Use the real driver and an eight-step schedule on either spatial grid."""
+    """Run an eight-step schedule on either spatial grid through the backend's own
+    session; return the launch plane's state at no distance, else the last plane's."""
     stop = max(distance, 1e-5)
     problem, run_request = assemble(
         grid,
@@ -97,10 +99,9 @@ def propagate(spatial_backend_class, grid, space, start, distance):
     )
     backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
         if distance:
-            backend.propagate_to(distance)
-        return backend.observe().require_field()
+            return final_field(backend, problem, run_request, z=distance)
+        return launch(backend, problem, run_request).field
     finally:
         backend.close()
 

@@ -11,14 +11,20 @@ noise, the statistics and the two propagator modes.
 
 import dataclasses
 import logging
+from dataclasses import dataclass
 
 import numpy as np
 import pytest
 
 from bounds import EPS, assert_within, departure, gamma
+from sessions.executors import IDENTITY, Started, drive, entrance
 from solprop.backends import Backend
+from solprop.backends.events import ObservationReady
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref import backend as backend_module
+from solprop.backends.protocol import BackendHistory, StepStats
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.exceptions import BackendError, TranslationError
 from solprop.noise import modified_noise
 from solprop.output.schema import SavedPlane
@@ -43,12 +49,108 @@ narrow grid's 1024 samples and the FWHM interpolation, 16 n eps (the Kokkos row 
 :func:`test_statistics_reproduce_the_reference`)."""
 
 
-def run_to(backend_class, problem, run_request, grid, z, **options):
-    """Propagate a problem to a plane and return the backend and the observation."""
+@dataclass(frozen=True)
+class Plane:
+    """One plane a session observed, with the attempts and rows since the last.
+
+    Attributes
+    ----------
+    z : float
+        Its position, m.
+    field : numpy.ndarray
+        The state, in the internal FFT convention.
+    step_history : solprop.backends.protocol.BackendHistory
+        The attempts since the previous plane.
+    step_stats : solprop.backends.protocol.StepStats
+        The periodic rows since the previous plane.
+    stats : dict
+        The plane's statistics.
+    noise_phase : numpy.ndarray or None
+        The modified noise's phase at the plane.
+    """
+
+    z: float
+    field: np.ndarray
+    step_history: BackendHistory
+    step_stats: StepStats
+    stats: dict[str, np.ndarray]
+    noise_phase: np.ndarray | None
+
+    def require_field(self):
+        """Return the field, as an observation's ``require_field`` does."""
+        return self.field
+
+    @property
+    def n_steps(self):
+        """Return the attempts since the previous plane, accepted and rejected."""
+        return self.step_history.n_steps
+
+
+def planes(backend_class, problem, run_request, grid=None, *, start=None, **options):
+    """Run a problem through its backend's own session; return every observed plane.
+
+    SEP 47 phase 5: a backend runs only in its session, the launch plane first. The
+    backend is closed on return.
+    """
     backend = backend_class(problem, run_request, grid=grid, **options)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(z)
-    return backend, backend.observe()
+    phases = []
+
+    def noise_phases(session, batch):
+        phases.extend(
+            session.noise_phase(event.ticket)
+            for event in batch.events
+            if isinstance(event, ObservationReady)
+        )
+
+    try:
+        session = start_session(
+            backend,
+            problem,
+            run_request,
+            entrance(problem) if start is None else start,
+            owns=False,
+        )
+        try:
+            run = drive(Started(session), export=IDENTITY, between=noise_phases)
+        finally:
+            session.close()
+    finally:
+        backend.close()
+    observed = [
+        (event, history, rows)
+        for event, history, rows in run.assembled()
+        if isinstance(event, ObservationReady)
+    ]
+    return [
+        Plane(
+            float(event.z),
+            field,
+            history,
+            rows,
+            {name: np.asarray(value) for name, value in event.stats.items()},
+            phase,
+        )
+        for (event, history, rows), field, phase in zip(
+            observed, run.fields, phases, strict=True
+        )
+    ]
+
+
+def ending_at(run_request, z):
+    """Return a request whose run ends at the plane `z`, its only one."""
+    return run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, save_planes=np.array([z]))
+    )
+
+
+def run_to(backend_class, problem, run_request, grid, z, **options):
+    """Run a problem through its session and return the plane observed at `z`."""
+    (plane,) = [
+        one
+        for one in planes(backend_class, problem, run_request, grid, **options)
+        if one.z == z
+    ]
+    return plane
 
 
 # ------------------------------------------------------------------- the protocol
@@ -69,22 +171,20 @@ def test_the_observation_is_the_state_in_the_fft_convention(
 ):
     """Nothing conjugates behind the seam, so the initial plane is the input itself."""
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
-    backend = backend_class(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    plane = backend.observe()
+    plane = planes(backend_class, problem, run_request, narrow_grid)[0]
     expected = problem.initial.field0 * problem.grids.active_mask
     assert np.array_equal(plane.field, expected)
     assert plane.z == 0.0
+    # The launch plane is owed at the entrance: it costs no attempt.
     assert plane.step_history.n_steps == 0
     assert plane.noise_phase is None
-    backend.close()
 
 
-def test_a_plane_already_reached_costs_no_steps(
-    backend_class, soliton_problem, narrow_grid
-):
+def test_a_plane_already_reached_costs_no_steps(soliton_problem, narrow_grid):
+    """The reference driver's own call; a session's launch plane costs no attempt
+    (:func:`test_the_observation_is_the_state_in_the_fft_convention`)."""
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
-    backend = backend_class(problem, run_request, grid=narrow_grid)
+    backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     summary = backend.propagate_to(0.0)
     assert (summary.n_steps, summary.max_norm, summary.met_tolerance) == (0, 0.0, True)
@@ -97,17 +197,12 @@ def test_the_history_covers_only_what_happened_since_the_last_observation(
     problem, run_request = soliton_problem(
         narrow_grid, 1, save_planes=[LENGTH, 2 * LENGTH], dz_max=LENGTH / 3
     )
-    backend = backend_class(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(LENGTH)
-    first = backend.observe()
-    backend.propagate_to(2 * LENGTH)
-    second = backend.observe()
+    _, first, second = planes(backend_class, problem, run_request, narrow_grid)
+    assert (first.z, second.z) == (LENGTH, 2 * LENGTH)
     assert first.step_history.n_steps > 0
     assert second.step_history.n_steps > 0
     assert float(first.step_history.z[-1]) == LENGTH
     assert float(second.step_history.z[0]) > LENGTH
-    backend.close()
 
 
 # --------------------------------------------------------------------- the refusals
@@ -192,9 +287,10 @@ def test_both_absorber_schemes_run_on_both_backends(
     for scheme in ("nonlinear", "split_step"):
         problem, run_request = capillary_problem(scheme=scheme)
         assert problem.responses.absorber_scheme == scheme
-        backend, plane = run_to(backend_class, problem, run_request, field_grid, 0.1)
+        plane = run_to(
+            backend_class, problem, ending_at(run_request, 0.1), field_grid, 0.1
+        )
         assert np.all(np.isfinite(plane.field))
-        backend.close()
 
 
 def test_an_inconsistent_problem_still_fails_validation(
@@ -222,27 +318,33 @@ def test_the_initial_state_must_match_the_contract(
 ):
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
     backend = backend_class(problem, run_request)
-    with pytest.raises(BackendError, match="expected"):
-        backend.set_initial(np.zeros((1, 1, 3), dtype=complex), None)
-    backend.close()
+    try:
+        with pytest.raises(BackendError, match="expected"):
+            start_session(
+                backend,
+                problem,
+                run_request,
+                Start(field=np.zeros((1, 1, 3), dtype=complex), z=0.0),
+                owns=False,
+            )
+    finally:
+        backend.close()
 
 
-def test_propagating_without_a_state_is_refused(
-    backend_class, soliton_problem, narrow_grid
-):
+def test_propagating_without_a_state_is_refused(soliton_problem, narrow_grid):
+    """The reference driver's own call: a session always loads its start."""
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
-    backend = backend_class(problem, run_request)
+    backend = NumpyRefBackend(problem, run_request)
     with pytest.raises(BackendError, match="call set_initial"):
         backend.propagate_to(LENGTH)
     backend.close()
 
 
 @pytest.mark.parametrize("target", [-1.0, 10.0, float("nan")])
-def test_an_unreachable_plane_is_refused(
-    backend_class, soliton_problem, narrow_grid, target
-):
+def test_an_unreachable_plane_is_refused(soliton_problem, narrow_grid, target):
+    """The reference driver's own call: a session's targets are its request's planes."""
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
-    backend = backend_class(problem, run_request)
+    backend = NumpyRefBackend(problem, run_request)
     backend.set_initial(problem.initial.field0, None)
     with pytest.raises(BackendError):
         backend.propagate_to(target)
@@ -250,10 +352,12 @@ def test_an_unreachable_plane_is_refused(
 
 
 def test_close_is_idempotent_and_use_after_close_is_refused(
-    backend_class, soliton_problem, narrow_grid
+    soliton_problem, narrow_grid
 ):
+    """The reference driver's own calls (:func:`test_a_closed_backend_starts_nothing`
+    is every backend's)."""
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
-    backend = backend_class(problem, run_request, grid=narrow_grid)
+    backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     backend.close()
     backend.close()
@@ -265,6 +369,16 @@ def test_close_is_idempotent_and_use_after_close_is_refused(
     ):
         with pytest.raises(BackendError, match="closed"):
             call()
+
+
+def test_a_closed_backend_starts_nothing(backend_class, soliton_problem, narrow_grid):
+    """Closing twice is closing once, and a closed backend's session is refused."""
+    problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
+    backend = backend_class(problem, run_request, grid=narrow_grid)
+    backend.close()
+    backend.close()
+    with pytest.raises(BackendError, match="closed"):
+        start_session(backend, problem, run_request, entrance(problem))
 
 
 # ------------------------------------------------------------------- the memory ledger
@@ -326,9 +440,21 @@ def test_the_ledger_counts_the_noise_buffer_when_one_is_carried(
         noise=modified_noise(narrow_grid, np.random.default_rng(3)),
     )
     backend = backend_class(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    assert backend.memory_ledger()["noise"] == problem.initial.field0.nbytes
-    backend.close()
+    held = []
+    session = start_session(
+        backend, problem, run_request, entrance(problem), owns=False
+    )
+    try:
+        # Read while the session holds the run's noise.
+        drive(
+            Started(session),
+            between=lambda _, batch: held.append(backend.memory_ledger()["noise"]),
+        )
+    finally:
+        session.close()
+        backend.close()
+    assert held
+    assert set(held) == {problem.initial.field0.nbytes}
 
 
 def test_recomputing_the_propagators_costs_less_memory(
@@ -400,10 +526,7 @@ def seeded_finals(backend_class, soliton_problem, narrow_grid, seeds):
             schedule=SCHEDULE,
             noise=modified_noise(narrow_grid, np.random.default_rng(seed)),
         )
-        backend, plane = run_to(
-            backend_class, problem, run_request, narrow_grid, LENGTH
-        )
-        backend.close()
+        plane = run_to(backend_class, problem, run_request, narrow_grid, LENGTH)
         finals.append(plane.field)
     return finals
 
@@ -436,17 +559,13 @@ def test_the_propagating_field_never_carries_the_modified_noise(
         save_planes=[LENGTH],
         noise=modified_noise(narrow_grid, np.random.default_rng(5)),
     )
-    backend = backend_class(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    start = backend.observe()
+    start, plane = planes(backend_class, problem, run_request, narrow_grid)
     assert np.array_equal(
         start.field, problem.initial.field0 * problem.grids.active_mask
     )
-    backend.propagate_to(LENGTH)
-    plane = backend.observe()
+    assert plane.z == LENGTH
     assert plane.noise_phase is not None
     assert plane.noise_phase.shape == problem.shape
-    backend.close()
 
 
 def test_the_input_noise_model_adds_the_realisation_once(
@@ -460,12 +579,10 @@ def test_the_input_noise_model_adds_the_realisation_once(
         save_planes=[LENGTH],
         noise=dataclasses.replace(realisation, model="input"),
     )
-    backend = backend_class(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    start = backend.observe()
+    start = planes(backend_class, problem, run_request, narrow_grid)[0]
+    assert start.z == 0.0
     added = start.field - problem.initial.field0 * problem.grids.active_mask
     assert np.max(np.abs(added)) > 0.0
-    backend.close()
 
 
 # --------------------------------------------------------------------- the statistics
@@ -482,12 +599,13 @@ def test_statistics_reproduce_the_reference(
     fixed before any value is observed.
     """
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
-    backend, plane = run_to(backend_class, problem, run_request, narrow_grid, LENGTH)
     spec = StatsSpec(
         names=("energy", "peak_power", "fwhm_t", "omega0"),
         energy_windows=np.array([[2.0e15, 2.5e15]]),
     )
-    got = backend.stats(spec)
+    run_request = run_request.for_run(stats=spec)
+    plane = run_to(backend_class, problem, run_request, narrow_grid, LENGTH)
+    got = plane.stats
     want = collect(spec, narrow_grid, SavedPlane(z=plane.z, field=plane.field))
     assert set(got) == set(want)
     for name, value in want.items():
@@ -499,15 +617,15 @@ def test_statistics_reproduce_the_reference(
             equal_nan=True,
         )
         assert got[name].shape == value.shape
-    backend.close()
 
 
-def test_statistics_without_a_grid_say_what_is_missing(
-    backend_class, soliton_problem, narrow_grid
-):
-    """The contract carries no grid, so the backend has to be told which one it is."""
+def test_statistics_without_a_grid_say_what_is_missing(soliton_problem, narrow_grid):
+    """The contract carries no grid, so the backend has to be told which one it is.
+
+    The reference driver's own call: a session's statistics are its request's.
+    """
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
-    backend = backend_class(problem, run_request)
+    backend = NumpyRefBackend(problem, run_request)
     backend.set_initial(problem.initial.field0, None)
     with pytest.raises(BackendError, match="grid=grid"):
         backend.stats(StatsSpec(names=("energy",)))
@@ -543,14 +661,10 @@ def test_the_two_propagator_modes_agree(soliton_problem, soliton_grid):
     (tabulated, tabulated_request), (recomputed, recomputed_request) = (
         _both_propagator_modes(soliton_problem, soliton_grid)
     )
-    backend, first = run_to(
-        NumpyRefBackend, tabulated, tabulated_request, soliton_grid, LENGTH
-    )
-    backend.close()
-    backend, second = run_to(
+    first = run_to(NumpyRefBackend, tabulated, tabulated_request, soliton_grid, LENGTH)
+    second = run_to(
         NumpyRefBackend, recomputed, recomputed_request, soliton_grid, LENGTH
     )
-    backend.close()
     assert_within(second.field, first.field, REPEAT_BOUND, what="propagator modes")
 
 
@@ -563,17 +677,11 @@ def test_native_is_the_reference_under_either_propagator_mode(
     """
     native = pytest.importorskip("solprop_native")
     problems = _both_propagator_modes(soliton_problem, soliton_grid)
-    backend, reference = run_to(
-        NumpyRefBackend, *problems[0], grid=soliton_grid, z=LENGTH
-    )
-    backend.close()
+    reference = run_to(NumpyRefBackend, *problems[0], grid=soliton_grid, z=LENGTH)
     for (problem, run_request), mode in zip(
         problems, ("tabulate", "recompute"), strict=True
     ):
-        backend, plane = run_to(
-            native.NativeBackend, problem, run_request, soliton_grid, LENGTH
-        )
-        backend.close()
+        plane = run_to(native.NativeBackend, problem, run_request, soliton_grid, LENGTH)
         assert_within(plane.field, reference.field, REPEAT_BOUND, what=mode)
 
 
@@ -588,10 +696,8 @@ def test_the_envelope_third_harmonic_term_is_executed(
     without, without_request = thg_problem(thg=False)
     assert with_harmonic.responses.kerr_coefficients.harmonic_factor == 0.25
     assert without.responses.kerr_coefficients.harmonic_factor == 0.0
-    _, first = run_to(
-        backend_class, with_harmonic, with_harmonic_request, thg_grid, 1e-3
-    )
-    _, second = run_to(backend_class, without, without_request, thg_grid, 1e-3)
+    first = run_to(backend_class, with_harmonic, with_harmonic_request, thg_grid, 1e-3)
+    second = run_to(backend_class, without, without_request, thg_grid, 1e-3)
     difference = np.max(np.abs(first.field - second.field))
     assert difference > 0.0
     # The harmonic is radiated near 3 omega_0, far outside the band the fundamental
@@ -614,19 +720,17 @@ def test_a_gradient_capillary_propagates_on_the_field_grid(
     assert problem.flags.has_temporal_absorber
     assert problem.linear.hard_kinks.tolist() == [0.2]
     with caplog.at_level(logging.WARNING):
-        backend, plane = run_to(backend_class, problem, run_request, field_grid, 0.1)
+        _, plane, after = planes(backend_class, problem, run_request, field_grid)
     assert np.all(np.isfinite(plane.field))
     assert plane.z == 0.1
     assert not caplog.records
     # Steps land on the kink at 0.2 m, so continuing past it must reach it exactly.
-    backend.propagate_to(0.2)
-    after = backend.observe()
+    assert after.z == 0.2
     assert 0.2 in after.step_history.z.tolist()
-    backend.close()
 
 
 def test_the_alarm_is_weighted_at_the_stage_it_was_scored_from(
-    backend_class, capillary_problem, field_grid
+    capillary_problem, field_grid
 ):
     """The prefactor varies along this fibre, so the alarm's weight has to follow it.
 
@@ -636,14 +740,15 @@ def test_the_alarm_is_weighted_at_the_stage_it_was_scored_from(
     always named ``z = 0``. Invisible on a uniform fill and wrong on any gradient. The
     bundle is what makes it right: the alarm reads the scalars of the stage it was
     scored from.
+
+    On the reference alone: native forms a staged trial's stage scalars in its own
+    state and scores the alarm there (SEP 45 phase 2), so no host bundle carries the
+    stage.
     """
-    if backend_class.name == "native":
-        pytest.skip(
-            "native forms a staged trial's stage scalars in its own state and scores "
-            "the alarm there (SEP 45 phase 2): no host bundle carries the stage"
-        )
     problem, run_request = capillary_problem()
-    backend, _ = run_to(backend_class, problem, run_request, field_grid, 0.1)
+    backend = NumpyRefBackend(problem, run_request, grid=field_grid)
+    backend.set_initial(problem.initial.field0, None)
+    backend.propagate_to(0.1)
     bundle = backend._last_bundle
     assert bundle is not None
     stage_z = bundle.z1
@@ -656,7 +761,7 @@ def test_the_alarm_is_weighted_at_the_stage_it_was_scored_from(
 
 
 def z_table_departure_and_bound(backend_class, problem, run_request, grid):
-    """Return a z-table run's departure from the oracle, its budget and its owner."""
+    """Return a z-table run's departure from the oracle and its budget."""
     assert not problem.device_ready
     # The host Clenshaw recurrence follows the reference operation order; budget
     # 64 eps per coefficient and sample over seven stages and 1000 accepted steps.
@@ -669,23 +774,22 @@ def z_table_departure_and_bound(backend_class, problem, run_request, grid):
         * np.finfo(float).eps
     )
     assert bound > 0
-    compiled, measured = run_to(backend_class, problem, run_request, grid, 0.05)
-    backend, plane = run_to(NumpyRefBackend, problem, run_request, grid, 0.05)
-    backend.close()
+    run_request = ending_at(run_request, 0.05)
+    measured = run_to(backend_class, problem, run_request, grid, 0.05)
+    plane = run_to(NumpyRefBackend, problem, run_request, grid, 0.05)
     assert np.all(np.isfinite(plane.require_field()))
     departure = np.linalg.norm(
         measured.require_field() - plane.require_field()
     ) / np.linalg.norm(plane.require_field())
-    return departure, bound, compiled
+    return departure, bound
 
 
 def test_a_z_table_runs_on_native_and_the_oracle(tabulated_problem, field_grid):
     """The native backend's own tables follow the oracle on an adaptive run."""
     native = pytest.importorskip("solprop_native")
-    departure, bound, compiled = z_table_departure_and_bound(
+    departure, bound = z_table_departure_and_bound(
         native.NativeBackend, *tabulated_problem, grid=field_grid
     )
-    compiled.close()
     assert departure < bound
 
 
@@ -714,18 +818,15 @@ def test_a_step_too_large_for_the_tolerance_is_rejected_and_retried(
         dz_max=0.05,
         dz_init=0.05,
     )
-    backend = backend_class(problem, run_request, grid=soliton_grid)
-    backend.set_initial(problem.initial.field0, None)
-    summary = backend.propagate_to(0.05)
-    plane = backend.observe()
-    backend.close()
-    assert summary.n_rejected > 0
+    plane = run_to(backend_class, problem, run_request, soliton_grid, 0.05)
     assert not np.all(plane.step_history.accepted)
     # A rejection shrinks the proposal at once, without the controller's lag, so the
     # retry is shorter than the attempt it replaces.
     rejected = np.flatnonzero(~plane.step_history.accepted)[0]
     assert plane.step_history.dz[rejected + 1] < plane.step_history.dz[rejected]
-    assert summary.met_tolerance
+    # Every accepted step met the tolerance, as the retired summary's flag said.
+    accepted = plane.step_history.accepted
+    assert np.all(plane.step_history.error_norm[accepted] <= 1.0)
 
 
 def test_the_realisation_passed_to_set_initial_is_the_one_carried(
@@ -741,11 +842,11 @@ def test_the_realisation_passed_to_set_initial_is_the_one_carried(
     other = modified_noise(narrow_grid, np.random.default_rng(22))
     finals = []
     for realisation in (None, other):
-        backend = backend_class(problem, run_request, grid=narrow_grid)
-        backend.set_initial(problem.initial.field0, realisation)
-        backend.propagate_to(LENGTH)
-        finals.append(backend.observe().require_field())
-        backend.close()
+        start = Start(field=problem.initial.field0, z=0.0, noise=realisation)
+        plane = run_to(
+            backend_class, problem, run_request, narrow_grid, LENGTH, start=start
+        )
+        finals.append(plane.require_field())
     assert not np.array_equal(finals[0], finals[1])
 
 
@@ -774,12 +875,8 @@ def test_the_weighted_norm_is_the_weak_one_when_the_weights_are_all_ones(
         schedule=SCHEDULE,
         controller=PIController(rtol=1e-9, atol=1e-18),
     )
-    backend, first = run_to(
-        backend_class, weighted, weighted_request, narrow_grid, LENGTH
-    )
-    backend.close()
-    backend, second = run_to(backend_class, weak, weak_request, narrow_grid, LENGTH)
-    backend.close()
+    first = run_to(backend_class, weighted, weighted_request, narrow_grid, LENGTH)
+    second = run_to(backend_class, weak, weak_request, narrow_grid, LENGTH)
     assert_within(first.field, second.field, REPEAT_BOUND, what="field")
     np.testing.assert_allclose(
         first.step_history.error_norm,
@@ -806,8 +903,8 @@ def test_tightening_one_band_s_weight_shortens_the_steps(
         save_planes=[LENGTH],
         controller=PIController(rtol=1e-9, atol=1e-18),
     )
-    _, tight = run_to(backend_class, tightened, tightened_request, narrow_grid, LENGTH)
-    _, relaxed = run_to(backend_class, loose, loose_request, narrow_grid, LENGTH)
+    tight = run_to(backend_class, tightened, tightened_request, narrow_grid, LENGTH)
+    relaxed = run_to(backend_class, loose, loose_request, narrow_grid, LENGTH)
     assert tight.n_steps > relaxed.n_steps
 
 
@@ -876,25 +973,20 @@ def test_a_periodic_row_at_a_plane_is_the_plane_s_own_statistic(
     problem, run_request = with_channel(
         soliton_problem(narrow_grid, 1, save_planes=[LENGTH / 2, LENGTH])
     )
-    backend = backend_class(problem, run_request, grid=narrow_grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(LENGTH / 2)
-        observed = backend.observe()
-        at_plane = backend.stats(run_request.observation.stats)
-        rows = observed.step_stats
-        # At period one the last accepted step is the landing on the plane.
-        assert rows.step[-1] == observed.step_history.n_steps - 1
-        for name in PERIODIC:
-            np.testing.assert_allclose(
-                rows.values[name][-1],
-                at_plane[name],
-                rtol=STATISTICS_BOUND,
-                atol=0,
-                err_msg=name,
-            )
-    finally:
-        backend.close()
+    observed = run_to(backend_class, problem, run_request, narrow_grid, LENGTH / 2)
+    at_plane = observed.stats
+    rows = observed.step_stats
+    # At period one the last accepted step is the landing on the plane.
+    assert rows.step[-1] == observed.step_history.n_steps - 1
+    assert rows.z[-1] == LENGTH / 2
+    for name in PERIODIC:
+        np.testing.assert_allclose(
+            rows.values[name][-1],
+            at_plane[name],
+            rtol=STATISTICS_BOUND,
+            atol=0,
+            err_msg=name,
+        )
 
 
 def test_the_rows_stand_at_the_accepted_positions_of_the_history(
@@ -904,13 +996,7 @@ def test_the_rows_stand_at_the_accepted_positions_of_the_history(
     problem, run_request = with_channel(
         soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
     )
-    backend = backend_class(problem, run_request, grid=narrow_grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(LENGTH)
-        observed = backend.observe()
-    finally:
-        backend.close()
+    observed = run_to(backend_class, problem, run_request, narrow_grid, LENGTH)
     accepted = np.flatnonzero(observed.step_history.accepted)
     rows = observed.step_stats
     np.testing.assert_array_equal(rows.step, accepted)
@@ -938,16 +1024,12 @@ def test_a_run_with_the_channel_is_the_run_without(
                 narrow_grid, 1, save_planes=[LENGTH / 2, LENGTH], schedule=SCHEDULE
             )
         )
-        backend = backend_class(problem, run_request, grid=narrow_grid)
-        backend.set_initial(problem.initial.field0, None)
-        fields, histories = [], []
-        for plane in (LENGTH / 2, LENGTH):
-            backend.propagate_to(plane)
-            observed = backend.observe()
-            fields.append(observed.field)
-            histories.append(observed.step_history)
-        backend.close()
-        return fields, histories
+        _, *observed = planes(backend_class, problem, run_request, narrow_grid)
+        assert [plane.z for plane in observed] == [LENGTH / 2, LENGTH]
+        return (
+            [plane.field for plane in observed],
+            [plane.step_history for plane in observed],
+        )
 
     plain_fields, plain_history = run(lambda problem: problem)
     watched_fields, watched_history = run(

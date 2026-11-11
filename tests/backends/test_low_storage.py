@@ -47,7 +47,7 @@ from solprop.backends.host.driver import HostDriver
 from solprop.backends.low_storage import HostLowStorage, schedule_key, table_steps
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import resolve_name
-from solprop.backends.session import ExecutionOptions
+from solprop.backends.session import ExecutionOptions, Start
 from solprop.boundaries import absorber
 from solprop.constants import C
 from solprop.driver.scaffold import gnlse_source
@@ -1083,16 +1083,20 @@ def test_an_atomic_engine_commits_its_step_whole(lifecycle, narrow_grid, atomic)
     after the step: the backend is not in flight and stands at the step's end. The
     host engine runs Python between its passes, so there the signal abandons the step
     at once, in flight. The reference marches on the host engine alone (SEP 47 phase
-    2); the atomic engine is the native backend's, through the bridge's march.
+    2); the atomic engine is the native session's, whose replay is one native call a
+    step there: the signal is raised as the first step's attempt is reported, the
+    earliest Python runs after its native call.
     """
     from solprop._interrupts import handled  # noqa: PLC0415
 
     problem, run_request, length = lifecycle()
     if atomic:
         native = pytest.importorskip("solprop_native")
-        backend = native.NativeBackend(problem, run_request, grid=narrow_grid)
-    else:
-        backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
+        _native_signal_lands_after_the_step(
+            native.NativeBackend(problem, run_request, grid=narrow_grid), problem
+        )
+        return
+    backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     assert backend._low_storage is not None
     engine = backend._low_storage.engine
@@ -1111,16 +1115,37 @@ def test_an_atomic_engine_commits_its_step_whole(lifecycle, narrow_grid, atomic)
         backend.propagate_to(length)
     schedule = run_request.stepper.schedule
     assert schedule is not None
-    if atomic:
-        assert backend._in_flight is None
-        assert backend._z == float(schedule.edges[1])
-        assert backend.metadata()["source_evaluations"] == 4
+    assert backend._in_flight == (0.0, float(schedule.steps[0]))
+    with pytest.raises(BackendError, match="abandoned in flight"):
         backend.observe()
-    else:
-        assert backend._in_flight == (0.0, float(schedule.steps[0]))
-        with pytest.raises(BackendError, match="abandoned in flight"):
-            backend.observe()
     backend.close()
+
+
+def _native_signal_lands_after_the_step(backend, problem):
+    """Interrupt the native session's replay at its first attempt; it is committed."""
+    from solprop._interrupts import handled  # noqa: PLC0415
+
+    def interrupted(end, dz, accepted):
+        del end, dz, accepted
+        # Ctrl-C in-process; os.kill would terminate the process on Windows.
+        signal.raise_signal(signal.SIGINT)
+
+    schedule = backend.request.stepper.schedule
+    session = backend.prepare(problem, backend.request).start(
+        Start.entrance(problem), listener=interrupted
+    )
+    try:
+        # The launch plane, then the first step.
+        session.acknowledge(session.advance().receipt)
+        with handled(), pytest.raises(KeyboardInterrupt):
+            session.advance()
+        assert session.in_flight is None
+        status = session.status()
+        assert status.attempts == 1
+        assert status.z == float(schedule.edges[1])
+        assert session.execution_record()["source_evaluations"] == 4
+    finally:
+        session.close()
 
 
 def test_the_run_writes_no_checkpoint_from_a_step_in_flight(tmp_path, caplog):
@@ -1716,17 +1741,32 @@ def test_a_replay_that_runs_out_says_so(lifecycle, narrow_grid, name):
     # The reference's march, and the bridge's around the native resident engine.
     problem, run_request, length = lifecycle()
     if name == "native":
-        backend = pytest.importorskip("solprop_native").NativeBackend(
-            problem, run_request, grid=narrow_grid
-        )
-    else:
-        backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
+        native = pytest.importorskip("solprop_native")
+        _native_replay_runs_out(native, problem, run_request, narrow_grid, length)
+        return
+    backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     with pytest.raises(BackendError, match="cannot reach"):
         backend.propagate_to(length * 1.02)
     # Every step was taken and committed: nothing is left in flight.
     assert backend.observe().z == length
     backend.close()
+
+
+def _native_replay_runs_out(native, problem, run_request, grid, length):
+    """A native run whose last plane lies past its schedule is refused by name.
+
+    A session's planes are its itinerary, so the target past the schedule is a save
+    plane the schedule does not reach, which the run is refused before any step.
+    """
+    stepper = run_request.stepper
+    beyond = run_request.with_stepper(
+        dataclasses.replace(
+            stepper, save_planes=np.array([*stepper.save_planes, length * 1.02])
+        )
+    )
+    with pytest.raises(TranslationError, match="does not land on the save plane"):
+        native.NativeBackend(problem, beyond, grid=grid).close()
 
 
 def test_a_failure_record_that_cannot_be_written_keeps_the_original_error(caplog):

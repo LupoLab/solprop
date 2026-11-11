@@ -35,26 +35,21 @@ pass  evaluation      finish
 4     ``F4`` at end   ``A <- Q B + h/6 S``
 ====  ==============  ======================================================
 
-**The march** (:class:`LowStorageMarch`) replays a prescribed schedule and never
-rejects, so it accepts each step in place: from the step's start to its commit the
-backend is *in flight* (``StepDriver._in_flight``) and every entry that reads or
-advances the state refuses it, until ``StepDriver.set_initial`` loads a state again
-(SEP 24 section 6.2, ADR-050). It records no error estimate: the step history's norm
-is 0.0, "not estimated" (section 6.3). Divergence is detected on the accepted state's
-norm instead.
+**The march** (the reference's
+:class:`solprop.backends.host.low_storage.HostLowStorageMarch`; the native session's
+replay) replays a prescribed schedule and never rejects, so it accepts each step in
+place: from the step's start to its commit the backend is *in flight*
+(``HostDriver._in_flight``) and every entry that reads or advances the state refuses
+it, until a load replaces the state (SEP 24 section 6.2, ADR-050). It records no error
+estimate: the step history's norm is 0.0, "not estimated" (section 6.3). Divergence is
+detected on the accepted state's norm instead.
 
-**The engine** holds the registers and makes the passes (:class:`LowStorageEngine`); a
-backend may keep its own where its state lives (``StepDriver._low_storage_engine``).
+**The engine** holds the registers and makes the passes (:class:`LowStorageEngine`); the
+native backend keeps its own where its state lives (``_ResidentLowStorage``).
 :class:`HostLowStorage` is the host engine and the oracle, over the backend's
-``_adams_lab_source`` and ``_adams_propagator``.
-
-**The march is the native bridge's temporary copy.** Since SEP 47 phase 2,
-:class:`LowStorageMarch` serves only the native backend's inherited driver, as the
-bridge that keeps its execution working until its own session replaces it; the NumPy
-reference replays with its own copy
-(:class:`solprop.backends.host.low_storage.HostLowStorageMarch`) over the shared host
-engine, :class:`HostLowStorage`. :class:`LowStorageMarch` is removed with SEP 47's
-native session: the native backend leaves it in phase 3 and phase 5 deletes it.
+``_adams_lab_source`` and ``_adams_propagator``. The engines and the table keys
+(:func:`table_steps`, :func:`schedule_key`) are stateless numerical code the reference
+and the native backend share (SEP 47 Part III decision 5).
 
 References
 ----------
@@ -68,24 +63,18 @@ References
 
 import logging
 import math
-from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 
 import numpy as np
 from jaxtyping import Complex, Float
 
-from solprop._interrupts import committing
 from solprop.backends.host.driver import HostDriver
-from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule
-
-if TYPE_CHECKING:
-    from solprop.backends.driver import StepDriver
 
 __all__ = [
     "HostLowStorage",
     "LowStorageEngine",
-    "LowStorageMarch",
     "schedule_key",
     "table_steps",
 ]
@@ -163,7 +152,7 @@ def schedule_key(
     """Return the table key of the schedule step from `z`, from :func:`table_steps`.
 
     Found by position rather than by a step counter, which a lockstep member does not
-    advance (``LockstepRunner`` keeps the batch's).
+    advance (the reference's ``HostGroup`` keeps the group's).
 
     Parameters
     ----------
@@ -187,7 +176,7 @@ def schedule_key(
 
 @runtime_checkable
 class LowStorageEngine(Protocol):
-    """What :class:`LowStorageMarch` asks of the engine that holds its registers.
+    """What a low-storage march asks of the engine that holds its registers.
 
     Part of the kernel seam (schema 29): the march keeps the schedule, the commit and
     the records; an engine keeps the registers and the flow table and does every
@@ -241,12 +230,12 @@ class HostLowStorage:
 
     The backend's state is the register ``A`` and is updated in place; ``B`` and ``C``
     are this engine's host arrays, allocated at the first step. Each pass makes one
-    source evaluation through ``StepDriver._adams_lab_source`` (the complete source,
+    source evaluation through ``HostDriver._adams_lab_source`` (the complete source,
     the noise draw advanced to the pass's position and the in-stage absorbers
-    included) and takes ``P`` and ``Q`` from ``StepDriver._adams_propagator`` or the
+    included) and takes ``P`` and ``Q`` from ``HostDriver._adams_propagator`` or the
     table, allocating transients as the reference does. The step's three positions
     are known before its first pass, so their host scalars are read together
-    (``StepDriver._stage_bundles``) and the hooks take the kept bundles.
+    (``HostDriver._stage_bundles``) and the hooks take the kept bundles.
 
     **The flows.** ``"tabulate"`` on a constant operator holds one volume,
     ``exp(h_t D / 2)``, built at the first step after a load and reused while the
@@ -494,205 +483,3 @@ def _masked_norm(values: _State, mask: np.ndarray) -> float:
         The norm, in the array's units.
     """
     return float(np.linalg.norm(values[..., mask]))
-
-
-class LowStorageMarch:
-    """Replay a schedule with the low-storage RK4IP march, accepting in place.
-
-    Follows :class:`solprop.backends.multistep.AdamsMarch`: it owns its registers
-    through an engine and replays a prescribed schedule, which is the only thing it
-    does (SEP 24 section 6.2). Each step calls the engine, applies the backend's
-    ``_finish`` (the hard band mask, and the split-step collar where chosen) and moves
-    the position in one commit, then records the step through the backend.
-
-    Parameters
-    ----------
-    backend : solprop.backends.driver.StepDriver
-        The backend whose state is marched; it owns the step history and the
-        statistics rows.
-    method : solprop.stepper.low_storage.LowStorageRungeKutta
-        The march.
-
-    Attributes
-    ----------
-    source_evaluations : int
-        Source evaluations of the committed steps since the state was last loaded
-        (``StepDriver.set_initial``, which sets it to zero), four a step: a physical
-        count, never a logical response call (SEP 24 section 5). A step that did not
-        commit -- abandoned in flight, or diverged -- adds none.
-
-    Notes
-    -----
-    The march serves the native bridge alone, whose engine is resident and atomic:
-    each step is one native call, so the step, the finish and the move commit
-    together. The resident engine forms no stiffness indicator; the reference's
-    march (:class:`solprop.backends.host.low_storage.HostLowStorageMarch`) warns on
-    the host engine's.
-    """
-
-    def __init__(
-        self,
-        backend: "StepDriver[Any]",  # noqa: UP037 - lazy bridge type
-        method: LowStorageRungeKutta,
-    ) -> None:
-        """Hold the backend and its engine."""
-        self._backend = backend
-        self._method = method
-        self._engine = cast("LowStorageEngine", backend._low_storage_engine(method))
-        self.source_evaluations = 0
-
-    @property
-    def engine(self) -> LowStorageEngine:
-        """Return the engine that holds the registers.
-
-        Returns
-        -------
-        LowStorageEngine
-            The backend's resident engine.
-        """
-        return self._engine
-
-    def reset(self) -> None:
-        """Forget what the engine holds: the state was loaded outside the march."""
-        self._engine.reset()
-
-    def snapshot(self) -> None:
-        """Return nothing for a resume to continue: the march keeps no history.
-
-        A resume at a schedule edge needs no history and no recycled stage
-        (SEP 24 section 5), as under ``RungeKutta()``.
-        """
-        return
-
-    def replay_to(self, schedule: FixedSchedule, target: float) -> None:
-        """Replay the schedule's steps to `target`, mirroring the Adams replay.
-
-        Parameters
-        ----------
-        schedule : solprop.stepper.schedule.FixedSchedule
-            The schedule to replay.
-        target : float
-            Position to reach, m.
-
-        Raises
-        ------
-        BackendError
-            If the schedule runs out before the target is reached.
-        """
-        from solprop.backends.driver import replay_tolerance  # noqa: PLC0415 - bridge
-
-        backend = self._backend
-        edges = schedule.edges
-        slack = replay_tolerance(schedule, target)
-        while (
-            backend._schedule_index < schedule.n_steps and backend._z < target - slack
-        ):
-            backend._poll_stop()
-            dz = float(schedule.steps[backend._schedule_index])
-            end = float(edges[backend._schedule_index + 1])
-            norm = self.replay_step(dz, end, slack)
-            backend._schedule_index += 1
-            backend._record(end, dz, norm, accepted=True)
-            backend._accepted_norms.append(norm)
-            backend._take_step_stats()
-            if backend._natural_stop(target):
-                return
-        if backend._z < target - slack:
-            msg = (
-                f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
-                f"cannot reach z = {target:.6g} m"
-            )
-            raise BackendError(msg)
-
-    def replay_step(self, dz: float, end: float, slack: float) -> float:
-        """Take one prescribed step from the backend's position and accept it.
-
-        The unit a lockstep batch advances each member by
-        (:class:`solprop.backends.batch.LockstepRunner`), with
-        :meth:`solprop.backends.multistep.AdamsMarch.replay_step`'s signature.
-
-        Parameters
-        ----------
-        dz : float
-            The step, m.
-        end : float
-            The schedule's edge it ends on, m.
-        slack : float
-            How far an edge may sit from a target it lands on, m; unused, since the
-            march restarts nothing at a kink.
-
-        Returns
-        -------
-        float
-            The norm the history records: 0.0, "not estimated".
-
-        Raises
-        ------
-        BackendError
-            If an earlier step was abandoned in flight.
-        ConvergenceError
-            If the accepted state is not finite: the field has diverged, and a replay
-            cannot reject the step. Raised in flight, so the state is lost with it.
-        """
-        del slack
-        backend = self._backend
-        backend._refuse_in_flight()
-        z = backend._z
-        backend._in_flight = (z, dz)
-        # One native call: a signal waits for its return anyway, so the step, the
-        # finish and the move commit together (SEP 24 section 6.7).
-        with committing():
-            self._move(self._accept(z, dz, self._engine.step(z, dz)), end)
-        return 0.0
-
-    def _move(self, finished: object, end: float) -> None:
-        """Make the finished state the backend's at the step's end; clear the flag.
-
-        Parameters
-        ----------
-        finished : object
-            The state after the backend's ``_finish``.
-        end : float
-            The schedule's edge the step ends on, m.
-        """
-        backend = self._backend
-        backend._state = finished
-        backend._z = end
-        backend._in_flight = None
-        self.source_evaluations += self._method.evaluations
-
-    def _accept(self, z: float, dz: float, squared: float) -> object:
-        """Refuse a diverged step, or apply the backend's finish to the state.
-
-        Parameters
-        ----------
-        z : float
-            Where the step started, m.
-        dz : float
-            The step, m.
-        squared : float
-            The accepted state's squared norm the engine returned.
-
-        Returns
-        -------
-        object
-            The state after the backend's ``_finish``.
-
-        Raises
-        ------
-        ConvergenceError
-            If `squared` is not finite.
-        """
-        backend = self._backend
-        if not math.isfinite(squared):
-            msg = (
-                f"{backend.name}: a replayed {self._method.name} step of {dz:.4g} m "
-                f"from z = {z:.6g} m ended in a non-finite state: the field has "
-                "diverged. A replayed schedule takes its steps as given and cannot "
-                "reject one, so a step beyond an explicit stability limit -- the "
-                "in-stage collars' -- grows until it overflows; the translation "
-                "refuses a declared step past the collars' limit. The state was "
-                "accepted in place and is lost; take shorter steps"
-            )
-            raise ConvergenceError(msg)
-        return backend._finish(backend._state, dz)

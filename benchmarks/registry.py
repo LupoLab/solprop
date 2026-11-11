@@ -727,7 +727,7 @@ _SEP47 = (
         )
         for modes, route in (
             (4, "the native Adams march on the flow's eigenbasis route"),
-            (17, "wider than 16 channels, solprop's host march"),
+            (17, "wider than 16 channels, the native Adams march's channel rows"),
         )
     ),
 )

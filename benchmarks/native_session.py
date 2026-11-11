@@ -2,26 +2,21 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Compare the native execution session with the driver session, in process.
+"""Measure the native execution session's own costs, in process.
 
-SEP 47 section 7.4's readiness evidence for the phase 1 prototype
+SEP 47 section 7.3's structural evidence for the native session
 (:class:`solprop_native.session.NativeSession`): a ``sep47`` case is built as the
-worker builds it (``benchmarks.builders.build``) and run to its end, alternately, by
-the driver session over the native backend
-(:class:`~solprop.backends.driver_session.DriverSession`) and by the native session,
-each through the same minimal service loop -- advance, keep each observation's
-statistics and rows, export a kept plane's field once, acknowledge -- so that the
-difference is the sessions' own. The production run loop
-(:func:`solprop.driver.run.run_problem`) is not used: it serves the driver session
-only, and the native session is an explicit opt-in here and in the tests.
+worker builds it (``benchmarks.builders.build``) and run to its end through a minimal
+service loop -- advance, keep each observation's statistics and rows, export a kept
+plane's field once, acknowledge -- so that what is measured is the session's own. The
+transitional driver session it was first compared with was deleted in SEP 47's phase 5;
+the paired timings of Part II are the record of that comparison.
 
-Each run reports its wall time, the time inside the native calls it makes (the march
-calls and exports of the driver's backend, the native session's ``advance`` and
-``export``) and the Python time outside them, its returns to Python by cause, the
-field bytes it exported, the bytes through the state's crossings each way (a device
-build's transfers) and its peak traced Python memory. On a device build both sessions
-run on the device (SEP 47 phase 3's representative path). Run it pinned, once per
-thread setting (threads are read at import)::
+Each run reports its wall time, the time inside the native session's ``advance`` and
+``export`` and the Python time outside them, its returns to Python by cause, the field
+bytes it exported, the bytes through the state's crossings each way (a device build's
+transfers) and its peak traced Python memory. On a device build the session runs on
+the device. Run it pinned, once per thread setting (threads are read at import)::
 
     SOLPROP_THREADS=1 taskset -c CPUS python -m benchmarks.native_session \\
         stats_period1_rk --repeats 7
@@ -53,8 +48,7 @@ _TIMED = frozenset(
         "export",
     }
 )
-"""The native calls whose time counts as native: the marches, the statistics and the
-field crossings of the driver's backend, and the native session's own calls."""
+"""The native calls whose time counts as native: the native session's own calls."""
 
 
 class _Timed:
@@ -95,8 +89,8 @@ def _prepare(name: str, fraction: float, *, admitted: bool) -> tuple[Any, Any, A
     """Build and translate a case as the worker does; return it and its request.
 
     With `admitted` the case runs noiseless and keeps only the statistics the native
-    session admits, for both executors alike: a narrower workload than the tracked
-    case, for a case whose noise model or statistics the prototype refuses.
+    session admits: a narrower workload than the tracked case, for a case whose noise
+    model or statistics the session refuses.
     """
     from benchmarks.builders import build  # noqa: PLC0415
     from benchmarks.registry import CASES  # noqa: PLC0415
@@ -138,45 +132,27 @@ def _prepare(name: str, fraction: float, *, admitted: bool) -> tuple[Any, Any, A
     return simulation, problem, request.for_run(retention=retention, stats=stats)
 
 
-def _start(
-    executor: str, simulation: Any, problem: Any, request: Any
-) -> tuple[Any, Any]:
-    """Start one session of `executor`; return it and its timed native object."""
+def _start(simulation: Any, problem: Any, request: Any) -> tuple[Any, Any]:
+    """Start one native session; return it and its timed native object."""
+    from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        NativeSession,
+    )
+
     from solprop.backends.session import Start  # noqa: PLC0415
 
     start = Start(field=problem.initial.field0, z=float(problem.initial.z))
-    if executor == "native-session":
-        from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-            NativeSession,
-        )
-
-        session: Any = NativeSession(
-            problem,
-            request,
-            start,
-            grid=simulation.grid,
-            modes=simulation.modes,
-            profiles=simulation.profiles,
-            options=simulation.settings.execution_options(),
-        )
-        timed = _Timed(session._native)
-        session._native = timed
-        return session, timed
-    from solprop.backends.driver_session import DriverSession  # noqa: PLC0415
-    from solprop.backends.registry import select  # noqa: PLC0415
-
-    backend: Any = select(
-        "native",
+    session: Any = NativeSession(
         problem,
         request,
+        start,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
         options=simulation.settings.execution_options(),
     )
-    timed = _Timed(backend._native_state)
-    backend._native_state = timed
-    return DriverSession(backend, problem, request, start), timed
+    timed = _Timed(session._native)
+    session._native = timed
+    return session, timed
 
 
 def _serve(session: Any, request: Any) -> tuple[int, Counter[str], int]:
@@ -219,19 +195,17 @@ def _serve(session: Any, request: Any) -> tuple[int, Counter[str], int]:
 
 
 def _once(
-    executor: str, simulation: Any, problem: Any, request: Any, *, count: bool = False
+    simulation: Any, problem: Any, request: Any, *, count: bool = False
 ) -> dict[str, Any]:
     """Run one session to its end; return its timings and, with `count`, its counts.
 
-    The driver's structural counters hook every attempt, so a counted run is not one
-    of the timed ones; both sessions are counted the same way
-    (:mod:`solprop_native._counters`).
+    A counted run is not one of the timed ones (:mod:`solprop_native._counters`).
     """
     from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
         _counters,
     )
 
-    session, timed = _start(executor, simulation, problem, request)
+    session, timed = _start(simulation, problem, request)
     counters = _counters.enable() if count else None
     try:
         started = time.perf_counter()
@@ -240,10 +214,9 @@ def _once(
     finally:
         if counters is not None:
             _counters.disable()
-    # The field bytes through the state's crossings, each way (SEP 44), on either
-    # session: a device's plane exports and loads, or a host build's copies.
-    state = session._backend._native_state if executor == "native-session" else timed
-    to_host, from_host = state.crossed_bytes()
+    # The field bytes through the state's crossings, each way (SEP 44): a device's
+    # plane exports and loads, or a host build's copies.
+    to_host, from_host = session._backend._native_state.crossed_bytes()
     record: dict[str, Any] = {
         "crossed_to_host": int(to_host),
         "crossed_from_host": int(from_host),
@@ -262,15 +235,15 @@ def _once(
         record["march_calls"] = counted["march_calls"]
         record["field_bytes"] = counted["field_bytes"]
         record["statistics_rows"] = counted["statistics_rows"]
-    if count and executor == "native-session":
+    if count:
         record["buffer_bytes"] = session.native.status().buffer_bytes
     session.close()
     return record
 
 
-def _traced(executor: str, simulation: Any, problem: Any, request: Any) -> int:
+def _traced(simulation: Any, problem: Any, request: Any) -> int:
     """Run once under tracemalloc; return the peak traced Python memory, bytes."""
-    session, _ = _start(executor, simulation, problem, request)
+    session, _ = _start(simulation, problem, request)
     tracemalloc.start()
     try:
         _serve(session, request)
@@ -284,14 +257,14 @@ def _traced(executor: str, simulation: Any, problem: Any, request: Any) -> int:
 def measure(
     name: str, repeats: int, fraction: float = 1.0, *, admitted: bool = False
 ) -> dict[str, Any]:
-    """Time `repeats` interleaved pairs of a case; return medians and the last counts.
+    """Time `repeats` runs of a case; return medians and the last run's counts.
 
     Parameters
     ----------
     name : str
         A ``sep47`` case.
     repeats : int
-        Interleaved pairs after one warm-up of each, alternating which runs first.
+        Timed runs after one warm-up.
     fraction : float, optional
         The fraction of the case's length to run.
     admitted : bool, optional
@@ -300,18 +273,14 @@ def measure(
     Returns
     -------
     dict
-        Per executor: the median, minimum and spread of the wall, native and Python
-        seconds, and the last run's counts.
+        Under ``"native-session"``: the median, minimum and spread of the wall,
+        native and Python seconds, and the last run's counts.
     """
     simulation, problem, request = _prepare(name, fraction, admitted=admitted)
-    executors = ("driver", "native-session")
-    for executor in executors:
-        _once(executor, simulation, problem, request)
-    runs: dict[str, list[dict[str, Any]]] = {executor: [] for executor in executors}
-    for index in range(repeats):
-        order = executors if index % 2 == 0 else executors[::-1]
-        for executor in order:
-            runs[executor].append(_once(executor, simulation, problem, request))
+    _once(simulation, problem, request)
+    runs = {
+        "native-session": [_once(simulation, problem, request) for _ in range(repeats)]
+    }
     from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
         build_info,
     )
@@ -334,11 +303,11 @@ def measure(
                 "min": min(values),
                 "max": max(values),
             }
-        last = _once(executor, simulation, problem, request, count=True)
+        last = _once(simulation, problem, request, count=True)
         summary.update(
             {key: value for key, value in last.items() if not key.endswith("seconds")}
         )
-        summary["peak_traced_bytes"] = _traced(executor, simulation, problem, request)
+        summary["peak_traced_bytes"] = _traced(simulation, problem, request)
         result[executor] = summary
     return result
 

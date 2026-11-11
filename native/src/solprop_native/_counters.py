@@ -14,12 +14,12 @@ edge read, field crossing or load, low-storage or group step and native session
 own loop's attempts and periodic rows) are installed on ``NativeBackend`` by
 :func:`enable` and removed by :func:`disable`. Its numbers are unchanged either way.
 
-The same record covers both ways a native run is served -- the transitional bridge
-(:class:`~solprop.backends.driver_session.DriverSession` over ``NativeBackend`` and its
-native marches) and the native execution session
-(:class:`~solprop_native.session.NativeSession`) -- so that the two can be compared
-key for key. A key keeps one meaning on both; where the two differ in kind, the
-session's own key starts ``session_``.
+The record covers the native execution session
+(:class:`~solprop_native.session.NativeSession`), which serves every native run since
+solprop SEP 47 phase 5, and keeps the keys the transitional bridge it replaced was
+counted under (``NativeBackend``'s own marches, called from Python), so that a record
+taken before phase 5 can be compared with one after key for key; the session's own
+keys start ``session_``.
 
 What is counted, and where:
 
@@ -31,9 +31,8 @@ What is counted, and where:
   collar's per-step current, or a read of the transverse edge that fell due by
   distance, ``transverse_read``). Several causes due together are joined with ``+``.
 - **Python-stepped attempts**: every attempt the driver's own loop records (a host
-  march, a replay, the low-storage march and a lockstep group's members), each one or
-  more native calls the counters do not split. The low-storage engine's steps and a
-  native group's lockstep steps are also counted as such.
+  march, a replay and the low-storage march), each one or more native calls the
+  counters do not split. The low-storage engine's steps are also counted as such.
 - **Native session batches**: every ``advance`` of a native session, each one return
   to Python, by its event -- ``session_observation``, ``session_snapshot`` (a
   requested snapshot serviced), ``session_warning``, ``session_terminal``, or
@@ -58,7 +57,7 @@ What is counted, and where:
   served from the first and not counted) and ``snapshot`` (a native session's copy of
   the Adams state and history).
 - **Fields loaded into the native state** with their bytes, by where: ``start``
-  (``NativeBackend.set_initial``: a run's start or resume, on either path) and
+  (``NativeBackend._load``: a run's start or resume, or a timing probe's) and
   ``restore`` (the Adams march's reload after a dense observation or at a method
   history's restore). solprop's host Adams engine reloads its masked state at each
   step, which is not counted: its ``step`` crossings mark that route.
@@ -74,7 +73,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-from solprop.backends.driver import StepDriver
 
 __all__ = ["Counters", "active", "disable", "enable"]
 
@@ -103,13 +101,8 @@ class Counters:
     low_storage_steps : int
         Low-storage engine steps, among the host attempts.
     group_steps : int
-        Lockstep steps of a native group, each covering every member's attempt and
-        each a return to Python.
-    group_attempts : int
-        Member attempts those steps covered, among the host attempts.
-    session_group_steps : int
         Common steps of the native group session, which returns per window, not per
-        step; the record's ``group_steps`` counts both kinds.
+        step.
     planes : int
         ``propagate_to`` calls, or a native session's observations: one per saved
         plane after the launch.
@@ -139,8 +132,6 @@ class Counters:
     host_accepted: int = 0
     low_storage_steps: int = 0
     group_steps: int = 0
-    group_attempts: int = 0
-    session_group_steps: int = 0
     planes: int = 0
     statistics_rows: int = 0
     statistics_evaluations: int = 0
@@ -185,11 +176,6 @@ class Counters:
                 causes = ["transverse_read"]
             name += ":" + ("+".join(causes) or "unattributed")
         self.returns[name] += 1
-
-    def group_step(self, members: int) -> None:
-        """Count one lockstep step of a native group of `members`."""
-        self.group_steps += 1
-        self.group_attempts += members
 
     def session_batch(
         self,
@@ -236,7 +222,7 @@ class Counters:
 
     def group_window(self, steps: int) -> None:
         """Count the common steps of one window of the native group session."""
-        self.session_group_steps += steps
+        self.group_steps += steps
 
     def crossing(self, where: str, nbytes: int) -> None:
         """Count one field copied to the host."""
@@ -253,14 +239,12 @@ class Counters:
 
         ``native_returns`` is every return to Python by cause: the marches' reasons
         and the native sessions' batches, then ``host_attempt`` for solprop's own
-        loop, less the low-storage steps and group members it also counts, and
-        ``low_storage_step`` and ``group_step``.
+        loop, less the low-storage steps it also counts, and ``low_storage_step``.
         """
-        host = self.host_attempts - self.low_storage_steps - self.group_attempts
+        host = self.host_attempts - self.low_storage_steps
         loops = {
             "host_attempt": host,
             "low_storage_step": self.low_storage_steps,
-            "group_step": self.group_steps,
         }
         returns = dict(sorted(self.returns.items())) | {
             name: count for name, count in loops.items() if count
@@ -273,7 +257,7 @@ class Counters:
             "march_attempts": self.march_attempts,
             "host_attempts": self.host_attempts,
             "low_storage_steps": self.low_storage_steps,
-            "group_steps": self.group_steps + self.session_group_steps,
+            "group_steps": self.group_steps,
             "planes": self.planes,
             "statistics_rows": self.statistics_rows,
             "statistics_evaluations": self.statistics_evaluations,
@@ -289,43 +273,15 @@ active: Counters | None = None
 """The counters the hooks add to, or ``None`` when counting is off."""
 
 
-def _record(self: Any, z: float, dz: float, norm: float, accepted: bool) -> None:
-    """``StepDriver._record``, counting the attempt: installed while counting."""
-    StepDriver._record(self, z, dz, norm, accepted)  # pyright: ignore[reportPrivateUsage, reportUnknownMemberType] - the hook replaces it
-    if active is not None:
-        active.host_attempts += 1
-        active.host_accepted += int(accepted)
-
-
-def _record_step_stats(self: Any, spec: Any, z: float, step: int) -> None:
-    """``StepDriver._record_step_stats``, counting the row: installed while counting."""
-    StepDriver._record_step_stats(self, spec, z, step)  # pyright: ignore[reportPrivateUsage, reportUnknownMemberType] - the hook replaces it
-    if active is not None:
-        active.statistics_rows += 1
-
-
-_HOOKS = {"_record": _record, "_record_step_stats": _record_step_stats}
-"""The per-attempt hooks :func:`enable` installs on ``NativeBackend``."""
-
-
 def enable() -> Counters:
     """Start counting into fresh counters and return them."""
     global active
-    from .backend import NativeBackend
-
-    for name, hook in _HOOKS.items():
-        setattr(NativeBackend, name, hook)
     active = Counters()
     return active
 
 
 def disable() -> Counters | None:
-    """Stop counting and remove the hooks; return the counters that were active."""
+    """Stop counting; return the counters that were active."""
     global active
-    from .backend import NativeBackend
-
-    for name, hook in _HOOKS.items():
-        if NativeBackend.__dict__.get(name) is hook:
-            delattr(NativeBackend, name)
     found, active = active, None
     return found

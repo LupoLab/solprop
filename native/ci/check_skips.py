@@ -38,6 +38,7 @@ EXPECTED: tuple[str, ...] = (
     r"a machine's helper hosts its kernel on Linux and macOS, not Windows",
     # A platform's own branch, on the other platforms.
     r"the real Windows query",
+    r"NumPy's interp may fuse off x86-64",
     # Other backends and packages a lane doesn't install.
     r"Pyroraptor at the pinned revision is not installed",
     # A lane on native has its wheel; these are the no-native lane's.
@@ -55,6 +56,8 @@ EXPECTED: tuple[str, ...] = (
     # The parametrization reaches a case its subject excludes.
     r"the interaction formulation is refused beside a coupled flow",
     r"the translation refuses dense output beside the modified noise",
+    r"the replay's half-millimetre steps exceed the split collar's crossing limit the "
+    r"input noise sets at the launch, which refuses the run there",
     r"this case took the expansion",
     r"this case took the constant fast path",
     r"a process SEP is structured by its subject",

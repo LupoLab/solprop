@@ -25,6 +25,7 @@ from backends.test_native_dispersive_kerr import (
     native_evaluation,
     reference_evaluation,
 )
+from sessions.runs import native_source
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore::solprop.exceptions.MaterialRangeWarning"
@@ -84,8 +85,7 @@ def test_the_embedded_rule_is_finished_once_and_only_where_it_exists(evaluator):
     assert embedded(problem)
     backend = NativeBackend(problem, run_request, grid=simulation.grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend._adams_lab_source(problem.initial.field0[None], 0.0)
+        native_source(backend, problem.initial.field0)
         native = backend._native_state
         fine = np.array(native.projected_to_host(False))
         landed = np.array(native.projected_to_host(True))
@@ -98,8 +98,7 @@ def test_the_embedded_rule_is_finished_once_and_only_where_it_exists(evaluator):
     assert not embedded(radial_problem)
     backend = NativeBackend(radial_problem, radial_request, grid=grid)
     try:
-        backend.set_initial(radial_problem.initial.field0, None)
-        backend._adams_lab_source(radial_problem.initial.field0[None], 0.0)
+        native_source(backend, radial_problem.initial.field0)
         native = backend._native_state
         before = np.array(native.projected_to_host(False))
         assert np.any(before)

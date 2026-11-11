@@ -100,7 +100,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <path d="M312.0,283.5 L312.0,311.5" class="arrow" />
 <path d="M312.0,311.5 L308.4,302.5 L315.6,302.5 Z" class="head" />
 <rect x="32" y="317.5" width="560.0" height="66.0" rx="7" ry="7" class="fill-b" />
-<text x="42.0" y="339.5" font-size="15" class="bold ink-b">StepDriver.propagate_to(z_save)</text>
+<text x="42.0" y="339.5" font-size="15" class="bold ink-b">session.advance() to z_save</text>
 <text x="42.0" y="355.0" font-size="12" class="dim">the march, the replay, the landing, the controller,</text>
 <text x="42.0" y="370.5" font-size="12" class="dim">the history, the noise, the per-stage bundle</text>
 <rect x="782.0" y="317.5" width="386.0" height="50.5" rx="7" ry="7" class="fill-b" />
@@ -108,7 +108,8 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="792.0" y="355.0" font-size="12" class="dim">z, n_steps, n_rejected, max_norm, mean_norm, wall_time</text>
 <path d="M598.0,350.5 L776.0,350.5" class="arrow" />
 <path d="M776.0,350.5 L767.0,354.1 L767.0,346.9 Z" class="head" />
-<text x="687.0" y="366.5" font-size="12" class="mid dim">shared Python step loop</text>
+<text x="687.0" y="366.5" font-size="12" class="mid dim">HostDriver for numpy_ref;</text>
+<text x="687.0" y="382.0" font-size="12" class="mid dim">native's session</text>
 <path d="M312.0,389.5 L312.0,417.5" class="arrow" />
 <path d="M312.0,417.5 L308.4,408.5 L315.6,408.5 Z" class="head" />
 <rect x="32" y="423.5" width="560.0" height="66.0" rx="7" ry="7" class="fill-d" />

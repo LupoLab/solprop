@@ -23,12 +23,13 @@ import pytest
 from driver.test_field_free_planes import cartesian, low_storage
 from driver.test_runner import capillary
 from solprop import fourier
-from solprop.backends.driver import StepDriver
 from solprop.backends.events import ObservationReady
 from solprop.backends.export import ExportRecipe
 from solprop.backends.host.driver import HostDriver
+from solprop.backends.host.session import HostSession
 from solprop.backends.numpy_ref.single import NumpySingleBackend
 from solprop.backends.protocol import Backend, BackendHistory, Observation
+from solprop.backends.protocol import stepping as host_stepping
 from solprop.backends.registry import available, select
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -103,6 +104,32 @@ CASES: dict[str, Callable[[str], Simulation]] = {
 }
 
 
+def exported_fields(monkeypatch: pytest.MonkeyPatch) -> list[np.ndarray]:
+    """Collect the array each session export returns, in order, for this test.
+
+    The reference session and the native session both hand a plane's field over by
+    export; the list holds what each call returned.
+    """
+    returned: list[np.ndarray] = []
+
+    def spied(export: Callable[..., np.ndarray]) -> Callable[..., np.ndarray]:
+        def recorded(session: object, *args: object, **kwargs: object) -> np.ndarray:
+            result = export(session, *args, **kwargs)
+            returned.append(result)
+            return result
+
+        return recorded
+
+    monkeypatch.setattr(HostSession, "export", spied(HostSession.export))
+    if "native" in available():
+        from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+            NativeSession,
+        )
+
+        monkeypatch.setattr(NativeSession, "export", spied(NativeSession.export))
+    return returned
+
+
 @pytest.mark.parametrize("backend", available())
 @pytest.mark.parametrize("case", CASES)
 def test_a_kept_plane_never_changes(backend, case):
@@ -144,28 +171,19 @@ def test_a_kept_plane_survives_the_field_free_planes_after_it(backend):
 
 
 @pytest.mark.parametrize("backend", available())
-def test_a_run_hands_over_the_observation_itself(backend, monkeypatch):
-    """No copy on the way to the handler, on a route with no conversion of units."""
+def test_a_run_hands_over_the_exported_field_itself(backend, monkeypatch):
+    """No copy after the session's export, on a route with no conversion of units."""
     simulation = cartesian(backend)
-    observed: list[Observation] = []
+    exported = exported_fields(monkeypatch)
     shared: list[bool] = []
 
     class Sharing(MemoryOutput):
         def save(self, plane: SavedPlane) -> None:
             assert plane.field is not None
-            shared.append(np.shares_memory(plane.field, observed[-1].field))
+            shared.append(np.shares_memory(plane.field, exported[-1]))
             super().save(plane)
 
-    with simulation.runner() as runner:
-        observe = runner.backend.observe
-
-        def watched(*, field: bool = True) -> Observation:
-            observation = observe(field=field)
-            observed.append(observation)
-            return observation
-
-        monkeypatch.setattr(runner.backend, "observe", watched)
-        runner.run(simulation._field0.copy(), output=Sharing(), progress="none")
+    simulation.run(output=Sharing(), progress="none")
     assert shared
     assert all(shared)
 
@@ -225,21 +243,16 @@ STORED: dict[str, Callable[[str], Simulation]] = {
 def _copied_observations(monkeypatch: pytest.MonkeyPatch) -> list[np.ndarray]:
     """Copy each observed field as its backend returned it, before any conversion."""
     copies: list[np.ndarray] = []
-    # The reference's driver and the native bridge's each observe for themselves.
-    for driver in (StepDriver, HostDriver):
+    # The reference's driver observes for its session.
+    observe: Callable[..., Observation] = HostDriver.observe
 
-        def copying(
-            self: StepDriver | HostDriver,
-            *,
-            field: bool = True,
-            observe: Callable[..., Observation] = driver.observe,
-        ) -> Observation:
-            observation = observe(self, field=field)
-            if observation.field is not None:
-                copies.append(np.array(observation.field))
-            return observation
+    def copying(self: HostDriver, *, field: bool = True) -> Observation:
+        observation = observe(self, field=field)
+        if observation.field is not None:
+            copies.append(np.array(observation.field))
+        return observation
 
-        monkeypatch.setattr(driver, "observe", copying)
+    monkeypatch.setattr(HostDriver, "observe", copying)
     # The native session observes its resident state: the identity export is that
     # state, copied, at each observation it reports.
     if importlib.util.find_spec("solprop_native") is not None:
@@ -302,28 +315,27 @@ def _observed_at_its_first_plane(
     problem = simulation.translate()
     run_request = simulation._run_request()
     backend = select(name, problem, run_request, grid=simulation.grid)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(float(run_request.stepper.save_planes[0]))
-    return problem, backend, backend.observe()
+    host_stepping(backend).set_initial(problem.initial.field0, None)
+    host_stepping(backend).propagate_to(float(run_request.stepper.save_planes[0]))
+    return problem, backend, host_stepping(backend).observe()
 
 
-@pytest.mark.parametrize("backend", available())
+@pytest.mark.parametrize("precision", ["double", "single"])
 @pytest.mark.parametrize("case", ["modal", "single-mode"])
 def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(
-    backend, case, monkeypatch
+    precision, case
 ):
-    """The session converts an owned field where it is; the reference's is detached.
+    """The session converts an owned field where it is; a borrowed one is detached.
 
-    The transitional session's own conversion of a driver's observation: a native
-    backend is held to it on the bridge, which still serves what the native session
-    refuses; the native session exports from its resident state instead.
+    The reference session's own conversion of its driver's observation: the widened
+    single-precision state is a fresh, owned array, the binary64 state the driver's
+    own. The native session exports from its resident state instead
+    (``tests/sessions/test_destination_export.py``).
     """
-    if backend == "native":
-        # The prepared execution's choice, made to refuse: the bridge serves the run.
-        monkeypatch.setattr(
-            "solprop_native.session.session_refusal", lambda *_: "the test's bridge"
-        )
+    backend = "numpy_ref"
     simulation = STORED[case](backend)
+    if precision == "single":
+        simulation = _single(simulation)
     problem = simulation.translate()
     run_request = simulation._run_request()
     stepping = select(
@@ -336,7 +348,7 @@ def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(
     )
     raws: list[np.ndarray] = []
     seen: list[Observation] = []
-    observe = stepping.observe
+    observe = host_stepping(stepping).observe
 
     def recorded(*, field: bool = True) -> Observation:
         observation = observe(field=field)
@@ -361,7 +373,7 @@ def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(
                 break
             session.acknowledge(batch.receipt)
         held = session.export(event.ticket, ExportRecipe(power=True, optics=False))
-        owned = backend == "native"
+        owned = precision == "single"
         assert seen[-1].field_owned is owned
         expected = power_amplitude(raws[-1], power_weight_at(problem, event.z))
         assert held.tobytes() == expected.tobytes()

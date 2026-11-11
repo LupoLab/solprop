@@ -20,7 +20,6 @@ __all__ = [
     "axis_populations",
     "axis_refusal",
     "axis_row_matrix",
-    "axis_row_populations",
     "axis_statistics",
     "population_statistics",
 ]
@@ -212,8 +211,7 @@ def axis_populations(
 
     The one implementation every backend uses, on the host: the axis is one row per
     saved plane, against every node of every stage, so its scan costs nothing a
-    backend would compile. A device reads only the row
-    (:func:`axis_row_populations`). The field is the same as the node fields' -- the
+    backend would compile. The field is the same as the node fields' -- the
     same pad scale, taper and fine grid -- with both Cartesian components of the mode
     profiles, as for ``peak_intensity``; when the state carries the components itself,
     the profile's magnitude on the axis is the scalar synthesis. The tables,
@@ -229,7 +227,7 @@ def axis_populations(
         Plane position in m.
     axis : numpy.ndarray
         The mode set's synthesis on the axis at `z`, taper included, rows x and y
-        (``StepDriver._on_axis_synthesis``).
+        (``HostDriver._on_axis_synthesis``).
 
     Returns
     -------
@@ -261,7 +259,7 @@ def axis_row_matrix(
         The translated problem.
     axis : numpy.ndarray
         The mode set's synthesis on the axis at this position, taper included, rows x
-        and y (``StepDriver._on_axis_synthesis``).
+        and y (``HostDriver._on_axis_synthesis``).
 
     Returns
     -------
@@ -273,38 +271,6 @@ def axis_row_matrix(
     if problem.shape[1] == 1:
         return scaled
     return np.hypot(scaled[0], scaled[1])[None]
-
-
-def axis_row_populations(
-    problem: PropagationProblem,
-    spectrum: Complex[np.ndarray, "1 n_components n_omega"],
-    z: float,
-) -> tuple[Float[np.ndarray, " n_channels"], Float[np.ndarray, " n_channels"]]:
-    """Scan the axis row from its spectrum, for a backend that reads only that row.
-
-    The synthesis is linear, so a row synthesised before the time transform is the row
-    :func:`axis_populations` synthesises after it, to rounding, and the state need not
-    leave the device for it.
-
-    Parameters
-    ----------
-    problem : PropagationProblem
-        The translated problem.
-    spectrum : numpy.ndarray
-        The :func:`axis_row_matrix` rows contracted with the modal state, one column for
-        each row and polarisation, in V/m on the coarse frequency axis.
-    z : float
-        Plane position in m.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        The final ionised fraction and the largest rate (cycle-averaged on an envelope
-        grid) on the axis, one per channel.
-    """
-    grids = problem.grids
-    row = passes.to_time(spectrum, grids.crop_index, grids.n_to, kind=problem.grid_kind)
-    return _scan_axis_row(problem, row, z)
 
 
 def _scan_axis_row(

@@ -293,26 +293,8 @@ class Pair:
         return got
 
     def noise(self, noise: np.ndarray, clean: np.ndarray | None) -> dict[str, object]:
-        """Return the input noise's readings, as solprop's edge forms them."""
-        python = self.python
-        reduction = python.reduction
-        columns = reduction.column_power(noise)
-        weights = python._weights  # pyright: ignore[reportPrivateUsage]
-        design = python.design
-        ramp = 0.0
-        if design is not None:
-            power = python._column_power(columns)  # pyright: ignore[reportPrivateUsage]
-            ramp = float(np.sum(power[design.ramp_rate > 0.0]))
-        strip = np.empty(0)
-        if python.every_step:
-            strip = np.ascontiguousarray(reduction.strip(noise).reshape(-1))
-        return {
-            "columns": np.ascontiguousarray(columns, dtype=np.float64),
-            "energy": float(np.sum(weights * reduction.node_power(noise))),
-            "ramp": ramp,
-            "strip": strip,
-            "clean": None if clean is None else np.ascontiguousarray(clean),
-        }
+        """Return the input noise's readings, as the native session forms them."""
+        return self.transverse.noise_readings(self.python, noise, clean)
 
     def read(self, drawn: Readings, z: float) -> list[tuple[str, str]]:
         python_reading, values = self.reading(drawn, full=False)

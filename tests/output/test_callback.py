@@ -25,11 +25,10 @@ import pytest
 
 from bounds import assert_within
 from driver.test_field_free_planes import cartesian, keeping, replay_bound
-from driver.test_plane_adoption import CASES
+from driver.test_plane_adoption import CASES, exported_fields
 from driver.test_runner import bound, capillary, inputs
 from runtime_types import unchecked
 from solprop import capabilities, sol
-from solprop.backends.protocol import Observation
 from solprop.backends.registry import available
 from solprop.backends.session import Start
 from solprop.driver import Simulation
@@ -280,18 +279,10 @@ def test_a_periodic_subset_reaches_the_callable(backend, fields):
 @pytest.mark.parametrize("backend", available())
 def test_a_field_free_scan_takes_no_field_from_the_backend(backend, monkeypatch):
     simulation = keeping(cartesian(backend), "none")
-    asked: list[bool] = []
-    with simulation.runner() as runner:
-        observe = runner.backend.observe
-
-        def watched(*, field: bool = True) -> Observation:
-            asked.append(field)
-            return observe(field=field)
-
-        monkeypatch.setattr(runner.backend, "observe", watched)
-        runner.run(simulation._field0, output=CallbackOutput(nothing), progress="none")
-    assert asked
-    assert not any(asked)
+    exported = exported_fields(monkeypatch)
+    handler = simulation.run(CallbackOutput(nothing), progress="none")
+    assert handler.n_saved > 1
+    assert exported == []
 
 
 @pytest.mark.medium
@@ -444,26 +435,17 @@ def test_a_reducing_run_keeps_no_more_alive_as_it_goes(backend, monkeypatch):
 
 
 @pytest.mark.parametrize("backend", available())
-def test_the_callable_holds_the_observation_itself(backend, monkeypatch):
-    """No copy on the way to the callable, on a route with no conversion of units."""
+def test_the_callable_holds_the_exported_field_itself(backend, monkeypatch):
+    """No copy after the session's export, on a route with no conversion of units."""
     simulation = cartesian(backend)
-    observed: list[Observation] = []
+    exported = exported_fields(monkeypatch)
     shared: list[bool] = []
 
     def receive(plane: SavedPlane) -> None:
         assert plane.field is not None
-        shared.append(np.shares_memory(plane.field, observed[-1].field))
+        shared.append(np.shares_memory(plane.field, exported[-1]))
 
-    with simulation.runner() as runner:
-        observe = runner.backend.observe
-
-        def watched(*, field: bool = True) -> Observation:
-            observation = observe(field=field)
-            observed.append(observation)
-            return observation
-
-        monkeypatch.setattr(runner.backend, "observe", watched)
-        runner.run(simulation._field0, output=CallbackOutput(receive), progress="none")
+    simulation.run(CallbackOutput(receive), progress="none")
     assert shared
     assert all(shared)
 

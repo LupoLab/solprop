@@ -57,6 +57,12 @@ constexpr std::uint64_t spatial_energy = 1;
 constexpr std::uint64_t spatial_axis = 2;
 constexpr std::uint64_t spatial_peak = 4;
 constexpr std::uint64_t spatial_spectrum = 8;
+/** The widths' fluence block: the signed fluence at each node, the axis fluence and
+    the largest magnitude. */
+constexpr std::uint64_t spatial_fluence = 16;
+/** A Cartesian plane's fluence moments, which hold its scaled profile for the trace. */
+constexpr std::uint64_t spatial_moments = 32;
+constexpr std::size_t plane_moments = 8;
 
 // `GeneralState::aperture_statistics`' flags (far_field.hpp), packed in this order.
 constexpr std::uint64_t far_beam = 1ULL << 5U;
@@ -261,6 +267,85 @@ void species(const Plan& plan, const double z, const double taper,
   }
 }
 
+/**
+ * solprop's on-axis plasma statistics (SEP 19, `populations.axis_statistics`): each
+ * channel's final fraction and peak rate on the axis -- a Radau rule's axis node's,
+ * when this evaluation scanned the nodes anyway, else the axis row's own scan -- mapped
+ * onto the mixture's species, the total a running sum in species order.
+ */
+void axis(GeneralState& state, const Plan& plan, const double z, const double taper,
+          const std::vector<double>& rows, const Wanted& wanted, Results& results) {
+  const std::size_t n_channels = plan.n_channels;
+  std::vector<double> fractions(n_channels);
+  std::vector<double> peaks(n_channels);
+  if (plan.axis_node >= 0 && !rows.empty()) {
+    const auto node = static_cast<std::size_t>(plan.axis_node);
+    for (std::size_t c = 0; c < n_channels; ++c) {
+      fractions[c] = rows[2 * (node * n_channels + c)];
+      peaks[c] = rows[2 * (node * n_channels + c) + 1];
+    }
+  } else {
+    // `axis_row_matrix(problem, HostDriver._on_axis_synthesis(modes))`: the matrix at
+    // the reference position times the taper at z, then the pad scale; a state with
+    // two polarisations takes the profile's magnitude.
+    std::vector<double> scaled = plan.on_axis;
+    for (double& value : scaled) {
+      if (plan.taper.present())
+        value *= taper;
+      value *= plan.pad_scale;
+    }
+    std::vector<double> matrix = scaled;
+    if (plan.n_pol == 2) {
+      matrix.resize(plan.n_modes);
+      for (std::size_t mode = 0; mode < plan.n_modes; ++mode)
+        matrix[mode] = std::hypot(scaled[mode], scaled[plan.n_modes + mode]);
+    }
+    std::vector<double> initials(n_channels);
+    for (std::size_t c = 0; c < n_channels; ++c)
+      initials[c] = plan.channel_preionisation[c].scalar(z);
+    const auto packed = state.axis_populations(matrix, initials);
+    if (packed.size() != 2 * n_channels)
+      throw std::logic_error("a native on-axis scan packed the wrong number of values");
+    for (std::size_t c = 0; c < n_channels; ++c) {
+      fractions[c] = packed[2 * c];
+      peaks[c] = packed[2 * c + 1];
+    }
+  }
+  for (std::size_t c = 0; c < n_channels; ++c)
+    if (!std::isfinite(fractions[c]) || !std::isfinite(peaks[c]) ||
+        fractions[c] < 0.0 || fractions[c] > 1.0 || peaks[c] < 0.0)
+      throw std::invalid_argument(
+          "on-axis statistics require finite rates and fractions in [0, 1]");
+  const std::size_t n_species = plan.n_species;
+  std::vector<double> densities(n_species);
+  for (std::size_t s = 0; s < n_species; ++s)
+    densities[s] = plan.species_density[s].scalar(z);
+  std::vector<double> electrons(n_species, 0.0);
+  std::vector<double> species_peaks(n_species, 0.0);
+  for (std::size_t c = 0; c < n_channels; ++c) {
+    const std::size_t s = plan.channel_species[c];
+    electrons[s] = densities[s] * fractions[c];
+    species_peaks[s] = peaks[c];
+  }
+  if (wanted(Stat::on_axis_electron_density)) {
+    double total = 0.0;
+    for (const double value : electrons)
+      total += value;
+    put(results, Stat::on_axis_electron_density, {total});
+  }
+  if (wanted(Stat::on_axis_peak_ionisation_rate)) {
+    // `numpy.max` of finite values.
+    double rate = species_peaks[0];
+    for (std::size_t s = 1; s < n_species; ++s)
+      rate = species_peaks[s] > rate ? species_peaks[s] : rate;
+    put(results, Stat::on_axis_peak_ionisation_rate, {rate});
+  }
+  if (wanted(Stat::on_axis_species_electron_density))
+    put(results, Stat::on_axis_species_electron_density, std::move(electrons));
+  if (wanted(Stat::on_axis_species_peak_ionisation_rate))
+    put(results, Stat::on_axis_species_peak_ionisation_rate, std::move(species_peaks));
+}
+
 /** The state's temporal and response statistics on a modal or spatial route. */
 void temporal(GeneralState& state, const Plan& plan, const double z, const double taper,
               const Wanted& wanted, Results& results) {
@@ -304,9 +389,13 @@ void temporal(GeneralState& state, const Plan& plan, const double z, const doubl
   }
   const bool rows_wanted = wanted(Stat::node_populations);
   const bool populations = (reduce || rows_wanted) && plan.n_channels > 0;
+  const bool axis_wanted =
+      wanted.any({Stat::on_axis_electron_density, Stat::on_axis_peak_ionisation_rate,
+                  Stat::on_axis_species_electron_density,
+                  Stat::on_axis_species_peak_ionisation_rate});
   if (populations)
     flags |= temporal_populations;
-  if (flags == 0 && !reduce && !rows_wanted)
+  if (flags == 0 && !reduce && !rows_wanted && !axis_wanted)
     return;
   std::vector<double> packed;
   if (flags != 0) {
@@ -317,7 +406,7 @@ void temporal(GeneralState& state, const Plan& plan, const double z, const doubl
         (flags & weighted) != 0U ? power_weight(plan, z) : std::vector<double>{};
     std::vector<double> on_axis;
     if ((flags & temporal_intensity) != 0U) {
-      // `StepDriver._on_axis_synthesis`: the matrix at the reference position times
+      // `HostDriver._on_axis_synthesis`: the matrix at the reference position times
       // the taper at z.
       on_axis = plan.on_axis;
       if (plan.taper.present())
@@ -384,6 +473,8 @@ void temporal(GeneralState& state, const Plan& plan, const double z, const doubl
     put(results, Stat::node_populations, rows);
   if (reduce)
     species(plan, z, taper, rows, wanted, results);
+  if (axis_wanted)
+    axis(state, plan, z, taper, rows, wanted, results);
 }
 
 /** A spatial route's statistics of the medium's axial flux and its far field. */
@@ -410,6 +501,21 @@ void spatial(GeneralState& state, const Plan& plan, const double z,
     if ((flags & spatial_spectrum) != 0U)
       put(results, Stat::on_axis_spectrum, cursor.take(plan.n_omega));
     cursor.finish();
+  }
+  if (wanted.any({Stat::beam_radius, Stat::fwhm_r})) {
+    // The widths' own pass, as the host finishing read it: a plane's moments and then
+    // its trace, or a profile's fluence block (session_widths.cpp).
+    const bool plane = plan.widths == Widths::plane;
+    const auto packed = state.spatial_statistics(
+        plane ? spatial_moments : spatial_fluence, plan.intensity_factor, z);
+    if (packed.size() != (plane ? plane_moments : plan.n_nodes + 2))
+      throw std::logic_error("a fluence pass packed the wrong number of values");
+    const auto values =
+        plane ? widths::of_plane(state, plan, packed) : widths::of_block(plan, packed);
+    if (wanted(Stat::beam_radius))
+      put(results, Stat::beam_radius, {values[0], values[1]});
+    if (wanted(Stat::fwhm_r))
+      put(results, Stat::fwhm_r, {values[2]});
   }
   std::uint64_t far = 0;
   if (wanted(Stat::beam_spectrum))
@@ -593,6 +699,8 @@ void Plan::validate() const {
     table.validate("species density");
   for (const auto& table : profiles)
     table.validate("profile");
+  for (const auto& table : zdw)
+    table.validate("zero-dispersion wavelength");
   check(channel_preionisation.empty() || channel_preionisation.size() == n_channels,
         "has one preionisation a channel");
   check(species_density.size() == n_species, "has one density a species");
@@ -612,6 +720,53 @@ void Plan::validate() const {
         "apertures have the wrong extent");
   check(regions.size() == n_regions * 4, "regions have the wrong extent");
   const Wanted wanted(outputs);
+  if (wanted.any({Stat::on_axis_electron_density, Stat::on_axis_peak_ionisation_rate,
+                  Stat::on_axis_species_electron_density,
+                  Stat::on_axis_species_peak_ionisation_rate})) {
+    check(route == Route::modal && n_channels > 0 && n_species > 0,
+          "asks for on-axis plasma statistics off a modal route with plasma");
+    check(on_axis.size() == 2 * n_modes && (n_pol == 1 || n_pol == 2),
+          "lacks the on-axis synthesis its axis row reads");
+    check(channel_preionisation.size() == n_channels,
+          "lacks the preionisation its axis row reads");
+    check(axis_node < static_cast<std::int64_t>(n_nodes),
+          "has an axis node past the nodes");
+    check(std::isfinite(pad_scale) && pad_scale > 0.0,
+          "has a pad scale that is not positive");
+  }
+  if (wanted(Stat::zdw))
+    check(zdw.size() == n_modes && std::all_of(zdw.begin(), zdw.end(),
+                                               [](const RealTable& table) {
+                                                 return table.present() &&
+                                                        table.n_values == 1;
+                                               }),
+          "lacks a mode's zero-dispersion wavelength table");
+  if (wanted.any({Stat::beam_radius, Stat::fwhm_r})) {
+    check(route == Route::spatial && widths != Widths::none,
+          "asks for fluence widths without their rule");
+    check(width_x.size() >= 2 && width_terms > 0, "lacks the widths' axis");
+    switch (widths) {
+    case Widths::radial:
+      check(width_x.size() == n_nodes && width_weights.size() == n_nodes,
+            "has a radial width rule of the wrong extent");
+      break;
+    case Widths::slab:
+      check(width_n_x * width_n_y == n_nodes && width_x.size() == width_n_y &&
+                width_weights.size() == n_nodes,
+            "has a slab width rule of the wrong extent");
+      break;
+    case Widths::line:
+      check(width_x.size() == n_nodes, "has a line width rule of the wrong extent");
+      break;
+    case Widths::plane:
+      check(width_y.size() >= 2 && width_x.size() * width_y.size() == n_nodes &&
+                ring_cosines.size() == ring_sines.size() && !ring_cosines.empty(),
+            "has a plane width rule of the wrong extent");
+      break;
+    case Widths::none:
+      break;
+    }
+  }
   if (wanted.any({Stat::fwhm_t, Stat::fwhm_t_outer}))
     check(t.size() == n_t, "lacks the time axis its widths read");
   for (const auto& [stat, index] :
@@ -634,6 +789,7 @@ std::size_t Plan::width(const Stat stat) const {
   case Stat::energy_window:
     return n_windows * columns;
   case Stat::peak_power:
+  case Stat::zdw:
     return n_modes;
   case Stat::peak_power_window:
     return n_windows * n_modes;
@@ -643,6 +799,8 @@ std::size_t Plan::width(const Stat stat) const {
   case Stat::species_peak_ionisation_rate:
   case Stat::species_density:
   case Stat::species_ionisation_energy:
+  case Stat::on_axis_species_electron_density:
+  case Stat::on_axis_species_peak_ionisation_rate:
     return n_species;
   case Stat::spectral_flux:
   case Stat::on_axis_spectrum:
@@ -657,6 +815,8 @@ std::size_t Plan::width(const Stat stat) const {
     return n_apertures * n_omega;
   case Stat::node_populations:
     return 2 * n_nodes * n_channels;
+  case Stat::beam_radius:
+    return 2;
   default:
     return 1;
   }
@@ -685,6 +845,12 @@ std::vector<double> evaluate(GeneralState& state, const Plan& plan, const double
         std::pair{Stat::core_radius, 2}})
     if (wanted(stat))
       put(results, stat, {plan.profiles[static_cast<std::size_t>(index)].scalar(z)});
+  if (wanted(Stat::zdw)) {
+    std::vector<double> wavelengths(plan.zdw.size());
+    for (std::size_t mode = 0; mode < wavelengths.size(); ++mode)
+      wavelengths[mode] = plan.zdw[mode].scalar(z);
+    put(results, Stat::zdw, std::move(wavelengths));
+  }
   std::vector<double> packed;
   packed.reserve(plan.packed_size());
   for (const Stat stat : plan.outputs) {

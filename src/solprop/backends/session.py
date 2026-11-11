@@ -42,7 +42,12 @@ endpoint (SEP 47 section 5.5).
 
 A :class:`GroupSession` advances compatible trajectories through one common fixed
 schedule, a window at a time, and reports each member's own events and outcome (SEP 47
-section 6.7).
+section 6.7). A backend prepares its own group the same way, from the group's first
+member (:class:`PreparedGroup`)::
+
+    prepared = members[0].prepare_group(members, problems, requests)
+    with prepared.start(starts, stop=token) as group:
+        ...
 
 :class:`SessionLedger` is the lifecycle bookkeeping every Python session shares:
 receipts, the pending barrier, closing and poisoning. It holds no numerical state.
@@ -75,6 +80,7 @@ from solprop.exceptions import BackendError
 from solprop.log import StopFlag
 from solprop.noise import NoiseRealisation
 from solprop.output.schema import MarchSnapshot
+from solprop.stats import CATALOGUE, PLASMA_INTEGRATION_STATISTICS
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
@@ -84,6 +90,7 @@ __all__ = [
     "ExecutionOptions",
     "GroupSession",
     "PreparedExecution",
+    "PreparedGroup",
     "RunSession",
     "SessionBackend",
     "SessionError",
@@ -96,6 +103,7 @@ __all__ = [
     "check_group",
     "check_member_ticket",
     "positive_count",
+    "statistics_unavailable",
 ]
 
 DEFAULT_WORK_LIMIT = 256
@@ -300,6 +308,9 @@ def check_group(
     SessionError
         If the sequences differ in length or are empty, or if a start is not a fresh
         entrance whose launch plane is owed.
+    solprop.exceptions.BackendError
+        If a member asks for statistics its problem does not carry
+        (:func:`statistics_unavailable`).
     """
     if count == 0 or not count == len(problems) == len(requests) == len(starts):
         msg = (
@@ -308,6 +319,11 @@ def check_group(
             f"requests and {len(starts)} starts"
         )
         raise SessionError(msg)
+    for problem, request in zip(problems, requests, strict=True):
+        stats = request.observation.stats
+        refused = statistics_unavailable(problem, (*stats.names, *stats.periodic))
+        if refused is not None:
+            raise BackendError(refused)
     for start in starts:
         fresh = start.march is None and start.monitor is None
         if not fresh or start.plane_index or not start.plane_pending:
@@ -316,6 +332,90 @@ def check_group(
                 "with no method history or monitor record to continue"
             )
             raise SessionError(msg)
+
+
+_MODAL_ONLY = (
+    "omega0",
+    "energy_window",
+    "peak_power",
+    "peak_power_window",
+    "peak_power_total",
+    "fwhm_t",
+    "fwhm_t_outer",
+    "zdw",
+)
+"""The statistics of a modal state that a spatial route's columns do not carry: its
+temporal Poynting statistics and the modes' zero-dispersion wavelength
+(:func:`solprop.backends.spatial.collect_spatial` leaves each of them)."""
+
+
+def statistics_unavailable(
+    problem: PropagationProblem, names: Sequence[str]
+) -> str | None:
+    """Return why no executor computes some of a problem's statistics, or ``None``.
+
+    What the problem does not carry, refused by name before any session starts, on
+    every executor (SEP 47 section 6.3), rather than at the first plane: a modal
+    statistic of a spatial route, a spatial statistic of a modal one, the plasma
+    integration diagnostics of a problem without the field-grid plasma column
+    (SEP 18), and the electron density or the peak ionisation rate of a problem with
+    no compiled plasma response. The messages are the reference's at its first plane.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The translated problem.
+    names : collections.abc.Sequence of str
+        The statistics asked for, at planes or between them.
+
+    Returns
+    -------
+    str or None
+        The refusal, or ``None``.
+
+    Examples
+    --------
+    >>> from solprop.backends.session import statistics_unavailable
+    >>> from solprop.driver import Simulation
+    >>> simulation = Simulation.from_gnlse(
+    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
+    ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
+    ...     width=100e-15, peak_power=9.8, shape="sech",
+    ... )
+    >>> problem = simulation.translate()
+    >>> statistics_unavailable(problem, ["energy"]) is None
+    True
+    >>> statistics_unavailable(problem, ["beam_radius"])
+    "the 'beam_radius' statistic requires spatial geometry"
+    """
+    asked = list(dict.fromkeys(names))
+    if problem.transform.geometry is not None:
+        modal = sorted(set(asked) & set(_MODAL_ONLY))
+        if modal:
+            return f"statistics {modal} are not spatial saved-field statistics"
+    elif problem.transform.modal_tables is None:
+        # A general modal guide refuses these by its accessor whitelist, first.
+        for name in asked:
+            entry = CATALOGUE.get(name)
+            if entry is not None and "spatial_geometry" in entry.requires:
+                return f"the {name!r} statistic requires spatial geometry"
+    responses = problem.responses
+    if set(asked) & set(PLASMA_INTEGRATION_STATISTICS) and (
+        not responses.plasma_channels or responses.envelope_plasma is not None
+    ):
+        return (
+            "the plasma integration diagnostics read the field-grid plasma column, "
+            "and this problem carries none"
+        )
+    if (
+        set(asked) & {"electron_density", "peak_ionisation_rate"}
+        and not responses.population_channels
+    ):
+        return (
+            "the electron density and the peak ionisation rate need a compiled "
+            "plasma response, and this problem declares none"
+        )
+    return None
 
 
 def check_member_ticket(ticket: ExportTicket, member: int) -> None:
@@ -933,6 +1033,42 @@ class PreparedExecution(Protocol):
 
     def close(self) -> None:
         """Release the prepared resources; idempotent."""
+        ...
+
+
+@runtime_checkable
+class PreparedGroup(Protocol):
+    """A backend's preparation of a group of compatible members (SEP 47 section 6.7).
+
+    The group's counterpart of :class:`PreparedExecution`: a backend returns it from
+    :meth:`~solprop.backends.protocol.Backend.prepare_group`, and its :meth:`start`
+    opens the backend's own :class:`GroupSession`, so that
+    :func:`solprop.backends.sessions.start_group` names no backend.
+    """
+
+    @property
+    def backend(self) -> str:
+        """Return the registered name of the backend that prepared it."""
+        ...
+
+    def start(
+        self, starts: Sequence[Start], *, stop: StopFlag | None = None
+    ) -> GroupSession:
+        """Start the group, each member from its entrance.
+
+        Parameters
+        ----------
+        starts : collections.abc.Sequence of Start
+            Each member's entrance, in member order; the group takes their fields.
+        stop : solprop.log.StopFlag or None, optional
+            A group-wide stop token.
+
+        Returns
+        -------
+        GroupSession
+            The started group, which owns the members once it is constructed; a start
+            that fails leaves them to the caller.
+        """
         ...
 
 

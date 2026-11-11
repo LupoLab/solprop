@@ -32,6 +32,7 @@ import pytest
 from bounds import assert_within, fft_bound
 from former_raman import FORMER_H2, FORMER_N2, former_response
 from legacy_geometry import LEGACY_GRID
+from sessions.runs import run as session_run
 from solprop import fourier
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.constants import AMAGAT, EPS0
@@ -50,6 +51,7 @@ from solprop.nonlinear.raman import (
 from solprop.nonlinear.responses import KerrResponse
 from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse
+from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.translate.linop import delta_phi
 from solprop.translate.problem import assemble
@@ -483,11 +485,14 @@ def test_a_zero_weight_raman_response_is_the_exact_linear_flow(
         narrow_grid, save_planes=[length], responses=[zero]
     )
     assert problem.flags.has_raman
-    backend = backend_class(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    summary = backend.propagate_to(length)
-    final = backend.observe().require_field()
-    backend.close()
+    plane = session_run(
+        backend_class(problem, run_request, grid=narrow_grid),
+        problem,
+        run_request,
+        owns=True,
+    ).final
+    assert plane.z == length
+    summary, final = plane.summary, plane.field
     exact = (
         np.exp(delta_phi(problem.linear, 0.0, length))
         * problem.initial.field0
@@ -694,12 +699,14 @@ def test_a_short_propagation_grows_the_stokes_at_the_predicted_rate(backend_clas
 
     def run(responses):
         problem, run_request = setup.problem(responses, length=length, rtol=1e-10)
-        backend = backend_class(problem, run_request, grid=setup.grid)
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(length)
-        final = backend.observe().require_field()[0, 0].copy()
-        backend.close()
-        return final
+        plane = session_run(
+            backend_class(problem, run_request, grid=setup.grid),
+            problem,
+            run_request,
+            owns=True,
+        ).final
+        assert plane.z == length
+        return plane.field[0, 0]
 
     on = run([setup.kerr, setup.raman])
     off = run([setup.kerr])
@@ -892,15 +899,21 @@ def test_a_vector_state_with_a_raman_kernel_is_refused_by_name(
         backend_class(problem, run_request)
 
 
-def test_a_raman_run_steps_and_shifts_a_capillary_pulse(backend_class, raman_capillary):
+def test_a_raman_run_steps_and_shifts_a_capillary_pulse(
+    backend_class, raman_capillary, raman_field_grid
+):
     """A propagation with the convolution in the loop, end to end."""
     problem, run_request, _, _ = raman_capillary()
-    backend = backend_class(problem, run_request, grid=None)
-    backend.set_initial(problem.initial.field0, None)
-    summary = backend.propagate_to(0.1)
-    plane = backend.observe()
-    transforms = backend._raman_transforms
-    backend.close()
+    # Statistics are not this test's subject; the session evaluates none.
+    run_request = run_request.for_run(stats=StatsSpec())
+    backend = backend_class(problem, run_request, grid=raman_field_grid)
+    try:
+        plane = session_run(backend, problem, run_request, owns=False, until=0.1).final
+        transforms = backend._raman_transforms
+    finally:
+        backend.close()
+    assert plane.z == 0.1
+    summary = plane.summary
     assert summary.met_tolerance
     assert summary.n_steps > 4
     assert np.all(np.isfinite(plane.field))

@@ -353,11 +353,11 @@ The long form is [`backends.md`](docs/dev/backends.md).
 - **In-place and `out=`** only inside the backends, wrapped by the seam; every buffer is
   listed by `memory_ledger()`, which is tested.
 - Device arrays never cross the `Backend` protocol, whose methods take and return host
-  arrays. Between `StepDriver` and its subclass the state is an opaque handle (a native
-  state), and the shared code reads it only through `_observed_field`,
-  which copies it to the host.
+  arrays. The native backend's state is an opaque handle (a native state) that only its
+  own session and timing probe read; nothing state-sized crosses but an export or a
+  copy to the host.
 - **The seam has no version number** (ADR-068). A change to the `PropagationProblem` fields,
-  the protected `StepDriver` surface or the stage bundles of `translate/stage.py` rewrites
+  the `RunRequest` fields or the stage bundles of `translate/stage.py` rewrites
   the frozen tables in `tests/backends/test_driver.py` in the same commit and adds a
   release-note fragment. solprop and solprop-native are released together and pinned to
   one version, and an editable checkout's extension is compared with its `native/` sources

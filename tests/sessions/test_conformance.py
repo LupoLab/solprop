@@ -23,6 +23,8 @@ import pytest
 
 from sessions.executors import (
     CONSUMER,
+    COUPLED,
+    COUPLED_KINDS,
     DENSE,
     FACTOR,
     IDENTITY,
@@ -38,6 +40,7 @@ from sessions.executors import (
     ScriptedError,
     ScriptedWarning,
     assert_same_run,
+    coupled_flow,
     drive,
     edged,
     soliton,
@@ -64,7 +67,11 @@ from solprop.backends.session import (
     SnapshotReceipt,
     StopToken,
 )
-from solprop.exceptions import BackendError, BoundaryError, StopRequested
+from solprop.exceptions import (
+    BackendError,
+    BoundaryError,
+    StopRequested,
+)
 from solprop.monitor import BoundaryCheck
 from solprop.stats import StatsSpec
 from solprop.stepper.multistep import Multistep
@@ -390,15 +397,16 @@ def test_events_follow_the_committed_order(start, executor):
 
 
 @pytest.mark.parametrize(
-    ("check", "outcome"),
+    ("check", "outcome", "noise"),
     [
-        (BoundaryCheck(transverse_budget=10.0), Outcome.COMPLETED),
-        (BoundaryCheck(), Outcome.FAILED),
+        (BoundaryCheck(transverse_budget=10.0), Outcome.COMPLETED, None),
+        (BoundaryCheck(), Outcome.FAILED, None),
+        (BoundaryCheck(transverse_budget=10.0), Outcome.COMPLETED, "input"),
     ],
-    ids=["relaxed", "stopped"],
+    ids=["relaxed", "stopped", "relaxed-noisy"],
 )
 def test_a_transverse_edge_is_read_in_the_committed_order(
-    start, executor, check, outcome
+    start, executor, check, outcome, noise
 ):
     """SEP 47 section 5.3 with SEP 40 section 5.3: a free-space run's transverse edge.
 
@@ -407,9 +415,16 @@ def test_a_transverse_edge_is_read_in_the_committed_order(
     record joins the monitor's. Relaxed, the re-review's packet is read to the end at
     most a quarter of the run apart (the backstop's largest); under the default budget
     the edge stops it at a read, a failure at that committed endpoint naming the edge.
+    With the input noise, the launch takes the draw's allowance, which the record keeps.
     """
     executor.require(TRANSVERSE)
-    problem, request, context = edged(check)
+    if noise is not None and executor.name.endswith("low-storage"):
+        pytest.skip(
+            "the replay's half-millimetre steps exceed the split collar's crossing "
+            "limit the input noise sets at the launch, which refuses the run there"
+        )
+    problem, request, context = edged(check, noise=noise)
+    assert problem.initial.noise_model == (noise or "none")
     started = start(problem, request, context=context)
     launch = started.session.advance()
     (first,) = launch.events
@@ -422,12 +437,13 @@ def test_a_transverse_edge_is_read_in_the_committed_order(
             "the edge was launched before the launch plane was committed"
         )
     started.session.acknowledge(launch.receipt)
-    rest = drive(started)
+    rest = drive(started, raises=False)
     run = Run([launch, *rest.batches], [], rest.status)
     record = started.session.monitor_record()
     assert record is not None
     edge = record["transverse"]
     assert edge["launch_energy"] is not None and edge["reads"] > 0
+    assert (edge["noise_allowance"] > 0.0) is (noise is not None)
     assert run.terminal.outcome is outcome
     length = request.stepper.save_planes[-1]
     if outcome is Outcome.COMPLETED:
@@ -607,6 +623,45 @@ def test_attempt_records_add_up_to_the_status(start):
     assert (np.diff(ends) > 0).all() and ends[-1] == LENGTH
 
 
+@pytest.mark.medium
+@pytest.mark.filterwarnings("ignore:the temporal absorber attenuates")
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.GrazingIncidenceWarning")
+@pytest.mark.parametrize("kind", COUPLED_KINDS)
+def test_a_wide_or_off_route_coupled_flow_keeps_the_contract(start, executor, kind):
+    """SEP 47 section 6.3 (phase 4): the coupled flows the session took over.
+
+    A 17-channel block and a block off its eigenbasis route, ten fixed Adams steps:
+    the run completes at its end with every step accepted and recorded once, the
+    planes are observed in order with finite fields, and a repeated native run is the
+    same to the bit where the executor is deterministic.
+    """
+    executor.require(COUPLED)
+    problem, request, context = coupled_flow(kind)
+    schedule = request.stepper.schedule
+    assert schedule is not None
+    # The repeat is the native executors' to show; the reference's numpy run of a
+    # 17-channel block is long, and its repeatability is the suite's other tests'.
+    repeated = executor.deterministic and executor.name.startswith("native")
+    runs = []
+    # Either build steps both natively, so a HostMarchWarning stays an error.
+    for _ in range(2 if repeated else 1):
+        started = start(problem, request, context=context)
+        runs.append(drive(started, export=IDENTITY))
+    run = runs[0]
+    assert run.terminal.outcome is Outcome.COMPLETED
+    assert run.attempts == run.status.attempts == len(schedule.steps)
+    np.testing.assert_allclose(
+        run.accepted_ends(), np.cumsum(schedule.steps), rtol=0.0, atol=1e-18
+    )
+    positions = [event.z for event in run.observations]
+    assert positions == sorted(positions)
+    assert len(run.fields) == len(run.observations) >= 2
+    assert all(np.all(np.isfinite(field)) for field in run.fields)
+    for again in runs[1:]:
+        assert_same_run(again, run)
+
+
 @pytest.mark.parametrize("work_limit", [1, 3, 10**6])
 def test_every_attempt_and_row_is_delivered_exactly_once(start, work_limit):
     """SEP 47 section 5.3: event storage is bounded; chunks are delivered once.
@@ -725,7 +780,7 @@ def test_a_failed_trial_ends_failed_at_an_eligible_committed_state(start_scripte
     """
     started = start_scripted(soliton(), fail_at=FAIL_AT, reject_at=(FAIL_AT - 2,))
     held: dict[str, np.ndarray] = {}
-    run = drive(started, export=IDENTITY, between=_terminal_field(held))
+    run = drive(started, export=IDENTITY, between=_terminal_field(held), raises=False)
     terminal = run.terminal
     assert terminal.outcome is Outcome.FAILED
     assert isinstance(terminal.error, ScriptedError)
@@ -750,7 +805,7 @@ def test_an_in_flight_failure_poisons_the_state(start_scripted):
     the abandoned one are still accounted.
     """
     started = start_scripted(soliton(), fail_at=FAIL_AT, in_flight=True)
-    run = drive(started)
+    run = drive(started, raises=False)
     terminal = run.terminal
     assert terminal.outcome is Outcome.FAILED
     assert isinstance(terminal.error, ScriptedError)
@@ -774,6 +829,7 @@ def test_a_warning_raised_as_an_error_fails_at_its_committed_endpoint(start_scri
             start_scripted(soliton(), warn_at=warn_at),
             export=IDENTITY,
             between=_terminal_field(held),
+            raises=False,
         )
     terminal = run.terminal
     assert terminal.outcome is Outcome.FAILED
@@ -884,6 +940,7 @@ def test_a_stop_from_another_thread_ends_at_a_committed_endpoint(start, executor
         start(soliton(), stop=token, listener=listener),
         export=IDENTITY,
         between=_terminal_field(held),
+        raises=False,
     )
     terminal = run.terminal
     assert terminal.outcome is Outcome.STOPPED

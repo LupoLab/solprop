@@ -12,6 +12,7 @@ import pytest
 from backends.test_band_plasma_parity import CASES, bound, case, options_for
 from backends.test_radial_nonlinear import derivative
 from gated_source import _gated_source
+from sessions.runs import native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import BackendError
 from solprop.translate.plasma_integration import design_running_integral
@@ -51,10 +52,8 @@ def test_current_assembly_and_ledger_on_each_route(name, rule):
     backend = native.NativeBackend(problem, run_request, grid=grid, options=options)
     try:
         ledger = backend.memory_ledger()
-        backend.set_initial(problem.initial.field0, None)
-        backend._trial_step(0.0, 0.0)
-        backend.set_initial(np.zeros_like(problem.initial.field0), None)
-        backend._trial_step(0.0, 0.0)
+        native_trial(backend, 0.0, 0.0, field=problem.initial.field0)
+        native_trial(backend, 0.0, 0.0, field=np.zeros_like(problem.initial.field0))
         assert np.count_nonzero(backend._native_state.stage_to_host(0)) == 0
         # A second evaluation neither plans nor grows a resident source buffer.
         assert backend.memory_ledger() == ledger

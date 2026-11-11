@@ -54,6 +54,7 @@ from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend
 from legacy_geometry import LEGACY_GRID
+from session_runs import launch, load_native, native_trial, run
 from plasma_bounds import assert_regression_guard
 from test_band_plasma import (
     STATISTICS,
@@ -200,11 +201,9 @@ def source_of_native(
     """Return native's first stage on the launch, from a zero-length trial."""
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
-        return np.asarray(
-            backend._native_state.stage_to_host(0)  # pyright: ignore[reportPrivateUsage]
-        ).reshape(problem.shape)
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        native_trial(backend, 0.0, 0.0)
+        return np.asarray(state.stage_to_host(0)).reshape(problem.shape)
     finally:
         backend.close()
 
@@ -217,11 +216,7 @@ def launch_statistics(
 ) -> dict[str, np.ndarray]:
     """Return the statistics of the launch, before any step."""
     backend = implementation(problem, run_request, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        return backend.stats(run_request.observation.stats)
-    finally:
-        backend.close()
+    return launch(backend, problem, run_request, owns=True).stats
 
 
 def march(
@@ -232,14 +227,10 @@ def march(
 ) -> tuple[ComplexArray, dict[str, np.ndarray]]:
     """Return the field and the statistics after the problem's fixed steps."""
     backend = implementation(problem, run_request, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-        return backend.observe().require_field().copy(), backend.stats(
-            run_request.observation.stats
-        )
-    finally:
-        backend.close()
+    result = run(backend, problem, run_request, owns=True)
+    last = result.all_planes()[-1]
+    assert last.z == float(run_request.stepper.save_planes[-1])
+    return result.fields[-1], last.stats
 
 
 def lossless_unit_bound(preionisation: float) -> float:

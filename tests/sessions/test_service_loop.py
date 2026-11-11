@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from sessions.executors import PLANES, entrance, fibre, soliton, window
-from solprop.backends.driver_session import DriverSession
+from solprop.backends.host.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import StopToken
 from solprop.driver.run import run_problem
@@ -165,13 +165,13 @@ def test_a_callback_consumer_failure_propagates_and_delivers_each_plane_once():
 
 def _yield_every_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make every advance of the run yield after one attempt."""
-    advance = DriverSession.advance
+    advance = HostSession.advance
 
     def bounded(self, *, work_limit=1, deadline=1e6):
         del work_limit, deadline
         return advance(self, work_limit=1, deadline=1e6)
 
-    monkeypatch.setattr(DriverSession, "advance", bounded)
+    monkeypatch.setattr(HostSession, "advance", bounded)
 
 
 class _StoppingReporter(NullReporter):

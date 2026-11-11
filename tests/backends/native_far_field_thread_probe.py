@@ -15,6 +15,7 @@ import importlib.util
 import sys
 import warnings
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
@@ -46,8 +47,8 @@ if __name__ == "__main__":
     grid, problem, run_request, field = thread_case()
     names = sys.argv[2:]
     values, _ = native_stats(problem, run_request, grid, field, names)
-    np.savez(
-        sys.argv[1],
-        runtime_threads=_runtime_threads(),
-        **{f"case{index}": values[name] for index, name in enumerate(names)},
-    )
+    # Typed loosely so that the unpacking does not offer an array to ``allow_pickle``.
+    arrays: dict[str, Any] = {
+        f"case{index}": values[name] for index, name in enumerate(names)
+    }
+    np.savez(sys.argv[1], runtime_threads=_runtime_threads(), **arrays)

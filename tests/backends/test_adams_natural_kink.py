@@ -5,14 +5,16 @@
 """Keep a natural save at a hard kink from retaining pre-kink Adams history."""
 
 from dataclasses import replace
+from typing import Any, cast
 
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from sessions.runs import run
 from solprop.backends import available
-from solprop.backends.driver import StepDriver
-from solprop.backends.host.driver import HostDriver
+from solprop.backends.events import ObservationReady
+from solprop.backends.host.session import HostSession
 from solprop.backends.registry import select
 from solprop.stepper.multistep import Multistep
 from solprop.translate.linop import constant_phi, delta_phi
@@ -51,36 +53,61 @@ def test_natural_save_at_hard_kink_restarts_before_the_next_trial(
         ),
     )
     backend = select(backend_name, problem, run_request, grid=narrow_grid)
-    try:
-        assert isinstance(backend, (StepDriver, HostDriver))
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(end)
-        at_kink = backend.observe()
-        assert at_kink.z == kink
-        march = backend._adams
-        assert march is not None
-        assert march.ledger.accepted_steps == 2
-        assert march.ledger.restarts == 1
-        assert march.ledger.startup == 1
-        assert march._history == []
-        steps_before_restart = len(march.ledger.orders)
+    marches: list[tuple[float, dict[str, int], int, list[int]]] = []
 
-        backend.propagate_to(end)
-        final = backend.observe()
-        assert final.z == end
-        assert march.ledger.restarts == 1
-        assert march.ledger.startup == 2
-        assert march.ledger.orders[steps_before_restart] == 1
-        assert march.ledger.accepted_steps == 4
-        assert march.ledger.rejected_steps == 0
-        start = problem.initial.field0[0, 0] * problem.grids.active_mask
-        exact = np.exp(delta_phi(problem.linear, 0.0, end))[0, 0, 0] * start
-        # Four exact linear steps differ only by propagator multiplication roundoff.
-        assert_allclose(
-            final.require_field()[0, 0],
-            exact,
-            rtol=0.0,
-            atol=64 * np.finfo(float).eps * np.max(np.abs(start)),
+    def observed(session, batch):
+        marches.extend(
+            (event.z, *_march(session))
+            for event in batch.events
+            if isinstance(event, ObservationReady)
         )
+
+    try:
+        result = run(backend, problem, between=observed)
     finally:
         backend.close()
+    # The launch, the natural save at the kink after two steps, and the end.
+    assert [z for z, *_ in marches] == [0.0, kink, end]
+    _, at_kink, history, orders = marches[1]
+    assert at_kink == {
+        "accepted_steps": 2,
+        "rejected_steps": 0,
+        "restarts": 1,
+        "startup": 1,
+    }
+    assert history == 0
+    steps_before_restart = len(orders)
+    _, final, _, orders = marches[2]
+    assert final == {
+        "accepted_steps": 4,
+        "rejected_steps": 0,
+        "restarts": 1,
+        "startup": 2,
+    }
+    assert orders[steps_before_restart] == 1
+    start = problem.initial.field0[0, 0] * problem.grids.active_mask
+    exact = np.exp(delta_phi(problem.linear, 0.0, end))[0, 0, 0] * start
+    # Four exact linear steps differ only by propagator multiplication roundoff.
+    assert_allclose(
+        result.fields[-1][0, 0],
+        exact,
+        rtol=0.0,
+        atol=64 * np.finfo(float).eps * np.max(np.abs(start)),
+    )
+
+
+def _march(session: Any) -> tuple[dict[str, int], int, list[int]]:
+    """Return a session's Adams march: four of its counters, its history's length and
+    the order of every accepted step.
+
+    The reference's march is its driver's (:class:`~solprop.backends.host.session.
+    HostSession`); the native session's is the native march's state.
+    """
+    names = ("accepted_steps", "rejected_steps", "restarts", "startup")
+    if isinstance(session, HostSession):
+        march = cast("Any", session.driver)._adams
+        counters = {name: int(getattr(march.ledger, name)) for name in names}
+        return counters, len(march._history), list(march.ledger.orders)
+    state = session.native.march_state(0)
+    counters = {name: int(state["ledger"][name]) for name in names}
+    return counters, len(state["history"]), [int(order) for order in state["orders"]]

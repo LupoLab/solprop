@@ -28,6 +28,10 @@ import numpy as np
 from bounds import gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from modal_provider_cases import GENERAL_Z_END, WAVELENGTH, general_grid
+from sessions.runs import native_source
+from sessions.runs import run as session_run
+from sessions.runs import summary as run_summary
+from solprop.backends.numpy_ref.passes import apply_hard_mask
 from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings
@@ -190,11 +194,23 @@ def source(
     grid: TimeGrid,
     options: ExecutionOptions | None = None,
 ) -> np.ndarray:
-    """Return one evaluation of the source at the launch, in the lab frame."""
+    """Return one evaluation of the source at the masked launch, in the lab frame.
+
+    The reference's lab-frame sample, and the native state's own evaluation of it
+    (:func:`sessions.runs.native_source`), both at the launch as the
+    native state loads it: hard-masked to the active band. The native state masks what
+    it loads, and the reference's sample takes its field as given, so an unmasked
+    launch would be two inputs. The hybrid planar launch has content outside the band,
+    which moved the samples 3e-11 to 6e-11 apart; at the one input they meet to
+    about 5 eps.
+    """
+    launch = apply_hard_mask(problem.initial.field0[None], problem.grids.active_mask)[0]
     backend = backend_class(problem, run_request, grid=grid, options=options)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        return np.array(backend._adams_lab_source(problem.initial.field0[None], 0.0))
+        if backend.name == "native":
+            return native_source(backend, launch)
+        backend.set_initial(launch, None)
+        return np.array(backend._adams_lab_source(launch[None], 0.0))
     finally:
         backend.close()
 
@@ -206,12 +222,19 @@ def run(
     grid: TimeGrid,
     **options: object,
 ) -> tuple[np.ndarray, Any]:
-    """Propagate to the last save plane and return the field and the summary."""
+    """Run the session to the last save plane; return the field and the run's summary.
+
+    The summary spans the run, every plane's attempts together
+    (:func:`sessions.runs.summary`).
+    """
     backend = backend_class(problem, run_request, grid=grid, **options)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-        return backend.observe().require_field().copy(), summary
+        # The step driver's march computed no statistic, which a case's profiles
+        # would be needed for.
+        result = session_run(
+            backend, problem, backend.request.for_run(stats=StatsSpec())
+        )
+        return result.fields[-1], run_summary(result)
     finally:
         backend.close()
 

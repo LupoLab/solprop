@@ -13,6 +13,7 @@ from numpy.testing import assert_allclose
 
 from backends.test_radial_nonlinear import make_problem
 from bounds import gamma
+from sessions.runs import launch_statistics
 from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.output.schema import SavedPlane
@@ -100,8 +101,8 @@ def test_free_packed_statistics_match_host_definitions(
         options=ExecutionOptions(node_chunk=7),
     )
     try:
-        backend.set_initial(problem.initial.field0, None)
-        actual = backend.stats(spec)
+        # The launch plane's statistics of the loaded state, in the backend's session.
+        actual = launch_statistics(backend, problem, run_request.for_run(stats=spec))
         for name, expected in reference.items():
             errors = np.abs(actual[name] - expected)
             assert np.all(errors <= bounds[name]), (name, errors, bounds[name])
@@ -125,7 +126,9 @@ def test_free_packed_statistics_match_host_definitions(
                     limit,
                     spatial_backend_class.name,
                 )
-            single = backend.stats(StatsSpec(names=(name,)))
+            single = launch_statistics(
+                backend, problem, run_request.for_run(stats=StatsSpec(names=(name,)))
+            )
             assert_allclose(single[name], actual[name], rtol=0, atol=0)
     finally:
         backend.close()

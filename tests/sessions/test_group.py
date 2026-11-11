@@ -11,16 +11,15 @@ and each member then reports its own committed position and checkpoint eligibili
 members are stepped in turn, so one ahead of the failing member has already advanced
 past the failed step.
 
-The conformance tests run on both backends: ``numpy_ref``, whose group is the
-transitional one over its lockstep runner
-(:class:`~solprop.backends.driver_session.DriverGroupSession`), and ``native``, whose
-group is the native group session (:class:`solprop_native.group.NativeGroupSession`,
-one native session per member). The failures that reach into the reference's Python
-march to inject a fault are the reference's alone; the native group's own failure
-positions, with natively injected faults, are in ``test_native_group.py``.
+The conformance tests run on both backends: ``numpy_ref``, whose group is its own over
+its lockstep runner (:class:`~solprop.backends.host.group_session.HostGroupSession`),
+and ``native``, whose group is the native group session
+(:class:`solprop_native.group.NativeGroupSession`, one native session per member).
+The failures that reach into the reference's Python march to inject a fault are the
+reference's alone; the native group's own failure positions, with natively injected
+faults, are in ``test_native_group.py``.
 """
 
-import sys
 import warnings
 from collections.abc import Sequence
 from contextlib import ExitStack
@@ -33,9 +32,7 @@ import pytest
 from bounds import assert_within
 from driver.test_field_free_planes import cartesian
 from march_bounds import FIXED_ORDER
-from sessions.executors import DEVICE_GROUP, device_build
 from solprop.backends import select
-from solprop.backends.driver_session import DriverGroupSession
 from solprop.backends.events import (
     Eligibility,
     GroupBatch,
@@ -85,44 +82,16 @@ BACKENDS = ["numpy_ref", "native"]
 STRATEGIES = {
     "numpy_ref": "numpy_stage_arrays",
     "native": "native_group_session",
-    "native-lockstep": "native_member_descriptors",
 }
 """Each group, as its members' execution records name it."""
 
-GROUPS = [*BACKENDS, "native-lockstep"]
-"""Every group implementation: the reference's, the native group session, and the
-transitional group over the native lockstep runner, which serves the native groups the
-native group session refuses."""
+GROUPS = BACKENDS
+"""Every group implementation: the reference's and the native group session."""
 
-TRANSITIONAL = ["numpy_ref", "native-lockstep"]
-"""The groups over a lockstep runner, whose runner and Python march a test patches."""
-
-# A native lockstep batch replays its Adams members on solprop's march, and says so.
-pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
-
-
-def simulated(backend: str) -> str:
-    """Return the backend a group's members select: the native group's is native."""
-    return "native" if backend == "native-lockstep" else backend
-
-
-@pytest.fixture(autouse=True)
-def _lockstep(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Start the transitional group in place of the door's for ``native-lockstep``.
-
-    The native group session refuses a device build, where the door starts the
-    transitional group: ``native`` is then ``native-lockstep``, and skips.
-    """
-    callspec = getattr(request.node, "callspec", None)
-    backend = None if callspec is None else callspec.params.get("backend")
-    if backend == "native" and device_build():
-        pytest.skip(DEVICE_GROUP)
-    if backend == "native-lockstep":
-        monkeypatch.setattr(sys.modules[__name__], "LOCKSTEP", True)
-
-
-LOCKSTEP = False
-"""Whether :func:`group_of` starts the transitional group (``native-lockstep``)."""
+LOCKSTEP = ["numpy_ref"]
+"""The groups over a lockstep runner, whose runner and Python march a test patches:
+the reference's alone; the native group's failures are injected natively
+(``test_native_group.py``)."""
 
 
 def member(
@@ -145,7 +114,7 @@ def member(
             names=("energy", "peak_power"), periodic=("energy",), period=2
         ),
         "noise": None,
-        "backend": simulated(backend),
+        "backend": backend,
         "integrator": RungeKutta() if integrator is None else integrator,
         "absorber": False,
     }
@@ -182,8 +151,7 @@ def group_of(
     problems = [one.translate() for one in simulations]
     owners = [constructed(one, cleanup) for one in simulations]
     watched = monitors if monitors is not None else [None] * len(problems)
-    door = DriverGroupSession if LOCKSTEP else start_group
-    group = door(
+    group = start_group(
         owners,
         problems,
         [
@@ -209,7 +177,7 @@ def drive(group: GroupSession) -> list[GroupBatch]:
 
 def available(backend: str) -> None:
     """Skip the native executor where its package is not installed."""
-    if simulated(backend) == "native":
+    if backend == "native":
         pytest.importorskip("solprop_native")
 
 
@@ -371,7 +339,7 @@ def test_a_schedule_past_the_last_plane_completes_without_a_step(backend):
 @pytest.mark.parametrize("backend", GROUPS)
 def test_a_boundary_stop_ends_its_member_alone_and_the_others_go_on(backend):
     # A check strict enough to refuse any launch stops the first member at once; the
-    # second, unwatched, runs the whole schedule (SEP 21). The transitional group
+    # second, unwatched, runs the whole schedule (SEP 21). The reference's group
     # attaches the monitors before the launch plane, as the batched scan always did,
     # so the stop ends the launch window; a native member commits its launch plane
     # first and its monitor then judges the launch (SEP 47 section 5.3's start), so
@@ -414,7 +382,7 @@ def test_a_boundary_stop_ends_its_member_alone_and_the_others_go_on(backend):
         assert group.monitor_record(1) is None
 
 
-@pytest.mark.parametrize("backend", TRANSITIONAL)
+@pytest.mark.parametrize("backend", LOCKSTEP)
 def test_a_non_finite_norm_poisons_every_member_that_stepped(backend, monkeypatch):
     available(backend)
     # Each Adams member's march takes the replayed step before the group judges the
@@ -450,7 +418,7 @@ def test_a_non_finite_norm_poisons_every_member_that_stepped(backend, monkeypatc
         assert terminal.ticket is None
 
 
-@pytest.mark.parametrize("backend", TRANSITIONAL)
+@pytest.mark.parametrize("backend", LOCKSTEP)
 def test_a_trial_failure_partway_reports_each_member_s_own_position(
     backend, monkeypatch
 ):
@@ -494,7 +462,7 @@ def test_a_trial_failure_partway_reports_each_member_s_own_position(
     assert terminals[1].ticket is not None  # pyright: ignore[reportAttributeAccessIssue]
 
 
-@pytest.mark.parametrize("backend", TRANSITIONAL)
+@pytest.mark.parametrize("backend", LOCKSTEP)
 def test_an_in_flight_failure_poisons_its_member_alone(backend, monkeypatch):
     available(backend)
     # An in-place step abandoned partway leaves no valid state for its member, which
@@ -528,7 +496,7 @@ def test_an_in_flight_failure_poisons_its_member_alone(backend, monkeypatch):
         assert group.finished
 
 
-@pytest.mark.parametrize("backend", TRANSITIONAL)
+@pytest.mark.parametrize("backend", LOCKSTEP)
 def test_a_window_s_failure_delivers_the_attempts_it_drained(backend, monkeypatch):
     available(backend)
     # The statistics fail after each member's attempts of the window were drained:
@@ -632,7 +600,7 @@ def test_a_spatial_group_exports_its_field_measure_and_each_member_s_noise(backe
     # A spatial route's field measure is already the stored quantity: a true-power
     # recipe exports it unscaled, and each member carries its own noise realisation.
     available(backend)
-    simulations = [cartesian(simulated(backend), noise=True) for _ in range(2)]
+    simulations = [cartesian(backend, noise=True) for _ in range(2)]
     with ExitStack() as cleanup:
         group, _ = group_of(simulations, cleanup)
         launch = group.advance()
@@ -661,7 +629,7 @@ def test_a_noise_free_member_has_no_noise_phase(backend):
         group.acknowledge(launch.receipt)
 
 
-@pytest.mark.parametrize("backend", TRANSITIONAL)
+@pytest.mark.parametrize("backend", LOCKSTEP)
 def test_a_launch_the_runner_cannot_watch_fails_every_member_at_the_entrance(
     backend, monkeypatch
 ):
@@ -688,7 +656,7 @@ def test_a_launch_the_runner_cannot_watch_fails_every_member_at_the_entrance(
         assert terminal.ticket is not None
 
 
-@pytest.mark.parametrize("backend", TRANSITIONAL)
+@pytest.mark.parametrize("backend", LOCKSTEP)
 def test_a_window_s_statistics_failure_delivers_the_attempts_it_drained(
     backend, monkeypatch
 ):
@@ -720,7 +688,7 @@ def test_a_window_s_statistics_failure_delivers_the_attempts_it_drained(
         assert terminal.eligibility is Eligibility.ELIGIBLE
 
 
-@pytest.mark.parametrize("backend", TRANSITIONAL)
+@pytest.mark.parametrize("backend", LOCKSTEP)
 def test_a_member_unreadable_after_a_failure_still_reports_its_terminal(
     backend, monkeypatch
 ):
@@ -822,7 +790,7 @@ def test_a_group_wide_stop_reports_nothing_more_for_a_member_already_ended(backe
     assert group.member_status(1).outcome is Outcome.STOPPED
 
 
-@pytest.mark.parametrize("backend", TRANSITIONAL)
+@pytest.mark.parametrize("backend", LOCKSTEP)
 def test_a_failed_final_check_ends_the_group_failed(backend, monkeypatch):
     available(backend)
     with ExitStack() as cleanup:
@@ -845,7 +813,7 @@ def test_a_failed_final_check_ends_the_group_failed(backend, monkeypatch):
         assert terminal.eligibility is Eligibility.ELIGIBLE
 
 
-@pytest.mark.parametrize("backend", TRANSITIONAL)
+@pytest.mark.parametrize("backend", LOCKSTEP)
 def test_a_final_warning_raised_as_an_error_fails_its_member_alone(backend):
     # A run of the member alone would fail at its final check; in a group it fails
     # that member, and the other completes (SEP 21). The tight window's own warnings
@@ -872,3 +840,36 @@ def test_a_final_warning_raised_as_an_error_fails_its_member_alone(backend):
     (completed,) = last.members[1]
     assert isinstance(completed, Terminal)
     assert completed.outcome is Outcome.COMPLETED
+
+
+@pytest.mark.parametrize("backend", LOCKSTEP)
+def test_a_final_warning_raised_as_an_error_fails_the_member_s_lone_run(backend):
+    # The lone counterpart of the test above: the member's own session fails at its
+    # final check, at the run's end, with its state eligible for a checkpoint.
+    available(backend)
+    simulation = member(0, backend)
+    problem = simulation.translate()
+    with ExitStack() as cleanup, warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        warnings.filterwarnings(
+            "error", ".*a manufactured final warning", BoundaryWarning
+        )
+        lone = start_session(
+            constructed(simulation, cleanup),
+            problem,
+            simulation._run_request().for_run(monitor=final_warning(simulation)),
+            Start.entrance(problem),
+            owns=False,
+        )
+        cleanup.callback(lone.close)
+        batch = None
+        while not lone.finished:
+            batch = lone.advance()
+            lone.acknowledge(batch.receipt)
+    assert batch is not None
+    (failed,) = batch.events
+    assert isinstance(failed, Terminal)
+    assert failed.outcome is Outcome.FAILED
+    assert isinstance(failed.error, BoundaryWarning)
+    assert failed.eligibility is Eligibility.ELIGIBLE
+    assert failed.z == pytest.approx(PLANES[-1])

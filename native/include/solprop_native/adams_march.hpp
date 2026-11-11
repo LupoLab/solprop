@@ -18,8 +18,8 @@
 /*
  * The exponential Adams march executed natively (solprop SEP 39 phase 2).
  *
- * solprop's `AdamsMarch` and its controller core (`solprop.backends.adams_core`) are
- * the reference; SEP 39 section 4 and the kernel contract's section 11 specify the
+ * solprop's `HostAdamsMarch` and its controller core (`solprop.backends.adams_core`)
+ * are the reference; SEP 39 section 4 and the kernel contract's section 11 specify the
  * algorithm. The march here performs it for a run of attempts, returning to solprop
  * only at a host event: a reached or crossed target, an accepted step on which solprop
  * has work (a statistics row, a natural stop, a monitor check), the call's bound, the
@@ -200,7 +200,7 @@ struct Rejection {
                                 double target);
 /** `limit_step`'s proposal, `min(dz factor, dz_max)`; the caller tests the floor. */
 [[nodiscard]] double proposal(const Policy& policy, double dz, double factor);
-/** `solprop.backends.driver.reached`. */
+/** `solprop.stepper.schedule.reached`. */
 [[nodiscard]] bool reached(double position, double target, int ulps);
 /** Whether a replayed step's end is a hard kink: one within `slack` of it
     (`adams_core.replay_kink`). */

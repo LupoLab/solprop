@@ -23,6 +23,7 @@ from backends import test_batch_lockstep as lockstep
 from backends.planar_cases import planar_case
 from bounds import EPS, assert_within, gamma
 from legacy_geometry import bare_absorber
+from sessions.runs import launch_statistics
 from solprop.backends import registry, select
 from solprop.backends import spatial as backend_spatial
 from solprop.backends.host.group import HostGroup
@@ -121,8 +122,12 @@ def entrance(simulation, backend="numpy_ref", spec=None):
     run_request = simulation._run_request()
     owner = select(backend, problem, run_request, grid=simulation.grid)
     try:
-        owner.set_initial(problem.initial.field0, None)
-        values = owner.stats(run_request.observation.stats if spec is None else spec)
+        values = launch_statistics(
+            owner,
+            problem,
+            field=problem.initial.field0,
+            stats=run_request.observation.stats if spec is None else spec,
+        )
     finally:
         owner.close()
     return values, problem

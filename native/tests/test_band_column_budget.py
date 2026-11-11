@@ -55,6 +55,7 @@ import pytest
 from bounds import UNIT_ROUNDOFF, fft_bound
 from legacy_geometry import LEGACY_GRID
 from plasma_bounds import node_field_error, plasma_stage_bound, rate_spread, scan_bound
+from session_runs import load_native, native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import C
 from solprop.grid import FieldGrid, RadialGrid
@@ -234,12 +235,10 @@ def stages(
         reference.close()
     backend = NativeBackend(problem, run_request, grid=GRID)
     try:
-        backend.set_initial(problem.initial.field0, None)
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
         # A zero-length trial exposes the first stage, N(E, z = 0).
-        backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
-        actual = np.asarray(
-            backend._native_state.stage_to_host(0)  # pyright: ignore[reportPrivateUsage]
-        ).reshape(problem.shape)
+        native_trial(backend, 0.0, 0.0)
+        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
     finally:
         backend.close()
     return actual, expected

@@ -19,14 +19,21 @@ from march_bounds import (
     assert_stored_matched,
     simulation_bound,
 )
+from sessions.runs import bare as bare_request
+from sessions.runs import final_field
 from solprop import fourier
-from solprop.backends.driver_session import DriverPrepared
-from solprop.backends.protocol import Backend, BackendHistory, Observation, StepSummary
+from solprop.backends.protocol import (
+    Backend,
+    BackendHistory,
+    Observation,
+    StepSummary,
+    stepping,
+)
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings, metadata_for, run_problem
 from solprop.driver.run import plane_from_observation
-from solprop.exceptions import DriverError
+from solprop.exceptions import BackendError, DriverError
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
 from solprop.nonlinear.gnlse import problem_from
@@ -125,6 +132,7 @@ class NullBackend:
     The refusals of ``run_problem`` fire before the backend is touched, and a
     ``runtime_checkable`` protocol checks only that the methods are there, so this is
     enough to reach them without building a problem the reference backend would accept.
+    It prepares no run: a test that propagates uses :func:`failing_backend`.
     """
 
     name = "null"
@@ -154,8 +162,11 @@ class NullBackend:
         return self._request
 
     def prepare(self, problem, request):
-        # The transitional session over this driver, as any driver prepares one.
-        return DriverPrepared(self, problem, request)
+        # Every refusal this double reaches fires before the run is prepared.
+        raise AssertionError("the null backend prepares no run")
+
+    def prepare_group(self, members, problems, requests):
+        raise BackendError("the null backend runs no group")
 
     def set_initial(self, field, noise, *, z=0.0, resume=False):
         pass
@@ -216,6 +227,29 @@ class NullBackend:
 
     def close(self):
         pass
+
+
+def failing_backend(simulation, error):
+    """Return the reference backend for `simulation`, whose every march raises `error`.
+
+    The reference session observes the launch plane before its first march, so a run
+    on it writes that plane and then fails, as a backend failing mid-run does.
+    """
+    backend = select(
+        "numpy_ref",
+        simulation.translate(),
+        simulation._run_request(),
+        grid=simulation.grid,
+        modes=simulation.modes,
+    )
+
+    def propagate_to(z):
+        raise error
+
+    # A patched instance attribute: the reference's stepping seam fails each march.
+    stepped = stepping(backend)
+    stepped.propagate_to = propagate_to  # pyright: ignore[reportAttributeAccessIssue]
+    return backend
 
 
 def item(parent, *names) -> Any:
@@ -306,16 +340,21 @@ def test_the_stored_field_is_the_optics_spectrum_of_the_observation(build_simula
         grid=simulation.grid,
         modes=simulation.modes,
     )
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(float(simulation.settings.save_planes[-1]))
-    observation = backend.observe()
-    backend.close()
-    expected = fourier.spectrum_to_optics(observation.require_field(), kind="envelope")
+    # Its last plane's state through the backend's own session, in the FFT convention.
+    last = final_field(
+        backend,
+        problem,
+        bare_request(run_request),
+        Start.entrance(problem),
+        ended=True,
+        owns=True,
+    )
+    expected = fourier.spectrum_to_optics(last, kind="envelope")
     # The same problem stepped the same way, a matched march; the storage boundary
     # is a conjugation and a sign flip, both exact in floating point (ADR-017).
     bound = simulation_bound(simulation)
     assert_matched(handler["field"][-1], expected, bound)
-    assert_matched(handler.fields("fft")[-1], observation.require_field(), bound)
+    assert_matched(handler.fields("fft")[-1], last, bound)
     # And on one stored array the two conventions are that exact map of each other.
     assert np.array_equal(
         handler["field"][-1],
@@ -470,11 +509,7 @@ def test_the_output_is_closed_when_the_run_fails(build_simulation, tmp_path):
     with pytest.raises(RuntimeError, match="the card caught fire"):
         run_problem(
             problem,
-            NullBackend(
-                RuntimeError("the card caught fire"),
-                shape=problem.shape,
-                request=simulation._run_request(),
-            ),
+            failing_backend(simulation, RuntimeError("the card caught fire")),
             handler,
             start=Start.entrance(problem),
             metadata=simulation.metadata(),
@@ -660,17 +695,13 @@ def test_a_run_that_raises_tells_the_reporter_it_was_interrupted(build_simulatio
     with pytest.raises(RuntimeError, match="the card caught fire"):
         run_problem(
             problem,
-            NullBackend(
-                RuntimeError("the card caught fire"),
-                shape=problem.shape,
-                request=simulation._run_request(),
-            ),
+            failing_backend(simulation, RuntimeError("the card caught fire")),
             MemoryOutput(),
             start=Start.entrance(problem),
             metadata=simulation.metadata(),
             progress=events,
         )
-    # The null backend never calls `started` (the real step driver does), so the
+    # The failing march never calls `started` (a real march does), so the
     # interruption is the only event, and it names the last plane reached: none.
     assert events.calls == [("interrupted", 0.0, "RuntimeError")]
 
@@ -696,11 +727,7 @@ def test_a_reporter_without_interrupted_is_still_accepted(build_simulation):
     with pytest.raises(RuntimeError, match="the card caught fire"):
         run_problem(
             problem,
-            NullBackend(
-                RuntimeError("the card caught fire"),
-                shape=problem.shape,
-                request=simulation._run_request(),
-            ),
+            failing_backend(simulation, RuntimeError("the card caught fire")),
             MemoryOutput(),
             start=Start.entrance(problem),
             metadata=simulation.metadata(),

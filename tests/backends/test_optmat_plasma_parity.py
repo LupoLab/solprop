@@ -89,19 +89,11 @@ def test_the_hold_above_the_maximum_field_is_inside_the_run():
 
 
 @pytest.mark.medium
-# A native lockstep batch replays its Adams members on solprop's march, with the
-# warning native/tests/test_batch.py asserts (SEP 39).
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize("name", ["n2_field", "ar_envelope"])
-def test_a_batch_equals_its_members(name, equivalence_backend_name):
+def test_a_batch_equals_its_members(name):
     # Within the rounding budget tests/backends/test_batch_responses.py holds its own
     # cases to: a lockstep batch's members run the same arithmetic as independent
-    # runs. The compiled backends only: the reference runs a batch member by member.
+    # runs. The reference's lockstep group: the native group runs each member as its
+    # own native session (SEP 47 phase 5), with no shared arithmetic to check.
     case = build_case(name)
-    compare(
-        case.problem,
-        case.run_request,
-        case.grid,
-        equivalence_backend_name,
-        options=None,
-    )
+    compare(case.problem, case.run_request, case.grid, "numpy_ref", options=None)

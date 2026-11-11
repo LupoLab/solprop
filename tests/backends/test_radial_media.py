@@ -13,6 +13,8 @@ import pytest
 from scipy.integrate import quad_vec
 
 from hankel_oracles import gamma
+from sessions.runs import final_field, run
+from solprop.backends.session import Start
 from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.linear import Frame
@@ -144,9 +146,7 @@ def test_radial_medium_flows_match_an_independent_cumulative_oracle(
         )
     backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(length)
-        actual = backend.observe().require_field()
+        actual = final_field(backend, problem, run_request, z=length, owns=False)
         assert np.max(np.abs(actual - expected)) <= absolute_bound
         record_metric(
             request,
@@ -194,14 +194,20 @@ def test_radial_gradient_flow_conserves_axial_flux_and_resumes(spatial_backend_c
     )
     backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(length / 2)
-        middle = backend.observe().require_field().copy()
-        backend.propagate_to(length)
-        straight = backend.observe().require_field().copy()
-        backend.set_initial(middle, None, z=length / 2)
-        backend.propagate_to(length)
-        resumed = backend.observe().require_field()
+        middle, end = run(backend, problem, run_request, owns=False).planes
+        assert (middle.z, end.z) == (length / 2, length)
+        straight = end.field
+        # The resume: the middle plane's state, its plane already saved.
+        resumed = final_field(
+            backend,
+            problem,
+            run_request.for_run(start_plane=1),
+            z=length,
+            start=Start(
+                field=middle.field, z=length / 2, plane_index=1, plane_pending=False
+            ),
+            owns=False,
+        )
     finally:
         backend.close()
     entrance = admittance(0.0) * np.abs(initial[:, 0][:, grid.active_mask]) ** 2

@@ -2,13 +2,25 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Measure the reduced and full-shape CtC cases in isolated processes."""
+"""Measure the reduced and full-shape CtC cases in isolated processes.
+
+A propagation is the backend's session (solprop SEP 47): its start loads the launch
+before the clock starts, and the timed region is the session's advances, each plane's
+statistics evaluated there, up to the last plane's observation, before its field is
+exported. A trial is the backend's timing probe (``Backend.timing_probe``), which loads
+the start once and times single trials from it. ``--planes`` keeps a run's first planes
+only, for a short check of the script. The untimed warm-up is the launch plane and one
+attempt of a session of the timed run itself, closed there: a backend serves only its
+own request's planes, where the step driver's warm-up marched to a short plane of its
+own.
+"""
 
 # ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import hashlib
 import json
 import math
@@ -146,6 +158,26 @@ def _metadata_float(metadata: dict[str, object], name: str) -> float:
     return float(value)
 
 
+def _warm(session: Any) -> None:
+    """Take a started session's launch plane and one attempt beyond it, then close it.
+
+    The untimed warm-up: a backend serves only its own request's planes, so it is
+    warmed on the timed run's own itinerary, cut short; the timed run loads the
+    launch again.
+    """
+    try:
+        for _ in range(2):  # the launch plane's batch, then one attempt
+            if session.finished:
+                break
+            batch = session.advance(work_limit=1)
+            terminal = batch.terminal
+            if terminal is not None and terminal.error is not None:
+                raise terminal.error
+            session.acknowledge(batch.receipt)
+    finally:
+        session.close()
+
+
 def _worker(
     backend_name: str,
     case_name: str,
@@ -153,6 +185,7 @@ def _worker(
     trial_count: int,
     node_chunk: int | None,
     progress_seconds: float,
+    planes_kept: int | None,
 ) -> None:
     if backend_name == "native":
         __import__("solprop_native")
@@ -161,7 +194,10 @@ def _worker(
 
     from solprop.backends.node_chunk import plan_node_chunk
     from solprop.backends.registry import select
-    from solprop.backends.session import ExecutionOptions
+    from solprop.backends.events import ObservationReady
+    from solprop.backends.export import ExportRecipe
+    from solprop.backends.session import ExecutionOptions, Start
+    from solprop.backends.sessions import start_session
     from solprop.exceptions import MaterialRangeWarning
 
     with warnings.catch_warnings():
@@ -169,6 +205,12 @@ def _worker(
         simulation = build_simulation(case_name, backend_name)
         problem = simulation.translate()
         request = simulation._run_request()  # pyright: ignore[reportPrivateUsage]
+    if planes_kept is not None:
+        request = request.with_stepper(
+            dataclasses.replace(
+                request.stepper, save_planes=request.stepper.save_planes[:planes_kept]
+            )
+        )
     options = None if node_chunk is None else ExecutionOptions(node_chunk=node_chunk)
 
     constructed = time.perf_counter()
@@ -187,35 +229,43 @@ def _worker(
         else plan_node_chunk(problem, options).chunk
     )
     construction_seconds = time.perf_counter() - constructed
+    dz = float(request.stepper.dz_init)
+    identity = ExportRecipe(power=False, optics=False)
+
+    def entrance() -> Start:
+        return Start.entrance(problem, noise=simulation.noise)
+
     try:
-        backend.set_initial(problem.initial.field0, simulation.noise)
-        device_before = device_record(backend.metadata())
         if mode == "trial":
-            backend._trial_step(0.0, request.stepper.dz_init)
+            probe = backend.timing_probe(entrance())
+            device_before = device_record(backend.metadata())
+            probe.trial(0.0, dz)
             load_start = os.getloadavg()[0]
             started = time.perf_counter()
             for _ in range(trial_count):
-                backend._trial_step(0.0, request.stepper.dz_init)
+                probe.trial(0.0, dz)
             seconds = time.perf_counter() - started
             load_end = os.getloadavg()[0]
-            _, candidate = backend._trial_step(0.0, request.stepper.dz_init)
-            backend._finish(candidate, request.stepper.dz_init)
+            probe.trial(0.0, dz)
+            field = probe.field()
             accepted = 0
             rejected = 0
             trials = trial_count
         else:
-            backend.propagate_to(min(float(request.stepper.save_planes[0]), 1e-8))
-            backend.set_initial(problem.initial.field0, simulation.noise)
+            device_before = device_record(backend.metadata())
+            _warm(start_session(backend, problem, request, entrance(), owns=False))
+            session = start_session(backend, problem, request, entrance(), owns=False)
             load_start = os.getloadavg()[0]
             started = time.perf_counter()
             process_started = time.process_time()
             attempts = 0
             rejected = 0
-            planes = len(request.stepper.save_planes)
+            save_planes = [float(plane) for plane in request.stepper.save_planes]
+            planes = len(save_planes)
             progress_state: dict[str, int | float] = {
                 "completed_planes": 0,
                 "current_plane": 1,
-                "target": float(request.stepper.save_planes[0]),
+                "target": save_planes[0],
                 "accepted_steps": 0,
                 "rejected_steps": 0,
             }
@@ -244,28 +294,46 @@ def _worker(
                     daemon=True,
                 )
                 progress_thread.start()
+            seconds = 0.0
+            field = None
             try:
-                for plane, target in enumerate(request.stepper.save_planes, start=1):
-                    progress_state["current_plane"] = plane
-                    progress_state["target"] = float(target)
-                    summary = backend.propagate_to(float(target))
-                    attempts += summary.n_steps
-                    rejected += summary.n_rejected
-                    backend.stats(request.observation.stats)
-                    progress_state["completed_planes"] = plane
-                    progress_state["accepted_steps"] = attempts - rejected
-                    progress_state["rejected_steps"] = rejected
-                if progress_seconds > 0.0:
-                    emit_progress("complete")
+                while not session.finished:
+                    batch = session.advance()
+                    for event in batch.events:
+                        history = getattr(event, "history", None)
+                        if history is not None:
+                            attempts += history.n_steps
+                            rejected += history.n_rejected
+                        if not isinstance(event, ObservationReady):
+                            continue
+                        if event.plane_index < 0:
+                            continue  # the launch plane
+                        plane = event.plane_index + 1
+                        progress_state["completed_planes"] = plane
+                        progress_state["accepted_steps"] = attempts - rejected
+                        progress_state["rejected_steps"] = rejected
+                        if plane < planes:
+                            progress_state["current_plane"] = plane + 1
+                            progress_state["target"] = save_planes[plane]
+                            continue
+                        if progress_seconds > 0.0:
+                            emit_progress("complete")
+                        seconds = time.perf_counter() - started
+                        field = np.array(session.export(event.ticket, identity))
+                    terminal = batch.terminal
+                    if terminal is not None and terminal.error is not None:
+                        raise terminal.error
+                    session.acknowledge(batch.receipt)
             finally:
                 progress_stop.set()
                 if progress_thread is not None:
                     progress_thread.join()
-            seconds = time.perf_counter() - started
+                session.close()
             load_end = os.getloadavg()[0]
             accepted = attempts - rejected
             trials = attempts
-        field = backend.observe().field
+        if field is None:
+            raise RuntimeError("the CtC session observed no last plane")
         if not np.all(np.isfinite(field)):
             raise RuntimeError("CtC benchmark produced a non-finite field")
         metadata: dict[str, object] = backend.metadata()
@@ -368,6 +436,7 @@ def _run(
     trial_count: int,
     node_chunk: int | None,
     progress_seconds: float,
+    planes_kept: int | None,
 ) -> Result:
     environment = os.environ.copy()
     environment.update(
@@ -397,6 +466,8 @@ def _run(
         command.extend(("--node-chunk", str(node_chunk)))
     if progress_seconds > 0.0:
         command.extend(("--progress-seconds", str(progress_seconds)))
+    if planes_kept is not None:
+        command.extend(("--planes", str(planes_kept)))
     completed = subprocess.run(
         command,
         check=True,
@@ -422,7 +493,14 @@ def main() -> None:
     parser.add_argument("--threads", type=_csv, default=["8"])
     parser.add_argument("--blas-threads", type=int, default=1)
     parser.add_argument("--repeats", type=int, default=1)
+    parser.add_argument(
+        "--planes",
+        type=int,
+        help="run the case's first planes only, to check the script",
+    )
     arguments = parser.parse_args()
+    if arguments.planes is not None and arguments.planes < 1:
+        parser.error("--planes must be positive")
     if min(arguments.trial_count, arguments.blas_threads, arguments.repeats) < 1:
         parser.error("counts must be positive")
     if arguments.node_chunk is not None and arguments.node_chunk < 1:
@@ -437,6 +515,7 @@ def main() -> None:
             arguments.trial_count,
             arguments.node_chunk,
             arguments.progress_seconds,
+            arguments.planes,
         )
         return
     for backend in arguments.backends:
@@ -452,6 +531,7 @@ def main() -> None:
                     arguments.trial_count,
                     arguments.node_chunk,
                     arguments.progress_seconds,
+                    arguments.planes,
                 )
                 for _ in range(arguments.repeats)
             ]

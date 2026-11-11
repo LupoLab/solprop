@@ -21,6 +21,7 @@ from scipy.linalg import expm
 from scipy.special import gammainc, j0
 
 from legacy_geometry import LEGACY_GRID
+from sessions.runs import native_trial, run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.spatial import collar_field_fraction
 from solprop.boundaries import Absorber, SpatialAbsorber
@@ -183,8 +184,8 @@ def test_spatial_absorber_derivative_matches_independent_bessel_operator(
     )
     backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
         if isinstance(backend, NumpyRefBackend):
+            backend.set_initial(problem.initial.field0, None)
             backend._hoist(0.0)
             measured = backend._nonlinear(
                 problem.initial.field0[None],
@@ -192,12 +193,12 @@ def test_spatial_absorber_derivative_matches_independent_bessel_operator(
                 np.ones((1, *problem.shape), complex),
             )[0]
         else:
-            backend._trial_step(0.0, LENGTH / 8)
-            measured = (
-                backend._native_state.stage_to_host(0)
-                if backend.name == "native"
-                else backend._stages[0].copy()
-            ).reshape(start.shape)
+            # The native state's own trial (``rk_trial`` on the uploaded stage
+            # tables), loaded with the launch: its first stage is N(E, z=0).
+            native_trial(backend, 0.0, LENGTH / 8, field=problem.initial.field0)
+            measured = np.asarray(backend._native_state.stage_to_host(0)).reshape(
+                start.shape
+            )
         assert_allclose(measured[:, :, index], expected, rtol=0, atol=bound)
         record_metric(
             request,
@@ -230,9 +231,9 @@ def test_spatial_absorber_step_refinement_matches_matrix_exponential(
         problem, run_request = problem_for(absorber_case, count)
         backend = spatial_backend_class(problem, run_request, grid=grid)
         try:
-            backend.set_initial(problem.initial.field0, None)
-            backend.propagate_to(LENGTH)
-            measured = backend.observe().require_field()[:, :, index]
+            landed = run(backend, problem, run_request)
+            assert landed.observations[-1].z == LENGTH
+            measured = landed.fields[-1][:, :, index]
             error = float(np.max(np.abs(measured - reference))) / scale
             measured_errors.append(error)
             assert error <= bound, (count, error, bound)

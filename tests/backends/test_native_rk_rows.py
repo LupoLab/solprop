@@ -5,11 +5,16 @@
 """SEP 45 phase 2: a Runge-Kutta trial's stage rows and its norm formed natively.
 
 Where every row a trial reads is one of the uploaded stage tables', the native state
-evaluates each stage's scalars at ``z + c_i dz`` itself (``stage::rows``), as
-``_trial_arrays`` packs the bundles of ``_stage_bundles``: the trial's partials are the
-host-packed trial's bit for bit. The norm is reduced natively for solprop's own weak
-scale, its sums in order (Q1): it agrees with the host's NumPy reduction to rounding,
-and a weighted controller, or one with its own ``scale``, keeps the host's.
+evaluates each stage's scalars at ``z + c_i dz`` itself (``stage::rows``); the
+host-packed trial it was measured against bit for bit was deleted in SEP 47's phase 5,
+and the stage scalars are held to solprop's bundle in ``test_native_stage_tables.py``.
+The norm is reduced natively for solprop's own
+weak scale, its sums in order (Q1), and for a weighted one (phase 4): each agrees with
+the host's NumPy reduction to rounding.
+
+The trials are the native state's own (``rk_trial``), called on the backend's state
+directly, and a run's norms are what its session reports for each attempt: SEP 47 phase
+5 retired the backend's driver calls.
 """
 
 import dataclasses
@@ -20,9 +25,12 @@ import numpy as np
 import pytest
 
 from capability_routes import ROUTES
+from native_flow_guards import check_flow_conditioning, flow_squarings
+from sessions.runs import load_native, native_trial, run
 from solprop.backends import available
 from solprop.exceptions import BackendError
 from solprop.stepper.controller import PIController
+from solprop.translate.stage import scalars
 
 pytestmark = [
     pytest.mark.medium,
@@ -57,7 +65,8 @@ FLOWS = ("general guide (moving)", "capillary (coherent wall)")
 
 
 def runge_kutta(route: str, controller: PIController | None = None):
-    """Return a route's backend on the Runge-Kutta march, launched."""
+    """Return a route's backend on the Runge-Kutta march, launched, with its problem
+    and request."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         simulation = ROUTES[route](None)
@@ -65,7 +74,8 @@ def runge_kutta(route: str, controller: PIController | None = None):
 
 
 def launched(simulation, controller: PIController | None = None):
-    """Return a simulation's backend on the Runge-Kutta march, launched."""
+    """Return a simulation's backend on the Runge-Kutta march, launched, with its
+    problem and request: the launch is loaded into the native state."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         settings = dataclasses.replace(simulation.settings, integrator=None)
@@ -81,8 +91,12 @@ def launched(simulation, controller: PIController | None = None):
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
-    backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
-    return backend, problem
+    load_native(backend, problem.initial.field0)
+    return backend, problem, run_request
+
+
+def _nodes(run_request) -> list[float]:
+    return [float(node) for node in run_request.stepper.tableau.nodes]
 
 
 def steps(problem, run_request) -> list[tuple[float, float]]:
@@ -94,23 +108,10 @@ def steps(problem, run_request) -> list[tuple[float, float]]:
     return [(z, min(0.05 * span, end - z)) for z in anchors if z < end]
 
 
-@pytest.mark.parametrize("route", ROWS)
-def test_a_staged_trial_is_the_host_packed_trial(route, monkeypatch):
-    backend, problem = runge_kutta(route)
-    try:
-        assert backend._staged_rows()
-        for z, dz in steps(problem, backend.request):
-            staged = np.asarray(backend._prepare_trial(z, dz))
-            with monkeypatch.context() as patch:
-                patch.setattr(backend_module, "_RK_ROWS", "host")
-                packed = np.asarray(backend._prepare_trial(z, dz))
-            assert np.array_equal(staged, packed), (z, dz)
-    finally:
-        backend.close()
-
-
 def _refusal(call) -> str:
-    with pytest.raises(BackendError) as caught:
+    # The native state raises its refusal as the extension's own class; the backend
+    # gives it solprop's name with the same message.
+    with pytest.raises((BackendError, core.BackendRefusal)) as caught:
         call()
     return str(caught.value)
 
@@ -122,23 +123,23 @@ def test_the_native_flow_guards_refuse_as_the_host_s(route, monkeypatch):
     The guards are reached by handing the state a certificate, or a Taylor scale, the
     step exceeds: the conditioning measured and the squarings counted are the host's.
     """
-    backend, problem = runge_kutta(route)
+    backend, problem, run_request = runge_kutta(route)
     try:
-        assert backend._staged_rows()
+        backend._staged_rows()
         flow = backend._flow
         state = backend._native_state
-        z, dz = steps(problem, backend.request)[0]
-        nodes = backend._rk_nodes
+        z, dz = steps(problem, run_request)[0]
+        nodes = _nodes(run_request)
         modes = int(flow.vectors.shape[-1])
         allowance = backend_module._flow_allowance(modes)
-        section = int(backend._stage_scalars(z, z + dz).flow_section)
+        section = int(scalars(problem, z, z + dz, helpers=backend.helpers).flow_section)
         fractions = np.array([*nodes, 1.0])
         measured = np.asarray(state.form_flow_actions(section, dz, fractions))[0]
         if measured.size:
             halved = dataclasses.replace(flow, condition_bound=flow.condition_bound / 2)
             expected = _refusal(
-                lambda: backend_module._check_flow_conditioning(
-                    halved, section, measured, dz
+                lambda: check_flow_conditioning(
+                    backend_module, halved, section, measured, dz
                 )
             )
             state.flow_guard_configure(
@@ -148,14 +149,14 @@ def test_the_native_flow_guards_refuse_as_the_host_s(route, monkeypatch):
                 backend_module._MAX_FLOW_SQUARINGS,
                 allowance,
             )
-            assert _refusal(lambda: backend._prepare_trial(z, dz)) == expected
+            assert _refusal(lambda: native_trial(backend, z, dz)) == expected
         tiny = 1e-12
         # Both refuse at the first stage length past the scale, in the nodes' order.
         first = next(
             float(f) * dz * float(flow.row_sum[section]) for f in fractions if f
         )
         monkeypatch.setattr(backend_module, "_TAYLOR_SCALE", tiny)
-        expected = _refusal(lambda: backend_module._flow_squarings(first))
+        expected = _refusal(lambda: flow_squarings(backend_module, first))
         state.flow_guard_configure(
             [float(v) for v in flow.row_sum],
             [float(v) for v in np.ravel(flow.condition_bound)],
@@ -163,7 +164,7 @@ def test_the_native_flow_guards_refuse_as_the_host_s(route, monkeypatch):
             backend_module._MAX_FLOW_SQUARINGS,
             allowance,
         )
-        assert _refusal(lambda: backend._prepare_trial(z, dz)) == expected
+        assert _refusal(lambda: native_trial(backend, z, dz)) == expected
     finally:
         backend.close()
 
@@ -191,65 +192,69 @@ def test_the_native_norm_is_the_host_s_to_rounding(slots, atol):
             assert found == expected
 
 
-class _Scaled(PIController):
-    """A controller whose scale is its own."""
+def _first_attempt(route: str, controller: PIController):
+    """Run a route in its session; return its first attempt's trial partials, step
+    and the norm the session reported for it.
 
-    def scale(self, norm_y, norm_y_new):
-        return 2.0 * super().scale(norm_y, norm_y_new)
-
-
-@pytest.mark.parametrize(
-    "controller",
-    [
-        _Scaled(rtol=1e-6, atol=0.0),
-        PIController(rtol=1e-6, atol=0.0, weights=None),
-    ],
-    ids=["own_scale", "stock"],
-)
-def test_only_solprop_s_weak_scale_is_reduced_natively(controller, monkeypatch):
-    backend, problem = runge_kutta("gnlse", controller)
-    calls: list[int] = []
-    score = core.rk_score
-
-    def counted(partials, rtol, atol):
-        calls.append(1)
-        return score(partials, rtol, atol)
-
+    The first attempt starts at the launch, so its trial is retaken on the loaded
+    launch: the same state, position and step.
+    """
+    backend, problem, run_request = runge_kutta(route, controller)
     try:
-        monkeypatch.setattr(core, "rk_score", counted)
-        z, dz = steps(problem, backend.request)[0]
-        partials = backend._prepare_trial(z, dz)
-        norm = backend._score_trial(partials)
-        expected = _host_norm(np.asarray(partials), 1e-6, 0.0)
-        if isinstance(controller, _Scaled):
-            assert not calls
-            assert norm == expected / 2.0
-        else:
-            assert calls
-            assert norm == pytest.approx(expected, rel=1e-14)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            landed = run(backend, problem, run_request)
+        history = next(one for one in landed.histories if one.n_steps)
+        dz, norm = float(history.dz[0]), float(history.error_norm[0])
+        start = float(problem.initial.z)
+        assert float(history.z[0]) == start + dz
+        load_native(backend, problem.initial.field0)
+        partials = native_trial(backend, start, dz)
+        weighted = None
+        if controller.weights is not None:
+            old = math.sqrt(float(partials[0].sum()))
+            new = math.sqrt(float(partials[1].sum()))
+            weighted = np.asarray(
+                backend._native_state.weighted_error(
+                    np.ascontiguousarray(controller.scale(old, new), dtype=np.float64)
+                )
+            )
     finally:
         backend.close()
+    return partials, weighted, norm
+
+
+def test_the_weak_scale_is_reduced_natively():
+    """A run's norm, PIController's scale, is the host's reduction to its rounding.
+
+    A controller with a scale of its own is refused where the backend is built
+    (solprop SEP 47 section 6.3, `test_native_rk_admission`), so every trial's norm is
+    reduced natively: here the session's own norm of its first attempt, against the
+    host's NumPy reduction of that trial's partials.
+    """
+    controller = PIController(rtol=1e-6, atol=0.0, weights=None)
+    partials, _, norm = _first_attempt("gnlse", controller)
+    expected = _host_norm(partials, 1e-6, 0.0)
+    assert expected > 0.0
+    assert norm == pytest.approx(expected, rel=1e-14)
+    assert core.rk_score(np.ascontiguousarray(partials), 1e-6, 0.0) == pytest.approx(
+        expected, rel=1e-14
+    )
 
 
 def test_a_weighted_norm_is_the_host_s_to_rounding():
-    """The weighted scale and its reduction natively (SEP 45 phase 4), in order."""
-    backend, problem = runge_kutta("gnlse")
+    """The weighted scale and its reduction natively (SEP 45 phase 4), in order.
+
+    The session's norm of its first attempt, against the host's sum of the trial's
+    residual divided bin by bin by the controller's own scale.
+    """
+    backend, problem, _ = runge_kutta("gnlse")
     n_omega = problem.grids.n_omega
+    backend.close()
     weights = np.linspace(0.05, 1.0, n_omega)
     controller = PIController(rtol=1e-6, atol=1e-12, weights=weights)
-    backend.close()
-    backend, problem = runge_kutta("gnlse", controller)
-    try:
-        z, dz = steps(problem, backend.request)[0]
-        partials = np.asarray(backend._prepare_trial(z, dz))
-        found = backend._score_trial(partials)
-        old = math.sqrt(float(partials[0].sum()))
-        new = math.sqrt(float(partials[1].sum()))
-        scale = controller.scale(old, new)
-        weighted = backend._native_state.weighted_error(
-            np.ascontiguousarray(scale, dtype=np.float64)
-        )
-        expected = math.sqrt(float(np.asarray(weighted).sum()))
-        assert found == pytest.approx(expected, rel=1e-13)
-    finally:
-        backend.close()
+    _, weighted, norm = _first_attempt("gnlse", controller)
+    assert weighted is not None
+    expected = math.sqrt(float(weighted.sum()))
+    assert expected > 0.0
+    assert norm == pytest.approx(expected, rel=1e-13)

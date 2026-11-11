@@ -14,20 +14,18 @@ the same tests.
 
 - ``reference`` is the NumPy reference, in its own session
   (:class:`~solprop.backends.host.session.HostSession`, SEP 47 phase 2).
-- ``native`` is the compiled backend, through the same transitional session until its
-  own session replaces it; it is skipped where ``solprop_native`` is not installed.
-- ``native-session`` is the native execution session itself
-  (:class:`solprop_native.session.NativeSession`, SEP 47's phase 1 prototype): the
-  native backend owns the run, its boundary monitor included, whose decisions and
-  record are native (:attr:`Executor.native_monitor`); it evaluates every
-  periodic-capable statistic natively.
+- ``native-session`` is the native execution session
+  (:class:`solprop_native.session.NativeSession`), the only native executor since SEP
+  47 phase 5: the native backend owns the run, its boundary monitor included, whose
+  decisions and record are native (:attr:`Executor.native_monitor`); it evaluates
+  every periodic-capable statistic natively. It is skipped where ``solprop_native``
+  is not installed.
 - ``native-session-low-storage`` is the native execution session replaying the same
   problem's planes on a uniform schedule of :data:`LOW_STORAGE_STEPS` steps with the
   low-storage march (SEP 47 section 6.3), whose loop the native session owns.
-- ``scripted-host`` is the same script on the reference's own driver, in the
-  reference's session (:class:`HostSessionScript`).
-- ``scripted`` is :class:`SessionScript`, a step driver whose norms, rejections,
-  failures, in-flight failures and warnings are chosen by the test.
+- ``scripted-host`` is :class:`HostSessionScript`, the reference's own driver in the
+  reference's session, whose norms, rejections, failures, in-flight failures and
+  warnings are chosen by the test.
 
 The problem is the fundamental GNLSE soliton of ``tests/backends/conftest.py`` on its
 768-bin window, over 2 cm in four planes: a few dozen attempts on any executor. A
@@ -39,17 +37,18 @@ on its periodic line (:func:`edged`), which an executor starts with that run's g
 import dataclasses
 import functools
 import os
+import re
 import warnings
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import numpy as np
 
-from scripted_driver import SCALE, HostScriptedDriver, ScriptedDriver
-from solprop.backends.driver_session import DriverSession
+from scripted_driver import SCALE, HostScriptedDriver
 from solprop.backends.events import (
     EventBatch,
+    ObservationKind,
     ObservationReady,
     ServiceKind,
     ServiceRequired,
@@ -59,7 +58,7 @@ from solprop.backends.events import (
 )
 from solprop.backends.export import ExportRecipe
 from solprop.backends.host.session import HostSession
-from solprop.backends.protocol import BackendHistory, StepStats
+from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.registry import select
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
@@ -77,6 +76,7 @@ from solprop.stepper import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
+from solprop.translate.precision import DOUBLE, Precision
 from solprop.translate.problem import PropagationProblem, Translation, assemble
 from solprop.translate.run_request import (
     IntegrationSpec,
@@ -116,6 +116,9 @@ CONSUMER = ExportRecipe(power=True, optics=False)
 """The field a saved plane, a plane observer and a checkpoint share (service loop)."""
 STORED = ExportRecipe(power=True, optics=True)
 """The field a plane store writes."""
+_NO_FIELD = np.empty(0, dtype=np.complex128)
+"""A plane's field in a run driven without an export recipe."""
+
 RECIPES = (IDENTITY, CONSUMER, ExportRecipe(power=False, optics=True), STORED)
 
 
@@ -152,6 +155,7 @@ def soliton(
     interpolate: bool = False,
     integrator: Multistep | None = None,
     planes: Collection[float] = PLANES,
+    precision: Precision = DOUBLE,
 ) -> Translation:
     """Return the fundamental soliton over :data:`PLANES`, and its run's request.
 
@@ -167,6 +171,8 @@ def soliton(
         The Adams method; the default Runge-Kutta tableau by default.
     planes : collection of float, optional
         The save planes, m, increasing and ending at :data:`LENGTH`.
+    precision : solprop.translate.precision.Precision, optional
+        The run's arithmetic; binary64 by default.
 
     Returns
     -------
@@ -190,6 +196,7 @@ def soliton(
         step_planes=step_planes,
         interpolate_planes=interpolate,
         integrator=integrator,
+        precision=precision,
         stats_spec=StatsSpec(
             names=("energy", "peak_power"), periodic=("energy",), period=period
         ),
@@ -246,7 +253,7 @@ class _Outcomes:
         The accepted step whose committed endpoint warns with
         :class:`ScriptedWarning`, after the step's statistics row.
     **kwargs
-        Passed to :class:`scripted_driver.ScriptedDriver`.
+        Passed to :class:`scripted_driver.HostScriptedDriver`.
     """
 
     def __init__(  # noqa: PLR0913 - one keyword per scripted outcome
@@ -291,10 +298,6 @@ class _Outcomes:
                 ScriptedWarning,
                 stacklevel=2,
             )
-
-
-class SessionScript(_Outcomes, ScriptedDriver):
-    """The scripted outcomes on the native bridge's inherited driver."""
 
 
 class HostSessionScript(_Outcomes, HostScriptedDriver):
@@ -342,7 +345,7 @@ class Factory(Protocol):
 
 
 def _over_driver(
-    make: Callable[..., Any], *, host_state: bool, session: type = DriverSession
+    make: Callable[..., Any], *, host_state: bool, session: type = HostSession
 ) -> Factory:
     """Return a factory of sessions over a step driver.
 
@@ -353,7 +356,7 @@ def _over_driver(
     host_state : bool
         Whether the driver's state is a host array the aliasing checks can read.
     session : type, optional
-        The session class: the transitional session by default.
+        The session class: the reference's by default.
 
     Returns
     -------
@@ -442,7 +445,7 @@ def _host_scripted(
     context : collections.abc.Mapping or None
         Refused: a script runs the soliton alone.
     **script
-        The outcomes, as :class:`SessionScript` takes them.
+        The outcomes, as :class:`HostSessionScript` takes them.
 
     Returns
     -------
@@ -451,35 +454,6 @@ def _host_scripted(
     """
     assert context is None, "a script runs the soliton alone"
     return HostSessionScript(problem, request, grid=window(), **script)
-
-
-def _scripted(
-    problem: PropagationProblem,
-    request: RunRequest,
-    *,
-    context: Mapping[str, Any] | None,
-    **script: Any,
-) -> SessionScript:
-    """Return a scripted driver for a problem.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-    request : solprop.translate.run_request.RunRequest
-        Its run's request.
-    context : collections.abc.Mapping or None
-        Refused: a script runs the soliton alone.
-    **script
-        The outcomes, as :class:`SessionScript` takes them.
-
-    Returns
-    -------
-    SessionScript
-        The driver.
-    """
-    assert context is None, "a script runs the soliton alone"
-    return SessionScript(problem, request, grid=window(), **script)
 
 
 def _native_session(
@@ -611,12 +585,76 @@ DENSE = "dense output"
 phase 3); a scripted driver's trials hold no stages to interpolate, and a replay lands
 on its planes."""
 
-CAPABILITIES = frozenset({MONITOR, STATISTICS, TRANSVERSE, DENSE})
+COUPLED = "coupled flow"
+"""The capability of stepping a coupled flow on the exponential Adams march, wider than
+16 channels or with bins off its eigenbasis route (SEP 47 section 6.3, phase 4:
+:func:`coupled_flow`); a scripted driver has no flow, and the low-storage replay
+none beside one."""
+
+CAPABILITIES = frozenset({MONITOR, STATISTICS, TRANSVERSE, DENSE, COUPLED})
 """Every capability a test may need of an executor."""
 
 
+COUPLED_KINDS = ("wide", "off route")
+"""The coupled flows :func:`coupled_flow` builds."""
+
+
+def coupled_flow(
+    kind: str,
+) -> tuple[PropagationProblem, RunRequest, dict[str, Any]]:
+    """Return a coupled flow's ten fixed Adams steps, with its context.
+
+    ``"wide"`` is the 17-channel lossless taper of
+    ``tests/driver/test_native_flow_session.py``; ``"off route"`` the coherent-wall
+    taper of ``tests/flow_parity.py`` with every bin off the eigenbasis route, which
+    the native backend reads from its decomposition, formed here under an eigenbasis
+    limit of zero and kept with the problem (``solprop_native.backend._HOST_FLOWS``);
+    the reference takes the augmented exponential on every bin either way.
+
+    Parameters
+    ----------
+    kind : str
+        One of :data:`COUPLED_KINDS`.
+
+    Returns
+    -------
+    tuple
+        The problem, its request without statistics, and the grid, modes and
+        profiles an executor starts it with.
+    """
+    from unittest import mock  # noqa: PLC0415
+
+    from driver.test_native_flow_session import wide_simulation  # noqa: PLC0415
+    from flow_parity import QUIET, build  # noqa: PLC0415
+
+    with warnings.catch_warnings():
+        for category in QUIET:
+            warnings.simplefilter("ignore", category)
+        simulation = wide_simulation(17) if kind == "wide" else build("taper")
+        problem = simulation.translate()
+    if kind != "wide":
+        try:
+            from solprop_native import (  # noqa: PLC0415 - optional  # pyright: ignore[reportMissingImports]
+                backend,
+            )
+        except ImportError:
+            pass
+        else:
+            with mock.patch(
+                "solprop.translate.coupled.eigenbasis_limit", lambda n_modes: 0.0
+            ):
+                backend._HOST_FLOWS[problem] = backend._decomposed_flow(problem)
+    request = simulation._run_request().for_run(stats=StatsSpec())
+    context = {
+        "grid": simulation.grid,
+        "modes": simulation.modes,
+        "profiles": simulation.profiles,
+    }
+    return problem, request, context
+
+
 def edged(
-    check: BoundaryCheck,
+    check: BoundaryCheck, *, noise: Literal["input"] | None = None
 ) -> tuple[PropagationProblem, RunRequest, dict[str, Any]]:
     """Return the re-review's tilted packet, edged, with its context.
 
@@ -628,6 +666,9 @@ def edged(
     ----------
     check : solprop.monitor.BoundaryCheck
         The run's thresholds.
+    noise : {"input", None}, optional
+        The input noise launched beside the packet, seeded, whose allowance the edge
+        judges above; none by default.
 
     Returns
     -------
@@ -642,6 +683,7 @@ def edged(
         check=check,
         planes=[REREVIEW.length / 2, REREVIEW.length],
         backend="numpy_ref",
+        noise=noise,
     )
     problem = simulation.translate()
     request = simulation._run_request().for_run(
@@ -664,12 +706,6 @@ def _one_thread() -> bool:
     }
 
 
-DEVICE_REFUSED = frozenset({TRANSVERSE, DENSE})
-"""What the native session refuses on a device build (SEP 47 phase 3's representative
-device path, ``solprop_native.session.device_refusal``); the suite's problem is modal
-and noiseless, so nothing else it asks is refused there."""
-
-
 @functools.cache
 def device_build() -> bool:
     """Return whether the installed native backend is a device (CUDA or HIP) build.
@@ -686,36 +722,22 @@ def device_build() -> bool:
     return solprop_native.build_info().device_backend != "none"
 
 
-def skip_device_refused(problem: PropagationProblem, request: RunRequest) -> None:
-    """Skip the calling test where the native session refuses its run on a device.
+def skip_device_refused(problem: PropagationProblem) -> None:
+    """Skip the calling test where a device build refuses its problem.
 
-    On a device build the native session admits SEP 47 phase 3's representative path
-    and refuses the rest by name (``solprop_native.session.device_refusal``), which
-    phase 4 ports; a test of a refused feature skips, naming it. Nothing on a CPU
-    build.
+    The native backend refuses by name a z table that is not device-ready on a device
+    build, before any session is asked. Nothing on a CPU build.
 
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
-    request : solprop.translate.run_request.RunRequest
-        Its run request.
     """
-    if not device_build():
+    if not device_build() or problem.device_ready:
         return
     import pytest  # noqa: PLC0415 - only a test calls it
-    from solprop_native.session import (  # noqa: PLC0415 - optional  # pyright: ignore[reportMissingImports]
-        device_refusal,
-    )
 
-    refused = device_refusal(problem, request)
-    if refused is not None:
-        pytest.skip(f"the native session refuses {refused} (SEP 47 phase 4)")
-
-
-DEVICE_GROUP = "the native group session refuses a device build (SEP 47 phase 4)"
-"""Why the native group's tests skip on a device build: a group there runs in the
-transitional group, as before."""
+    pytest.skip("device builds refuse a z table by name")
 
 
 @dataclass(frozen=True)
@@ -731,7 +753,7 @@ class Executor:
     requires : str or None
         A module it needs, skipped without it.
     scripted : bool
-        Whether its numerical outcomes are scripted (:class:`SessionScript`).
+        Whether its numerical outcomes are scripted (:class:`HostSessionScript`).
     capabilities : frozenset of str
         What it can be asked to run beyond the soliton (:data:`CAPABILITIES`); a test
         that needs another skips it explicitly (:meth:`require`).
@@ -740,10 +762,6 @@ class Executor:
         request's solprop monitor stays fresh and the session's
         :meth:`~solprop.backends.session.RunSession.monitor_record` alone shows what
         it did (SEP 47 section 6.4).
-    device : frozenset of str or None
-        What it can be asked to run on a device build, where the native session
-        refuses :data:`DEVICE_REFUSED`; ``None`` where it does not run there at all.
-        Unused on a CPU build.
     """
 
     name: str
@@ -752,18 +770,6 @@ class Executor:
     scripted: bool = False
     capabilities: frozenset[str] = CAPABILITIES
     native_monitor: bool = False
-    device: frozenset[str] | None = CAPABILITIES
-
-    @property
-    def available(self) -> bool:
-        """Return whether this executor runs on the installed build.
-
-        Returns
-        -------
-        bool
-            False for an executor the native session refuses on a device build.
-        """
-        return self.device is not None or not device_build()
 
     def require(self, capability: str) -> None:
         """Skip the calling test when this executor lacks a capability.
@@ -775,10 +781,7 @@ class Executor:
         """
         import pytest  # noqa: PLC0415 - only a test calls it
 
-        capabilities = self.capabilities
-        if device_build() and self.device is not None:
-            capabilities &= self.device
-        if capability not in capabilities:
+        if capability not in self.capabilities:
             pytest.skip(f"the {self.name} executor does not run a {capability}")
 
     @property
@@ -799,42 +802,107 @@ class Executor:
 EXECUTORS: dict[str, Executor] = {
     "reference": Executor(
         "reference",
-        _over_driver(_selected("numpy_ref"), host_state=True, session=HostSession),
-    ),
-    "native": Executor(
-        "native",
-        _over_driver(_selected("native"), host_state=False),
-        requires="solprop_native",
-    ),
-    "scripted": Executor(
-        "scripted",
-        _over_driver(_scripted, host_state=True),
-        scripted=True,
-        capabilities=frozenset({MONITOR}),
+        _over_driver(_selected("numpy_ref"), host_state=True),
     ),
     "native-session": Executor(
         "native-session",
         _native_session,
         requires="solprop_native",
         native_monitor=True,
-        device=CAPABILITIES - DEVICE_REFUSED,
     ),
     "native-session-low-storage": Executor(
         "native-session-low-storage",
         _native_low_storage,
         requires="solprop_native",
-        capabilities=CAPABILITIES - {DENSE},
+        capabilities=CAPABILITIES - {DENSE, COUPLED},
         native_monitor=True,
-        device=None,
     ),
     "scripted-host": Executor(
         "scripted-host",
-        _over_driver(_host_scripted, host_state=True, session=HostSession),
+        _over_driver(_host_scripted, host_state=True),
         scripted=True,
         capabilities=frozenset({MONITOR, STATISTICS}),
     ),
 }
 """Every executor of the suite, by name."""
+
+
+@dataclass(frozen=True, eq=False)
+class Plane:
+    """One observation of a run, with what it delivered since the previous one.
+
+    Attributes
+    ----------
+    event : solprop.backends.events.ObservationReady
+        The observation.
+    field : numpy.ndarray
+        Its field as the run exported it; empty for a run driven without an export
+        recipe.
+    history : solprop.backends.protocol.BackendHistory
+        Every attempt since the previous observation (:meth:`Run.assembled`).
+    rows : solprop.backends.protocol.StepStats
+        The periodic rows since the previous observation.
+    """
+
+    event: ObservationReady
+    field: np.ndarray
+    history: BackendHistory
+    rows: StepStats
+
+    @property
+    def z(self) -> float:
+        """Return the observation's position, m.
+
+        Returns
+        -------
+        float
+            The position.
+        """
+        return float(self.event.z)
+
+    @property
+    def kind(self) -> ObservationKind:
+        """Return why the plane was observed.
+
+        Returns
+        -------
+        solprop.backends.events.ObservationKind
+            The kind.
+        """
+        return self.event.kind
+
+    @property
+    def plane_index(self) -> int:
+        """Return the save plane the observation answers, ``-1`` for the launch.
+
+        Returns
+        -------
+        int
+            The index.
+        """
+        return self.event.plane_index
+
+    @property
+    def stats(self) -> dict[str, np.ndarray]:
+        """Return the observation's statistics by catalogue name.
+
+        Returns
+        -------
+        dict
+            The statistics.
+        """
+        return {name: np.asarray(value) for name, value in self.event.stats.items()}
+
+    @property
+    def summary(self) -> StepSummary:
+        """Return the cost and tolerance of the propagation that reached the plane.
+
+        Returns
+        -------
+        solprop.backends.protocol.StepSummary
+            The summary.
+        """
+        return self.event.summary
 
 
 @dataclass
@@ -958,6 +1026,86 @@ class Run:
         """
         return sum(history.n_steps for history in self.histories)
 
+    @property
+    def joined(self) -> tuple[BackendHistory, StepStats]:
+        """Return every attempt and every periodic row of the run, joined in order.
+
+        Returns
+        -------
+        tuple
+            The attempts and the rows, without a batch axis.
+        """
+        return join_attempts(self.chunks)
+
+    def all_planes(self) -> list[Plane]:
+        """Return every observation, the launch plane's included, in order.
+
+        Returns
+        -------
+        list of Plane
+            The observations, each with its exported field (when the run exported
+            one) and the attempts and rows assembled since the previous observation.
+        """
+        fields = (
+            list(self.fields) if self.fields else [_NO_FIELD] * len(self.observations)
+        )
+        found: list[Plane] = []
+        for event, history, rows in self.assembled():
+            if isinstance(event, ObservationReady):
+                found.append(Plane(event, fields[len(found)], history, rows))
+        return found
+
+    @property
+    def planes(self) -> list[Plane]:
+        """Return every observation after the launch plane, in order.
+
+        Returns
+        -------
+        list of Plane
+            The observations of save, step and dense planes.
+        """
+        return [
+            plane
+            for plane in self.all_planes()
+            if plane.kind is not ObservationKind.LAUNCH
+        ]
+
+    @property
+    def launch(self) -> Plane | None:
+        """Return the launch plane's observation, when the start owed it.
+
+        Returns
+        -------
+        Plane or None
+            The launch plane.
+        """
+        for plane in self.all_planes():
+            if plane.kind is ObservationKind.LAUNCH:
+                return plane
+        return None
+
+    @property
+    def final(self) -> Plane:
+        """Return the last observation after the launch plane.
+
+        Returns
+        -------
+        Plane
+            The observation.
+        """
+        return self.planes[-1]
+
+    @property
+    def met_tolerance(self) -> bool:
+        """Return whether every propagation between observations met its tolerance.
+
+        Returns
+        -------
+        bool
+            True when every plane after the launch reports it met.
+        """
+        return all(plane.summary.met_tolerance for plane in self.planes)
+
     def accepted_ends(self) -> np.ndarray:
         """Return the end of every accepted attempt, in order, m.
 
@@ -973,13 +1121,16 @@ class Run:
         )
 
 
-def drive(
+def drive(  # noqa: PLR0913 - the advance bounds and the drive's stopping rules
     started: Started,
     *,
     export: ExportRecipe | None = None,
     work_limit: int = DEFAULT_WORK_LIMIT,
     deadline: float = DEFAULT_DEADLINE,
     between: Callable[[RunSession, EventBatch], None] | None = None,
+    observations: int | None = None,
+    until: float | None = None,
+    raises: bool = True,
 ) -> Run:
     """Advance a session to its end, acknowledging each batch.
 
@@ -996,15 +1147,25 @@ def drive(
     between : callable or None, optional
         Called with the session and each batch, after any export and before the
         acknowledgment.
+    observations : int or None, optional
+        Stop once this many observations were reported, the launch plane's included,
+        instead of driving the session to its end.
+    until : float or None, optional
+        Stop after the batch of the first observation at this position, m.
+    raises : bool, optional
+        Raise a failed run's terminal error, as a service loop does; ``False`` returns
+        the run with its terminal failure.
 
     Returns
     -------
     Run
-        What the session reported.
+        What the session reported; the caller closes the session.
     """
     session = started.session
     batches: list[EventBatch] = []
     fields: list[np.ndarray] = []
+    seen = 0
+    reached = False
     while not session.finished:
         batch = session.advance(work_limit=work_limit, deadline=deadline)
         batches.append(batch)
@@ -1012,6 +1173,9 @@ def drive(
             if isinstance(event, ServiceRequired) and event.kind is ServiceKind.WARNING:
                 # A warning barrier: emitted as a service loop emits it (SEP 47 5.5).
                 emit_warning(event)
+            if isinstance(event, ObservationReady):
+                seen += 1
+                reached = reached or (until is not None and event.z == until)
         if export is not None:
             fields.extend(
                 np.array(session.export(event.ticket, export))
@@ -1021,7 +1185,14 @@ def drive(
         if between is not None:
             between(session, batch)
         session.acknowledge(batch.receipt)
-    return Run(batches, fields, session.status())
+        if reached or (observations is not None and seen >= observations):
+            break
+    run = Run(batches, fields, session.status())
+    if raises and batches and batches[-1].terminal is not None:
+        error = run.terminal.error
+        if error is not None:
+            raise error
+    return run
 
 
 def _history(history: BackendHistory | None) -> tuple[object, ...]:
@@ -1136,6 +1307,217 @@ def assert_same_run(run: Run, baseline: Run) -> None:
     assert len(run.fields) == len(baseline.fields)
     for index, (one, other) in enumerate(zip(run.fields, baseline.fields, strict=True)):
         assert one.tobytes() == other.tobytes(), f"field {index} differs"
+
+
+def assert_close_trace(
+    run: Run, baseline: Run, *, rtol: float, terminal_rtol: float | None = None
+) -> None:
+    """Assert two runs of one problem on different backends observe the same planes.
+
+    The structure is exact -- each observation's kind, plane index and statistics
+    names, and the terminal outcome and eligibility -- and the numbers agree to
+    `rtol`: each observation's position and the terminal position, and each
+    statistic relative to its largest magnitude. The attempts are not compared:
+    where a trial's error norm is at the level of rounding, two backends' rounding
+    takes different steps (SEP 25). This is the comparison against the reference of
+    a native run whose bitwise baseline, the transitional bridge, was deleted in SEP
+    47 phase 5.
+
+    Parameters
+    ----------
+    run : Run
+        The run under test.
+    baseline : Run
+        The reference run.
+    rtol : float
+        The relative bound.
+    terminal_rtol : float or None, optional
+        The bound on the terminal position, where a run stops at a check that falls
+        on its own steps; `rtol` by default.
+    """
+    got, expected = run.observations, baseline.observations
+    assert [(one.kind, one.plane_index) for one in got] == [
+        (one.kind, one.plane_index) for one in expected
+    ]
+    for one, other in zip(got, expected, strict=True):
+        assert one.z == pytest_approx(other.z, rtol)
+        assert sorted(one.stats) == sorted(other.stats)
+        for name in one.stats:
+            mine = np.asarray(one.stats[name], dtype=np.float64)
+            theirs = np.asarray(other.stats[name], dtype=np.float64)
+            assert mine.shape == theirs.shape, name
+            scale = float(np.max(np.abs(theirs), initial=0.0))
+            np.testing.assert_allclose(
+                mine, theirs, rtol=0.0, atol=rtol * scale, err_msg=name
+            )
+    terminal, reference = run.terminal, baseline.terminal
+    assert (terminal.outcome, terminal.eligibility) == (
+        reference.outcome,
+        reference.eligibility,
+    )
+    assert terminal.z == pytest_approx(
+        reference.z, rtol if terminal_rtol is None else terminal_rtol
+    )
+
+
+_NUMBER = re.compile(r"[-+]?\d+(?:\.\d*)?(?:e[-+]?\d+)?")
+
+
+def masked(text: str) -> str:
+    """Return a message with its numbers masked: what it says, not where.
+
+    A native run checked against the reference takes other steps (SEP 25), so its
+    warnings and failures name the same decisions at other positions and readings.
+
+    Parameters
+    ----------
+    text : str
+        The message.
+
+    Returns
+    -------
+    str
+        The message, each number replaced by ``#``.
+    """
+    return _NUMBER.sub("#", text)
+
+
+def record_layout(record: Any) -> Any:
+    """Return a monitor record's keys, flags and texts, its numbers left out.
+
+    Parameters
+    ----------
+    record : object
+        A monitor record, or one of its values.
+
+    Returns
+    -------
+    object
+        The same nesting, each number ``"number"`` and each sequence ``"list"``.
+    """
+    if isinstance(record, dict):
+        return {key: record_layout(value) for key, value in record.items()}
+    if isinstance(record, bool) or record is None or isinstance(record, str):
+        return record
+    if isinstance(record, (list, tuple, np.ndarray)):
+        return "list"
+    return "number"
+
+
+RECORD_RTOL = 1e-6
+"""How closely a native monitor record's real numbers follow the reference's, relative
+to each: its energies and energy fractions, its positions and its gaps. The two
+backends take the same decisions on steps whose lengths differ by rounding, at most
+2e-7 relative, and whose readings round differently (SEP 25), a small reading
+relatively more: measured 4.7e-8 at most, a resumed walker's guard reading of 4e-12 of
+the launch's energy (2e-19 absolute), and 9e-9 elsewhere, the transverse edge's ramp
+sums, each backend's own reading (``transverse.hpp``)."""
+
+RECORD_ATOL = 1e-24
+"""The absolute floor below :data:`RECORD_RTOL`, as a fraction of the launch's energy
+(which nearly every number of a record is): an empty guard or collar reads the squared
+modulus of a transform's rounding, of order ``n eps^2`` of the launch's energy, so a
+reading of ``1e-33`` or ``1e-29`` is rounding on both sides; measured 2e-26 at most."""
+
+
+def assert_record_close(
+    record: Any,
+    reference: Any,
+    *,
+    rtol: float = RECORD_RTOL,
+    atol: float = RECORD_ATOL,
+    what: str = "record",
+) -> None:
+    """Assert a monitor record is the reference's, its real numbers to a bound.
+
+    The keys, their order, the flags, the texts and every integer -- the checked and
+    skipped steps, the quiet checks, the reads -- are equal exactly, and each real
+    number within ``atol + rtol |reference|`` (:data:`RECORD_RTOL`,
+    :data:`RECORD_ATOL`); sequences element by element, at their own lengths.
+
+    Parameters
+    ----------
+    record : object
+        The record under test, or one of its values.
+    reference : object
+        The reference's.
+    rtol, atol : float, optional
+        The relative and absolute bounds on a real number.
+    what : str, optional
+        Where in the record, for the message.
+    """
+    if isinstance(reference, dict):
+        assert isinstance(record, dict), what
+        assert list(record) == list(reference), what
+        for key, value in reference.items():
+            assert_record_close(
+                record[key], value, rtol=rtol, atol=atol, what=f"{what}.{key}"
+            )
+        return
+    if isinstance(reference, (list, tuple, np.ndarray)):
+        assert isinstance(record, (list, tuple, np.ndarray)), what
+        assert len(record) == len(reference), what
+        for index, (one, other) in enumerate(zip(record, reference, strict=True)):
+            assert_record_close(
+                one, other, rtol=rtol, atol=atol, what=f"{what}[{index}]"
+            )
+        return
+    if reference is None or isinstance(
+        reference, (bool, str, np.bool_, int, np.integer)
+    ):
+        assert record == reference, (what, record, reference)
+        return
+    error = abs(float(record) - float(reference))
+    assert error <= atol + rtol * abs(float(reference)), (what, record, reference)
+
+
+def committed_steps(run: Run) -> int:
+    """Return the accepted attempts a run committed, assembled across its events.
+
+    Parameters
+    ----------
+    run : Run
+        The run.
+
+    Returns
+    -------
+    int
+        Its accepted attempts: the steps its monitor checked or skipped.
+    """
+    return sum(
+        int(np.count_nonzero(history.accepted)) for _, history, _ in run.assembled()
+    )
+
+
+def one_thread() -> bool:
+    """Return whether the native backend runs one thread, as the default lane does.
+
+    Returns
+    -------
+    bool
+        True when ``SOLPROP_NATIVE_THREADS`` or ``SOLPROP_THREADS`` is ``"1"``.
+    """
+    return _one_thread()
+
+
+def pytest_approx(value: float, rtol: float) -> object:
+    """Return ``pytest.approx(value, rel=rtol)``, imported where a test calls it.
+
+    Parameters
+    ----------
+    value : float
+        The expected value.
+    rtol : float
+        The relative bound.
+
+    Returns
+    -------
+    object
+        The approximate value.
+    """
+    import pytest  # noqa: PLC0415 - only a test calls it
+
+    return pytest.approx(value, rel=rtol)
 
 
 @dataclass

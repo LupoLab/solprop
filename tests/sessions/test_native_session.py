@@ -2,17 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The native execution session against the driver over the same native marches.
+"""The native execution session: its own control trace, and the NumPy reference's.
 
-SEP 47 section 7.1 asks for identical-input control traces: given the same numerical
-inputs, the native session's accept, reject and landing decisions, its periodic rows,
-its plane statistics and its exported fields equal those of the transitional
-:class:`~solprop.backends.driver_session.DriverSession` over the native backend, which
-runs the same strict marches and the same kernels. On one thread they are bitwise the
-same. This is not the reference comparison of section 6.6: both sides are native, and
-the lifecycle suite holds each session to the contract alone.
+SEP 47 section 7.1 asks for identical-input control traces. The native session's
+decisions are held to solprop's on identical inputs by the recorded traces of the
+native marches (``tests/backends/rk_traces.py``, ``adams_traces.py``); here a whole
+run is held to two things that survive the transitional bridge it was once compared
+with bit for bit: on one thread, the native session repeats its own run bit for bit --
+every observation, attempt, periodic row, plane statistic and exported field -- and on
+the same problem it meets the NumPy reference session (section 6.6) within the
+rounding budgets of SEP 25: the same observations and attempts, its planes to
+:data:`PLANE_BOUND` of the peak and their statistics to :data:`STATISTIC_RTOL`.
 
-The file also checks what the prototype refuses (by name, before allocating), the
+The file also checks what the session refuses (by name, before allocating), the
 structural counter of section 7.3 -- no return to Python caused by periodic rows -- and
 a stop from another thread reaching a march in progress.
 """
@@ -31,6 +33,7 @@ from sessions.executors import (
     STORED,
     Run,
     Started,
+    assert_close_trace,
     assert_same_run,
     drive,
     entrance,
@@ -39,13 +42,13 @@ from sessions.executors import (
     trace,
     window,
 )
-from solprop.backends.driver_session import DriverSession
 from solprop.backends.events import (
     ObservationReady,
     Outcome,
     Progress,
     Terminal,
 )
+from solprop.backends.host.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import SessionError, StopToken
 from solprop.exceptions import BackendError, StopRequested
@@ -152,8 +155,8 @@ def _case(  # noqa: PLR0913 - one choice per keyword
     )
 
 
-def _driver_session(problem, request, **controls) -> Started:
-    """Start the transitional driver session over the native backend.
+def _reference_session(problem, request, **controls) -> Started:
+    """Start the NumPy reference's session on the same problem.
 
     Parameters
     ----------
@@ -169,10 +172,53 @@ def _driver_session(problem, request, **controls) -> Started:
     sessions.executors.Started
         The session.
     """
-    driver = select("native", problem, request, grid=window(), modes=[fibre().mode])
-    return Started(
-        DriverSession(driver, problem, request, entrance(problem), **controls)
+    driver = select("numpy_ref", problem, request, grid=window(), modes=[fibre().mode])
+    return Started(HostSession(driver, problem, request, entrance(problem), **controls))
+
+
+PLANE_BOUND = 1e-12
+"""A native plane's distance from the reference's, relative to the peak: the budget of
+the dense-output and backend tests (``tests/backends/test_dense_output.py``)."""
+
+DEVICE_PLANE_BOUND = 1e-9
+"""The same distance on an accelerator, whose FFT and GEMM libraries reduce in their
+own order: a planar route measured 9.1e-11 of the peak on an NVIDIA H100 (SEP 47
+Part II), against this budget's thousandfold margin under the solvers' tolerances."""
+
+STATISTIC_RTOL = 1e-9
+"""A plane statistic's and a plane position's relative distance from the reference's."""
+
+ACCEPTED_RTOL = 1e-6
+"""An accepted step's end's relative distance from the reference's, the budget of
+``tests/backends/test_resident_adams.py``: a controller at ``rtol=1e-12`` steers by
+norms near rounding, which each backend rounds its own way (measured 2.6e-9)."""
+
+
+def assert_meets_reference(
+    run: Run, reference: Run, *, plane_bound: float = PLANE_BOUND
+) -> None:
+    """Assert a native run meets the reference's within the budgets above.
+
+    Parameters
+    ----------
+    run : sessions.executors.Run
+        The native run.
+    reference : sessions.executors.Run
+        The reference run of the same problem, exported with the same recipe.
+    plane_bound : float, optional
+        The planes' distance budget relative to the peak: :data:`PLANE_BOUND`, or
+        :data:`DEVICE_PLANE_BOUND` on an accelerator.
+    """
+    assert run.status.attempts == reference.status.attempts
+    assert run.status.rejected == reference.status.rejected
+    assert_close_trace(run, reference, rtol=STATISTIC_RTOL)
+    np.testing.assert_allclose(
+        run.accepted_ends(), reference.accepted_ends(), rtol=ACCEPTED_RTOL
     )
+    assert len(run.fields) == len(reference.fields)
+    scale = max(float(np.max(np.abs(field))) for field in reference.fields)
+    for got, expected in zip(run.fields, reference.fields, strict=True):
+        np.testing.assert_allclose(got, expected, rtol=0, atol=plane_bound * scale)
 
 
 def _make_native(problem, request, **controls):
@@ -192,7 +238,7 @@ def _make_native(problem, request, **controls):
     solprop_native.session.NativeSession
         The session.
     """
-    skip_device_refused(problem, request)
+    skip_device_refused(problem)
     return native_session.NativeSession(
         problem,
         request,
@@ -259,34 +305,34 @@ CASES = {
     },
 }
 """Adams and Runge-Kutta, adaptive and replayed, and the low-storage replay, with
-periodic rows and step planes; every temporal statistic, whose native plan the
-driver's backend also reads; and the Adams march's planes interpolated in both
-formulations, which the driver also interpolates natively, from weights its Python
-forms by the same native basis."""
+periodic rows and step planes; every temporal statistic of the native plan; and the
+Adams march's planes interpolated in both formulations."""
 
 
 @pytest.mark.parametrize("recipe", [CONSUMER, STORED], ids=["consumer", "stored"])
 @pytest.mark.parametrize("case", sorted(CASES))
-def test_identical_inputs_give_the_drivers_trace_and_fields(case, recipe):
-    """SEP 47 section 7.1: the native session's control trace is the driver's.
+def test_a_native_run_repeats_itself_and_meets_the_reference(case, recipe):
+    """SEP 47 sections 6.6 and 7.1: the native session's run, twice and against the
+    reference.
 
-    Every observation's kind, plane and position, every attempt's end, step, norm and
-    acceptance, the periodic rows and the plane statistics, and every exported field,
-    bitwise, against the driver session over the native backend.
+    On one thread every observation's kind, plane and position, every attempt's end,
+    step, norm and acceptance, the periodic rows, the plane statistics and every
+    exported field repeat bitwise; and the run meets the reference session's on the
+    same problem (:func:`assert_meets_reference`).
     """
-    if not _one_thread():
-        pytest.skip("bitwise agreement is claimed on one thread (SOLPROP_THREADS=1)")
-    problem, run_request = _case(**CASES[case])
-    request = run_request
-    baseline = drive(_driver_session(problem, request), export=recipe)
+    problem, request = _case(**CASES[case])
     started = _native_session(problem, request)
     run = drive(started, export=recipe)
     started.session.close()
-    assert_same_run(run, baseline)
-    assert run.status.attempts == baseline.status.attempts
-    assert run.status.rejected == baseline.status.rejected
+    reference = drive(_reference_session(problem, request), export=recipe)
+    assert_meets_reference(run, reference)
     if case == "rk-rejections":
         assert run.status.rejected > 0
+    if not _one_thread():
+        pytest.skip("bitwise repetition is claimed on one thread (SOLPROP_THREADS=1)")
+    again = _native_session(problem, request)
+    assert_same_run(drive(again, export=recipe), run)
+    again.session.close()
 
 
 @pytest.mark.parametrize("case", ["rk", "adams"])
@@ -394,23 +440,13 @@ class _OwnAccept(PIController):
     [
         (
             lambda: (
-                _case(integrator=ComparisonMultistep(corrector="pece", order=4)),
+                _case(names=("energy", "peak_power", "on_axis_electron_density")),
                 {},
             ),
-            "the comparison method",
-        ),
-        (
-            lambda: (_case(controller=_OwnAccept(rtol=1e-4, atol=1e-16)), {}),
-            "a controller with its own accepts",
-        ),
-        (
-            lambda: (_case(names=("energy", "peak_power", "zdw")), {}),
-            "'zdw'",
+            "'on_axis_electron_density'",
         ),
     ],
     ids=[
-        "comparison",
-        "controller",
         "statistic",
     ],
 )
@@ -424,37 +460,48 @@ def test_the_prototype_refuses_by_name_before_allocating(build, name, monkeypatc
     ("options", "name"),
     [
         (
-            {
-                "integrator": LowStorageRungeKutta(),
-                "schedule": FixedSchedule(np.full(40, LENGTH / 40)),
-            },
-            "the low-storage replay on a device build",
+            {"integrator": ComparisonMultistep(corrector="pece", order=4)},
+            "the comparison variant adams-pece4: ",
         ),
-        ({"interpolate": True}, "dense output on a device build"),
+        (
+            {
+                "integrator": ComparisonMultistep(
+                    corrector="pec", order=4, corrector_order=5
+                )
+            },
+            "the comparison variant adams-pec4/5: ",
+        ),
+        (
+            {"controller": _OwnAccept(rtol=1e-4, atol=1e-16)},
+            "the controller _OwnAccept, which overrides PIController's accepts: ",
+        ),
     ],
-    ids=["low-storage", "dense"],
+    ids=["comparison", "selected-pec-comparison", "controller"],
 )
-def test_a_device_build_refuses_by_name_what_phase_3_does_not_admit(
-    options, name, monkeypatch
-):
-    """SEP 47 phase 3: the representative device path refuses the rest by name.
+def test_a_reference_only_run_reaches_no_session(options, name, monkeypatch):
+    """SEP 47 section 6.3: native refuses a reference-only run where it is built.
 
-    The decision is the problem's and the request's alone, so it is checked here on
-    any build, the device patched in; a device build's own lane runs what it admits.
+    A comparison method and a controller that overrides a decision run on
+    ``numpy_ref`` alone: the backend refuses them by name before the native state,
+    its first allocation, is built, so no native session ever runs them.
     """
-    monkeypatch.setattr(native_session, "_on_device", lambda: True)
     problem, run_request = _case(**options)
-    _refused(problem, run_request, name, monkeypatch)
-
-
-@pytest.mark.parametrize("case", ["rk", "adams", "adams-period-3", "rk-replay"])
-def test_a_device_build_admits_the_representative_path(case, monkeypatch):
-    """SEP 47 phase 3: Runge-Kutta and Adams on the modal route, with planes, periodic
-    rows and step planes, are the device path's; its monitor is admitted too
-    (``test_native_session_monitor``)."""
-    monkeypatch.setattr(native_session, "_on_device", lambda: True)
-    problem, run_request = _case(**CASES[case])
+    built_states = []
+    monkeypatch.setattr(
+        native_session._core, "State", lambda *args: built_states.append(args)
+    )
+    # The session's own refusal never sees them: the backend's admission is first.
     assert native_session.refusal(problem, run_request) is None
+    with pytest.raises(BackendError, match="reference-only") as selected:
+        select("native", problem, run_request, grid=window(), modes=[fibre().mode])
+    with pytest.raises(BackendError, match="reference-only") as opened:
+        native_session.NativeSession(
+            problem, run_request, entrance(problem), grid=window(), modes=[fibre().mode]
+        )
+    for refused in (selected, opened):
+        assert name in str(refused.value)
+        assert "backend='numpy_ref'" in str(refused.value)
+    assert built_states == []
 
 
 def test_a_session_leases_its_state_exclusively():
@@ -663,25 +710,24 @@ def test_a_full_chunk_buffer_yields_and_changes_nothing(monkeypatch):
     assert len(run.batches) > len(baseline.batches)
 
 
-def test_march_admission_is_decided_before_the_backend_is_built(monkeypatch):
-    """SEP 47 section 5.2: a march the backend would step on the host is refused from
-    the problem alone, and the problem-only predicate agrees with the built backend.
+def test_the_stage_tables_admitted_from_the_problem_are_the_built_backend_s():
+    """SEP 47 section 5.2: whether the native state reads a trial's stage rows from
+    its tables is decided from the problem alone, and the built backend agrees; a
+    representation it does not read is refused where the backend is built
+    (``host_rows_refusal``), so no session steps rows the host forms.
     """
     from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
         backend as native_backend,
     )
 
-    problem, run_request = _case()
-    request = run_request
-    assert native_backend.native_march_refusal(problem, run_request.stepper) is None
+    problem, request = _case()
+    assert native_backend.host_rows_refusal(problem) is None
     session = _make_native(problem, request)
     built = session._backend  # pyright: ignore[reportPrivateUsage]
     assert built is not None
     staged = built._stage_tables() is not None  # pyright: ignore[reportPrivateUsage]
     assert staged == native_backend.stage_tables_available(problem)
     session.close()
-    monkeypatch.setattr(native_backend, "_RK_ROWS", "host")
-    _refused(problem, request, "a trial whose stage rows the host forms", monkeypatch)
 
 
 DENSE = {
@@ -711,34 +757,32 @@ def _control_trace(run: Run) -> list[tuple[object, ...]]:
     return [entry[:6] for entry in trace(run)]
 
 
-def test_runge_kutta_dense_planes_follow_the_drivers_run():
-    """SEP 47 section 7.1: the native session's dense Runge-Kutta run is the driver's.
+def test_runge_kutta_dense_planes_repeat_and_follow_the_reference():
+    """SEP 47 section 7.1: the native session's dense Runge-Kutta run, twice and
+    against the reference.
 
-    Both reload the committed state after an observation, the next step evaluating its
-    first stage afresh, so every attempt, norm, acceptance, periodic row and
-    observation position is the driver's to the bit, whatever FFT plans this process
-    chose (a stage reused across an observation instead parted the two by up to 9e-8
-    in a norm under some plans, and the test with it). Only the planes themselves
-    differ: the driver forms each on the host with NumPy (`StepDriver._dense_record`,
-    `_observe_inside`), the session where the state lives, its flow through the native
-    exponential; measured 5.5e-16 of the peak, their statistics likewise.
+    The session reloads the committed state after an observation, the next step
+    evaluating its first stage afresh, so its control trace -- every attempt, norm,
+    acceptance, periodic row and observation position -- repeats bitwise whatever FFT
+    plans this process chose (a stage reused across an observation once parted two
+    runs by up to 9e-8 in a norm under some plans). Against the reference, with step
+    planes too, it meets the budgets of :func:`assert_meets_reference`.
     """
-    if not _one_thread():
-        pytest.skip("equal decisions are claimed on one thread (SOLPROP_THREADS=1)")
     for options in ({"step_planes": 3, "rtol": 1e-8}, DENSE["runge-kutta-rejections"]):
-        problem, run_request = _case(interpolate=True, **{"step_planes": 0, **options})
-        request = run_request
-        baseline = drive(_driver_session(problem, request), export=CONSUMER)
+        problem, request = _case(interpolate=True, **{"step_planes": 0, **options})
         started = _native_session(problem, request)
         run = drive(started, export=CONSUMER)
         started.session.close()
-        assert _control_trace(run) == _control_trace(baseline)
-        scale = max(float(np.max(np.abs(field))) for field in baseline.fields)
-        for field, other in zip(run.fields, baseline.fields, strict=True):
-            np.testing.assert_allclose(field, other, rtol=0, atol=1e-14 * scale)
-        for got, expected in zip(run.observations, baseline.observations, strict=True):
-            for name, value in expected.stats.items():
-                np.testing.assert_allclose(got.stats[name], value, rtol=1e-12)
+        reference = drive(_reference_session(problem, request), export=CONSUMER)
+        assert_meets_reference(run, reference)
+        if not _one_thread():
+            continue
+        again = _native_session(problem, request)
+        repeated = drive(again, export=CONSUMER)
+        again.session.close()
+        assert _control_trace(repeated) == _control_trace(run)
+        for field, other in zip(repeated.fields, run.fields, strict=True):
+            assert field.tobytes() == other.tobytes()
 
 
 @pytest.mark.parametrize("case", sorted(DENSE))

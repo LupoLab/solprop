@@ -29,13 +29,13 @@
  *
  * Each function performs the operations of the solprop function it is named after
  * (`solprop.backends.adams_core`, `stepper.schedule.landing`, `stepper.controller
- * .limit_step`, `backends.driver.reached`, and `AdamsMarch.march_to` with its attempt,
- * decision, rejection and landing), in the same order, including how a comparison
- * treats a NaN: Python's `min(a, b)` is `b` only if `b < a`, its `max` over a sequence
- * keeps the first element unless a later one is strictly greater, and a comparison with
- * a NaN is false. This translation unit is compiled without contraction and without
- * fast-math on every build (CMakeLists.txt), so every product and sum rounds as
- * Python's do; `pow` is the C library's, as Python's float power is.
+ * .limit_step`, `stepper.schedule.reached`, and `HostAdamsMarch.march_to` with its
+ * attempt, decision, rejection and landing), in the same order, including how a
+ * comparison treats a NaN: Python's `min(a, b)` is `b` only if `b < a`, its `max` over
+ * a sequence keeps the first element unless a later one is strictly greater, and a
+ * comparison with a NaN is false. This translation unit is compiled without contraction
+ * and without fast-math on every build (CMakeLists.txt), so every product and sum
+ * rounds as Python's do; `pow` is the C library's, as Python's float power is.
  */
 namespace solprop_native::march {
 namespace {
@@ -411,7 +411,7 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
          kept ? 1.0 : 0.0, static_cast<double>(order), elapsed()});
   };
   // A replay runs while the schedule has steps and its target is not within the
-  // slack (`AdamsMarch._replay_to`); an adaptive march until the target is reached.
+  // slack (`HostAdamsMarch._replay_to`); an adaptive march until the target is reached.
   const std::size_t n_steps = schedule.steps.size();
   const auto running = [&]() {
     if (bounds.replay)
@@ -615,7 +615,7 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         result.reason = Reason::reached;
         return result;
       }
-      // A replay's next step is its schedule's (`StepDriver._next_step`).
+      // A replay's next step is its schedule's (`HostDriver._next_step`).
       const double ahead =
           !bounds.replay
               ? state.proposal

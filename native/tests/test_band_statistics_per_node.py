@@ -49,6 +49,7 @@ from solprop.translate.run_request import RunRequest
 from solprop_native import NativeBackend
 from bounds import UNIT_ROUNDOFF
 from legacy_geometry import LEGACY_GRID
+from session_runs import launch as launch_plane
 from plasma_bounds import node_field_error, rate_spread, scan_bound
 from test_band_plasma import STATISTICS
 from test_band_stress import capillary
@@ -159,11 +160,7 @@ def statistics(
 ) -> dict[str, np.ndarray]:
     """Return the launch's statistics."""
     backend = implementation(problem, run_request, grid=GRID)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        return backend.stats(run_request.observation.stats)
-    finally:
-        backend.close()
+    return launch_plane(backend, problem, run_request, owns=True).stats
 
 
 def node_fields_and_error(
@@ -314,13 +311,8 @@ def test_each_channel_s_fraction_is_the_reference_s() -> None:
 
     def launch_ionisation(implementation: type) -> np.ndarray:
         backend = implementation(problem, run_request, grid=grid)
-        try:
-            backend.set_initial(problem.initial.field0, None)
-            return np.asarray(
-                backend.stats(run_request.observation.stats)["species_ionisation"]
-            )
-        finally:
-            backend.close()
+        stats = launch_plane(backend, problem, run_request, owns=True).stats
+        return np.asarray(stats["species_ionisation"])
 
     expected = launch_ionisation(NumpyRefBackend)
     actual = launch_ionisation(NativeBackend)

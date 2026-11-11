@@ -31,6 +31,8 @@ import pytest
 
 import flow_parity
 from flow_parity import QUIET, STEPS, UNIT, build, reference_formation_bound
+from native_flow_guards import check_flow_conditioning as check_native
+from sessions.runs import load_native, native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref import passes as reference_passes
 from solprop.backends.numpy_ref.backend import (
@@ -142,7 +144,7 @@ def test_an_empty_measurement_is_not_refused():
     problem, _, _ = scalar_case()
     dz = flow_parity.LENGTH / STEPS
     held = native_backend._host_flow(problem)
-    native_backend._check_flow_conditioning(held, 0, np.empty(0), dz)
+    check_native(native_backend, held, 0, np.empty(0), dz)
     reference = _coupled_flow_maps(problem)
     assert reference is not None
     channels = problem.shape[0]
@@ -151,7 +153,7 @@ def test_an_empty_measurement_is_not_refused():
     # The guard is live: one bin over its declared row is refused, on either.
     over = np.array(held.condition_bound[0]) * 2.0
     with pytest.raises(BackendError, match="above"):
-        native_backend._check_flow_conditioning(held, 0, over, dz)
+        check_native(native_backend, held, 0, over, dz)
 
 
 def test_the_spectral_norm_bounds_the_singular_value_to_its_rounding(monkeypatch):
@@ -195,6 +197,22 @@ def test_the_spectral_norm_bounds_the_singular_value_to_its_rounding(monkeypatch
     assert np.all(abs(measured / expected - 1.0) <= 16 * n_modes * UNIT)
 
 
+def _native_partials(problem, run_request, grid, field, dz):
+    """Return the error norm's partials of one native trial from `field`.
+
+    The native state itself, loaded with the field, scores the staged trial, as the
+    native backend's own trial does (SEP 47 phase 5).
+    """
+    assert problem.initial.noise0 is None
+    backend = NativeBackend(problem, run_request, grid=grid)
+    try:
+        backend._staged_rows()
+        load_native(backend, field, clear_fsal=False)
+        return native_trial(backend, 0.0, dz)
+    finally:
+        backend.close()
+
+
 def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_action():
     """The error norm's three partials beside a flow, a populated block bin masked off.
 
@@ -217,12 +235,7 @@ def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_a
     mask[masked] = False
     problem = replace(problem, grids=replace(problem.grids, norm_mask=mask))
 
-    backend = NativeBackend(problem, run_request, grid=grid)
-    try:
-        backend.set_initial(field, None)
-        partials = np.asarray(backend._prepare_trial(0.0, dz))
-    finally:
-        backend.close()
+    partials = _native_partials(problem, run_request, grid, field, dz)
 
     captured = {}
     original = reference_passes.error_norm

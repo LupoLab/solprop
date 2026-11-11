@@ -75,7 +75,13 @@ transverse::Reading reading_from(const nb::dict values) {
   return reading;
 }
 
-transverse::Noise noise_from(const nb::dict values) {
+nb::tuple pair(const double first, const double second) {
+  return nb::make_tuple(first, second);
+}
+
+} // namespace
+
+transverse::Noise transverse_noise_from(const nb::dict values) {
   transverse::Noise noise;
   try {
     noise.columns = reals(values["columns"]);
@@ -91,12 +97,6 @@ transverse::Noise noise_from(const nb::dict values) {
   }
   return noise;
 }
-
-nb::tuple pair(const double first, const double second) {
-  return nb::make_tuple(first, second);
-}
-
-} // namespace
 
 transverse::Config transverse_config_from(const nb::dict values) {
   transverse::Config config;
@@ -254,7 +254,7 @@ void bind_transverse(nb::module_& module_) {
               held = transverse::LaunchSums{sums->first, sums->second};
             std::optional<transverse::Noise> carried;
             if (noise)
-              carried = noise_from(*noise);
+              carried = transverse_noise_from(*noise);
             return transverse_notice_to(self.launch(reading_from(reading), z,
                                                     held ? &*held : nullptr,
                                                     carried ? &*carried : nullptr));

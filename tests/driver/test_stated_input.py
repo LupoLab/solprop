@@ -16,6 +16,7 @@ import pytest
 
 from driver.test_field_free_planes import cartesian
 from driver.test_runner import capillary, inputs, stored
+from solprop.backends.protocol import stepping
 from solprop.driver import Simulation
 from solprop.driver.executors import Local
 from solprop.driver.scan import Scan, run_scan
@@ -135,7 +136,7 @@ def test_a_runner_reads_a_small_stated_input_without_a_copy(monkeypatch):
     simulation = cartesian("numpy_ref")
     field = 0.9 * simulation._field0
     with simulation.runner() as runner:
-        load = runner.backend.set_initial
+        load = stepping(runner.backend).set_initial
         shared: list[bool] = []
 
         def spy(given, noise, *, z=0.0, resume=False) -> None:

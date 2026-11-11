@@ -17,6 +17,7 @@ from backends.test_polarised_runs import QuadraticRate as EnergyRate
 from backends.test_polarised_runs import plasma_work_bound
 from bounds import gamma, ladder_bound
 from legacy_geometry import LEGACY_GRID
+from sessions.runs import native_trial, run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.constants import EPS0, C
@@ -109,28 +110,32 @@ CHI3 = 1e-22
 
 
 def derivative(spatial_backend_class, problem, run_request, grid, options=None):
+    """Return a backend's first stage derivative ``N(E, z=0)`` of the launch state."""
     backend = spatial_backend_class(problem, run_request, grid=grid, options=options)
     try:
-        backend.set_initial(problem.initial.field0, None)
         if isinstance(backend, NumpyRefBackend):
+            backend.set_initial(problem.initial.field0, None)
             backend._hoist(0.0)
             return backend._nonlinear(
                 backend._require_state(),
                 backend._stage_scalars(0.0, 0.0),
                 np.ones((1, *problem.shape), complex),
             )[0]
-        # This probe requests N(E, z=0), not an advanced field. A zero-length
-        # trial exposes the same first stage without later stages inventing an
-        # unstable finite step near a resolved Cartesian cutoff.
-        backend._trial_step(0.0, 0.0)
-        values = (
-            backend._native_state.stage_to_host(0)
-            if backend.name == "native"
-            else backend._stages[0].copy()
-        )
-        return values.reshape(problem.shape)
+        return _native_first_stage(backend, problem)
     finally:
         backend.close()
+
+
+def _native_first_stage(backend, problem):
+    """Return the native state's first stage of a zero-length trial at the launch.
+
+    This probe requests N(E, z=0), not an advanced field. A zero-length trial exposes
+    the same first stage without later stages inventing an unstable finite step near a
+    resolved Cartesian cutoff. The trial is the native state's own (``rk_trial`` on the
+    uploaded stage tables), loaded with the launch, as the backend's march takes it.
+    """
+    native_trial(backend, 0.0, 0.0, field=problem.initial.field0)
+    return np.asarray(backend._native_state.stage_to_host(0)).reshape(problem.shape)
 
 
 def make_problem(grid, space, start, responses, *, steps=8, density=1.0):
@@ -365,16 +370,16 @@ def test_radial_nonlinear_ladder_matches_reference(
     values = []
     statistics = []
     spec = StatsSpec(names=("energy", "on_axis_intensity", "peak_intensity"))
+    observed = run_request.for_run(stats=spec)
     for implementation in (NumpyRefBackend, spatial_backend_class):
-        backend = implementation(problem, run_request, grid=grid)
+        backend = implementation(problem, observed, grid=grid)
         try:
-            backend.set_initial(problem.initial.field0, None)
-            summary = backend.propagate_to(LENGTH)
-            assert summary.n_steps == steps
-            values.append(backend.observe().require_field().copy())
-            statistics.append(backend.stats(spec))
+            landed = run(backend, problem, observed)
         finally:
             backend.close()
+        assert landed.attempts == steps
+        values.append(landed.fields[-1])
+        statistics.append(landed.all_planes()[-1].stats)
     assert_allclose(
         values[1], values[0], rtol=0, atol=bound * np.max(np.abs(values[0]))
     )
@@ -468,27 +473,25 @@ def test_radial_field_envelope_and_scalar_vector_parity(
         problem, run_request = make_problem(
             grid, space, start, [KerrResponse(CHI3, thg=False)], steps=steps
         )
-        backend = spatial_backend_class(problem, run_request, grid=grid)
+        observed = run_request.for_run(
+            stats=StatsSpec(names=("energy", "on_axis_intensity", "peak_intensity"))
+        )
+        backend = spatial_backend_class(problem, observed, grid=grid)
         try:
-            backend.set_initial(problem.initial.field0, None)
-            backend.propagate_to(LENGTH)
-            state = backend.observe().require_field()
-            if n_pol == 2:
-                np.testing.assert_array_equal(state[:, 1], np.zeros_like(state[:, 1]))
-            indices = np.rint((grid.omega - carrier) / grid.d_omega).astype(int)
-            active = grid.active_mask
-            ordering = np.argsort(indices[active])
-            values = state[:, 0, active][:, ordering] / grid.n_t
-            if grid.kind == "field":
-                values *= 2 * carrier_phase
-            rows.append((indices[active][ordering], values))
-            statistics.append(
-                backend.stats(
-                    StatsSpec(names=("energy", "on_axis_intensity", "peak_intensity"))
-                )
-            )
+            landed = run(backend, problem, observed)
         finally:
             backend.close()
+        state = landed.fields[-1]
+        if n_pol == 2:
+            np.testing.assert_array_equal(state[:, 1], np.zeros_like(state[:, 1]))
+        indices = np.rint((grid.omega - carrier) / grid.d_omega).astype(int)
+        active = grid.active_mask
+        ordering = np.argsort(indices[active])
+        values = state[:, 0, active][:, ordering] / grid.n_t
+        if grid.kind == "field":
+            values *= 2 * carrier_phase
+        rows.append((indices[active][ordering], values))
+        statistics.append(landed.all_planes()[-1].stats)
     for label, (indices, values) in zip(
         ("envelope scalar", "field vector", "envelope vector"), rows[1:], strict=True
     ):

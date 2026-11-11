@@ -34,6 +34,7 @@ from backends.test_radial_nonlinear import CHI3, LENGTH, QuadraticRate, derivati
 from bounds import gamma, ladder_bound
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from mixture_cases import AnalyticRate
+from sessions.runs import run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
 from solprop.backends.session import ExecutionOptions
@@ -218,17 +219,20 @@ def amplitude_bound(grid, space, family, steps, *, length=LENGTH):
     return bound
 
 
-def propagate(problem, run_request, grid, implementation, names=(), options=None):
-    """Run a problem to its end and return the field and requested statistics."""
-    backend = implementation(problem, run_request, grid=grid, options=options)
+def _landed(problem, run_request, grid, implementation, names=(), options=None):
+    """Run a problem to its end through the backend's session, with `names` observed."""
+    request = run_request.for_run(stats=StatsSpec(names=names))
+    backend = implementation(problem, request, grid=grid, options=options)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(LENGTH)
-        field = backend.observe().require_field().copy()
-        values = backend.stats(StatsSpec(names=names)) if names else {}
+        return run(backend, problem, request)
     finally:
         backend.close()
-    return field, values
+
+
+def propagate(problem, run_request, grid, implementation, names=(), options=None):
+    """Run a problem to its end and return the field and requested statistics."""
+    landed = _landed(problem, run_request, grid, implementation, names, options)
+    return landed.fields[-1], (landed.all_planes()[-1].stats if names else {})
 
 
 def with_steps(run_request, steps):
@@ -302,20 +306,18 @@ def test_the_planar_statistics_match_the_reference(case, steps):
     bound = 2 * amplitude_bound(grid, space, family, steps)
     bound += gamma(128 * (space.n_columns + space.n_nodes) + 32 * grid.n_to)
     names = SPATIAL_NAMES + (PLASMA_NAMES if family.endswith("plasma") else ())
-    if steps:
-        run_request = with_steps(run_request, steps)
+    # Without steps the launch plane's statistics are compared; the session still
+    # runs to the end, so on one step.
+    run_request = with_steps(run_request, steps or 1)
     rows = []
     for implementation in (NumpyRefBackend, native_class()):
-        backend = implementation(
-            problem, run_request, grid=grid, options=chunked(space)
+        landed = _landed(
+            problem, run_request, grid, implementation, names, chunked(space)
         )
-        try:
-            backend.set_initial(problem.initial.field0, None)
-            if steps:
-                backend.propagate_to(LENGTH)
-            rows.append(backend.stats(StatsSpec(names=names)))
-        finally:
-            backend.close()
+        # The launch plane's statistics without a step, the last plane's after them.
+        plane = landed.observations[-1 if steps else 0]
+        assert plane.z == (LENGTH if steps else 0.0)
+        rows.append({name: np.asarray(plane.stats[name]) for name in names})
     reference, actual = rows
     for name in names:
         scale = float(np.max(np.abs(reference[name])))

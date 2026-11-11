@@ -158,9 +158,10 @@ planes. Things to know:
   problem is small enough for it. The GPU wins on large grids: multimode and
   general modal guides with many nodes, coherent walls with many channels, broadband
   supercontinuum grids, and free-space runs.
-- **On-axis plasma statistics.** The four modal `on_axis_*` plasma statistics bring only
-  the axis row's spectrum to the host at each requested save plane, not the field, and
-  scan it there. Their CPU parity is qualified; they are not yet qualified on a GPU. See
+- **On-axis plasma statistics.** The four modal `on_axis_*` plasma statistics are
+  scanned where the state lives at each requested save plane: the axis row is formed and
+  scanned natively, and only the statistics come to the host. Their CPU parity is
+  qualified; they are not yet qualified on a GPU. See
   [the statistics catalogue](../results/statistics-catalogue.md).
 - **Reproducibility.** A device answer is not bit for bit the CPU build's, because the
   device sums in its own order; the difference is at the level of rounding and is

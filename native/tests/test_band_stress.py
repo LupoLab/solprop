@@ -53,6 +53,7 @@ from solprop.translate.run_request import RunRequest
 from solprop_native import NativeBackend
 from legacy_geometry import LEGACY_GRID
 from bounds import UNIT_ROUNDOFF
+from session_runs import launch, load_native, native_trial, run
 from plasma_bounds import (
     assert_regression_guard,
     node_field_error,
@@ -228,14 +229,10 @@ def march(
 ) -> tuple[ComplexArray, dict[str, np.ndarray]]:
     """Return the field and the statistics after the problem's fixed steps."""
     backend = implementation(problem, run_request, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-        return backend.observe().require_field().copy(), backend.stats(
-            run_request.observation.stats
-        )
-    finally:
-        backend.close()
+    result = run(backend, problem, run_request, owns=True)
+    last = result.all_planes()[-1]
+    assert last.z == float(run_request.stepper.save_planes[-1])
+    return result.fields[-1], last.stats
 
 
 def launch_statistics(
@@ -246,11 +243,7 @@ def launch_statistics(
 ) -> dict[str, np.ndarray]:
     """Return the statistics of the launch field, before any step."""
     backend = implementation(problem, run_request, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        return backend.stats(run_request.observation.stats)
-    finally:
-        backend.close()
+    return launch(backend, problem, run_request, owns=True).stats
 
 
 def assert_is_stressing(
@@ -288,12 +281,10 @@ def test_one_evaluation_matches_the_reference(kind: str) -> None:
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
         # A zero-length trial exposes the first stage, N(E, z = 0).
-        backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
-        actual = np.asarray(
-            backend._native_state.stage_to_host(0)  # pyright: ignore[reportPrivateUsage]
-        ).reshape(problem.shape)
+        native_trial(backend, 0.0, 0.0)
+        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
     finally:
         backend.close()
     scale = float(np.max(np.abs(expected)))

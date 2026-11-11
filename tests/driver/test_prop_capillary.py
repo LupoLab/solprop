@@ -58,9 +58,14 @@ from march_bounds import (
 )
 from rate_oracles import HISTORICAL_ATOMS, AdkOracle, PptOracle, adk_oracle, ppt_oracle
 from selected_backend import selected_backend
+from sessions.runs import run as run_session
+from sessions.runs import to_planes
 from solprop import tools
+from solprop.backends.events import ObservationReady, join_attempts
 from solprop.backends.numpy_ref import QUADRATURE_ALARM, NumpyRefBackend, passes
 from solprop.backends.registry import select
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.boundaries import absorber
 from solprop.constants import AU_EFIELD, AU_ENERGY, EPS0, C
 from solprop.driver import Simulation, prop_capillary
@@ -3675,9 +3680,10 @@ def statistics_channel_measurement(reduced_m2_channel, selection):
         replace(
             run_request.stepper,
             integrator=None,
-            # The schedule includes the fixture's declared save planes, although
-            # each measurement advances only its first ten steps, to 2 mm.
+            # Each measurement advances only the schedule's first ten steps, to 2 mm,
+            # its one save plane.
             schedule=FixedSchedule.uniform(0.0, simulation.grid.length, target / 10),
+            save_planes=np.array([target]),
         )
     )
 
@@ -3690,31 +3696,43 @@ def statistics_channel_measurement(reduced_m2_channel, selection):
             modes=simulation.modes,
             profiles=simulation.profiles,
         )
+        # The run's session from the launch, whose plane is not observed: the time
+        # is the march's and its rows', and the one plane's at 2 mm (SEP 47 phase 5).
+        start = Start(field=problem.initial.field0, z=0.0, plane_pending=False)
+        session = start_session(backend, problem, run_request, start)
+        chunks = []
         try:
-            backend.set_initial(problem.initial.field0, None)
             cpu_started = time.process_time()
             started = time.perf_counter()
-            summary = backend.propagate_to(target)
+            while not session.finished:
+                batch = session.advance()
+                chunks.extend(
+                    (
+                        getattr(event, "history", None),
+                        getattr(event, "step_stats", None),
+                    )
+                    for event in batch.events
+                )
+                session.acknowledge(batch.receipt)
             elapsed = time.perf_counter() - started
             cpu_elapsed = time.process_time() - cpu_started
-            plane = backend.observe()
-            # A row per accepted step: a rejected trial records none.
-            accepted = int(np.sum(plane.step_history.accepted))
-            assert plane.step_stats.n_rows == (
-                accepted if selection == "watched" else 0
-            )
-            return {
-                "seconds": elapsed,
-                "cpu_seconds": cpu_elapsed,
-                "steps": summary.n_steps,
-                "accepted": plane.step_history.accepted.tolist(),
-                "z": plane.step_history.z.tolist(),
-                "dz": plane.step_history.dz.tolist(),
-                "rows": plane.step_stats.n_rows,
-                "metadata": backend.metadata(),
-            }
+            record = dict(session.execution_record())
         finally:
-            backend.close()
+            session.close()
+        history, rows = join_attempts(chunks)
+        # A row per accepted step: a rejected trial records none.
+        accepted = int(np.sum(history.accepted))
+        assert rows.n_rows == (accepted if selection == "watched" else 0)
+        return {
+            "seconds": elapsed,
+            "cpu_seconds": cpu_elapsed,
+            "steps": history.n_steps,
+            "accepted": history.accepted.tolist(),
+            "z": history.z.tolist(),
+            "dz": history.dz.tolist(),
+            "rows": rows.n_rows,
+            "metadata": record,
+        }
 
     arm()
     return [arm() for _ in range(3)]
@@ -3735,23 +3753,26 @@ def test_a_periodic_row_at_a_plane_is_the_plane_s_own_statistic_on_the_m2_case(
     count (``tests/march_bounds.py``) taken as the statistic's.
     """
     simulation, problem, _, watched = reduced_m2_channel
+    # The run's session to a plane at 6 cm, its rows and the plane's statistics.
+    request = to_planes(watched, [0.06])
     backend = select(
         TEST_BACKEND,
         problem,
-        watched,
+        request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(0.06)
-        observed = backend.observe()
-        at_plane = backend.stats(watched.observation.stats)
-    finally:
-        backend.close()
-    rows = observed.step_stats
-    assert rows.step[-1] == observed.step_history.n_steps - 1
+    run = run_session(backend, problem, request, export=None, owns=True)
+    [(observed, history, rows)] = [
+        (event, history, rows)
+        for event, history, rows in run.assembled()
+        if isinstance(event, ObservationReady) and event.plane_index == 0
+    ]
+    assert observed.z == 0.06
+    at_plane = observed.stats
+    assert rows.z[-1] == observed.z
+    assert rows.step[-1] == history.n_steps - 1
     bound = STATISTIC_FACTOR * evaluation_rounding(
         problem.grids.n_to,
         int(problem.transform.n_nodes),

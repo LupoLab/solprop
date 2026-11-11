@@ -33,7 +33,7 @@ from scipy.special import jn_zeros, jv
 import solprop.translate.problem as problem_module
 from bounds import assert_within, fft_bound, gamma, step_evaluations
 from legacy_geometry import LEGACY_GRID, bare_absorber
-from march_bounds import FIXED_ORDER
+from march_bounds import FIXED_ORDER, assert_points_matched
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -47,6 +47,8 @@ from solprop.backends.numpy_ref.backend import _cf4_action as _backend_cf4_actio
 from solprop.boundaries import absorber
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation, prop_capillary, prop_gnlse
+from solprop.driver.executors import Batch, Local
+from solprop.driver.scan import Scan, run_scan
 from solprop.driver.simulation import Pressure
 from solprop.exceptions import (
     AdiabaticTaperWarning,
@@ -4043,3 +4045,38 @@ def test_the_validity_ratios_are_admitted_and_recorded_over_the_scored_band():
     )
     with pytest.raises(ModeError, match=r"transverse_ratio is 0\.31.* above the 0\.25"):
         _taper_note_bore(40).translate()
+
+
+def _reference_scan_point(point):
+    """Return one point of a power scan of the scalar wall, on the reference."""
+    return capillary(
+        wall=CoherentWall(), backend="numpy_ref", energy=1e-9 * point.values["power"]
+    )
+
+
+def test_a_batched_reference_scan_of_coupled_flows_runs_as_the_local_loop(tmp_path):
+    """The reference's lockstep runner takes coupled members one by one (#241).
+
+    Its member-axis batch applies neither half of a flow, so the runner gives coupled
+    members the member-by-member group, each its own trial, flow included: every point
+    is the local loop's to the matched-march bound (SEP 25).
+    """
+    scan = Scan("coupled", power=[1.0, 2.0])
+    local = run_scan(
+        scan,
+        _reference_scan_point,
+        output=tmp_path / "local.h5",
+        executor=Local(),
+        progress="none",
+    )
+    batched = run_scan(
+        scan,
+        _reference_scan_point,
+        output=tmp_path / "batch.h5",
+        executor=Batch(2),
+        progress="none",
+    )
+    assert local.status.tolist() == batched.status.tolist() == ["done"] * 2
+    assert_points_matched(
+        batched, local, scan, _reference_scan_point, what="batch member"
+    )

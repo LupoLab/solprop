@@ -10,6 +10,7 @@ import math
 
 import numpy as np
 import pytest
+from session_runs import load_native, native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
@@ -131,17 +132,16 @@ def test_radial_partial_chunks_preserve_the_reference_source(
             == retained
         )
         assert (ledger["retained_synthesis"] > 0) == retained
-        backend.set_initial(problem.initial.field0, None)
-        backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
-        state = backend._native_state  # pyright: ignore[reportPrivateUsage]
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        native_trial(backend, 0.0, 0.0)
         actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
         assert np.isfinite(actual).all()
         scale = float(np.max(np.abs(expected)))
         assert scale > 0
         np.testing.assert_allclose(actual, expected, rtol=0, atol=bound * scale)
         assert np.count_nonzero(actual[..., ~grid.active_mask]) == 0
-        backend.set_initial(np.zeros_like(problem.initial.field0), None)
-        backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
+        load_native(backend, np.zeros_like(problem.initial.field0), clear_fsal=False)
+        native_trial(backend, 0.0, 0.0)
         assert np.count_nonzero(state.stage_to_host(0)) == 0
         assert backend.memory_ledger() == ledger
     finally:

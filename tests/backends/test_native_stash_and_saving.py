@@ -24,6 +24,8 @@ this; on the planar route only the largest node is held.
 """
 
 import dataclasses
+import itertools
+import os
 import warnings
 
 import numpy as np
@@ -32,7 +34,12 @@ import pytest
 from backends.matched import stash_bound
 from backends.planar_cases import planar_case
 from bounds import assert_within
+from sessions.executors import committed_steps
+from sessions.runs import load_native
+from sessions.runs import run as session_run
+from solprop.backends.events import join_attempts
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import Start
 from solprop.boundaries import absorber
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import FieldGrid
@@ -103,25 +110,30 @@ def rows_on_the_runge_kutta_march(run_request):
 
 def stash_and_fresh(problem, run_request, grid, length):
     """Return the stash's last row and fresh scans of the accepted state on both."""
+    assert float(run_request.stepper.save_planes[-1]) == length
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(length)
-        observed = backend.observe()
-        assert observed.step_stats.n_rows == run_request.stepper.schedule.n_steps
-        stashed = {
-            name: np.asarray(observed.step_stats.values[name])[-1] for name in NAMES
-        }
-        accepted = observed.require_field().copy()
+        run = session_run(backend, problem, run_request)
     finally:
         backend.close()
+    rows = join_attempts(run.chunks)[1]
+    assert rows.n_rows == run_request.stepper.schedule.n_steps
+    stashed = {name: np.asarray(rows.values[name])[-1] for name in NAMES}
+    accepted = run.fields[-1]
     fresh = {}
     for implementation in (NativeBackend, NumpyRefBackend):
         scanning = implementation(problem, run_request, grid=grid)
         try:
-            # A new backend has no stash, so its statistics scan afresh.
-            scanning.set_initial(accepted, None, z=length)
-            fresh[implementation.name] = scanning.stats(StatsSpec(names=NAMES))
+            # A new session has no stash, so its statistics scan afresh: started at
+            # the last plane, which it owes, it observes the state there and ends.
+            at_end = Start(
+                field=accepted,
+                z=length,
+                plane_index=len(run_request.stepper.save_planes),
+            )
+            observed = session_run(scanning, problem, run_request, at_end)
+            assert [event.z for event in observed.observations] == [length]
+            fresh[implementation.name] = observed.all_planes()[-1].stats
         finally:
             scanning.close()
     return stashed, fresh
@@ -164,18 +176,30 @@ def test_the_stash_on_the_planar_route_is_the_fresh_scan():
     )
 
 
-class WithoutTheSaving(NativeBackend):
-    """Native with the recycled stage refused, for the comparison.
+def step_by_step(backend, problem, run_request, *, recycle):
+    """Take a schedule's steps on the backend's native state, the stage recycled or not.
 
-    On solprop's loop, whose accepted-step hook this overrides: the native march
-    (SEP 45) promotes the stage in its own accept.
+    The native Runge-Kutta march's own step, called on the state directly: a staged
+    trial (``rk_trial``), its accept (``finish``), and the last stage promoted to the
+    next step's first, or dropped so that the next trial evaluates it afresh. Returns
+    the state after the steps, and the steps taken.
     """
-
-    def _on_accepted_step(self):
-        self._native_state.clear_fsal()
-
-    def _rk_march(self):
-        return None
+    backend._staged_rows()
+    state = load_native(backend, problem.initial.field0)
+    nodes = [float(node) for node in run_request.stepper.tableau.nodes]
+    schedule = run_request.stepper.schedule
+    assert schedule is not None
+    edges = np.asarray(schedule.edges)
+    for z, end in itertools.pairwise(edges):
+        dz = float(end - z)
+        state.rk_trial(float(z), dz, nodes, prepare_only=False)
+        state.finish(dz)
+        if recycle:
+            state.promote_fsal()
+        else:
+            state.clear_fsal()
+    field = np.asarray(state.field_to_host()).reshape(problem.shape).copy()
+    return field, edges.size - 1
 
 
 def test_the_saving_does_not_change_the_answer():
@@ -183,8 +207,12 @@ def test_the_saving_does_not_change_the_answer():
 
     The original's case and bound: the gradient capillary over 200 fixed steps to 0.1 m,
     a replayed schedule so that the step count cannot move, and 1e-14 of the peak. The
-    Numba run measured 2.9e-16 and 5.8e-16 over 400 steps. It finishes in seconds here,
-    which is why it is not shortened to ten steps (AGENTS.md).
+    Numba run measured 2.9e-16 and 5.8e-16 over 400 steps; native measured 1.0e-15 over
+    these 200 on one thread. It finishes in seconds here, which is why it is not
+    shortened to ten steps (AGENTS.md). Both runs step the native state directly
+    (:func:`step_by_step`): the native session always recycles the stage, so the run
+    without it is not one the session can make; the recycled run is then held to the
+    session's own.
     """
     grid = field_grid()
     mode = MarcatiliMode(
@@ -199,34 +227,45 @@ def test_the_saving_does_not_change_the_answer():
             [KerrResponse(chi3=2.2e-52, thg=True)],
             start,
             controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[0.1, 0.2],
+            save_planes=[0.1],
             dz_max=0.01,
             dz_init=1e-4,
             absorber=absorber(grid),
-            schedule=FixedSchedule.uniform(0.0, 0.2, 0.0005, save_planes=[0.1, 0.2]),
+            schedule=FixedSchedule.uniform(0.0, 0.1, 0.0005, save_planes=[0.1]),
         )
     run_request = run_request.with_stepper(
         dataclasses.replace(run_request.stepper, integrator=None)
     )
 
-    def run(implementation):
-        backend = implementation(problem, run_request, grid=grid)
+    def run(recycle):
+        backend = NativeBackend(problem, run_request, grid=grid)
         try:
-            backend.set_initial(problem.initial.field0, None)
-            summary = backend.propagate_to(0.1)
-            return (
-                backend.observe().require_field().copy(),
-                summary.n_steps,
-                backend._native_state.rk_source_evaluations,
-            )
+            field, taken = step_by_step(backend, problem, run_request, recycle=recycle)
+            return field, taken, backend._native_state.rk_source_evaluations
         finally:
             backend.close()
 
-    with_it, taken, evaluated = run(NativeBackend)
-    without, alone, unsaved = run(WithoutTheSaving)
+    with_it, taken, evaluated = run(recycle=True)
+    without, alone, unsaved = run(recycle=False)
     assert taken == alone == 200
     stages = run_request.stepper.tableau.n_stages
     assert unsaved == stages * taken
     assert evaluated == (stages - 1) * taken + 1
     peak = float(np.max(np.abs(without)))
     assert float(np.max(np.abs(with_it - without))) / peak < 1e-14
+    # The steps above are the native session's own: its run lands on the recycled
+    # steps' state, with their evaluations.
+    backend = NativeBackend(problem, run_request, grid=grid)
+    try:
+        session = session_run(backend, problem, run_request)
+        assert committed_steps(session) == taken
+        assert backend._native_state.rk_source_evaluations == evaluated
+    finally:
+        backend.close()
+    if "1" in {
+        os.environ.get("SOLPROP_NATIVE_THREADS"),
+        os.environ.get("SOLPROP_THREADS"),
+    }:
+        # One thread fixes every reduction's order: the same steps to the bit.
+        np.testing.assert_array_equal(session.fields[-1], with_it)
+    assert float(np.max(np.abs(session.fields[-1] - with_it))) / peak < 1e-14

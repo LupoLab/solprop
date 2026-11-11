@@ -13,10 +13,8 @@ pieces of state a load restores (section 4.7) are structural and compared exactl
 import copy
 import dataclasses
 import gc
-import math
 import threading
 import types
-import warnings
 import weakref
 from typing import cast
 
@@ -26,14 +24,15 @@ import pytest
 from bounds import assert_within, fft_bound, step_evaluations
 from driver.test_field_free_planes import cartesian, low_storage, replay_bound
 from runtime_types import unchecked
+from sessions.executors import one_thread
 from solprop.backends import sessions
-from solprop.backends.driver import StepDriver
 from solprop.backends.host.driver import HostDriver
+from solprop.backends.protocol import stepping
 from solprop.backends.registry import available, select
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationRunner
 from solprop.driver.simulation import check_derived_problem
-from solprop.exceptions import DriverError, SolpropWarning, TranslationError
+from solprop.exceptions import DriverError, TranslationError
 from solprop.log import NullReporter
 from solprop.noise import NoiseRealisation, spatial_noise
 from solprop.output import MemoryOutput, open_file
@@ -223,42 +222,40 @@ def test_a_runner_counts_each_run_s_low_storage_evaluations_alone():
             assert output.outcome.execution["source_evaluations"] == expected
 
 
-@pytest.mark.medium
-@pytest.mark.parametrize("backend", available())
-@pytest.mark.parametrize("dense", [True, False], ids=["dense", "replayed Adams"])
-def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(
-    backend, dense, monkeypatch
-):
-    served: list[str] = []
-    start = sessions.start_session
+DENSE = pytest.mark.parametrize("dense", [True, False], ids=["dense", "replayed Adams"])
+"""A Runge-Kutta march observing densely, and the replayed Adams march."""
 
-    def serving(*args, **keywords):
-        session = start(*args, **keywords)
-        served.append(type(session).__name__)
-        return session
 
-    monkeypatch.setattr(sessions, "start_session", serving)
+def _failed_runner_case(backend: str, dense: bool) -> Simulation:
+    """Return the capillary case of the load tests, on the dense Runge-Kutta march."""
     simulation = capillary(backend, dense=dense)
     if dense:
         # The Runge-Kutta march observes densely through the backend's look-ahead.
         simulation.settings = dataclasses.replace(
             simulation.settings, integrator=RungeKutta()
         )
+    return simulation
+
+
+@pytest.mark.medium
+@DENSE
+def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(dense):
+    # The reference's driver keeps a run's march state on the backend itself; the
+    # native session keeps it in the session, which the next test checks by its runs.
+    backend = "numpy_ref"
+    simulation = _failed_runner_case(backend, dense)
     problem = simulation.translate()
     run_request = simulation._run_request()
     with simulation.runner() as runner:
         with pytest.raises(RuntimeError, match="on purpose"):
             runner.run(inputs(simulation)[0], progress=_Stop())
-        left = cast("StepDriver | HostDriver", runner.backend)
+        left = cast("HostDriver", runner.backend)
         if dense:
-            # The failed run held the march ahead of its interpolated plane; the
-            # native session holds that look-ahead itself, and the backend's is unused.
-            assert left._dense_ahead is not None or served == ["NativeSession"]
+            # The failed run held the march ahead of its interpolated plane.
+            assert left._dense_ahead is not None
         else:
             assert left._adams is not None
-            # The native session keeps the march's ledger itself and leaves the
-            # backend's untouched; the transitional session's march books into it.
-            assert left._adams.ledger.total > 0 or served == ["NativeSession"]
+            assert left._adams.ledger.total > 0
             # A failed run can stop just after a rejection; the load clears it.
             left._adams._last_rejected = True
         left.set_initial(problem.initial.field0, None, z=problem.initial.z)
@@ -271,7 +268,9 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(
             profiles=simulation.profiles,
         )
         try:
-            fresh.set_initial(problem.initial.field0, None, z=problem.initial.z)
+            stepping(fresh).set_initial(
+                problem.initial.field0, None, z=problem.initial.z
+            )
             # Restored state is exact: the same flags, alarm and integer ledger.
             assert restored(left, problem, run_request) == restored(
                 fresh, problem, run_request
@@ -280,6 +279,45 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(
             fresh.close()
         after = stored(runner.run(inputs(simulation)[1], progress="none"))
     assert after.n_saved == len(simulation.settings.save_planes) + 1
+
+
+@pytest.mark.medium
+@DENSE
+def test_a_native_run_after_a_failed_one_is_a_fresh_backend_s_run(dense, monkeypatch):
+    # The native session loads everything a march reads from its start -- a dense
+    # look-ahead, the Adams ledger and last rejection, the quadrature alarm the
+    # entrance plane reads -- so a runner's run after a failed one is a fresh
+    # backend's run: on one thread, the same planes, statistics, steps and ledger to
+    # the bit.
+    pytest.importorskip("solprop_native")
+    if not one_thread():
+        pytest.skip("bitwise repetition is claimed on one thread (SOLPROP_THREADS=1)")
+    served: list[str] = []
+    start = sessions.start_session
+
+    def serving(*args, **keywords):
+        session = start(*args, **keywords)
+        served.append(type(session).__name__)
+        return session
+
+    monkeypatch.setattr(sessions, "start_session", serving)
+    simulation = _failed_runner_case("native", dense)
+    field = inputs(simulation)[1]
+    fresh = stored(simulation.with_input(field).run(progress="none"))
+    with simulation.runner() as runner:
+        with pytest.raises(RuntimeError, match="on purpose"):
+            runner.run(inputs(simulation)[0], progress=_Stop())
+        after = stored(runner.run(field, progress="none"))
+    assert served == ["NativeSession"] * 3
+    assert after.n_saved == fresh.n_saved == len(simulation.settings.save_planes) + 1
+    assert np.array_equal(after["field"], fresh["field"])
+    for name in fresh.stat_names:
+        assert np.array_equal(
+            after[f"stats/{name}"], fresh[f"stats/{name}"], equal_nan=True
+        ), name
+    assert np.array_equal(after["step_history/h"], fresh["step_history/h"])
+    assert after.outcome is not None and fresh.outcome is not None
+    assert after.outcome.logical_calls == fresh.outcome.logical_calls
 
 
 def test_a_runner_refuses_what_its_backend_cannot_carry(tmp_path):
@@ -493,16 +531,27 @@ def no_collector():
     gc.enable()
 
 
+def _load_name(backend) -> str:
+    """Return the backend's load: the native session's ``_load``, the host's
+    ``set_initial``; both take the field, the noise, ``z`` and ``resume``."""
+    return "_load" if hasattr(backend, "_load") else "set_initial"
+
+
 def _spied_load(backend, monkeypatch) -> list[weakref.ref[np.ndarray]]:
-    """Return a list that keeps a weak reference to each array the backend loads."""
+    """Return a list that keeps a weak reference to each array the backend loads.
+
+    The reference loads through its driver's ``set_initial``, the native backend
+    through its own ``_load`` (SEP 47 phase 5).
+    """
     loads: list[weakref.ref[np.ndarray]] = []
-    load = backend.set_initial
+    name = _load_name(backend)
+    load = getattr(backend, name)
 
-    def spy(field, noise, *, z=0.0, resume=False) -> None:
+    def spy(field, noise, *, z=0.0, resume=False) -> object:
         loads.append(weakref.ref(field))
-        load(field, noise, z=z, resume=resume)
+        return load(field, noise, z=z, resume=resume)
 
-    monkeypatch.setattr(backend, "set_initial", spy)
+    monkeypatch.setattr(backend, name, spy)
     return loads
 
 
@@ -548,14 +597,15 @@ def test_a_runner_reads_a_digested_input_without_a_copy(backend, monkeypatch):
     field = 0.9 * simulation._field0
     before = field.copy()
     with simulation.runner() as runner:
-        load = runner.backend.set_initial
+        name = _load_name(runner.backend)
+        load = getattr(runner.backend, name)
         shared: list[bool] = []
 
-        def spy(given, noise, *, z=0.0, resume=False) -> None:
+        def spy(given, noise, *, z=0.0, resume=False) -> object:
             shared.append(np.shares_memory(given, field))
-            load(given, noise, z=z, resume=resume)
+            return load(given, noise, z=z, resume=resume)
 
-        monkeypatch.setattr(runner.backend, "set_initial", spy)
+        monkeypatch.setattr(runner.backend, name, spy)
         output = stored(runner.run(field, progress="none"))
         fresh = stored(simulation.with_input(field).run(progress="none"))
     assert shared == [True]
@@ -590,50 +640,13 @@ def test_a_resident_adams_march_holds_no_host_copy_of_the_state(route):
             simulation.settings, integrator=Multistep()
         )
     with simulation.runner() as runner:
-        backend = cast("StepDriver", runner.backend)
-        assert getattr(backend, "_resident", None) is not None
+        assert getattr(runner.backend, "_resident", None) is not None
         output = stored(runner.run(np.array(simulation._field0), progress="none"))
-        assert getattr(backend, "_host_state", ...) is None
-        assert runner.backend.memory_ledger()["adams_host_state"] == 0
-        # What a budget stop reports is the engine's: the state, read when it is asked.
-        assert np.array_equal(
-            backend._adams_state(), backend._observed_field(backend._require_state())
-        )
+        assert "adams_host_state" not in runner.backend.memory_ledger()
+        # What a stopped run reports is read from the engine when the session is asked
+        # (sessions/test_native_session_history.py: the budget stop and the failure
+        # between batches export the committed state for their checkpoints).
     assert output.n_saved > 1
-    assert getattr(backend, "_host_state", ...) is None
-
-
-def test_a_host_adams_march_lists_its_copy_of_the_state_and_closes_it(monkeypatch):
-    """Solprop's host engine reads the state on the host, one volume in the ledger.
-
-    A flow off the eigenbasis route is what takes that engine (``_adams_engine``).
-    """
-    pytest.importorskip("solprop_native")
-    flow_parity = pytest.importorskip("flow_parity")
-    monkeypatch.setattr(
-        "solprop.translate.coupled.eigenbasis_limit", lambda n_modes: 0.0
-    )
-    with warnings.catch_warnings():
-        for category in (*flow_parity.QUIET, SolpropWarning):
-            warnings.simplefilter("ignore", category)
-        simulation = flow_parity.build("scalar", schedule=None)
-        simulation.settings = dataclasses.replace(
-            simulation.settings, integrator=Multistep(), backend="native"
-        )
-        problem = simulation.translate()
-        run_request = simulation._run_request()
-        backend = select(
-            "native", problem, run_request, grid=simulation.grid, modes=simulation.modes
-        )
-    try:
-        assert getattr(backend, "_resident", ...) is None
-        assert backend.memory_ledger()["adams_host_state"] == 0
-        backend.set_initial(problem.initial.field0, None)
-        volume = 16 * math.prod(problem.shape)
-        assert backend.memory_ledger()["adams_host_state"] == volume
-    finally:
-        backend.close()
-    assert getattr(backend, "_host_state", ...) is None
 
 
 @pytest.mark.medium

@@ -15,7 +15,7 @@ energy.
 import dataclasses
 import math
 import warnings
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pytest
@@ -132,8 +132,16 @@ def test_a_replay_is_read_at_its_own_steps(backend: str) -> None:
     assert_same(reference, native)
 
 
-def radial_collar(backend: str, integrator: Multistep | RungeKutta) -> Simulation:
-    """Return a linear radial run with a requested collar outside its aperture."""
+def radial_collar(
+    backend: str,
+    integrator: Multistep | RungeKutta,
+    noise: Literal["input"] | None = None,
+    seed: int = 5,
+) -> Simulation:
+    """Return a linear radial run with a requested collar outside its aperture.
+
+    `noise` launches the input noise, drawn from `seed`, beside the pulse.
+    """
     length = 2e-3
     grid = EnvelopeGrid.from_limits(length, 800e-9, (700e-9, 900e-9), 200e-15)
     pulse = SpatialPulse(
@@ -155,7 +163,8 @@ def radial_collar(backend: str, integrator: Multistep | RungeKutta) -> Simulatio
         [],
         pulse,
         settings=settings,
-        noise=None,
+        noise=noise,
+        seed=None if noise is None else seed,
     )
 
 

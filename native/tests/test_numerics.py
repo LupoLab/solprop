@@ -8,15 +8,15 @@ from __future__ import annotations
 
 import dataclasses
 import math
-from typing import overload
 
 import numpy as np
 import numpy.typing as npt
 import pytest
 from bounds import assert_within, assert_work_within, departure
 from conftest import PhaseACase, RamanCase
+from session_runs import Run, committed_steps, run
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.protocol import StepSummary
+from solprop.backends.session import Start
 from solprop.grid import EnvelopeGrid
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.problem import PropagationProblem
@@ -27,7 +27,6 @@ from solprop_native import NativeBackend, build_info
 EPS = np.finfo(np.float64).eps
 DEVICE_BUILD = build_info().device_backend != "none"
 type ComplexArray = npt.NDArray[np.complex128]
-type PhaseBackend = NumpyRefBackend | NativeBackend
 type PhaseBackendClass = type[NumpyRefBackend] | type[NativeBackend]
 pytestmark = pytest.mark.gpu
 
@@ -63,59 +62,41 @@ def test_phase_d_roundoff_formulas_are_fixed_before_device_measurement() -> None
     assert _scan_bound(8192) == 192 * EPS * 13
 
 
-@overload
-def _loaded(
-    backend_class: type[NumpyRefBackend],
-    problem: PropagationProblem,
-    run_request: RunRequest,
-    grid: EnvelopeGrid,
-) -> NumpyRefBackend: ...
-
-
-@overload
-def _loaded(
-    backend_class: type[NativeBackend],
-    problem: PropagationProblem,
-    run_request: RunRequest,
-    grid: EnvelopeGrid,
-) -> NativeBackend: ...
-
-
-def _loaded(
+def _run(
     backend_class: PhaseBackendClass,
     problem: PropagationProblem,
     run_request: RunRequest,
     grid: EnvelopeGrid,
-) -> PhaseBackend:
+    start: Start | None = None,
+) -> Run:
+    """Run the problem through the backend's session, which closes the backend."""
     backend = backend_class(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
-    return backend
+    return run(backend, problem, run_request, start, owns=True)
+
+
+def _one_step(run_request: RunRequest, dz: float) -> RunRequest:
+    """Return the request replaying one step of `dz` to a plane at its end."""
+    return run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
+            schedule=FixedSchedule(np.full(1, dz)),
+            save_planes=(dz,),
+        )
+    )
 
 
 def test_one_trial_matches_numpy_within_sixteen_epsilon(
     phase_a_case: PhaseACase,
 ) -> None:
+    """One replayed step of 0.1 mm: the trial, accepted and finished, on each side."""
     problem, run_request, grid = phase_a_case
-    reference = _loaded(NumpyRefBackend, problem, run_request, grid)
-    backend = _loaded(NativeBackend, problem, run_request, grid)
-    try:
-        # The numerical seam test intentionally bypasses the shared march.
-        _, expected = reference._trial_step(  # pyright: ignore[reportPrivateUsage]
-            0.0, 1e-4
-        )
-        _, state = backend._trial_step(  # pyright: ignore[reportPrivateUsage]
-            0.0, 1e-4
-        )
-        backend._finish(state, 1e-4)  # pyright: ignore[reportPrivateUsage]
-        actual = backend.observe().require_field()
-        bound = _phase_factor(16, problem.grids.n_to, 7) * float(
-            np.max(np.abs(expected))
-        )
-        # The trial's state keeps the backend's private leading axis of one.
-        np.testing.assert_allclose(actual, expected[0], rtol=0.0, atol=bound)
-    finally:
-        reference.close()
-        backend.close()
+    stepped = _one_step(run_request, 1e-4)
+    expected, actual = (
+        _run(backend_class, problem, stepped, grid).fields[-1]
+        for backend_class in (NumpyRefBackend, NativeBackend)
+    )
+    bound = _phase_factor(16, problem.grids.n_to, 7) * float(np.max(np.abs(expected)))
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=bound)
 
 
 def test_eight_fixed_steps_match_within_128_epsilon(
@@ -131,10 +112,9 @@ def test_eight_fixed_steps_match_within_128_epsilon(
     )
     fields: list[ComplexArray] = []
     for backend_class in (NumpyRefBackend, NativeBackend):
-        backend = _loaded(backend_class, fixed, fixed_request, grid)
-        backend.propagate_to(1e-3)
-        fields.append(backend.observe().require_field())
-        backend.close()
+        result = _run(backend_class, fixed, fixed_request, grid)
+        assert result.all_planes()[-1].z == pytest.approx(1e-3)
+        fields.append(result.fields[-1])
     bound = _phase_factor(128, problem.grids.n_to, 8 * 7) * float(
         np.max(np.abs(fields[0]))
     )
@@ -161,12 +141,9 @@ def _tight_reference(
             )
         ),
     )
-    backend = _loaded(NumpyRefBackend, tight, tight_request, grid)
-    try:
-        backend.propagate_to(1e-3)
-        return np.array(backend.observe().require_field(), copy=True)
-    finally:
-        backend.close()
+    result = _run(NumpyRefBackend, tight, tight_request, grid)
+    assert result.all_planes()[-1].z == 1e-3
+    return result.fields[-1]
 
 
 def _run_adaptively(
@@ -174,13 +151,11 @@ def _run_adaptively(
     problem: PropagationProblem,
     run_request: RunRequest,
     grid: EnvelopeGrid,
-) -> tuple[StepSummary, ComplexArray]:
-    backend = _loaded(backend_class, problem, run_request, grid)  # pyright: ignore[reportArgumentType]
-    try:
-        summary = backend.propagate_to(1e-3)
-        return summary, np.array(backend.observe().require_field(), copy=True)
-    finally:
-        backend.close()
+) -> tuple[int, ComplexArray]:
+    """Return an adaptive run's accepted steps to 1 mm and its field there."""
+    result = _run(backend_class, problem, run_request, grid)
+    assert result.all_planes()[-1].z == 1e-3
+    return committed_steps(result), result.fields[-1]
 
 
 ENVELOPE_FACTOR = 4.0
@@ -206,8 +181,8 @@ def test_adaptive_propagation_meets_the_reference_s_accuracy_envelope(
     ]
     error = departure(results[0][1], reference)
     assert error > 0.0
-    for summary, field in results[1:]:
-        assert_work_within(summary.n_steps, results[0][0].n_steps, factor=1.25)
+    for accepted, field in results[1:]:
+        assert_work_within(accepted, results[0][0], factor=1.25)
         assert_within(field, reference, ENVELOPE_FACTOR * error, what="adaptive run")
 
 
@@ -268,19 +243,17 @@ def test_resume_matches_an_uninterrupted_replay(phase_a_case: PhaseACase) -> Non
             )
         ),
     )
-    whole = _loaded(NativeBackend, fixed, fixed_request, grid)
-    whole.propagate_to(1e-3)
-    expected = whole.observe().require_field()
-    whole.close()
-    first = _loaded(NativeBackend, fixed, fixed_request, grid)
-    first.propagate_to(5e-4)
-    halfway = first.observe().require_field()
-    first.close()
-    resumed = NativeBackend(fixed, fixed_request, grid=grid)
-    resumed.set_initial(halfway, None, z=5e-4)
-    resumed.propagate_to(1e-3)
-    actual = resumed.observe().require_field()
-    resumed.close()
+    whole = _run(NativeBackend, fixed, fixed_request, grid)
+    assert [plane.z for plane in whole.all_planes()] == [0.0, 5e-4, 1e-3]
+    expected = whole.fields[-1]
+    # A resume from the saved plane halfway.
+    halfway = whole.fields[1]
+    start = Start(
+        field=halfway, z=5e-4, plane_index=1, plane_pending=False, resume=True
+    )
+    resumed = _run(NativeBackend, fixed, fixed_request, grid, start)
+    assert [plane.z for plane in resumed.all_planes()] == [1e-3]
+    actual = resumed.fields[-1]
     bound = 32 * EPS * float(np.max(np.abs(expected)))
     np.testing.assert_allclose(actual, expected, rtol=0.0, atol=bound)
 
@@ -289,15 +262,24 @@ def test_fsal_is_promoted_after_acceptance_and_cleared_at_a_load(
     phase_a_case: PhaseACase,
 ) -> None:
     problem, run_request, grid = phase_a_case
-    backend = _loaded(NativeBackend, problem, run_request, grid)
-    assert backend.metadata()["fsal_ready"] is False
-    backend.propagate_to(5e-4)
-    assert backend.metadata()["fsal_ready"] is True
-    backend.propagate_to(1e-3)
-    assert backend.metadata()["fsal_ready"] is True
-    backend.set_initial(problem.initial.field0, None)
-    assert backend.metadata()["fsal_ready"] is False
-    backend.close()
+    run_request = run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, save_planes=(5e-4, 1e-3))
+    )
+    backend = NativeBackend(problem, run_request, grid=grid)
+    try:
+        assert backend.metadata()["fsal_ready"] is False
+        run(backend, problem, run_request)
+        assert backend.metadata()["fsal_ready"] is True
+        # A second run's start loads the launch again, which drops the stage.
+        session = backend.prepare(problem, run_request).start(
+            Start.entrance(problem), owns=False
+        )
+        try:
+            assert backend.metadata()["fsal_ready"] is False
+        finally:
+            session.close()
+    finally:
+        backend.close()
 
 
 def test_one_complete_raman_response_matches_the_reference(
@@ -305,27 +287,14 @@ def test_one_complete_raman_response_matches_the_reference(
 ) -> None:
     """The native doubled-grid convolution matches the independent NumPy path."""
     problem, run_request, grid = raman_case
-    reference = _loaded(NumpyRefBackend, problem, run_request, grid)
-    backend = _loaded(NativeBackend, problem, run_request, grid)
-    try:
-        dz = 1e-6
-        _, expected = reference._trial_step(  # pyright: ignore[reportPrivateUsage]
-            0.0, dz
-        )
-        _, state = backend._trial_step(  # pyright: ignore[reportPrivateUsage]
-            0.0, dz
-        )
-        backend._finish(state, dz)  # pyright: ignore[reportPrivateUsage]
-        actual = backend.observe().require_field()
-        established = 512 * EPS * np.log2(2 * problem.grids.n_to)
-        device = 7 * _fft_bound(problem.grids.n_to) + 8 * _fft_bound(
-            2 * problem.grids.n_to
-        )
-        bound = max(established, device if DEVICE_BUILD else 0.0) * max(
-            1.0, float(np.max(np.abs(expected)))
-        )
-        # The trial's state keeps the backend's private leading axis of one.
-        np.testing.assert_allclose(actual, expected[0], rtol=0.0, atol=bound)
-    finally:
-        reference.close()
-        backend.close()
+    stepped = _one_step(run_request, 1e-6)
+    expected, actual = (
+        _run(backend_class, problem, stepped, grid).fields[-1]
+        for backend_class in (NumpyRefBackend, NativeBackend)
+    )
+    established = 512 * EPS * np.log2(2 * problem.grids.n_to)
+    device = 7 * _fft_bound(problem.grids.n_to) + 8 * _fft_bound(2 * problem.grids.n_to)
+    bound = max(established, device if DEVICE_BUILD else 0.0) * max(
+        1.0, float(np.max(np.abs(expected)))
+    )
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=bound)

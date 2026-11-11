@@ -10,6 +10,8 @@ import numpy as np
 
 from backends.host_cases_envelope_qualification import InstantaneousPolynomial
 from envelope_oracle_angular import order_record
+from sessions.runs import run as session_run
+from sessions.runs import summary as run_summary
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.constants import EPS0, C
@@ -82,10 +84,10 @@ def propagate_pair(
         )
         owner = backend_class(problem, run_request, grid=grid)
         try:
-            owner.set_initial(problem.initial.field0, None)
-            before = owner.stats(run_request.observation.stats)
-            summary = owner.propagate_to(length)
-            after = owner.stats(run_request.observation.stats)
+            run = session_run(owner, problem, export=None)
+            # The launch plane's statistics and the end's, the run's one save plane.
+            before, after = run.observations[0].stats, run.observations[-1].stats
+            summary = run_summary(run)
             results[label] = {
                 "n_t": grid.n_t,
                 "n_to": grid.n_to,
@@ -224,13 +226,12 @@ def mixture_propagation(oversampling, *, backend_class=NumpyRefBackend):
             )
         owner = backend_class(problem, run_request, grid=grid)
         try:
-            owner.set_initial(problem.initial.field0, None)
-            before = owner.observe().require_field()
-            initial_energy = float(
-                np.sum(owner.stats(StatsSpec(names=("energy",)))["energy"])
-            )
-            summary = owner.propagate_to(grid.length)
-            values = owner.stats(run_request.observation.stats)
+            run = session_run(owner, problem)
+            # The launch plane, its state as loaded, and the end, the one save plane.
+            before = run.fields[0]
+            initial_energy = float(np.sum(run.observations[0].stats["energy"]))
+            values = run.observations[-1].stats
+            summary = run_summary(run)
             results[label] = {
                 "fractions": values["species_ionisation"].ravel().tolist(),
                 "energy": float(np.sum(values["energy"])),
@@ -238,7 +239,7 @@ def mixture_propagation(oversampling, *, backend_class=NumpyRefBackend):
                 "n_to": grid.n_to,
                 "initial_energy": initial_energy,
                 "fundamental_blueshift_over_carrier": (
-                    fundamental_centroid(owner.observe().require_field(), grid)
+                    fundamental_centroid(run.fields[-1], grid)
                     - fundamental_centroid(before, grid)
                 )
                 / grid.omega0,

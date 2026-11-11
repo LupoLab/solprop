@@ -11,6 +11,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from mixture_cases import mixture_translation
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import BackendError
 from solprop.modes import MarcatiliMode
@@ -41,10 +42,9 @@ def construct(mixture, responses, grid, original, original_request):
 def final(backend_class, problem, run_request, grid):
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(grid.length)
-        assert summary.n_steps == 16
-        return backend.observe().require_field().copy()
+        result = session_run(backend, problem)
+        assert result.joined[0].n_steps == 16
+        return result.fields[-1]
     finally:
         backend.close()
 

@@ -43,6 +43,7 @@ from modal_provider_cases import (
     GRIN_RADIUS,
     make_provider,
 )
+from sessions.runs import final_field
 from solprop.backends import select
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import EPS0
@@ -207,12 +208,7 @@ def run_fixed(case, state, steps, backend="numpy_ref"):
         schedule=equal_steps(FWM_LENGTH, steps),
     )
     owner = select(backend, problem, run_request, grid=case.grid)
-    try:
-        owner.set_initial(problem.initial.field0, None)
-        owner.propagate_to(FWM_LENGTH)
-        return np.array(owner.observe().require_field()[:, 0, :])
-    finally:
-        owner.close()
+    return final_field(owner, problem, run_request, z=FWM_LENGTH, owns=True)[:, 0, :]
 
 
 def rounding_bound(case, state):

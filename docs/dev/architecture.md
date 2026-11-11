@@ -220,7 +220,7 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `translate/` | Validated `PropagationProblem` and its route union (`translate/routes.py`); parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); response tables, masks and stage bundles | T |
 | `backends/` | Registry and protocols, shared step and batch drivers, scalar bodies, spatial and population statistics | B |
 | `backends/numpy_ref/` | Reference execution | B |
-| `backends/host/` | The reference's own step driver, Adams and low-storage marches, fixed-schedule group and run session ([SEP 47](seps/sep-0047-run-ownership.md) phase 2); the inherited drivers in `backends/` remain the native bridge's until its session replaces them | B |
+| `backends/host/` | The reference's own step driver, Adams and low-storage marches, fixed-schedule group, run session and group session ([SEP 47](seps/sep-0047-run-ownership.md) phase 2); the inherited driver and marches in `backends/` (`driver.py`, `multistep.py`, `low_storage.py`) remain the native backend's base class until SEP 47 phase 5 removes them, though no run is served through them, and the parts the Python sessions compose are in `backends/session_core.py` | B |
 | `stepper/`, `log.py`, `stats.py` | Tableaux, controllers, schedules, progress reporters and statistics specifications | D |
 | `driver/`, `driver/executors/`, `scan.py` | Simulation and convenience interfaces, scan/batch orchestration, Local/Pool/Queue/Slurm execution and scan CLI | D |
 | `calibration/` | The native backend's machine calibration ([SEP 46](seps/archive/sep-0046-machine-calibration.md)): reading, showing, exporting, importing and clearing profiles in the per-user store, through solprop-native's standard-library modules loaded by path so that the native runtime never starts (`calibration/_native.py`), the measuring controller, its child processes, the synthetic problems they time, the operation-grain candidates and the selection rule (`calibration/controller.py`, `child.py`, `problems.py`, `grain.py`, `selection.py`), the refinement of one simulation (`calibration/refine.py`, stage 2, which `Simulation.calibrate` runs), and the `solprop calibrate` command (`calibration/command.py`) | D |
@@ -267,20 +267,21 @@ Simulation(...)                                                    (D)
    ▼
 run loop over save planes and stats periods                        (D)
    │  session = backend.prepare(problem, request.for_run(...)).start(start)
-   │  backend.set_initial(field)  (by the session)                  host → device once
-   │  for z_save in planes: backend.propagate_to(z_save)            the driver's marches
-   │                        obs = backend.observe()                 small host arrays
-   │                        stats = backend.stats(spec)             one fused pass
-   │                        output.save(z_save, obs, stats)
+   │     the start loads once, host → device
+   │  while not session.finished: batch = session.advance()         the session's marches
+   │     ObservationReady(z, stats, ticket)                          small host arrays
+   │     session.export(ticket, recipe) → output.save(...)          one fused pass a plane
+   │     session.acknowledge(batch.receipt)
    ▼
 MemoryOutput / HDF5Output  ──►  processing / plotting               (X)
 ```
 
-The inner loop (many adaptive or scheduled steps between two save planes) is a Python
-step driver. The NumPy reference runs its own (`backends/host/`, SEP 47 phase 2) over
-its reference passes; the native backend runs the inherited `StepDriver`, a temporary
-bridge until its own session replaces it, and executes each trial through one native
-call. The outer driver visits save planes. Device arrays never cross the seam;
+The inner loop (many adaptive or scheduled steps between two save planes) belongs to
+the backend's session. The NumPy reference runs its own Python step driver
+(`backends/host/`, SEP 47 phase 2) over its reference passes; a native run is its
+native execution session's (`solprop_native.session.NativeSession`), which owns the
+march, the plane schedule and the statistics natively and returns to Python only at an
+event. The outer driver visits save planes. Device arrays never cross the seam;
 `observe()` returns host arrays of the field at the plane
 and the step history; `stats()` returns a small dictionary of host scalars/vectors.
 
@@ -567,19 +568,17 @@ class Backend(Protocol):
     name: str
     max_batch: int
 
-    def set_initial(self, field, noise, *, z=0.0, resume=False) -> None: ...
-    def set_progress(self, reporter) -> None: ...  # an observer, never an input
-    def propagate_to(self, z: float) -> StepSummary: ...  # the driver's way in
-    def observe(self, *, field: bool = True) -> Observation: ...  # host arrays only
-    def stats(self, spec) -> dict[str, np.ndarray]: ...  # one fused pass
+    def prepare(self, problem, request) -> PreparedExecution: ...  # a run's session
+    def prepare_group(self, members, problems, requests) -> PreparedGroup: ...
+    def timing_probe(self, start) -> TimingProbe: ...  # an estimate's trial
     def metadata(self) -> dict[str, object]: ...  # what the execution was
-    def restore_call_ledgers(self, logical, atomic=None) -> None: ...  # after a resume
     def available_device_memory(self) -> int | None: ...
     def memory_ledger(self) -> dict[str, int]: ...
     def close(self) -> None: ...
 
-    # And what the run layer asks beside them: the stop flag, the held plane, the boundary
-    # monitor, the march's snapshot and an estimate's step (backends.md section 1).
+    # The reference's host stepping seam (set_initial, propagate_to, observe, stats, the
+    # monitor and the march's snapshot) is a protocol of its own, HostStepping, which
+    # its session drives (backends.md section 1).
 ```
 
 - `numpy_ref`: the readable oracle. Plain NumPy + `scipy.fft`, no fusion, no in-place
@@ -594,9 +593,9 @@ class Backend(Protocol):
   transforms to Accelerate, OpenBLAS or cuBLAS. The CUDA build uses time-parallel
   response teams, deterministic plasma scans and device reductions and is qualified on
   data-centre NVIDIA GPUs; the HIP build is qualified on AMD Instinct GPUs, with the HIP
-  sanitizer run still outstanding. Fixed-schedule fibre batching is implemented through
-  `select_batch`. The private state is exposed to the shared driver only through its
-  protected state type and the `_observed_field` host-copy hook. Its floating-point licence is
+  sanitizer run still outstanding. Fixed-schedule fibre batching runs as the native group
+  session, one native session per member (§11). The private state is read only by the backend's own
+  session and timing probe. Its floating-point licence is
   [SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)'s: contraction by default,
   strict opt-outs for the protected helpers (stable increments, small-argument functions,
   defects, compensated sums), reassociation only on the loops of a kernel that asks for it,
@@ -675,31 +674,37 @@ started by `solprop.backends.sessions.start_group`; SEP 47 section 6.7): a seque
 independently translated single-trajectory member problems — no problem carries a batch
 axis — each started from its own `Start`, advanced
 one common window (save plane) at a time, each member reporting its own events. The
-batched scan's loop (`driver/_scan_batch.py`) is the group's service loop. Two groups
-serve it:
+batched scan's loop (`driver/_scan_batch.py`) is the group's service loop. A backend
+chooses its own group: `start_group` asks the first member to prepare it,
+`members[0].prepare_group(members, problems, requests)`, and starts the returned
+`PreparedGroup`, naming no backend. Two groups serve it:
 
 - **The native group session** (`solprop_native.group.NativeGroupSession`) serves
-  native CPU members whenever it admits the group. It owns one native execution session
-  per member (`solprop_native.session.NativeSession`, adopting the member backend the
-  scan built), so each member's march, events, attempts, statistics rows, tickets and
-  boundary monitor are its own session's, and the group only orders the members'
+  every native group, on a CPU or a device build. It owns
+  one native execution session per member (`solprop_native.session.NativeSession`,
+  adopting the member backend the scan built), so each member's march, events,
+  attempts, statistics rows, tickets and boundary monitor are its own session's, and the group only orders the members'
   advances. Within a window the members take turns in rounds of at most 256 common
-  steps (`ROUND_STEPS`), each turn native from end to end. The running members stand
+  steps (`ROUND_STEPS`), each turn native from end to end, and each member's noise
+  realisation and the noise phase its planes store are its own session's. The running members stand
   at one common step between rounds, and a group-wide stop is polled there. A member's
-  trajectory is its lone native session's, bit for bit at one thread, and so is the
-  transitional lockstep group's. The members share the schedule and nothing mutable: no
-  fused kernel, because the native marches own each whole step. Its refusals
-  (`solprop_native.group.refusal`) are named and made before allocation: a device
-  build, a run the native session refuses, an adaptive member, step or interpolated
-  planes, or members that do not share the schedule, save planes, method, field shape
-  and statistics request.
-- **The transitional group** (`solprop.backends.driver_session.DriverGroupSession`)
-  serves every other group: the reference's, and native groups the native group
-  refuses. It runs over the lockstep runners (`BatchBackend`, `select_batch`), which
-  adopt the loaded member backends, each with its own tables, state and noise. On the
-  native backend the accepted update is fused (`NativeBatchBackend`), while response
-  and transform work remains member-owned. `observe_members` preserves each member's
-  history and statistics.
+  trajectory is its lone native session's, bit for bit at one thread. The members share
+  the schedule and nothing mutable: no fused kernel, because the native marches own
+  each whole step. Its refusals (`solprop_native.group.refusal`) are named and made
+  before allocation: a run the native session refuses, an adaptive member, step planes,
+  or members that do not share the schedule, save planes, method, field shape and
+  statistics request. A batched scan forms none of these: it requires a fixed schedule,
+  refuses step planes and groups only points of one execution layout
+  (`solprop.driver.batch.compatible_groups`).
+- **The reference's group** (`solprop.backends.host.group_session.HostGroupSession`,
+  prepared by `HostPreparedGroup`) serves every `numpy_ref` group, in both precisions.
+  It runs over the reference's group runner (`HostGroup`, or `NumpyBatchBackend`'s
+  member-axis stage arithmetic in binary64, which `select_batch` builds from the
+  registry row), which adopts the loaded member backends, each with its own tables,
+  state and noise, and advances them through each common step in turn. It keeps that
+  runner rather than composing one `HostSession` per member, because the runner's
+  arithmetic, failure positions and precision rule are what a reference group means:
+  the module docstring gives the reasons.
 
 Admission uses memory ledgers and a free-device-memory query with headroom.
 
@@ -711,12 +716,12 @@ raised as an error) fails its member alone. A group-level failure (a non-finite 
 a step floor, a trial exception, an in-flight failure) fails every member of that
 group, each reporting its own committed position and checkpoint eligibility. Members
 take their steps in turn, so those ahead of the failing one have already taken the
-failed step: the transitional group's members are then in flight and poisoned, having
+failed step: the reference group's members are then in flight and poisoned, having
 stepped without recording; a native group's have committed and recorded their whole
 turn and stay eligible. Recovering the surviving members is an open question
 ([#171](https://github.com/LupoLab/solprop/issues/171)). A native member commits its
 launch plane before its monitor judges the launch, as a lone run does (SEP 47 section
-5.3), so a refused launch ends it in the window after the launch's; the transitional
+5.3), so a refused launch ends it in the window after the launch's; the reference
 group attaches the monitors first.
 
 Independent simulations use spawned processes, normally one scientific thread per
@@ -771,7 +776,7 @@ otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native 
   [SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md)): a plane without its field is not copied, converted or
   stored, the stores allocate field storage for the kept planes only, and the admission
   charges those alone (its `output` group). The backend is asked for the field only on
-  the kept planes: `StepDriver.observe(field=False)` transfers nothing from a device,
+  the kept planes: `HostDriver.observe(field=False)` transfers nothing from a device,
   scans nothing for finiteness, skips the collar diagnostic (counted in the execution
   record) and forms no noise-phase volume, so a field-free plane costs its statistics
   alone. Under the low-storage march a step abandoned in flight after such a plane leaves
@@ -779,8 +784,9 @@ otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native 
 - The Cartesian and planar collar diagnostic reconstructs the physical field by block of
   frequency, at most a node chunk's worth of samples at a time, never the whole volume.
 - A `SimulationRunner` keeps one backend's buffers and plans across many inputs, and is
-  admitted once; `StepDriver.set_initial` restores everything a march reads, so a reused
-  backend repeats a fresh one's run. An input array of more than 2²⁰ elements is
+  admitted once; each session's load restores everything a march reads (the native
+  backend's `_load`, the reference's `HostDriver.set_initial`), so a reused backend
+  repeats a fresh one's run. An input array of more than 2²⁰ elements is
   recorded by its SHA-256 digest, not inline, so the run record stays small; the runner
   reads such an array in place and marches on a problem without it, so no input outlives
   its load. A caller that identifies its input states that instead (`StatedInput`), and

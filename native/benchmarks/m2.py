@@ -2,13 +2,25 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Measure reduced M2 propagation in isolated backend/thread processes."""
+"""Measure reduced M2 propagation in isolated backend/thread processes.
+
+A propagation is the backend's session (solprop SEP 47): its start loads the launch
+before the clock starts, and the timed region is the session's advances to its last
+plane, with every observation's field exported (the internal convention, as the step
+driver observed it) and its statistics, which the session evaluates there. A trial is
+the backend's timing probe (``Backend.timing_probe``), which loads the start once and
+times single trials from it. ``--planes`` keeps a run's first planes only, for a short
+check of the script. The untimed warm-up is the launch plane and one attempt of a
+session of the timed run itself, closed there: a backend serves only its own request's
+planes, where the step driver's warm-up marched to a short plane of its own.
+"""
 
 # ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import statistics
@@ -116,6 +128,59 @@ def _metadata_float(metadata: Mapping[str, object], name: str) -> float:
     return float(value)
 
 
+def _warm(session: Any) -> None:
+    """Take a started session's launch plane and one attempt beyond it, then close it.
+
+    The untimed warm-up: a backend serves only its own request's planes, so it is
+    warmed on the timed run's own itinerary, cut short; the timed run loads the
+    launch again.
+    """
+    try:
+        for _ in range(2):  # the launch plane's batch, then one attempt
+            if session.finished:
+                break
+            batch = session.advance(work_limit=1)
+            terminal = batch.terminal
+            if terminal is not None and terminal.error is not None:
+                raise terminal.error
+            session.acknowledge(batch.receipt)
+    finally:
+        session.close()
+
+
+def _march(session: Any) -> tuple[int, int, Any]:
+    """Advance a started session to its end, exporting every observation's field.
+
+    Each observation's statistics arrive with it. Returns the attempts, the rejected
+    attempts among them and the last plane's field, in the internal convention.
+    """
+    import numpy as np
+
+    from solprop.backends.events import ObservationReady
+    from solprop.backends.export import ExportRecipe
+
+    identity = ExportRecipe(power=False, optics=False)
+    attempts = rejected = 0
+    field = None
+    try:
+        while not session.finished:
+            batch = session.advance()
+            for event in batch.events:
+                history = getattr(event, "history", None)
+                if history is not None:
+                    attempts += history.n_steps
+                    rejected += history.n_rejected
+                if isinstance(event, ObservationReady):
+                    field = np.array(session.export(event.ticket, identity))
+            terminal = batch.terminal
+            if terminal is not None and terminal.error is not None:
+                raise terminal.error
+            session.acknowledge(batch.receipt)
+    finally:
+        session.close()
+    return attempts, rejected, field
+
+
 def _worker(
     backend_name: str,
     case_name: str,
@@ -123,6 +188,7 @@ def _worker(
     save_field: Path | None,
     mode: str,
     trial_count: int,
+    planes: int | None,
 ) -> None:
     if backend_name == "native":
         # Kokkos loads first, the order documented for local applications.
@@ -132,6 +198,8 @@ def _worker(
 
     from solprop.backends.node_chunk import plan_node_chunk
     from solprop.backends.registry import select
+    from solprop.backends.session import Start
+    from solprop.backends.sessions import start_session
     from solprop.driver import Simulation
     from solprop.exceptions import MaterialRangeWarning
 
@@ -161,6 +229,15 @@ def _worker(
         )
         problem = simulation.translate()
         request = simulation._run_request()  # pyright: ignore[reportPrivateUsage]
+    if planes is not None:
+        request = request.with_stepper(
+            dataclasses.replace(
+                request.stepper, save_planes=request.stepper.save_planes[:planes]
+            )
+        )
+
+    def entrance() -> Start:
+        return Start.entrance(problem, noise=simulation.noise)
 
     construction_started = time.perf_counter()
     backend: Any = select(
@@ -178,39 +255,32 @@ def _worker(
         if backend_name == "native"
         else plan_node_chunk(problem).chunk
     )
+    dz = float(request.stepper.dz_init)
     try:
         memory_ledger = backend.memory_ledger()
-        backend.set_initial(problem.initial.field0, simulation.noise)
-        first_plane = float(request.stepper.save_planes[0])
-        backend.propagate_to(min(first_plane, case["length"] * 1e-4))
-        backend.set_initial(problem.initial.field0, simulation.noise)
-        device_before = device_record(backend.metadata())
-        load_start = os.getloadavg()[0]
-        started = time.perf_counter()
+        _warm(start_session(backend, problem, request, entrance(), owns=False))
         if mode == "trial":
+            probe = backend.timing_probe(entrance())
+            device_before = device_record(backend.metadata())
+            load_start = os.getloadavg()[0]
+            started = time.perf_counter()
             for _ in range(trial_count):
-                backend._trial_step(0.0, request.stepper.dz_init)
+                probe.trial(0.0, dz)
             seconds = time.perf_counter() - started
-            _, candidate = backend._trial_step(0.0, request.stepper.dz_init)
-            backend._finish(candidate, request.stepper.dz_init)
+            probe.trial(0.0, dz)
+            field = probe.field()
             attempts = 0
             rejected = 0
             trials = trial_count
         else:
-            backend.observe()
-            backend.stats(request.observation.stats)
-            attempts = 0
-            rejected = 0
-            for target in request.stepper.save_planes:
-                summary = backend.propagate_to(float(target))
-                attempts += summary.n_steps
-                rejected += summary.n_rejected
-                backend.observe()
-                backend.stats(request.observation.stats)
+            session = start_session(backend, problem, request, entrance(), owns=False)
+            device_before = device_record(backend.metadata())
+            load_start = os.getloadavg()[0]
+            started = time.perf_counter()
+            attempts, rejected, field = _march(session)
             seconds = time.perf_counter() - started
             trials = attempts
         load_end = os.getloadavg()[0]
-        field = backend.observe().field
         if not np.all(np.isfinite(field)):
             raise RuntimeError("reduced M2 produced a non-finite field")
         if save_field is not None:
@@ -300,6 +370,7 @@ def _run(
     field_family: str,
     mode: str,
     trial_count: int,
+    planes: int | None,
 ) -> Result:
     environment = os.environ.copy()
     environment.update(
@@ -326,6 +397,7 @@ def _run(
             mode,
             "--trial-count",
             str(trial_count),
+            *(() if planes is None else ("--planes", str(planes))),
         ],
         check=True,
         capture_output=True,
@@ -358,7 +430,14 @@ def main() -> None:
         "--mode", choices=("trial", "propagation"), default="propagation"
     )
     parser.add_argument("--trial-count", type=int, default=7)
+    parser.add_argument(
+        "--planes",
+        type=int,
+        help="run the case's first planes only, to check the script",
+    )
     arguments = parser.parse_args()
+    if arguments.planes is not None and arguments.planes < 1:
+        parser.error("--planes must be positive")
     if arguments.worker is not None:
         _worker(
             arguments.worker,
@@ -367,6 +446,7 @@ def main() -> None:
             arguments.save_field,
             arguments.mode,
             arguments.trial_count,
+            arguments.planes,
         )
         return
     if arguments.save_field is not None:
@@ -387,6 +467,7 @@ def main() -> None:
                     arguments.field_family,
                     arguments.mode,
                     arguments.trial_count,
+                    arguments.planes,
                 )
                 for _ in range(arguments.repeats)
             ]

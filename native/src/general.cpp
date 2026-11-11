@@ -10,6 +10,7 @@
 #include "solprop_native/envelope_plasma.hpp"
 #include "solprop_native/far_field.hpp"
 #include "solprop_native/fft_plan.hpp"
+#include "solprop_native/flow_functions.hpp"
 #include "solprop_native/fp.hpp"
 #include "solprop_native/gemm.hpp"
 #include "solprop_native/general_modal.hpp"
@@ -36,11 +37,13 @@
 #include <complex>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <limits>
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 #if defined(__APPLE__)
 #include <malloc/malloc.h>
@@ -2227,8 +2230,7 @@ public:
                           const AdamsWeights& dense);
   void adams_hold();
   void adams_restore();
-  void adams_observe(const AdamsWeights& weights, bool hermite,
-                     const TrialScalars& scalars);
+  void adams_observe(const AdamsWeights& weights, const TrialScalars& scalars);
   std::vector<double>
   adams_exponential_trial(double dz, const ExponentialWeights& weights,
                           const std::vector<double>& divisor, const TrialScalars& step,
@@ -2267,6 +2269,8 @@ public:
   std::vector<double> form_flow_actions(std::size_t section, double dz,
                                         const std::vector<double>& fractions);
   std::vector<Complex> flow_actions_to_host(bool inverse) const;
+  std::vector<Complex> adams_block_to_host() const;
+  std::vector<Complex> adams_exponent_to_host() const;
   void prepare_raman(const std::vector<double>& rates,
                      const std::vector<double>& densities);
   std::vector<double> spatial_statistics(std::uint64_t flags, double intensity_factor,
@@ -2277,6 +2281,9 @@ public:
                                           const std::vector<double>& cosines,
                                           const std::vector<double>& sines);
   std::vector<Complex> axis_spectrum(const std::vector<double>& matrix);
+  std::vector<double>
+  axis_populations(const std::vector<double>& matrix,
+                   const std::vector<double>& channel_preionisation);
   std::vector<double> aperture_statistics(std::uint64_t flags,
                                           const std::vector<double>& apertures,
                                           int exponent,
@@ -2406,6 +2413,7 @@ public:
   std::size_t response_team_size() const noexcept;
   bool fsal_ready() const noexcept { return has_recycled_; }
   std::size_t rk_source_evaluations() const noexcept { return rk_source_evaluations_; }
+  std::size_t axis_scans() const noexcept { return axis_scans_; }
   bool closed() const noexcept { return closed_; }
   void close() noexcept;
 
@@ -2433,6 +2441,8 @@ public:
                           const std::vector<double>& divisor, const TrialScalars& step,
                           const TrialScalars& sample, const std::vector<double>& rate);
   void adams_rate(const std::vector<double>& rate, const ComplexView2& out);
+  void adams_fallback_squarings(std::size_t section, double dz,
+                                const ExponentialWeights& weights);
   // A trial's `rows` norms: its reduction over `policy` into the pinned buffer, then
   // the trial's one fence, on the reduction's own instance. A reduction into memory the
   // device writes returns before it completes.
@@ -2679,10 +2689,13 @@ public:
 #endif
   }
   void held_radial_projection(std::size_t first_node, std::size_t node_count);
-  void envelope_cycle(std::size_t channel, std::size_t node_count);
+  void envelope_cycle(std::size_t channel, std::size_t node_count,
+                      const ComplexView2& field_rows, std::size_t n_pol);
+  void envelope_statistics(std::size_t channel, std::size_t first_node,
+                           std::size_t node_count, const RealView2& statistics,
+                           const ComplexView2& field, std::size_t n_pol);
   void envelope_population(std::size_t channel, std::size_t stage,
-                           std::size_t first_node, std::size_t node_count,
-                           const RealView2& statistics);
+                           std::size_t node_count);
   void envelope_response(std::size_t stage, std::size_t first_node,
                          std::size_t node_count,
                          const TransverseChunk* chunk = nullptr);
@@ -2694,6 +2707,7 @@ public:
   void fill_statistics_pair(bool windowed, double lower, double upper);
   void form_statistics_power();
   void form_statistics_total_power();
+  void statistics_modal_time();
   void scan_plasma_statistics(std::size_t first_node, std::size_t node_count,
                               const RealView2& output, bool diagnose = false,
                               double preionisation = 0.0);
@@ -2782,10 +2796,11 @@ public:
   // `set_initial` and `close`): a step that reuses a table never built refuses.
   bool table_ready_{};
   bool stages_ready_{};
-  bool batch_prepared_{};
   bool has_noise_{};
   bool has_recycled_{};
   std::size_t rk_source_evaluations_{};
+  // On-axis row scans (`axis_populations`), for the session's record (SEP 19).
+  std::size_t axis_scans_{};
   bool pending_fsal_{};
   // Only the final trial source supplies the accepted quadrature score. Its
   // coarse time buffers survive until scoring, or until a new source replaces
@@ -2930,6 +2945,9 @@ public:
   RealView2 spatial_statistics_partials_;
   RealView statistics_total_power_;
   RealView statistics_on_axis_, statistics_packed_;
+  // An envelope's on-axis row on a one-component node scan, its x and y components
+  // (`axis_populations`), allocated by the first statistics call that needs it.
+  ComplexView2 statistics_axis_row_;
   // solprop SEP 47: a general modal basis's whitened columns, the metric's square
   // root at one position and their sums, allocated by the first statistics call that
   // needs them (outside any trial step).
@@ -3035,6 +3053,15 @@ public:
   // moments on the block's bins, `(count + 1, n_active, n_modes, n_modes)` with the
   // flow first; a frozen-residual flow's weights at each sample and at the trial's end.
   Kokkos::View<Complex****, Layout, MemorySpace> adams_block_;
+  // A host's channel vectors per bin, `(n_omega, (adams_max_samples + 1) n_modes)`,
+  // beside a block wider than `adams_max_channels` (solprop SEP 47 phase 4); empty
+  // otherwise, when a host task holds them on its stack.
+  ComplexView2 adams_channels_;
+  // Each build's functions of the bins off the flow's eigenbasis route, `(n_active,
+  // augmented_blocks(slots), n_modes, n_modes)` by active bin: the augmented
+  // exponential's first block row and its scratch for the trial's section (solprop
+  // SEP 47 phase 4); empty without a bin off the route.
+  Kokkos::View<Complex****, Layout, MemorySpace> adams_fallback_;
   // A frozen-residual flow's generator at each sample applied to its state, `G(z_j)
   // u_j`, formed once per sample; the trial's at its end, and the weights it is formed
   // from. A trial forms `R_s(z_j) u_j = G(z_j) u_j - G_s u_j` against its own section.
@@ -3531,139 +3558,6 @@ std::size_t GeneralWorkspace::response_team_size() const noexcept {
 #endif
   return configured;
 }
-
-class GeneralBatchWorkspace {
-public:
-  explicit GeneralBatchWorkspace(std::vector<std::shared_ptr<GeneralState>> members)
-      : members_(std::move(members)) {
-    if (members_.empty())
-      throw std::invalid_argument("a native batch needs at least one member");
-    for (const auto& state : members_) {
-      if (!state || state->closed())
-        throw std::invalid_argument("native batch members must be open");
-      const auto& one = *state->workspace_;
-      if (!one.initialized_)
-        throw std::invalid_argument("native batch members must be loaded");
-      if (one.flow_)
-        throw std::invalid_argument(
-            "a native batch member carries a coupled flow, which runs one member at "
-            "a time");
-      if (columns_ == 0) {
-        columns_ = one.problem_.n_columns();
-        omega_ = one.problem_.n_omega;
-      }
-      if (one.problem_.n_columns() != columns_ || one.problem_.n_omega != omega_)
-        throw std::invalid_argument("native batch member layouts differ");
-      // The batch's updates run on one team for every member (solprop SEP 46).
-      if (one.problem_.cpu_execution != kernel_pool_.execution())
-        throw std::invalid_argument(
-            "native batch members' CPU execution records differ");
-    }
-    const auto count = checked_product(columns_, members_.size(), "batch columns");
-    // The batch's updates take its members' team.
-    if (compact_problem(members_.front()->workspace_->problem_))
-      kernel_pool_.compact();
-    execution_ = kernel_pool_.get(CpuOperation::stage,
-                                  checked_product(count, omega_, "batch elements"));
-    if (count > static_cast<std::size_t>(std::numeric_limits<int>::max()))
-      throw std::length_error("native batch league exceeds int extent");
-    require_allocation(count, sizeof(UpdateColumn), "batch descriptors");
-    descriptors_ = Descriptors("solprop_native.batch.update_descriptors", count);
-    host_ = Kokkos::create_mirror(descriptors_);
-  }
-
-  std::vector<double> accept(const double dz) {
-    if (closed_)
-      throw std::logic_error("native batch is closed");
-    if (!std::isfinite(dz) || dz <= 0.0)
-      throw std::invalid_argument("native batch step must be positive and finite");
-    for (std::size_t member = 0; member < members_.size(); ++member) {
-      auto& one = *members_[member]->workspace_;
-      one.require_open();
-      if (!one.batch_prepared_)
-        throw std::logic_error("every native batch member must prepare this trial");
-      for (std::size_t column = 0; column < columns_; ++column) {
-        host_(member * columns_ + column) = {
-            one.current_.data() + column * one.current_.stride(0),
-            one.solution_.data() + column * one.solution_.stride(0),
-            one.error_.data() + column * one.error_.stride(0),
-            one.whole_propagator_.data() + column * one.whole_propagator_.stride(0),
-            one.advanced_.data() + column * one.advanced_.stride(0),
-            one.residual_.data() + column * one.residual_.stride(0),
-            one.norm_mask_.data(),
-            one.partials_.data() + column * one.reduction_slots_,
-            one.partials_.data() + one.partials_.stride(0) +
-                column * one.reduction_slots_,
-            one.partials_.data() + 2 * one.partials_.stride(0) +
-                column * one.reduction_slots_,
-            one.current_.data() + column * one.current_.stride(0)};
-      }
-    }
-    graph::deep_copy(execution_, descriptors_, host_);
-    const auto descriptors = descriptors_;
-    // The members' own split: a member sums its norms as its solo run does.
-    const auto slots = members_.front()->workspace_->reduction_slots_;
-    accept_update(
-        execution_, descriptors.extent(0), omega_, dz,
-        KOKKOS_LAMBDA(const std::size_t column) { return descriptors(column); },
-        "solprop_native.batch.accept_error_partials", slots);
-    execution_.fence("solprop_native batch update boundary");
-    std::vector<double> result;
-    result.reserve(members_.size() * 3 * columns_ * slots);
-    for (const auto& member : members_) {
-      const auto partials = member->workspace_->collect_trial();
-      result.insert(result.end(), partials.begin(), partials.end());
-    }
-    return result;
-  }
-
-  std::map<std::string, std::size_t> memory_ledger() const {
-    if (closed_)
-      return {};
-    return {{"update_descriptors", descriptors_.span() * sizeof(UpdateColumn)},
-            {"host_update_descriptors", host_.span() * sizeof(UpdateColumn)}};
-  }
-
-  CpuSizing execution_sizing() const { return kernel_pool_.sizing(); }
-  /** Its members' team (`GeneralWorkspace::cpu_team`), or the batch's own update
-      width if wider. */
-  [[nodiscard]] int cpu_team() const noexcept {
-    const int members = members_.empty() ? 0 : members_.front()->workspace_->cpu_team();
-    return members == 0 ? 0 : std::max(members, kernel_pool_.widest());
-  }
-
-  void close() noexcept {
-    if (closed_)
-      return;
-    execution_.fence();
-    descriptors_ = {};
-    host_ = {};
-    members_.clear();
-    execution_ = ExecutionSpace();
-    kernel_pool_.clear();
-    closed_ = true;
-  }
-
-private:
-  using Descriptors = Kokkos::View<UpdateColumn*, Layout, MemorySpace>;
-  // The first member's record, which every member must share; read before the
-  // constructor's checks, so it refuses an empty or unloaded batch itself.
-  static const CpuExecution&
-  first_execution(const std::vector<std::shared_ptr<GeneralState>>& members) {
-    if (members.empty())
-      throw std::invalid_argument("a native batch needs at least one member");
-    if (!members.front() || members.front()->closed())
-      throw std::invalid_argument("native batch members must be open");
-    return members.front()->workspace_->problem_.cpu_execution;
-  }
-  std::vector<std::shared_ptr<GeneralState>> members_;
-  CpuExecutionPool kernel_pool_{CpuPool::kernels, first_execution(members_)};
-  ExecutionSpace execution_;
-  std::size_t columns_{}, omega_{};
-  Descriptors descriptors_;
-  Descriptors::host_mirror_type host_;
-  bool closed_{};
-};
 
 void GeneralWorkspace::allocate() {
   if (problem_.low_storage
@@ -5512,8 +5406,6 @@ void GeneralWorkspace::prepare_trial(const double dz, const TrialScalars& scalar
   if (finish_pending_)
     throw std::logic_error("a deferred stage finish was never run");
   stages_ready_ = true;
-
-  batch_prepared_ = true;
 }
 
 std::vector<double> GeneralWorkspace::trial_step(const double dz,
@@ -6314,8 +6206,8 @@ void GeneralWorkspace::low_storage_modal_input(const std::size_t pass) {
 
 // --- solprop SEP 16 phase 3b: the Adams history resident in the engine ---------------
 //
-// solprop's AdamsMarch keeps the controller and hands every state-sized operation of
-// its fused path to an engine (solprop ADR-043). These are that engine's passes: the
+// solprop's HostAdamsMarch keeps the controller and hands every state-sized operation
+// of its fused path to an engine (solprop ADR-043). These are that engine's passes: the
 // history's rows, the trial's predictor, source, corrected field and defect norms, the
 // adoption and transport of an accepted step and dense observation all stay in device
 // memory; only the trial's scalars, its coefficient tables (by value, in AdamsWeights)
@@ -6369,12 +6261,36 @@ void GeneralWorkspace::adams_allocate(const std::size_t slots, const bool compen
   // Beside a coupled flow the trial's block functions, and a frozen-residual flow's
   // weights per sample, live beside the history (solprop SEP 16 phase 6).
   if (flow_) {
-    if (!flow_->full_route())
-      throw std::logic_error("the resident Adams engine needs every coupled bin on the "
-                             "flow's eigenbasis route");
-    if (problem_.n_modes > adams_max_channels || columns != problem_.n_modes)
-      throw std::logic_error("the resident Adams engine steps a coupled block of at "
-                             "most 16 channels and one batch row");
+    if (!flow_->forms_actions())
+      throw std::logic_error("the resident Adams engine needs the flow's eigenbasis "
+                             "and route");
+    // A bin off the route takes the augmented exponential: a trial reads one
+    // section, so the scratch is one row per active bin, whatever the sections. A
+    // device's carry also keeps a bin's channel vectors there, in blocks 3 and 4
+    // (solprop SEP 47 phase 4), which `augmented_blocks` holds for any history.
+    const auto rows = flow_->n_fallback() == 0 ? 0 : flow_->n_active();
+    const auto blocks = flow_functions::augmented_blocks(slots);
+    if (rows == 0)
+      adams_fallback_ = {};
+    else if (adams_fallback_.extent(0) != rows || adams_fallback_.extent(1) != blocks)
+      adams_fallback_ = Kokkos::View<Complex****, Layout, MemorySpace>(
+          "solprop_native.adams.fallback_functions", rows, blocks, problem_.n_modes,
+          problem_.n_modes);
+    if (columns != problem_.n_modes)
+      throw std::logic_error("the resident Adams engine steps a coupled block of one "
+                             "batch row");
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+    // A wider block's host passes hold its channel vectors in a row per bin; a
+    // device's passes take a thread per (bin, channel) and hold none, at any width
+    // (solprop SEP 47 phase 4).
+    const std::size_t width = problem_.n_modes > adams_max_channels
+                                  ? (adams_max_samples + 1) * problem_.n_modes
+                                  : 0;
+    if (adams_channels_.extent(1) != width)
+      adams_channels_ = width == 0
+                            ? ComplexView2{}
+                            : ComplexView2("solprop_native.adams.channels", n, width);
+#endif
     if (adams_block_.extent(0) != slots + 1)
       adams_block_ = Kokkos::View<Complex****, Layout, MemorySpace>(
           "solprop_native.adams.block", slots + 1, flow_->n_active(), problem_.n_modes,
@@ -7031,11 +6947,10 @@ GeneralWorkspace::phase_sum_to_host(const std::vector<double>& weights) {
 
 // The field at a fraction of the last accepted step: the step's interpolant in its
 // anchor's frame -- the Adams corrector's (`weights.predictor` holds dz-scaled
-// integrated weights over the slopes) or the cubic Hermite one (`hermite`, the four
-// coefficients in `weights.corrector`) -- with a bin the step's flow changes by more
+// integrated weights over the slopes) -- with a bin the step's flow changes by more
 // than an e-fold taking the anchor's value, carried to the observation by the uploaded
 // trial's flow and masked into current_.
-void GeneralWorkspace::adams_observe(const AdamsWeights& weights, const bool hermite,
+void GeneralWorkspace::adams_observe(const AdamsWeights& weights,
                                      const TrialScalars& scalars) {
   require_adams();
   if (adams_dense_count_ == 0)
@@ -7047,7 +6962,6 @@ void GeneralWorkspace::adams_observe(const AdamsWeights& weights, const bool her
   const auto n = problem_.n_omega;
   const auto count = adams_dense_count_;
   const auto start = adams_dense_start_;
-  const auto end = adams_dense_end_;
   const auto exponent = adams_dense_exponent_;
   const auto slopes = adams_slopes_;
   const auto carry = adams_propagator_;
@@ -7055,18 +6969,10 @@ void GeneralWorkspace::adams_observe(const AdamsWeights& weights, const bool her
   launch::parallel_for(
       "solprop_native.adams.observe", Range2(execution_space_, {0, 0}, {columns, n}),
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-        Complex value;
-        if (hermite) {
-          value = weights.corrector[0] * start(column, index) +
-                  weights.corrector[1] * slopes(1, column, index) +
-                  weights.corrector[2] * end(column, index) +
-                  weights.corrector[3] * slopes(0, column, index);
-        } else {
-          Complex total{};
-          for (std::size_t t = 0; t < count; ++t)
-            total += weights.predictor[t] * slopes(t, column, index);
-          value = start(column, index) + total;
-        }
+        Complex total{};
+        for (std::size_t t = 0; t < count; ++t)
+          total += weights.predictor[t] * slopes(t, column, index);
+        Complex value = start(column, index) + total;
         if (Kokkos::abs(exponent(column, index).real()) > 1.0)
           value = start(column, index);
         current(column, index) = carry(column, index) * value;
@@ -7222,6 +7128,30 @@ adams_device_predict(const ExponentialWeights& weights, const std::size_t formed
 }
 #endif
 
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+/** The channel vectors a host task of a coupled pass holds: up to `adams_max_samples +
+    1` rows of a bin's channels. */
+inline constexpr std::size_t adams_channel_stack =
+    (adams_max_samples + 1) * adams_max_channels;
+
+/**
+ * Where a host task holds bin `index`'s channel vectors, rows of `modes` entries:
+ * `stack` up to `adams_max_channels` channels, beyond it the bin's row of `rows`
+ * (`adams_channels_`, solprop SEP 47 phase 4). Every pass reads only what it wrote.
+ */
+// A bin's row of `adams_channels_` is contiguous: the view's last extent is its
+// fastest.
+static_assert(std::is_same_v<Layout, Kokkos::LayoutRight>,
+              "adams_channel_rows reads a bin's row as contiguous memory");
+
+inline Complex*
+adams_channel_rows(Complex* stack,
+                   const Kokkos::View<Complex**, Layout, MemorySpace>& rows,
+                   const std::size_t index) {
+  return rows.extent(1) == 0 ? stack : &rows(index, 0);
+}
+#endif
+
 // The defects' norms beside a coupled flow (solprop SEP 16 phase 6): per bin, the
 // samples' channel vectors; off the block each channel's defect is the diagonal one,
 // on it each moment combination is a matrix applied to the divided difference.
@@ -7241,6 +7171,8 @@ struct CoupledDefectNorms {
   ExponentialWeights weights;
   double dz;
   std::size_t modes;
+  // A host's channel vectors beyond `adams_max_channels` (`adams_channels_`).
+  Kokkos::View<Complex**, Layout, MemorySpace> channels;
 
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   SOLPROP_NATIVE_STRICT_FUNCTION
@@ -7303,18 +7235,21 @@ struct CoupledDefectNorms {
       return;
     const double scale = divisor(index);
     const auto one = slots(index);
-    Complex values[adams_max_samples][adams_max_channels];
+    // The samples' channel vectors, row t at `values + t modes`, and the divided
+    // difference after them.
+    Complex stack[adams_channel_stack];
+    Complex* const values = adams_channel_rows(stack, channels, index);
+    Complex* const difference = values + adams_max_samples * modes;
     for (std::size_t i = 0; i < modes; ++i) {
-      values[0][i] = source(i, index);
+      values[i] = source(i, index);
       for (std::size_t t = 1; t < weights.width; ++t)
-        values[t][i] = adams_history(store, weights, t - 1, i, index);
+        values[t * modes + i] = adams_history(store, weights, t - 1, i, index);
     }
-    Complex difference[adams_max_channels];
     for (size_type row = 0; row < value_count; ++row) {
       for (std::size_t i = 0; i < modes; ++i) {
-        Complex total = strict_scale(weights.rows[row][0], values[0][i]);
+        Complex total = strict_scale(weights.rows[row][0], values[i]);
         for (std::size_t t = 1; t < weights.width; ++t)
-          total = strict_accumulate(total, weights.rows[row][t], values[t][i]);
+          total = strict_accumulate(total, weights.rows[row][t], values[t * modes + i]);
         difference[i] = total;
       }
       for (std::size_t i = 0; i < modes; ++i) {
@@ -8526,6 +8461,67 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
   return norms;
 }
 
+// Refuse a trial whose bins off the flow's eigenbasis route would need more squarings
+// than solprop's reference admits for a flow action (solprop SEP 47 phase 4): the
+// augmented exponential of each bin's shifted block for the moments, and the block's
+// own `span dz T` for each carried sample. Before any pass of the trial moves the
+// state, so a refusal leaves the accepted step as it was.
+void GeneralWorkspace::adams_fallback_squarings(const std::size_t section,
+                                                const double dz,
+                                                const ExponentialWeights& weights) {
+  const auto slots = flow_->block_slots();
+  const auto route = flow_->route();
+  const auto triangular = flow_->fallback_triangular();
+  const auto exponent = adams_exponent_;
+  const auto modes = problem_.n_modes;
+  const std::size_t count = weights.count;
+  const auto policy =
+      Kokkos::RangePolicy<ExecutionSpace>(flow_execution_space_, 0, problem_.n_omega);
+  // The moments' augmented exponent, and the carries' `span dz T`, apart, so that a
+  // refusal names which.
+  int moments = 0;
+  int carries = 0;
+  launch::parallel_reduce(
+      "solprop_native.adams.fallback_squarings", policy,
+      KOKKOS_LAMBDA(const std::size_t index, int& most, int& carried) {
+        const auto one = slots(index);
+        if (one == 0)
+          return;
+        const auto path = route(section, one - 1);
+        if (path == 0)
+          return;
+        const Complex argument = adams_moment_argument(weights, exponent(0, index));
+        const int squarings = flow_functions::augmented_squarings(
+            argument, dz, triangular, path - 1, modes, count);
+        most = squarings > most ? squarings : most;
+        if (weights.compensated)
+          for (std::size_t t = 0; t + 1 < weights.width; ++t) {
+            const int carry = flow_functions::augmented_squarings(
+                Complex{}, weights.span[t] * dz, triangular, path - 1, modes, 0);
+            carried = carry > carried ? carry : carried;
+          }
+      },
+      Kokkos::Max<int>(moments), Kokkos::Max<int>(carries));
+  const std::string bin =
+      "native cannot take the flow and moments of a coupled flow's bin off its "
+      "eigenbasis route";
+  if (moments == flow_functions::non_finite || carries == flow_functions::non_finite)
+    throw BackendRefusal(bin + ": the step's exponent there is not finite");
+  if (moments <= flow_functions::max_squarings &&
+      carries <= flow_functions::max_squarings)
+    return;
+  std::array<char, 32> length{};
+  std::snprintf(length.data(), length.size(), "%.4g", dz);
+  const std::string limit = " would need more than " +
+                            std::to_string(flow_functions::max_squarings) +
+                            " squarings, the most this backend admits. Cap dz_max";
+  if (moments > flow_functions::max_squarings)
+    throw BackendRefusal(bin + " over a step of " + length.data() + " m: its exponent" +
+                         limit);
+  throw BackendRefusal(bin + " over a step of " + length.data() +
+                       " m: a history sample's carry to the step's end" + limit);
+}
+
 std::vector<double> GeneralWorkspace::adams_exponential_trial(
     const double dz, const ExponentialWeights& weights,
     const std::vector<double>& divisor, const TrialScalars& step,
@@ -8580,10 +8576,21 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
         for (std::size_t k = 0; k < count; ++k)
           moments(k, column, index) = adams_factorial(k) * phi[k + 1];
       });
-  // The block's flow and moments, W f(x + h lambda) Y from the section's eigenbasis,
-  // every bin on its route (adams_allocate refuses a flow with a bin off it).
+  // The block's flow and moments, W f(x + h lambda) Y from the section's eigenbasis on
+  // its route; a bin off it is formed from its Schur factors by the augmented
+  // exponential (`flow_functions`), on a host and a device alike.
   const auto block = adams_block_;
+  // A host's channel vectors of a block wider than `adams_max_channels`.
+  [[maybe_unused]] const auto channels = adams_channels_;
   const auto modes = problem_.n_modes;
+  // The bins off the eigenbasis route (solprop SEP 47 phase 4).
+  const auto route = flow_->route();
+  const auto fallback_vectors = flow_->fallback_vectors();
+  const auto fallback_triangular = flow_->fallback_triangular();
+  const auto fallback = adams_fallback_;
+  const bool falls_back = flow_->falls_back(section);
+  if (flow_->falls_back(section))
+    adams_fallback_squarings(section, dz, weights);
   const auto left = flow_->left();
   const auto right = flow_->right();
   const auto eigenvalues = flow_->eigenvalues();
@@ -8602,6 +8609,9 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
         if (one == 0)
           return;
         const auto bin = one - 1;
+        // A bin off the route is the next pass's.
+        if (falls_back && route(section, bin) != 0)
+          return;
         const auto i = pair / modes;
         const auto j = pair % modes;
         const Complex shift = exponent(0, index);
@@ -8626,7 +8636,53 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
         for (std::size_t k = 0; k <= count; ++k)
           block(k, bin, i, j) = total[k];
       });
+  if (falls_back)
+    // Off the eigenbasis route, a thread per bin: the host task's passes, in its order
+    // (the first block row of the augmented exponential of the shifted block, carried
+    // back by Z), its matrices in the bin's scratch row rather than on a stack.
+    launch::parallel_for(
+        "solprop_native.adams.fallback_block_functions", bins,
+        KOKKOS_LAMBDA(const std::size_t index) {
+          const auto one = slots(index);
+          if (one == 0)
+            return;
+          const auto bin = one - 1;
+          const auto path = route(section, bin);
+          if (path == 0)
+            return;
+          const auto f = path - 1;
+          const Complex argument = adams_moment_argument(weights, exponent(0, index));
+          flow_functions::augmented_row(
+              argument, dz, fallback_triangular, f, modes, count,
+              flow_functions::augmented_squarings(argument, dz, fallback_triangular, f,
+                                                  modes, count),
+              fallback, bin);
+          const Complex factor = weights.shifted
+                                     ? exponential(Complex(0.0, weights.shift))
+                                     : Complex(1.0, 0.0);
+          const auto product = count + 1;
+          for (std::size_t k = 0; k <= count; ++k) {
+            for (std::size_t i = 0; i < modes; ++i)
+              for (std::size_t j = 0; j < modes; ++j) {
+                Complex total{};
+                for (std::size_t m = 0; m <= j; ++m)
+                  total += fallback_vectors(f, i, m) * fallback(bin, k, m, j);
+                fallback(bin, product, i, j) = total;
+              }
+            const Complex scale =
+                k == 0 ? factor : Complex(adams_factorial(k - 1), 0.0);
+            for (std::size_t i = 0; i < modes; ++i)
+              for (std::size_t j = 0; j < modes; ++j) {
+                Complex total{};
+                for (std::size_t m = 0; m < modes; ++m)
+                  total += fallback(bin, product, i, m) *
+                           Kokkos::conj(fallback_vectors(f, j, m));
+                block(k, bin, i, j) = scale * total;
+              }
+          }
+        });
 #else
+  static_cast<void>(falls_back);
   launch::parallel_for(
       "solprop_native.adams.block_functions", bins,
       KOKKOS_LAMBDA(const std::size_t index) {
@@ -8634,24 +8690,65 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
         if (one == 0)
           return;
         const auto bin = one - 1;
+        const auto path = route(section, bin);
+        if (path != 0) {
+          // Off the eigenbasis route: the first block row of the augmented
+          // exponential of the shifted block, carried back by Z, the moments
+          // scaled by k! and the flow by the carrier's exp(sigma) (solprop's
+          // `coupled_moments`).
+          const auto f = path - 1;
+          const Complex argument = adams_moment_argument(weights, exponent(0, index));
+          flow_functions::augmented_row(
+              argument, dz, fallback_triangular, f, modes, count,
+              flow_functions::augmented_squarings(argument, dz, fallback_triangular, f,
+                                                  modes, count),
+              fallback, bin);
+          const Complex factor = weights.shifted
+                                     ? exponential(Complex(0.0, weights.shift))
+                                     : Complex(1.0, 0.0);
+          const auto product = count + 1;
+          for (std::size_t k = 0; k <= count; ++k) {
+            for (std::size_t i = 0; i < modes; ++i)
+              for (std::size_t j = 0; j < modes; ++j) {
+                Complex total{};
+                for (std::size_t m = 0; m <= j; ++m)
+                  total += fallback_vectors(f, i, m) * fallback(bin, k, m, j);
+                fallback(bin, product, i, j) = total;
+              }
+            const Complex scale =
+                k == 0 ? factor : Complex(adams_factorial(k - 1), 0.0);
+            for (std::size_t i = 0; i < modes; ++i)
+              for (std::size_t j = 0; j < modes; ++j) {
+                Complex total{};
+                for (std::size_t m = 0; m < modes; ++m)
+                  total += fallback(bin, product, i, m) *
+                           Kokkos::conj(fallback_vectors(f, j, m));
+                block(k, bin, i, j) = scale * total;
+              }
+          }
+          return;
+        }
         const Complex shift = exponent(0, index);
-        Complex values[adams_max_channels][adams_max_samples + 1];
+        // Eigenvalue m's functions at `values + m (adams_max_samples + 1)`.
+        constexpr std::size_t stride = adams_max_samples + 1;
+        Complex stack[adams_channel_stack];
+        Complex* const values = adams_channel_rows(stack, channels, index);
         Complex phi[2 * adams_max_samples + 1];
         for (std::size_t m = 0; m < modes; ++m) {
           const Complex x = shift + dz * eigenvalues(section, bin, m);
           const Complex exp_x = exponential(x);
-          values[m][0] = exp_x;
+          values[m * stride] = exp_x;
           adams_moment_phi(weights, x, exp_x, count, phi);
           for (std::size_t k = 0; k < count; ++k)
-            values[m][k + 1] = adams_factorial(k) * phi[k + 1];
+            values[m * stride + k + 1] = adams_factorial(k) * phi[k + 1];
         }
         for (std::size_t k = 0; k <= count; ++k)
           for (std::size_t i = 0; i < modes; ++i)
             for (std::size_t j = 0; j < modes; ++j) {
               Complex total{};
               for (std::size_t m = 0; m < modes; ++m)
-                total +=
-                    left(section, bin, i, m) * values[m][k] * right(section, bin, m, j);
+                total += left(section, bin, i, m) * values[m * stride + k] *
+                         right(section, bin, m, j);
               block(k, bin, i, j) = total;
             }
       });
@@ -8673,6 +8770,9 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
         Range2(execution_space_, {0, 0}, {n, modes}),
         KOKKOS_LAMBDA(const std::size_t index, const std::size_t i) {
           const auto one = slots(index);
+          // A bin off the route is the next pass's.
+          if (falls_back && one != 0 && route(section, one - 1) != 0)
+            return;
           // A sample's term on channel c, formed where it is needed: a thread holds no
           // channel vectors.
           const auto term = [&](const std::size_t slot, const std::size_t c) {
@@ -8717,13 +8817,87 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
             carried(t, i, index) = result;
           }
         });
+  if (compensated && falls_back)
+    // Off the eigenbasis route, a thread per bin on the block functions' instance,
+    // whose scratch row it reuses: the host task's carry in its order, the bin's
+    // channel vectors in blocks 3 (the term) and 4 (its rotation) of the row.
+    launch::parallel_for(
+        "solprop_native.adams.fallback_carry", bins,
+        KOKKOS_LAMBDA(const std::size_t index) {
+          const auto one = slots(index);
+          if (one == 0)
+            return;
+          const auto bin = one - 1;
+          const auto path = route(section, bin);
+          if (path == 0)
+            return;
+          const auto f = path - 1;
+          constexpr std::size_t term = 3;
+          constexpr std::size_t rotated = 4;
+          for (std::size_t t = 0; t + 1 < weights.width; ++t) {
+            const auto slot = weights.slot[t];
+            for (std::size_t i = 0; i < modes; ++i)
+              fallback(bin, term, 0, i) =
+                  compensation_residual(rates(slot, i, index), exponent(i, index),
+                                        inverse_dz, states(slot, i, index));
+            if (residual)
+              for (std::size_t i = 0; i < modes; ++i) {
+                // R_s(z_j) u_j: the sample's own generator applied once, less the
+                // step's section's frozen block.
+                Complex value = applied(slot, i, index);
+                for (std::size_t j = 0; j < modes; ++j)
+                  value = strict_sub(value, strict_mul(frozen(section, bin, i, j),
+                                                       states(slot, j, index)));
+                fallback(bin, term, 0, i) =
+                    strict_add(fallback(bin, term, 0, i), value);
+              }
+            const double span = weights.span[t];
+            if (span != 0.0) {
+              // The reference's flow matrix Z exp(span x) Z^H with x = shift I + dz T,
+              // the shift's exponential apart: exp(span shift) Z exp(span dz T) Z^H.
+              const double length = span * dz;
+              flow_functions::augmented_row(
+                  Complex{}, length, fallback_triangular, f, modes, 0,
+                  flow_functions::augmented_squarings(Complex{}, length,
+                                                      fallback_triangular, f, modes, 0),
+                  fallback, bin);
+              const Complex factor = exponential(span * exponent(0, index));
+              for (std::size_t i = 0; i < modes; ++i)
+                for (std::size_t j = 0; j < modes; ++j) {
+                  Complex total{};
+                  for (std::size_t m = 0; m <= j; ++m)
+                    total += fallback_vectors(f, i, m) * fallback(bin, 0, m, j);
+                  fallback(bin, 1, i, j) = total;
+                }
+              for (std::size_t i = 0; i < modes; ++i)
+                for (std::size_t j = 0; j < modes; ++j) {
+                  Complex total{};
+                  for (std::size_t m = 0; m < modes; ++m)
+                    total += fallback(bin, 1, i, m) *
+                             Kokkos::conj(fallback_vectors(f, j, m));
+                  fallback(bin, 2, i, j) = factor * total;
+                }
+              for (std::size_t i = 0; i < modes; ++i) {
+                Complex value{};
+                for (std::size_t j = 0; j < modes; ++j)
+                  value += fallback(bin, 2, i, j) * fallback(bin, term, 0, j);
+                fallback(bin, rotated, 0, i) = value;
+              }
+              for (std::size_t i = 0; i < modes; ++i)
+                fallback(bin, term, 0, i) = fallback(bin, rotated, 0, i);
+            }
+            for (std::size_t i = 0; i < modes; ++i)
+              carried(t, i, index) = fallback(bin, term, 0, i);
+          }
+        });
 #else
     launch::parallel_for(
         "solprop_native.adams.coupled_carry", bins,
         KOKKOS_LAMBDA(const std::size_t index) {
           const auto one = slots(index);
-          Complex term[adams_max_channels];
-          Complex rotated[adams_max_channels];
+          Complex stack[adams_channel_stack];
+          Complex* const term = adams_channel_rows(stack, channels, index);
+          Complex* const rotated = term + modes;
           for (std::size_t t = 0; t + 1 < weights.width; ++t) {
             const auto slot = weights.slot[t];
             for (std::size_t i = 0; i < modes; ++i)
@@ -8746,6 +8920,42 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
               if (one == 0) {
                 for (std::size_t i = 0; i < modes; ++i)
                   term[i] = exponential(span * exponent(i, index)) * term[i];
+              } else if (const auto path = route(section, one - 1); path != 0) {
+                // Off the eigenbasis route, the reference's flow matrix
+                // Z exp(span x) Z^H with x = shift I + dz T, the shift's exponential
+                // apart: exp(span shift) Z exp(span dz T) Z^H, then applied.
+                const auto f = path - 1;
+                const auto bin = one - 1;
+                const double length = span * dz;
+                flow_functions::augmented_row(
+                    Complex{}, length, fallback_triangular, f, modes, 0,
+                    flow_functions::augmented_squarings(
+                        Complex{}, length, fallback_triangular, f, modes, 0),
+                    fallback, bin);
+                const Complex factor = exponential(span * exponent(0, index));
+                for (std::size_t i = 0; i < modes; ++i)
+                  for (std::size_t j = 0; j < modes; ++j) {
+                    Complex total{};
+                    for (std::size_t m = 0; m <= j; ++m)
+                      total += fallback_vectors(f, i, m) * fallback(bin, 0, m, j);
+                    fallback(bin, 1, i, j) = total;
+                  }
+                for (std::size_t i = 0; i < modes; ++i)
+                  for (std::size_t j = 0; j < modes; ++j) {
+                    Complex total{};
+                    for (std::size_t m = 0; m < modes; ++m)
+                      total += fallback(bin, 1, i, m) *
+                               Kokkos::conj(fallback_vectors(f, j, m));
+                    fallback(bin, 2, i, j) = factor * total;
+                  }
+                for (std::size_t i = 0; i < modes; ++i) {
+                  Complex value{};
+                  for (std::size_t j = 0; j < modes; ++j)
+                    value += fallback(bin, 2, i, j) * term[j];
+                  rotated[i] = value;
+                }
+                for (std::size_t i = 0; i < modes; ++i)
+                  term[i] = rotated[i];
               } else {
                 const auto bin = one - 1;
                 const Complex shift = exponent(0, index);
@@ -8831,21 +9041,23 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
       "solprop_native.adams.coupled_predict", bins,
       KOKKOS_LAMBDA(const std::size_t index) {
         const auto one = slots(index);
-        Complex combined[adams_max_samples][adams_max_channels];
+        // Combination k of channel i at `combined[k modes + i]`.
+        Complex stack[adams_channel_stack];
+        Complex* const combined = adams_channel_rows(stack, channels, index);
         for (std::size_t k = 0; k < weights.order; ++k)
           for (std::size_t i = 0; i < modes; ++i) {
             Complex total{};
             for (std::size_t t = 0; t < weights.order; ++t)
               total +=
                   weights.predictor[t][k] * adams_history(store, weights, t, i, index);
-            combined[k][i] = total;
+            combined[k * modes + i] = total;
           }
         for (std::size_t i = 0; i < modes; ++i) {
           Complex value{};
           if (one == 0) {
             Complex total{};
             for (std::size_t k = 0; k < weights.order; ++k)
-              total += moments(k, i, index) * combined[k][i];
+              total += moments(k, i, index) * combined[k * modes + i];
             value = flow(i, index) * saved(i, index) + dz * total;
           } else {
             const auto bin = one - 1;
@@ -8854,7 +9066,7 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
             for (std::size_t j = 0; j < modes; ++j) {
               linear += block(0, bin, i, j) * saved(j, index);
               for (std::size_t k = 0; k < weights.order; ++k)
-                total += block(k + 1, bin, i, j) * combined[k][j];
+                total += block(k + 1, bin, i, j) * combined[k * modes + j];
             }
             value = linear + dz * total;
           }
@@ -8987,7 +9199,8 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
       "solprop_native.adams.coupled_correct", bins,
       KOKKOS_LAMBDA(const std::size_t index) {
         const auto one = slots(index);
-        Complex combined[adams_max_samples][adams_max_channels];
+        Complex stack[adams_channel_stack];
+        Complex* const combined = adams_channel_rows(stack, channels, index);
         for (std::size_t i = 0; i < modes; ++i) {
           const Complex g = stages(0, i, index);
           source(i, index) = g;
@@ -8996,7 +9209,7 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
             for (std::size_t t = 1; t < weights.width; ++t)
               total += weights.corrector[t][k] *
                        adams_history(store, weights, t - 1, i, index);
-            combined[k][i] = total;
+            combined[k * modes + i] = total;
           }
         }
         for (std::size_t i = 0; i < modes; ++i) {
@@ -9004,7 +9217,7 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
           if (one == 0) {
             Complex total{};
             for (std::size_t k = 0; k < count; ++k)
-              total += moments(k, i, index) * combined[k][i];
+              total += moments(k, i, index) * combined[k * modes + i];
             value = flow(i, index) * current(i, index) + dz * total;
           } else {
             const auto bin = one - 1;
@@ -9013,7 +9226,7 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
             for (std::size_t j = 0; j < modes; ++j) {
               linear += block(0, bin, i, j) * current(j, index);
               for (std::size_t k = 0; k < count; ++k)
-                total += block(k + 1, bin, i, j) * combined[k][j];
+                total += block(k + 1, bin, i, j) * combined[k * modes + j];
             }
             value = linear + dz * total;
           }
@@ -9029,9 +9242,10 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
         }
       });
 #endif
-  const CoupledDefectNorms reducer{
-      weights.n_rows, store,      moments,        source,  carried, endpoint, block,
-      slots,          norm_mask_, adams_divisor_, weights, dz,      modes};
+  const CoupledDefectNorms reducer{weights.n_rows, store,          moments, source,
+                                   carried,        endpoint,       block,   slots,
+                                   norm_mask_,     adams_divisor_, weights, dz,
+                                   modes,          adams_channels_};
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   // A device item is a (bin, channel) pair, a host item a bin.
   const auto items = n * modes;
@@ -9227,7 +9441,7 @@ void GeneralWorkspace::adams_exponential_observe(const double xi, const double d
 //
 // DOPRI5's continuous extension (Hairer, Norsett and Wanner, II.6) in the step's
 // interaction picture, as solprop's `extension_coefficients`, `extension_value` and
-// `StepDriver._observe_inside` form it: with `v0` the state at the step's anchor, `k_i`
+// `HostDriver._observe_inside` form it: with `v0` the state at the step's anchor, `k_i`
 // its stages in the anchor's frame and `v1 - v0 = h sum_i b_i k_i`, the coefficients
 // `v0`, `v1 - v0`, `h k1 - (v1 - v0)`, `(v1 - v0) - h k7 - (h k1 - (v1 - v0))` and
 // `h sum_i d_i k_i`, evaluated at the fraction theta as `r1 + theta (r2 + (1 - theta)
@@ -9416,7 +9630,6 @@ void GeneralWorkspace::rk_dense_release() noexcept {
 }
 
 std::vector<double> GeneralWorkspace::collect_trial() {
-  batch_prepared_ = false;
   // A coupled flow's last stage is carried back by the step's own inverse action, so
   // it is not the next step's first stage; solprop's reference takes no FSAL there.
   pending_fsal_ =
@@ -12747,9 +12960,17 @@ void GeneralWorkspace::finish_raman_products(const std::size_t stage,
   Kokkos::Profiling::popRegion();
 }
 
+// One channel's cycle-averaged rates at each node and their running integral, from
+// the polarisation ellipse of `field_rows`' `n_pol` rows per node: the node buffer
+// with its components, or an envelope's on-axis row (`axis_populations`).
 void GeneralWorkspace::envelope_cycle(const std::size_t channel,
-                                      const std::size_t node_count) {
-  const auto field = node_complex_;
+                                      const std::size_t node_count,
+                                      const ComplexView2& field_rows,
+                                      const std::size_t n_pol) {
+  // The kernels capture the view by value, never the caller's reference, which a
+  // device cannot read.
+  // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
+  const auto field = field_rows;
   const auto parameters = channel_parameters_;
   const auto coefficients = channel_coefficients_;
   const auto nodes =
@@ -12759,7 +12980,6 @@ void GeneralWorkspace::envelope_cycle(const std::size_t channel,
   const auto moments = envelope_moments_;
   const auto rates = envelope_rates_;
   const auto failures = envelope_failures_;
-  const auto n_pol = problem_.effective_node_pol();
   const auto n_to = problem_.n_to;
   launch::parallel_for(
       "solprop_native.envelope.cycle_moments",
@@ -12838,29 +13058,38 @@ void GeneralWorkspace::envelope_cycle(const std::size_t channel,
       Kokkos::subview(envelope_exposure_, rows, Kokkos::ALL()), problem_.dt_fine);
 }
 
-void GeneralWorkspace::envelope_population(const std::size_t channel,
-                                           const std::size_t stage,
+// One channel's exposure and peak cycle-averaged rate at each node of `field`
+// (`envelope_cycle`), into the rows of `statistics` from `first_node`.
+void GeneralWorkspace::envelope_statistics(const std::size_t channel,
                                            const std::size_t first_node,
                                            const std::size_t node_count,
-                                           const RealView2& statistics) {
-  envelope_cycle(channel, node_count);
+                                           const RealView2& statistics,
+                                           const ComplexView2& field,
+                                           const std::size_t n_pol) {
+  envelope_cycle(channel, node_count, field, n_pol);
   const auto rates = envelope_rates_;
   const auto exposure = envelope_exposure_;
   const auto n_to = problem_.n_to;
-  if (!statistics.empty()) {
-    launch::parallel_for(
-        "solprop_native.envelope.population_statistics",
-        Kokkos::RangePolicy<ExecutionSpace>(response_space_for(node_count), 0,
-                                            node_count),
-        KOKKOS_LAMBDA(const std::size_t node) {
-          double peak = 0.0;
-          for (std::size_t time = 0; time < n_to; ++time)
-            peak = Kokkos::max(peak, rates(node, time));
-          statistics(first_node + node, 2 * channel) = exposure(node, n_to - 1);
-          statistics(first_node + node, 2 * channel + 1) = peak;
-        });
-    return;
-  }
+  launch::parallel_for(
+      "solprop_native.envelope.population_statistics",
+      Kokkos::RangePolicy<ExecutionSpace>(response_space_for(node_count), 0,
+                                          node_count),
+      KOKKOS_LAMBDA(const std::size_t node) {
+        double peak = 0.0;
+        for (std::size_t time = 0; time < n_to; ++time)
+          peak = Kokkos::max(peak, rates(node, time));
+        statistics(first_node + node, 2 * channel) = exposure(node, n_to - 1);
+        statistics(first_node + node, 2 * channel + 1) = peak;
+      });
+}
+
+void GeneralWorkspace::envelope_population(const std::size_t channel,
+                                           const std::size_t stage,
+                                           const std::size_t node_count) {
+  const auto n_pol = problem_.effective_node_pol();
+  envelope_cycle(channel, node_count, node_complex_, n_pol);
+  const auto exposure = envelope_exposure_;
+  const auto n_to = problem_.n_to;
   const auto parameters = channel_parameters_;
   const auto densities = stage_channel_density_;
   const auto initials = stage_channel_preionisation_;
@@ -12869,7 +13098,6 @@ void GeneralWorkspace::envelope_population(const std::size_t channel,
   const auto window = time_window_;
   const auto drive = envelope_streams_[0].node;
   const auto loss = envelope_streams_[1].node;
-  const auto n_pol = problem_.effective_node_pol();
   launch::parallel_for(
       "solprop_native.envelope.currents",
       Range2(response_space_for(node_count), {0, 0}, {node_count, n_to}),
@@ -12905,7 +13133,7 @@ void GeneralWorkspace::envelope_response(const std::size_t stage,
                                          const std::size_t node_count,
                                          const TransverseChunk* chunk) {
   for (std::size_t channel = 0; channel < problem_.n_channels; ++channel)
-    envelope_population(channel, stage, first_node, node_count, {});
+    envelope_population(channel, stage, node_count);
   for (auto& stream : envelope_streams_) {
     if (problem_.slab_geometry()) {
       // As the polarisation: the chunk's y rows, zero beyond a final partial chunk.
@@ -13530,6 +13758,26 @@ void GeneralWorkspace::set_flow_actions(const std::vector<Complex>& forward,
   flow_->set_actions(forward, inverse, identity);
 }
 
+std::vector<Complex> GeneralWorkspace::adams_block_to_host() const {
+  require_adams();
+  if (adams_block_.extent(0) == 0)
+    throw std::logic_error("the Adams history holds no coupled block");
+  std::vector<Complex> values(adams_block_.size());
+  const auto mirror =
+      Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, adams_block_);
+  std::copy(mirror.data(), mirror.data() + mirror.size(), values.begin());
+  return values;
+}
+
+std::vector<Complex> GeneralWorkspace::adams_exponent_to_host() const {
+  require_adams();
+  std::vector<Complex> values(adams_exponent_.size());
+  const auto mirror =
+      Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, adams_exponent_);
+  std::copy(mirror.data(), mirror.data() + mirror.size(), values.begin());
+  return values;
+}
+
 std::vector<Complex> GeneralWorkspace::flow_actions_to_host(const bool inverse) const {
   require_open();
   if (!flow_)
@@ -13685,7 +13933,8 @@ void GeneralWorkspace::scan_plasma_statistics(const std::size_t first_node,
                                   "field-grid plasma column, and this problem "
                                   "carries none");
     for (std::size_t channel = 0; channel < problem_.n_channels; ++channel)
-      envelope_population(channel, 0, first_node, node_count, output);
+      envelope_statistics(channel, first_node, node_count, output, node_complex_,
+                          problem_.effective_node_pol());
     return;
   }
   // solprop SEP 18: the band rule's statistics, and every problem's run diagnostics,
@@ -14318,28 +14567,7 @@ std::vector<double> GeneralWorkspace::statistics(
                                  preionisation);
         }
       } else {
-        graph::deep_copy(execution_space_, fine_spectrum_, Complex{});
-        const auto current = current_;
-        const auto fine = fine_spectrum_;
-        const auto crop = crop_index_;
-        const auto inverse_n_to = 1.0 / static_cast<double>(problem_.n_to);
-        const auto n_to = problem_.n_to;
-        const bool analytic = problem_.family == FieldFamily::field_analytic;
-        launch::parallel_for(
-            "solprop_native.plasma.statistics_pad",
-            Range2(execution_space_, {0, 0}, {problem_.n_columns(), problem_.n_omega}),
-            KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-              const double analytic_scale =
-                  analytic && index > 0 && 2 * crop(index) < n_to ? 2.0 : 1.0;
-              fine(column, crop(index)) =
-                  analytic_scale * inverse_n_to * current(column, index);
-            });
-        if (problem_.family == FieldFamily::field_real)
-          graph::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
-                         KokkosFFT::Normalization::none);
-        else if (!retained_synthesis_)
-          graph::execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
-                         KokkosFFT::Normalization::none);
+        statistics_modal_time();
         graph::deep_copy(execution_space_, stage_taper_, taper);
         scale_transform(problem_.n_stages - 1, taper);
         for (std::size_t first = 0; first < problem_.n_nodes;
@@ -15017,8 +15245,9 @@ std::vector<double> GeneralWorkspace::plane_fluence_trace(
 
 // The field's spectrum at one physical point, the matrix `(n_rows, n_modes)` contracted
 // with the modal state: `(n_rows * n_pol, n_omega)` samples, each a real and an
-// imaginary part in turn. The on-axis statistics scan this row on the host (solprop SEP
-// 19), so that it is all a plane's scan brings across.
+// imaginary part in turn. The transitional session's on-axis statistics scan this row
+// on the host (solprop SEP 19), so that it is all a plane's scan brings across; the
+// native session scans it in place (`axis_populations`).
 std::vector<Complex>
 GeneralWorkspace::axis_spectrum(const std::vector<double>& matrix) {
   require_open();
@@ -15068,6 +15297,181 @@ GeneralWorkspace::axis_spectrum(const std::vector<double>& matrix) {
   std::vector<Complex> result(samples);
   for (std::size_t index = 0; index < samples; ++index)
     result[index] = Complex(host(2 * index), host(2 * index + 1));
+  return result;
+}
+
+// The modal state on the fine time grid, in `modal_real_` or `modal_complex_`: the
+// coarse bins padded at `crop_index_` and transformed back, the node scans' own first
+// pass (`statistics`); a retained synthesis transforms at its nodes instead.
+void GeneralWorkspace::statistics_modal_time() {
+  graph::deep_copy(execution_space_, fine_spectrum_, Complex{});
+  const auto current = current_;
+  const auto fine = fine_spectrum_;
+  const auto crop = crop_index_;
+  const auto inverse_n_to = 1.0 / static_cast<double>(problem_.n_to);
+  const auto n_to = problem_.n_to;
+  const bool analytic = problem_.family == FieldFamily::field_analytic;
+  launch::parallel_for(
+      "solprop_native.plasma.statistics_pad",
+      Range2(execution_space_, {0, 0}, {problem_.n_columns(), problem_.n_omega}),
+      KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
+        const double analytic_scale =
+            analytic && index > 0 && 2 * crop(index) < n_to ? 2.0 : 1.0;
+        fine(column, crop(index)) =
+            analytic_scale * inverse_n_to * current(column, index);
+      });
+  if (problem_.family == FieldFamily::field_real)
+    graph::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
+                   KokkosFFT::Normalization::none);
+  else if (!retained_synthesis_)
+    graph::execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
+                   KokkosFFT::Normalization::none);
+}
+
+// solprop SEP 19's on-axis plasma populations, scanned natively (solprop SEP 47 phase
+// 4): the modal state on the fine grid (`statistics_modal_time`), contracted with
+// `matrix` -- one or two rows of `n_modes` columns, the pad scale and the taper in
+// them, as `solprop.backends.populations.axis_row_matrix` forms them -- into the first
+// node's buffer, and scanned there by the node scan itself, every channel with its
+// tables and running-integral rule. Returns each channel's final fraction and peak
+// rate, `(n_channels, 2)`. Two components on a one-component node buffer are the
+// field's magnitude, `hypot(E_x, E_y)`, which is all a field grid's scan reads; an
+// envelope's scan reads their polarisation ellipse, so they go to a row of their own
+// and the envelope scan reads it as a node of two components
+// (`solprop.backends.populations.envelope_populations` on the host's row).
+std::vector<double>
+GeneralWorkspace::axis_populations(const std::vector<double>& matrix,
+                                   const std::vector<double>& channel_preionisation) {
+  require_open();
+  if (!initialized_)
+    throw std::logic_error("no initial field has been loaded");
+  if (!problem_.plasma || problem_.n_channels == 0)
+    throw std::invalid_argument(
+        "the on-axis plasma statistics need a compiled plasma response");
+  if (problem_.separable_geometry() || problem_.general_modal || retained_synthesis_)
+    throw std::invalid_argument(
+        "the on-axis plasma statistics read a resolved modal state");
+  ++axis_scans_;
+  const auto n_modes = problem_.n_modes;
+  const auto n_pol_state = problem_.n_pol_state;
+  const auto node_pol = problem_.effective_node_pol();
+  if (matrix.empty() || matrix.size() % n_modes != 0 || matrix.size() / n_modes > 2)
+    throw std::invalid_argument(
+        "an on-axis row needs one or two rows of n_modes columns");
+  auto rows = matrix.size() / n_modes;
+  // A y row of zeros on a one-component node scan is dropped: `hypot(E_x, 0)` is
+  // `|E_x|`, and an envelope's ellipse with no y axis is its x component's.
+  if (rows == 2 && n_pol_state == 1 && node_pol == 1 &&
+      std::all_of(matrix.begin() + static_cast<std::ptrdiff_t>(n_modes), matrix.end(),
+                  [](const double value) { return value == 0.0; }))
+    rows = 1;
+  const auto components = rows * n_pol_state;
+  const bool pair = components == 2 && node_pol == 1;
+  if (components != node_pol && !pair)
+    throw std::invalid_argument(
+        "an on-axis row has one component on each of the node scan's");
+  // A pair on a field grid is combined into its magnitude in the node buffer; an
+  // envelope's is kept, x and y, in its own row.
+  const bool ellipse = pair && problem_.envelope_plasma;
+  const bool combine = pair && !ellipse;
+  if (ellipse && statistics_axis_row_.extent(0) == 0) {
+    execution_space_.fence("solprop_native on-axis row allocation");
+    statistics_axis_row_ =
+        ComplexView2("solprop_native.statistics.axis_row", 2, problem_.n_to);
+  }
+  require_extent(channel_preionisation.size(), problem_.n_channels,
+                 "on-axis channel preionisation");
+  for (const double value : channel_preionisation)
+    if (!std::isfinite(value) || value < 0.0 || value > 1.0)
+      throw std::invalid_argument("on-axis channel preionisation must be in [0, 1]");
+  auto initial_host = Kokkos::create_mirror_view(stage_channel_preionisation_);
+  for (std::size_t channel = 0; channel < problem_.n_channels; ++channel)
+    initial_host(0, channel) = channel_preionisation[channel];
+  graph::deep_copy(execution_space_, stage_channel_preionisation_, initial_host);
+  const std::vector<double> held(
+      matrix.begin(), matrix.begin() + static_cast<std::ptrdiff_t>(rows * n_modes));
+  copy_vector(
+      execution_space_,
+      Kokkos::subview(statistics_on_axis_, std::make_pair<std::size_t>(0, held.size())),
+      held);
+  statistics_modal_time();
+  const auto weights = statistics_on_axis_;
+  const auto modal_real = modal_real_;
+  const auto modal_complex = modal_complex_;
+  const auto node_real = node_real_;
+  const auto node_complex = node_complex_;
+  const auto axis_row = statistics_axis_row_;
+  const bool real_family = problem_.family == FieldFamily::field_real;
+  const auto written = combine ? std::size_t{1} : components;
+  launch::parallel_for(
+      "solprop_native.statistics.axis_row",
+      Range2(execution_space_, {0, 0}, {written, problem_.n_to}),
+      KOKKOS_LAMBDA(const std::size_t component, const std::size_t time) {
+        // Component `row * n_pol_state + pol`, `passes.synthesise`'s layout.
+        const auto sum_real = [&](const std::size_t row, const std::size_t pol) {
+          double value = 0.0;
+          for (std::size_t mode = 0; mode < n_modes; ++mode)
+            value += weights(row * n_modes + mode) *
+                     modal_real(mode * n_pol_state + pol, time);
+          return value;
+        };
+        const auto sum_complex = [&](const std::size_t row, const std::size_t pol) {
+          Complex value{};
+          for (std::size_t mode = 0; mode < n_modes; ++mode)
+            value += weights(row * n_modes + mode) *
+                     modal_complex(mode * n_pol_state + pol, time);
+          return value;
+        };
+        const auto row = component / n_pol_state;
+        const auto pol = component % n_pol_state;
+        if (ellipse) {
+          axis_row(component, time) = sum_complex(row, pol);
+        } else if (combine) {
+          // Both rows on a scalar state: the magnitude the scan would form.
+          if (real_family)
+            node_real(0, time) = Kokkos::hypot(sum_real(0, 0), sum_real(1, 0));
+          else
+            node_complex(0, time) = Complex(
+                Kokkos::hypot(sum_complex(0, 0).real(), sum_complex(1, 0).real()), 0.0);
+        } else if (real_family) {
+          node_real(component, time) = sum_real(row, pol);
+        } else {
+          node_complex(component, time) = sum_complex(row, pol);
+        }
+      });
+  const auto source = plasma_statistics_scratch_;
+  if (ellipse)
+    for (std::size_t channel = 0; channel < problem_.n_channels; ++channel)
+      envelope_statistics(channel, 0, 1, source, statistics_axis_row_, 2);
+  else
+    scan_plasma_statistics(0, 1, source, false, channel_preionisation[0]);
+  const auto channels = problem_.n_channels;
+  const auto packed_size = 2 * channels;
+  if (statistics_packed_.size() < packed_size) {
+    execution_space_.fence("solprop_native statistics output resize");
+    statistics_packed_ = RealView("solprop_native.statistics.packed", packed_size);
+  }
+  const auto packed = statistics_packed_;
+  const bool envelope = problem_.envelope_plasma;
+  const auto initial = stage_channel_preionisation_;
+  // `statistics`' own packing of a node's populations.
+  launch::parallel_for(
+      "solprop_native.statistics.pack_axis_populations",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, channels),
+      KOKKOS_LAMBDA(const std::size_t channel) {
+        packed(2 * channel) =
+            envelope ? envelope_fraction(source(0, 2 * channel), initial(0, channel))
+                     : ionised_fraction(source(0, 2 * channel), initial(0, channel));
+        packed(2 * channel + 1) = source(0, 2 * channel + 1);
+      });
+  const auto filled =
+      Kokkos::subview(packed, std::make_pair<std::size_t>(0, packed_size));
+  auto host = Kokkos::create_mirror_view(filled);
+  graph::deep_copy(execution_space_, host, filled);
+  execution_space_.fence("solprop_native on-axis populations boundary");
+  std::vector<double> result(packed_size);
+  for (std::size_t index = 0; index < packed_size; ++index)
+    result[index] = host(index);
   return result;
 }
 
@@ -16865,7 +17269,8 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
         adams_dense_end_.size() + adams_dense_exponent_.size() + adams_states_.size() +
         adams_rates_.size() + adams_carried_.size() + adams_dense_terms_.size() +
         adams_lab_.size() + adams_endpoint_.size() + adams_endpoint_rate_.size() +
-        adams_block_.size() + adams_applied_.size() + adams_end_applied_.size()) *
+        adams_block_.size() + adams_channels_.size() + adams_fallback_.size() +
+        adams_applied_.size() + adams_end_applied_.size()) *
                complex_bytes +
            (adams_divisor_.size() + adams_rate_weights_.size() +
             adams_end_weights_.size() + adams_scale_weights_.size() +
@@ -16976,7 +17381,8 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       {"transverse_edge", edge_bytes()},
       {"statistics_outputs", (statistics_total_power_.size() +
                               statistics_on_axis_.size() + statistics_packed_.size()) *
-                                 real_bytes},
+                                     real_bytes +
+                                 statistics_axis_row_.size() * complex_bytes},
       {"fft_plan_heap_growth", plan_heap_growth_ + edge_plan_heap},
       {"fft_plan_device_growth", plan_device_growth_ + edge_plan_device},
   };
@@ -17138,6 +17544,8 @@ void GeneralWorkspace::close() noexcept {
   adams_endpoint_rate_ = {};
   adams_rate_weights_ = {};
   adams_block_ = {};
+  adams_channels_ = {};
+  adams_fallback_ = {};
   adams_applied_ = {};
   adams_end_applied_ = {};
   adams_end_weights_ = {};
@@ -17221,6 +17629,7 @@ void GeneralWorkspace::close() noexcept {
   statistics_total_power_ = {};
   statistics_on_axis_ = {};
   statistics_packed_ = {};
+  statistics_axis_row_ = {};
   monitor_bound_ = false;
   monitor_weights_ = {};
   monitor_column_weights_ = {};
@@ -17447,10 +17856,10 @@ void GeneralState::adams_rows_from_host(const std::string& name,
   const CpuTeamScope team(workspace_->cpu_team());
   workspace_->adams_rows_from_host(name, values);
 }
-void GeneralState::adams_observe(const AdamsWeights& weights, const bool hermite,
+void GeneralState::adams_observe(const AdamsWeights& weights,
                                  const TrialScalars& scalars) {
   const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->adams_observe(weights, hermite, scalars);
+  workspace_->adams_observe(weights, scalars);
 }
 std::vector<double> GeneralState::adams_exponential_trial(
     const double dz, const ExponentialWeights& weights,
@@ -17503,6 +17912,14 @@ std::vector<Complex> GeneralState::flow_actions_to_host(const bool inverse) cons
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->flow_actions_to_host(inverse);
 }
+std::vector<Complex> GeneralState::adams_block_to_host() const {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->adams_block_to_host();
+}
+std::vector<Complex> GeneralState::adams_exponent_to_host() const {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->adams_exponent_to_host();
+}
 std::vector<double>
 GeneralState::form_flow_actions(const std::size_t section, const double dz,
                                 const std::vector<double>& fractions) {
@@ -17551,6 +17968,12 @@ std::vector<double> GeneralState::plane_fluence_trace(
 std::vector<Complex> GeneralState::axis_spectrum(const std::vector<double>& matrix) {
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->axis_spectrum(matrix);
+}
+std::vector<double>
+GeneralState::axis_populations(const std::vector<double>& matrix,
+                               const std::vector<double>& channel_preionisation) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->axis_populations(matrix, channel_preionisation);
 }
 std::vector<double> GeneralState::aperture_statistics(
     const std::uint64_t flags, const std::vector<double>& apertures, const int exponent,
@@ -17706,32 +18129,15 @@ bool GeneralState::fsal_ready() const noexcept {
 std::size_t GeneralState::rk_source_evaluations() const noexcept {
   return workspace_ ? workspace_->rk_source_evaluations() : 0;
 }
+std::size_t GeneralState::axis_scans() const noexcept {
+  return workspace_ ? workspace_->axis_scans() : 0;
+}
 bool GeneralState::closed() const noexcept {
   return !workspace_ || workspace_->closed();
 }
 void GeneralState::close() noexcept {
   if (workspace_)
     workspace_->close();
-}
-
-GeneralBatch::GeneralBatch(std::vector<std::shared_ptr<GeneralState>> members)
-    : workspace_(std::make_unique<GeneralBatchWorkspace>(std::move(members))) {}
-GeneralBatch::~GeneralBatch() { close(); }
-std::vector<double> GeneralBatch::accept(const double dz) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->accept(dz);
-}
-std::map<std::string, std::size_t> GeneralBatch::memory_ledger() const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->memory_ledger();
-}
-CpuSizing GeneralBatch::execution_sizing() const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->execution_sizing();
-}
-void GeneralBatch::close() noexcept {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->close();
 }
 
 } // namespace solprop_native

@@ -16,7 +16,7 @@ from solprop.backends import (
     StepSummary,
     protocol,
 )
-from solprop.backends.driver_session import DriverPrepared
+from solprop.backends.host.session import HostPrepared
 from solprop.exceptions import BackendError
 from solprop.log import NullReporter
 from solprop.stats import StatsSpec
@@ -335,7 +335,10 @@ class Stub:
         self.field = field
 
     def prepare(self, problem, request):
-        return DriverPrepared(self, problem, request)
+        return HostPrepared(self, problem, request)
+
+    def prepare_group(self, members, problems, requests):
+        raise BackendError("the stub runs no group")
 
     def restore_call_ledgers(self, logical, atomic=None):
         return None

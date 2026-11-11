@@ -714,9 +714,11 @@ inline constexpr std::size_t adams_max_samples = 8;
 inline constexpr std::size_t adams_max_norms = 3;
 
 /**
- * The most channels a coupled block the resident Adams engine steps may have (solprop
- * SEP 16 phase 6): its per-bin passes hold a block's channel vectors in registers. A
- * larger block takes solprop's host engine.
+ * The most channels of a coupled block whose channel vectors a host task of the
+ * resident Adams engine holds on its stack (solprop SEP 16 phase 6). A wider block's
+ * host passes hold them in a scratch row per bin, allocated with the history (solprop
+ * SEP 47 phase 4). A device build's passes take a thread per (bin, channel) and
+ * hold no channel vectors, so it steps any width.
  */
 inline constexpr std::size_t adams_max_channels = 16;
 
@@ -808,7 +810,6 @@ enum class TableKind { phi, prefactor, rate, flux };
 [[nodiscard]] bool compact_problem(const Problem& problem) noexcept;
 
 class GeneralWorkspace;
-class GeneralBatchWorkspace;
 
 /** Multicolumn general state with batched FFTs and chunked node transforms. */
 class GeneralState {
@@ -852,8 +853,7 @@ public:
                           const AdamsWeights& dense);
   void adams_hold();
   void adams_restore();
-  void adams_observe(const AdamsWeights& weights, bool hermite,
-                     const TrialScalars& scalars);
+  void adams_observe(const AdamsWeights& weights, const TrialScalars& scalars);
   [[nodiscard]] std::vector<double>
   adams_exponential_trial(double dz, const ExponentialWeights& weights,
                           const std::vector<double>& divisor, const TrialScalars& step,
@@ -922,6 +922,13 @@ public:
                         const std::vector<unsigned char>& identity);
   /** A coupled flow's held actions; see `CoupledFlowAction::actions_to_host`. */
   [[nodiscard]] std::vector<Complex> flow_actions_to_host(bool inverse) const;
+  /** The last exponential Adams trial's coupled block functions, row-major
+      `(slots + 1, n_active, n_modes, n_modes)`, the flow first: an observation for
+      tests (solprop SEP 47 phase 4). */
+  [[nodiscard]] std::vector<Complex> adams_block_to_host() const;
+  /** The last Adams trial's exponent `Delta Phi`, row-major `(n_columns, n_omega)`:
+      an observation for tests. */
+  [[nodiscard]] std::vector<Complex> adams_exponent_to_host() const;
   /** Form a coupled flow's actions natively; see `CoupledFlowAction::form_actions`. */
   [[nodiscard]] std::vector<double>
   form_flow_actions(std::size_t section, double dz,
@@ -958,6 +965,15 @@ public:
    * samples. What an on-axis scan needs of the state.
    */
   [[nodiscard]] std::vector<Complex> axis_spectrum(const std::vector<double>& matrix);
+  /**
+   * solprop SEP 19's on-axis plasma populations of the accepted state: `matrix`'s row
+   * (as `axis_spectrum` takes it, the pad scale and the taper in it) on the fine time
+   * grid, scanned by the node scan with each channel's preionisation. Returns each
+   * channel's final ionised fraction and peak rate, `(n_channels, 2)`.
+   */
+  [[nodiscard]] std::vector<double>
+  axis_populations(const std::vector<double>& matrix,
+                   const std::vector<double>& channel_preionisation);
   /**
    * solprop SEP 23's far-field statistics of the accepted state on a Cartesian or line
    * grid, one banded pass; see `FarFieldPass::run` (`far_field.hpp`) for the tables,
@@ -1064,30 +1080,13 @@ public:
   [[nodiscard]] std::size_t raman_kernel_transforms() const noexcept;
   [[nodiscard]] bool fsal_ready() const noexcept;
   [[nodiscard]] std::size_t rk_source_evaluations() const noexcept;
+  /** On-axis row scans made so far (`axis_populations`), cumulative. */
+  [[nodiscard]] std::size_t axis_scans() const noexcept;
   [[nodiscard]] bool closed() const noexcept;
   void close() noexcept;
 
 private:
-  friend class GeneralBatchWorkspace;
   std::unique_ptr<GeneralWorkspace> workspace_;
-};
-
-/** Shared update dispatch over independently owned native parameter workspaces. */
-class GeneralBatch {
-public:
-  explicit GeneralBatch(std::vector<std::shared_ptr<GeneralState>> members);
-  ~GeneralBatch();
-  GeneralBatch(const GeneralBatch&) = delete;
-  GeneralBatch& operator=(const GeneralBatch&) = delete;
-  GeneralBatch(GeneralBatch&&) = delete;
-  GeneralBatch& operator=(GeneralBatch&&) = delete;
-  [[nodiscard]] std::vector<double> accept(double dz);
-  [[nodiscard]] std::map<std::string, std::size_t> memory_ledger() const;
-  [[nodiscard]] CpuSizing execution_sizing() const;
-  void close() noexcept;
-
-private:
-  std::unique_ptr<GeneralBatchWorkspace> workspace_;
 };
 
 void fft(const ExecutionSpace& execution_space, ComplexView input, ComplexView output);
