@@ -577,7 +577,8 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
     backend = NativeBackend(problem, run_request, grid=grid, options=options)
     state = backend._native_state  # pyright: ignore[reportPrivateUsage] - score lifetime
     try:
-        planes = finish(backend, problem, run_request, owns=False).planes
+        finished = finish(backend, problem, run_request, owns=False)
+        planes = finished.planes
         assert [plane["z"] for plane in planes] == [0.0, dz, 2 * dz]
         for plane, want in zip(planes[1:], reference[1:], strict=True):
             np.testing.assert_allclose(
@@ -599,11 +600,14 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
         np.testing.assert_allclose(
             score, want["stats"]["quadrature_error"], rtol=0.0, atol=score_bound
         )
-        # The largest accepted score since the load, which no session reads: the two
-        # steps' own, as their planes report them. Reading it drains it, and no step
-        # is accepted below.
+        # The largest accepted score since the load: the two steps' own, as their
+        # planes report them. The session drained it for its quadrature alarm (as
+        # the reference warns, once a plane) and records the largest it drained;
+        # the state holds none after, and no step is accepted below.
         steps = [plane["stats"]["quadrature_error"] for plane in planes[1:]]
-        assert state.quadrature_peak() == max(steps)
+        native_record = finished.record["native_session"]
+        assert isinstance(native_record, dict)
+        assert native_record["quadrature_peak"] == max(steps)
         assert math.isnan(state.quadrature_peak())
 
         # Leave an unaccepted trial in scratch: the stored score and the accepted
