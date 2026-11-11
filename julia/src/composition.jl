@@ -416,6 +416,14 @@ function ModalSourceData(
     )
     prefactor.shape == (length(grid.omega), size(map.synthesis, 2)) ||
         throw(DimensionMismatch("source prefactor does not match the modal grid"))
+    _validate_source_responses(grid, kerr, raman, plasma)
+    return ModalSourceData(grid, map, prefactor, kerr, raman, plasma)
+end
+
+function _validate_source_responses(
+        grid::ModalSourceGrid, kerr::Union{Nothing, ModalKerr}, raman::Tuple,
+        plasma::Union{Nothing, ModalPlasma},
+    )
     if kerr !== nothing
         coefficients = kerr.coefficients
         if grid.kind == :envelope
@@ -452,7 +460,7 @@ function ModalSourceData(
             end || throw(ArgumentError("plasma factors must vanish outside the band"))
         end
     end
-    return ModalSourceData(grid, map, prefactor, kerr, raman, plasma)
+    return nothing
 end
 
 struct _SourceChunk{S, P, C}
@@ -768,7 +776,10 @@ function _source_raman(execution, data, layout)
     return components, buffers
 end
 
-function _source_plasma(execution, data, layout, modal)
+function _source_plasma(
+        execution, data, layout, modal;
+        coarse::Bool = data.map.coarse_projection !== nothing,
+    )
     data.plasma === nothing && return nothing
     grid, prepared = data.grid, data.plasma
     field = grid.kind == :field
@@ -777,7 +788,6 @@ function _source_plasma(execution, data, layout, modal)
     first = zeros(eltype(modal), layout.n_time, layout.n_nodes)
     second = similar(first)
     projected_first, projected_second = similar(modal), similar(modal)
-    coarse = data.map.coarse_projection !== nothing
     coarse_first = coarse ? similar(modal) : nothing
     coarse_second = coarse ? similar(modal) : nothing
     factors_first = zeros(ComplexF64, length(grid.omega))
