@@ -69,6 +69,18 @@ function probe_window(flag, seconds, ready)
     return batches
 end
 
+function probe_termination_work(ready)
+    probe_thread_mask[] = 0
+    probe_batch()
+    # The parent only sends TERM after a real threaded batch and GC have run in
+    # this call, beyond the separate warmup. Remain in Julia until supervised.
+    write(ready * ".pending", "entered")
+    mv(ready * ".pending", ready)
+    while true
+        probe_batch()
+    end
+end
+
 function probe_polyester()
     buffer = zeros(Float64, 1024)
     identifiers = zeros(Int, length(buffer))
@@ -638,10 +650,14 @@ def _sigint(output, mode):
 
 def _sigterm(output, mode):
     mode, phase = mode.split(":")
+    assert mode in {"custom", "ignored", "default"}
+    assert phase in {"idle", "work"}
     received = []
     handler = signal.SIG_DFL if mode == "default" else _signal_handler(mode, received)
     signal.signal(signal.SIGTERM, handler)
     runtime = _runtime()
+    _workload(runtime)
+    ready = output.with_suffix(".term-entered")
     _record(
         output,
         "sigterm",
@@ -650,23 +666,16 @@ def _sigterm(output, mode):
         phase=phase,
         stage="ready-for-accepted-termination",
     )
+    # ADR-078 promises an external hard deadline, not graceful output or prompt
+    # first-TERM exit. Only the parent sends either signal, after verified entry.
     if phase == "idle":
-        os.kill(os.getpid(), signal.SIGTERM)
-        time.sleep(0.2)
-    else:
-        assert phase == "work"
-        _workload(runtime)
-        _, lease = _stop(runtime)
-        ready = output.with_suffix(".term-entered")
-
-        def terminate():
-            _wait(ready.exists)
-            os.kill(os.getpid(), signal.SIGTERM)
-
-        worker, _ = _worker(terminate)
-        worker.start()
-        _call(runtime, "probe_window", lease.flag, 2.0, str(ready))
-    raise AssertionError("the pinned Julia SIGTERM behavior unexpectedly changed")
+        pending = ready.with_name(ready.name + ".pending")
+        pending.write_text("entered", encoding="utf-8")
+        pending.replace(ready)
+        while True:
+            signal.pause()
+    _call(runtime, "probe_termination_work", str(ready))
+    raise AssertionError("the externally supervised Julia workload returned")
 
 
 def _preflight(output, mode):

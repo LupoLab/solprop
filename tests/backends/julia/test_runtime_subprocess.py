@@ -12,6 +12,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -85,9 +86,130 @@ def _environment(record, threads, directory):
     return environment
 
 
+def _termination_ready(process, output, mode, threads, timeout):
+    entered = output.with_suffix(".term-entered")
+    deadline = time.monotonic() + timeout
+    while True:
+        assert process.poll() is None, "SIGTERM child exited before verified entry"
+        if entered.is_file():
+            assert entered.read_text(encoding="utf-8") == "entered"
+            result = json.loads(output.read_text(encoding="utf-8"))
+            handler, phase = mode.split(":")
+            assert result["case"] == "sigterm" and result["pid"] == process.pid
+            assert result["stage"] == "ready-for-accepted-termination"
+            assert result["initial_handler"] == handler and result["phase"] == phase
+            assert result["requested_threads"] == result["actual_threads"] == threads
+            return result
+        assert time.monotonic() < deadline, "SIGTERM child never verified entry"
+        time.sleep(0.002)
+
+
+def _signal_group(process, number):
+    # Popen(start_new_session=True) makes this child's PID our private PGID. Do
+    # not signal a group inherited from pytest or any other unowned process.
+    assert os.getpgid(process.pid) == process.pid, (
+        "SIGTERM child lost its private group"
+    )
+    os.killpg(process.pid, number)
+
+
+def _termination_exit(process, grace, reap_timeout):
+    expired = False
+    killed_at = None
+    try:
+        process.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        expired = True
+        if process.poll() is None:
+            try:
+                _signal_group(process, signal.SIGKILL)
+            except ProcessLookupError:
+                # Fatal TERM can complete between the timeout and kill. Its
+                # actual returncode still must pass the narrow check below.
+                pass
+            else:
+                killed_at = time.monotonic()
+        process.wait(timeout=reap_timeout)
+    return expired, killed_at
+
+
+def _supervise_sigterm(
+    process, output, mode, threads, *, ready_timeout=180.0, grace=2.0
+):
+    started = time.monotonic()
+    result = _termination_ready(process, output, mode, threads, ready_timeout)
+    entered_at = time.monotonic()
+    _signal_group(process, signal.SIGTERM)
+    term_at = time.monotonic()
+    expired, killed_at = _termination_exit(process, grace, 15.0)
+    finished = time.monotonic()
+    code = process.returncode
+    result["supervision"] = {
+        "ready_observed": True,
+        "entered_observed": True,
+        "process_group": process.pid,
+        "entered_seconds": entered_at - started,
+        "term_sent": True,
+        "term_seconds": term_at - started,
+        "term_grace_seconds": grace,
+        "term_grace_expired": expired,
+        "forced_escalation": killed_at is not None,
+        "kill_seconds": None if killed_at is None else killed_at - started,
+        "elapsed_seconds": finished - started,
+        "after_term_seconds": finished - term_at,
+        "returncode": code,
+        "exit_signal": -code if code < 0 else None,
+        "exit_status": code if code >= 0 else None,
+        "reaped": True,
+    }
+    output.write_text(json.dumps(result, sort_keys=True) + "\n", encoding="utf-8")
+    allowed = {-signal.SIGTERM, 128 + signal.SIGTERM}
+    if killed_at is not None:
+        allowed.add(-signal.SIGKILL)
+    assert code in allowed, f"unexpected supervised SIGTERM exit: {code}"
+    return result
+
+
+def _run_terminating(record, directory, command, output, mode, threads):
+    assert not output.exists() and not output.with_suffix(".term-entered").exists()
+    stdout_path = output.with_suffix(".stdout")
+    stderr_path = output.with_suffix(".stderr")
+    # Files cannot block a fatal Julia stack trace behind an undrained pipe while
+    # the supervisor waits for entry or enforces the TERM grace deadline.
+    with (
+        stdout_path.open("w", encoding="utf-8") as stdout,
+        stderr_path.open("w", encoding="utf-8") as stderr,
+    ):
+        process = subprocess.Popen(
+            command,
+            env=_environment(record, threads, directory),
+            cwd=directory,
+            stdout=stdout,
+            stderr=stderr,
+            text=True,
+            start_new_session=True,
+        )
+        try:
+            result = _supervise_sigterm(process, output, mode, threads)
+        except BaseException as failure:
+            if process.poll() is None:
+                try:
+                    _signal_group(process, signal.SIGKILL)
+                    process.wait(timeout=15)
+                except (AssertionError, OSError, subprocess.TimeoutExpired) as cleanup:
+                    failure.add_note(f"SIGTERM child cleanup failed: {cleanup}")
+            failure.add_note(f"stdout: {stdout_path}; stderr: {stderr_path}")
+            raise
+    diagnostics = stderr_path.read_text(encoding="utf-8")
+    assert "Exception ignored in" not in diagnostics, diagnostics
+    return result
+
+
 def _run(record, directory, case, threads, *, mode="", terminating=False):
     output = directory / f"{case}-{mode or 'normal'}-{threads}.json"
     command = [sys.executable, str(PROBE), case, str(output), "--mode", mode]
+    if terminating:
+        return _run_terminating(record, directory, command, output, mode, threads)
     process = subprocess.Popen(
         command,
         env=_environment(record, threads, directory),
@@ -106,19 +228,17 @@ def _run(record, directory, case, threads, *, mode="", terminating=False):
             process.kill()
         stdout, stderr = process.communicate(timeout=15)
         pytest.fail(f"{case} timed out\nstdout:\n{stdout}\nstderr:\n{stderr}")
-    expected = {-signal.SIGTERM, 128 + signal.SIGTERM} if terminating else {0}
-    assert process.returncode in expected, (
+    assert process.returncode == 0, (
         f"{case}/{mode}/{threads}: exit {process.returncode}\n"
         f"stdout:\n{stdout}\nstderr:\n{stderr}"
     )
     assert "Exception ignored in" not in stderr, stderr
-    if not terminating:
-        for diagnostic in (
-            "error in running finalizer:",
-            "atexit hook threw an error:",
-            "error during exit cleanup:",
-        ):
-            assert diagnostic not in stderr, stderr
+    for diagnostic in (
+        "error in running finalizer:",
+        "atexit hook threw an error:",
+        "error during exit cleanup:",
+    ):
+        assert diagnostic not in stderr, stderr
     assert output.is_file(), f"{case} exited without its verified result: {stderr}"
     result = json.loads(output.read_text(encoding="utf-8"))
     assert result["case"] == case and result["requested_threads"] == threads
@@ -186,6 +306,12 @@ def test_sigterm_retains_the_accepted_process_termination_limitation(
     )
     assert result["stage"] == "ready-for-accepted-termination"
     assert result["phase"] == phase
+    supervision = result["supervision"]
+    assert supervision["term_sent"] and supervision["entered_observed"]
+    assert supervision["reaped"]
+    assert supervision["entered_seconds"] <= supervision["term_seconds"]
+    if supervision["returncode"] == -signal.SIGKILL:
+        assert supervision["forced_escalation"] and supervision["term_grace_expired"]
     record_property("runtime_probe", json.dumps(result, sort_keys=True))
 
 
