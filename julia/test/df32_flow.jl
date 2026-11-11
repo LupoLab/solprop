@@ -671,22 +671,18 @@ end
     end
 end
 
-@testset "DF32 dense attachment refuses at actual adaptive session preparation" begin
+@testset "DF32 dense attachment retains its bound adaptive session policy" begin
     fixture = df32flow_fixture(; replay = false)
     prepared = df32flow_session(fixture)
     original = copy(fixture.state)
-    failure = try
-        DF.RungeKuttaSession(
-            fixture.execution, fixture.state, fixture.spec.start, 1 / 64,
-            fixture.scheme, prepared.control, prepared.norm, fixture.schedule,
-            fixture.source, fixture.flow; arithmetic = fixture.arithmetic,
-            dense_weights = zeros(length(fixture.scheme.nodes)),
-        )
-    catch exception
-        exception
-    end
-    @test failure isa ArgumentError
-    @test occursin("dense observation requires LinearFlow", sprint(showerror, failure))
+    session = DF.RungeKuttaSession(
+        fixture.execution, fixture.state, fixture.spec.start, 1 / 64,
+        fixture.scheme, prepared.control, prepared.norm, fixture.schedule,
+        fixture.source, fixture.flow; arithmetic = fixture.arithmetic,
+        dense_weights = zeros(length(fixture.scheme.nodes)),
+    )
+    @test session.observation.work.operator.binding === fixture.flow.binding
+    @test !session.observation.work.ready
     @test fixture.source.calls == 0 && fixture.flow.plans.generation == 0
     @test fixture.state == original
 end

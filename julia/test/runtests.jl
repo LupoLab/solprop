@@ -102,6 +102,7 @@ if group == "Core"
     include("low_storage_session.jl")
     include("df32_flow.jl")
     include("df32_adams.jl")
+    include("df32_dense.jl")
     include("group_session.jl")
     include("transfer.jl")
     include("precompile_workload.jl")

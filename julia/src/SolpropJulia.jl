@@ -76,6 +76,7 @@ include("trial_probe.jl")
 include("wide_binding.jl")
 include("df32_flow.jl")
 include("df32_adams.jl")
+include("df32_dense.jl")
 
 """
     copy_preparation(values::AbstractArray)

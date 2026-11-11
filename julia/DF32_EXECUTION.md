@@ -26,8 +26,10 @@ The flow constructs exactly one `WideStartBinding` from its retained original
 operator and spec; there is no independently supplied operator/binding pair. It
 retains that binding unchanged. State and source arithmetic are binary32 with the
 spec's original-launch scales. CPU constant, represented cumulative and real-weight
-expansion operators are admitted. Dense output, Adams, tabulation and separable
-spatial operators refuse during preparation. Other state precisions refuse by name.
+expansion operators are admitted. The separate `DF32AdamsFlow` composition is described
+in `DF32_ADAMS.md`. The engine's adaptive RK dense leaf is described in `DF32_DENSE.md`;
+its Python attachment remains deferred. Tabulation and separable spatial operators
+refuse during preparation. Other state precisions refuse by name.
 
 The site carries four independent facts: the actual accepted origin, supplied
 positive step, canonical landed destination and replay cursor (zero for adaptive).

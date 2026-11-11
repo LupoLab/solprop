@@ -296,7 +296,9 @@ composition supports landed planes and field restarts. Supplying the translated
 `dense_weights` enables the existing DOPRI5 continuous extension, with a separate
 owned observation field and one retained accepted window. The caller selects the
 compatible tableau/extension; stage count alone never selects a method. Dense planes
-require adaptive CPU `LinearFlow` with binary64 wide operands and refuse per-step splitting.
+require adaptive CPU flow and refuse per-step splitting. `LinearFlow` uses binary64
+wide operands; `DF32LinearFlow` certifies each retained/query phase separately and
+refuses an uncertain stiff-branch decision before replacing an observation.
 They change no source-call count, accepted field, controller history or receipt rule.
 """
 struct RungeKuttaSession{E, A, T, W, N, S, F, B, O, X, D, P} <: _MarchSession
@@ -336,10 +338,7 @@ function RungeKuttaSession(
             throw(ArgumentError("Runge-Kutta dense observation currently requires CPU"))
         isempty(schedule.replay_steps) ||
             throw(ArgumentError("interpolated planes require adaptive RK; replay lands"))
-        flow isa LinearFlow ||
-            throw(ArgumentError("Runge-Kutta dense observation requires LinearFlow"))
-        size(flow.exponent) == size(state) ||
-            throw(DimensionMismatch("Runge-Kutta linear flow and state shapes disagree"))
+        _rk_dense_admit(flow, state)
         _march_dense_services(services)
     end
     owned, progress = _prepare_march(
@@ -348,8 +347,8 @@ function RungeKuttaSession(
     # The numerical dense leaf is included after this session type. No extension
     # coefficients are selected in Julia: preparation supplies the shared weights.
     observation = dense_weights === nothing ? nothing : _RungeKuttaSessionObservation(
-            RungeKuttaObservationWork(
-                execution, owned, tableau, dense_weights, flow.operator; arithmetic,
+            _rk_dense_prepare(
+                execution, owned, tableau, dense_weights, flow; arithmetic,
             ),
             NaN, false,
         )
