@@ -5,10 +5,10 @@
 """The building blocks the Python execution sessions share (SEP 47 sections 5 and 6.7).
 
 The reference's sessions (:class:`solprop.backends.host.session.HostSession` and
-:class:`solprop.backends.host.group_session.HostGroupSession`) and the transitional
-sessions of the native bridge (:mod:`solprop.backends.driver_session`) each run their
-own plane schedule over their own driver, and compose the parts below, none of which
-names either driver:
+:class:`solprop.backends.host.group_session.HostGroupSession`) run their own plane
+schedule over their own driver, and compose the parts below, none of which names a
+driver; the native backend's prepared execution (``solprop_native.session``) makes the
+same preparation refusals:
 
 - :class:`AttemptCounter` forwards a driver's attempts to a progress listener and
   counts them, and :class:`YieldDue` reads that count and the clock for a bounded

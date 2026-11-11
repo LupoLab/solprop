@@ -7,10 +7,8 @@
 Each case of the ``sep47`` set runs once, briefly, with the native adapter's structural
 counters on (``benchmarks.worker.measure(count_events=True)``), and its counts must show
 the events it was declared for: a statistics row at every accepted step, snapshots
-serviced, a group's common steps, the native or host march of a coupled flow. A run is
-served by the native execution session wherever it admits the run, as in production;
-the transitional bridge's counts are checked beside it where they document what the
-session removed (SEP 47 section 7.3).
+serviced, a group's common steps, the native march of a coupled flow. Every run is
+served by the native execution session, as in production (SEP 47 section 7.3).
 """
 
 import warnings
@@ -39,12 +37,6 @@ FIBRES = (
     "scan_local",
     "group_batch",
 )
-
-
-def _no_native_session(*args):
-    """Refuse every run to the native session, so the bridge serves it."""
-    del args
-    return "the test's bridge"
 
 
 def counted(name, tmp_path, fraction=0.125, repeats=0):
@@ -132,41 +124,6 @@ def test_period_one_statistics_take_a_row_at_every_accepted_step(name, tmp_path)
     assert counts["host_attempts"] == counts["transverse_reads"] == 0
     assert timed is not None
     assert (timed["accepted"], timed["rejected"]) == (run["accepted"], run["rejected"])
-
-
-@pytest.mark.parametrize("name", ["stats_period1_rk", "snapshots_sparse"])
-def test_the_bridge_counts_the_same_work_with_a_return_per_step(
-    name, tmp_path, monkeypatch
-):
-    # The transitional bridge still serves what the native session refuses. Measured
-    # the same way, it makes the same attempts, rows, planes and copies, and returns
-    # to Python at every step the session keeps native.
-    _, run, session = counted(name, tmp_path)
-    monkeypatch.setattr("solprop_native.session.session_refusal", _no_native_session)
-    _, bridged, bridge = counted(name, tmp_path / "bridge")
-    assert (bridged["accepted"], bridged["rejected"]) == (
-        run["accepted"],
-        run["rejected"],
-    )
-    same = (
-        "attempts",
-        "accepted",
-        "planes",
-        "statistics_rows",
-        "statistics_evaluations",
-        "field_bytes",
-        "field_loads",
-        "load_bytes",
-    )
-    assert {key: bridge[key] for key in same} == {key: session[key] for key in same}
-    assert (
-        sum(bridge["field_crossings"].values()) == session["field_crossings"]["export"]
-    )
-    assert set(bridge["field_crossings"]) == {"plane"}
-    cause = "statistics" if name.startswith("stats") else "step_planes"
-    assert bridge["native_returns"][f"host_step:{cause}"] >= run["accepted"] - 2
-    assert all(not key.startswith("session_") for key in bridge["native_returns"])
-    assert all(not key.startswith("host_step") for key in session["native_returns"])
 
 
 @pytest.mark.parametrize(

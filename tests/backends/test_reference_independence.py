@@ -34,8 +34,7 @@ import pytest
 import solprop.backends.host
 import solprop.backends.numpy_ref
 from scripted_driver import ScriptedDriver
-from solprop.backends import batch, driver, driver_session, low_storage, multistep
-from solprop.backends.driver_session import DriverSession
+from solprop.backends import driver, low_storage, multistep
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.group import HostGroup
@@ -60,8 +59,9 @@ LEGACY_MODULES = (
     "solprop.backends.batch",
     "solprop.backends.driver_session",
 )
-"""The native bridge's control modules and transitional sessions, which hold nothing
-else."""
+"""The native bridge's control module and the transitional sessions and lockstep
+runner deleted in SEP 47 phase 5, which held nothing else: none may come back into the
+reference."""
 
 LEGACY_NAMES = {
     "solprop.backends.multistep": {"AdamsMarch"},
@@ -89,13 +89,8 @@ LEGACY_CLASSES = (
     driver.StepDriver,
     multistep.AdamsMarch,
     low_storage.LowStorageMarch,
-    batch.LockstepRunner,
-    driver_session.DriverSession,
-    driver_session.DriverPrepared,
-    driver_session.DriverGroupSession,
-    driver_session.DriverPreparedGroup,
 )
-"""The bridge's control classes."""
+"""The bridge's control classes still in the tree."""
 
 
 def _modules() -> list[str]:
@@ -285,9 +280,9 @@ def test_the_run_layer_serves_the_reference_with_the_host_session(
     reference = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     with start_session(reference, problem, request, Start.entrance(problem)) as session:
         assert type(session) is HostSession
-    scripted = cast("Any", ScriptedDriver(problem, run_request, grid=narrow_grid))
-    with start_session(scripted, problem, request, Start.entrance(problem)) as session:
-        assert type(session) is DriverSession
+    # The inherited driver serves no session of its own any more (SEP 47 phase 5).
+    assert not hasattr(driver.StepDriver, "prepare")
+    assert not hasattr(driver.StepDriver, "prepare_group")
 
 
 def test_the_run_layer_serves_a_reference_group_with_the_host_group_session(

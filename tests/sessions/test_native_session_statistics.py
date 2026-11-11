@@ -825,7 +825,7 @@ def _beam(route):
 
 
 def _host_widths(problem, run_request, grid, record, monkeypatch):
-    """The host finishing the transitional session took, on the native fluence passes.
+    """The host finishing of the widths, on the native fluence passes.
 
     ``solprop.backends.spatial.signed_fluence_widths`` on the fluence block, or
     ``plane_fluence_widths`` on a plane's moments and its native trace, of the record's
@@ -874,13 +874,13 @@ def _host_widths(problem, run_request, grid, record, monkeypatch):
 def test_a_beam_s_fluence_widths_are_native_at_its_planes(route, monkeypatch):
     """``beam_radius`` and ``fwhm_r``, plane-only, in the session's own plan.
 
-    Against the host finishing the transitional session took on the same native
-    passes: the same bits on a radial, line or slab profile, whose sums are NumPy's
-    pairwise order (``numpy.interp`` held to its unfused rule off x86-64, where NumPy's
-    may fuse); within a few units of rounding on a plane, whose extent is the
-    platform's ``hypot`` rather than Python's. Against the NumPy reference on each
-    exported field within the backend widths test's bound. The rows, which take the
-    periodic statistics beside them, return nothing to Python.
+    Against the host finishing of the widths on the same native passes: the same bits on
+    a radial, line or slab profile, whose sums are NumPy's pairwise order
+    (``numpy.interp`` held to its unfused rule off x86-64, where NumPy's may fuse);
+    within a few units of rounding on a plane, whose extent is the platform's ``hypot``
+    rather than Python's. Against the NumPy reference on each exported field within the
+    backend widths test's bound. The rows, which take the periodic statistics beside
+    them, return nothing to Python.
     """
     from backends.test_native_widths import _agree, _width_budget  # noqa: PLC0415
 
@@ -1009,7 +1009,7 @@ def _varying_metric():
 
 def test_a_varying_metric_s_statistics_are_refused_by_native_before_allocation():
     """Native refuses a varying metric's statistics by name, at construction and at a
-    run's preparation, and never leaves them to the transitional session; numpy_ref
+    run's preparation, and never leaves them to another session; numpy_ref
     computes them, and native still serves what the metric does not weigh."""
     grid, problem, run_request = _varying_metric()
     spec = StatsSpec(names=GENERAL)

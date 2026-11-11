@@ -257,7 +257,7 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(
         else:
             assert left._adams is not None
             # The native session keeps the march's ledger itself and leaves the
-            # backend's untouched; the transitional session's march books into it.
+            # backend's untouched; the reference's march books into its own.
             assert left._adams.ledger.total > 0 or served == ["NativeSession"]
             # A failed run can stop just after a rejection; the load clears it.
             left._adams._last_rejected = True

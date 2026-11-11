@@ -159,7 +159,7 @@ def test_a_stop_after_a_fetched_plane_checkpoints_the_field_fetched_once(
 ):
     """The observer and the failure checkpoint share one fetch (SEP 47 section 5.4)."""
     fetched = []
-    # The reference's driver and the native bridge's each observe for themselves.
+    # The reference's driver and the native backend's inherited one each observe.
     for driver in (StepDriver, HostDriver):
 
         def counted(self, *, field=True, observe=driver.observe):

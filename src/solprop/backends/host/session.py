@@ -18,8 +18,8 @@ The session composes the parts every Python session shares
 (:mod:`solprop.backends.session_core`: the attempt counter, the yield check, the
 snapshot latch, the shared observation and its exports, and the preparation's
 refusals) with the lifecycle ledger (:class:`~solprop.backends.session.SessionLedger`).
-It imports nothing of the native bridge's inherited driver or its transitional sessions
-(:mod:`solprop.backends.driver_session`).
+It imports nothing of the inherited driver the native backend still subclasses
+(:mod:`solprop.backends.driver`).
 """
 
 from __future__ import annotations

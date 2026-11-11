@@ -14,20 +14,18 @@ the same tests.
 
 - ``reference`` is the NumPy reference, in its own session
   (:class:`~solprop.backends.host.session.HostSession`, SEP 47 phase 2).
-- ``native`` is the compiled backend, through the same transitional session until its
-  own session replaces it; it is skipped where ``solprop_native`` is not installed.
-- ``native-session`` is the native execution session itself
-  (:class:`solprop_native.session.NativeSession`, SEP 47's phase 1 prototype): the
-  native backend owns the run, its boundary monitor included, whose decisions and
-  record are native (:attr:`Executor.native_monitor`); it evaluates every
-  periodic-capable statistic natively.
+- ``native-session`` is the native execution session
+  (:class:`solprop_native.session.NativeSession`), the only native executor since SEP
+  47 phase 5: the native backend owns the run, its boundary monitor included, whose
+  decisions and record are native (:attr:`Executor.native_monitor`); it evaluates
+  every periodic-capable statistic natively. It is skipped where ``solprop_native``
+  is not installed.
 - ``native-session-low-storage`` is the native execution session replaying the same
   problem's planes on a uniform schedule of :data:`LOW_STORAGE_STEPS` steps with the
   low-storage march (SEP 47 section 6.3), whose loop the native session owns.
-- ``scripted-host`` is the same script on the reference's own driver, in the
-  reference's session (:class:`HostSessionScript`).
-- ``scripted`` is :class:`SessionScript`, a step driver whose norms, rejections,
-  failures, in-flight failures and warnings are chosen by the test.
+- ``scripted-host`` is :class:`HostSessionScript`, the reference's own driver in the
+  reference's session, whose norms, rejections, failures, in-flight failures and
+  warnings are chosen by the test.
 
 The problem is the fundamental GNLSE soliton of ``tests/backends/conftest.py`` on its
 768-bin window, over 2 cm in four planes: a few dozen attempts on any executor. A
@@ -39,6 +37,7 @@ on its periodic line (:func:`edged`), which an executor starts with that run's g
 import dataclasses
 import functools
 import os
+import re
 import warnings
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
@@ -46,8 +45,7 @@ from typing import Any, Literal, Protocol
 
 import numpy as np
 
-from scripted_driver import SCALE, HostScriptedDriver, ScriptedDriver
-from solprop.backends.driver_session import DriverSession
+from scripted_driver import SCALE, HostScriptedDriver
 from solprop.backends.events import (
     EventBatch,
     ObservationReady,
@@ -246,7 +244,7 @@ class _Outcomes:
         The accepted step whose committed endpoint warns with
         :class:`ScriptedWarning`, after the step's statistics row.
     **kwargs
-        Passed to :class:`scripted_driver.ScriptedDriver`.
+        Passed to :class:`scripted_driver.HostScriptedDriver`.
     """
 
     def __init__(  # noqa: PLR0913 - one keyword per scripted outcome
@@ -291,10 +289,6 @@ class _Outcomes:
                 ScriptedWarning,
                 stacklevel=2,
             )
-
-
-class SessionScript(_Outcomes, ScriptedDriver):
-    """The scripted outcomes on the native bridge's inherited driver."""
 
 
 class HostSessionScript(_Outcomes, HostScriptedDriver):
@@ -342,7 +336,7 @@ class Factory(Protocol):
 
 
 def _over_driver(
-    make: Callable[..., Any], *, host_state: bool, session: type = DriverSession
+    make: Callable[..., Any], *, host_state: bool, session: type = HostSession
 ) -> Factory:
     """Return a factory of sessions over a step driver.
 
@@ -353,7 +347,7 @@ def _over_driver(
     host_state : bool
         Whether the driver's state is a host array the aliasing checks can read.
     session : type, optional
-        The session class: the transitional session by default.
+        The session class: the reference's by default.
 
     Returns
     -------
@@ -442,7 +436,7 @@ def _host_scripted(
     context : collections.abc.Mapping or None
         Refused: a script runs the soliton alone.
     **script
-        The outcomes, as :class:`SessionScript` takes them.
+        The outcomes, as :class:`HostSessionScript` takes them.
 
     Returns
     -------
@@ -451,35 +445,6 @@ def _host_scripted(
     """
     assert context is None, "a script runs the soliton alone"
     return HostSessionScript(problem, request, grid=window(), **script)
-
-
-def _scripted(
-    problem: PropagationProblem,
-    request: RunRequest,
-    *,
-    context: Mapping[str, Any] | None,
-    **script: Any,
-) -> SessionScript:
-    """Return a scripted driver for a problem.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-    request : solprop.translate.run_request.RunRequest
-        Its run's request.
-    context : collections.abc.Mapping or None
-        Refused: a script runs the soliton alone.
-    **script
-        The outcomes, as :class:`SessionScript` takes them.
-
-    Returns
-    -------
-    SessionScript
-        The driver.
-    """
-    assert context is None, "a script runs the soliton alone"
-    return SessionScript(problem, request, grid=window(), **script)
 
 
 def _native_session(
@@ -779,7 +744,7 @@ class Executor:
     requires : str or None
         A module it needs, skipped without it.
     scripted : bool
-        Whether its numerical outcomes are scripted (:class:`SessionScript`).
+        Whether its numerical outcomes are scripted (:class:`HostSessionScript`).
     capabilities : frozenset of str
         What it can be asked to run beyond the soliton (:data:`CAPABILITIES`); a test
         that needs another skips it explicitly (:meth:`require`).
@@ -828,18 +793,7 @@ class Executor:
 EXECUTORS: dict[str, Executor] = {
     "reference": Executor(
         "reference",
-        _over_driver(_selected("numpy_ref"), host_state=True, session=HostSession),
-    ),
-    "native": Executor(
-        "native",
-        _over_driver(_selected("native"), host_state=False),
-        requires="solprop_native",
-    ),
-    "scripted": Executor(
-        "scripted",
-        _over_driver(_scripted, host_state=True),
-        scripted=True,
-        capabilities=frozenset({MONITOR}),
+        _over_driver(_selected("numpy_ref"), host_state=True),
     ),
     "native-session": Executor(
         "native-session",
@@ -856,7 +810,7 @@ EXECUTORS: dict[str, Executor] = {
     ),
     "scripted-host": Executor(
         "scripted-host",
-        _over_driver(_host_scripted, host_state=True, session=HostSession),
+        _over_driver(_host_scripted, host_state=True),
         scripted=True,
         capabilities=frozenset({MONITOR, STATISTICS}),
     ),
@@ -1163,6 +1117,132 @@ def assert_same_run(run: Run, baseline: Run) -> None:
     assert len(run.fields) == len(baseline.fields)
     for index, (one, other) in enumerate(zip(run.fields, baseline.fields, strict=True)):
         assert one.tobytes() == other.tobytes(), f"field {index} differs"
+
+
+def assert_close_trace(
+    run: Run, baseline: Run, *, rtol: float, terminal_rtol: float | None = None
+) -> None:
+    """Assert two runs of one problem on different backends observe the same planes.
+
+    The structure is exact -- each observation's kind, plane index and statistics
+    names, and the terminal outcome and eligibility -- and the numbers agree to
+    `rtol`: each observation's position and the terminal position, and each
+    statistic relative to its largest magnitude. The attempts are not compared:
+    where a trial's error norm is at the level of rounding, two backends' rounding
+    takes different steps (SEP 25). This is the comparison against the reference of
+    a native run whose bitwise baseline, the transitional bridge, was deleted in SEP
+    47 phase 5.
+
+    Parameters
+    ----------
+    run : Run
+        The run under test.
+    baseline : Run
+        The reference run.
+    rtol : float
+        The relative bound.
+    terminal_rtol : float or None, optional
+        The bound on the terminal position, where a run stops at a check that falls
+        on its own steps; `rtol` by default.
+    """
+    got, expected = run.observations, baseline.observations
+    assert [(one.kind, one.plane_index) for one in got] == [
+        (one.kind, one.plane_index) for one in expected
+    ]
+    for one, other in zip(got, expected, strict=True):
+        assert one.z == pytest_approx(other.z, rtol)
+        assert sorted(one.stats) == sorted(other.stats)
+        for name in one.stats:
+            mine = np.asarray(one.stats[name], dtype=np.float64)
+            theirs = np.asarray(other.stats[name], dtype=np.float64)
+            assert mine.shape == theirs.shape, name
+            scale = float(np.max(np.abs(theirs), initial=0.0))
+            np.testing.assert_allclose(
+                mine, theirs, rtol=0.0, atol=rtol * scale, err_msg=name
+            )
+    terminal, reference = run.terminal, baseline.terminal
+    assert (terminal.outcome, terminal.eligibility) == (
+        reference.outcome,
+        reference.eligibility,
+    )
+    assert terminal.z == pytest_approx(
+        reference.z, rtol if terminal_rtol is None else terminal_rtol
+    )
+
+
+_NUMBER = re.compile(r"[-+]?\d+(?:\.\d*)?(?:e[-+]?\d+)?")
+
+
+def masked(text: str) -> str:
+    """Return a message with its numbers masked: what it says, not where.
+
+    A native run checked against the reference takes other steps (SEP 25), so its
+    warnings and failures name the same decisions at other positions and readings.
+
+    Parameters
+    ----------
+    text : str
+        The message.
+
+    Returns
+    -------
+    str
+        The message, each number replaced by ``#``.
+    """
+    return _NUMBER.sub("#", text)
+
+
+def record_layout(record: Any) -> Any:
+    """Return a monitor record's keys, flags and texts, its numbers left out.
+
+    Parameters
+    ----------
+    record : object
+        A monitor record, or one of its values.
+
+    Returns
+    -------
+    object
+        The same nesting, each number ``"number"`` and each sequence ``"list"``.
+    """
+    if isinstance(record, dict):
+        return {key: record_layout(value) for key, value in record.items()}
+    if isinstance(record, bool) or record is None or isinstance(record, str):
+        return record
+    if isinstance(record, (list, tuple, np.ndarray)):
+        return "list"
+    return "number"
+
+
+def one_thread() -> bool:
+    """Return whether the native backend runs one thread, as the default lane does.
+
+    Returns
+    -------
+    bool
+        True when ``SOLPROP_NATIVE_THREADS`` or ``SOLPROP_THREADS`` is ``"1"``.
+    """
+    return _one_thread()
+
+
+def pytest_approx(value: float, rtol: float) -> object:
+    """Return ``pytest.approx(value, rel=rtol)``, imported where a test calls it.
+
+    Parameters
+    ----------
+    value : float
+        The expected value.
+    rtol : float
+        The relative bound.
+
+    Returns
+    -------
+    object
+        The approximate value.
+    """
+    import pytest  # noqa: PLC0415 - only a test calls it
+
+    return pytest.approx(value, rel=rtol)
 
 
 @dataclass

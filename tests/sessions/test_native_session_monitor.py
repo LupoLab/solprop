@@ -2,23 +2,24 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The native session's own boundary monitor against the driver's, end to end.
+"""The native session's own boundary monitor against the reference's, end to end.
 
 SEP 47 section 6.4: the native session owns the temporal boundary monitor, and Python
 only formats what it reports. Here a monitored run goes through the native session and
-through the transitional :class:`~solprop.backends.driver_session.DriverSession` over
-the native backend, whose solprop monitor watches the same strict marches over the same
-kernels: the warnings must be the same, at the same positions, the stops the same, the
-attempts and planes the same, and the records the same. Both sides take the same
-readings of the same states and make the same scalar decisions on them, so on one
-build they agree exactly (section 4.3); the recorded-readings harness
-(``tests/backends/test_monitor_owner.py``) holds the two monitors to each other apart
-from any run.
+through the NumPy reference's session, whose solprop monitor watches the same problem.
+The walker is linear, so each trial's error norm is at the level of rounding, and the
+two backends' controllers take different steps from it (SEP 25): the monitor checks
+fall at different endpoints, so the two are held to the same decisions -- the same
+warnings, in order and in kind, the same outcome and failure, the same planes and the
+same record layout -- and not to the same numbers. The decisions on the same readings
+are identical (section 4.3), which the recorded-readings harness
+(``tests/backends/test_monitor_owner.py``) holds apart from any run; and on one thread
+the native session repeats its own run bit for bit: trace, warnings and record.
 
 A warning the native session reports is a service barrier
 (:class:`~solprop.backends.events.ServiceRequired`): the caller emits it, and its
 filters may raise it, which ends the run at that committed endpoint (section 5.5);
-the driver emits it inline, its filters raising it into a failure there.
+the reference's session reports it the same way.
 """
 
 from __future__ import annotations
@@ -30,8 +31,15 @@ from typing import Any
 import numpy as np
 import pytest
 
-from sessions.executors import Run, skip_device_refused, trace
-from solprop.backends.driver_session import DriverSession
+from sessions.executors import (
+    Run,
+    assert_close_trace,
+    masked,
+    one_thread,
+    record_layout,
+    skip_device_refused,
+    trace,
+)
 from solprop.backends.events import (
     EventBatch,
     ObservationReady,
@@ -42,6 +50,7 @@ from solprop.backends.events import (
     emit_warning,
 )
 from solprop.backends.export import ExportRecipe
+from solprop.backends.host.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.constants import C
@@ -140,7 +149,7 @@ def _prepared(simulation: Simulation, period: int = 2) -> tuple[Any, Any]:
 
     Statistics the native session takes natively, with periodic rows every `period`
     accepted steps after each step's check (SEP 47 section 5.3), as the request's own:
-    the driver takes its rows from the request it is built with.
+    the reference takes its rows from the request it is built with.
     """
     return simulation.translate(), simulation._run_request().for_run(
         stats=StatsSpec(
@@ -167,9 +176,9 @@ def _start(
         "modes": simulation.modes,
         "profiles": simulation.profiles,
     }
-    if kind == "driver":
-        driver = select("native", problem, request, **context)
-        return DriverSession(driver, problem, request, start)
+    if kind == "reference":
+        backend = select("numpy_ref", problem, request, **context)
+        return HostSession(backend, problem, request, start)
     skip_device_refused(problem)
     return native_session.NativeSession(problem, request, start, **context)
 
@@ -221,13 +230,29 @@ def _identity(warning: BaseException | str) -> tuple[object, ...]:
     return (type(warning), str(warning), warning.args, sorted(vars(warning).items()))
 
 
-def _compare(driver: Served, native: Served) -> None:
-    """Require the same trace, warnings, outcome and record."""
-    # The same warnings, class, text and attributes (``parameter``) alike.
-    assert native.warnings == driver.warnings
+PLANE_RTOL = 1e-9
+"""How closely the native planes and their statistics follow the reference's: the
+two backends' steps differ, and each step rounds differently (SEP 25); measured
+2e-11 relative at most."""
+
+TERMINAL_RTOL = 1e-2
+"""How closely a stopped native run's endpoint follows the reference's: each stops at
+the first check past the same threshold, and the checks fall on different steps."""
+
+
+def _decisions(served: Served) -> list[tuple[object, str]]:
+    """Return a run's warnings as their class and masked text."""
+    return [(one[0], masked(str(one[1]))) for one in served.warnings]
+
+
+def _compare(reference: Served, native: Served) -> None:
+    """Require the reference's decisions, outcome, planes and record layout."""
+    assert _decisions(native) == _decisions(reference)
     assert all(one[3] == [("parameter", "boundary_check")] for one in native.warnings)
-    assert trace(native.run) == trace(driver.run)
-    assert native.record == driver.record
+    assert_close_trace(
+        native.run, reference.run, rtol=PLANE_RTOL, terminal_rtol=TERMINAL_RTOL
+    )
+    assert record_layout(native.record) == record_layout(reference.record)
     for event in native.warning_events:
         # A warning is reported at the committed endpoint its check judged.
         if "at z = " in event.message:
@@ -235,14 +260,28 @@ def _compare(driver: Served, native: Served) -> None:
             assert where == pytest.approx(event.z, rel=1e-6)
 
 
+def _repeated(first: Served, second: Served) -> None:
+    """Require a native run to repeat itself bit for bit, on one thread."""
+    if not one_thread():
+        return
+    assert first.warnings == second.warnings
+    assert trace(first.run) == trace(second.run)
+    assert first.record == second.record
+
+
 def _both(simulation_of, *, period: int = 2, **serve: Any) -> tuple[Served, Served]:
+    """Serve the reference's session and the native session twice; return one of each.
+
+    The native session's second run must repeat its first (:func:`_repeated`).
+    """
     served = []
-    for kind in ("driver", "native"):
+    for kind in ("reference", "native", "native"):
         session = _start(simulation_of(), kind, period=period)
         try:
             served.append(_serve(session, **serve))
         finally:
             session.close()
+    _repeated(served[1], served[2])
     return served[0], served[1]
 
 
@@ -253,39 +292,43 @@ MARCHES = {"rk": RungeKutta, "adams": Multistep, "low-storage": LowStorageRungeK
 
 @pytest.mark.parametrize("march", sorted(MARCHES))
 @pytest.mark.parametrize("scheme", ["nonlinear", "split_step"])
-def test_a_walking_pulse_warns_and_stops_where_the_driver_does(march, scheme):
-    driver, native = _both(
+def test_a_walking_pulse_warns_and_stops_where_the_reference_does(march, scheme):
+    reference, native = _both(
         lambda: walker(1.2 * TRANGE, integrator=MARCHES[march](), scheme=scheme)
     )
-    _compare(driver, native)
+    _compare(reference, native)
     terminal = native.run.terminal
     assert terminal.outcome is Outcome.FAILED
     assert isinstance(terminal.error, BoundaryError)
-    assert str(terminal.error) == str(driver.run.terminal.error)
-    assert terminal.z == driver.run.terminal.z
+    assert type(reference.run.terminal.error) is type(terminal.error)
+    assert masked(str(terminal.error)) == masked(str(reference.run.terminal.error))
     assert native.warning_events, "the walk did not warn before it stopped"
 
 
 @pytest.mark.parametrize("march", sorted(MARCHES))
 def test_a_raised_warning_ends_the_run_at_its_endpoint(march):
-    driver, native = _both(
+    reference, native = _both(
         lambda: walker(0.47e-12, integrator=MARCHES[march]()), error=True
     )
-    terminal = driver.run.terminal
+    terminal = reference.run.terminal
     assert terminal.outcome is Outcome.FAILED
     assert isinstance(terminal.error, BoundaryWarning)
     assert native.raised is not None
     z, warning = native.raised
     assert terminal.error is not None
-    assert (z, _identity(warning)) == (terminal.z, _identity(terminal.error))
-    # The observations before it are the driver's.
-    assert trace(native.run) == trace(driver.run)[:-1]
+    assert type(warning) is type(terminal.error)
+    assert masked(str(warning)) == masked(str(terminal.error))
+    assert z == pytest.approx(terminal.z, rel=TERMINAL_RTOL)
+    # The observations before it are the reference's.
+    assert [(one.kind, one.plane_index) for one in native.run.observations] == [
+        (one.kind, one.plane_index) for one in reference.run.observations
+    ]
 
 
 @pytest.mark.parametrize("march", sorted(MARCHES))
-def test_a_clear_run_keeps_the_driver_s_record(march):
-    driver, native = _both(lambda: walker(0.1e-12, integrator=MARCHES[march]()))
-    _compare(driver, native)
+def test_a_clear_run_keeps_the_reference_s_record(march):
+    reference, native = _both(lambda: walker(0.1e-12, integrator=MARCHES[march]()))
+    _compare(reference, native)
     assert native.run.terminal.outcome is Outcome.COMPLETED
     assert native.record is not None
     assert native.record["steps"] + native.record["skipped"] > 0
@@ -293,17 +336,17 @@ def test_a_clear_run_keeps_the_driver_s_record(march):
 
 
 @pytest.mark.parametrize("march", sorted(MARCHES))
-def test_a_quiet_collar_rests_and_returns_as_the_driver_s_does(march):
+def test_a_quiet_collar_rests_and_returns_as_the_reference_s_does(march):
     # A pulse that starts clear and walks well into the collar, as in
     # ``tests/test_monitor.py``: the collar rests at first, its interval capping the
     # steps, and absorbs once light arrives.
     check = BoundaryCheck(budget=1.0, stop_factor=1.0, quiet_collar=True)
-    driver, native = _both(
+    reference, native = _both(
         lambda: walker(
             1.8 * TRANGE, trange=3 * TRANGE, check=check, integrator=MARCHES[march]()
         )
     )
-    _compare(driver, native)
+    _compare(reference, native)
     assert native.record is not None
     # The low-storage march keeps its collar in every pass (`_collar_can_rest`).
     rested = native.record["collar_left_out_checks"]
@@ -315,8 +358,8 @@ def test_the_final_removal_warns_before_completion():
     # A walk that the relaxed guards let leave the window: the collar removes it, and
     # the final check warns before the run completes.
     check = BoundaryCheck(budget=1e-3, stop_factor=1e3)
-    driver, native = _both(lambda: walker(0.9e-12, check=check))
-    _compare(driver, native)
+    reference, native = _both(lambda: walker(0.9e-12, check=check))
+    _compare(reference, native)
     assert native.run.terminal.outcome is Outcome.COMPLETED
     assert any("temporal collar removed" in str(one[1]) for one in native.warnings)
     last = native.warning_events[-1]
@@ -330,33 +373,32 @@ def test_the_final_removal_warns_before_completion():
 
 def test_a_raised_final_warning_is_a_failure_with_its_field():
     check = BoundaryCheck(budget=1e-3, stop_factor=1e3)
-    driver, native = _both(lambda: walker(0.9e-12, check=check), error=True)
-    terminal = driver.run.terminal
+    reference, native = _both(lambda: walker(0.9e-12, check=check), error=True)
+    terminal = reference.run.terminal
     assert terminal.outcome is Outcome.FAILED
     assert native.raised is not None
     assert terminal.error is not None
-    assert (native.raised[0], _identity(native.raised[1])) == (
-        terminal.z,
-        _identity(terminal.error),
-    )
+    assert type(native.raised[1]) is type(terminal.error)
+    assert masked(str(native.raised[1])) == masked(str(terminal.error))
+    assert native.raised[0] == pytest.approx(terminal.z, rel=TERMINAL_RTOL)
 
 
-def test_a_replay_the_light_outgrows_is_refused_where_the_driver_refuses():
-    driver, native = _both(spreading)
-    _compare(driver, native)
+def test_a_replay_the_light_outgrows_is_refused_where_the_reference_refuses():
+    reference, native = _both(spreading)
+    _compare(reference, native)
     terminal = native.run.terminal
     assert terminal.outcome is Outcome.FAILED
     assert isinstance(terminal.error, BoundaryError)
     assert "crossing limit fell to" in str(terminal.error)
-    assert str(terminal.error) == str(driver.run.terminal.error)
+    assert masked(str(terminal.error)) == masked(str(reference.run.terminal.error))
 
 
 @pytest.mark.parametrize("closing", [True, False])
-def test_a_resumed_monitor_continues_the_driver_s_record(closing):
+def test_a_resumed_monitor_continues_the_reference_s_record(closing):
     # The first execution runs to its second plane; both sessions then resume there
     # from its record, the native one reconstructing it natively.
     simulation = walker(0.3e-12, n_save=4)
-    first = _start(simulation, "driver")
+    first = _start(simulation, "reference")
     try:
         state = None
         record: dict[str, Any] = {}
@@ -382,7 +424,7 @@ def test_a_resumed_monitor_continues_the_driver_s_record(closing):
         record.pop("planes")
     z, field = state
     served = []
-    for kind in ("driver", "native"):
+    for kind in ("reference", "native"):
         start = Start(
             field=field,
             z=z,
@@ -395,8 +437,8 @@ def test_a_resumed_monitor_continues_the_driver_s_record(closing):
             served.append(_serve(session))
         finally:
             session.close()
-    driver, native = served
-    _compare(driver, native)
+    reference, native = served
+    _compare(reference, native)
     assert native.record is not None
     assert native.record["resumed_at"] == [z]
     assert native.record["steps"] > record["steps"]
@@ -406,10 +448,10 @@ def test_a_resumed_monitor_continues_the_driver_s_record(closing):
 def test_a_warned_step_s_row_follows_its_barrier_indexed_once(march):
     # A row every accepted step: the warned step's row is taken after its barrier, in
     # the next chunk, and still indexes that step's attempt in the assembled history.
-    driver, native = _both(
+    reference, native = _both(
         lambda: walker(1.2 * TRANGE, integrator=MARCHES[march]()), period=1
     )
-    _compare(driver, native)
+    _compare(reference, native)
     assert native.warning_events
     # A warning chunk's row indexes the chunk before it (-1): assembled, as the
     # service loop does, every row indexes its own step's attempt once.
@@ -491,14 +533,29 @@ def _saved(output: Any) -> dict[str, Any]:
 def test_a_monitored_native_session_runs_through_the_service_loop(
     drift, error, failure
 ):
-    # The loop serves the native session as it serves the driver's: the same planes
-    # and fields, the same warnings issued by the loop from the barriers, the same
-    # failure and the same monitor record in the run's execution record.
-    driver = _through_serve(walker(drift), "driver", error=error)
+    # The loop serves the native session as it serves the reference's: the same
+    # planes, the same warnings issued by the loop from the barriers, the same failure
+    # and a monitor record in the run's execution record; and on one thread the native
+    # run's output repeats itself bit for bit.
+    reference = _through_serve(walker(drift), "reference", error=error)
     native = _through_serve(walker(drift), "native", error=error)
-    assert native[1] == driver[1]
+    again = _through_serve(walker(drift), "native", error=error)
+    assert [(one[0], masked(str(one[1]))) for one in native[1]] == [
+        (one[0], masked(str(one[1]))) for one in reference[1]
+    ]
     assert isinstance(native[2], failure)
-    assert (type(native[2]), str(native[2])) == (type(driver[2]), str(driver[2]))
-    saved = _saved(native[0])
-    assert saved == _saved(driver[0])
+    assert type(native[2]) is type(reference[2])
+    assert masked(str(native[2])) == masked(str(reference[2]))
+    saved, expected = _saved(native[0]), _saved(reference[0])
+    assert saved["status"] == expected["status"]
     assert saved["status"] == ("complete" if failure is type(None) else "failed")
+    assert len(saved["z"]) == len(expected["z"])
+    np.testing.assert_allclose(saved["z"], expected["z"], rtol=TERMINAL_RTOL)
+    assert record_layout(saved["monitor"]) == record_layout(expected["monitor"])
+    fields = np.asarray(native[0].fields("fft"))
+    oracle = np.asarray(reference[0].fields("fft"))
+    np.testing.assert_allclose(
+        fields, oracle, rtol=0.0, atol=PLANE_RTOL * float(np.max(np.abs(oracle)))
+    )
+    if one_thread():
+        assert saved == _saved(again[0])

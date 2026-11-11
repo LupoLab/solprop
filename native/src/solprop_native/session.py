@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The native execution session, solprop SEP 47's run owner in C++ (prototype).
+"""The native execution session, solprop SEP 47's run owner in C++.
 
 :class:`NativeSession` implements solprop's
 :class:`~solprop.backends.session.RunSession` over ``_core.Session``, the native
@@ -16,14 +16,12 @@ lowering (the native problem, the stage tables and the CPU execution record), tu
 each batch's compact records into :mod:`solprop.backends.events` types, and fills
 export destinations through the native recipe. It keeps no numerical state.
 
-Production runs on a native backend use it whenever it admits the run: the backend's
-prepared execution (:class:`NativePrepared`, from ``NativeBackend.prepare``, which
+Every run on a native backend uses it: the backend's prepared execution
+(:class:`NativePrepared`, from ``NativeBackend.prepare``, which
 :func:`solprop.backends.sessions.start_session` starts) opens a :class:`NativeSession`
-then, and what it refuses runs on
-:class:`~solprop.backends.driver_session.DriverSession` over the backend's own march,
-the reason logged at debug level (:func:`session_refusal`).
-It admits a subset and refuses every other feature by name before allocating anything
-(:func:`refusal`, and :func:`backend_refusal` once the backend is built):
+for each start; there is no other native executor (SEP 47 phase 5). It admits the
+following and refuses every other feature by name before allocating anything
+(:func:`refusal`, and the backend where it is built):
 
 - the native CPU build; Adams (``Multistep``) and the embedded Runge-Kutta tableaux,
   adaptive or replayed, on the routes the resident engines march without a host
@@ -64,16 +62,16 @@ It admits a subset and refuses every other feature by name before allocating any
   native monitor and the draw's readings by the native transverse edge, and the noise
   phase at each plane, formed on the host or, for a z table's propagator phase, read
   from its slot in the leased state;
-- no group; and no comparison method, controller that overrides a decision or TDSE
-  response, which the backend refuses by name where it is built, before it allocates
-  (SEP 47 section 6.3), so that no session, native or transitional, runs them.
+- no group (:mod:`solprop_native.group` runs one native session per member); and no
+  comparison method, controller that overrides a decision or TDSE response, which the
+  backend refuses by name where it is built, before it allocates (SEP 47 section
+  6.3).
 """
 
 from __future__ import annotations
 
 import dataclasses
 import itertools
-import logging
 import math
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
@@ -81,7 +79,6 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 import numpy.typing as npt
 from solprop._interrupts import committing
-from solprop.backends.driver_session import DriverPrepared
 from solprop.backends.events import (
     Eligibility,
     EventBatch,
@@ -109,6 +106,7 @@ from solprop.backends.session import (
     SnapshotReceipt,
     statistics_unavailable,
 )
+from solprop.backends.session_core import check_preparation
 from solprop.backends.spatial import FarFieldTables
 from solprop.exceptions import (
     BackendError,
@@ -149,7 +147,6 @@ from .backend import (
     _low_storage_payload,  # pyright: ignore[reportPrivateUsage]
     _NativeRungeKuttaMarch,  # pyright: ignore[reportPrivateUsage]
     _on_device,  # pyright: ignore[reportPrivateUsage]
-    native_march_refusal,
 )
 
 if TYPE_CHECKING:
@@ -173,12 +170,8 @@ __all__ = [
     "ADMITTED_STATISTICS",
     "NativePrepared",
     "NativeSession",
-    "backend_refusal",
     "refusal",
-    "session_refusal",
 ]
-
-logger = logging.getLogger(__name__)
 
 CALL_ATTEMPTS = 256
 """A march call's most attempts, as the driver's native marches bound them (SEP 39)."""
@@ -229,15 +222,14 @@ _LEDGER_COUNTERS = (
 def refusal(
     problem: PropagationProblem, request: RunRequest, start: Start | None = None
 ) -> str | None:
-    """Return why the prototype session refuses a run, naming the feature, or ``None``.
+    """Return why the native session refuses a run, naming the feature, or ``None``.
 
     Decided from the problem, the request and the start alone, before anything is
-    allocated. A march the backend itself would step on the host is refused once the
-    backend is built (:class:`NativeSession`). What native runs on no session -- a
-    comparison method, a controller that overrides a decision, a TDSE response -- the
-    backend refuses by name where it is built (``NativeBackend``), still before any
-    native state; a session built without a backend reaches that refusal only after
-    these checks, which may name another feature first.
+    allocated: the statistics the session does not evaluate. Everything else native
+    does not run -- a comparison method, a controller that overrides a decision, a
+    TDSE response, a coupled flow beside the interaction formulation, stage rows the
+    native tables do not read -- the backend refuses by name where it is built
+    (``NativeBackend``), still before any native state (SEP 47 section 6.3).
 
     Parameters
     ----------
@@ -253,43 +245,7 @@ def refusal(
     str or None
         The reason, or ``None`` when the session admits the run.
     """
-    if not isinstance(request.integration.method, LowStorageRungeKutta):
-        march = native_march_refusal(problem, request.stepper)
-        if march is not None:
-            return march
     return _statistics_refusal(problem, request.observation.stats)
-
-
-def backend_refusal(backend: NativeBackend) -> str | None:
-    """Return why a built backend would step its march on the host, or ``None``.
-
-    :func:`refusal` decides before the backend is built; the backend's own march
-    adapter decides once it is, from the engine it was given and its test interface
-    (``_ADAMS_MARCH``, ``_RK_MARCH``, ``_RK_ROWS``, or stage tables a test withholds;
-    solprop SEP 47 section 6.3 retires them as production modes). A run either
-    refuses is served by the transitional session over the backend's own march, never
-    by this one. Nothing about the run changes, but a Runge-Kutta or low-storage
-    backend asked for the first time uploads its stage tables to the native state
-    (``NativeBackend._staged_rows``), as its march would on its first trial.
-
-    Parameters
-    ----------
-    backend : solprop_native.backend.NativeBackend
-        The backend, built for the run's problem.
-
-    Returns
-    -------
-    str or None
-        The reason, or ``None`` when the native session can run the march.
-    """
-    driver = NativeSession._driver(backend)  # pyright: ignore[reportPrivateUsage]
-    integrator = driver._stepper.integrator
-    if isinstance(integrator, Multistep):
-        return cast("str | None", driver._adams.refusal)
-    if isinstance(integrator, LowStorageRungeKutta):
-        return None if driver._staged_rows() else "stage rows the host forms"
-    refused, _ = _NativeRungeKuttaMarch.refusal(backend)
-    return refused
 
 
 def _diverged(
@@ -421,10 +377,9 @@ class NativeSession:
     Raises
     ------
     solprop.exceptions.BackendError
-        Naming the feature the prototype refuses, before anything is allocated, or
-        the built backend refuses (:func:`backend_refusal`), before the start's field
-        is taken; or if `backend` was built for another problem, or with context given
-        beside it.
+        Naming the feature the session or the backend refuses, before anything is
+        allocated; or if `backend` was built for another problem, or with context
+        given beside it.
     """
 
     def __init__(
@@ -443,7 +398,7 @@ class NativeSession:
         owns: bool = True,
         started: Callable[[float, float, int], None] | None = None,
     ) -> None:
-        """Refuse what the prototype does not admit, then prepare and start it."""
+        """Refuse what the session does not admit, then prepare and start it."""
         refused = refusal(problem, request, start)
         if refused is not None:
             msg = f"the native session does not run {refused}"
@@ -542,12 +497,6 @@ class NativeSession:
             )
         self._backend: NativeBackend | None = backend
         try:
-            # The built backend's own admission, before the start's field is taken: a
-            # march it would step on the host.
-            refused = backend_refusal(backend)
-            if refused is not None:
-                msg = f"the native session does not run {refused}"
-                raise BackendError(msg)
             kind, state = self._prepare(backend, start)
             self._native = backend._native_state.start_session(  # pyright: ignore[reportPrivateUsage]
                 kind, state, self._plan(start), float(start.z)
@@ -640,8 +589,8 @@ class NativeSession:
         Raises
         ------
         solprop.exceptions.BackendError
-            If the backend's own admission disagrees with :func:`refusal`'s, which
-            decided before it was built.
+            If the backend would step the march on the host, which its admission
+            refuses where it is built; a defence, reached by no admitted run.
         """
         driver = self._driver(backend)
         integrator = self._stepper.integrator
@@ -656,7 +605,7 @@ class NativeSession:
         # last input) rests it in the native state alone. The session starts with it in.
         driver._collar_changed()
         # A resume's ledgers, then its method history after the field, which resets
-        # it (`DriverSession`): the march's state below is the restored one.
+        # it: the march's state below is the restored one.
         if start.ledgers is not None:
             driver.restore_call_ledgers(
                 start.ledgers.get("logical", {}), start.ledgers.get("atomic", {})
@@ -1524,8 +1473,8 @@ class NativeSession:
         When a batch is pending, the ticket is bound to it (:meth:`pending_ticket`);
         when none is, after an acknowledgment, the native session issues a failed
         terminal batch at its committed state, so that the state can be exported for a
-        terminal checkpoint and nothing advances again, as
-        :meth:`solprop.backends.driver_session.DriverSession.pending_ticket` does. The
+        terminal checkpoint and nothing advances again, as the reference's
+        :meth:`solprop.backends.host.session.HostSession.pending_ticket` does. The
         service loop's fallback for a failure between batches (a service failure, a
         signal); a session that never issued a batch has nothing to bind it to.
 
@@ -2075,52 +2024,21 @@ class NativeSession:
         return RuntimeError(event.message or "the native session failed")
 
 
-def session_refusal(
-    backend: NativeBackend,
-    problem: PropagationProblem,
-    request: RunRequest,
-    start: Start,
-) -> str | None:
-    """Return why the native session does not serve a run on a backend, or ``None``.
-
-    The prepared execution's choice (:class:`NativePrepared`): a subclass of the
-    backend, which the session does not adopt, what :func:`refusal` refuses before
-    the backend is built and what :func:`backend_refusal` refuses once it is. A test
-    that forces the transitional session replaces this function.
-
-    Parameters
-    ----------
-    backend : solprop_native.backend.NativeBackend
-        The built backend.
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
-    request : solprop.translate.run_request.RunRequest
-        The run's request.
-    start : solprop.backends.session.Start
-        Where the run starts.
-
-    Returns
-    -------
-    str or None
-        The reason, or ``None`` when the native session runs it.
-    """
-    if type(backend) is not NativeBackend:
-        return f"a {type(backend).__name__}, which the native session does not adopt"
-    return refusal(problem, request, start) or backend_refusal(backend)
-
-
-class NativePrepared(DriverPrepared):
+class NativePrepared:
     """The native backend's prepared execution (SEP 47 section 5.2).
 
-    Each start opens a :class:`NativeSession` over the backend whenever it admits the
-    run, and the transitional
-    :class:`~solprop.backends.driver_session.DriverSession` over the backend's own
-    march otherwise; the reason is kept as :attr:`refused` and logged at debug level.
+    The backend was built for the problem and a request -- it lowered the method, the
+    error control, the itinerary, the planes and the statistics then -- so preparing
+    binds the problem and the request one run serves, a request that differs from the
+    backend's own only in its start, retention, monitor and history
+    (:meth:`~solprop.translate.run_request.RunRequest.for_run`). Each :meth:`start`
+    opens one :class:`NativeSession` over the backend, which refuses by name what it
+    does not run.
 
     Parameters
     ----------
     driver : solprop_native.backend.NativeBackend
-        The constructed backend.
+        The constructed backend; it stays its caller's unless a session owns it.
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
@@ -2137,21 +2055,44 @@ class NativePrepared(DriverPrepared):
 
         Raises
         ------
+        solprop.backends.session.SessionError
+            If the request is not one run of the backend's own
+            (:func:`~solprop.backends.session_core.foreign_request`).
         solprop.exceptions.BackendError
-            Naming a varying metric's statistics, which native refuses on every
-            session rather than leave to the transitional one
-            (:func:`~solprop_native._statistics.metric_refusal`).
+            If the request asks for statistics the problem does not carry
+            (:func:`~solprop.backends.session.statistics_unavailable`), or naming a
+            varying metric's statistics
+            (:func:`~solprop_native._statistics.metric_refusal`), or if the backend
+            is a subclass, whose overrides the native session would not call.
         """
-        super().__init__(driver, problem, request)
+        check_preparation(driver.name, driver.request, problem, request)
+        if type(driver) is not NativeBackend:
+            msg = (
+                f"native cannot prepare this run: the native session runs "
+                f"NativeBackend itself, not the subclass {type(driver).__name__}, "
+                "whose overrides it would not call"
+            )
+            raise BackendError(msg)
         stats = request.observation.stats
         refused = metric_refusal(problem, (*stats.names, *stats.periodic))
         if refused is not None:
             msg = f"native cannot prepare this run: native refuses {refused}"
             raise BackendError(msg)
-        self._native_backend = driver
-        self.refused: str | None = None
-        """Why the last start ran on the transitional session; ``None`` on the native
-        one."""
+        self._backend = driver
+        self._problem = problem
+        self._request = request
+        self._closed = False
+
+    @property
+    def backend(self) -> str:
+        """Return the registered name of the backend that prepared it.
+
+        Returns
+        -------
+        str
+            The backend's registered name.
+        """
+        return self._backend.name
 
     def start(
         self,
@@ -2162,7 +2103,7 @@ class NativePrepared(DriverPrepared):
         stop: StopFlag | None = None,
         owns: bool = True,
     ) -> RunSession:
-        """Start the native session, or the transitional one where it refuses.
+        """Start the native session from an initial state or a checkpoint.
 
         Parameters
         ----------
@@ -2192,25 +2133,44 @@ class NativePrepared(DriverPrepared):
         if self._closed:
             msg = "the prepared execution is closed"
             raise SessionError(msg)
-        refused = session_refusal(
-            self._native_backend, self._problem, self._request, start
+        return NativeSession(
+            self._problem,
+            self._request,
+            start,
+            stop=stop,
+            listener=listener,
+            backend=self._backend,
+            owns=owns,
+            started=started,
         )
-        self.refused = refused
-        if refused is None:
-            return NativeSession(
-                self._problem,
-                self._request,
-                start,
-                stop=stop,
-                listener=listener,
-                backend=self._native_backend,
-                owns=owns,
-                started=started,
-            )
-        logger.debug(
-            "the native session does not run %s; the transitional session runs it",
-            refused,
-        )
-        return super().start(
-            start, listener=listener, started=started, stop=stop, owns=owns
-        )
+
+    def metadata(self) -> Mapping[str, object]:
+        """Return the execution metadata recorded with the run.
+
+        Returns
+        -------
+        collections.abc.Mapping
+            The backend's own (:meth:`solprop.backends.protocol.Backend.metadata`).
+        """
+        return self._backend.metadata()
+
+    def memory_ledger(self) -> Mapping[str, int]:
+        """Return every retained buffer by name, bytes.
+
+        Returns
+        -------
+        collections.abc.Mapping
+            The backend's ledger.
+        """
+        return self._backend.memory_ledger()
+
+    def close(self) -> None:
+        """Refuse further starts and close the backend it was prepared on; idempotent.
+
+        A caller that keeps the backend for later runs leaves the preparation open: a
+        session it started with ``owns=False`` never closes the backend.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        self._backend.close()

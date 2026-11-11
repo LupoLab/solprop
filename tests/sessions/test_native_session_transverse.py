@@ -2,22 +2,20 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The native session's own transverse edge against the driver's, end to end.
+"""The native session's own transverse edge against the reference's, end to end.
 
 SEP 47 section 6.4: the native session owns a free-space run's transverse edge (SEP 40
 section 5.3) as it owns the temporal monitor, and Python only formats what it reports.
-Here an edged run goes through the native session and through the transitional
-:class:`~solprop.backends.driver_session.DriverSession` over the native backend, whose
-solprop edge judges the same native readings of the same strict marches: the warnings
-must be the same, at the same positions, the stops the same, the attempts and planes
-the same, and the records the same. Both sides make the same scalar decisions on the
-same readings, so they agree exactly, but for the three reductions that are each
-backend's reading (``transverse.hpp``): the safety ramp's removal and the launch's
-share in its band, which the native edge sums in order and solprop pairwise, and with
-the input noise the ramp's removal of the noise, summed likewise. Those
-fields of the record are held to the bound of
-``tests/backends/test_transverse_owner.py``; the recorded-readings harness there holds
-the two edges to each other apart from any run.
+Here an edged run goes through the native session and through the NumPy reference's
+session, whose solprop edge judges the same problem. The two backends round
+differently and so take different steps (SEP 25), and the edge reads on its own
+spacing from their states: the two are held to the same decisions -- the same
+warnings in order and in kind, the same outcome and failure, the same planes, their
+statistics and positions to :data:`PLANE_RTOL`, and the same record layout -- and the
+native session, on one thread, to its own run bit for bit. Both sides make the same
+scalar decisions on the same readings, which the recorded-readings harness
+(``tests/backends/test_transverse_owner.py``) holds apart from any run, with the three
+reductions that are each backend's reading (``transverse.hpp``) to their bound there.
 
 A warning is a service barrier (:class:`~solprop.backends.events.ServiceRequired`),
 each of a point's warnings its own; a collar's current is taken at every committed
@@ -26,17 +24,23 @@ step with no return to Python.
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import numpy as np
 import pytest
 
 from backends.test_transverse_backends import radial_collar
-from sessions.executors import device_build, trace
-from sessions.test_native_session_monitor import IDENTITY, Served, _identity, _serve
-from solprop.backends.driver_session import DriverSession
+from sessions.executors import (
+    assert_close_trace,
+    device_build,
+    masked,
+    one_thread,
+    record_layout,
+    trace,
+)
+from sessions.test_native_session_monitor import IDENTITY, Served, _serve
 from solprop.backends.events import ObservationReady, Outcome, ServiceRequired
+from solprop.backends.host.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.driver import Simulation
@@ -49,17 +53,6 @@ from test_transverse_reads import REREVIEW, packet_run
 native_session = pytest.importorskip("solprop_native.session")
 
 _counters = pytest.importorskip("solprop_native._counters")
-
-U = 2.0**-53
-"""The unit roundoff of binary64."""
-
-READINGS = (
-    "ramp_removed",
-    "raw_ramp_removed",
-    "noise_ramp_removed",
-    "declared_share_in_ramp",
-)
-"""The edge record's fields formed from a reduction that is each backend's reading."""
 
 MARCHES = {"rk": RungeKutta, "adams": Multistep}
 
@@ -88,49 +81,36 @@ def _start(
         "modes": simulation.modes,
         "profiles": simulation.profiles,
     }
-    if kind == "driver":
-        return DriverSession(
-            select("native", problem, request, **context), problem, request, start
+    if kind == "reference":
+        return HostSession(
+            select("numpy_ref", problem, request, **context), problem, request, start
         )
     return native_session.NativeSession(problem, request, start, **context)
 
 
 def _both(simulation_of: Any, **serve: Any) -> tuple[Served, Served]:
+    """Serve the reference's session and the native session twice; return one of each.
+
+    On one thread the native session's second run repeats its first bit for bit.
+    """
     served = []
-    for kind in ("driver", "native"):
+    for kind in ("reference", "native", "native"):
         session = _start(simulation_of(), kind)
         try:
             served.append(_serve(session, **serve))
         finally:
             session.close()
+    if one_thread():
+        first, second = served[1], served[2]
+        assert first.warnings == second.warnings
+        assert trace(first.run) == trace(second.run)
+        assert first.record == second.record
     return served[0], served[1]
 
 
-def _edge_bound(record: dict[str, Any], columns: int) -> float:
-    """Return the bound on a reading field's difference: the ramp's sums (above)."""
-    reads = int(record["reads"])
-    scale = (
-        abs(float(record["raw_ramp_removed"]))
-        + abs(float(record["noise_ramp_removed"]))
-        + abs(float(record["declared_share_in_ramp"]))
-    )
-    order = columns - 1 + math.ceil(math.log2(max(columns, 2)))
-    return (order + 2 * reads + 12) * U * scale
-
-
-SPLIT_FLOOR = ("removed_fraction", "removed_signed", "floor_removed_fraction")
-"""The temporal record's fields that hold the input floor's share of a split step's
-removal, ``sum_t (1 - exp(-alpha(t) h))``, which the native monitor sums in order and
-solprop pairwise (``watch.hpp``)."""
-
-
-def _floor_delta(n_t: int, steps: int) -> float:
-    """Return the relative bound on a split floor share after `steps` accepted steps.
-
-    ``tests/backends/test_monitor_owner.py``'s: each step's sum over the ``n_t``
-    samples, in order against pairwise, and its accumulation over the steps.
-    """
-    return (n_t + math.ceil(math.log2(n_t)) + 2 * steps + 4) * U
+PLANE_RTOL = 1e-6
+"""How closely the native planes, their statistics and a stopping endpoint follow the
+reference's, each backend taking its own steps under the controller's tolerance."""
 
 
 def _samples(simulation: Simulation) -> int:
@@ -140,68 +120,27 @@ def _samples(simulation: Simulation) -> int:
     return int(monitor.weights.shape[1])
 
 
-def _steps_at(run: Any) -> dict[float, int]:
-    """Return the accepted steps a run took up to each of its observations."""
-    steps = 0
-    found: dict[float, int] = {}
-    for event, history, _ in run.assembled():
-        steps += int(np.count_nonzero(history.accepted))
-        if isinstance(event, ObservationReady):
-            found[float(event.z)] = steps
-    return found
-
-
 def _compare(
-    driver: Served, native: Served, columns: int, *, samples: int | None = None
+    reference: Served, native: Served, columns: int, *, samples: int | None = None
 ) -> None:
-    """Require the same trace, warnings, outcome and records.
+    """Require the reference's decisions, outcome, planes and record layout.
 
-    With the monitor's time `samples`, a noisy split run's floor fields
-    (:data:`SPLIT_FLOOR`) are held to their bound at the run's steps and scale, and
-    each plane's removal to its bound at that plane's steps on the scale of the
-    floor share its removal subtracts, at most ``min(floor_removed, noise_floor)``;
-    the rest of the temporal record exactly.
+    `columns` and `samples` are the edge's and the monitor's sum lengths, which bound
+    the readings each backend reduces in its own order when both take the same steps
+    (``tests/backends/test_transverse_owner.py``); against the reference, which takes
+    its own, the readings are not compared.
     """
-    assert native.warnings == driver.warnings
-    assert trace(native.run) == trace(driver.run)
-    assert native.record is not None and driver.record is not None
-    expected, got = dict(driver.record), dict(native.record)
-    assert list(got) == list(expected)
-    edge, edge_expected = got.pop("transverse"), expected.pop("transverse")
-    if samples is not None:
-        floor = abs(float(expected["floor_removed_fraction"]))
-        bound = _floor_delta(samples, int(expected["steps"])) * floor
-        for name in SPLIT_FLOOR:
-            assert got.pop(name) == pytest.approx(
-                expected.pop(name), rel=0.0, abs=bound
-            ), name
-        # The removal subtracts at most the floor itself from the raw removal, which
-        # both sides record exactly.
-        share = min(floor, abs(float(expected["noise_floor"])))
-        steps = _steps_at(driver.run)
-        # A continued record counts the earlier execution's steps, and holds its
-        # planes, before any of this run's.
-        earlier = int(expected["steps"]) - max(steps.values(), default=0)
-        planes, planes_expected = got.pop("planes"), expected.pop("planes")
-        assert list(planes) == list(planes_expected)
-        for name, values in planes_expected.items():
-            if name != "removed_fraction":
-                assert planes[name] == values, name
-                continue
-            for z, value, found in zip(
-                planes_expected["z"], values, planes[name], strict=True
-            ):
-                taken = earlier + steps.get(float(z), 0)
-                at = _floor_delta(samples, taken) * share
-                assert found == pytest.approx(value, rel=0.0, abs=at), z
-    assert got == expected
-    assert list(edge) == list(edge_expected)
-    bound = _edge_bound(edge_expected, columns)
-    for name, value in edge_expected.items():
-        if name in READINGS:
-            assert edge[name] == pytest.approx(value, rel=0.0, abs=bound), name
-        else:
-            assert edge[name] == value, name
+    del columns, samples
+    assert [(one[0], masked(str(one[1]))) for one in native.warnings] == [
+        (one[0], masked(str(one[1]))) for one in reference.warnings
+    ]
+    assert_close_trace(native.run, reference.run, rtol=PLANE_RTOL)
+    assert native.record is not None and reference.record is not None
+    assert record_layout(native.record) == record_layout(reference.record)
+    edge, expected = native.record["transverse"], reference.record["transverse"]
+    assert (edge["reads"] > 0) is (expected["reads"] > 0)
+    for name in ("noise_allowance", "launch_energy"):
+        assert edge[name] == pytest.approx(expected[name], rel=PLANE_RTOL), name
 
 
 def _columns(simulation: Simulation) -> int:
@@ -212,24 +151,23 @@ def _columns(simulation: Simulation) -> int:
 
 
 @pytest.mark.parametrize("march", sorted(MARCHES))
-def test_the_packet_stops_where_the_driver_stops_it(march):
+def test_the_packet_stops_where_the_reference_stops_it(march):
     def simulation() -> Simulation:
         return packet_run(REREVIEW, integrator=MARCHES[march](), backend="native")
 
-    driver, native = _both(simulation)
-    _compare(driver, native, _columns(simulation()))
+    reference, native = _both(simulation)
+    _compare(reference, native, _columns(simulation()))
     terminal = native.run.terminal
     assert terminal.outcome is Outcome.FAILED
     assert isinstance(terminal.error, BoundaryError)
     assert "reached the transverse edge" in str(terminal.error)
-    assert str(terminal.error) == str(driver.run.terminal.error)
-    assert terminal.z == driver.run.terminal.z
+    assert masked(str(terminal.error)) == masked(str(reference.run.terminal.error))
     assert native.record is not None
     assert native.record["transverse"]["transverse_status"] == "stopped"
 
 
 @pytest.mark.parametrize("march", sorted(MARCHES))
-def test_a_relaxed_packet_is_read_on_the_driver_s_spacing(march):
+def test_a_relaxed_packet_is_read_on_the_reference_s_spacing(march):
     def simulation() -> Simulation:
         return packet_run(
             REREVIEW,
@@ -239,8 +177,8 @@ def test_a_relaxed_packet_is_read_on_the_driver_s_spacing(march):
             backend="native",
         )
 
-    driver, native = _both(simulation)
-    _compare(driver, native, _columns(simulation()))
+    reference, native = _both(simulation)
+    _compare(reference, native, _columns(simulation()))
     assert native.run.terminal.outcome is Outcome.COMPLETED
     assert native.record is not None
     edge = native.record["transverse"]
@@ -264,8 +202,8 @@ def test_a_replay_is_coarse_and_read_at_its_own_steps():
             backend="native",
         )
 
-    driver, native = _both(simulation)
-    _compare(driver, native, _columns(simulation()))
+    reference, native = _both(simulation)
+    _compare(reference, native, _columns(simulation()))
     assert native.record is not None
     assert native.record["transverse"]["transverse_status"] == "coarse"
     first = native.warning_events[0]
@@ -275,8 +213,8 @@ def test_a_replay_is_coarse_and_read_at_its_own_steps():
 
 @pytest.mark.parametrize("march", sorted(MARCHES))
 def test_a_requested_collar_s_current_is_taken_natively_at_every_step(march):
-    driver, native = _both(lambda: radial_collar("native", MARCHES[march]()))
-    _compare(driver, native, 48)
+    reference, native = _both(lambda: radial_collar("native", MARCHES[march]()))
+    _compare(reference, native, 48)
     assert native.record is not None
     edge = native.record["transverse"]
     assert edge["spatial_removed"] > 0.0
@@ -284,14 +222,11 @@ def test_a_requested_collar_s_current_is_taken_natively_at_every_step(march):
 
 
 @pytest.mark.parametrize("march", sorted(MARCHES))
-def test_the_input_noise_beside_a_collar_is_judged_as_the_driver_judges_it(march):
+def test_the_input_noise_beside_a_collar_is_judged_as_the_reference_judges_it(march):
     """The input draw's readings -- its allowance, its columns in the reach and the
     ramp, a collar's strip floor -- are formed on the host once, as solprop's edge
-    forms them at its launch, and carried by the native launch: the run is the
-    driver's, its record too but for the ramp's sums (above). On a device build the
-    split floor's share (:data:`SPLIT_FLOOR`) is held to its bound too: the native
-    monitor sums it in order and solprop pairwise, which a device's readings round
-    apart in the last bit where a CPU build's happen to agree.
+    forms them at its launch, and carried by the native launch: the run makes the
+    reference's decisions, with the same allowance (:func:`_compare`).
     """
 
     def simulation() -> Simulation:
@@ -300,9 +235,9 @@ def test_the_input_noise_beside_a_collar_is_judged_as_the_driver_judges_it(march
     problem, request = _prepared(simulation())
     assert problem.initial.noise_model == "input"
     assert native_session.refusal(problem, request) is None
-    driver, native = _both(simulation)
+    reference, native = _both(simulation)
     samples = _samples(simulation()) if device_build() else None
-    _compare(driver, native, 48, samples=samples)
+    _compare(reference, native, 48, samples=samples)
     assert native.record is not None
     edge = native.record["transverse"]
     assert edge["noise_allowance"] > 0.0
@@ -311,11 +246,9 @@ def test_the_input_noise_beside_a_collar_is_judged_as_the_driver_judges_it(march
 
 
 @pytest.mark.parametrize("march", sorted(MARCHES))
-def test_a_noisy_packet_is_read_as_the_driver_reads_it(march):
+def test_a_noisy_packet_is_read_as_the_reference_reads_it(march):
     """A free-space packet launched with the input noise, relaxed and read to the end:
-    the run is the driver's, its edge record too but for the ramp's sums, and its
-    temporal record but for the split floor's share (:data:`SPLIT_FLOOR`), each
-    within its bound.
+    the run makes the reference's decisions, with the same allowance.
     """
 
     def simulation() -> Simulation:
@@ -328,9 +261,9 @@ def test_a_noisy_packet_is_read_as_the_driver_reads_it(march):
             noise="input",
         )
 
-    driver, native = _both(simulation)
-    _compare(driver, native, _columns(simulation()), samples=_samples(simulation()))
-    assert native.run.terminal.outcome is driver.run.terminal.outcome
+    reference, native = _both(simulation)
+    _compare(reference, native, _columns(simulation()), samples=_samples(simulation()))
+    assert native.run.terminal.outcome is reference.run.terminal.outcome
     assert native.record is not None
     assert native.record["transverse"]["noise_allowance"] > 0.0
     assert native.record["floor_removed_fraction"] > 0.0
@@ -381,15 +314,19 @@ def test_a_raised_warning_ends_the_run_at_its_endpoint(march):
     def simulation() -> Simulation:
         return packet_run(REREVIEW, integrator=MARCHES[march](), backend="native")
 
-    driver, native = _both(simulation, error=True)
-    terminal = driver.run.terminal
+    reference, native = _both(simulation, error=True)
+    terminal = reference.run.terminal
     assert terminal.outcome is Outcome.FAILED
     assert isinstance(terminal.error, BoundaryWarning)
     assert native.raised is not None
     z, warning = native.raised
     assert terminal.error is not None
-    assert (z, _identity(warning)) == (terminal.z, _identity(terminal.error))
-    assert trace(native.run) == trace(driver.run)[:-1]
+    assert type(warning) is type(terminal.error)
+    assert masked(str(warning)) == masked(str(terminal.error))
+    assert z == pytest.approx(terminal.z, rel=PLANE_RTOL)
+    assert [(one.kind, one.plane_index) for one in native.run.observations] == [
+        (one.kind, one.plane_index) for one in reference.run.observations
+    ]
 
 
 @pytest.mark.parametrize(
@@ -397,7 +334,7 @@ def test_a_raised_warning_ends_the_run_at_its_endpoint(march):
     [(None, True), ("input", True), ("input", False)],
     ids=["quiet", "noisy", "noisy-restart"],
 )
-def test_a_resumed_edge_continues_the_driver_s_record(noise, continued):
+def test_a_resumed_edge_continues_the_reference_s_record(noise, continued):
     # The first execution runs to its first plane; both sessions then resume there
     # from its record, the native one reconstructing the edge's natively. A noisy
     # run's resumed launch carries the draw's readings, which its reads judge above;
@@ -413,7 +350,7 @@ def test_a_resumed_edge_continues_the_driver_s_record(noise, continued):
             noise=noise,
         )
 
-    first = _start(simulation(), "driver")
+    first = _start(simulation(), "reference")
     state = None
     record: dict[str, Any] = {}
     try:
@@ -439,7 +376,7 @@ def test_a_resumed_edge_continues_the_driver_s_record(noise, continued):
     z, field = state
     served = []
     crossings = []
-    for kind in ("driver", "native"):
+    for kind in ("reference", "native"):
         start = Start(
             field=field,
             z=z,
@@ -459,15 +396,15 @@ def test_a_resumed_edge_continues_the_driver_s_record(noise, continued):
             crossings.append(counters.record()["field_crossings"])
         finally:
             _counters.disable()
-    driver, native = served
+    reference, native = served
     # A restart's launch is judged on the loaded state less the draw, which crosses
-    # once on either side; a continued record's launch is not judged, and nothing
-    # crosses for it.
-    assert crossings[1] == crossings[0]
+    # once; a continued record's launch is not judged, and nothing crosses for it.
     if continued:
         assert crossings[1] == {}
+    else:
+        assert sum(crossings[1].values()) == 1, crossings[1]
     samples = None if noise is None else _samples(simulation())
-    _compare(driver, native, _columns(simulation()), samples=samples)
+    _compare(reference, native, _columns(simulation()), samples=samples)
     assert native.record is not None
     edge = native.record["transverse"]
     if continued:

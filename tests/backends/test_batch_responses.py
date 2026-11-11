@@ -7,7 +7,10 @@
 The three problem builders below are backend-agnostic
 :class:`~solprop.translate.problem.PropagationProblem` constructions, small enough
 (``n_to <= 64``, eight fixed steps) that a batch and its members can be compared
-directly on every backend the batch runner supports, within a rounding budget.
+directly on every backend the batch runner supports, within a rounding budget: the
+reference's lockstep group. The native backend's group runs each member as its own
+native session (``solprop_native.group``), held to the member run alone in
+``tests/sessions/test_native_group.py``.
 """
 
 import dataclasses
@@ -214,29 +217,23 @@ def compare(  # noqa: PLR0913 - the run, the backend and what is compared
         assert runner.memory_ledger() == {}
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref"])
 @pytest.mark.parametrize("route", ["scalar", "product", "rows"])
 def test_modal_batches_preserve_members(modal_case, backend, route):
-    if backend == "native":
-        pytest.importorskip("solprop_native")
     compare(*modal_problem(modal_case, route), modal_case[0], backend)
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref"])
 @pytest.mark.parametrize(
     ("kind", "plasma"), [("envelope", False), ("field", False), ("field", True)]
 )
 def test_raman_and_plasma_batches_preserve_members(backend, kind, plasma):
-    if backend == "native":
-        pytest.importorskip("solprop_native")
     grid, problem, run_request = scalar_raman_problem(kind, plasma)
     compare(problem, run_request, grid, backend)
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref"])
 def test_plasma_batches_preserve_species_statistics(backend):
-    if backend == "native":
-        pytest.importorskip("solprop_native")
     grid, problem, run_request = scalar_plasma_problem(2, 0.125, True)
     compare(
         problem,

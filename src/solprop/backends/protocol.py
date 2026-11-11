@@ -406,7 +406,7 @@ class Observation:
         state array, frozen and left behind by the next step, and always ``False``
         without a field. The session that observed it, its only holder, converts an
         owned field to output units where it is, rather than into a new array
-        (:meth:`solprop.backends.driver_session.DriverSession.export`); for any other
+        (:meth:`solprop.backends.host.session.HostSession.export`); for any other
         field that conversion is what detaches it from the backend (SEP 47
         section 5.4).
 

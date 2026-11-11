@@ -955,11 +955,6 @@ DRIVER_SURFACE = {
     ),
     "set_progress": "(self, reporter: solprop.log.ProgressReporter) -> None",
     "propagate_to": "(self, z: float) -> solprop.backends.protocol.StepSummary",
-    "prepare": (
-        "(self, problem: solprop.translate.problem.PropagationProblem, "
-        "request: solprop.translate.run_request.RunRequest) -> "
-        "solprop.backends.session.PreparedExecution"
-    ),
     "available_device_memory": "(self) -> int | None",
     # A subclass's and the shared marches' bookkeeping.
     "_axis_row_populations": (
@@ -1049,7 +1044,6 @@ DRIVER_ATTRIBUTES = (
     "_history",
     "_monitor",
     "_natural_count",
-    "_halt_requested",
     "_norm_controller",
     "_progress",
     "_propagator_mode",

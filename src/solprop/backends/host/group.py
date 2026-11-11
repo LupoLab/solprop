@@ -6,8 +6,9 @@
 
 :class:`HostGroup` executes each member's own kernels at each shared step of a common
 fixed schedule (SEP 47 section 6.7: a reference group iterates its members in Python).
-It is owned by the NumPy reference since SEP 47 phase 2: a copy of the lockstep runner
-the native bridge still inherits (:class:`solprop.backends.batch.LockstepRunner`).
+It is owned by the NumPy reference since SEP 47 phase 2; the native bridge's copy of
+the lockstep runner was deleted in phase 5, when the native group session
+(``solprop_native.group``) became the only native group.
 """
 
 import copy
@@ -123,7 +124,7 @@ class HostGroup(HostDriver[tuple[object, ...]]):
             Always; member owners must be initialised before construction.
         """
         del state
-        raise BackendError("LockstepRunner requires independently loaded members")
+        raise BackendError("HostGroup requires independently loaded members")
 
     def _trial_step(self, z: float, dz: float) -> tuple[float, tuple[object, ...]]:
         """Evaluate independent trial states at one common fixed step.

@@ -46,31 +46,29 @@ left pending.
 **Numerics.** A member's trajectory is its lone native session's: the march, the
 monitor, the statistics and the export are the native session's own, so a member's
 fields and statistics are those of the same problem run alone through the native
-session -- bit for bit at one thread on the native CPU build, which is also what the
-transitional lockstep group (:class:`solprop_native.batch.NativeBatchBackend`)
-computes. The members share the schedule and nothing mutable; in particular they do not
-share a fused accepted update (``_core.BatchState``): the transitional batch fuses that
-one elementwise update by splitting every member's step around it, which the native
-marches, which own the whole step, do not (SEP 47 section 6.7 asks for coarse groups,
-not fused kernels).
+session -- bit for bit at one thread on the native CPU build. The members share the
+schedule and nothing mutable; in particular they do not share a fused accepted update
+(SEP 47 section 6.7 asks for coarse groups, not fused kernels).
 
 :func:`refusal` names what the group does not run, decided from the members' problems,
-requests and starts before anything is allocated. :class:`NativePreparedGroup`, the
+requests and starts before anything is allocated, and :class:`NativePreparedGroup`, the
 native backend's prepared group (``NativeBackend.prepare_group``, which solprop's
-``start_group`` calls), then starts the transitional lockstep group instead
-(:class:`solprop.backends.driver_session.DriverGroupSession`), which SEP 47 phase 5
-deletes.
+``start_group`` calls), refuses it by name: a group is a shared fixed schedule (SEP 47
+section 6.7), so an adaptive member and members that do not share the schedule are
+refused, as the lockstep group this replaced refused them, and so are a coupled flow,
+which that group refused by name and SEP 47 section 6.3 keeps refused, and step planes,
+which the group's save-plane windows do not observe. A batched scan never forms such a
+group: it requires a fixed schedule, refuses step planes and groups only points of one
+execution layout.
 """
 
 from __future__ import annotations
 
 import dataclasses
-import logging
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
-from solprop.backends.driver_session import DriverGroupSession
 from solprop.backends.events import (
     Eligibility,
     Event,
@@ -115,8 +113,6 @@ if TYPE_CHECKING:
 
 __all__ = ["ROUND_STEPS", "NativeGroupSession", "NativePreparedGroup", "refusal"]
 
-logger = logging.getLogger(__name__)
-
 ROUND_STEPS = 256
 """The most common steps a member takes in one turn, as one native advance makes at
 most (``solprop.backends.session.DEFAULT_WORK_LIMIT``); the group-wide stop is polled
@@ -138,8 +134,9 @@ def refusal(
     Decided from the members' problems, requests and starts alone, before anything is
     allocated. Each member must be a run the native session admits
     (:func:`solprop_native.session.refusal`), replaying a fixed schedule; the members
-    must share the schedule, the save planes, the method, the field shape and the
-    statistics request, as the lockstep group requires of them.
+    must share the schedule, the save planes, the method, the field shape, the
+    statistics request and the general modal guide, which a batched scan's grouping
+    guarantees.
 
     Parameters
     ----------
@@ -159,7 +156,7 @@ def refusal(
         zip(problems, requests, starts, strict=True)
     ):
         refused = member_session_refusal(problem, request, start) or _member_refusal(
-            request
+            problem, request
         )
         if refused is not None:
             return f"{refused} (member {index})"
@@ -172,16 +169,57 @@ def refusal(
                 f"member {index}, which does not share member 0's schedule, save "
                 "planes, method, field shape or statistics request"
             )
+        if _guide(problem) != _guide(first_problem):
+            # The backend's own check, which does not depend on a caller having
+            # grouped carefully (solprop.driver.batch.refuse_mixed_guides is the
+            # driver's), as the lockstep group this replaced made it.
+            return (
+                f"member {index}: a general-guide batch requires identical "
+                "guide/table/gauge identity, and its transform.modal_tables, "
+                "linear.modal_metric or responses.regional_responses is not member "
+                "0's; members may differ in their launch and their noise seed alone"
+            )
     return None
+
+
+def _guide(problem: PropagationProblem) -> object:
+    """Return what general modal guide a problem carries, comparably.
+
+    The tables' declared identities, the metric's kind and gauge, the compiled
+    responses' model and policy, and a split block's flow, as the reference group
+    compares them; ``None`` off the general modal route.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        A member's problem.
+
+    Returns
+    -------
+    object
+        A scalar-and-string description, or ``None``.
+    """
+    tables = problem.transform.modal_tables
+    if tables is None:
+        return None
+    metric = problem.linear.modal_metric
+    responses = problem.responses.regional_responses
+    flow = problem.linear.coupled_flow
+    return (
+        tuple(sorted(dict(tables.identity).items(), key=str)),
+        None if metric is None else (metric.kind, metric.gauge_id),
+        None if responses is None else (responses.model_id, responses.policy_id),
+        None
+        if flow is None
+        else (flow.gauge_id, flow.certificate_id, flow.section_methods),
+    )
 
 
 class NativePreparedGroup:
     """The native backend's prepared group (SEP 47 section 6.7).
 
-    Each :meth:`start` opens the native group session whenever it admits the group
-    (:func:`refusal`), and the transitional lockstep group otherwise
-    (:class:`solprop.backends.driver_session.DriverGroupSession`), the reason logged
-    at debug level.
+    Each :meth:`start` opens the native group session, which refuses by name a group
+    it does not run (:func:`refusal`) before any member session starts.
 
     Parameters
     ----------
@@ -219,7 +257,7 @@ class NativePreparedGroup:
     def start(
         self, starts: Sequence[Start], *, stop: StopFlag | None = None
     ) -> GroupSession:
-        """Start the native group where it admits the group, the transitional otherwise.
+        """Start the native group session.
 
         Parameters
         ----------
@@ -232,30 +270,29 @@ class NativePreparedGroup:
         -------
         solprop.backends.session.GroupSession
             The started group.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            Naming what the native group does not run (:func:`refusal`), or if a
+            member is not a native backend.
         """
-        refused = refusal(self._problems, self._requests, starts)
-        if refused is None:
-            return NativeGroupSession(
-                cast("Sequence[NativeBackend]", self._members),
-                self._problems,
-                self._requests,
-                starts,
-                stop=stop,
-            )
-        logger.debug(
-            "the native group session does not run %s; the transitional group runs it",
-            refused,
-        )
-        return DriverGroupSession(
-            self._members, self._problems, self._requests, starts, stop=stop
+        return NativeGroupSession(
+            cast("Sequence[NativeBackend]", self._members),
+            self._problems,
+            self._requests,
+            starts,
+            stop=stop,
         )
 
 
-def _member_refusal(request: RunRequest) -> str | None:
-    """Return why one member's request falls outside a group's windows, or ``None``.
+def _member_refusal(problem: PropagationProblem, request: RunRequest) -> str | None:
+    """Return why one member falls outside a group, or ``None``.
 
     Parameters
     ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The member's problem.
     request : solprop.translate.run_request.RunRequest
         The member's run request.
 
@@ -264,13 +301,17 @@ def _member_refusal(request: RunRequest) -> str | None:
     str or None
         The reason, or ``None``.
     """
+    if problem.linear.coupled_flow is not None:
+        # SEP 47 section 6.3 keeps the coupled-batch refusal the lockstep group made.
+        return (
+            "a coupled flow: coupled-flow groups remain refused (solprop SEP 47 "
+            "section 6.3); run each member on its own with Local or Pool"
+        )
     if request.replay is None:
         return "an adaptive march: a group replays one common fixed schedule"
-    observation = request.observation
-    if observation.step_planes:
+    if request.observation.step_planes:
         return "step planes, which a group's save-plane windows do not observe"
-    if observation.dense:
-        return "interpolated planes"
+    # Interpolated planes are refused beside a schedule where the stepper is built.
     return None
 
 

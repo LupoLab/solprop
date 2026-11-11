@@ -127,7 +127,6 @@ from . import _core  # noqa: E402  (only after the processor check)
 
 if TYPE_CHECKING:
     from .backend import NativeBackend
-    from .batch import NativeBatchBackend
 
 __all__ = [
     "ADAMS_MARCH_SURFACE",
@@ -151,7 +150,6 @@ __all__ = [
     "WATCH_STATE_FIELDS",
     "BuildInfo",
     "NativeBackend",
-    "NativeBatchBackend",
     "__version__",
     "available_device_memory",
     "build_info",
@@ -322,7 +320,6 @@ DRIVER_SURFACE: tuple[str, ...] = (
     "_watched_step",
     "available_device_memory",
     "metadata",
-    "prepare",
     "set_initial",
     "stats",
 )
@@ -1103,7 +1100,6 @@ def _check_seam(info: BuildInfo, error: type[Exception]) -> None:
 
     from solprop.backends.driver import StepDriver
     from solprop.backends.multistep import AdamsMarch
-    from solprop.backends.protocol import BatchBackend
     from solprop.stepper.multistep import MarchPolicy
     from solprop.translate import routes
     from solprop.translate import run_request as run_requests
@@ -1143,11 +1139,6 @@ def _check_seam(info: BuildInfo, error: type[Exception]) -> None:
         f"MarchPolicy.{name}" for name in MARCH_POLICY_FIELDS if name not in policy
     )
     extra = [name for name in policy if name not in MARCH_POLICY_FIELDS]
-    missing.extend(
-        f"BatchBackend.{name}"
-        for name in ("observe_members", "member_metadata", "available_device_memory")
-        if not callable(getattr(BatchBackend, name, None))
-    )
     descriptor = {field.name for field in _dataclasses.fields(PropagationProblem)}
     missing.extend(
         f"PropagationProblem.{name}"
@@ -1222,13 +1213,9 @@ def __getattr__(name: str) -> object:
         from .backend import NativeBackend
 
         return NativeBackend
-    if name == "NativeBatchBackend":
-        from .batch import NativeBatchBackend
-
-        return NativeBatchBackend
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def __dir__() -> list[str]:
     """Include the lazily loaded class in interactive discovery."""
-    return sorted({*globals(), "NativeBackend", "NativeBatchBackend"})
+    return sorted({*globals(), "NativeBackend"})

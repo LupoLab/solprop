@@ -7,12 +7,11 @@
 The native march steps ``Multistep()`` in either formulation, adaptive or replayed, on
 the routes whose trial is one bundle of stage rows; any other configuration runs
 solprop's Python march on the same resident engine, with a ``HostMarchWarning`` that
-names the reason, and the run's metadata records which march stepped it. The backend's
-test interface (``solprop_native.backend._ADAMS_MARCH``, no longer an environment
-variable or a constructor keyword: solprop SEP 47 section 6.3) selects the Python march
-without a warning. The comparison family, ``ComparisonMultistep``, is benchmark-only and
-the reference's alone (solprop SEP 47 section 6.3): the backend refuses every variant by
-name before it allocates anything.
+names the reason, and the run's metadata records which march stepped it. No switch
+selects the Python march any more (solprop SEP 47 section 6.3 retired the test
+interface with the transitional bridge). The comparison family,
+``ComparisonMultistep``, is benchmark-only and the reference's alone (solprop SEP 47
+section 6.3): the backend refuses every variant by name before it allocates anything.
 """
 
 import copy
@@ -228,19 +227,6 @@ def test_the_carrier_frame_is_native():
     try:
         assert backend._adams.native
         assert backend._adams._policy.carrier
-    finally:
-        backend.close()
-
-
-def test_the_test_interface_takes_the_host_march_quietly(monkeypatch):
-    monkeypatch.setattr("solprop_native.backend._ADAMS_MARCH", "host")
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", HostMarchWarning)
-        backend = built(on_route("gnlse", Multistep()))
-    try:
-        assert not backend._adams.native
-        assert backend._adams.refusal == "the test interface asked for it"
-        assert backend.metadata()["adams_march"] == "host"
     finally:
         backend.close()
 

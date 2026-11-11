@@ -13,12 +13,13 @@ march formed on the host. Before, the backend stepped such a run with its Python
 (a ``HostMarchWarning``) and the session left it to the transitional bridge.
 
 The case is a capillary of three gases on independent density ramps, which takes the z
-table for both the operator and the prefactor. It is held to the bridge's Python march
-on the same native engine, which formed the shift on the host -- bitwise on one thread,
-adaptive and resumed from a mid-run history -- and to ``numpy_ref``: on the native run's
-own accepted steps, at a fixed order, the two differ by rounding alone, 512 eps a step
-relative to the field, the budget of ``tests/backends/test_carrier_frame.py``'s matched
-windows (SEP 25). The carrier approximation itself is unchanged; a device build still
+table for both the operator and the prefactor. It is held to ``numpy_ref``: on the
+native run's own accepted steps, at a fixed order, the two differ by rounding alone,
+512 eps a step relative to the field, the budget of
+``tests/backends/test_carrier_frame.py``'s matched windows (SEP 25), and adaptively they
+take as many steps, to that budget; on one thread the native run repeats itself bit for
+bit, and a run resumed from a mid-run history continues the uninterrupted one. The
+carrier approximation itself is unchanged; a device build still
 refuses every carrier frame by name.
 """
 
@@ -324,15 +325,6 @@ def _march(started: Started) -> str | None:
     return None if driver is None else driver.metadata().get("adams_march")
 
 
-def _host_march(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make the bridge step its Python march, which forms the shift on the host.
-
-    The backend's test interface (``solprop_native.backend._ADAMS_MARCH``): the march
-    every run of this configuration took before the chord was formed natively.
-    """
-    monkeypatch.setattr(native_backend, "_ADAMS_MARCH", "host")
-
-
 def test_the_chord_is_a_varying_table_the_session_admits():
     # The operator and the prefactor are z tables, the chord the table's reference
     # element over several intervals, whose rate varies along the capillary; the
@@ -352,12 +344,11 @@ def test_the_chord_is_a_varying_table_the_session_admits():
         for z in (0.0, LENGTH - 1e-4)
     ]
     assert abs(rates[0] - rates[1]) > 1e-6 * abs(rates[0])
-    assert native_backend.native_march_refusal(problem, request.stepper) is None
+    assert native_backend.host_rows_refusal(problem) is None
     assert native_session.refusal(problem, request) is None
     # The built native backend, whose march and tables the checks reach.
     backend: Any = select("native", problem, request, **_context(simulation))
     try:
-        assert native_session.backend_refusal(backend) is None
         assert backend._adams.native and backend._adams._policy.carrier
         # The table is the chord's whole description: a chord of kind ``table``
         # without one is refused when the tables are uploaded.
@@ -380,23 +371,24 @@ def test_the_chord_is_a_varying_table_the_session_admits():
 
 
 @pytest.mark.parametrize("interpolate", [False, True], ids=["planes", "dense"])
-def test_the_session_takes_the_host_march_s_steps(monkeypatch, interpolate):
-    # The native session against the bridge's Python march, which formed the shift
-    # on the host: the same steps, rows and fields, bitwise on one thread; dense
-    # planes read the accepted step's rotations.
+def test_the_session_takes_the_reference_s_steps_and_repeats_them(interpolate):
+    # The native session against the reference's adaptive run, which forms the shift
+    # by its own tables: as many steps, each within the accepted-step budget, and the
+    # planes within 512 eps a step; dense planes read the accepted step's rotations.
+    # On one thread a repeated native run is the same, bitwise.
     simulation = capillary(interpolate=interpolate)
-    run, march = _run("native-session", simulation)
-    assert march is None
-    _host_march(monkeypatch)
-    baseline, march = _run("native", simulation)
-    assert march == "host"
-    assert len(run.accepted_ends()) > 50
+    run, _ = _run("native-session", simulation)
+    reference, _ = _run("reference", simulation)
+    ends = run.accepted_ends()
+    assert len(ends) > 50
+    assert len(ends) == len(reference.accepted_ends())
+    np.testing.assert_allclose(ends, reference.accepted_ends(), rtol=1e-6)
+    assert len(run.fields) == len(reference.fields)
+    for one, other in zip(run.fields, reference.fields, strict=True):
+        assert_within(one, other, 512 * EPS * len(ends))
     if _one_thread():
-        assert_same_run(run, baseline)
-    else:
-        assert np.array_equal(run.accepted_ends(), baseline.accepted_ends())
-        for one, other in zip(run.fields, baseline.fields, strict=True):
-            assert_within(one, other, 512 * EPS * len(run.accepted_ends()))
+        again, _ = _run("native-session", simulation)
+        assert_same_run(again, run)
 
 
 def test_the_session_follows_the_reference_on_its_own_steps():
@@ -460,9 +452,9 @@ def _at_second_plane(simulation: Simulation) -> tuple[MarchSnapshot, dict[str, A
         session.close()
 
 
-def test_a_resumed_history_continues_as_the_host_march_does(monkeypatch):
+def test_a_resumed_history_continues_the_uninterrupted_run():
     # SEP 47 section 5.5: the history exported at a plane, installed in a new native
-    # session, continues as the bridge's Python march continues from the same start.
+    # session, continues as the uninterrupted run goes on from there.
     simulation = capillary()
     snapshot, ledger = _at_second_plane(simulation)
     assert snapshot.z > 0.0 and ledger["accepted_steps"]
@@ -482,22 +474,19 @@ def test_a_resumed_history_continues_as_the_host_march_does(monkeypatch):
     run, march = _run("native-session", simulation, resumed())
     assert march is None
     whole, _ = _run("native-session", simulation)
-    _host_march(monkeypatch)
-    baseline, march = _run("native", simulation, resumed())
-    assert march == "host"
+    ends = whole.accepted_ends()
     if _one_thread():
-        assert_same_run(run, baseline)
-    else:
-        assert np.array_equal(run.accepted_ends(), baseline.accepted_ends())
+        later = ends[ends > snapshot.z]
+        assert run.accepted_ends().tobytes() == later.tobytes()
     # The resumed run ends where the uninterrupted one does, to the march's rounding.
-    bound = 512 * EPS * len(whole.accepted_ends())
+    bound = 512 * EPS * len(ends)
     assert_within(run.fields[-1], whole.fields[-1], bound)
 
 
-def test_a_tabulated_operator_beside_an_expanded_prefactor(monkeypatch):
+def test_a_tabulated_operator_beside_an_expanded_prefactor():
     # The chord read from the operator's table alone, the prefactor an expansion: the
-    # session against the bridge's Python march, bitwise on one thread, and against
-    # numpy_ref on the session's own steps at a fixed order, 512 eps a step.
+    # session repeats itself bitwise on one thread, and meets numpy_ref on the
+    # session's own steps at a fixed order, 512 eps a step.
     method = Multistep(variable_order=False, carrier_frame="scalar")
     case = on_a_table(gradient(method))
     assert case.problem.linear.phi_representation == "table"
@@ -510,14 +499,9 @@ def test_a_tabulated_operator_beside_an_expanded_prefactor(monkeypatch):
     assert march is None
     ends = run.accepted_ends()
     assert len(ends) > 20
-    with monkeypatch.context() as patch:
-        patch.setattr(native_backend, "_ADAMS_MARCH", "host")
-        baseline, march = _run("native", case)
-    assert march == "host"
     if _one_thread():
-        assert_same_run(run, baseline)
-    else:
-        assert np.array_equal(ends, baseline.accepted_ends())
+        again, _ = _run("native-session", case)
+        assert_same_run(again, run)
     steps = np.diff(np.concatenate([[0.0], ends]))
     steps[-1] = LENGTH - float(np.sum(steps[:-1]))
     replayed = on_a_table(gradient(method, schedule=FixedSchedule(steps)))

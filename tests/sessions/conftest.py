@@ -50,10 +50,10 @@ def executor(request: pytest.FixtureRequest) -> Executor:
     return _available(request.param)
 
 
-@pytest.fixture(params=["scripted", "scripted-host"])
-def scripted(request: pytest.FixtureRequest) -> Executor:
-    """Return each scripted executor: on the bridge's driver and on the reference's."""
-    return _available(request.param)
+@pytest.fixture
+def scripted() -> Executor:
+    """Return the scripted executor, on the reference's own driver."""
+    return _available("scripted-host")
 
 
 def _starter(chosen: Executor) -> Iterator[Starter]:

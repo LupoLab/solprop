@@ -48,10 +48,11 @@ from modal_provider_cases import (
     general_guide,
 )
 from solprop import fourier
-from solprop.backends import select, select_batch
+from solprop.backends import select
 from solprop.backends.host.group import HostGroup
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.session import Start
+from solprop.backends.sessions import start_group
 from solprop.constants import ROOM_TEMPERATURE, C
 from solprop.coupling import CouplingModel, CouplingReport
 from solprop.driver import Simulation, prop_gnlse, prop_waveguide
@@ -1339,23 +1340,29 @@ def test_two_guides_never_share_a_batch_group(guide, grid):
             HostGroup(loaded)
 
 
-def test_the_native_batch_refuses_two_guides_too(guide, grid):
-    """The native batch, on the bridge's lockstep runner, refuses the same group."""
+def test_the_native_group_refuses_two_guides_too(guide, grid):
+    """The native group session refuses the same group, before any member starts."""
     pytest.importorskip("solprop_native")
     runs = [
         batched_run(one, grid)
         for one in (guide, general_guide(grid=grid, radius=1.6e-6))
     ]
     with ExitStack() as cleanup:
-        loaded = []
+        owners, problems, requests = [], [], []
         for run in runs:
             problem, run_request = run.translate(), run._run_request()
             backend = select("native", problem, run_request, grid=grid)
             cleanup.callback(backend.close)
-            backend.set_initial(problem.initial.field0, None)
-            loaded.append(backend)
+            owners.append(backend)
+            problems.append(problem)
+            requests.append(run_request)
         with pytest.raises(BackendError, match="identical guide/table/gauge identity"):
-            select_batch(loaded)
+            start_group(
+                owners,
+                problems,
+                requests,
+                [Start.entrance(problem) for problem in problems],
+            )
 
 
 def test_the_driver_refuses_a_mixed_group_before_a_backend_is_reached(

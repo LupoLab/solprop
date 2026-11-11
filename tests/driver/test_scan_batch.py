@@ -16,7 +16,6 @@ import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_points_matched
-from solprop.backends.batch import LockstepRunner
 from solprop.backends.driver import StepDriver
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.group import HostGroup
@@ -90,9 +89,6 @@ def test_a_field_reduction_without_kept_fields_matches_local_in_a_batch(tmp_path
     assert_points_matched(result, reference, scan, build, what="batch member")
 
 
-# A native lockstep batch replays its Adams members on solprop's march, with the
-# warning native/tests/test_batch.py asserts (SEP 39).
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize("backend", ["numpy_ref", "native", "auto"])
 @pytest.mark.parametrize("size", [1, 2, 3])
 def test_batch_scan_matches_local_with_partial_groups(tmp_path, backend, size):
@@ -280,7 +276,6 @@ FIELDS_ASKED = {
 }
 
 
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 @pytest.mark.parametrize(
     ("options", "asked"), FIELDS_ASKED.values(), ids=FIELDS_ASKED.keys()
@@ -299,17 +294,17 @@ def test_a_batch_asks_its_members_only_for_the_fields_the_scan_reads(
         scan, builder, output=tmp_path / "local.h5", executor=Local(), **keywords
     )
     fields = []
-    # The reference's group and the native bridge's lockstep runner.
-    for runner in (HostGroup, LockstepRunner):
+    # The reference's group; a native group has no member-axis observation.
 
-        def spy(self, *, field=True, original=runner.observe_members):
-            fields.append(field)
-            return original(self, field=field)
+    def spy(self, *, field=True, original=HostGroup.observe_members):
+        fields.append(field)
+        return original(self, field=field)
 
-        monkeypatch.setattr(runner, "observe_members", spy)
+    monkeypatch.setattr(HostGroup, "observe_members", spy)
     crossed = []
     # Every member observation, through the group or alone: the reference's own
-    # driver and the native bridge's inherited one.
+    # driver and the inherited one the native backend still subclasses, which the
+    # native session never observes through.
     for driver in (HostDriver, StepDriver):
 
         def observed(self, *, field=True, original=driver.observe):

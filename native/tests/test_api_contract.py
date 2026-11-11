@@ -82,7 +82,6 @@ def test_public_surface_is_exact() -> None:
         "WATCH_STATE_FIELDS",
         "BuildInfo",
         "NativeBackend",
-        "NativeBatchBackend",
         "__version__",
         "available_device_memory",
         "build_info",

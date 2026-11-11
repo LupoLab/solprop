@@ -86,8 +86,9 @@ class BackendEntry:
         modes, profiles, options)``, and with ``tdse_binding`` too for a TDSE run, which
         only the reference is given (:func:`select`).
     batch : str or None, optional
-        The transitional lockstep runner over loaded members, ``batch(owners)``
-        (:func:`select_batch`), which SEP 47 phase 5 deletes; ``None`` for none.
+        The reference group's lockstep runner over loaded members, ``batch(owners)``
+        (:func:`select_batch`); ``None`` for a backend whose prepared group runs its
+        members itself, as the native group session does (SEP 47 section 6.7).
     install : str or None, optional
         What to install when ``requires`` is missing; ``None`` names ``extras``.
     distribution : str or None, optional
@@ -131,7 +132,6 @@ BACKENDS: Mapping[str, BackendEntry] = {
         # The optional package has its own strict type gate; it is deliberately absent
         # from this repository's static-analysis source tree.
         factory="solprop_native:NativeBackend",
-        batch="solprop_native.batch:NativeBatchBackend",
         install=(
             "solprop, or build solprop-native from native/ in the solprop repository"
         ),

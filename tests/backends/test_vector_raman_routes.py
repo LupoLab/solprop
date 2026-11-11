@@ -138,9 +138,11 @@ def test_raman_acts_on_synthesised_position_dependent_direction(
 
 @pytest.mark.medium
 @pytest.mark.parametrize("family", ["field_real", "field_analytic", "envelope"])
-def test_vector_fixed_batches_preserve_modified_noise_members(family, backend_class):
+def test_vector_fixed_batches_preserve_modified_noise_members(family):
+    # The reference's lockstep group; the native group runs each member as its own
+    # native session (SEP 47 phase 5), with no shared arithmetic to check.
     problem, run_request, grid, _ = vector_translation(family, steps=2)
-    compare(problem, run_request, grid, backend_class.name, options=CHUNK)
+    compare(problem, run_request, grid, "numpy_ref", options=CHUNK)
 
 
 @pytest.mark.medium

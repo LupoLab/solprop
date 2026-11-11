@@ -31,7 +31,6 @@ import numpy as np
 
 from solprop._host import RunClock, usage
 from solprop._interrupts import committing, poll
-from solprop.backends.driver_session import DriverSession
 from solprop.backends.events import (
     EventBatch,
     ExportTicket,
@@ -520,8 +519,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
     """Advance a session to its end, servicing every event it reports.
 
     Any :class:`~solprop.backends.session.RunSession` is served: the reference's
-    :class:`~solprop.backends.host.session.HostSession` and the transitional
-    :class:`~solprop.backends.driver_session.DriverSession`, whose driver gives the
+    :class:`~solprop.backends.host.session.HostSession`, whose driver gives the
     execution facts and method history, or a backend's own session, through its
     protocol alone (:class:`~solprop.driver.run.SessionFacts`).
 
@@ -1081,7 +1079,7 @@ def _fallback_ticket(session: RunSession) -> ExportTicket | None:
         its state was left in flight.
     """
     # A session that can end itself at its committed state for the checkpoint says
-    # so (`NativeSession.failure_ticket`); the transitional session's pending ticket
+    # so (`NativeSession.failure_ticket`); the reference session's pending ticket
     # already does.
     issue = getattr(session, "failure_ticket", None)
     if callable(issue):
@@ -1092,8 +1090,8 @@ def _fallback_ticket(session: RunSession) -> ExportTicket | None:
 def _facts(session: RunSession) -> Backend | SessionFacts:
     """Return what the service loop's records read as the session's backend.
 
-    The reference session's or the transitional session's driver, or a session's own
-    facts (:class:`~solprop.driver.run.SessionFacts`).
+    The reference session's driver, or a session's own facts
+    (:class:`~solprop.driver.run.SessionFacts`).
 
     Parameters
     ----------
@@ -1105,6 +1103,6 @@ def _facts(session: RunSession) -> Backend | SessionFacts:
     Any
         The driver, or the facts.
     """
-    if isinstance(session, HostSession | DriverSession):
+    if isinstance(session, HostSession):
         return session.driver
     return SessionFacts(session)

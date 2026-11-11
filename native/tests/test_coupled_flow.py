@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import re
 import warnings
 from collections.abc import Iterator
 from typing import cast
@@ -33,6 +34,8 @@ from solprop.backends.numpy_ref.backend import (
     _coupled_flow_maps,  # pyright: ignore[reportPrivateUsage]
     _flow_action,  # pyright: ignore[reportPrivateUsage]
 )
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_group
 from solprop.boundaries import absorber
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError
@@ -43,11 +46,12 @@ from solprop.stepper import FixedSchedule
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
-from solprop_native import NativeBackend, NativeBatchBackend
+from solprop_native import NativeBackend
 from solprop_native.backend import (
     _flow_payload,  # pyright: ignore[reportPrivateUsage]
     _host_flow,  # pyright: ignore[reportPrivateUsage]
 )
+from solprop_native.group import refusal as group_refusal
 
 type ComplexArray = npt.NDArray[np.complex128]
 type RealArray = npt.NDArray[np.float64]
@@ -267,22 +271,26 @@ def test_ten_steps_of_the_flow_are_the_reference_within_the_bound(name: str) -> 
     assert float(np.max(np.abs(actual - expected))) / scale <= bound
 
 
-def test_cf4_and_a_batch_are_refused_by_name() -> None:
+def test_cf4_and_a_group_are_refused_by_name() -> None:
     case = simulation(radius=taper(), wall=CoherentWall(method="cf4"))
     with pytest.raises(BackendError, match=r"native does not execute a 'cf4' section"):
         NativeBackend(case.translate(), case._run_request(), grid=case.grid)  # pyright: ignore[reportPrivateUsage]
+    # A group of coupled flows stays refused (solprop SEP 47 section 6.3), by the
+    # native group, before any member session starts.
     constant = CASES["scalar_wall"]()
     problem = constant.translate()
     run_request = constant._run_request()  # pyright: ignore[reportPrivateUsage]
+    starts = [Start.entrance(problem) for _ in range(2)]
+    refusal = r"a coupled flow: coupled-flow groups remain refused"
+    assert re.search(
+        refusal, group_refusal([problem] * 2, [run_request] * 2, starts) or ""
+    )
     members = [
         NativeBackend(problem, run_request, grid=constant.grid) for _ in range(2)
     ]
     try:
-        for member in members:
-            member.set_initial(problem.initial.field0, None)
-        refusal = r"does not execute linear\.coupled_flow"
         with pytest.raises(BackendError, match=refusal):
-            NativeBatchBackend(members)
+            start_group(members, [problem] * 2, [run_request] * 2, starts)
     finally:
         for member in members:
             member.close()
