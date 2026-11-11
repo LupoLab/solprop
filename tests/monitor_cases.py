@@ -18,7 +18,6 @@ its monitor is read through its session (:func:`record_after_march`).
 from __future__ import annotations
 
 import dataclasses
-import math
 from typing import Any, cast
 
 import numpy as np
@@ -191,9 +190,8 @@ def record_after_march(
     The edge-reaching launch runs through the backend's own session, watched by the
     simulation's boundary monitor. The reference's session updates that monitor, whose
     record and cap are read from it; the native session keeps its monitor natively
-    (SEP 47 section 6.4) and reports the record through the session
-    (``monitor_record``). It does not expose the crossing cap its watch holds, so the
-    cap is NaN on any backend but the reference.
+    (SEP 47 section 6.4) and reports the record (``monitor_record``) and its watch's
+    crossing cap (``monitor_cap``) itself.
     """
     problem = simulation.translate() if problem is None else problem
     run_request = simulation._run_request() if run_request is None else run_request
@@ -223,7 +221,10 @@ def record_after_march(
                 raise terminal.error
         record = session.monitor_record()
         assert record is not None
-        cap = float(monitor.step_cap) if isinstance(backend, HostDriver) else math.nan
+        if isinstance(backend, HostDriver):
+            cap = float(monitor.step_cap)
+        else:
+            cap = float(cast("Any", session).monitor_cap())
     finally:
         session.close()
     return {**record, "step_cap": cap}
