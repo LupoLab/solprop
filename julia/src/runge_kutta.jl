@@ -59,6 +59,7 @@ end
 
 """
     RungeKuttaWork(state, tableau)
+    RungeKuttaWork(execution, state, tableau)
 
 Allocate the trial buffers of an interaction-picture embedded Runge–Kutta method.
 
@@ -66,6 +67,9 @@ Allocate the trial buffers of an interaction-picture embedded Runge–Kutta meth
 Fourier convention. The work retains no reference to it. Buffers have its element type
 and array backend; `tableau` determines the stage extent. The caller owns the accepted
 state and explicitly commits a successful trial. All buffers are reused by later trials.
+The two-argument constructor admits CPU arrays. Device binary64 callers supply
+their exact prepared execution policy; allocation and persistent norm readback then
+belong to that context. Device binary32 work still refuses before allocation.
 
 # Returns
 A workspace containing stage derivatives, lab/source/increment buffers, candidate,
@@ -73,7 +77,7 @@ defect and per-column norm scratch. Every entry read by a trial or norm is overw
 Binary32 work also owns one mantissa/exponent pair per spectral row for tolerance
 scales. Nonzero tableau weights must fit the normal range of the state precision.
 """
-struct RungeKuttaWork{A, S, R, N}
+struct RungeKuttaWork{A, S, R, N, H}
     stages::S
     combination::A
     lab::A
@@ -83,18 +87,73 @@ struct RungeKuttaWork{A, S, R, N}
     defect::A
     norm_parts::R
     norm_scale::N
+    norm_readback::H
 end
 
 function RungeKuttaWork(
         state::AbstractMatrix{Complex{T}}, tableau::EmbeddedTableau,
     ) where {T <: Union{Float32, Float64}}
+    KernelAbstractions.get_backend(state) isa KernelAbstractions.CPU ||
+        throw(ArgumentError("device RK work requires its prepared execution policy"))
     norm_scale = _march_norm_scale(state)
     _march_tableau(T, tableau)
     stages = similar(state, size(state)..., length(tableau.nodes))
     return RungeKuttaWork(
         stages, similar(state), similar(state), similar(state), similar(state),
         similar(state), similar(state), similar(state, T, 4, size(state, 2)), norm_scale,
+        nothing,
     )
+end
+
+function RungeKuttaWork(
+        execution::KernelExecution, state::AbstractMatrix{Complex{T}},
+        tableau::EmbeddedTableau,
+    ) where {T <: Union{Float32, Float64}}
+    oncpu(execution) && return RungeKuttaWork(state, tableau)
+    T === Float64 || throw(ArgumentError("device RK work currently requires binary64"))
+    copy_device!(state, state, execution)
+    _march_tableau(T, tableau)
+    shape = size(state)
+    parts = DeviceReadback(execution, T, 4, shape[2])
+    buffer() = dzeros(execution, Complex{T}, shape...)
+    return RungeKuttaWork(
+        dzeros(execution, Complex{T}, shape..., length(tableau.nodes)),
+        buffer(), buffer(), buffer(), buffer(), buffer(), buffer(),
+        parts.device, nothing, parts,
+    )
+end
+
+function _rk_norm_execution(work::RungeKuttaWork, execution)
+    readback = work.norm_readback
+    if readback === nothing
+        oncpu(execution) ||
+            throw(ArgumentError("device RK norm requires prepared readback storage"))
+    else
+        readback.execution === execution ||
+            throw(ArgumentError("RK norm storage belongs to another execution"))
+    end
+    return nothing
+end
+
+_rk_host_parts(work::RungeKuttaWork, execution) = work.norm_readback === nothing ?
+    work.norm_parts : readback!(work.norm_readback, execution)
+
+function _rk_finished_finite!(work::RungeKuttaWork, candidate, execution)
+    _rk_norm_execution(work, execution)
+    if oncpu(execution)
+        return all(isfinite, candidate)
+    end
+    parts = work.norm_parts
+    rows, columns = size(candidate)
+    each_column!(execution, columns) do column
+        finite = true
+        for row in 1:rows
+            finite &= isfinite(candidate[row, column])
+        end
+        parts[1, column] = finite ? zero(eltype(parts)) : one(eltype(parts))
+    end
+    host = _rk_host_parts(work, execution)
+    return all(column -> iszero(host[1, column]), 1:columns)
 end
 
 function _march_tableau(::Type{T}, tableau) where {T}
@@ -229,8 +288,9 @@ per-bin state magnitude. Tolerances are respectively dimensionless and in state 
 Binary32 state and defect reductions use protected normalized sums; per-row tolerance
 scales and the final small column merge use binary64. A single compensated sum must
 have fewer than `2^24` terms, checked by workspace preparation.
-This initial reduction implementation admits CPU execution; device reductions are
-qualified separately. Preparation validates mask, weight and tolerance extents/ranges.
+Device binary64 work reads back only its preallocated per-column partials, then
+uses the same host merge and scalar control graph. Preparation validates mask,
+weight and tolerance extents/ranges. Device binary32 norms remain unqualified.
 
 # Returns
 The nonnegative scalar norm, or a nonfinite value for a trial the controller must reject.
@@ -239,12 +299,10 @@ Any nonfinite entry in the old or candidate state refuses the trial, including e
 outside the norm mask. Scaled sums of squares avoid squaring physical amplitudes.
 
 # Throws
-- `ArgumentError`: If the execution policy is not a CPU policy.
+- `ArgumentError`: If work and execution differ or device readback was not prepared.
 """
 function rk_error_norm!(work::RungeKuttaWork, state, mask, weights, rtol, atol, execution)
-    if !oncpu(execution)
-        throw(ArgumentError("Runge–Kutta norm device reduction is not admitted"))
-    end
+    _rk_norm_execution(work, execution)
     if eltype(state) === ComplexF32
         return _float32_error_norm!(work, state, mask, weights, rtol, atol, execution)
     end
@@ -279,14 +337,15 @@ function rk_error_norm!(work::RungeKuttaWork, state, mask, weights, rtol, atol, 
         parts[1, column], parts[2, column] = column_old_scale, column_old_sum
         parts[3, column], parts[4, column] = column_new_scale, column_new_sum
     end
+    host = _rk_host_parts(work, execution)
     old_scale, old_sum = zero(eltype(parts)), zero(eltype(parts))
     new_scale, new_sum = old_scale, old_sum
     for column in 1:columns
         old_scale, old_sum = _rk_merge_sumsq(
-            old_scale, old_sum, parts[1, column], parts[2, column]
+            old_scale, old_sum, host[1, column], host[2, column]
         )
         new_scale, new_sum = _rk_merge_sumsq(
-            new_scale, new_sum, parts[3, column], parts[4, column]
+            new_scale, new_sum, host[3, column], host[4, column]
         )
     end
     magnitude = max(old_scale * sqrt(old_sum), new_scale * sqrt(new_sum))
@@ -314,10 +373,11 @@ function rk_error_norm!(work::RungeKuttaWork, state, mask, weights, rtol, atol, 
         end
         parts[1, column], parts[2, column] = column_error_scale, column_error_sum
     end
+    host = _rk_host_parts(work, execution)
     error_scale, error_sum = zero(eltype(parts)), zero(eltype(parts))
     for column in 1:columns
         error_scale, error_sum = _rk_merge_sumsq(
-            error_scale, error_sum, parts[1, column], parts[2, column]
+            error_scale, error_sum, host[1, column], host[2, column]
         )
     end
     return Float64(error_scale * sqrt(error_sum))

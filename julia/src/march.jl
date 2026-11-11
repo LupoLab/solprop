@@ -353,7 +353,7 @@ function RungeKuttaSession(
             NaN, false,
         )
     return RungeKuttaSession(
-        execution, owned, tableau, RungeKuttaWork(owned, tableau), control,
+        execution, owned, tableau, RungeKuttaWork(execution, owned, tableau), control,
         NormHistory(control), norm, schedule, source, flow, stop, AttemptBuffer(capacity),
         progress, services, exports, observation, arithmetic,
     )
@@ -580,7 +580,7 @@ function _march_trial!(session::RungeKuttaSession, began)
             active[row] || (candidate[row, column] = zero(eltype(candidate)))
         end
         _session_finish_candidate!(session.services, session, candidate, dz, destination)
-        all(isfinite, candidate) ||
+        _rk_finished_finite!(session.work, candidate, session.execution) ||
             throw(DomainError(NaN, "the finished Runge-Kutta candidate is nonfinite"))
         if session.observation !== nothing
             session.observation.selected = false

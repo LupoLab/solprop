@@ -24,7 +24,7 @@ function Base.showerror(io::IO, error::NonfiniteSourceError)
     )
 end
 
-function _source_finite!(failures, array, execution, stage)
+function _source_failure_rows!(failures, array, execution)
     rows, columns = size(array)
     length(failures) >= columns ||
         throw(DimensionMismatch("source check buffer is too small"))
@@ -38,12 +38,28 @@ function _source_finite!(failures, array, execution, stage)
         end
         failures[column] = failed_row
     end
+    return nothing
+end
+
+function _source_check_rows(failures, columns, stage)
     for column in 1:columns
         if failures[column] != 0
             throw(NonfiniteSourceError(stage, failures[column], column))
         end
     end
     return nothing
+end
+
+function _source_finite!(failures, array, execution, stage)
+    _source_failure_rows!(failures, array, execution)
+    return _source_check_rows(failures, size(array, 2), stage)
+end
+
+function _source_finite!(failures::DeviceReadback, array, execution, stage)
+    failures.execution === execution ||
+        throw(ArgumentError("source failure scratch belongs to another execution"))
+    _source_failure_rows!(failures.device, array, execution)
+    return _source_check_rows(readback!(failures, execution), size(array, 2), stage)
 end
 
 """
@@ -60,18 +76,20 @@ weight work. Calling `flow(out,input,z0,z1)` applies the represented flow and re
 disjoint or the exact same array; partial overlap refuses. The CPU implementation
 allocates nothing after warmup. Both caller arrays must retain the preparation's
 state element type, including when the table is disabled.
+Device binary64 work owns scratch in its selected context and reads back only
+per-column failure indices. Device binary32 flow remains unqualified.
 
 `tabulate=true` retains one factor matrix for a constant generator, or two for a
 represented varying generator. Keys are exact interval lengths for constant data
 and exact endpoint pairs otherwise. Tables are session-owned and regenerated after
 eviction; neither interpolation nor a phase/step tolerance changes their values.
 """
-struct LinearFlow{E, O, A, W, C, T}
+struct LinearFlow{E, O, A, W, F, C, T}
     execution::E
     operator::O
     exponent::A
     work::W
-    failures::Vector{Int}
+    failures::F
     table::C
     state_type::Type{T}
 end
@@ -80,10 +98,19 @@ function LinearFlow(
         execution::KernelExecution, operator, state::AbstractMatrix{Complex{T}};
         work = nothing, tabulate::Bool = false,
     ) where {T <: Union{Float32, Float64}}
-    oncpu(execution) || throw(ArgumentError("this linear flow currently requires CPU"))
+    if !oncpu(execution)
+        T === Float64 ||
+            throw(ArgumentError("device linear flow currently requires binary64 state"))
+        # Validate live storage and the selected context before allocating scratch.
+        copy_device!(state, state, execution)
+    end
+    exponent = oncpu(execution) ? similar(state, ComplexF64) :
+        dzeros(execution, ComplexF64, size(state)...)
+    failures = oncpu(execution) ? zeros(Int, size(state, 2)) :
+        DeviceReadback(execution, Int, size(state, 2))
     return LinearFlow(
-        execution, operator, similar(state, ComplexF64), work, zeros(Int, size(state, 2)),
-        tabulate ? _linear_flow_table(operator, state) : nothing, eltype(state),
+        execution, operator, exponent, work, failures,
+        tabulate ? _linear_flow_table(operator, state, execution) : nothing, eltype(state),
     )
 end
 

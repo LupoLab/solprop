@@ -16,11 +16,15 @@ _linear_constant(::DiagonalOperator) = true
 _linear_constant(::SeparableSpatialOperator) = true
 _linear_constant(::Union{RepresentedOperator, ExpansionOperator}) = false
 
-function _linear_flow_table(operator, state)
+function _linear_flow_table(operator, state, execution = nothing)
     constant = _linear_constant(operator)
     count = constant ? 1 : 2
+    factors = ntuple(count) do unused
+        execution === nothing || oncpu(execution) ? similar(state) :
+            dzeros(execution, eltype(state), size(state)...)
+    end
     return _LinearFlowTable(
-        ntuple(unused -> similar(state), count), zeros(count), zeros(count),
+        factors, zeros(count), zeros(count),
         fill(false, count), constant, 0, 0, 0,
     )
 end
@@ -62,7 +66,11 @@ end
 function _tabulated_flow!(flow, output, input, origin, destination)
     _linear_table_interval(flow.operator, origin, destination)
     if origin == destination
-        copyto!(output, input)
+        if oncpu(flow.execution)
+            copyto!(output, input)
+        else
+            copy_device!(output, input, flow.execution)
+        end
         return nothing
     end
     table = flow.table
