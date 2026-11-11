@@ -30,7 +30,7 @@ constexpr std::size_t max_components = 3;
 // before its vectoriser runs, and its early complete unrolling leaves such a nest alone
 // unless asked: the loop then ran a sample at a time, packing pairs through the stack
 // (a failed store-to-load forward per sample), at about 60 % of a general modal run.
-// Clang and icpx unroll the nest themselves and device builds keep their own unrolling,
+// Clang unrolls the nest itself and device builds keep their own unrolling,
 // so the macro is empty there. Unrolling moves no rounding.
 #if defined(__CUDACC__) || defined(__HIPCC__) || defined(__clang__)
 #define SOLPROP_NATIVE_UNROLL

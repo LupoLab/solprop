@@ -219,14 +219,6 @@ if(SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP)
   endif()
   return()
 endif()
-if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM" AND
-   SOLPROP_NATIVE_ENABLE_OPENMP AND
-   SOLPROP_NATIVE_FFT_PROVIDER STREQUAL "FFTW" AND
-   SOLPROP_NATIVE_FFTW_THREADING STREQUAL "OPENMP")
-  message(FATAL_ERROR
-    "IntelLLVM/FFTW CPU builds require FFTW_THREADING=PTHREADS. "
-    "Distribution OpenMP FFTW libraries link GNU OpenMP, not Intel's runtime.")
-endif()
 if(_tpl_request STREQUAL "OFF" AND
    (NOT SOLPROP_NATIVE_BLAS_VENDOR STREQUAL "AUTO" OR SOLPROP_NATIVE_BLAS_LIBRARIES))
   message(FATAL_ERROR
@@ -237,11 +229,7 @@ if(NOT SOLPROP_NATIVE_BLAS_VENDOR STREQUAL "AUTO" AND
   message(FATAL_ERROR "Select BLAS_VENDOR or explicit BLAS_LIBRARIES, not both.")
 endif()
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
-  set(_mkl_thread mkl_intel_thread)
-else()
-  set(_mkl_thread mkl_gnu_thread)
-endif()
+set(_mkl_thread mkl_gnu_thread)
 if(NOT SOLPROP_NATIVE_ENABLE_OPENMP)
   set(_mkl_thread mkl_sequential)
 endif()

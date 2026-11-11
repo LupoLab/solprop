@@ -78,8 +78,8 @@ elseif(SOLPROP_NATIVE_ENABLE_CUDA AND
     "The NVIDIA validation build requires GNU C++; "
     "found ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}.")
 elseif(NOT SOLPROP_NATIVE_ENABLE_HIP AND
-       NOT CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|IntelLLVM|Clang|AMDClang)$")
-  message(FATAL_ERROR "Linux CPU builds require GNU C++, IntelLLVM, or Clang/AOCC.")
+       NOT CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AMDClang)$")
+  message(FATAL_ERROR "Linux CPU builds require GNU C++ or Clang/AOCC.")
 elseif(SOLPROP_NATIVE_ENABLE_CUDA AND
        CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
   # The CPU reference compiler below, for the host pass of nvcc_wrapper too: GCC 13
@@ -115,48 +115,17 @@ if(NOT APPLE AND NOT SOLPROP_NATIVE_ENABLE_CUDA AND
   add_compile_options(-fno-fast-math)
 endif()
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
-  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 2022)
-    message(FATAL_ERROR "Kokkos CPU builds require IntelLLVM 2022 or newer.")
-  endif()
-  # icpx defaults to fast floating-point transformations. The adaptive error
-  # estimate requires precise arithmetic in project and dependency templates.
-  add_compile_options(-fp-model=precise)
-  # CMake can find the distribution's older LLVM archiver even when icpx is
-  # newer. LTO objects require the archive tools shipped with that compiler.
-  foreach(_tool IN ITEMS ar ranlib)
-    execute_process(COMMAND "${CMAKE_CXX_COMPILER}" "-print-prog-name=llvm-${_tool}"
-      OUTPUT_VARIABLE _intel_tool OUTPUT_STRIP_TRAILING_WHITESPACE
-      COMMAND_ERROR_IS_FATAL ANY)
-    if(NOT EXISTS "${_intel_tool}")
-      message(FATAL_ERROR "icpx could not locate its llvm-${_tool}: ${_intel_tool}")
-    endif()
-    string(TOUPPER "${_tool}" _tool_upper)
-    set(CMAKE_CXX_COMPILER_${_tool_upper} "${_intel_tool}" CACHE FILEPATH
-        "Archive tool matching IntelLLVM bitcode" FORCE)
-    set(CMAKE_CXX_COMPILER_${_tool_upper} "${_intel_tool}")
-  endforeach()
-  # CMake 3.28 expands these paths during project(), before the correction above.
-  set(CMAKE_CXX_ARCHIVE_CREATE_IPO
-      "\"${CMAKE_CXX_COMPILER_AR}\" cr <TARGET> <LINK_FLAGS> <OBJECTS>")
-  set(CMAKE_CXX_ARCHIVE_APPEND_IPO
-      "\"${CMAKE_CXX_COMPILER_AR}\" r <TARGET> <LINK_FLAGS> <OBJECTS>")
-  set(CMAKE_CXX_ARCHIVE_FINISH_IPO
-      "\"${CMAKE_CXX_COMPILER_RANLIB}\" <TARGET>")
-endif()
-
 # solprop SEP 25: floating-point contraction (fused multiply-add) is on by default for
 # CPU builds, and the few protected blocks opt out (include/solprop_native/fp.hpp).
 # Clang's plain `-ffp-contract=fast` ignores `#pragma clang fp contract(off)` and
 # `#pragma STDC FP_CONTRACT OFF`; `fast-honor-pragmas` contracts across statements and
 # keeps the protected blocks strict. GCC ignores both pragmas: its protected functions
-# carry `optimize("fp-contract=off")` instead. icpx is Clang-based and takes the Clang
-# form after `-fp-model=precise`, which alone contracts within a statement only. The
-# flag is added after `-fno-fast-math` and `-fp-model=precise`, so neither resets it.
+# carry `optimize("fp-contract=off")` instead. The flag is added after
+# `-fno-fast-math`, so that does not reset it.
 # Device builds keep their compilers' defaults (nvcc and HIP Clang already contract).
 set(SOLPROP_NATIVE_FP_CONTRACT_FLAG "")
 if(NOT SOLPROP_NATIVE_ENABLE_CUDA AND NOT SOLPROP_NATIVE_ENABLE_HIP)
-  if(CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|AppleClang|AMDClang|IntelLLVM)$")
+  if(CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|AppleClang|AMDClang)$")
     set(SOLPROP_NATIVE_FP_CONTRACT_FLAG "-ffp-contract=fast-honor-pragmas")
   elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set(SOLPROP_NATIVE_FP_CONTRACT_FLAG "-ffp-contract=fast")
@@ -164,11 +133,6 @@ if(NOT SOLPROP_NATIVE_ENABLE_CUDA AND NOT SOLPROP_NATIVE_ENABLE_HIP)
 endif()
 if(SOLPROP_NATIVE_FP_CONTRACT_FLAG)
   add_compile_options("${SOLPROP_NATIVE_FP_CONTRACT_FLAG}")
-  # icpx reports the deliberate override of `-fp-model=precise`'s contraction as a
-  # warning, which `-Werror` would turn into a failed build.
-  if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
-    add_compile_options(-Wno-overriding-option)
-  endif()
 endif()
 
 if(WIN32)
@@ -382,9 +346,6 @@ endif()
 string(STRIP "${SOLPROP_NATIVE_COMPILER_FLAGS}" SOLPROP_NATIVE_COMPILER_FLAGS)
 string(APPEND SOLPROP_NATIVE_COMPILER_FLAGS
   " -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow")
-if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
-  string(APPEND SOLPROP_NATIVE_COMPILER_FLAGS " -fp-model=precise")
-endif()
 if(SOLPROP_NATIVE_FP_CONTRACT_FLAG)
   string(APPEND SOLPROP_NATIVE_COMPILER_FLAGS " ${SOLPROP_NATIVE_FP_CONTRACT_FLAG}")
 endif()
@@ -442,13 +403,13 @@ function(solprop_native_configure_project_target target)
     target_link_options(${target} PRIVATE -fprofile-instr-generate)
   endif()
   target_compile_options(${target} PRIVATE
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-Wall>
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-Wextra>
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-Wpedantic>
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-Wconversion>
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-Wsign-conversion>
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-Wshadow>
-    $<$<AND:$<BOOL:${SOLPROP_NATIVE_WARNINGS_AS_ERRORS}>,$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>>:-Werror>
+    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-Wall>
+    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-Wextra>
+    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-Wpedantic>
+    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-Wconversion>
+    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-Wsign-conversion>
+    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-Wshadow>
+    $<$<AND:$<BOOL:${SOLPROP_NATIVE_WARNINGS_AS_ERRORS}>,$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>>:-Werror>
   )
   if(SOLPROP_NATIVE_ENABLE_CLANG_TIDY)
     set_property(TARGET ${target} PROPERTY CXX_CLANG_TIDY
@@ -456,11 +417,11 @@ function(solprop_native_configure_project_target target)
   endif()
   if(SOLPROP_NATIVE_ENABLE_SANITIZERS)
     target_compile_options(${target} PRIVATE
-      $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-fsanitize=address,undefined>
-      $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-fno-omit-frame-pointer>
+      $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-fsanitize=address,undefined>
+      $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-fno-omit-frame-pointer>
     )
     target_link_options(${target} PRIVATE
-      $<$<LINK_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-fsanitize=address,undefined>
+      $<$<LINK_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-fsanitize=address,undefined>
     )
   endif()
 endfunction()
@@ -838,7 +799,7 @@ add_library(solprop_native_core STATIC src/core.cpp src/crossing.cpp src/general
 # judgement round as solprop's Python does, so their
 # translation units take no contraction on any build (the flag follows the global one,
 # and the last wins). MSVC's /fp:precise does not contract by default.
-if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang|AMDClang|IntelLLVM)$")
+if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang|AMDClang)$")
   set_source_files_properties(src/adams_march.cpp src/watch.cpp src/rk_march.cpp
     src/session.cpp src/session_statistics.cpp src/session_widths.cpp src/low_storage.cpp
     src/transverse.cpp src/session_edge.cpp src/dense.cpp

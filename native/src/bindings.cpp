@@ -3113,8 +3113,6 @@ nb::dict build_record() {
 #endif
 #if defined(__apple_build_version__)
   result["compiler_family"] = "AppleClang";
-#elif defined(__INTEL_LLVM_COMPILER)
-  result["compiler_family"] = "IntelLLVM";
 #elif defined(__clang__)
   result["compiler_family"] = "Clang";
 #elif defined(__GNUC__)

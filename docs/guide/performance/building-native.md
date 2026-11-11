@@ -26,7 +26,7 @@ the arithmetic is double precision throughout, and no build enables fast-math.
 | CMake | 3.23 or newer (with build isolation, scikit-build-core fetches one from PyPI if none is found) |
 | build tool | Ninja is recommended; scikit-build-core uses it when available |
 | C++20 compiler, macOS | Clang 14 or newer; Homebrew LLVM is recommended and selected by default |
-| C++20 compiler, Linux CPU | GCC 14 or newer, IntelLLVM (`icpx`) 2022 or newer, or Clang 14 or newer / AMD AOCC |
+| C++20 compiler, Linux CPU | GCC 14 or newer, or Clang 14 or newer / AMD AOCC |
 | C++20 compiler, CUDA | GCC 14 or newer as the host compiler, with `nvcc` from CUDA 12.8 or newer (qualified on CUDA 13) |
 | C++20 compiler, HIP | ROCm's Clang (`hipcc` or `amdclang++`) |
 | OpenMP (CPU builds) | the compiler's runtime; on macOS Homebrew's `libomp` |
@@ -49,8 +49,7 @@ them:
 
 The Python build requirements are scikit-build-core 0.11 and nanobind 2.9 or newer. CPU
 builds contract multiply-adds (`-ffp-contract=fast` with GCC,
-`-ffp-contract=fast-honor-pragmas` with Clang and `icpx`, after `-fno-fast-math` and
-`-fp-model=precise`) except in a few protected blocks, as
+`-ffp-contract=fast-honor-pragmas` with Clang, after `-fno-fast-math`) except in a few protected blocks, as
 [SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md) sets out;
 `build_info().compiler_flags` and `optimization_policy` record the setting. GPU builds
 follow their compilers' defaults throughout ([GPU builds](#gpu-builds)).
@@ -383,7 +382,7 @@ The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.
 | option | default | values and effect |
 |---|---|---|
 | `SOLPROP_NATIVE_FFT_PROVIDER` | `FFTW` | `FFTW`, or `MKL_FFTW` (MKL's FFTW3 interface, Linux). Host builds only |
-| `SOLPROP_NATIVE_FFTW_THREADING` | `OPENMP` | `OPENMP` (`libfftw3_omp`) or `PTHREADS` (`libfftw3_threads`); IntelLLVM with FFTW requires `PTHREADS` |
+| `SOLPROP_NATIVE_FFTW_THREADING` | `OPENMP` | `OPENMP` (`libfftw3_omp`) or `PTHREADS` (`libfftw3_threads`) |
 | `SOLPROP_NATIVE_RAMAN_FFT_PROVIDER` | `ACCELERATE` on macOS CPU builds, else `KOKKOSFFT` | construction-time Raman selection: with NEON FFTW, vDSP handles short parallel power-of-two rows (up to 16,384 samples); serial and longer rows use Kokkos-FFT. Without NEON, only short serial rows use Kokkos-FFT. `KOKKOSFFT` forces that provider; `ACCELERATE` is macOS CPU only |
 | `FFTW_ROOT` | the Homebrew prefix on macOS | a non-default FFTW installation |
 
@@ -459,22 +458,20 @@ pinned whichever is used.
 | compiler | notes |
 |---|---|
 | GCC 14 or newer | the reference route, with GNU OpenMP (`libgomp`). GCC 13 is refused: it compiles the strict floating-point helpers through the stack, and coupled Multistep steps took 1.25 to 1.45 times as long as with GCC 14 |
-| IntelLLVM (`icpx`) 2022 or newer | compiled with `-fp-model=precise` (its default is fast floating point) and then `-ffp-contract=fast-honor-pragmas`; requires `SOLPROP_NATIVE_FFTW_THREADING=PTHREADS` with FFTW, because distribution OpenMP FFTW libraries link GNU OpenMP; uses the compiler's own archiver for LTO |
 | Clang 14 or newer, AMD AOCC | compiled with `-fno-fast-math`, then `-ffp-contract=fast-honor-pragmas` |
 
 | provider | how to select it |
 |---|---|
 | OpenBLAS | the automatic choice when MKL is not configured; `-DSOLPROP_NATIVE_BLAS_VENDOR=OPENBLAS` forces it, and `-DBLAS_openblas_LIBRARY=/path/to/libopenblas.so` names a specific library |
-| MKL BLAS | `source /opt/intel/oneapi/setvars.sh` (sets `MKLROOT`), `-DSOLPROP_NATIVE_MKL_ROOT=...` or `-DSOLPROP_NATIVE_BLAS_VENDOR=MKL`. LP64 interface; GCC links MKL's GNU threading layer, IntelLLVM its Intel layer |
+| MKL BLAS | `source /opt/intel/oneapi/setvars.sh` (sets `MKLROOT`), `-DSOLPROP_NATIVE_MKL_ROOT=...` or `-DSOLPROP_NATIVE_BLAS_VENDOR=MKL`. LP64 interface, with MKL's GNU threading layer |
 | AOCL-BLIS and other BLAS | `-DSOLPROP_NATIVE_BLAS_LIBRARIES="/path/libblis-mt.so;/path/libflame.so"` (BLIS alone lacks complex rotations that Kokkos Kernels' BLAS layer links; AOCL's LP64 libFLAME supplies them and needs `libaoclutils` on the loader path) |
 | FFTW | the default; `-DFFTW_ROOT=...` for a non-system installation, such as AOCL's FFTW |
 | MKL FFT | `-DSOLPROP_NATIVE_FFT_PROVIDER=MKL_FFTW`: MKL's FFTW3 interface, independent of the BLAS choice. MKL ignores FFTW's planning flags. Sourcing oneAPI never selects it by itself |
 
 **FFTW threading.** `OPENMP` links FFTW's OpenMP library, which must use the same OpenMP
 runtime as the rest of the build: GNU `libgomp` for distribution packages built with
-GCC. `PTHREADS` links FFTW's pthreads library instead; it is required for IntelLLVM and
-is the safer choice whenever a second OpenMP runtime could otherwise be loaded. With
-pthreads FFTW, start with `OMP_PROC_BIND=false`: a bound OpenMP main thread can confine
+GCC. `PTHREADS` links FFTW's pthreads library instead; it is the safer choice whenever
+a second OpenMP runtime could otherwise be loaded. With pthreads FFTW, start with `OMP_PROC_BIND=false`: a bound OpenMP main thread can confine
 the FFTW worker threads it creates to its own core.
 
 **OpenBLAS threading.** A pthreads OpenBLAS (the Debian and Ubuntu default) keeps its own

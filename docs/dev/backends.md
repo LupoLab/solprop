@@ -804,13 +804,13 @@ mask and the in-stage absorber preserve it, and the measured saving are
   `nsz`, approximate functions and reciprocals, and flush-to-zero forbidden). On `native`,
   as `native/AGENTS.md` and `native/CMakeLists.txt` set it:
   - **Contraction.** A CPU build compiles with `-ffp-contract=fast` under GCC and
-    `-ffp-contract=fast-honor-pragmas` under Clang and `icpx` (plain `fast` makes Clang
+    `-ffp-contract=fast-honor-pragmas` under Clang (plain `fast` makes Clang
     ignore the pragmas), so the compiler may fuse any multiply and add into one rounding.
     Its one hazard is exact cancellation (`x*y - y*x` need not be zero).
     `build_info().optimization_policy` records the flag.
   - **Strict blocks.** A protected function or lambda carries
     `SOLPROP_NATIVE_STRICT_FUNCTION` and starts its body with `SOLPROP_NATIVE_STRICT_BLOCK`
-    (`include/solprop_native/fp.hpp`): under Clang and `icpx` a `#pragma clang fp
+    (`include/solprop_native/fp.hpp`): under Clang a `#pragma clang fp
     contract(off)`, which survives inlining; under GCC, which ignores the pragma,
     `optimize("fp-contract=off")` on the function, so a protected helper is a call there.
     Both settings are lexical, and `Kokkos::complex`'s operators keep their header's

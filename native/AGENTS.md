@@ -127,8 +127,8 @@ the gate.
   contracts (lossless copies, integer accounting, identity metadata, hard-mask zeros,
   explicit no-ops) stay exact.
 - Kernels may reorder, vectorise, thread and contract. Contraction is on by default
-  (`-ffp-contract=fast` for GCC, `-ffp-contract=fast-honor-pragmas` for Clang and
-  `icpx`: plain `fast` makes Clang ignore the pragmas). A protected block (a stable
+  (`-ffp-contract=fast` for GCC, `-ffp-contract=fast-honor-pragmas` for Clang: plain
+  `fast` makes Clang ignore the pragmas). A protected block (a stable
   increment, a small-argument function, a defect or a compensated sum) stays strict
   with `SOLPROP_NATIVE_STRICT_FUNCTION` and `SOLPROP_NATIVE_STRICT_BLOCK`
   (`include/solprop_native/fp.hpp`; GCC ignores `#pragma STDC FP_CONTRACT`) and spells
