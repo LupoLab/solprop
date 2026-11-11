@@ -33,6 +33,17 @@ backends. An acknowledged event invalidates its export ticket; arrays already re
 to Python remain valid. Failed output consumers can recover an undelivered history chunk
 once, without repeating numerical work.
 
+Fixed-schedule groups use Julia's member-session coordinator. Members must share the
+method and complete tableau, itinerary, landed observation planes, shape, precision,
+norm mask, statistics policy and execution choices. Construction validates these
+before consuming any entrance field; interrupted construction leaves the original
+starts and caller-owned backends available for retry. Julia chooses every member turn;
+Python publishes a complete common window and copies each member chunk once. A failed
+publication retains its assembled chunks for retry without further numerical work.
+Stops and failures preserve each member's actual committed position, history and
+available field ticket, and share one primary error. Closing the group closes its
+adopted owners. Group resume and interpolated group planes remain refused.
+
 Adams receives its controller and landing constants from the shared resolved method
 policy. Its execution record distinguishes logical response-call charges from actual
 source invocations, including structurally absent sources, and retains compact accepted
@@ -57,9 +68,11 @@ services before public backend selection is enabled.
 Unsupported combinations currently refuse by name at preparation. The standalone
 Statistics and temporal/transverse-monitor components have separate tests;
 their presence alone does not establish complete Python session support.
-The current session supports in-stage temporal absorption. Split absorption, noise,
-vector responses, general modal and spatial transforms, and dense attachment remain
-pending. An explicit node chunk bounds the source's physical-node scratch; memory-budget
+The current session supports in-stage temporal absorption. Split absorption, input noise,
+radial, Cartesian and line transforms, and dense attachment remain pending. Vector
+polarisation, tensor Raman, general modal and planar routes, coupled flows, TDSE and
+dispersive Kerr remain outside SEP 48's admitted scope and refuse by name.
+An explicit node chunk bounds the source's physical-node scratch; memory-budget
 admission remains pending. These execution choices do not alter scientific identities.
 
 The scalar statistics catalogue includes spectral centroids, energies and frequency

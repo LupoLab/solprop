@@ -6,6 +6,7 @@ public FixedScheduleGroup, GroupReport, GroupMemberReport, GroupEvent, GroupOutc
 public advance_group!, acknowledge_group!, group_report, group_member_report
 public group_member_session, group_failure
 public request_group_snapshot!, fail_group_member!, fail_group!, close_group!, group_memory
+public start_group_session, advance_group_session, fail_group_session
 
 """Identify a bounded progress, service, complete window or terminal group barrier."""
 @enum GroupEvent::UInt8 GROUP_PROGRESS GROUP_SERVICE GROUP_WINDOW GROUP_TERMINAL
@@ -260,6 +261,53 @@ function FixedScheduleGroup(members::Tuple; stop = StopFlag(), round_steps::Int 
         members, stop, round_steps, origins, edges,
         fill(empty_slot, length(members)), state
     )
+end
+
+"""
+    start_group_session(stop, members...)
+
+Construct a fixed-schedule group from flat bridge arguments.
+
+`stop` is the group's lifetime-owned atomic flag; every remaining argument is an
+independently owned fresh member session. Apply `FixedScheduleGroup` admission before
+adopting any owner. Failure consumes and closes nothing.
+"""
+start_group_session(stop, members...) = FixedScheduleGroup(members; stop)
+
+"""
+    advance_group_session(group, work_limit, deadline)
+
+Advance one bounded group transport through a positional bridge entry.
+
+`work_limit` bounds actual member attempts and `deadline` is a nonnegative duration
+in seconds. Return the detached `GroupReport`; Julia selects every member turn.
+"""
+advance_group_session(group, work_limit::Int, deadline::Float64) =
+    advance_group!(group; work_limit, deadline)
+
+"""
+    fail_group_session(group)
+
+Publish an external-failure transport without advancing any member.
+
+Accept a pending or just-acknowledged open transport. Preserve held member buffers
+and their independent chunk identities. An already pending terminal is returned
+unchanged. The strict generation-checked `fail_group!` interface remains unchanged.
+Closed or acknowledged terminal groups refuse before mutation.
+"""
+function fail_group_session(group::FixedScheduleGroup)
+    state = group.state
+    !state.closed && (!state.finished || state.pending) ||
+        throw(ArgumentError("the group cannot publish another failure transport"))
+    state.finished && return group_report(group, state.generation)
+    if state.pending
+        fail_group!(group, state.generation, :ExternalFailure, "the Python group service failed")
+        return group_report(group, state.generation)
+    end
+    state.generation < typemax(Int) ||
+        throw(ArgumentError("the group transport generation capacity is exhausted"))
+    _group_end!(group, GROUP_FAILED, 0, :ExternalFailure, "the Python group service failed")
+    return _group_issue!(group, GROUP_TERMINAL, time_ns(), 0)
 end
 
 # Recursion keeps heterogeneous tuples concrete at every numerical call. No member

@@ -282,6 +282,15 @@ def test_legacy_benchmark_window_refuses_an_execution_only_owner():
         owner.close()
 
 
+def test_delivery_memory_omits_views_of_arrays_already_counted_by_members():
+    shared = np.arange(12, dtype=np.float64).reshape(3, 4)
+    private = shared.copy()
+    buffers = {"borrowed": shared[:, ::2], "owned": private, "repeated": private.T}
+    ledger = transfer_memory(buffers, exclude=(shared.T,))
+    assert sum(ledger.values()) == private.nbytes
+    assert len(ledger) == 1 and "owned" in next(iter(ledger))
+
+
 def _evaluate_table(transfer, z):
     # Independent NumPy Chebyshev evaluation of the transferred coefficient order.
     interval = np.clip(

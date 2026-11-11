@@ -226,6 +226,7 @@ class JuliaSession:
         self._exports: dict[ExportRecipe, np.ndarray] = {}
         self._field_exports = 0
         self._abandoned: tuple[float, float] | None = None
+        self._group_chunk = 0
 
     def _start_engine(
         self, transfer: RunTransfer, start: Start, restored: CallRestore | None
@@ -507,6 +508,75 @@ class JuliaSession:
         receipt = self._ledger.issue(outcome=_OUTCOMES.get(report.kind))
         self._capture_execution(report.generation)
         return receipt
+
+    def _group_event(
+        self,
+        report: _calls.EngineReport,
+        chunk: int,
+        *,
+        error: BaseException | None = None,
+    ) -> Event:
+        """Translate a group-owned barrier without advancing or acknowledging it.
+
+        A forced terminal changes generation but preserves the numerical buffers.
+        Rebind already published caches to that generation before retrying any copy;
+        each independently completed publication remains exactly once after failure.
+
+        Parameters
+        ----------
+        report : EngineReport
+            Held member scalars selected by the Julia group coordinator.
+        chunk : int
+            Positive chunk identity, unchanged by forced terminal replacement.
+        error : BaseException or None, optional
+            Shared group primary cause or member warning-filter failure.
+
+        Returns
+        -------
+        Event
+            Detached event retaining the independently published member arrays.
+        """
+        previous = self._report
+        if previous is not None and self._group_chunk == chunk:
+            if self._accounting.generation == previous.generation:
+                self._accounting = replace(
+                    self._accounting, generation=report.generation
+                )
+            if (
+                self._payload is not None
+                and self._payload.generation == previous.generation
+            ):
+                self._payload = replace(self._payload, generation=report.generation)
+            if (
+                self._monitor is not None
+                and self._monitor.payload is not None
+                and self._monitor.payload.generation == previous.generation
+            ):
+                self._monitor = replace(
+                    self._monitor,
+                    payload=replace(
+                        self._monitor.payload, generation=report.generation
+                    ),
+                )
+        self._group_chunk = chunk
+        self._exports.clear()
+        receipt = self._hold(report)
+        history = _calls.attempts(self._runtime, self._engine, report.generation)
+        if error is None:
+            return self._event(report, receipt, history)
+        self._capture_monitor(report.generation)
+        payload = self._capture_observations(report.generation)
+        return Terminal(
+            _OUTCOMES[report.kind],
+            report.z,
+            Eligibility.POISONED if report.poisoned else Eligibility.ELIGIBLE,
+            error,
+            None
+            if report.poisoned
+            else ExportTicket(receipt, report.generation, report.z),
+            history,
+            payload.rows,
+        )
 
     def _capture_execution(self, generation: int) -> None:
         """Retain cumulative counts and encode a generation's accepted orders once.

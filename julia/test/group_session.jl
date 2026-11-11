@@ -606,3 +606,39 @@ end
     @test service.calls == 1
     GSP.close_group!(resumed)
 end
+
+@testset "External group failure preserves held work across acknowledgment" begin
+    for acknowledged in (false, true)
+        members = (group_test_member(), group_test_member())
+        group = GSP.start_group_session(GSP.StopFlag(), members...)
+        group_test_launch!(group)
+        report = GSP.advance_group_session(group, 1, 60.0)
+        @test report.kind === GSP.GROUP_PROGRESS
+        chunks = [slot.chunk for slot in group.slots]
+        before = [
+            (copy(member.field), member.state.attempts, member.source.calls)
+                for member in members
+        ]
+        acknowledged && GSP.acknowledge_group!(group, report.generation)
+        failed = GSP.fail_group_session(group)
+        @test failed.kind === GSP.GROUP_TERMINAL
+        @test failed.outcome === GSP.GROUP_FAILED
+        @test [slot.chunk for slot in group.slots] == chunks
+        @test failed.generation == report.generation + Int(acknowledged)
+        for (index, member) in enumerate(members)
+            @test (member.field, member.state.attempts, member.source.calls) == before[index]
+            @test GSP.group_member_report(group, failed.generation, index).eligible
+        end
+        @test GSP.fail_group_session(group) == failed
+        GSP.acknowledge_group!(group, failed.generation)
+        @test_throws ArgumentError GSP.fail_group_session(group)
+        GSP.close_group!(group)
+        @test_throws ArgumentError GSP.fail_group_session(group)
+    end
+    fresh = GSP.start_group_session(GSP.StopFlag(), group_test_member())
+    failed = GSP.fail_group_session(fresh)
+    @test failed.outcome === GSP.GROUP_FAILED
+    @test !GSP.group_member_report(fresh, failed.generation, 1).eligible
+    @test fresh.members[1].source.calls == 0
+    GSP.close_group!(fresh)
+end

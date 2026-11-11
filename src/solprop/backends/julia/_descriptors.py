@@ -674,13 +674,15 @@ def lower_modal(problem: PropagationProblem) -> ModalTransfer:
     return result
 
 
-def transfer_memory(transfer: object) -> dict[str, int]:
+def transfer_memory(transfer: object, *, exclude: object = None) -> dict[str, int]:
     """Enumerate owned arrays in nested numerical transfer records once.
 
     Parameters
     ----------
     transfer : object
         An immutable transfer dataclass, tuple, scalar or array.
+    exclude : object, optional
+        Arrays or records whose array owners are already counted by another owner.
 
     Returns
     -------
@@ -717,5 +719,8 @@ def transfer_memory(transfer: object) -> dict[str, int]:
             for name, item in value.items():
                 visit(item, f"{path}.{name}")
 
+    if exclude is not None:
+        visit(exclude, "")
+        ledger.clear()
     visit(transfer, "")
     return ledger

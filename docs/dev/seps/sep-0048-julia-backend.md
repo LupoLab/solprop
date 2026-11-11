@@ -1465,6 +1465,25 @@ transcendental/range analysis remains a separate phase 3 requirement. Fixed-grou
 and terminal replacement hooks preserve chunks and actual positions; the complete group
 coordinator and transport still require integration and review.
 
+### Temporal monitoring and group integration — 2026-11-11
+
+Temporal monitoring now runs inside the numerical session, including continuation,
+warning barriers and exactly-once detached records. Fixed-schedule groups use Julia's
+member coordinator and publish complete common windows through Python's shared session
+services. Numerical stepping and member scheduling remain in Julia. Admission checks
+the complete Runge–Kutta tableau before consuming any entrance. Interrupted construction
+rolls back original starts; interrupted acknowledgments and repeated publication
+failures retain copied work without advancing or duplicating chunks (#676, #677).
+Actual member positions, Adams accounting and monitor rows survive forced termination.
+
+Independent group review is complete. Sixteen real managed-runtime cases pass on
+macOS arm64 with two Julia threads; seven independent transaction tests and three
+shared ledger tests pass. The focused numerical group suite passes 659 bounds-enabled
+assertions, and Aqua/JET passes 16 checks over 1,199 definitions. The same milestone
+passes targeted types, docstrings, formatting, spelling and documentation checks.
+These are integration milestones; the remaining admitted spatial routes, split collar,
+input noise, dense attachment and qualification still block phase 2 completion.
+
 The recoverable assignment and verification record is `julia/IMPLEMENTATION.md`.
 The full primary-source DF32 analysis and per-vendor qualification remain in phases 3
 and 4. All implementation changes remain on the single draft PR #611.

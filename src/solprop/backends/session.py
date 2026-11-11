@@ -1074,6 +1074,44 @@ class SessionLedger:
             self.outcome = outcome
         return receipt
 
+    def publish[T](
+        self, factory: Callable[[Receipt], T], *, outcome: Outcome | None = None
+    ) -> T:
+        """Build a complete receipt-bound payload before changing the ledger.
+
+        The factory allocates only the payload and does not mutate this ledger.
+        A failed factory leaves the sequence, pending receipt and outcome unchanged.
+        Callers defer asynchronous interruption across publication and ownership of
+        the returned payload when those must commit together.
+
+        Parameters
+        ----------
+        factory : callable
+            Construct a complete payload from its prospective receipt.
+        outcome : solprop.backends.events.Outcome or None, optional
+            Terminal outcome, or None while the session continues.
+
+        Returns
+        -------
+        object
+            The complete payload returned by the factory.
+
+        Raises
+        ------
+        SessionError
+            If the ledger is closed.
+        """
+        self.check_open()
+        sequence = self._sequence + 1
+        receipt = Receipt(self.session, sequence)
+        result = factory(receipt)
+        self._sequence = sequence
+        self._pending = receipt
+        self.state = SessionState.PENDING
+        if outcome is not None:
+            self.outcome = outcome
+        return result
+
     def acknowledge(self, receipt: Receipt) -> None:
         """Accept the pending batch's receipt.
 

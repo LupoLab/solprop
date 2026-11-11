@@ -13,6 +13,7 @@ from weakref import WeakSet
 from solprop.backends.driver_session import foreign_request
 from solprop.backends.julia import _calls
 from solprop.backends.julia._descriptors import lower_modal, transfer_memory
+from solprop.backends.julia._group import JuliaGroupSession
 from solprop.backends.julia._lower import RunTransfer, lower_run
 from solprop.backends.julia._observations import ObservationTransfer, lower_observations
 from solprop.backends.julia._ownership import JuliaHandle, require_main_thread
@@ -24,6 +25,7 @@ from solprop.backends.session import (
     GroupSession,
     SessionError,
     Start,
+    check_group,
 )
 from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
@@ -125,6 +127,7 @@ class JuliaBackend:
         self._runtime: JuliaRuntime | None = None
         self._preparation: JuliaHandle | None = None
         self._sessions: WeakSet[JuliaSession] = WeakSet()
+        self._groups: WeakSet[JuliaGroupSession] = WeakSet()
         self._prepared: WeakSet[JuliaPrepared] = WeakSet()
         self._closed = False
 
@@ -372,6 +375,12 @@ class JuliaBackend:
                 (f"session.{index}.{name}", size)
                 for name, size in session.memory_ledger().items()
             )
+        for index, group in enumerate(self._groups):
+            if group._owners[0] is self:
+                ledger.update(
+                    (f"group.{index}.{name}", size)
+                    for name, size in group._memory().items()
+                )
         return ledger
 
     def start_group(
@@ -383,12 +392,12 @@ class JuliaBackend:
         *,
         stop: StopFlag | None = None,
     ) -> GroupSession:
-        """Refuse groups until Julia's common-schedule composition is available.
+        """Start independent members on one Julia-owned common fixed schedule.
 
         Parameters
         ----------
         members : sequence of ExecutionBackend
-            Member execution owners, retained unchanged on refusal.
+            Distinct Julia owners, adopted only after successful construction.
         problems : sequence of PropagationProblem
             Their descriptors.
         requests : sequence of RunRequest
@@ -401,18 +410,25 @@ class JuliaBackend:
         Returns
         -------
         solprop.backends.session.GroupSession
-            No group is currently constructed.
+            Common-window group, with Julia selecting every numerical member turn.
 
         Raises
         ------
         BackendError
-            Naming the pending common-schedule group capability.
+            Naming incompatible owners, schedules, methods or execution choices.
         """
         self._check()
-        del members, problems, requests, starts, stop
-        raise BackendError(
-            "this Julia composition does not yet implement member groups"
+        check_group(len(members), problems, requests, starts)
+        if len({id(member) for member in members}) != len(members):
+            raise BackendError("julia groups require distinct member owners")
+        if members[0] is not self or any(
+            not isinstance(member, JuliaBackend) for member in members
+        ):
+            raise BackendError("julia groups require their own member owners")
+        admitted = tuple(
+            member for member in members if isinstance(member, JuliaBackend)
         )
+        return JuliaGroupSession(admitted, problems, requests, starts, stop=stop)
 
     def register(self, session: JuliaSession) -> None:
         """Retain a weak lifetime record for an independently owned session.
@@ -444,14 +460,17 @@ class JuliaBackend:
         require_main_thread()
         if self._closed:
             return
+        groups = tuple(self._groups)
+        for group in groups:
+            group.check_close()
         sessions = tuple(self._sessions)
         for session in sessions:
             session.check_close()
         self._closed = True
         failure: BaseException | None = None
-        for session in sessions:
+        for resource in (*groups, *sessions):
             try:
-                session.close()
+                resource.close()
             except BaseException as error:
                 if failure is None:
                     failure = error

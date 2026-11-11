@@ -13,6 +13,14 @@ factories, so the optional Julia adapter can keep all numerical marching in Juli
 Failed group construction preserves entrance fields and caller-owned backends for
 retry ([#623](https://github.com/LupoLab/solprop/issues/623)).
 
+Julia fixed-schedule groups now keep member scheduling in Julia and publish complete
+common windows through the shared service interface. Interrupted construction preserves
+the original starts; failed publication retains chunks for retry without repeating
+numerical work. Stops and failures preserve actual member positions and one shared
+primary error. Mixed Runge–Kutta tableaux refuse before consuming starts
+([#676](https://github.com/LupoLab/solprop/issues/676),
+[#677](https://github.com/LupoLab/solprop/issues/677)).
+
 The binary64 Julia session runs scalar modal fields and envelopes through the
 shared event and output services, with adaptive or fixed Runge–Kutta and landed
 exponential Adams stepping,

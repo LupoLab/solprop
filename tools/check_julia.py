@@ -30,12 +30,15 @@ _RUNTIME_TESTS = (
     "tests/backends/julia/test_cpu_history.py",
     "tests/backends/julia/test_cpu_observations.py",
     "tests/backends/julia/test_cpu_monitor.py",
+    "tests/backends/julia/test_cpu_group.py",
+    "tests/backends/julia/test_transfer_aliases.py",
     "tests/backends/julia/test_session_boundary.py",
     "tests/sessions/executors.py",
     "tests/sessions/test_conformance.py",
     "julia/test/control_oracle.jl",
     "julia/test/march.jl",
     "julia/test/transfer.jl",
+    "julia/test/transfer_aliases_bridge.jl",
 )
 _CONFORMANCE_REQUIRED = (
     "test_a_stale_repeated_or_foreign_receipt_is_refused",
@@ -267,6 +270,8 @@ def _verify_runtime_report(report: Path) -> None:
         "test_cpu_history",
         "test_cpu_observations",
         "test_cpu_monitor",
+        "test_cpu_group",
+        "test_transfer_aliases",
     ):
         cases = [
             case for case in results if module in case.get("classname", "").split(".")

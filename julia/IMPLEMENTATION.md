@@ -11,8 +11,8 @@ The completed implementation is left ready for maintainer review, not auto-merge
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
 | 1: package and runtime | Setup/package integrated; remaining runtime qualification deferred | Maintainer directs core implementation to proceed; failures remain tracked |
-| 2: CPU binary64 session | Scalar modal stepping, statistics and temporal monitoring pass; remaining services/routes in progress | Histories, same-field statistics and 24 common conformance cases pass; dense and transverse cases remain pending |
-| 3: CPU binary32 | DF32 primitives and conservative function leaf reviewed; full execution pending | Complete operand analysis in progress; whole-expression and device admission remain unqualified |
+| 2: CPU binary64 session | Scalar modal stepping, statistics, temporal monitoring and fixed groups pass; remaining services/routes in progress | Histories, same-field statistics and 24 common conformance cases pass; dense and transverse attachment remain pending |
+| 3: CPU binary32 | DF32 primitives, conservative function leaf and operand analysis reviewed; full execution pending | Whole-expression and device admission remain unqualified |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
 
@@ -31,6 +31,7 @@ The additional CI corrections at `55fdc423` are also integrated: they restore
 request-owned arrays to the mixture baseline and remove nonportable hash literals.
 The final documentation/skip corrections at `21b5808c` are integrated as well.
 The final contract/coverage corrections at `f351d0a3` are integrated at `4dade535`.
+PR #607 has now merged at `ae65df6a`; its complete reviewed head was already integrated.
 The targeted merged selection passes 528 tests with 56 declared capability skips.
 `RunSession.march_export_refusal()` is now explicit; Julia already implements it.
 The legacy callers of this branch's new execution-owner protocol are corrected;
@@ -53,10 +54,10 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Numerical transform/Adams agent | New `_phase_bounds.py`, its test and `julia/PHASE_ADMISSION.md` | Proposing complete exponent-operand bounds and an explicit assembly certificate interface; protected function leaf returned to master |
-| Numerical services agent | Alias helpers in `julia/src/transfer.jl`, `julia/ext/observations.jl`, monitor alias section and Adams pairwise helper; two new alias tests | Fixing confirmed foreign-storage overlap in #671; no other history/monitor edits |
+| Numerical transform/Adams agent | New scalar spatial transform/composition files and focused tests, exact interface pending agreement | Dense scheduler `c527047a` returned for independent review; analysing radial, Cartesian and line routes |
+| Numerical services agent | New `input_noise.jl`, its Julia test, Python `_noise.py` and `test_noise_records.py` | Binary64 input-noise leaf; shared lifecycle and monitor attachment remain master-owned |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
-| Independent reviewer | Production code read-only | Monitor leaf and Python integration approved in scope; shared alias correction and operand analysis next |
+| Independent reviewer | Production code read-only; independent transaction tests returned to master | Group adapter approved; dense scheduler and input noise next |
 
 The temporary CI assignments for `restore_control!`, CPU allocation and source/monitor
 constructors are complete and integrated after independent review. Their files return
@@ -110,6 +111,22 @@ checks and the separately reviewed finite-underflow proof. These results establi
 the documented conservative CPU arithmetic domain only. Actual replay spans,
 restored Adams history and represented-operator operand bounds are the next
 certificate inputs; public binary32 admission and each device remain unqualified.
+Operand analysis `1ea43509`, `9ed0d2a4` and `59252a3f` is integrated at
+`1f0c3912`, `9ced7ba5` and `410442e0` after independent review. Sixty-five committed
+tests and three independent rational suites pass, including 60 signed large-node
+replay geometries checked through both APIs, 810 adaptive stage endpoints, and exact
+polynomial/rate/jump bounds. Positive restored sample offsets and multiply/add stage
+rounding are included (#675). This is preparation-time operand analysis only; full
+input assembly, Clenshaw/subtraction/compensation and vendor arithmetic obligations
+remain explicit. It does not enable binary32.
+The Python group adapter is independently approved on the reviewed Julia coordinator. Julia
+chooses every member turn; Python copies bounded transports and joins each member
+chunk exactly once. Core group acknowledgment leaves member barriers held until the
+next Julia turn. Starts and owners transfer only after all member construction succeeds.
+Dense Adams attachment proceeds independently with explicit observed-field/coordinate
+selectors while committed state stays monotone. Dense observations precede deferred
+endpoint periodic rows and snapshots. Shared replay-plus-interpolation refusal remains
+unchanged.
 The temporal monitor transport `a7d77050` is integrated at `8c625d0b`, with its
 Python publication/service adapter independently approved. Julia owns decisions and
 totals; Python retains detached rows and formats the existing record/messages.
@@ -635,3 +652,15 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   claimed cause or fix. Runtime investigation remains deferred as directed.
   The latest SEP 47 merge addresses several reported coverage gaps; the next CI
   report must establish the remaining package-wide coverage result.
+- The fixed-schedule Python group adapter passes independent production review and
+  16 real managed-runtime tests, including matched solo trajectories, warning/stopping
+  outcomes, numerical budget failures and failed copies with Adams order/monitor rows.
+  Seven independently authored typed transaction cases cover deferred interrupts,
+  repeated publication failures and constructor rollback; three ledger publication
+  cases pass alongside them. The broader affected typed selection passes 132 tests.
+  The bounds-enabled numerical group selection passes 659 assertions, including zero
+  warmed allocation; all 16 Aqua/JET checks pass over 1,199 definitions, none cached.
+  Scoped types, docstrings, spelling, Ruff, Runic and Sphinx pass. Missing runtime gates
+  remain visible; no whole-package CI result is inferred from these checks.
+  The shared alias/layout correction is now exercised through the actual managed
+  PythonCall bridge in the mandatory Julia lane. Review and current runtime checks pass.

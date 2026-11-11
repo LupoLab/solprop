@@ -324,6 +324,7 @@ def boundary(monkeypatch, setup_record):
     owner._preparation = preparation
     owner._closed = False
     owner._sessions = WeakSet()
+    owner._groups = WeakSet()
     owner._prepared = WeakSet()
     monkeypatch.setattr(owner, "_lowered", (), raising=False)
     owner._options = {}
