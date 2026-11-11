@@ -2,7 +2,7 @@
 
 Branch: `feature/sep-0048-julia-backend`; draft [PR 611](https://github.com/LupoLab/solprop/pull/611).
 Proposal 609 merged at `04e72192`; Part I is frozen. Leave the completed implementation
-ready for maintainer review, without merging it. Current pushed head: `c35e35bd`.
+ready for maintainer review, without merging it. Latest inspected CI head: `c35e35bd`.
 
 ## Current plan and status — 11 November 2026
 
