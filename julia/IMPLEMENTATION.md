@@ -29,6 +29,14 @@ The flow review identified cross-precision caller reuse (#709). Both flow modes 
 require the prepared input/output element type before touching any cache or output.
 The corrected flow leaf passes 297 assertions; all 92 march checks still pass.
 The public managed CPU module passes all 11 tests, and probe/lowering checks pass 54.
+Flow-cache independent review passed 777 checks at exact `26dbb82f` (297 committed,
+480 additional), with no remaining blocker. The six default plasma/species rows are
+integrated at `b7fe3caa`; Python lowering, physical-measure transfer and the diagnostic
+node inventory are attached. Lowering/planning passes 90 tests (38 managed skips),
+the two real field/envelope launch-statistic cases pass with runtime type checks,
+and all 12 inventory tests pass, including actual buffers at chunks 1, 3 and 7.
+The source-precision agent is independently reviewing this attachment. Binary32
+source composition `8e0818ac` is awaiting the master's separate numerical review.
 
 | Phase | Status | Evidence or prerequisite |
 |---|---|---|

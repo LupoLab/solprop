@@ -211,7 +211,12 @@ def test_material_catalogue_launch_transport_and_population_invariants(kind):
         "electron_density",
         "peak_ionisation_rate",
         "quadrature_error",
+        "species_density",
+        "species_ionisation_energy",
+        "species_peak_ionisation_rate",
     )
+    if kind == "field":
+        names += ("plasma_undershoot", "plasma_work_defect", "plasma_boundary_level")
     case = _statistics_case(
         original,
         names,
@@ -251,11 +256,39 @@ def test_material_catalogue_launch_transport_and_population_invariants(kind):
     for values in observations:
         for name, profile in profiles.items():
             # A constant profile is copied unchanged, with its own catalogue unit.
-            assert float(values[name]) == float(profile(np.asarray(0.0)))
+            assert float(values[name]) == float(profile(np.asarray([0.0]))[0])
         fractions = values["species_ionisation"]
         assert np.all((fractions >= 0.02) & (fractions <= 1.0))
         assert np.all(values["species_electron_density"] >= 0.0)
         assert np.all(values["peak_ionisation_rate"] > 0.0)
+        np.testing.assert_array_equal(values["species_density"], [1e24])
+        assert np.all(values["species_peak_ionisation_rate"] > 0.0)
+        channel = case.problem.responses.population_channels[0]
+        area = case.problem.transform.aeff
+        assert area is not None
+        expected_inventory = (
+            fractions.reshape(-1)
+            * 1e24
+            * channel.ionisation_potential
+            * float(area(0.0))
+        )
+        # Four positive scalar products in either evaluation order, using the
+        # reported rounded population, isolate inventory units from rate error.
+        np.testing.assert_allclose(
+            values["species_ionisation_energy"],
+            expected_inventory,
+            rtol=8 * np.finfo(float).eps,
+            atol=0.0,
+        )
+        if kind == "field":
+            assert all(
+                float(values[name]) >= 0.0
+                for name in (
+                    "plasma_undershoot",
+                    "plasma_work_defect",
+                    "plasma_boundary_level",
+                )
+            )
         # One species contributes one multiply and one reduction. Bound these
         # positive operations rather than a rate evaluation or cumulative scan.
         np.testing.assert_allclose(

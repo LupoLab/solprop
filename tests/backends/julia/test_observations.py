@@ -408,6 +408,9 @@ def test_population_legacy_selector_and_unrequested_absence(fixture, request):
     assert prepared.populations.channel_species == (1,)
     assert prepared.populations.species_labels == ("medium",)
     assert prepared.populations.species_densities == (1e24,)
+    assert prepared.populations.species_potentials.shape == (1,)
+    assert not prepared.populations.species_potentials.flags.writeable
+    assert prepared.populations.measure is None
     assert lower_observations(case.problem, _request(case)).populations is None
 
 
@@ -639,7 +642,6 @@ def test_rest_eligibility_is_the_shared_route_method_intersection(field_case):
         "physical_energy",
         "on_axis_intensity",
         "beam_radius",
-        "species_density",
         "spectral_flux",
         "fwhm_r",
     ],

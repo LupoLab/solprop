@@ -109,6 +109,15 @@ tables match both endpoints. An interval change rebuilds the factors without
 interpolation or a step tolerance. `auto` tabulates constant low-storage flows;
 other method families continue to recompute, as reported in execution metadata.
 
+Default field-plasma diagnostics (`plasma_undershoot`, `plasma_work_defect`, and
+`plasma_boundary_level`) use a fresh population scan of the observed field. Each
+ratio divides separate global maxima over all channels and nodes, after combining
+chunks. These diagnostics and the three species inventory/peak rows are plane-only.
+`species_ionisation_energy` reports final ionised inventory in J/m, including the
+initial preionised fraction. It uses the physical transverse weights and represented
+area/taper at that plane; it is distinct from newly deposited ionisation work.
+Passive species keep their catalogue positions and zero ionisation potential.
+
 Public CPU selection uses the same preparation and session contract as the other
 backends. Unsupported combinations refuse by name before session allocation.
 The current session supports in-stage and split temporal absorption. Transverse monitor

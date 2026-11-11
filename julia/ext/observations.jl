@@ -12,6 +12,17 @@ function _observation_populations(modal, transfer)
         _profile(modal.execution, value, :species_density)
             for value in transfer.species_densities
     )
+    potentials = copy_preparation(transfer.species_potentials)
+    raw_measure = transfer.measure
+    measure = if pyis(raw_measure, nothing)
+        nothing
+    else
+        SolpropJulia.PopulationMeasure(
+            copy_preparation(raw_measure.weights);
+            area = _profile(modal.execution, raw_measure.area, :population_area),
+            taper = _profile(modal.execution, raw_measure.taper, :population_taper),
+        )
+    end
     data = modal.data
     if data isa SolpropJulia.CartesianSourceData
         return SolpropJulia.SpatialObservationPopulations(
@@ -19,6 +30,7 @@ function _observation_populations(modal, transfer)
             channel_species = pyconvert(Tuple{Vararg{Int}}, transfer.channel_species),
             peak_species = pyconvert(Int, transfer.peak_species),
             pad_scale = data.pad_scale,
+            potentials, measure,
         )
     end
     data = data isa SolpropJulia.RadialSourceData ? data.modal : data
@@ -26,6 +38,7 @@ function _observation_populations(modal, transfer)
         data.plasma, data.grid, data.map; species_densities = profiles,
         channel_species = pyconvert(Tuple{Vararg{Int}}, transfer.channel_species),
         peak_species = pyconvert(Int, transfer.peak_species),
+        potentials, measure,
     )
 end
 

@@ -50,6 +50,7 @@ from solprop.translate.run_request import MethodKind, RunRequest
 __all__ = [
     "ObservationProfilesTransfer",
     "ObservationTransfer",
+    "PopulationMeasureTransfer",
     "PopulationObservationTransfer",
     "SpatialObservationTransfer",
     "SpatialWidthTransfer",
@@ -77,6 +78,12 @@ _STATISTICS = frozenset(
         "species_electron_density",
         "electron_density",
         "peak_ionisation_rate",
+        "species_density",
+        "species_ionisation_energy",
+        "species_peak_ionisation_rate",
+        "plasma_undershoot",
+        "plasma_work_defect",
+        "plasma_boundary_level",
         "peak_intensity",
         "quadrature_error",
     )
@@ -91,6 +98,12 @@ _SPATIAL_STATISTICS = frozenset(
         "species_electron_density",
         "electron_density",
         "peak_ionisation_rate",
+        "species_density",
+        "species_ionisation_energy",
+        "species_peak_ionisation_rate",
+        "plasma_undershoot",
+        "plasma_work_defect",
+        "plasma_boundary_level",
         "peak_intensity",
         "on_axis_intensity",
         "beam_radius",
@@ -110,7 +123,16 @@ _POPULATIONS = frozenset(
         "species_electron_density",
         "electron_density",
         "peak_ionisation_rate",
+        "species_density",
+        "species_ionisation_energy",
+        "species_peak_ionisation_rate",
+        "plasma_undershoot",
+        "plasma_work_defect",
+        "plasma_boundary_level",
     )
+)
+_PLASMA_DIAGNOSTICS = frozenset(
+    ("plasma_undershoot", "plasma_work_defect", "plasma_boundary_level")
 )
 
 
@@ -200,6 +222,28 @@ class ObservationProfilesTransfer:
 
 
 @dataclass(frozen=True, eq=False)
+class PopulationMeasureTransfer:
+    """Own the physical transverse measure for final ionised inventory.
+
+    Attributes
+    ----------
+    weights : numpy.ndarray
+        Nonnegative reference node weights, shape ``(n_nodes,)``; square metres
+        for resolved geometry, or one dimensionless node for mode averaging.
+    area : float or TableTransfer
+        Positive represented multiplier, in square metres for mode averaging and
+        dimensionless one otherwise.
+    taper : float or TableTransfer
+        Positive dimensionless represented scale. Effective weights are
+        ``weights * area / taper**2`` at the observation coordinate.
+    """
+
+    weights: Float[np.ndarray, " n_nodes"]
+    area: float | TableTransfer
+    taper: float | TableTransfer
+
+
+@dataclass(frozen=True, eq=False)
 class PopulationObservationTransfer:
     """Map fresh source populations into the complete material species order.
 
@@ -215,12 +259,19 @@ class PopulationObservationTransfer:
         One-based sole-channel selector for the legacy peak-rate statistic on both
         formulations; zero uses the mixture-wide peak rule. Source buffers and fine
         reconstruction inputs remain in the separately lowered source preparation.
+    species_potentials : numpy.ndarray
+        Complete species order of nonnegative ionisation potentials in J, shape
+        ``(n_species,)``; zero for passive species.
+    measure : PopulationMeasureTransfer or None
+        Independent physical measure, present only for ionised inventory energy.
     """
 
     species_labels: tuple[str, ...]
     species_densities: tuple[float | TableTransfer, ...]
     channel_species: tuple[int, ...]
     peak_species: int
+    species_potentials: Float[np.ndarray, " n_species"]
+    measure: PopulationMeasureTransfer | None
 
 
 @dataclass(frozen=True, eq=False)
@@ -470,6 +521,10 @@ def _admit(
         raise BackendError(
             "julia electron_density and peak_ionisation_rate need plasma"
         )
+    if _PLASMA_DIAGNOSTICS.intersection(names) and (
+        problem.grid_kind != "field" or not problem.responses.plasma_channels
+    ):
+        raise BackendError("julia plasma diagnostics require field plasma channels")
 
 
 def _grid(
@@ -557,6 +612,9 @@ def _slots(
         "peak_power_window": (n_windows, n_modes),
         "species_ionisation": (n_species, problem.transform.n_nodes),
         "species_electron_density": (n_species,),
+        "species_density": (n_species,),
+        "species_ionisation_energy": (n_species,),
+        "species_peak_ionisation_rate": (n_species,),
     }
     if isinstance(problem.route, SpatialRoute):
         shapes.update(
@@ -678,13 +736,17 @@ def _profiles(
     return ObservationProfilesTransfer(*selected)
 
 
-def _populations(problem: PropagationProblem) -> PopulationObservationTransfer:
+def _populations(
+    problem: PropagationProblem, *, inventory: bool = False
+) -> PopulationObservationTransfer:
     """Preserve the source's channel order and complete mixture species mapping.
 
     Parameters
     ----------
     problem : PropagationProblem
         Translated material labels, independent densities and population channels.
+    inventory : bool, optional
+        Include the independently represented transverse physical measure.
 
     Returns
     -------
@@ -712,11 +774,52 @@ def _populations(problem: PropagationProblem) -> PopulationObservationTransfer:
     mapping = tuple(labels.index(channel.label) + 1 for channel in channels)
     if len(set(mapping)) != len(mapping):
         raise BackendError("julia population channels must map to distinct species")
+    potentials = np.zeros(len(labels))
+    for species, channel in zip(mapping, channels, strict=True):
+        potentials[species - 1] = channel.ionisation_potential
     return PopulationObservationTransfer(
         labels,
         tuple(lower_profile(table) for table in responses.species_densities),
         mapping,
         mapping[0] if len(channels) == 1 else 0,
+        owned(potentials),
+        _population_measure(problem) if inventory else None,
+    )
+
+
+def _population_measure(problem: PropagationProblem) -> PopulationMeasureTransfer:
+    """Lower the shared species-inventory measure without evaluating a population.
+
+    Parameters
+    ----------
+    problem : PropagationProblem
+        Physical geometry or modal transverse quadrature and independent profiles.
+
+    Returns
+    -------
+    PopulationMeasureTransfer
+        Owned weights and represented scale factors.
+
+    Raises
+    ------
+    BackendError
+        If the route lacks its physical transverse measure.
+    """
+    transform = problem.transform
+    if transform.geometry is not None:
+        return PopulationMeasureTransfer(
+            owned(transform.geometry.spatial_weights), 1.0, 1.0
+        )
+    if transform.mode_averaged:
+        if transform.aeff is None:
+            raise BackendError("julia species inventory requires effective area")
+        return PopulationMeasureTransfer(
+            owned(np.ones(1)), lower_profile(transform.aeff), 1.0
+        )
+    if transform.node_weights is None:
+        raise BackendError("julia species inventory requires physical node weights")
+    return PopulationMeasureTransfer(
+        owned(transform.node_weights), 1.0, lower_profile(transform.taper_scale)
     )
 
 
@@ -989,7 +1092,9 @@ def lower_observations(
         else None,
         lower_profile(problem.transform.taper_scale),
         0.5 * EPS0 * C,
-        _populations(problem) if _POPULATIONS.intersection(names) else None,
+        _populations(problem, inventory="species_ionisation_energy" in names)
+        if _POPULATIONS.intersection(names)
+        else None,
         temporal,
         split_rate,
         monitor is not None

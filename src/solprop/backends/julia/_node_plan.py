@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from solprop.backends.julia._observations import (
+    _PLASMA_DIAGNOSTICS,
+    _POPULATIONS,
     _SPATIAL_STATISTICS,
     _STATISTICS,
     _slots,
@@ -33,14 +35,6 @@ if TYPE_CHECKING:
 
 __all__ = ["JuliaNodePlan", "NodeBuffer", "plan_julia_nodes"]
 
-_POPULATIONS = frozenset(
-    {
-        "species_ionisation",
-        "species_electron_density",
-        "electron_density",
-        "peak_ionisation_rate",
-    }
-)
 _TEMPORAL = frozenset({"peak_power", "peak_power_total", "fwhm_t", "fwhm_t_outer"})
 _WIDTHS = frozenset({"beam_radius", "fwhm_r"})
 _EXCLUSIONS = (
@@ -467,6 +461,10 @@ def _observation_inventory(
             rows.append(NodeBuffer("observations.axis_pair", fixed_bytes=4 * n * c))
     if population:
         rows.extend(_population_inventory(problem, d))
+    if names & _PLASMA_DIAGNOSTICS:
+        rows.append(
+            NodeBuffer("observations.plasma_diagnostics", 6 * r, fixed_bytes=6 * r)
+        )
     if monitor is not None:
         crossing = problem.split_crossing if split else None
         # The shared policy retains every defined rate bucket, including empty
