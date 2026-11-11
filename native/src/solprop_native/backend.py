@@ -369,6 +369,11 @@ class NativeBackend(StepDriver[_core.State]):
         if _BENCHMARK_GATED.get():
             raise BackendError("the gated plasma benchmark requires numpy_ref")
         check_build()
+        selected = ExecutionOptions() if options is None else options
+        build_device = str(build_info().device_backend)
+        selected.check_device(
+            self.name, {"none": "cpu", "hip": "rocm"}.get(build_device, build_device)
+        )
         stepper = request.stepper
         _refuse_unsupported(problem, stepper)
         validate_run(problem, request)
@@ -2138,6 +2143,9 @@ class NativeBackend(StepDriver[_core.State]):
         return {
             **work,
             **facts.info,
+            "device": {"none": "cpu", "hip": "rocm"}.get(
+                str(facts.info["device_backend"]), facts.info["device_backend"]
+            ),
             "solprop_version": facts.solprop_version,
             "thread_budget": THREAD_BUDGET.threads,
             "thread_budget_source": THREAD_BUDGET.source,

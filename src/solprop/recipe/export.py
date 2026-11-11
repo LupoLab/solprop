@@ -231,7 +231,7 @@ def script(
         # with both (SEP 41: the solver call before the route's call).
         prelude.extend(["keywords = dict(", *lines, ")", *pinned.lines])
         lines = [f"{_INDENT}**keywords,", *pinned.keywords]
-    execution = dict(document.get("execution", {}))
+    execution = recipe._execution()
     target = repr(output)
     title = recipe.title or f"a {recipe.route} run"
     header = [f'"""{title}, written from its recipe by solprop."""', ""]

@@ -76,16 +76,24 @@ class BackendEntry:
     options : frozenset of str
         Supported execution-option keys; empty when none are admitted. Values are
         checked by the backend before allocating its workspace.
+    devices : frozenset of str
+        Qualified canonical targets. Native additionally requires its actual build's
+        device. Declaring a target does not select it or initialize its runtime.
     """
 
     requires: tuple[str, ...]
     extras: tuple[str, ...]
     options: frozenset[str] = frozenset()
+    devices: frozenset[str] = frozenset({"cpu"})
 
 
 BACKENDS: Mapping[str, BackendEntry] = {
     "numpy_ref": BackendEntry(requires=(), extras=()),
-    "native": BackendEntry(requires=("solprop_native",), extras=()),
+    "native": BackendEntry(
+        requires=("solprop_native",),
+        extras=(),
+        devices=frozenset({"cpu", "cuda", "rocm"}),
+    ),
     "julia": BackendEntry(
         requires=("juliacall",),
         extras=("julia",),
@@ -265,9 +273,14 @@ _NATIVE_BUILD_GUIDE: Final = (
 """The manual's page on building solprop-native from source."""
 
 REQUIRE_DEVICE_SETTING: Final = "SOLPROP_REQUIRE_DEVICE"
-"""Where a run must execute: ``cuda``, ``hip`` or ``any``; unset for no requirement."""
+"""Required GPU: ``cuda``, ``hip``, ``metal`` or ``any``; unset for no requirement."""
 
-_REQUIRED_DEVICES: Final = {"cuda": {"cuda"}, "hip": {"hip"}, "any": {"cuda", "hip"}}
+_REQUIRED_DEVICES: Final = {
+    "cuda": {"cuda"},
+    "hip": {"rocm"},
+    "metal": {"metal"},
+    "any": {"cuda", "rocm", "metal"},
+}
 """The device backends each value of the setting accepts."""
 
 _NATIVE_MISSING = (
@@ -300,7 +313,49 @@ def _device_build(name: str) -> bool:
     return solprop_native.build_info().device_backend != "none"
 
 
-def _check_required_device(name: str) -> None:
+def _check_execution_device(
+    name: str, problem: PropagationProblem, options: ExecutionOptions | None
+) -> None:
+    """Validate a selected target before calibration or workspace construction.
+
+    Parameters
+    ----------
+    name : str
+        Resolved backend name.
+    problem : PropagationProblem
+        Scientific precision, without a device identity.
+    options : ExecutionOptions or None
+        Per-run requested target; None retains each backend's default.
+
+    Raises
+    ------
+    BackendError
+        For an unqualified target, a native build mismatch or binary64 on Metal.
+    """
+    entry = BACKENDS.get(name)
+    if entry is None:
+        return  # The normal registry error names the unknown backend.
+    selected = ExecutionOptions() if options is None else options
+    device = selected.device
+    if name == "julia" and device == "metal" and not problem.precision.single:
+        raise BackendError(
+            "julia device='metal' requires precision='single' (binary32)"
+        )
+    if name != "native" or device is not None:
+        effective = device or "cpu"
+        if effective not in entry.devices:
+            raise BackendError(
+                f"{name} does not support device {effective!r}; "
+                f"qualified devices: {', '.join(sorted(entry.devices))}"
+            )
+    if name == "native" and device is not None and _satisfied(entry):
+        import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+
+        built = str(solprop_native.build_info().device_backend)
+        selected.check_device(name, {"none": "cpu", "hip": "rocm"}.get(built, built))
+
+
+def _check_required_device(name: str, device: str | None = None) -> None:
     """Refuse a run that wouldn't meet :data:`REQUIRE_DEVICE_SETTING` (SEP 43).
 
     This reads the actual build, never a version label, and runs before any state is
@@ -311,6 +366,8 @@ def _check_required_device(name: str) -> None:
     ----------
     name : str
         The resolved backend name.
+    device : str or None, optional
+        Requested canonical target; Julia defaults to CPU and native uses its build.
 
     Raises
     ------
@@ -326,9 +383,17 @@ def _check_required_device(name: str) -> None:
         msg = f"{REQUIRE_DEVICE_SETTING}={value!r}: use one of {names}, or unset it"
         raise BackendError(msg)
     unset = f"unset {REQUIRE_DEVICE_SETTING} to run it anyway"
+    if name == "julia":
+        effective = device or "cpu"
+        if effective not in accepted:
+            raise BackendError(
+                f"{REQUIRE_DEVICE_SETTING}={value} requires a matching GPU; "
+                f"this run is on julia device {effective!r}; {unset}"
+            )
+        return  # Qualification is checked separately; preparation checks hardware.
     if name != "native":
         msg = (
-            f"{REQUIRE_DEVICE_SETTING}={value} requires a native device build, and "
+            f"{REQUIRE_DEVICE_SETTING}={value} requires a matching GPU, and "
             f"this run is on {name}; {unset}"
         )
         raise BackendError(msg)
@@ -345,7 +410,10 @@ def _check_required_device(name: str) -> None:
         raise BackendError(msg) from error
 
     info = solprop_native.build_info()
-    if info.device_backend not in accepted:
+    actual = {"none": "cpu", "hip": "rocm"}.get(
+        info.device_backend, info.device_backend
+    )
+    if actual not in accepted:
         msg = (
             f"{REQUIRE_DEVICE_SETTING}={value} requires a device build, and the "
             f"installed solprop-native has device backend {info.device_backend!r}, "
@@ -507,6 +575,8 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
     entry = BACKENDS.get(name)
     if entry is not None and options is not None:
         options.check_backend_options(name, entry.options)
+    _check_execution_device(name, problem, options)
+    _check_required_device(name, None if options is None else options.device)
     if name == "native":
         # SEP 46: a first native workspace in an allocation with no profile row runs
         # the quick calibration first, before the extension's runtime starts if it
@@ -514,7 +584,6 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
         from solprop.calibration.first_use import ensure  # noqa: PLC0415 - lazy
 
         ensure()
-    _check_required_device(name)
     if _BENCHMARK_GATED.get() and name != "numpy_ref":
         raise BackendError("the gated plasma benchmark requires numpy_ref")
     if (

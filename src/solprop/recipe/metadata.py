@@ -1706,6 +1706,22 @@ _EXECUTION: Final = (
         "Keep the Adams method's history at each plane, for an exact resume.",
         "guide/results/output.md",
     ),
+    Parameter(
+        "device",
+        (Form("choice", choices=("cpu", "cuda", "rocm", "metal")),),
+        "numerics",
+        "advanced",
+        "Execution target checked by the backend, outside scientific identity.",
+        "guide/performance/devices.md",
+    ),
+    Parameter(
+        "backend_options",
+        (Form("mapping"),),
+        "numerics",
+        "advanced",
+        "Owned backend-specific choices, outside scientific and restart identity.",
+        "guide/performance/devices.md",
+    ),
 )
 """The ``[execution]`` table's keys: settings a run reads when it executes."""
 
@@ -3627,11 +3643,14 @@ def parameters(route: str) -> Mapping[str, Parameter]:
         out = {}
         for entry in _EXECUTION:
             field = fields.get(entry.name)
-            default = (
-                None
-                if field is None or field.default is dataclasses.MISSING
-                else field.default
-            )
+            if field is not None and field.default_factory is not dataclasses.MISSING:
+                default = field.default_factory()
+            else:
+                default = (
+                    None
+                    if field is None or field.default is dataclasses.MISSING
+                    else field.default
+                )
             out[entry.name] = dataclasses.replace(entry, default=default)
         return MappingProxyType(out)
     signature = inspect.signature(surface(route))

@@ -50,7 +50,12 @@ from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
 from solprop.backends.protocol import ExecutionBackend, _all_finite
 from solprop.backends.registry import resolve_name, select
-from solprop.backends.session import ExecutionOptions, Start, positive_count
+from solprop.backends.session import (
+    ExecutionDevice,
+    ExecutionOptions,
+    Start,
+    positive_count,
+)
 from solprop.boundaries import (
     Absorber,
     SpatialAbsorber,
@@ -456,7 +461,13 @@ _FIELD_RANGE_ABOVE = 30.0
 _PRESSURE_FORM_ENTRIES = 2
 """Entries in either of the two pair forms of the ``pressure`` keyword."""
 
-_RECIPE_EXECUTION = ("fields", "field_planes", "resume_history")
+_RECIPE_EXECUTION = (
+    "fields",
+    "field_planes",
+    "resume_history",
+    "device",
+    "backend_options",
+)
 """The settings a recipe's ``[execution]`` table holds: a change of any other one drops
 the recipe, which would no longer describe the run (SEP 41, S2)."""
 
@@ -491,9 +502,34 @@ def _held_budget(value: SupportsIndex | None) -> int | None:
         raise DriverError(str(error), parameter="node_budget") from None
 
 
+def _held_device(value: ExecutionDevice | None) -> ExecutionDevice | None:
+    """Validate a per-run target using the execution-options contract.
+
+    Parameters
+    ----------
+    value : str or None
+        Requested canonical device.
+
+    Returns
+    -------
+    str or None
+        Validated selection.
+
+    Raises
+    ------
+    DriverError
+        If the target is not a canonical device.
+    """
+    try:
+        return ExecutionOptions(device=value).device
+    except BackendError as error:
+        raise DriverError(str(error), parameter="device") from None
+
+
 _EXECUTION_SETTINGS = (
     "backend",
     "backend_options",
+    "device",
     "node_budget",
     "resume_history",
     "tdse_execution",
@@ -752,6 +788,11 @@ class SimulationSettings(Displayed):
         default. They may change after translation and are forwarded when the backend
         is prepared, including in spawned workers. They stay outside scientific and
         resume hashes. The selected backend refuses unsupported keys before allocation.
+    device : {'cpu', 'cuda', 'rocm', 'metal'} or None
+        Execution target, outside scientific and resume hashes. ``None`` accepts
+        the native build's device and selects CPU on NumPy or Julia. An explicit
+        selection must be supported by the chosen backend; it never changes backend
+        or falls back. This setting may change after translation.
     precision : {'double', 'single'}
         The arithmetic the run is held in (SEP 33,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
@@ -867,6 +908,7 @@ class SimulationSettings(Displayed):
     polarisation_taper: bool = False
     backend: str = "auto"
     backend_options: Mapping[str, object] = dataclasses.field(default_factory=dict)
+    device: ExecutionDevice | None = None
     integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None
     precision: PrecisionName = "double"
     resume_history: bool | None = None
@@ -1019,6 +1061,7 @@ class SimulationSettings(Displayed):
         object.__setattr__(self, "field_planes", tuple(self.field_planes))
         object.__setattr__(self, "node_budget", _held_budget(self.node_budget))
         object.__setattr__(self, "backend_options", dict(self.backend_options))
+        object.__setattr__(self, "device", _held_device(self.device))
         precision = _precision(self.precision)
         self._resolve_defaults(precision)
         # A backend "auto" chose is marked, so a copy in the other precision chooses
@@ -1154,15 +1197,15 @@ class SimulationSettings(Displayed):
     def execution_options(self) -> ExecutionOptions:
         """Return the execution options a backend is prepared with (SEP 47).
 
-        The node budget and backend options are execution choices, not scientific data:
-        the translation records none, and the backend plans its node chunk from it
+        The device, node budget and backend options are execution choices, not
+        scientific data: the translation records none, and the backend plans its chunk
         when it is prepared (:func:`solprop.backends.node_chunk.plan_node_chunk`).
 
         Returns
         -------
         solprop.backends.session.ExecutionOptions
-            The explicit :attr:`node_budget` and an owned copy of
-            :attr:`backend_options`.
+            The requested :attr:`device`, explicit :attr:`node_budget` and an owned
+            copy of :attr:`backend_options`.
 
         Examples
         --------
@@ -1174,7 +1217,9 @@ class SimulationSettings(Displayed):
         67108864
         """
         return ExecutionOptions(
-            node_budget=self.node_budget, backend_options=self.backend_options
+            node_budget=self.node_budget,
+            backend_options=self.backend_options,
+            device=self.device,
         )
 
     def defaults_resolution(self) -> DefaultsResolution:
@@ -2373,8 +2418,8 @@ class Simulation(Displayed):
         Assigning a new :class:`SimulationSettings` before the first :meth:`translate`
         (or :meth:`run`) takes effect. After it the translated problem is cached, so an
         assignment that changes anything the translation consumed is refused, because
-        it could no longer change the run; the ``backend``, ``backend_options`` and
-        ``tdse_execution``
+        it could no longer change the run; the ``backend``, ``backend_options``,
+        ``device`` and ``tdse_execution``
         resources, which are read when the run executes, may still change.
 
         Returns
@@ -2397,8 +2442,8 @@ class Simulation(Displayed):
         ------
         DriverError
             If the simulation has already been translated and the replacement changes
-            a setting other than ``backend``, ``backend_options``, ``node_budget``,
-            ``resume_history``, ``fields``,
+            a setting other than ``backend``, ``backend_options``, ``device``,
+            ``node_budget``, ``resume_history``, ``fields``,
             ``field_planes``, ``tdse_execution`` or ``boundary_check``, naming them.
         """
         if self._problem is not None:
@@ -2416,8 +2461,8 @@ class Simulation(Displayed):
                     f"this Simulation is already translated, so a new "
                     f"{', '.join(changed)} would be ignored; set the settings before "
                     "the first translate() or run(), or build a new Simulation (only "
-                    "the backend, backend_options, node_budget, resume_history, "
-                    "fields, field_planes, the TDSE "
+                    "the backend, backend_options, device, node_budget, "
+                    "resume_history, fields, field_planes, the TDSE "
                     "execution resources and boundary_check may change after "
                     "translation)"
                 )
@@ -7465,6 +7510,8 @@ class SimulationRunner(Displayed):
             raise DriverError(msg)
         settings = simulation.settings
         request = simulation._run_request()
+        self._backend_name = resolve_name(settings.backend)
+        self._execution_options = settings.execution_options()
         self._simulation = simulation
         self._problem = problem
         self._request = request
@@ -7474,7 +7521,7 @@ class SimulationRunner(Displayed):
         with _optmat.material_context(simulation._material_log):
             _warn_sampled_peak(settings.quadrature, request.observation.stats)
             self._backend = select(
-                settings.backend,
+                self._backend_name,
                 problem,
                 request,
                 grid=simulation.grid,
@@ -7623,7 +7670,8 @@ class SimulationRunner(Displayed):
             problem is not the runner's but for its input (a different launch
             position, or a shared leaf replaced); if the noise model differs from
             the runner's, which the backend could not carry; or if `input_identity`
-            is empty or names anything but an array input.
+            is empty or names anything but an array input; or if the simulation's
+            backend or execution options changed since this runner was prepared.
         """
         if not self._lock.acquire(blocking=False):
             msg = (
@@ -7670,6 +7718,8 @@ class SimulationRunner(Displayed):
         bool
             Whether its problem passes :func:`check_derived_problem`.
         """
+        if not self._same_execution(simulation):
+            return False
         try:
             check_derived_problem(
                 self._problem,
@@ -7681,6 +7731,44 @@ class SimulationRunner(Displayed):
             logger.debug("a new backend for this run: %s", error)
             return False
         return True
+
+    def _same_execution(self, simulation: Simulation) -> bool:
+        """Compare a run's execution choices with the owned preparation snapshot.
+
+        Parameters
+        ----------
+        simulation : Simulation
+            The prospective input's simulation.
+
+        Returns
+        -------
+        bool
+            Whether this owner can execute its requested backend, device and options.
+        """
+        settings = simulation.settings
+        return (
+            resolve_name(settings.backend) == self._backend_name
+            and settings.execution_options() == self._execution_options
+        )
+
+    def _check_execution(self, simulation: Simulation) -> None:
+        """Refuse changed execution choices before consuming another input.
+
+        Parameters
+        ----------
+        simulation : Simulation
+            The prospective input's simulation.
+
+        Raises
+        ------
+        DriverError
+            If this runner was prepared with different execution settings.
+        """
+        if not self._same_execution(simulation):
+            raise DriverError(
+                "this runner was prepared with different execution settings; "
+                "build another runner for the selected backend, device and options"
+            )
 
     def _run_point(
         self,
@@ -7708,6 +7796,7 @@ class SimulationRunner(Displayed):
             The point's stop flag.
         """
         with self._lock:
+            self._check_execution(simulation)
             simulation._run(output, progress=progress, stop=stop, kept=self._backend)
             self.runs += 1
 
@@ -7744,6 +7833,7 @@ class SimulationRunner(Displayed):
         _LoadedRun
             What the march needs, which holds no input.
         """
+        self._check_execution(self._simulation)
         derived = self._simulation.with_input(
             _borrowed_input(initial, stated=input_identity is not None),
             noise=noise,

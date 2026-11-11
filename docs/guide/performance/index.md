@@ -19,6 +19,7 @@ measurement rules and indicative results, and
 
 calibration
 backends
+devices
 native
 julia
 building-native

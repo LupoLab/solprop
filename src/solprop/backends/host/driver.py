@@ -453,6 +453,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # problem and the options.
         self._options = ExecutionOptions() if options is None else options
         self._options.check_backend_options(self.name)
+        self._options.check_device(self.name, "cpu")
         self._chunk_plan: NodeChunkPlan = plan_node_chunk(problem, self._options)
         self._adams: HostAdamsMarch | None = None
         # The low-storage march (SEP 24), set at construction by a backend that
@@ -1086,6 +1087,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """
         record: dict[str, object] = {
             "backend": self.name,
+            "device": "cpu",
             "propagator_mode": self._propagator_mode,
             # SEP 47 section 4.3: execution metadata, outside the resume key.
             **self._chunk_plan.record(),

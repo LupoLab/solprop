@@ -543,6 +543,30 @@ class Recipe:
                     path=key,
                 )
 
+        self._check_execution_options()
+
+    def _check_execution_options(self) -> None:
+        """Refuse conflicting canonical and legacy backend-option mappings.
+
+        Raises
+        ------
+        RecipeError
+            If the execution table conflicts with an object route's settings.
+        """
+        execution = self._document.get("execution", {})
+        settings = self._document["build"].get("settings")
+        if (
+            "backend_options" in execution
+            and isinstance(settings, Mapping)
+            and "backend_options" in settings
+            and execution["backend_options"] != settings["backend_options"]
+        ):
+            raise RecipeError(
+                "conflicts with build.settings.backend_options; "
+                "keep one mapping in [execution].backend_options",
+                path="execution.backend_options",
+            )
+
     def _decode(self, name: str, value: object, context: BuildContext) -> object:
         """Return one build keyword's value as the constructor takes it.
 
@@ -1005,12 +1029,13 @@ class Recipe:
         dict
             The values, ``"none"`` read as ``None`` where a keyword takes it.
         """
+        self._check_execution_options()
         table = parameters("execution")
         out: dict[str, object] = {}
         for name, value in self._document.get("execution", {}).items():
             out[name] = (
                 None
-                if table[name].none and value == NONE
+                if (table[name].none or table[name].default is None) and value == NONE
                 else tuple(value)
                 if isinstance(value, list)
                 else value

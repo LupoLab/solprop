@@ -57,7 +57,7 @@ import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import TracebackType
-from typing import Protocol, SupportsIndex, cast, runtime_checkable
+from typing import Literal, Protocol, SupportsIndex, cast, runtime_checkable
 
 import numpy as np
 from jaxtyping import Complex
@@ -81,6 +81,7 @@ from solprop.translate.run_request import RunRequest
 __all__ = [
     "DEFAULT_DEADLINE",
     "DEFAULT_WORK_LIMIT",
+    "ExecutionDevice",
     "ExecutionOptions",
     "GroupSession",
     "PreparedExecution",
@@ -196,6 +197,10 @@ class StopToken:
         return detach
 
 
+ExecutionDevice = Literal["cpu", "cuda", "rocm", "metal"]
+"""Canonical execution targets; native HIP builds use the public name ``rocm``."""
+
+
 @dataclass(frozen=True)
 class ExecutionOptions:
     """Execution choices that are not part of the numerical problem.
@@ -220,12 +225,16 @@ class ExecutionOptions:
         Backend-specific execution choices, copied into an owned mapping. A backend
         validates its keys and values before allocation. Outside scientific and
         restart identities; recorded as execution metadata.
+    device : {'cpu', 'cuda', 'rocm', 'metal'} or None
+        Requested execution target. ``None`` accepts the native build's target and
+        selects CPU on NumPy or Julia. The backend validates support before allocation;
+        this choice stays outside scientific and restart identities.
 
     Raises
     ------
     solprop.exceptions.BackendError
         If `node_budget` or `node_chunk` is given and is not a positive integer,
-        or a backend option key is not a string.
+        a backend option key is not a string, or `device` is not a canonical name.
 
     Examples
     --------
@@ -237,6 +246,7 @@ class ExecutionOptions:
     node_budget: int | SupportsIndex | None = None
     node_chunk: int | SupportsIndex | None = None
     backend_options: Mapping[str, object] = field(default_factory=dict)
+    device: ExecutionDevice | None = None
 
     def __post_init__(self) -> None:
         """Hold an integral budget or chunk as an ``int``; refuse any other value.
@@ -253,6 +263,40 @@ class ExecutionOptions:
         if any(not isinstance(key, str) for key in self.backend_options):
             raise BackendError("backend_options keys must be strings")
         object.__setattr__(self, "backend_options", dict(self.backend_options))
+        if self.device is not None and (
+            not isinstance(self.device, str)
+            or self.device not in ("cpu", "cuda", "rocm", "metal")
+        ):
+            raise BackendError("device must be None, 'cpu', 'cuda', 'rocm' or 'metal'")
+
+    def check_device(self, backend: str, actual: str) -> ExecutionDevice:
+        """Require the requested device to match the backend's actual target.
+
+        Parameters
+        ----------
+        backend : str
+            Backend name for the refusal message.
+        actual : str
+            Effective canonical target: ``cpu``, ``cuda``, ``rocm`` or ``metal``.
+
+        Returns
+        -------
+        {'cpu', 'cuda', 'rocm', 'metal'}
+            The actual target, including when the request is ``None``.
+
+        Raises
+        ------
+        BackendError
+            For a noncanonical actual target or a conflicting explicit request.
+        """
+        if actual not in ("cpu", "cuda", "rocm", "metal"):
+            raise BackendError(f"{backend} reported an unknown device {actual!r}")
+        if self.device is not None and self.device != actual:
+            raise BackendError(
+                f"{backend} executes on device {actual!r}, but device={self.device!r} "
+                "was requested"
+            )
+        return cast(ExecutionDevice, actual)
 
     def check_backend_options(
         self, backend: str, supported: Sequence[str] | frozenset[str] = ()

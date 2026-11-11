@@ -182,6 +182,19 @@ def resolved_document(
     execution["field_planes"] = list(settings.field_planes)
     if settings.resume_history is not None:
         execution["resume_history"] = settings.resume_history
+    if settings.device is None:
+        execution.pop("device", None)
+    else:
+        execution["device"] = settings.device
+    # Resolve the legacy object-route spelling into the common execution table.
+    # Otherwise a settings replacement could leave two conflicting saved mappings.
+    legacy_settings = build.get("settings")
+    if isinstance(legacy_settings, dict):
+        legacy_settings.pop("backend_options", None)
+    if settings.backend_options:
+        execution["backend_options"] = dict(settings.backend_options)
+    else:
+        execution.pop("backend_options", None)
     document["execution"] = execution
     return document
 

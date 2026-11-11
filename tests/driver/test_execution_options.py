@@ -8,6 +8,7 @@ import dataclasses
 import inspect
 import multiprocessing
 import pickle
+import subprocess
 import sys
 
 import pytest
@@ -42,8 +43,9 @@ def test_backend_option_mappings_are_owned_and_defaults_are_independent(construc
 
 
 def test_execution_options_snapshot_the_settings_mapping():
-    settings = _settings(backend_options={"setup_id": "one"})
+    settings = _settings(device="cuda", backend_options={"setup_id": "one"})
     options = settings.execution_options()
+    assert options.device == "cuda"
     assert options.backend_options == {"setup_id": "one"}
     assert options.backend_options is not settings.backend_options
     changed = dataclasses.replace(settings, backend_options={"setup_id": "two"})
@@ -73,17 +75,20 @@ def test_backend_options_change_after_translation_without_changing_hashes(
     problem = simulation.translate()
     metadata = simulation.metadata()
     simulation.settings = dataclasses.replace(
-        simulation.settings, backend_options={"wide": "df32", "setup_id": "chosen"}
+        simulation.settings,
+        backend_options={"wide": "df32", "setup_id": "chosen"},
+        device="metal",
     )
     assert simulation.translate() is problem
     assert simulation.metadata().configuration_hash() == metadata.configuration_hash()
+    assert simulation.settings.execution_options().device == "metal"
     assert simulation.settings.execution_options().backend_options == {
         "wide": "df32",
         "setup_id": "chosen",
     }
     fresh = build_simulation(n_save=2)
     fresh.settings = dataclasses.replace(
-        fresh.settings, backend_options={"setup_id": "different"}
+        fresh.settings, backend_options={"setup_id": "different"}, device="cuda"
     )
     assert fresh.metadata().configuration_hash() == metadata.configuration_hash()
 
@@ -94,6 +99,9 @@ def _spawn_options(connection, settings, options):
             dict(settings.backend_options),
             dict(settings.execution_options().backend_options),
             dict(options.backend_options),
+            settings.device,
+            settings.execution_options().device,
+            options.device,
             "juliacall" in sys.modules,
         )
     )
@@ -101,7 +109,9 @@ def _spawn_options(connection, settings, options):
 
 
 def test_spawned_worker_receives_options_without_starting_julia():
-    settings = _settings(backend_options={"setup_id": "chosen", "wide": "df32"})
+    settings = _settings(
+        device="metal", backend_options={"setup_id": "chosen", "wide": "df32"}
+    )
     options = settings.execution_options()
     context = multiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
@@ -110,8 +120,9 @@ def test_spawned_worker_receives_options_without_starting_julia():
     sender.close()
     try:
         assert receiver.poll(20), "the spawned option round trip did not return"
-        first, second, third, imported = receiver.recv()
+        first, second, third, device, selected, forwarded, imported = receiver.recv()
         assert first == second == third == settings.backend_options
+        assert device == selected == forwarded == "metal"
         assert not imported
         process.join(timeout=20)
         assert process.exitcode == 0
@@ -120,3 +131,55 @@ def test_spawned_worker_receives_options_without_starting_julia():
             process.kill()
             process.join(timeout=5)
         receiver.close()
+
+
+@pytest.mark.parametrize("device", [None, "cpu", "cuda", "rocm", "metal"])
+def test_device_is_preserved_in_settings_options_and_pickle(device):
+    settings = _settings(device=device)
+    options = settings.execution_options()
+    assert options.device == device
+    restored = pickle.loads(pickle.dumps((settings, options)))
+    assert restored[0].device == restored[1].device == device
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda", "rocm", "metal"])
+def test_device_none_resolves_to_the_actual_backend_without_selecting_it(device):
+    assert ExecutionOptions().check_device("example", device) == device
+    assert ExecutionOptions(device=device).check_device("example", device) == device
+    different = "cuda" if device == "cpu" else "cpu"
+    with pytest.raises(BackendError, match="example executes on device"):
+        ExecutionOptions(device=different).check_device("example", device)
+
+
+@pytest.mark.parametrize("device", ["none", "auto", "hip", "CPU", "", 0])
+def test_production_options_refuse_noncanonical_devices(device):
+    initialize = inspect.unwrap(ExecutionOptions.__init__)
+    with pytest.raises(BackendError, match="device must be"):
+        initialize(object.__new__(ExecutionOptions), device=device)
+
+
+@pytest.mark.parametrize("actual", ["none", "hip", "unknown"])
+def test_backend_actual_device_must_be_canonical(actual):
+    with pytest.raises(BackendError, match="reported an unknown device"):
+        ExecutionOptions().check_device("example", actual)
+
+
+def test_production_settings_refuse_invalid_devices_without_importing_julia():
+    # A fresh interpreter exercises production guards before test import hooks can
+    # refuse the Literal annotation. It also proves settings do not start Julia.
+    script = """import sys
+import numpy as np
+from solprop.driver import SimulationSettings
+from solprop.exceptions import DriverError
+for value in ["auto", "hip", "CPU", "", 0, ["cpu"], np.array(["cpu", "cuda"])]:
+    try:
+        SimulationSettings(save_planes=[0.001], dz_max=0.0001, dz_init=0.00001,
+                           backend="numpy_ref", device=value)
+    except DriverError as error:
+        assert error.parameter == "device"
+        assert "device must be" in str(error)
+    else:
+        raise AssertionError(value)
+assert "juliacall" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True, timeout=20)
