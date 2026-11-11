@@ -11,7 +11,7 @@ read when the evaluation scans the nodes anyway, and the species reduction is fi
 natively. At every observation the session's statistics are the plan's own
 evaluation of its exported field, loaded into the native state (bit for bit on a
 deterministic build), and are held to the NumPy reference's host scan of the same
-field (:func:`solprop.backends.populations.axis_row_populations`) within the node
+field (:func:`solprop.backends.populations.axis_populations`) within the node
 scans' parity tolerance. An envelope's scan reads the polarisation ellipse, so on a
 one-component transform whose modes have a y field on the axis the session scans the
 row's two components as one node of two.

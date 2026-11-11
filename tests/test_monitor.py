@@ -1195,6 +1195,7 @@ def test_a_check_is_due_every_step_while_light_is_near_an_edge() -> None:
     spectrum = lambda samples: monitor.energies(  # noqa: E731
         np.fft.fft(samples)[None, None, None, :]
     )
+    assert monitor.checked_at is None
     monitor.launch(spectrum(centred), 0.0)
     # One quiet check is not enough to leave the collar out (QUIET_CHECKS).
     assert QUIET_CHECKS == 2
@@ -1204,6 +1205,7 @@ def test_a_check_is_due_every_step_while_light_is_near_an_edge() -> None:
     assert monitor.due(1e-4 * CADENCE)
     # However few the steps, a quiet window is checked every length / CHECKS.
     monitor.step(spectrum(centred), 1e-4 * CADENCE)
+    assert monitor.checked_at == 1e-4 * CADENCE
     assert monitor.collar_quiet
     assert not monitor.due(1e-4 * CADENCE + 0.5 * LENGTH / CHECKS)
     assert monitor.due(1e-4 * CADENCE + LENGTH / CHECKS)

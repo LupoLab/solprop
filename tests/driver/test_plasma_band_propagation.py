@@ -300,3 +300,22 @@ def test_the_reference_s_diagnostics_refuse_a_problem_with_no_plasma_column():
             )
     finally:
         backend.close()
+
+
+def test_the_reference_s_ionisation_refuses_a_problem_with_no_plasma():
+    """The reference's own check, for a caller that asks its statistics directly."""
+    simulation = build(
+        plasma=False, backend="numpy_ref", stats=StatsSpec(names=("electron_density",))
+    )
+    problem = simulation.translate()
+    backend = select(
+        "numpy_ref", problem, simulation._run_request(), grid=simulation.grid
+    )
+    try:
+        state = simulation._field0[np.newaxis]
+        with pytest.raises(BackendError, match="declares none"):
+            cast("NumpyRefBackend", backend)._backend_statistics(
+                ("electron_density",), state
+            )
+    finally:
+        backend.close()
