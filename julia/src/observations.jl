@@ -7,6 +7,9 @@ public TemporalObservationData, ObservationPreparation, ObservationWorkspace
 public observe!, observation_launch!, capture_split!, observation_accepted!
 public observation_check!, observation_plane!, observation_finish!
 
+abstract type _ObservationPreparation end
+abstract type _ObservationWorkspace end
+
 """
     ObservationProfiles(; density=nothing, pressure=nothing, core_radius=nothing)
 
@@ -149,7 +152,7 @@ This initial composition requires CPU binary64 and refuses spatial statistics or
 vector propagation. The lowerer retains the catalogue's route eligibility rules.
 Missing required families and invalid numerical layouts raise before workspace creation.
 """
-struct ObservationPreparation{G, S, W, P, A, T, L, M}
+struct ObservationPreparation{G, S, W, P, A, T, L, M} <: _ObservationPreparation
     kind::Symbol
     n_modes::Int
     grid::G
@@ -427,7 +430,8 @@ by `buffers`. `monitor` is its optional `TemporalMonitorState`; the caller owns 
 row capacity, export and acknowledgment. `valid` is set only after successful observe!.
 Warm numerical evaluation does not allocate or increment propagation source calls.
 """
-mutable struct ObservationWorkspace{E, D, P, W, A, T, L, M, C, I, B}
+mutable struct ObservationWorkspace{E, D, P, W, A, T, L, M, C, I, B} <:
+    _ObservationWorkspace
     execution::E
     data::D
     spectrum::Matrix{ComplexF64}
@@ -795,7 +799,7 @@ Use the prepared noise floor and any restored continuation. This hook imposes no
 event-delivery order; the session owns launch events and saved rows. Reject repeated
 launch, an outstanding split capture or invalid input before numerical initialization.
 """
-function observation_launch!(work::ObservationWorkspace, field, z, notices)
+function observation_launch!(work::_ObservationWorkspace, field, z, notices)
     _observation_field(work, field, z)
     work.monitor === nothing && return nothing
     isnan(work.monitor.committed) && !work.monitor_work.captured ||
@@ -818,7 +822,7 @@ and `dz` is its positive step in m. Save removed energy and half-split occupanci
 the committed field supplies crossing occupancy later. Return `nothing` when split
 monitoring is absent. A second unconsumed capture or invalid step raises before reuse.
 """
-function capture_split!(work::ObservationWorkspace, field, z, dz)
+function capture_split!(work::_ObservationWorkspace, field, z, dz)
     _observation_field(work, field, z)
     work.monitor === nothing && return nothing
     work.data.temporal.policy.split || return nothing
@@ -847,7 +851,7 @@ half-split occupancy is judged while crossing uses the committed spectrum. Retur
 No periodic statistic or output row is appended. A missing/mismatched capture, repeat
 commit or invalid input raises; the session owns failure poisoning and notice delivery.
 """
-function observation_accepted!(work::ObservationWorkspace, field, z, dz, notices)
+function observation_accepted!(work::_ObservationWorkspace, field, z, dz, notices)
     _observation_field(work, field, z)
     work.monitor === nothing && return _observation_decision(work)
     isfinite(dz) && dz > 0 && z > work.monitor.committed ||
@@ -887,7 +891,7 @@ and a stale reading before any mutation; already-current readings use
 `observation_plane!` directly instead of counting another step.
 """
 function observation_check!(
-        work::ObservationWorkspace, field, z, notices;
+        work::_ObservationWorkspace, field, z, notices;
         plane::Bool = true
     )
     _observation_field(work, field, z)
@@ -913,7 +917,7 @@ Return the optional numerical temporal plane row without reconstructing a field.
 resumed duplicate planes retain `emit=false`. The session owns row storage/cursors.
 Return `nothing` without a monitor; reject a nonfinite position.
 """
-function observation_plane!(work::ObservationWorkspace, z)
+function observation_plane!(work::_ObservationWorkspace, z)
     isfinite(z) || throw(ArgumentError("observation plane position must be finite"))
     return work.monitor === nothing ? nothing : temporal_plane!(work.monitor, z)
 end
@@ -928,7 +932,7 @@ capture raises rather than silently losing an accepted step's removal; `notices`
 have capacity for the existing leaf's final warning. The caller checks a stale final
 committed field before this hook, so all accumulated removals have been credited.
 """
-function observation_finish!(work::ObservationWorkspace, notices)
+function observation_finish!(work::_ObservationWorkspace, notices)
     work.monitor === nothing && return nothing
     !work.monitor_work.captured ||
         throw(ArgumentError("unconsumed split at monitor finish"))
