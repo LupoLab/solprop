@@ -438,6 +438,24 @@ class JuliaSession:
         start: Start,
         wide: DF32StartBinding | None,
     ) -> None:
+        """Restore the selected history before publishing the session.
+
+        Parameters
+        ----------
+        engine : JuliaHandle
+            Newly constructed engine that owns the history destination.
+        transfer : RunTransfer
+            Resolved method and history capacity for this session.
+        start : solprop.backends.session.Start
+            Unconsumed start containing optional portable history.
+        wide : DF32StartBinding or None
+            Previously validated DF32 phase and history selection, if required.
+
+        Raises
+        ------
+        BackendError
+            If restoring previously admitted DF32 history unexpectedly refuses.
+        """
         if wide is not None:
             self._march_refusal = wide.history_refusal
             if wide.history is None:

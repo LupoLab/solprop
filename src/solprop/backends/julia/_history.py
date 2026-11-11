@@ -564,7 +564,26 @@ def _preflight(
     start: Start,
     buffers: HistoryBuffers,
 ) -> str | None:
-    """Detach the engine's shared numerical-history compatibility result."""
+    """Detach the engine's shared numerical-history compatibility result.
+
+    Parameters
+    ----------
+    runtime : JuliaRuntime
+        Initialized runtime entered on its owning main thread.
+    preparation : JuliaHandle
+        Immutable preparation whose arithmetic must match the saved history.
+    transfer : RunTransfer
+        Resolved method and history capacity for the new session.
+    start : solprop.backends.session.Start
+        Unconsumed start with the requested position and portable history.
+    buffers : HistoryBuffers
+        Detached host history arrays retained for the compatibility check.
+
+    Returns
+    -------
+    str or None
+        Exact refusal reason, or no refusal for compatible history.
+    """
     reason = runtime.engine.preflight_adams_history(
         preparation.borrow(), transfer, float(start.z), start.march, buffers
     )
