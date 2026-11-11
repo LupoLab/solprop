@@ -12,6 +12,8 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from _session_probe_extra import final_field, run
+from backends._session_probe_b2 import launch_statistics, launched
 from backends.test_radial_nonlinear import (
     CHI3,
     LENGTH,
@@ -22,6 +24,7 @@ from backends.test_radial_nonlinear import (
 )
 from bounds import gamma, ladder_bound
 from legacy_geometry import LEGACY_GRID
+from sessions.executors import IDENTITY
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.constants import C
@@ -128,16 +131,15 @@ def test_cartesian_nonlinear_ladder(free_case, spatial_backend_class, steps, req
                 schedule=type(schedule).uniform(0, LENGTH, LENGTH / steps),
             )
         )
-        values = []
-        for implementation in (NumpyRefBackend, spatial_backend_class):
-            backend = implementation(problem, run_request, grid=grid, options=REMAINDER)
-            try:
-                backend.set_initial(problem.initial.field0, None)
-                backend.propagate_to(LENGTH)
-                values.append(backend.observe().require_field().copy())
-            finally:
-                backend.close()
-        reference, actual = values
+        reference, actual = (
+            final_field(
+                implementation(problem, run_request, grid=grid, options=REMAINDER),
+                problem,
+                run_request,
+                LENGTH,
+            )
+            for implementation in (NumpyRefBackend, spatial_backend_class)
+        )
     assert_allclose(actual, reference, rtol=0, atol=bound * np.max(np.abs(reference)))
     record_equivalence(
         request,
@@ -170,19 +172,25 @@ def test_cartesian_statistics_fresh_and_cached(
     names = ("energy", "peak_intensity", "on_axis_intensity", "on_axis_spectrum")
     if family.endswith("plasma"):
         names += ("electron_density", "peak_ionisation_rate")
-    spec = StatsSpec(names=names)
+    run_request = run_request.for_run(stats=StatsSpec(names=names))
     rows = []
     for implementation in (NumpyRefBackend, spatial_backend_class):
         backend = implementation(problem, run_request, grid=grid, options=REMAINDER)
         try:
-            backend.set_initial(problem.initial.field0, None)
+            # The statistics a session's plane reports with the state it reached (the
+            # launch plane's at no steps), then those of that state loaded afresh.
             if steps:
-                backend.propagate_to(LENGTH)
-            # Read cached reductions before observe invalidates that route.
-            rows.append(backend.stats(spec))
-            state = backend.observe().require_field().copy()
-            backend.set_initial(state, None)
-            fresh = backend.stats(spec)
+                plane = run(backend, problem, run_request, owns=False).final
+                assert plane.z == LENGTH
+                state = plane.field
+                rows.append(plane.stats)
+            else:
+                with launched(backend, problem, run_request) as (session, launch):
+                    state = np.array(session.export(launch.ticket, IDENTITY))
+                    rows.append(
+                        {name: np.array(value) for name, value in launch.stats.items()}
+                    )
+            fresh = launch_statistics(backend, problem, run_request, state)
             for name in names:
                 assert_allclose(
                     fresh[name],
@@ -248,8 +256,8 @@ def test_cartesian_analytic_family_plasma_statistics_scan_the_whole_field(
     for implementation in (NumpyRefBackend, spatial_backend_class):
         backend = implementation(problem, run_request, grid=grid, options=REMAINDER)
         try:
-            backend.set_initial(problem.initial.field0, None)
-            rows[implementation.name] = backend.stats(StatsSpec(names=names))
+            # The launch plane's statistics, in the backend's own session.
+            rows[implementation.name] = launch_statistics(backend, problem, run_request)
         finally:
             backend.close()
     # Fresh statistics: the transforms and the two reductions, no step ladder.
@@ -319,27 +327,24 @@ def test_cartesian_field_envelope_and_scalar_vector_parity(
         problem, run_request = make_problem(
             grid, space, start, [KerrResponse(CHI3, thg=False)], steps=steps
         )
-        backend = spatial_backend_class(problem, run_request, grid=grid)
-        try:
-            backend.set_initial(problem.initial.field0, None)
-            backend.propagate_to(LENGTH)
-            state = backend.observe().require_field()
-            if n_pol == 2:
-                np.testing.assert_array_equal(state[:, 1], np.zeros_like(state[:, 1]))
-            indices = np.rint((grid.omega - carrier) / grid.d_omega).astype(int)
-            active = grid.active_mask
-            ordering = np.argsort(indices[active])
-            values = state[:, 0, active][:, ordering] / grid.n_t
-            if grid.kind == "field":
-                values *= 2 * carrier_phase
-            rows.append((indices[active][ordering], values))
-            statistics.append(
-                backend.stats(
-                    StatsSpec(names=("energy", "on_axis_intensity", "peak_intensity"))
-                )
-            )
-        finally:
-            backend.close()
+        run_request = run_request.for_run(
+            stats=StatsSpec(names=("energy", "on_axis_intensity", "peak_intensity"))
+        )
+        plane = run(
+            spatial_backend_class(problem, run_request, grid=grid), problem, run_request
+        ).final
+        assert plane.z == LENGTH
+        state = plane.field
+        if n_pol == 2:
+            np.testing.assert_array_equal(state[:, 1], np.zeros_like(state[:, 1]))
+        indices = np.rint((grid.omega - carrier) / grid.d_omega).astype(int)
+        active = grid.active_mask
+        ordering = np.argsort(indices[active])
+        values = state[:, 0, active][:, ordering] / grid.n_t
+        if grid.kind == "field":
+            values *= 2 * carrier_phase
+        rows.append((indices[active][ordering], values))
+        statistics.append(plane.stats)
     for label, (indices, values) in zip(
         ("envelope scalar", "field vector", "envelope vector"), rows[1:], strict=True
     ):
