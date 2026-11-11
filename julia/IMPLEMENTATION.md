@@ -88,6 +88,7 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 | Source precision agent | `precision.jl`, `composition.jl`, `spatial_composition.jl`, `responses.jl`, `raman.jl`, `plasma.jl` and their focused tests | Binary32 source preparation/kernels under the shared `PRECISION.md` interface; no Python, transfer, session or observation edits |
 | Observation precision agent | `observations.jl`, `spatial_observations.jl`, `transverse_observations.jl`, `statistics.jl`, `monitor.jl`, `observation_precision.jl`, `power_weights.jl` and focused tests | Binary32 pointwise work, protected reductions and host physical scaling; no source, Python or scheduling edits |
 | Device-controls/review agent | Python execution settings/options, registry, host/native guards, recipe execution transport, runner compatibility and focused tests | Public CPU preparation independently approved; implementing device controls with Julia devices still refused; then review master march precision |
+| Adams precision agent (rotated from review) | `src/adams.jl`, new `test/adams_precision.jl`, `ADAMS_PRECISION.md` | Binary32 state with binary64-wide phase/rate leaf under the explicit contract; no session, transfer, Python or inclusion edits |
 
 The precompile workload uses only owned, small CPU arrays and existing numerical
 constructors. It covers serial CPU session/source/observation dispatch without loading
