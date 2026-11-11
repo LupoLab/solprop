@@ -111,11 +111,19 @@ def process_stamp(pid: int) -> str | None:
     Returns
     -------
     str or None
-        Process creation identity, or None if unavailable.
+        Process creation identity, or None if unavailable, including when the
+        process exits while it is being read.
     """
     proc = Path(f"/proc/{pid}/stat")
     if proc.exists():
-        return proc.read_text(encoding="utf-8").rsplit(")", 1)[1].split()[19]
+        # The process can exit between the check and the read, which then raises
+        # (FileNotFoundError or ProcessLookupError); a process that has gone has no
+        # identity to compare.
+        try:
+            stat = proc.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return stat.rsplit(")", 1)[1].split()[19]
     result = subprocess.run(
         ["ps", "-p", str(pid), "-o", "lstart="],
         capture_output=True,

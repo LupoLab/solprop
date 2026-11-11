@@ -35,6 +35,21 @@ def test_linux_process_stamp_handles_parentheses_in_process_name(tmp_path, monke
     assert state.process_stamp(123) == "19"
 
 
+@pytest.mark.parametrize("error", [FileNotFoundError, ProcessLookupError])
+def test_a_process_that_exits_while_its_stamp_is_read_has_none(monkeypatch, error):
+    """`/proc/<pid>/stat` existed when checked and is gone when read."""
+
+    class Vanishing:
+        def exists(self):
+            return True
+
+        def read_text(self, encoding):
+            raise error(2, "No such file or directory")
+
+    monkeypatch.setattr(state, "Path", lambda name: Vanishing())
+    assert state.process_stamp(123) is None
+
+
 @pytest.mark.parametrize(
     "printed,stamp",
     [("Tue Sep 23 13:44:28 2026\n", "Tue Sep 23 13:44:28 2026"), ("", None)],
