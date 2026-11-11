@@ -7,12 +7,17 @@
 SEP 47 section 6.4: the native session owns the temporal boundary monitor, and Python
 only formats what it reports. Here a monitored run goes through the native session and
 through the NumPy reference's session, whose solprop monitor watches the same problem.
-The walker is linear, so each trial's error norm is at the level of rounding, and the
-two backends' controllers take different steps from it (SEP 25): the monitor checks
-fall at different endpoints, so the two are held to the same decisions -- the same
-warnings, in order and in kind, the same outcome and failure, the same planes and the
-same record layout -- and not to the same numbers. The decisions on the same readings
-are identical (section 4.3), which the recorded-readings harness
+The two backends round differently, so their steps' lengths differ by rounding (SEP
+25), at most 2e-7 relative: the walker is linear, but its controllers' error norms are
+the truncation's, of order 0.1 after the launch's first trial (whose norm is at the
+level of rounding and far below one), so no accept, reject or order decision lies
+within rounding of its threshold, and both take the same decisions. The two are held
+to the same warnings, in order and in kind, the same outcome and failure, and the
+same planes; and to the same monitor record (:func:`_compare`): its checked and
+skipped step counts and every other integer exactly, each count also the native run's
+own trace (every accepted step is checked or skipped), and its energies, energy
+fractions and positions to :data:`~sessions.executors.RECORD_RTOL`. The decisions on
+the same readings are identical (section 4.3), which the recorded-readings harness
 (``tests/backends/test_monitor_owner.py``) holds apart from any run; and on one thread
 the native session repeats its own run bit for bit: trace, warnings and record.
 
@@ -34,9 +39,10 @@ import pytest
 from sessions.executors import (
     Run,
     assert_close_trace,
+    assert_record_close,
+    committed_steps,
     masked,
     one_thread,
-    record_layout,
     skip_device_refused,
     trace,
 )
@@ -246,13 +252,22 @@ def _decisions(served: Served) -> list[tuple[object, str]]:
 
 
 def _compare(reference: Served, native: Served) -> None:
-    """Require the reference's decisions, outcome, planes and record layout."""
+    """Require the reference's decisions, outcome, planes and record.
+
+    The record's integers, the step counts among them, exactly, and its real numbers
+    to their bound (:func:`~sessions.executors.assert_record_close`); a fresh run's
+    checked and skipped steps add up to the accepted steps of its own trace.
+    """
     assert _decisions(native) == _decisions(reference)
     assert all(one[3] == [("parameter", "boundary_check")] for one in native.warnings)
     assert_close_trace(
         native.run, reference.run, rtol=PLANE_RTOL, terminal_rtol=TERMINAL_RTOL
     )
-    assert record_layout(native.record) == record_layout(reference.record)
+    assert native.record is not None and reference.record is not None
+    assert_record_close(native.record, reference.record)
+    if not native.record["resumed_at"]:
+        counted = native.record["steps"] + native.record["skipped"]
+        assert counted == committed_steps(native.run) > 0
     for event in native.warning_events:
         # A warning is reported at the committed endpoint its check judged.
         if "at z = " in event.message:
@@ -442,6 +457,10 @@ def test_a_resumed_monitor_continues_the_reference_s_record(closing):
     assert native.record is not None
     assert native.record["resumed_at"] == [z]
     assert native.record["steps"] > record["steps"]
+    # The continued record counts the earlier execution's steps beside this one's.
+    assert native.record["steps"] + native.record["skipped"] == (
+        record["steps"] + record["skipped"] + committed_steps(native.run)
+    )
 
 
 @pytest.mark.parametrize("march", sorted(MARCHES))
@@ -551,7 +570,7 @@ def test_a_monitored_native_session_runs_through_the_service_loop(
     assert saved["status"] == ("complete" if failure is type(None) else "failed")
     assert len(saved["z"]) == len(expected["z"])
     np.testing.assert_allclose(saved["z"], expected["z"], rtol=TERMINAL_RTOL)
-    assert record_layout(saved["monitor"]) == record_layout(expected["monitor"])
+    assert_record_close(saved["monitor"], expected["monitor"])
     fields = np.asarray(native[0].fields("fft"))
     oracle = np.asarray(reference[0].fields("fft"))
     np.testing.assert_allclose(

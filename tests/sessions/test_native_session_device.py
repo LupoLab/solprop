@@ -61,9 +61,7 @@ from sessions.test_native_session_statistics import WIDTHS, _beam, _periodic
 from sessions.test_native_session_transverse import (
     MARCHES,
     _both,
-    _columns,
     _compare,
-    _samples,
 )
 from solprop.backends.events import ObservationReady
 from solprop.backends.host.session import HostSession
@@ -261,7 +259,7 @@ def test_a_collar_s_current_and_edge_meet_the_reference_on_the_device(march):
     reference's decisions (the transverse suite's ``_compare``), and a repeated run
     the same bits."""
     reference, native = _both(lambda: radial_collar("native", MARCHES[march]()))
-    _compare(reference, native, 48)
+    _compare(reference, native)
     assert native.record is not None
     assert native.record["transverse"]["spatial_removed"] > 0.0
 
@@ -283,7 +281,7 @@ def test_a_noisy_packet_s_edge_meets_the_reference_on_the_device(march):
         )
 
     reference, native = _both(simulation)
-    _compare(reference, native, _columns(simulation()), samples=_samples(simulation()))
+    _compare(reference, native)
     assert native.run.terminal.outcome is reference.run.terminal.outcome
     assert native.record is not None
     assert native.record["transverse"]["reads"] > 0

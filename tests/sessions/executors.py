@@ -1219,6 +1219,91 @@ def record_layout(record: Any) -> Any:
     return "number"
 
 
+RECORD_RTOL = 1e-6
+"""How closely a native monitor record's real numbers follow the reference's, relative
+to each: its energies and energy fractions, its positions and its gaps. The two
+backends take the same decisions on steps whose lengths differ by rounding, at most
+2e-7 relative, and whose readings round differently (SEP 25), a small reading
+relatively more: measured 4.7e-8 at most, a resumed walker's guard reading of 4e-12 of
+the launch's energy (2e-19 absolute), and 9e-9 elsewhere, the transverse edge's ramp
+sums, each backend's own reading (``transverse.hpp``)."""
+
+RECORD_ATOL = 1e-24
+"""The absolute floor below :data:`RECORD_RTOL`, as a fraction of the launch's energy
+(which nearly every number of a record is): an empty guard or collar reads the squared
+modulus of a transform's rounding, of order ``n eps^2`` of the launch's energy, so a
+reading of ``1e-33`` or ``1e-29`` is rounding on both sides; measured 2e-26 at most."""
+
+
+def assert_record_close(
+    record: Any,
+    reference: Any,
+    *,
+    rtol: float = RECORD_RTOL,
+    atol: float = RECORD_ATOL,
+    what: str = "record",
+) -> None:
+    """Assert a monitor record is the reference's, its real numbers to a bound.
+
+    The keys, their order, the flags, the texts and every integer -- the checked and
+    skipped steps, the quiet checks, the reads -- are equal exactly, and each real
+    number within ``atol + rtol |reference|`` (:data:`RECORD_RTOL`,
+    :data:`RECORD_ATOL`); sequences element by element, at their own lengths.
+
+    Parameters
+    ----------
+    record : object
+        The record under test, or one of its values.
+    reference : object
+        The reference's.
+    rtol, atol : float, optional
+        The relative and absolute bounds on a real number.
+    what : str, optional
+        Where in the record, for the message.
+    """
+    if isinstance(reference, dict):
+        assert isinstance(record, dict), what
+        assert list(record) == list(reference), what
+        for key, value in reference.items():
+            assert_record_close(
+                record[key], value, rtol=rtol, atol=atol, what=f"{what}.{key}"
+            )
+        return
+    if isinstance(reference, (list, tuple, np.ndarray)):
+        assert isinstance(record, (list, tuple, np.ndarray)), what
+        assert len(record) == len(reference), what
+        for index, (one, other) in enumerate(zip(record, reference, strict=True)):
+            assert_record_close(
+                one, other, rtol=rtol, atol=atol, what=f"{what}[{index}]"
+            )
+        return
+    if reference is None or isinstance(
+        reference, (bool, str, np.bool_, int, np.integer)
+    ):
+        assert record == reference, (what, record, reference)
+        return
+    error = abs(float(record) - float(reference))
+    assert error <= atol + rtol * abs(float(reference)), (what, record, reference)
+
+
+def committed_steps(run: Run) -> int:
+    """Return the accepted attempts a run committed, assembled across its events.
+
+    Parameters
+    ----------
+    run : Run
+        The run.
+
+    Returns
+    -------
+    int
+        Its accepted attempts: the steps its monitor checked or skipped.
+    """
+    return sum(
+        int(np.count_nonzero(history.accepted)) for _, history, _ in run.assembled()
+    )
+
+
 def one_thread() -> bool:
     """Return whether the native backend runs one thread, as the default lane does.
 
