@@ -5240,7 +5240,7 @@ void GeneralWorkspace::upload_trial(const TrialScalars& scalars,
     fill_slot(1, *sample);
   if (rate != nullptr) {
     require_extent(rate->size(), problem_.n_phi_terms, "Adams rate weights");
-    std::ranges::copy(rate, staging.data() + stage_offsets_[13]);
+    std::ranges::copy(*rate, staging.data() + stage_offsets_[13]);
   }
   graph::deep_copy(execution_space_, stage_scalars_, staging);
   bind_stage_scalars(0);
