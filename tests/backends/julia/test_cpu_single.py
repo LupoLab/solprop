@@ -27,13 +27,16 @@ from solprop.backends.julia._session import JuliaSession
 from solprop.backends.julia.backend import JuliaBackend
 from solprop.backends.registry import select
 from solprop.backends.session import ExecutionOptions, Start
+from solprop.backends.spatial import collect_spatial
 from solprop.monitor import BoundaryCheck, BoundaryMonitor
-from solprop.stats import StatsSpec
+from solprop.stats import StatsSpec, _poynting_statistics
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.tableau import TSIT5
+from solprop.translate.linop import power_weight_at
 from solprop.translate.precision import SINGLE
 from solprop.translate.problem import Translation
+from solprop.translate.routes import SpatialRoute
 from solprop.translate.run_request import MethodKind
 
 pytestmark = [
@@ -124,12 +127,62 @@ def _statistics(result):
     )
 
 
-def _bands(field, grid):
-    active = grid.active_mask
+def _band_partition_budget(field):
+    # Both paths sum the same nonnegative per-bin physical energies. Each product
+    # path has fewer than 16 real operations, then at most 2*N additions through
+    # the polarisation/column/chunk reductions and 32 band additions. Two such
+    # reductions give 2*gamma_(2*N+64); the fixtures have finite normal products.
+    relative = 2 * higham_gamma(2 * field.size + 64)
+    assert 0.0 < relative < 1e-8
+    return relative
+
+
+def _bands(case, grid, field, z):
+    # IDENTITY exports retain vacuum-normalised modal amplitudes or raw spatial
+    # spectra. Their unweighted squared modulus is not physical spectral energy.
+    # Reuse the oracle's actual observation reducers, evaluated at this plane.
+    active = case.problem.grids.active_mask
     omega = grid.omega[active]
-    weights = np.sum(np.abs(field[..., active]) ** 2, axis=(0, 1))
     edges = np.linspace(float(np.min(omega)), float(np.max(omega)), 33)
-    return np.histogram(omega, bins=edges, weights=weights)[0]
+    edges[-1] = np.nextafter(edges[-1], np.inf)  # Include the last active bin.
+    windows = np.column_stack((edges[:-1], edges[1:]))
+    masks = (grid.omega >= windows[:, :1]) & (grid.omega < windows[:, 1:])
+    assert np.all(np.sum(masks[:, active], axis=0) == 1)
+    assert np.count_nonzero(field[..., ~active]) == 0
+    route = case.problem.route
+    if isinstance(route, SpatialRoute):
+        # Spatial energy has no windowed catalogue entry. Restricting its field
+        # to a band evaluates that same diagonal energy functional, with the
+        # canonical FluxPlan, transverse measure and analytic endpoint weights.
+        spec = StatsSpec(names=("energy",))
+
+        def energy(values):
+            return float(
+                collect_spatial(
+                    spec,
+                    grid,
+                    case.problem.transform,
+                    values,
+                    z=z,
+                    flux=route.flux,
+                    node_chunk=3,
+                )["energy"]
+            )
+
+        bands = np.array([energy(field * mask) for mask in masks])
+        total = energy(field)
+    else:
+        rows = _poynting_statistics(
+            StatsSpec(names=("energy", "energy_window"), energy_windows=windows),
+            grid,
+            field,
+            power_weight_at(case.problem, z),
+        )
+        bands = np.sum(rows["energy_window"], axis=(1, 2))
+        total = float(np.sum(rows["energy"]))
+    assert np.all(np.isfinite(bands)) and np.all(bands >= 0.0) and total > 0.0
+    assert abs(float(np.sum(bands)) - total) <= _band_partition_budget(field) * total
+    return bands
 
 
 @cache
@@ -144,7 +197,7 @@ def _reference(kind, geometry, gradient=False, taper=False):
     return tuple(runs)
 
 
-def _assert_selected_accuracy(case, actual, coarse, fine):
+def _assert_selected_accuracy(case, grid, actual, coarse, fine):
     # SEP33's accepted metrics (section 7.3/Part II) fix field 1e-3,
     # >=-40 dB spectral bands 1%, total energy 1e-4 and ionised fraction 1e-3.
     # Ordinary replay and variable-order Adams need accuracy envelopes, not a
@@ -160,11 +213,16 @@ def _assert_selected_accuracy(case, actual, coarse, fine):
     assert np.linalg.norm((got - reference).ravel()) <= 1e-3 * scale
     assert np.count_nonzero(got[..., ~case.problem.grids.active_mask]) == 0
 
-    bands = _bands(reference, case.problem.grids)
+    z = float(case.request.observation.save_planes[-1])
+    assert actual.observations[-1].z == coarse.observations[-1].z == z
+    assert fine.observations[-1].z == z
+    actual_bands, previous_bands, bands = (
+        _bands(case, grid, values, z) for values in (got, previous, reference)
+    )
     significant = bands >= 1e-4 * np.max(bands)
     assert np.any(significant)
-    for values, allowance in ((previous, 1e-4), (got, 1e-2)):
-        error = np.abs(_bands(values, case.problem.grids) - bands)
+    for values, allowance in ((previous_bands, 1e-4), (actual_bands, 1e-2)):
+        error = np.abs(values - bands)
         assert np.all(error[significant] <= allowance * bands[significant])
 
     statistics = tuple(_statistics(run) for run in (actual, coarse, fine))
@@ -174,6 +232,17 @@ def _assert_selected_accuracy(case, actual, coarse, fine):
     assert energy > 0.0
     assert abs(float(np.sum(statistics[1]["energy"])) - energy) <= 1e-8 * energy
     assert abs(float(np.sum(statistics[0]["energy"])) - energy) <= 1e-4 * energy
+    # This is also an independent check on the session's physical-energy readout
+    # from its own exported field. The binary64 reference differs only by positive
+    # reduction order; binary32 retains the already declared energy envelope.
+    for values, rows, allowance in zip(
+        (actual_bands, previous_bands, bands),
+        statistics,
+        (1e-4, _band_partition_budget(previous), _band_partition_budget(reference)),
+        strict=True,
+    ):
+        measured = float(np.sum(values))
+        assert abs(float(np.sum(rows["energy"])) - measured) <= allowance * measured
     for name in ("species_ionisation", "species_electron_density", "electron_density"):
         expected = np.asarray(statistics[-1][name])
         # Every synthetic species starts at >=.03 ionised: the accepted population
@@ -195,7 +264,7 @@ def test_binary32_materials_on_each_admitted_route(kind, geometry):
         case.request.integration.tableau.nodes
     )
     coarse, fine = _reference(kind, geometry)
-    _assert_selected_accuracy(case, actual, coarse, fine)
+    _assert_selected_accuracy(case, grid, actual, coarse, fine)
 
 
 @pytest.mark.parametrize("method", ["tsit5", "adams", "low_storage"])
@@ -209,7 +278,7 @@ def test_binary32_materials_across_march_families(kind, method):
         == {"tsit5": 56, "adams": 9, "low_storage": 32}[method]
     )
     coarse, fine = _reference(kind, "cartesian")
-    _assert_selected_accuracy(case, actual, coarse, fine)
+    _assert_selected_accuracy(case, grid, actual, coarse, fine)
 
 
 @pytest.mark.parametrize("kind", ["field", "envelope"])
@@ -219,7 +288,7 @@ def test_binary32_independent_profiles_and_uncoupled_taper(kind, geometry):
     actual, _, _ = _execute(_single(case), grid, modes, julia=True)
     assert actual.status.attempts == 8
     coarse, fine = _reference(kind, geometry, True, True)
-    _assert_selected_accuracy(case, actual, coarse, fine)
+    _assert_selected_accuracy(case, grid, actual, coarse, fine)
 
 
 @pytest.mark.parametrize("kind", ["field", "envelope"])
@@ -268,7 +337,7 @@ def test_binary32_adaptive_materials_at_both_accepted_tolerances(kind, method, r
     )
     assert actual.status.attempts - actual.status.rejected >= 8
     coarse, fine = _reference(kind, "averaged")
-    _assert_selected_accuracy(case, actual, coarse, fine)
+    _assert_selected_accuracy(case, grid, actual, coarse, fine)
 
 
 @pytest.mark.parametrize("kind", ["field", "envelope"])

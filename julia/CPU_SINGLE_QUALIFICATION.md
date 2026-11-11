@@ -48,7 +48,7 @@ reference method.
 | Quantity | Candidate accuracy envelope | Independent reference settlement |
 | --- | --- | --- |
 | Entire saved field, relative L2 | `1e-3` | `1e-9` |
-| 32 equal-frequency active spectral bands above -40 dB | `1e-2` relative | `1e-4` relative |
+| Physical energy in 32 equal-frequency active bands above -40 dB | `1e-2` relative | `1e-4` relative |
 | Total physical energy | `1e-4` relative | `1e-8` relative |
 | Peak power or intensity; spatial beam radius and FWHM | `1e-3` relative | `1e-8` relative |
 | Species ionised fractions and electron densities | `1e-3` relative | `1e-8` relative |
@@ -63,6 +63,35 @@ the same sixteen positions. No local `rtol` is used as a global error estimate.
 These fixed-step refinements qualify the short paths; they do not reproduce
 SEP 33's entire survival campaign or its separate Adams-versus-RK twice-error
 admission rule. That rule remains an additional prerequisite for public admission.
+
+The band metric uses physical energy at the final observation coordinate. Modal
+bands use the oracle's `stats._poynting_statistics` with the represented
+`power_weight_at(problem, z)`, including its frequency and position dependence.
+Spatial bands use `backends.spatial.collect_spatial` on frequency-masked fields,
+with the actual `FluxPlan.at(z)` and transverse spectral measure. This reducer
+already owns the axial admittance and analytic-signal endpoint weights. No new
+conversion constants or approximation of the medium are introduced. Units are
+joules, or joules per metre on a line. The 32 half-open windows partition the
+active band; the last window includes its final bin. The inactive field is zero.
+
+Every candidate and reference checks that the bands sum to the canonical total
+energy. For these finite, normal, nonnegative-energy fixtures, with `N` complex
+field entries, two evaluations of the positive reduction differ by at most
+`2*gamma_(2*N+64)` times the total. Each product path uses fewer than 16 real
+operations, at most `2*N` additions cover polarisation, column and chunk
+reductions, and 32 more cover the bands. The bound includes both independent
+reduction orders and is required to remain below `1e-8`. Actual binary64 session
+energy is compared independently with the same bound; binary32 session energy
+uses the already declared `1e-4` physical-energy accuracy envelope. These checks
+run on both temporal grids and all five routes, including the modal profile and
+taper cases.
+
+This corrects the original raw squared-amplitude band metric
+([issue 734](https://github.com/LupoLab/solprop/issues/734)). SEP 33 Part I requires
+spectral energy; its historical Part II table describes a sum of squared
+amplitudes across columns. That historical measurement is not reinterpreted as
+physical energy here. The current tests use the accepted Part I definition and
+leave prior evidence unchanged.
 
 For the source-free uniform split test, the independent solution is
 `a(z) = exp(D*z - alpha*z/2)*a(0)`: a scalar temporal multiplier commutes with the
