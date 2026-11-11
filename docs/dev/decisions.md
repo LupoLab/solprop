@@ -2313,3 +2313,33 @@ Withdrawn (development-process record, not a design decision).
   and [mode getter](https://developer.apple.com/documentation/accelerate/blasgetthreading()),
   the installed public `vecLib/thread_api.h`, and the pinned trampoline's
   [thread-control implementation](https://github.com/JuliaLinearAlgebra/libblastrampoline/blob/v5.15.0/src/threading.c).
+
+## ADR-080 — Qualify binary32 elementary functions at an explicit boundary
+
+- **Status:** accepted during SEP 48 implementation, 2026-11-11.
+- **Context:** the reduced plasma log-coordinate correction (738) calls
+  `log1p(Float32)` and consumes its Float32 result. Julia 1.13.3's CPU helpers use
+  binary64 internally, as does the existing `expm1(Float32)` primitive. A caller's
+  LLVM without binary64 instructions does not prove that its callees use only
+  binary32. The numerical derivation needs a returned-value error bound, while
+  device compilation also needs an implementation that the selected device supports.
+- **Decision:** keep response-owned arrays and arithmetic in binary32, and name
+  each elementary-function API and its separately checked error hypothesis. CPU
+  library internals may use a wider scalar type. Do not describe a caller-only
+  inspection as a transitive arithmetic-width proof, introduce explicit binary64
+  response buffers, or silently evaluate a device primitive on the host. The
+  protected in-house DF32 arithmetic helpers retain their strict binary32 graph,
+  explicit FMA, rounding and range requirements. Inspect and qualify each actual
+  vendor specialization independently; CPU accuracy and compilation are not
+  evidence for Metal, CUDA or ROCm.
+- **Consequences:** the plasma correction retains its original spline, quadrature,
+  convergence threshold and clipping policy. Its derivation names the local
+  `log1p` hypothesis and propagates that error through the reduced coordinate and
+  spline. Finite MPFR witnesses check that hypothesis on the qualified inputs;
+  they are not a proof over every vendor's domain. [Issue #751](https://github.com/LupoLab/solprop/issues/751)
+  retains the direct-callee inspection and remaining device work. This boundary
+  changes no physics, default, binary32 noise admission or numerical envelope.
+- **Sources:** Julia 1.13.3's [logarithm helpers](https://github.com/JuliaLang/julia/blob/v1.13.3/base/special/log.jl)
+  were checked against the installed source and emitted direct-callee arithmetic.
+  The error derivation and primitive references are in
+  `julia/PLASMA_CYCLE_PRECISION.md` and `julia/DF32_BOUNDS.md`.

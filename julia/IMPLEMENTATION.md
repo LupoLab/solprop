@@ -33,10 +33,10 @@ Shared interfaces and integration remain master-owned.
 
 | Owner | Exclusive active scope |
 |---|---|
-| Master | Shared interfaces, integration, CI and records; final Adams milestone and next device interfaces |
-| Independent reviewer | Binary32 plasma numerical review, then ROCm foundation review |
-| CPU numerical agent | Binary32 envelope quadrature 738: `src/plasma.jl`, focused new cycle tests and note; table/interface changes require master coordination |
-| Device agent | ROCm extension, execution/transform extension and test leaves, `ROCM_FOUNDATION.md` |
+| Master | Shared interfaces, integration, CI and records; physical reference refinement and device session attachment |
+| Independent reviewer | ROCm stride correction and CUDA storage/readback review |
+| CPU numerical agent | DF32 RK dense leaf, note and tests; agreed observation/flow hooks, followed by Adams dense design |
+| Device agent | CUDA storage/readback leaves, tests and note; agreed transfer span/space/owner hooks, PythonCall host-space hook and module includes |
 
 The RK/low-storage DF32 bridge attachment is independently approved: ten files covering
 `backend.py`, `_session.py`, `_wide.py`, PythonCall launch/wide attachment, its focused
@@ -77,6 +77,19 @@ The independently reviewed 737 fix uses the existing cancellation-free refractiv
 with `log1p`, without changing physical inputs or interpolation tolerances. Its
 46 changed-module cases and 743 independent Decimal/validity/table probes pass;
 the unchanged helium propagation comparison still needs to be repeated.
+The reduced-log plasma correction is integrated at `e690ef30` after independent
+review of 37,243 distinct bounds-enabled assertions, including MPFR comparisons,
+unchanged quadrature criteria and zero warmed allocations. The physical failing
+neighborhood passes 1,038 checks. ADR-080 states the CPU elementary-function API
+boundary and the separate device obligation (751). The repeated six-case comparison
+passes four cases; both helium rows finish within every absolute envelope but fail
+the unchanged twice-RK rule (753). Independent 16/32-step binary64 references differ
+by at most `2.514e-15`. Candidate windows, metrics and envelopes are unchanged.
+Identical NumPy binary32 helium controls pass all four method/tolerance combinations.
+The separate population ownership fix (749), integrated at `cd409ee3`, refuses
+foreign-header overlap and non-injective workspace destinations before writes.
+Independent review passes 299 bounds-enabled assertions with zero warmed allocation;
+the author also passes 22,725 directly affected assertions and CPU Aqua/JET.
 
 CUDA foundation review corrected raw pointer capture (730), complex FFT alignment
 (732) and active cuFFT workspace accounting (735). The integrated foundation at
@@ -117,8 +130,11 @@ both owned kernel launch forms. DF32 Metal is not qualified.
   corrected and independently reviewed at `f1589c25`: 55 typed targeted tests pass,
   without changing production admission. Windows GUI fails its resume test again;
   the Linux Julia job passes Core and Aqua/JET, then reaches its two-hour job limit
-  during the still-progressing adapter suite (712). The next batch carries the longer
-  bound. No cancelled or failed gate is claimed green.
+  during the still-progressing adapter suite (712). macOS completes 1,339 adapter
+  tests with 20 declared skips and the three stale spatial-admission failures already
+  corrected under 740. The next batch separates the complete engine and adapter
+  stages, each with a bounded three-hour allowance. No check is omitted and no
+  cancelled or failed gate is claimed green.
 
 Local checks are targeted; full gates, slow lanes and package coverage run in CI.
 Previous failed fixtures, timeouts and harness invocations remain in the evidence.
@@ -127,9 +143,9 @@ source identities, validation counts and ownership handoffs.
 
 ## Next actions
 
-1. Resolve the fixed-window Adams comparison's translation and envelope quadrature
-   blockers (737, 738), retain unchanged candidate criteria, and independently refine
-   the capped reference. Reviewed CPU32/DF32 and mandatory CI inventory are committed.
+1. Investigate the completed helium comparison's twice-RK failure (753) against
+   identical NumPy binary32 controls. Translation and quadrature fixes (737, 738)
+   now pass their repeated physical cases; independent reference refinement is recorded.
 2. Qualify DF32 dense/spatial execution and the remaining same-precision
    restart/admission matrix.
 3. Complete actual CUDA foundation checks and vendor JET analysis, then attach complete

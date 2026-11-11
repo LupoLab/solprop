@@ -91,7 +91,7 @@ def _scientific_case(name):
 
 
 @cache
-def _run(name, method, rtol, single):
+def _run(name, method, rtol, single, step_divisor=1):
     simulation, original = _scientific_case(name)
     request = _method(original.request, method)
     request = replace(
@@ -99,6 +99,8 @@ def _run(name, method, rtol, single):
         error_control=replace(
             request.error_control,
             controller=replace(request.error_control.controller, rtol=rtol),
+            dz_init=request.error_control.dz_init / step_divisor,
+            dz_max=request.error_control.dz_max / step_divisor,
         ),
     )
     problem = (
@@ -223,9 +225,12 @@ def _json_errors(errors):
 @cache
 def _reference(name):
     history = []
-    for previous_rtol, reference_rtol in REFERENCE_PAIRS:
-        previous = _run(name, "dopri5", previous_rtol, False)
-        reference = _run(name, "dopri5", reference_rtol, False)
+    for level, (previous_rtol, reference_rtol) in enumerate(REFERENCE_PAIRS, start=1):
+        # Tightening rtol alone leaves an already capped eight-step trajectory
+        # unchanged. Independently halve its maximum step at every comparison.
+        coarse_divisor, fine_divisor = 2**level, 2 ** (level + 1)
+        previous = _run(name, "dopri5", previous_rtol, False, coarse_divisor)
+        reference = _run(name, "dopri5", reference_rtol, False, fine_divisor)
         assert previous.outcome == reference.outcome == Outcome.COMPLETED.value, (
             previous.error,
             reference.error,
@@ -236,6 +241,7 @@ def _reference(name):
         history.append(
             {
                 "tolerances": [previous_rtol, reference_rtol],
+                "maximum_steps_m": [STEP / coarse_divisor, STEP / fine_divisor],
                 "errors": _json_errors(errors),
                 "previous_work": previous.work,
                 "reference_work": reference.work,

@@ -36,6 +36,10 @@ below, on every scored component. If needed, the predeclared refinement ladder i
 `(1e-10, 1e-11)` then `(1e-11, 1e-12)`. If none settles, the test fails without
 qualifying either candidate. This is reference refinement, not a change to the
 candidate tolerance, window, metric or envelope.
+The reference also halves the step cap independently: its first pair takes caps
+of `STEP/2` and `STEP/4`, and later pairs halve these again. This prevents tighter
+tolerances from comparing two identical eight-step capped trajectories. Candidate
+step limits remain the original `STEP = 12.5 micrometres`.
 
 | Metric | Fixed relative envelope |
 | --- | --- |
@@ -129,3 +133,43 @@ quadrature budget was changed: orders 64/128/256/512, `moment_rtol=2e-6` and
 The three-case Adams admission is **not qualified** while these failures remain.
 The tests keep them as ordinary failures, without expected-failure markers or a
 different scientific configuration.
+
+## Repeated campaign after the translation and plasma fixes
+
+At integration source `e690ef30`, the independently reviewed fixes for 737 and 738
+permit every candidate to finish. The repeated six-case run on the same machine,
+Julia/bridge versions, two Julia threads and one BLAS thread reports **four passes
+and two failures**. Both argon configurations pass at both tolerances. Helium
+passes every fixed absolute accuracy envelope but fails the unchanged twice-RK
+criterion at both tolerances ([issue 753](https://github.com/LupoLab/solprop/issues/753)).
+No failure is skipped or relabelled.
+
+The independently halved reference caps produce 16 and 32 accepted steps for all
+three cases, with no rejection. Their largest componentwise discrepancy is
+`2.514e-15`, well below the candidate errors. The reference fraction is scored by
+the original threshold, and physical band selection remains unchanged.
+
+| Helium metric, both tolerances | RK relative error | Adams relative error |
+| --- | ---: | ---: |
+| First scored spectral band | `3.4889247365e-8` | `9.2940281582e-8` |
+| Total energy | `2.2831598569e-8` | `1.2866533335e-7` |
+| First modal peak | `6.5479168304e-8` | `1.8439222520e-7` |
+| Scored ionised fraction | `1.5657767282e-7` | `8.1408392073e-7` |
+
+Both helium methods accept eight steps without rejection; RK evaluates 56 sources
+and Adams nine. The complete JUnit properties retain every component, including
+the passing metrics. The test invocation takes 325.58 seconds including first-use
+compilation; this is a qualification duration, not a propagation benchmark.
+Investigation continues against identical NumPy binary32 controls and matched
+discrete histories. Public admission remains closed while the criterion fails.
+
+The identical NumPy binary32 controls subsequently complete all four helium
+method/tolerance combinations in eight accepted steps without rejection and pass
+the twice-RK comparison. At either tolerance their RK/Adams relative errors are
+`4.5348263114e-8 / 9.8154508249e-9` for energy and
+`4.2791685420e-7 / 3.3168936331e-8` for the scored fraction. All other metrics pass
+as well. Julia's physical bands are already recomputed from its exported field
+through the canonical NumPy reducer, so the failed band comparison includes a
+field-advancement difference; it cannot be attributed solely to Julia's statistic
+implementation. This control isolates a remaining implementation comparison, not
+a new error allowance or a general proof of a numerical defect.

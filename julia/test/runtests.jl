@@ -41,6 +41,8 @@ if group == "Core"
     include("responses.jl")
     include("raman.jl")
     include("plasma.jl")
+    include("plasma_cycle_precision.jl")
+    include("population_aliases.jl")
     include("plasma_statistics.jl")
     include("plasma_statistics_precision.jl")
     include("source_precision.jl")

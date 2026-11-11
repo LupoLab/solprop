@@ -1817,6 +1817,27 @@ correction, so the current DF32 gradual-underflow proof does not qualify that de
 (739). No floating-point policy or required gate is relaxed. ROCm foundation and all
 complete vendor sessions remain under implementation.
 
+### Reduced plasma coordinates and repeated CPU32 admission — 2026-11-11
+
+The reviewed binary32 plasma lookup now retains reduced logarithmic coordinates
+and low words instead of subtracting two rounded absolute logarithms. The spline,
+cycle quadrature, clipping and convergence tolerance are unchanged. Independent
+review passes 37,243 distinct assertions, including MPFR error witnesses, the
+failing neighborhood and zero warmed allocation. ADR-080 makes the CPU Float32
+elementary-function boundary explicit: library internals may widen, whereas owned
+response arithmetic and arrays remain binary32. Protected DF32 helpers retain
+their strict graph, and each vendor needs independent arithmetic qualification (751).
+
+The unchanged six-case Adams-versus-RK campaign now completes every candidate after
+the shared logarithmic power-weight correction (737) and plasma correction (738).
+Both argon field and envelope cases pass at both tolerances. Both helium rows pass
+every absolute accuracy envelope but fail SEP 33's twice-RK criterion (753). The
+independent binary64 reference check now also halves the step cap: 16 versus 32
+accepted steps differ by at most `2.514e-15` across the scored metrics. Candidate
+windows, method policy and thresholds are unchanged. The complete evidence and
+remaining comparison are in `julia/CPU_SINGLE_ADAMS_QUALIFICATION.md`; the failure
+remains an ordinary required test and public binary32 admission remains closed.
+
 ## Part III — History
 
 - 2026-11-10: The maintainer accepted external hard-kill supervision for stalled Julia
