@@ -30,46 +30,11 @@ elif [[ -x /usr/local/opt/llvm/bin/clang++ ]]; then
 else
   cxx_compiler=$(command -v clang++)
 fi
-cpp_sources=(
-  include/solprop_native/chebyshev.hpp
-  include/solprop_native/core.hpp
-  include/solprop_native/coupled_flow.hpp
-  include/solprop_native/dispersive.hpp
-  include/solprop_native/envelope_plasma.hpp
-  include/solprop_native/far_field.hpp
-  include/solprop_native/fft_plan.hpp
-  include/solprop_native/fp.hpp
-  include/solprop_native/general_modal.hpp
-  include/solprop_native/raman_fft.hpp
-  include/solprop_native/gemm.hpp
-  include/solprop_native/lagrange_basis.hpp
-  include/solprop_native/plasma.hpp
-  include/solprop_native/slab.hpp
-  include/solprop_native/z_table.hpp
-  src/bindings.cpp
-  src/coverage_labels.cpp
-  src/core.cpp
-  src/coupled_flow.cpp
-  src/dispersive.cpp
-  src/far_field.cpp
-  src/general.cpp
-  src/general_modal.cpp
-  src/helpers.cpp
-  src/helpers.hpp
-  src/raman_fft.cpp
-  tests/native/bounds.hpp
-  tests/native/main.cpp
-  tests/native/test_aperture.cpp
-  tests/native/test_core.cpp
-  tests/native/test_coupled_flow.cpp
-  tests/native/test_dispersive.cpp
-  tests/native/test_envelope_plasma.cpp
-  tests/native/test_fft.cpp
-  tests/native/test_fp.cpp
-  tests/native/test_general_modal.cpp
-  tests/native/test_helpers.cpp
-  tests/native/test_z_table.cpp
-)
+# Every tracked C++ file, so that none can drop out of the format check.
+cpp_sources=()
+while IFS= read -r -d '' cpp_source; do
+  cpp_sources+=("$cpp_source")
+done < <(git ls-files -z -- '*.cpp' '*.hpp' '*.h')
 
 # The stages to run, all of them by default; CI runs them as parallel jobs. "lint" is
 # ruff, pyright and clang-format; "tidy" and "sanitize" build and run the native tests
