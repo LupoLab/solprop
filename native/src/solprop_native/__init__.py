@@ -591,7 +591,9 @@ class BuildInfo:
         ``"scalar libm"``, the system's, on Arm and in device builds
         (``SOLPROP_NATIVE_VECTOR_MATH``).
     gemm_provider, tpl_blas_enabled, blas_backend, blas_thread_policy
-        Dense-transform implementation and external-library threading policy.
+        Dense-transform implementation (always ``"HYBRID"``: the vendor GEMM for an
+        eligible transform, the custom kernels for the rest) and external-library
+        threading policy.
     blas_selection
         How configuration chose the BLAS: ``automatic: ...``, ``explicit: ...`` or
         ``distribution: ...`` or ``disabled: ...``, including the native-order GEMM
@@ -972,11 +974,8 @@ def check_build() -> None:
         raise BackendError(
             f"the {info.device_backend} build has no visible accelerator device"
         )
-    providers = {"CUSTOM", "KOKKOSBLAS_NATIVE", "KOKKOSBLAS_TPL", "HYBRID"}
-    if info.gemm_provider not in providers:
+    if info.gemm_provider != "HYBRID":
         raise BackendError(f"unknown compiled GEMM provider {info.gemm_provider!r}")
-    if info.gemm_provider == "KOKKOSBLAS_TPL" and not info.tpl_blas_enabled:
-        raise BackendError("the TPL GEMM provider was built without a BLAS TPL")
     if info.tpl_blas_enabled and info.blas_backend == "none":
         raise BackendError("the build enables a BLAS TPL but identifies no provider")
     if info.build_profile not in {"local", "distribution", "reference"}:

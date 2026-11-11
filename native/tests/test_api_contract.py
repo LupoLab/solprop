@@ -120,12 +120,7 @@ def test_build_info_is_frozen_and_complete() -> None:
     assert info.kokkos_version == "5.2.1"
     assert info.kokkos_fft_version == "2.0.0"
     assert info.kokkos_kernels_version == "5.2.0"
-    assert info.gemm_provider in {
-        "CUSTOM",
-        "KOKKOSBLAS_NATIVE",
-        "KOKKOSBLAS_TPL",
-        "HYBRID",
-    }
+    assert info.gemm_provider == "HYBRID"
     if info.tpl_blas_enabled:
         assert info.blas_backend != "none"
     else:

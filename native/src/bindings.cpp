@@ -2966,7 +2966,7 @@ nb::dict build_record() {
   result["kokkos_fft_version"] = SOLPROP_NATIVE_KOKKOSFFT_VERSION;
   result["kokkos_kernels_version"] = SOLPROP_NATIVE_KOKKOSKERNELS_VERSION;
   result["nanobind_version"] = SOLPROP_NATIVE_NANOBIND_VERSION;
-  result["gemm_provider"] = SOLPROP_NATIVE_GEMM_PROVIDER;
+  result["gemm_provider"] = "HYBRID";
   result["tpl_blas_enabled"] = static_cast<bool>(SOLPROP_NATIVE_TPL_BLAS_ENABLED);
   result["blas_backend"] = SOLPROP_NATIVE_BLAS_BACKEND;
   result["blas_thread_policy"] = decode_record_text(SOLPROP_NATIVE_BLAS_THREAD_POLICY);

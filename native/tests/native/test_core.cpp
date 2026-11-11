@@ -1374,7 +1374,6 @@ TEST(Gemm, EngineSelectsTheNativeOrderKernelWithoutAVendorBlas) {
 
 TEST(GeneralState, ProviderPolicyAndLifecycleAreIntrospectable) {
   native::GeneralState state(multimode_problem());
-  const auto compiled = native::compiled_gemm_provider();
   // A host build's hybrid policy sends every eligible transform to the vendor GEMM; a
   // device build keeps its shape guard, which this two-node problem is below.
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
@@ -1382,11 +1381,9 @@ TEST(GeneralState, ProviderPolicyAndLifecycleAreIntrospectable) {
 #else
   constexpr bool hybrid_vendor = true;
 #endif
-  const auto expected =
-      compiled == native::GemmProvider::custom ||
-              (compiled == native::GemmProvider::hybrid && !hybrid_vendor)
-          ? std::string("custom")
-          : std::string(native::selected_blas_provider_name());
+  const auto expected = hybrid_vendor
+                            ? std::string(native::selected_blas_provider_name())
+                            : std::string("custom");
   EXPECT_EQ(state.synthesis_provider(), expected);
   EXPECT_EQ(state.projection_provider(), expected);
   EXPECT_NE(state.gemm_shape_policy().find("every whole transform on the host"),
@@ -1464,12 +1461,10 @@ void check_radial_analytic_chunks(const bool absorber, const char* expected_regi
       std::count(synthesis_regions.begin(), synthesis_regions.end(), expected_region);
   const auto custom = std::count(synthesis_regions.begin(), synthesis_regions.end(),
                                  "solprop_native.transform.synthesis.custom");
-  const bool uses_blas =
-      native::compiled_gemm_provider() != native::GemmProvider::custom;
-  EXPECT_EQ(selected, uses_blas ? 2 : 0);
-  EXPECT_EQ(custom, uses_blas ? 0 : 2);
+  EXPECT_EQ(selected, 2);
+  EXPECT_EQ(custom, 0);
   // Only the absorber-free map keeps the retained spectra.
-  EXPECT_EQ(ledger.at("retained_synthesis") > 0, uses_blas && !absorber);
+  EXPECT_EQ(ledger.at("retained_synthesis") > 0, !absorber);
   chunked.finish(0.01);
   const auto actual = chunked.field_to_host();
   // Both computations have one inverse/forward FFT and two length-five products;
@@ -1507,35 +1502,30 @@ TEST(GeneralState, ChunkedBlasBuffersHaveExactPersistentByteCost) {
 
   native::GeneralState state(problem);
   const auto ledger = state.memory_ledger();
-  const auto provider = native::compiled_gemm_provider();
-  const auto expected = provider == native::GemmProvider::custom
-                            ? 0U
-                            : (3U + 2U) * problem.n_modes * 3U * sizeof(double);
-  EXPECT_EQ(ledger.at("chunk_transform_buffers"), expected);
+  EXPECT_EQ(ledger.at("chunk_transform_buffers"),
+            (3U + 2U) * problem.n_modes * 3U * sizeof(double));
 
-  if (provider != native::GemmProvider::custom) {
-    auto whole_problem = problem;
-    whole_problem.node_chunk = whole_problem.n_nodes;
-    const std::vector<Complex> initial{{1.0, 0.0}, {0.25, -0.125}, {-0.1, 0.05},
-                                       {0.5, 0.0}, {-0.2, 0.1},    {0.05, -0.025}};
-    native::GeneralState whole(whole_problem);
-    whole.set_initial(initial, {});
-    static_cast<void>(whole.trial_step(0.01, trial(whole_problem)));
-    whole.finish(0.01);
-    state.set_initial(initial, {});
-    static_cast<void>(state.trial_step(0.01, trial(problem)));
-    state.finish(0.01);
-    const auto reference = whole.field_to_host();
-    const auto chunked = state.field_to_host();
-    const auto dot_length = static_cast<double>(problem.n_nodes);
-    const double dot_gamma = dot_length * kEpsilon / (1.0 - dot_length * kEpsilon);
-    const double tolerance =
-        512.0 * kEpsilon * std::ceil(std::log2(static_cast<double>(problem.n_to))) +
-        4.0 * dot_gamma;
-    for (std::size_t index = 0; index < chunked.size(); ++index)
-      expect_complex_near(chunked[index], reference[index],
-                          tolerance * std::max(1.0, Kokkos::abs(reference[index])));
-  }
+  auto whole_problem = problem;
+  whole_problem.node_chunk = whole_problem.n_nodes;
+  const std::vector<Complex> initial{{1.0, 0.0}, {0.25, -0.125}, {-0.1, 0.05},
+                                     {0.5, 0.0}, {-0.2, 0.1},    {0.05, -0.025}};
+  native::GeneralState whole(whole_problem);
+  whole.set_initial(initial, {});
+  static_cast<void>(whole.trial_step(0.01, trial(whole_problem)));
+  whole.finish(0.01);
+  state.set_initial(initial, {});
+  static_cast<void>(state.trial_step(0.01, trial(problem)));
+  state.finish(0.01);
+  const auto reference = whole.field_to_host();
+  const auto chunked = state.field_to_host();
+  const auto dot_length = static_cast<double>(problem.n_nodes);
+  const double dot_gamma = dot_length * kEpsilon / (1.0 - dot_length * kEpsilon);
+  const double tolerance =
+      512.0 * kEpsilon * std::ceil(std::log2(static_cast<double>(problem.n_to))) +
+      4.0 * dot_gamma;
+  for (std::size_t index = 0; index < chunked.size(); ++index)
+    expect_complex_near(chunked[index], reference[index],
+                        tolerance * std::max(1.0, Kokkos::abs(reference[index])));
 }
 
 #if defined(SOLPROP_NATIVE_TPL_BLAS_OPENBLAS)

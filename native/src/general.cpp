@@ -3238,13 +3238,10 @@ bool GeneralWorkspace::use_packed_radial_blas() const noexcept {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   return false;
 #else
-  const auto provider = compiled_gemm_provider();
   // Two packed work arrays add two complex-equivalent time columns to the
   // shared conservative twenty-column inventory. Decide before allocation.
   constexpr std::size_t max_samples = 64 * 1024 * 1024 / (22 * sizeof(Complex));
-  return (provider == GemmProvider::hybrid ||
-          provider == GemmProvider::kokkosblas_tpl) &&
-         !problem_.separable_geometry() && !problem_.spatial_spectral_weights.empty() &&
+  return !problem_.separable_geometry() && !problem_.spatial_spectral_weights.empty() &&
          problem_.n_modes == problem_.n_nodes &&
          problem_.node_chunk == problem_.n_nodes && problem_.n_pol_state == 1 &&
          problem_.n_pol_transform == 1 && problem_.family == FieldFamily::envelope &&
@@ -3263,8 +3260,7 @@ bool GeneralWorkspace::use_packed_radial_blas() const noexcept {
 // modal time field, and a dispersive response its own synthesis, so they keep the
 // time-domain product; skinny capillary maps would multiply the transforms.
 bool GeneralWorkspace::retained_synthesis() const noexcept {
-  return compiled_gemm_provider() != GemmProvider::custom &&
-         problem_.family == FieldFamily::field_analytic &&
+  return problem_.family == FieldFamily::field_analytic &&
          !problem_.spatial_spectral_weights.empty() && !problem_.separable_geometry() &&
          !problem_.general_modal && !problem_.dispersive &&
          !problem_.in_stage_absorber && !problem_.raman &&
@@ -3383,18 +3379,12 @@ bool GeneralWorkspace::use_blas_for_synthesis() const noexcept {
   // The hybrid planar kind contracts its small x rule per y row natively.
   if (problem_.separable_geometry())
     return false;
-  const auto provider = compiled_gemm_provider();
-  if (provider == GemmProvider::custom)
-    return false;
   if (problem_.n_pol_state != 1)
     return false;
   if (problem_.family == FieldFamily::envelope) {
-#if defined(SOLPROP_NATIVE_TPL_BLAS_OPENBLAS) ||                                       \
-    defined(SOLPROP_NATIVE_TPL_BLAS_CUBLAS) ||                                         \
-    defined(SOLPROP_NATIVE_TPL_BLAS_ROCBLAS)
-    if (provider != GemmProvider::kokkosblas_tpl && provider != GemmProvider::hybrid)
-      return false;
-#else
+#if !defined(SOLPROP_NATIVE_TPL_BLAS_OPENBLAS) &&                                      \
+    !defined(SOLPROP_NATIVE_TPL_BLAS_CUBLAS) &&                                        \
+    !defined(SOLPROP_NATIVE_TPL_BLAS_ROCBLAS)
     return false;
 #endif
   } else if (problem_.family != FieldFamily::field_real) {
@@ -3409,7 +3399,7 @@ bool GeneralWorkspace::use_blas_for_synthesis() const noexcept {
       problem_.n_to >= 256)
     return true;
 #endif
-  return provider != GemmProvider::hybrid || hybrid_shape_eligible();
+  return hybrid_shape_eligible();
 }
 
 // An analytic field's or an envelope's synthesis is a real matrix times complex
@@ -3424,20 +3414,14 @@ bool GeneralWorkspace::use_interleaved_synthesis() const noexcept {
   if (problem_.family == FieldFamily::field_real || problem_.separable_geometry() ||
       problem_.n_pol_state != 1 || problem_.n_pol_transform != 1)
     return false;
-  const auto provider = compiled_gemm_provider();
-  if (provider == GemmProvider::custom)
-    return false;
-  return provider != GemmProvider::hybrid || hybrid_shape_eligible();
+  return hybrid_shape_eligible();
 }
 
 bool GeneralWorkspace::use_interleaved_projection() const noexcept {
   if (problem_.family != FieldFamily::envelope || problem_.separable_geometry() ||
       problem_.n_pol_state != 1 || problem_.n_pol_transform != 1)
     return false;
-  const auto provider = compiled_gemm_provider();
-  if (provider == GemmProvider::custom)
-    return false;
-  return provider != GemmProvider::hybrid || hybrid_shape_eligible();
+  return hybrid_shape_eligible();
 }
 
 bool GeneralWorkspace::use_blas_for_projection() const noexcept {
@@ -3446,18 +3430,12 @@ bool GeneralWorkspace::use_blas_for_projection() const noexcept {
   // The hybrid planar kind contracts its small x rule per y row natively.
   if (problem_.separable_geometry())
     return false;
-  const auto provider = compiled_gemm_provider();
-  if (provider == GemmProvider::custom)
-    return false;
   if (problem_.n_pol_state != 1)
     return false;
   if (problem_.family == FieldFamily::envelope) {
-#if defined(SOLPROP_NATIVE_TPL_BLAS_OPENBLAS) ||                                       \
-    defined(SOLPROP_NATIVE_TPL_BLAS_CUBLAS) ||                                         \
-    defined(SOLPROP_NATIVE_TPL_BLAS_ROCBLAS)
-    if (provider != GemmProvider::kokkosblas_tpl && provider != GemmProvider::hybrid)
-      return false;
-#else
+#if !defined(SOLPROP_NATIVE_TPL_BLAS_OPENBLAS) &&                                      \
+    !defined(SOLPROP_NATIVE_TPL_BLAS_CUBLAS) &&                                        \
+    !defined(SOLPROP_NATIVE_TPL_BLAS_ROCBLAS)
     return false;
 #endif
   }
@@ -3470,7 +3448,7 @@ bool GeneralWorkspace::use_blas_for_projection() const noexcept {
       problem_.n_to >= 256)
     return true;
 #endif
-  return provider != GemmProvider::hybrid || hybrid_shape_eligible();
+  return hybrid_shape_eligible();
 }
 
 bool GeneralWorkspace::use_chunked_blas_for_synthesis() const noexcept {

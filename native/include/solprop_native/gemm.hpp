@@ -17,35 +17,6 @@
 
 namespace solprop_native {
 
-enum class GemmProvider { custom, kokkosblas_native, kokkosblas_tpl, hybrid };
-
-[[nodiscard]] constexpr GemmProvider compiled_gemm_provider() noexcept {
-#if defined(SOLPROP_NATIVE_GEMM_PROVIDER_CUSTOM)
-  return GemmProvider::custom;
-#elif defined(SOLPROP_NATIVE_GEMM_PROVIDER_KOKKOSBLAS_NATIVE)
-  return GemmProvider::kokkosblas_native;
-#elif defined(SOLPROP_NATIVE_GEMM_PROVIDER_KOKKOSBLAS_TPL)
-  return GemmProvider::kokkosblas_tpl;
-#else
-  return GemmProvider::hybrid;
-#endif
-}
-
-[[nodiscard]] constexpr std::string_view
-gemm_provider_name(const GemmProvider provider) noexcept {
-  switch (provider) {
-  case GemmProvider::custom:
-    return "custom";
-  case GemmProvider::kokkosblas_native:
-    return "kokkosblas-native";
-  case GemmProvider::kokkosblas_tpl:
-    return "kokkosblas-tpl";
-  case GemmProvider::hybrid:
-    return "hybrid";
-  }
-  return "unknown";
-}
-
 // A host build without a vendor BLAS runs KokkosBlas's native real GEMM arithmetic
 // through `native_order_gemm`: the same result to
 // the bit, several times faster on the engine's skinny-by-wide transforms.
@@ -360,9 +331,9 @@ void selected_gemm(const ExecutionSpace& execution_space, const AView& a,
                    const BView& b, const CView& c,
                    const typename CView::non_const_value_type beta,
                    const bool tpl_eligible) {
-  const auto provider = compiled_gemm_provider();
-  if (provider == GemmProvider::custom ||
-      (provider == GemmProvider::hybrid && !tpl_eligible)) {
+  // The hybrid provider: the engine's GEMM for an eligible transform, the custom
+  // kernel for the rest.
+  if (!tpl_eligible) {
     custom_gemm(execution_space, a, b, c, beta);
     return;
   }

@@ -226,7 +226,7 @@ hand through `CXXFLAGS` appear in `compiler_flags`.
 sources under `native/` are not the ones the extension was compiled from (it names
 `uv sync`; a wheel skips this); when the installed solprop lacks a driver member or bundle
 field the build relies on (it names them); when the build enables fast-math; when the execution-space record is inconsistent; when a GPU build sees no
-device; when the GEMM provider is unknown or its BLAS is missing or unidentified; when
+device; when the GEMM provider is unknown or its BLAS is unidentified; when
 a reference build carries a vendor BLAS or machine-specific code, or a distribution
 build carries native code or no BLAS; and when a GPU build's BLAS is not the device's.
 Then, in solprop:
@@ -305,7 +305,7 @@ order. Keep each profile in its own build directory; switching the profile in on
 rebuilds everything. Configuring prints one summary line, for example
 
 ```text
--- solprop-native build profile: local; BLAS Accelerate (automatic: Accelerate (macOS)); GEMM provider HYBRID; native architecture ON; CPU baseline none; IPO ON (Release builds)
+-- solprop-native build profile: local; BLAS Accelerate (automatic: Accelerate (macOS)); native architecture ON; CPU baseline none; IPO ON (Release builds)
 ```
 
 and `build_info()` reports the same choice in `build_profile`, `cpu_baseline`,
@@ -377,7 +377,6 @@ The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.
 | `SOLPROP_NATIVE_BLAS_ROOT` | empty | a prefix searched first for the BLAS |
 | `SOLPROP_NATIVE_BLAS_LIBRARIES` | empty | an explicit `;`-separated library list (not together with `SOLPROP_NATIVE_BLAS_VENDOR`) |
 | `SOLPROP_NATIVE_MKL_ROOT` | `$MKLROOT` | where the LP64 MKL libraries are looked for |
-| `SOLPROP_NATIVE_GEMM_PROVIDER` | `HYBRID` | `HYBRID` (vendor GEMM for eligible transforms, custom kernels for the rest), `KOKKOSBLAS_TPL` (requires a BLAS), `KOKKOSBLAS_NATIVE` or `CUSTOM`; the alternatives are for comparison and validation |
 
 **FFT**
 
@@ -408,9 +407,9 @@ OpenBLAS is.
 
 `native/CMakePresets.json` defines development builds, all with `BUILD_TESTING=ON`:
 `cpu-debug`, `cpu-tidy` and `cpu-sanitize` (reference profile, Debug), `cpu-benchmark`
-(local, Release, IPO and benchmarks), the CUDA builds `cuda` (hybrid GEMM with cuBLAS),
-`cuda-tpl`, `cuda-native` and `cuda-custom` (the other GEMM providers, for comparison),
-and `hip`. The presets do not choose a compiler: pass `-DCMAKE_CXX_COMPILER=...` (on
+(local, Release, IPO and benchmarks), `cuda` (with cuBLAS) and `hip`. Dense transforms
+take the vendor GEMM where a transform is eligible and the package's own kernels for
+the rest, in every build. The presets do not choose a compiler: pass `-DCMAKE_CXX_COMPILER=...` (on
 macOS, Homebrew's `clang++`) and `-DPython_EXECUTABLE=...`.
 
 ### Offline builds
