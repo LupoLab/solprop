@@ -32,7 +32,7 @@ There is no rollback buffer, adaptive error estimate, new controller or dense ou
 
 ## Storage and transfers
 
-For `r` spectral rows and `c` columns, the explicit binary64 workspace array data is:
+For `r` spectral rows and `c` columns, the logical binary64 workspace array data is:
 
 | Owner | Shape and element type | Bytes |
 |---|---|---:|
@@ -43,8 +43,14 @@ For `r` spectral rows and `c` columns, the explicit binary64 workspace array dat
 | Persistent host partials | `(2,c)` Float64 | `16*c` |
 | Persistent host flags | `(c,)` Bool | `c` |
 
-The device total is `48*r*c + r + 34*c`. CPU binary64 retains
-`48*r*c + r + 17*c`, without mirrors. These counts exclude the separately owned
+The logical device-plus-host total is `48*r*c + r + 34*c`. Pinned CUDACore
+rounds each nonempty device allocation up to four bytes; therefore the actual
+retained CUDA payload plus host mirrors is
+`48*r*c + 4*cld(r,4) + 33*c + 4*cld(c,4)`. The two rounded terms are the
+device Bool mask and finite flags; the Float64 and ComplexF64 arrays are already
+aligned. For `r=17`, `c=3`, this is 2,571 bytes. CPU binary64 retains
+`48*r*c + r + 17*c`, without mirrors or vendor padding. See the pinned allocator
+reference in [CUDA_STORAGE.md](CUDA_STORAGE.md). These counts exclude the separately owned
 session field, masks in `MarchNorm`, linear-flow/source storage and bounded attempt
 records. Shared owner-aware ledger traversal deduplicates the readback device aliases.
 GPU allocator reservations and vendor process state are not array payload.

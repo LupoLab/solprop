@@ -78,7 +78,13 @@ end
                 ledger = Dict{Symbol, Int}()
                 SP._memory_arrays!(ledger, IdDict{Any, Bool}(), "work", work)
                 @test length(ledger) == 8
-                @test sum(values(ledger)) == 3sizeof(initial) + 17 + 34 * 3
+                # Device Bool allocations use CUDACore's four-byte padding;
+                # host mirrors and transferred numerical bytes stay unpadded.
+                rows, columns = size(initial)
+                mask_bytes = 4cld(rows, 4)
+                finite_bytes = 4cld(columns, 4)
+                @test sum(values(ledger)) ==
+                    3sizeof(initial) + mask_bytes + 32columns + columns + finite_bytes
             finally
                 SP.close_session!(candidate)
                 SP.close_session!(reference)

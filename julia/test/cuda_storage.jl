@@ -126,7 +126,11 @@ end
             @test work.device.data[] === owner
             fill!(work.host, zero(T))
         end
-        @test sum(values(cuda_storage_ledger(work))) == 2sizeof(input)
+        # Pinned CUDACore pads each nonempty pool allocation to four bytes;
+        # the host mirror and transfer keep their logical element count.
+        device_bytes = 4cld(sizeof(input), 4)
+        @test sizeof(owner) == device_bytes
+        @test sum(values(cuda_storage_ledger(work))) == device_bytes + sizeof(input)
         @test_throws DimensionMismatch SP.copy_upload!(
             work.device, zeros(T, 3, 7), execution,
         )

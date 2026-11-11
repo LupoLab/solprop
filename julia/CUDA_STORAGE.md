@@ -55,6 +55,14 @@ explicit payload. Derived headers copy a DataRef but share this Managed owner;
 views and reshapes therefore count the allocation once even when they expose only
 part of it. This is distinct from their occupied alias intervals.
 
+Pinned CUDACore rounds each nonempty pool allocation up to a multiple of four
+bytes so subword atomics cannot touch bytes beyond the allocation. The retained
+payload includes this padding; a host mirror and a transfer contain only the
+logical elements. For example, a 21-element UInt8 readback retains 24 device bytes
+and 21 host bytes. The independent payload assertions use the pinned allocation
+rule, rather than assuming twice the logical array size. See the
+[CUDACore pool allocator][cuda-pool].
+
 A foreign `unsafe_wrap` header has its own retained memory descriptor and declared
 extent. It does not retain the external allocation's original owner, so its ledger
 does not invent that owner or its size. The caller must retain the external storage
@@ -122,3 +130,5 @@ this implementation. The shared storage completion is tracked in [752][storage].
 [cache]: https://github.com/LupoLab/solprop/issues/736
 [quality]: https://github.com/LupoLab/solprop/issues/741
 [storage]: https://github.com/LupoLab/solprop/issues/752
+
+[cuda-pool]: https://github.com/JuliaGPU/CUDA.jl/blob/v6.5.1/CUDACore/src/resources/backends.jl
