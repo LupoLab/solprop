@@ -12,7 +12,7 @@ fixed march.
 """
 
 import math
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -52,7 +52,8 @@ def _native_cap(simulation: Any) -> float:
             session.acknowledge(batch.receipt)
         assert terminal.error is None
         assert float(terminal.z) == pytest.approx(LENGTH)
-        return session.monitor_cap()
+        # The native session's own reading (`NativeSession.monitor_cap`).
+        return cast("Any", session).monitor_cap()
 
 
 @pytest.mark.parametrize("march", sorted(MARCHES))
