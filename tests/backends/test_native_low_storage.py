@@ -12,8 +12,10 @@ ten steps within a rounding bound fixed before the comparison
 the estimate, which agree to the byte, the varying operator's flows, and the load. No
 agreement here is bitwise (SEP 25). Every run is the native session's (SEP 47 phase
 5), which owns the loop: a step left in flight and the poisoned session are
-``tests/sessions/test_native_session_low_storage.py``'s, and a signal during an advance
-``tests/sessions/test_native_session_history.py``'s.
+``tests/sessions/test_native_session_low_storage.py``'s, and a signal during a step,
+which lands after its native call has committed it,
+``tests/backends/test_low_storage.py``'s
+``test_an_atomic_engine_commits_its_step_whole[atomic engine]``.
 """
 
 import dataclasses
