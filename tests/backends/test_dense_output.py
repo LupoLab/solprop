@@ -17,6 +17,8 @@ import math
 import numpy as np
 import pytest
 
+from backends._session_probe_b1 import history, plane_fields
+from backends._session_probe_b1 import run as session_run
 from legacy_geometry import LEGACY_GRID
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -111,17 +113,13 @@ def test_only_dopri5_has_an_extension_here():
 
 
 def run(backend_class, problem, run_request, grid):
-    """Propagate through every plane; return the fields and the attempts."""
+    """Run the session through every plane; return the fields and the attempts."""
     backend = backend_class(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
-    fields, attempts = [], 0
-    for plane in run_request.stepper.save_planes:
-        backend.propagate_to(float(plane))
-        observed = backend.observe()
-        fields.append(np.array(observed.field))
-        attempts += observed.step_history.n_steps
-    backend.close()
-    return np.array(fields), attempts
+    try:
+        result = session_run(backend, problem)
+    finally:
+        backend.close()
+    return np.array(plane_fields(result)), history(result).n_steps
 
 
 def test_dense_planes_match_landed_ones_at_fewer_steps(narrow_grid, soliton_problem):

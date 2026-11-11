@@ -31,8 +31,10 @@ from scipy.integrate import quad
 from scipy.linalg import expm
 
 import flow_parity
+from backends._session_probe_b1 import adams_ledger, history, last_field, run
 from backends.conftest import EQUIVALENCE_BACKENDS
 from bounds import EPS, assert_within, carrier_increment_budget
+from solprop.backends.events import ObservationKind
 from solprop.backends.exponential import (
     CarrierReference,
     _carrier_refusal,  # pyright: ignore[reportPrivateUsage]
@@ -45,6 +47,7 @@ from solprop.backends.exponential import (
 )
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.multistep import (
+    CallLedger,
     CoupledBlock,
     ExponentialKernels,
     HostHistory,
@@ -68,6 +71,7 @@ from solprop.stepper.multistep import (
     lagrange_coefficients,
 )
 from solprop.translate.coupled import schur_blocks, schur_eigenbasis
+from solprop.translate.stage import scalars
 
 COMPILED: dict[str, type] = dict(EQUIVALENCE_BACKENDS)
 """The compiled backends that deliver the scalar shift."""
@@ -233,13 +237,15 @@ def march(
     backend_class=NumpyRefBackend,
     **changes,
 ):
-    """Run a simulation's problem on numpy_ref; return planes, errors, accepted steps.
+    """Run a simulation's problem through its session; return planes, errors, steps.
 
-    With `source`, the lab-frame source is replaced by it and each plane's error
-    against the closed form is the largest active bin's, relative to the field.
+    With `source`, the reference's lab-frame source is replaced by it and each plane's
+    error against the closed form is the largest active bin's, relative to the field.
     `prepare` may rewrite the problem first (a shifted or non-fundamental launch);
     `backend_class` is the backend run, and `changes` replace stepper settings (a
-    schedule, an integrator, the first proposed step).
+    schedule, an integrator, the first proposed step). The result's ``ledger`` is the
+    run's Adams call ledger, and its ``march`` the reference's own march, which a
+    native run (``None``) keeps natively.
     """
     problem = simulation.translate()
     run_request = simulation._run_request()
@@ -250,11 +256,16 @@ def march(
     if prepare is not None:
         problem = prepare(problem)
     backend = backend_class(
-        problem, run_request, grid=simulation.grid, modes=simulation.modes
+        problem,
+        run_request,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
     )
     active = problem.grids.active_mask
     try:
         if source is not None:
+            assert backend_class is NumpyRefBackend, "a source replaces a host hook"
 
             def lab_source(lab, position, *, purpose="predictor"):
                 del lab, purpose
@@ -262,32 +273,47 @@ def march(
 
             backend._adams_lab_source = lab_source  # pyright: ignore[reportAttributeAccessIssue]
         start = problem.initial.field0
-        backend.set_initial(start, None)
-        fields, errors, steps = [], [], []
-        for plane in run_request.stepper.save_planes:
-            backend.propagate_to(float(plane))
-            observed = backend.observe()
-            field = observed.require_field()
-            fields.append(field)
-            history = observed.step_history
-            steps += list(
-                np.asarray(history.dz)[np.asarray(history.accepted, dtype=bool)]
-            )
-            if source is not None:
-                exact = source.exact(start, problem.linear.phi_constant, float(plane))
+        record: dict[str, object] = {}
+        result = run(backend, problem, run_request, record=record)
+        planes = [
+            index
+            for index, event in enumerate(result.observations)
+            if event.kind is not ObservationKind.LAUNCH
+        ]
+        fields = [result.fields[index] for index in planes]
+        errors = []
+        if source is not None:
+            for index, field in zip(planes, fields, strict=True):
+                plane = result.observations[index].z
+                exact = source.exact(start, problem.linear.phi_constant, plane)
                 errors.append(
                     float(np.max(np.abs((field - exact) * active)))
                     / float(np.max(np.abs(exact * active)))
                 )
+        attempts = history(result)
+        march = getattr(backend, "_adams", None) if _on_host(backend) else None
         return SimpleNamespace(
             fields=fields,
             errors=errors,
-            steps=np.array(steps),
-            march=backend._adams,
+            steps=np.asarray(attempts.dz)[np.asarray(attempts.accepted, dtype=bool)],
+            march=march,
+            ledger=_ledger(backend, record),
             problem=problem,
         )
     finally:
         backend.close()
+
+
+def _on_host(backend) -> bool:
+    """Return whether a backend is the reference, whose march is its own driver's."""
+    return backend.name == "numpy_ref"
+
+
+def _ledger(backend, record) -> CallLedger | None:
+    """Return an Adams run's call ledger, or ``None`` for a Runge-Kutta run."""
+    if not isinstance(backend.request.stepper.integrator, Multistep):
+        return None
+    return adams_ledger(backend, record)
 
 
 def carrier_of(march) -> CarrierReference | None:
@@ -1001,7 +1027,11 @@ def test_the_shifted_block_keeps_the_true_flow():
 
 
 def coupled_run(name, integrator, rtol, backend_class=NumpyRefBackend):
-    """Run a flow-parity case adaptively to its end; return the field and the march."""
+    """Run a flow-parity case adaptively to its end; return the field and the run.
+
+    The run's ``ledger`` is its Adams call ledger, and its ``march`` the reference's
+    own march (``None`` on native, whose march is the session's).
+    """
     with warnings.catch_warnings():
         for category in (*flow_parity.QUIET, SolpropWarning):
             warnings.simplefilter("ignore", category)
@@ -1019,13 +1049,17 @@ def coupled_run(name, integrator, rtol, backend_class=NumpyRefBackend):
         problem = simulation.translate()
         run_request = simulation._run_request()
     backend = backend_class(
-        problem, run_request, grid=simulation.grid, modes=simulation.modes
+        problem,
+        run_request,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
     )
     try:
-        backend.set_initial(problem.initial.field0, None)
-        for plane in run_request.stepper.save_planes:
-            backend.propagate_to(float(plane))
-        return backend.observe().require_field(), backend._adams
+        record: dict[str, object] = {}
+        field = last_field(run(backend, problem, run_request, record=record))
+        march = getattr(backend, "_adams", None) if _on_host(backend) else None
+        return field, SimpleNamespace(march=march, ledger=_ledger(backend, record))
     finally:
         backend.close()
 
@@ -1040,8 +1074,8 @@ def test_coupled_sections_agree_with_runge_kutta_under_the_frame(name, bound):
     # crossing section edges, where the history's residual is rebuilt), with the
     # unshifted formulation's own bounds (tests/backends/test_exponential_coupled.py).
     reference, _ = coupled_run(name, RungeKutta(), 1e-11)
-    field, run = coupled_run(name, SCALAR, 1e-9)
-    assert run is not None and shifted(run)
+    field, coupled = coupled_run(name, SCALAR, 1e-9)
+    assert shifted(coupled.march)
     assert relative(field, reference) < bound
 
 
@@ -1220,9 +1254,9 @@ def test_a_compiled_backend_follows_the_reference_beside_a_coupled_flow(
     # the reference's calls; the bound is the unshifted comparison's
     # (tests/backends/test_exponential_coupled.py).
     expected, reference = coupled_run(name, SCALAR, 1e-8)
-    found, run = coupled_run(name, SCALAR, 1e-8, COMPILED[backend_name])
-    assert reference is not None and run is not None
-    assert run.ledger.total == reference.ledger.total
+    found, compiled = coupled_run(name, SCALAR, 1e-8, COMPILED[backend_name])
+    assert reference.ledger is not None and compiled.ledger is not None
+    assert compiled.ledger.total == reference.ledger.total
     scale = np.max(np.abs(expected))
     np.testing.assert_allclose(found, expected, rtol=0, atol=1e-11 * scale)
 
@@ -1245,7 +1279,7 @@ def test_a_compiled_backend_interpolates_planes_as_the_reference_does(backend_na
     )
     expected = march(simulation)
     found = march(simulation, backend_class=COMPILED[backend_name])
-    assert found.march.ledger.dense_observations > 0
+    assert found.ledger is not None and found.ledger.dense_observations > 0
     assert np.array_equal(found.steps, expected.steps) or len(found.steps) == len(
         expected.steps
     )
@@ -1272,7 +1306,10 @@ def test_the_chord_is_the_engine_s_exponent_at_the_reference(backend_name, opera
     )
     try:
         for z1, z2 in ((0.0, 1e-4), (1e-3, 1.7e-3)):
-            full = backend._delta_phi(backend._stage_scalars(z1, z2))
+            # The stage's scalars as either backend's march forms them, and the
+            # backend's own exponent of them.
+            bundle = scalars(problem, z1, z2, helpers=backend.helpers)
+            full = backend._delta_phi(bundle)
             expected = np.asarray(full)[:, 0, 0, reference.bin]
             found = reference.chord.exponent(z1, z2)
             # The same representation evaluated at one element: a few roundings of the
