@@ -9,6 +9,7 @@ from functools import partial
 import numpy as np
 import pytest
 
+from backends._session_probe_b1 import launched_state, rk_trial
 from bounds import gamma
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import C
@@ -17,6 +18,7 @@ from solprop.noise import spatial_noise
 from solprop.nonlinear.responses import KerrResponse
 from solprop.spatial import SpatialFlux, SpatialMedium
 from solprop.stepper import PIController
+from solprop.translate.masks import noise_spectrum
 from solprop.translate.problem import assemble
 from spatial_records import record_metric
 
@@ -77,11 +79,17 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
             reference._stage_scalars(position, position),
             np.ones((1, *problem.shape), complex),
         )[0]
-        backend.set_initial(problem.initial.field0, noise)
         # Zero distance isolates one nonlinear evaluation while still exercising
         # each backend's real stage-input/noise path at nonzero absolute z.
-        captured = []
-        if isinstance(backend, NumpyRefBackend):
+        if backend.name == "native":
+            # The native state's own trial, the modified draw loaded beside it.
+            state = launched_state(
+                backend, problem.initial.field0, noise_spectrum(noise, problem.shape)
+            )
+            rk_trial(backend, position, 0.0)
+            actual = state.stage_to_host(0).reshape(expected.shape)
+        else:
+            captured = []
             nonlinear = backend._nonlinear
 
             def capture(lab, bundle, inverse):
@@ -91,13 +99,9 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
                 return stage
 
             monkeypatch.setattr(backend, "_nonlinear", capture)
-        backend._trial_step(position, 0.0)
-        if isinstance(backend, NumpyRefBackend):
+            backend.set_initial(problem.initial.field0, noise)
+            backend._trial_step(position, 0.0)
             actual = captured[0].reshape(expected.shape)
-        elif backend.name == "native":
-            actual = backend._native_state.stage_to_host(0).reshape(expected.shape)
-        else:
-            actual = backend._stages[0].reshape(expected.shape)
         scale = np.max(np.abs(expected))
         assert scale > 0
         defect = np.max(np.abs(actual - expected)) / scale

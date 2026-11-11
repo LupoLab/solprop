@@ -15,6 +15,8 @@ import numpy as np
 import pytest
 from scipy.linalg import expm
 
+from backends._session_probe_b1 import history, last_field, launched_state, rk_trial
+from backends._session_probe_b1 import run as session_run
 from backends.test_radial_absorber import LENGTH, assembled, rk_bound
 from backends.test_radial_nonlinear import derivative
 from bounds import gamma
@@ -141,14 +143,14 @@ def test_cartesian_absorber_has_no_per_step_window_loss(
     expected = expm(LENGTH * (np.diag(phase) + absorption)) @ start[:, :, index]
     backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        result = backend.propagate_to(LENGTH)
-        actual = backend.observe().require_field()
+        result = session_run(backend, problem)
+        assert result.observations[-1].z == LENGTH
+        actual = last_field(result)
         defect = np.linalg.norm(actual[:, :, index] - expected) / np.linalg.norm(
             start[:, :, index]
         )
         assert defect < bound, (defect, bound)
-        assert result.n_steps == steps
+        assert history(result).n_steps == steps
         record_metric(
             request,
             "Cartesian spatial absorber matrix exponential (relative)",
@@ -231,14 +233,15 @@ def test_cartesian_split_step_temporal_absorber_reconstructs_physical_field(
         options=ExecutionOptions(node_chunk=7),
     )
     try:
-        backend.set_initial(problem.initial.field0, None)
         if backend.name == "native":
             # A zero-length trial loads the unmodified field into advanced;
             # finish then exercises precisely the once-per-step absorber.
-            backend._trial_step(0.0, 0.0)
-            backend._native_state.finish(dz)
-            actual = backend._native_state.field_to_host().reshape(start.shape)
+            state = launched_state(backend, problem.initial.field0)
+            rk_trial(backend, 0.0, 0.0)
+            state.finish(dz)
+            actual = state.field_to_host().reshape(start.shape)
         else:
+            backend.set_initial(problem.initial.field0, None)
             actual = backend._finish(problem.initial.field0[None].copy(), dz)[0]
         assert np.max(np.abs(actual - expected)) < bound
         record_metric(

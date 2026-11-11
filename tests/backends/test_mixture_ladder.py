@@ -11,6 +11,8 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
+from backends._session_probe_b1 import last_field, rows, state_stats
+from backends._session_probe_b1 import run as session_run
 from backends.forced_threads import assert_threaded
 from backends.host_cases_mixture_threads import NAMES, PERIODIC
 from backends.matched import native_thread_fields
@@ -22,6 +24,7 @@ from bounds import (
     device_backend,
 )
 from mixture_cases import mixture_case, mixture_translation
+from solprop.backends.events import ObservationKind
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
@@ -29,15 +32,31 @@ from solprop.stepper import FixedSchedule
 PROBE = Path(__file__).with_name("host_cases_mixture_threads.py")
 
 
-def run(backend_type, problem, run_request, grid, *, stop=None):
-    backend = backend_type(problem, run_request, grid=grid)
+def run(backend_type, problem, run_request, grid, *, steps=None):
+    """Run the session to the end, or to its first `steps` accepted steps.
+
+    Return the field there, the summary since the launch, and every statistic of
+    :data:`NAMES` at the launch and there. A short run observes the end of every
+    `steps`-th accepted step (``step_planes``), which changes no step, and closes the
+    session at the first.
+    """
+    stepper = run_request.stepper
+    if steps is not None:
+        stepper = dataclasses.replace(stepper, step_planes=steps)
+    backend = backend_type(problem, run_request.with_stepper(stepper), grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        initial = backend.stats(StatsSpec(names=NAMES))
-        summary = backend.propagate_to(grid.length if stop is None else stop)
-        field = backend.observe().require_field().copy()
-        stats = backend.stats(StatsSpec(names=NAMES))
-        return field, summary, initial, stats
+        result = session_run(
+            backend,
+            problem,
+            backend.request.for_run(stats=StatsSpec(names=NAMES)),
+            observations=None if steps is None else 2,
+        )
+        launch, there = result.observations[0], result.observations[1]
+        if steps is not None:
+            assert there.kind is ObservationKind.STEP
+        else:
+            assert len(result.observations) == 2
+        return result.fields[1], there.summary, launch.stats, there.stats
     finally:
         backend.close()
 
@@ -47,13 +66,11 @@ def test_mixture_propagation_ladder_and_every_species_statistic(
     thread_budget_lifted, steps, equivalence_backend_class
 ):
     _, grid, _, _, (problem, run_request) = mixture_translation()
-    stop = grid.length
     if steps is not None:
         # A one/eight-step ladder uses the declared initial step. Forcing the
         # entire 1 mm into one step amplifies FFT plan roundoff beyond the fixed
         # bound; the adaptive full run below still reaches the fibre end with the
         # unchanged controller.
-        stop = steps * run_request.stepper.dz_init
         run_request = run_request.with_stepper(
             dataclasses.replace(
                 run_request.stepper,
@@ -76,13 +93,13 @@ def test_mixture_propagation_ladder_and_every_species_statistic(
     # per channel, per stage.
     if steps is None:
         assert_adaptive_run_is_accurate(
-            equivalence_backend_class, problem, run_request, grid, stop
+            equivalence_backend_class, problem, run_request, grid
         )
         return
     bound = 64 * grid.n_to * 2 * 7 * steps * np.finfo(float).eps
     assert bound > 0
-    ours = run(equivalence_backend_class, problem, run_request, grid, stop=stop)
-    oracle = run(NumpyRefBackend, problem, run_request, grid, stop=stop)
+    ours = run(equivalence_backend_class, problem, run_request, grid, steps=steps)
+    oracle = run(NumpyRefBackend, problem, run_request, grid, steps=steps)
     assert ours[1].n_steps == oracle[1].n_steps == steps
     difference = float(np.linalg.norm(ours[0] - oracle[0]) / np.linalg.norm(oracle[0]))
     assert difference < bound
@@ -96,7 +113,7 @@ def test_mixture_propagation_ladder_and_every_species_statistic(
             )
 
 
-def assert_adaptive_run_is_accurate(backend_class, problem, run_request, grid, stop):
+def assert_adaptive_run_is_accurate(backend_class, problem, run_request, grid):
     """Hold an adaptive run to the oracle's accuracy, not to its trajectory.
 
     Two adaptive integrations may take different steps once rounding tips one
@@ -113,9 +130,9 @@ def assert_adaptive_run_is_accurate(backend_class, problem, run_request, grid, s
             controller=dataclasses.replace(run_request.stepper.controller, rtol=1e-10),
         )
     )
-    converged = run(NumpyRefBackend, problem, tight, grid, stop=stop)
-    oracle = run(NumpyRefBackend, problem, run_request, grid, stop=stop)
-    ours = run(backend_class, problem, run_request, grid, stop=stop)
+    converged = run(NumpyRefBackend, problem, tight, grid)
+    oracle = run(NumpyRefBackend, problem, run_request, grid)
+    ours = run(backend_class, problem, run_request, grid)
     assert oracle[1].n_steps <= 100
     assert_work_within(ours[1].n_steps, oracle[1].n_steps, factor=1.25, what="steps")
     floor = 64 * grid.n_to * 2 * 7 * 100 * np.finfo(float).eps
@@ -218,11 +235,11 @@ def test_periodic_channel_statistics_match_a_fresh_backend(backend_class):
     assert bound > 0.0
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(grid.length)
-        observed = backend.observe()
-        assert observed.step_stats.n_rows == 8
-        cached = backend.stats(StatsSpec(names=NAMES))
+        result = session_run(backend, problem)
+        taken = rows(result)
+        assert taken.n_rows == 8
+        assert result.observations[-1].z == grid.length
+        cached = result.observations[-1].stats
         if backend_class.name == "native":
             assert backend.memory_ledger()["plasma_stash"] == (
                 2 * problem.transform.n_nodes * (1 + 2 * problem.flags.n_channels) * 8
@@ -231,15 +248,21 @@ def test_periodic_channel_statistics_match_a_fresh_backend(backend_class):
         try:
             # This fixture has constant densities and geometry. Starting from the
             # final field forces a fresh exposure scan with identical material data.
-            fresh.set_initial(observed.field, None, z=grid.length)
-            values = fresh.stats(StatsSpec(names=NAMES))
+            values = state_stats(
+                fresh,
+                problem,
+                last_field(result),
+                StatsSpec(names=NAMES),
+                z=grid.length,
+                plane_index=len(run_request.stepper.save_planes),
+            )
         finally:
             fresh.close()
         for name in NAMES:
             assert_allclose(values[name], cached[name], rtol=bound, atol=0.0)
         for name in periodic:
             assert_allclose(
-                observed.step_stats.values[name][-1],
+                taken.values[name][-1],
                 cached[name],
                 rtol=bound,
                 atol=0.0,

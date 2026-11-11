@@ -20,6 +20,7 @@ import pytest
 from scipy import integrate
 
 from backends import test_batch_lockstep as lockstep
+from backends._session_probe_b1 import state_stats
 from backends.planar_cases import planar_case
 from bounds import EPS, assert_within, gamma
 from legacy_geometry import bare_absorber
@@ -121,8 +122,12 @@ def entrance(simulation, backend="numpy_ref", spec=None):
     run_request = simulation._run_request()
     owner = select(backend, problem, run_request, grid=simulation.grid)
     try:
-        owner.set_initial(problem.initial.field0, None)
-        values = owner.stats(run_request.observation.stats if spec is None else spec)
+        values = state_stats(
+            owner,
+            problem,
+            problem.initial.field0,
+            run_request.observation.stats if spec is None else spec,
+        )
     finally:
         owner.close()
     return values, problem
