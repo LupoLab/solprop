@@ -35,8 +35,33 @@ integrated at `b7fe3caa`; Python lowering, physical-measure transfer and the dia
 node inventory are attached. Lowering/planning passes 90 tests (38 managed skips),
 the two real field/envelope launch-statistic cases pass with runtime type checks,
 and all 12 inventory tests pass, including actual buffers at chunks 1, 3 and 7.
-The source-precision agent is independently reviewing this attachment. Binary32
-source composition `8e0818ac` is awaiting the master's separate numerical review.
+Independent review approves exact `3c53598d`: 3,720 bounds-enabled Julia assertions,
+243 fresh comparisons with the actual NumPy functions, and 14 typed managed tests
+all pass. Warmed allocations remain zero. The remaining on-axis and spectral-flux
+rows are a separate assigned slice. Binary32 source composition `8e0818ac` is reviewed
+and integrated at `3ffab027`. The master reran 6,168 bounds-enabled assertions,
+including 154 additional scale-covariance, retained-map and failed-range transaction
+checks; all pass and warmed allocations remain zero. An initial private harness
+omitted the unaliased package import and was corrected before this run. Adams and
+observation precision proceed in their disjoint worktrees. Public binary32 remains
+closed pending the complete session and scaling attachment.
+
+The first comparative CPU campaign has completed with four successful short-window
+comparisons and the retained #702/#704 refusals. Its partial results are recorded
+in `docs/dev/benchmarks.md`; it is not a complete phase 2 qualification. The next
+campaign must run the same scientific settings with the reviewed completion fixes.
+Linux Julia CI at `08721c9d` passes package core/quality and 1,152 adapter checks;
+65 fixture errors are corrected by #706. One pure-Python supervisor smoke test
+also fails and is corrected independently in #710. macOS finishes package quality
+but reaches the one-hour job deadline during its adapter selection (#712); the next
+run has a bounded two-hour job allowance and reports slow-test durations. Individual
+runtime-probe deadlines remain unchanged. No cloud resources have been rented;
+campaign spend remains zero. The measured redundant RK source work is tracked in
+#711, separately from the mandatory capability completion.
+Supervisor correction `228f14ab` is reviewed and integrated at `5a5581a1`; 40
+supervisor/Windows-collection checks pass after updating the expected collected
+case count. The CI-driver selection passes 64 checks; scoped types report no errors
+or warnings. The documentation build passes with the partial benchmark ledger.
 
 | Phase | Status | Evidence or prerequisite |
 |---|---|---|

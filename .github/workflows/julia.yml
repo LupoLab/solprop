@@ -41,7 +41,8 @@ jobs:
   julia:
     name: Julia (${{ inputs.runner || 'macos-15' }})
     runs-on: ${{ inputs.runner || 'macos-15' }}
-    timeout-minutes: 60
+    # Cold setup, bounds tests and JET precede the real adapter suite (#712).
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

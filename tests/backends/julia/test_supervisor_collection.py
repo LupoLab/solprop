@@ -49,4 +49,4 @@ def test_supervisor_module_collects_when_posix_signal_constants_are_unavailable(
     assert result.returncode == 0, result.stdout + result.stderr
     # No fixture or process supervision runs during collection; all original
     # deadline/readiness cases remain present for the actual POSIX execution lane.
-    assert "36 tests collected" in result.stdout
+    assert "38 tests collected" in result.stdout

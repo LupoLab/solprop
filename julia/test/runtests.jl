@@ -47,6 +47,7 @@ if group == "Core"
     include("composition.jl")
     include("spatial_operators.jl")
     include("spatial_composition.jl")
+    include("source_composition_precision.jl")
     include("observations.jl")
     include("node_memory.jl")
     include("node_binding.jl")

@@ -3384,6 +3384,52 @@ RDW and argon directions. No shared dimension threshold or pool policy is change
 explicit overrides and global caps retain their existing semantics. A 36-core
 sizing confirmation is unnecessary because no sizing change is retained.
 
+## Julia CPU entrance windows: initial partial campaign
+
+On 2026-11-11, SEP 48 source `08721c9d` compared the native and Julia CPU backends
+on an exclusively allocated AMD EPYC 7763. One physical processor supplied 64 cores,
+placed in contiguous core order across its four NUMA domains; the serial comparison
+used one thread. Both backends used the same source tree and Python environment.
+The native build used GCC 16.2, `x86-64-v3`, FFTW 3.3.11 and OpenBLAS 0.3.34.
+Julia 1.13.3 used its generic CPU target and JuliaCall/PythonCall 0.9.37. Python was
+3.14.6, NumPy 2.5.2 and SciPy 1.18.1. BLAS pools were limited to one thread;
+calibration was off and FFT planning used `estimate`.
+
+The command was `python -m benchmarks ab --set tracking --threads 1,production
+--production 64 --length 0.001 --rounds 3 --repeats 3 --calibrate none`, with native
+as baseline and Julia as candidate. Each arm used the same interpreter. These are
+entrance windows, not full propagation timings. The two completed cases each took
+11 accepted steps and no rejected steps; the soliton ended at 0.0013278075458959399 m
+and Raman/shock at 0.00015 m. Native used 67 source evaluations per window and Julia
+77, so matching step counts do not imply matching source work. Endpoint-source
+reuse is tracked in [#711](https://github.com/LupoLab/solprop/issues/711).
+
+| Case | Threads | Native window, s | Julia window, s | Julia/native | Native wall, s | Julia wall, s |
+|---|---:|---:|---:|---:|---:|---:|
+| GNLSE soliton | 1 | 0.017639 | 0.036531 | 2.086 | 0.018028 | 0.053706 |
+| GNLSE Raman/shock | 1 | 0.106808 | 0.243718 | 2.281 | 0.107722 | 0.296913 |
+| GNLSE soliton | 64 | 0.018020 | 0.038453 | 2.129 | 0.018439 | 0.054802 |
+| GNLSE Raman/shock | 64 | 0.075261 | 0.186809 | 2.483 | 0.076340 | 0.249715 |
+
+Times are medians of the three round medians, each with three repetitions; ratios
+are medians of paired round ratios. The narrower window starts after session
+preparation, whereas `wall_seconds` includes preparation for that run. Neither
+includes the benchmark worker's first warmup. Julia's first soliton warmup took
+78.86 s; subsequent fresh-worker warmups for these cases took 24.24–28.09 s. These
+combined warmups are not an isolated measurement of runtime initialization or
+compilation. Managed CPU setup took 142.12 s with a populated dependency depot,
+whose resulting total size was 2,114,060 KiB; this is not a clean-install download
+size. The harness reported no busy samples.
+
+The other plasma windows refused the missing default statistics tracked in
+[#702](https://github.com/LupoLab/solprop/issues/702), and both Kerr-beam windows
+refused propagator tables tracked in
+[#704](https://github.com/LupoLab/solprop/issues/704). The general-modal GRIN case
+refused its explicitly unsupported route. These failures are retained and the
+campaign exits unsuccessfully. The completion fixes require a new campaign with
+the original settings. These four comparisons establish neither complete CPU
+qualification nor a performance conclusion for other problems or devices.
+
 ## The run record's cost
 
 [#309](https://github.com/LupoLab/solprop/issues/309) measured how a run's record grows with

@@ -283,7 +283,8 @@ def test_python_phase_runs_the_whole_adapter_directory(pinned_tree, monkeypatch)
     check_julia._python(pinned_tree)
     assert calls[0][:4] == (sys.executable, "-m", "pytest", "tests/backends/julia")
     assert calls[0][4:7] == ("tests/sessions/test_conformance.py", "-k", "julia")
-    assert calls[0][7].startswith("--junitxml=")
+    assert calls[0][7] == "--durations=20"
+    assert calls[0][8].startswith("--junitxml=")
 
 
 @pytest.mark.parametrize("result", ("skipped", "failure", "error"))

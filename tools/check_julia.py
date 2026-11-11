@@ -270,6 +270,7 @@ def _python(root: Path) -> None:
                 "tests/sessions/test_conformance.py",
                 "-k",
                 "julia",
+                "--durations=20",
                 f"--junitxml={report}",
             ),
         )
