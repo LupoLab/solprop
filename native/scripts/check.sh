@@ -58,7 +58,6 @@ cpp_sources=(
   src/helpers.cpp
   src/helpers.hpp
   src/raman_fft.cpp
-  src/benchmark_gemm.cpp
   tests/native/bounds.hpp
   tests/native/main.cpp
   tests/native/test_aperture.cpp

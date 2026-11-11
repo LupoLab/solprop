@@ -607,7 +607,6 @@ jobs:
           cmake --preset cuda \
             -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 -DCMAKE_CUDA_HOST_COMPILER=g++-14 \
             -DCUDA_ROOT=/usr/local/cuda-12.8 \
-            -DSOLPROP_NATIVE_BUILD_BENCHMARKS=OFF \
             -DPython_EXECUTABLE="$GITHUB_WORKSPACE/.venv/bin/python"
       - name: Compile, tests included
         working-directory: native
@@ -655,7 +654,6 @@ jobs:
           cmake --preset hip \
             -DCMAKE_CXX_COMPILER="$ROCM_PATH/bin/hipcc" -DCMAKE_PREFIX_PATH="$ROCM_PATH" \
             -DCMAKE_CXX_SCAN_FOR_MODULES=OFF -DKokkos_ENABLE_ROCTHRUST=OFF \
-            -DSOLPROP_NATIVE_BUILD_BENCHMARKS=OFF \
             -DPython_EXECUTABLE="$GITHUB_WORKSPACE/.venv/bin/python"
       - name: Compile, tests included
         working-directory: native

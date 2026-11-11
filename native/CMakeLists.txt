@@ -289,8 +289,6 @@ option(SOLPROP_NATIVE_ENABLE_CLANG_TIDY
        "Run clang-tidy while compiling project-owned C++ sources" OFF)
 option(SOLPROP_NATIVE_ENABLE_SANITIZERS
        "Instrument project targets with AddressSanitizer and UBSan" OFF)
-option(SOLPROP_NATIVE_BUILD_BENCHMARKS
-       "Build local native microbenchmarks (never installed)" OFF)
 set(SOLPROP_NATIVE_ENABLE_TPL_BLAS "AUTO" CACHE STRING
     "Dispatch compatible GEMMs to vendor BLAS: AUTO (the profile's BLAS), ON or OFF")
 set_property(CACHE SOLPROP_NATIVE_ENABLE_TPL_BLAS PROPERTY STRINGS AUTO ON OFF)
@@ -956,13 +954,6 @@ target_compile_definitions(_core PRIVATE
   SOLPROP_NATIVE_AGGRESSIVE_VECTORIZATION_ENABLED=$<BOOL:${SOLPROP_NATIVE_ENABLE_AGGRESSIVE_VECTORIZATION}>
   SOLPROP_NATIVE_IPO_ENABLED=$<AND:$<BOOL:${SOLPROP_NATIVE_IPO_AVAILABLE}>,$<CONFIG:Release>>
 )
-
-if(SOLPROP_NATIVE_BUILD_BENCHMARKS)
-  add_executable(solprop_native_gemm_benchmark src/benchmark_gemm.cpp)
-  target_link_libraries(solprop_native_gemm_benchmark PRIVATE solprop_native_core)
-  solprop_native_mark_dependency_headers_system(solprop_native_gemm_benchmark)
-  solprop_native_configure_project_target(solprop_native_gemm_benchmark)
-endif()
 
 if(BUILD_TESTING)
   set(INSTALL_GTEST OFF CACHE BOOL "Do not install the test-only GoogleTest" FORCE)

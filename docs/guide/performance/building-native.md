@@ -395,7 +395,6 @@ The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.
 | `SOLPROP_NATIVE_WARNINGS_AS_ERRORS` | as `BUILD_TESTING`: `OFF` in pip and uv builds, `ON` in the presets | `-Werror` on the package's own sources. Continuous integration turns it on for its wheels too |
 | `SOLPROP_NATIVE_ENABLE_CLANG_TIDY` | `OFF` | runs clang-tidy while compiling the package's sources |
 | `SOLPROP_NATIVE_ENABLE_SANITIZERS` | `OFF` | AddressSanitizer and UBSan on the package's targets; CPU builds only |
-| `SOLPROP_NATIVE_BUILD_BENCHMARKS` | `OFF` | builds the `solprop_native_gemm_benchmark` microbenchmark (never installed) |
 | `SOLPROP_NATIVE_BUNDLED_LICENCES` | the environment variable of that name | a directory of `LICENSE-*.txt` files, installed beside the extension: the licences of the libraries a wheel repair copies in (FFTW, the OpenMP runtime) |
 
 The installed module of a local build keeps the directories of a BLAS it linked outside
@@ -407,7 +406,7 @@ OpenBLAS is.
 
 `native/CMakePresets.json` defines development builds, all with `BUILD_TESTING=ON`:
 `cpu-debug`, `cpu-tidy` and `cpu-sanitize` (reference profile, Debug), `cpu-benchmark`
-(local, Release, IPO and benchmarks), `cuda` (with cuBLAS) and `hip`. Dense transforms
+(local, Release, IPO), `cuda` (with cuBLAS) and `hip`. Dense transforms
 take the vendor GEMM where a transform is eligible and the package's own kernels for
 the rest, in every build. The presets do not choose a compiler: pass `-DCMAKE_CXX_COMPILER=...` (on
 macOS, Homebrew's `clang++`) and `-DPython_EXECUTABLE=...`.
@@ -536,8 +535,8 @@ export CMAKE_ARGS="-DSOLPROP_NATIVE_ENABLE_CUDA=ON -DSOLPROP_NATIVE_ENABLE_OPENM
 uv pip install --python /path/to/env/bin/python . ./native
 ```
 
-The `cuda` preset configures the same build for development, with the native tests and
-the GEMM benchmark (`cmake --preset cuda -DPython_EXECUTABLE=... -DCUDA_ROOT=...`, from
+The `cuda` preset configures the same build for development, with the native tests
+(`cmake --preset cuda -DPython_EXECUTABLE=... -DCUDA_ROOT=...`, from
 `native/`).
 
 ### HIP

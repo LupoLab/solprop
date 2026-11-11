@@ -40,14 +40,13 @@
     },
     {
       "name": "cpu-benchmark",
-      "displayName": "Local (vendor BLAS, machine-native) CPU benchmark build",
+      "displayName": "Local (vendor BLAS, machine-native) CPU Release build",
       "inherits": "cpu-debug",
       "binaryDir": "${sourceDir}/build/presets/cpu-benchmark",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "SOLPROP_NATIVE_ENABLE_IPO": "ON",
-        "SOLPROP_NATIVE_PROFILE": "LOCAL",
-        "SOLPROP_NATIVE_BUILD_BENCHMARKS": "ON"
+        "SOLPROP_NATIVE_PROFILE": "LOCAL"
       }
     },
     {
@@ -57,7 +56,6 @@
       "cacheVariables": {
         "BUILD_TESTING": "ON",
         "CMAKE_BUILD_TYPE": "Release",
-        "SOLPROP_NATIVE_BUILD_BENCHMARKS": "ON",
         "SOLPROP_NATIVE_ENABLE_CUDA": "ON",
         "SOLPROP_NATIVE_ENABLE_HIP": "OFF",
         "SOLPROP_NATIVE_ENABLE_OPENMP": "OFF",
@@ -84,7 +82,6 @@
       "cacheVariables": {
         "BUILD_TESTING": "ON",
         "CMAKE_BUILD_TYPE": "Release",
-        "SOLPROP_NATIVE_BUILD_BENCHMARKS": "ON",
         "SOLPROP_NATIVE_ENABLE_CUDA": "OFF",
         "SOLPROP_NATIVE_ENABLE_HIP": "ON",
         "SOLPROP_NATIVE_ENABLE_OPENMP": "OFF",
