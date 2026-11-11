@@ -19,18 +19,23 @@ takes :func:`low_storage_cases.parity_bound`, the same count over the whole step
 the growth computed from the leaf: ``exp(max Re D dz)``, where the original's operands
 did not grow. **Weaker than the original.** A pass isn't read alone, so a fold's
 intermediate registers aren't compared, only what the whole step leaves.
+
+Each backend runs the step in its own session (SEP 47 phase 5). The squared norm a
+native low-storage step hands its accept stays inside the native session's loop, so it
+is read from the resident low-storage engine, one step on the backend's native state.
 """
 
 import dataclasses
+import os
 
 import numpy as np
 import pytest
 
+from backends._session_probe_b2 import run_session
 from backends.low_storage_cases import parity_bound
 from backends.test_low_storage import MARCH
 from bounds import assert_within, gamma, propagation_growth, step_evaluations
 from solprop.backends.host.low_storage import HostLowStorageMarch
-from solprop.backends.low_storage import LowStorageMarch
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.exceptions import ConvergenceError
@@ -54,6 +59,7 @@ pytestmark = [
 ]
 
 solprop_native = pytest.importorskip("solprop_native")
+backend_module = pytest.importorskip("solprop_native.backend")
 NativeBackend = solprop_native.NativeBackend
 
 STEP = 0.3
@@ -212,14 +218,45 @@ def on_leaf(problem, leaf, *, seed=3):
 
 
 def run(implementation, problem, run_request, grid):
-    """Replay the schedule to its end, and return the final state."""
+    """Replay the schedule to its end in the backend's session; return the final state.
+
+    A failed run raises its error, as the run loop does.
+    """
     backend = implementation(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-        return backend.observe().require_field().copy()
+        landed = run_session(backend, problem, run_request)
     finally:
         backend.close()
+    error = landed.run.terminal.error
+    if error is not None:
+        raise error
+    assert landed.run.observations[-1].z == pytest.approx(
+        float(run_request.stepper.save_planes[-1]), rel=1e-12
+    )
+    return landed.field
+
+
+def resident_step(problem, run_request, grid):
+    """Take the schedule's one step on native's resident low-storage engine.
+
+    Returns the squared norm the engine hands the accept, and the state after the
+    backend's finish, as the low-storage march accepts a step.
+    """
+    edges = np.asarray(run_request.stepper.schedule.edges)
+    assert edges.size == 2, "one step"
+    dz = float(edges[1] - edges[0])
+    backend = NativeBackend(problem, run_request, grid=grid)
+    try:
+        state = backend._native_state
+        flat = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
+        state.set_initial(flat.reshape(-1), np.empty(0, dtype=np.complex128))
+        engine = backend_module._ResidentLowStorage(backend, MARCH)
+        squared = engine.step(float(edges[0]), dz)
+        state.finish(dz)
+        field = np.asarray(state.field_to_host()).reshape(problem.shape)
+    finally:
+        backend.close()
+    return squared, field
 
 
 def nonlinear_rate(problem, run_request, grid):
@@ -351,29 +388,35 @@ def test_the_march_s_norm_reads_a_mask_with_a_hard_zero(monkeypatch):
     """Inventory 31 (b): the squared norm the march returns, with a populated bin out.
 
     The original read it from the fold's partials. Here it is what the engine hands
-    ``_accept``, on each backend, against the sum over the mask of the state that step
-    leaves, within one sum's rounding.
+    the accept, on each backend, against the sum over the mask of the state that step
+    leaves, within one sum's rounding: the reference's in its session, native's from
+    its resident engine, whose state is the native session's own to the bit.
     """
     problem, run_request, grid = free_problem(responses=[KERR])
     leaf = free_leaf(problem.linear.separable)
     problem, mask = with_masked_bin(on_leaf(problem, leaf), leaf)
     seen = []
-    # The reference's march and the native bridge's each accept for themselves.
-    for march in (HostLowStorageMarch, LowStorageMarch):
 
-        def capture(self, z, dz, squared, accept=march._accept):
-            seen.append(squared)
-            return accept(self, z, dz, squared)
+    def capture(self, z, dz, squared, accept=HostLowStorageMarch._accept):
+        seen.append(squared)
+        return accept(self, z, dz, squared)
 
-        monkeypatch.setattr(march, "_accept", capture)
-    for implementation in (NumpyRefBackend, NativeBackend):
-        seen.clear()
-        state = run(implementation, problem, run_request, grid)
-        assert len(seen) == 1
+    monkeypatch.setattr(HostLowStorageMarch, "_accept", capture)
+    reference = run(NumpyRefBackend, problem, run_request, grid)
+    assert len(seen) == 1
+    squared, resident = resident_step(problem, run_request, grid)
+    session = run(NativeBackend, problem, run_request, grid)
+    if "1" in {
+        os.environ.get("SOLPROP_NATIVE_THREADS"),
+        os.environ.get("SOLPROP_THREADS"),
+    }:
+        # One thread fixes every reduction's order: the probe is the run's step.
+        np.testing.assert_array_equal(resident, session)
+    for norm, state in ((seen[0], reference), (squared, resident)):
         masked = float(np.sum(np.abs(state[..., mask]) ** 2))
         whole = float(np.sum(np.abs(state) ** 2))
         reductions = gamma(state.size)
-        assert seen[0] == pytest.approx(masked, rel=reductions)
+        assert norm == pytest.approx(masked, rel=reductions)
         # Vacuous unless the masked bin moves the sum by far more than that.
         assert abs(whole - masked) > 1e3 * reductions * whole
 

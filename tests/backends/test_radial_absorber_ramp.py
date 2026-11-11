@@ -31,6 +31,18 @@ __all__ = ["absorber_case"]
 EPS = np.finfo(float).eps
 
 
+def _trial(backend, run_request, field, dz):
+    """Load `field` into native's state and take one trial from z = 0 on its staged
+    rows, the state's own (SEP 47 phase 5 retired the backend's driver calls)."""
+    state = backend._native_state
+    flat = np.ascontiguousarray(field, dtype=np.complex128).reshape(-1)
+    state.set_initial(flat, np.empty(0, dtype=np.complex128))
+    state.clear_fsal()
+    backend._staged_rows()
+    nodes = [float(node) for node in run_request.stepper.tableau.nodes]
+    state.rk_trial(0.0, dz, nodes, prepare_only=False)
+
+
 def test_a_ramped_rate_is_read_sample_by_sample(absorber_case):
     """Each bin within the retired bound of the two summation orders.
 
@@ -69,8 +81,7 @@ def test_a_ramped_rate_is_read_sample_by_sample(absorber_case):
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend._trial_step(0.0, LENGTH / 8)
+        _trial(backend, run_request, problem.initial.field0, LENGTH / 8)
         measured = backend._native_state.stage_to_host(0).reshape(expected.shape)
     finally:
         backend.close()

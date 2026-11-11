@@ -47,6 +47,18 @@ pytestmark = [
 ]
 
 
+def _trial(backend, run_request, field, dz):
+    """Load `field` into native's state and take one trial from z = 0 on its staged
+    rows, the state's own (SEP 47 phase 5 retired the backend's driver calls)."""
+    state = backend._native_state
+    flat = np.ascontiguousarray(field, dtype=np.complex128).reshape(-1)
+    state.set_initial(flat, np.empty(0, dtype=np.complex128))
+    state.clear_fsal()
+    backend._staged_rows()
+    nodes = [float(node) for node in run_request.stepper.tableau.nodes]
+    state.rk_trial(0.0, dz, nodes, prepare_only=False)
+
+
 def current_only(problem, grid, rule):
     """Return multimode plasma on its own, both streams populated.
 
@@ -149,8 +161,7 @@ def test_embedded_current_projection_accumulates_partial_chunks(
     allowed = per_bin[0][..., None] * abs(inverse) + per_bin[1][..., None] * inverse**2
     backend = native.NativeBackend(problem, run_request, grid=grid, options=options)
     try:
-        backend.set_initial(state, None)
-        backend._trial_step(0.0, 0.0)
+        _trial(backend, run_request, state, 0.0)
         raw = np.asarray(backend._native_state.projected_to_host(True))
     finally:
         backend.close()

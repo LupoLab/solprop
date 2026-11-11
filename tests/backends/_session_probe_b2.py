@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from sessions.executors import IDENTITY, Run, Started, drive, entrance
+from solprop.backends.events import Outcome
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
 
@@ -80,6 +81,12 @@ def run_session(
     -------
     Landed
         The run and its last plane.
+
+    Raises
+    ------
+    BaseException
+        The run's own failure, when it ended :attr:`~solprop.backends.events.Outcome.
+        FAILED`, so that a failed run is never read as a result.
     """
     if start is None:
         start = entrance(problem)
@@ -90,6 +97,9 @@ def run_session(
         run = drive(Started(session), export=IDENTITY)
     finally:
         session.close()
+    if run.terminal.outcome is Outcome.FAILED:
+        assert run.terminal.error is not None
+        raise run.terminal.error
     accepted = sum(int(np.count_nonzero(h.accepted)) for h in run.histories)
     return Landed(
         run=run,

@@ -27,6 +27,18 @@ pytestmark = [
 ]
 
 
+def _trial(backend, run_request, field, dz):
+    """Load `field` into native's state and take one trial from z = 0 on its staged
+    rows, the state's own (SEP 47 phase 5 retired the backend's driver calls)."""
+    state = backend._native_state
+    flat = np.ascontiguousarray(field, dtype=np.complex128).reshape(-1)
+    state.set_initial(flat, np.empty(0, dtype=np.complex128))
+    state.clear_fsal()
+    backend._staged_rows()
+    nodes = [float(node) for node in run_request.stepper.tableau.nodes]
+    state.rk_trial(0.0, dz, nodes, prepare_only=False)
+
+
 @pytest.mark.parametrize("name", CASES)
 @pytest.mark.parametrize("rule", ["band", "trapezoid"])
 def test_current_assembly_and_ledger_on_each_route(name, rule):
@@ -51,10 +63,8 @@ def test_current_assembly_and_ledger_on_each_route(name, rule):
     backend = native.NativeBackend(problem, run_request, grid=grid, options=options)
     try:
         ledger = backend.memory_ledger()
-        backend.set_initial(problem.initial.field0, None)
-        backend._trial_step(0.0, 0.0)
-        backend.set_initial(np.zeros_like(problem.initial.field0), None)
-        backend._trial_step(0.0, 0.0)
+        _trial(backend, run_request, problem.initial.field0, 0.0)
+        _trial(backend, run_request, np.zeros_like(problem.initial.field0), 0.0)
         assert np.count_nonzero(backend._native_state.stage_to_host(0)) == 0
         # A second evaluation neither plans nor grows a resident source buffer.
         assert backend.memory_ledger() == ledger
