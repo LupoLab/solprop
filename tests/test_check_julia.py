@@ -225,7 +225,10 @@ def test_python_phase_refuses_disabled_runtime_tests(
         check_julia._python(pinned_tree)
 
 
-def test_python_phase_runs_the_whole_adapter_directory(pinned_tree, monkeypatch):
+@pytest.mark.parametrize("precision", [False, True])
+def test_python_phase_selects_the_declared_qualification_scope(
+    pinned_tree, monkeypatch, precision
+):
     for name in check_julia._RUNTIME_TESTS:
         path = pinned_tree / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -290,11 +293,53 @@ def test_python_phase_runs_the_whole_adapter_directory(pinned_tree, monkeypatch)
         )
 
     monkeypatch.setattr(check_julia, "_run", run)
-    check_julia._python(pinned_tree)
-    assert calls[0][:4] == (sys.executable, "-m", "pytest", "tests/backends/julia")
-    assert calls[0][4:7] == ("tests/sessions/test_conformance.py", "-k", "julia")
-    assert calls[0][7] == "--durations=20"
-    assert calls[0][8].startswith("--junitxml=")
+    check_julia._python(pinned_tree, precision=precision)
+    command = calls[0]
+    assert command[:3] == (sys.executable, "-m", "pytest")
+    deferred = (
+        "tests/backends/julia/test_cpu_single.py",
+        "tests/backends/julia/test_cpu_df32.py",
+        "tests/backends/julia/test_cpu_df32_adams.py",
+        "tests/backends/julia/test_cpu_df32_history_boundary.py",
+        "tests/backends/julia/test_cpu_df32_boundary.py",
+        "tests/backends/julia/test_cpu_single_groups.py",
+        "tests/backends/julia/test_cpu_single_adams.py",
+    )
+    expected = (
+        deferred
+        if precision
+        else (
+            "tests/backends/julia",
+            "tests/sessions/test_conformance.py",
+            *(f"--ignore={path}" for path in deferred),
+        )
+    )
+    assert command[3:-4] == expected
+    assert command[-4:-1] == ("-k", "julia", "--durations=20")
+    assert command[-1].startswith("--junitxml=")
+
+
+@pytest.mark.parametrize("result", ("skipped", "failure", "error"))
+def test_deferred_precision_qualification_preserves_failures(tmp_path, result):
+    report = tmp_path / "precision.xml"
+    report.write_text(
+        '<testsuite><testcase classname="tests.backends.julia.test_cpu_single" '
+        f'name="test_precision"><{result}/></testcase></testsuite>',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="did not pass: test_precision"):
+        check_julia._verify_runtime_report(report, precision=True)
+
+
+def test_deferred_precision_requires_its_actual_numerical_evidence(tmp_path):
+    report = tmp_path / "precision.xml"
+    report.write_text(
+        '<testsuite><testcase classname="tests.backends.julia.test_precision_transfer" '
+        'name="test_mocked_precision"/></testsuite>',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="produced no test results"):
+        check_julia._verify_runtime_report(report, precision=True)
 
 
 @pytest.mark.parametrize("result", ("skipped", "failure", "error"))

@@ -2,7 +2,13 @@
 
 Branch: `feature/sep-0048-julia-backend`; draft [PR 611](https://github.com/LupoLab/solprop/pull/611).
 Proposal 609 merged at `04e72192`; Part I is frozen. Leave the completed implementation
-ready for maintainer review, without merging it. Latest inspected CI head: `c35e35bd`.
+ready for maintainer review, without merging it. Latest inspected CI head: `118e600c`.
+
+**Completion baseline, amended by the maintainer on 11 November:** binary64 CPU and
+CUDA. Metal, ROCm/HIP and unfinished binary32/DF32 qualification are deferred. The
+reviewed RK dense engine attachment is complete; numerical work now targets CUDA.
+See [DEFERRED.md](DEFERRED.md) for exact status; Part II records the scope amendment.
+New issues are only for work this PR will leave unresolved. Track in-PR defects here.
 
 ## Current plan and status — 11 November 2026
 
@@ -10,8 +16,8 @@ ready for maintainer review, without merging it. Latest inspected CI head: `c35e
 |---|---|---|
 | 1: package and runtime | Immutable setup, offline artifacts, bridge and ownership implemented | Deferred runtime failures stay visible; final installed-package and supervisor matrix |
 | 2: binary64 CPU | Complete scalar modal/spatial session, services, history, groups, providers and public CPU selection | Final conformance/CI and isolated startup/worker measurements |
-| 3: binary32 and DF32 | Binary32 paths and certified DF32 landed RK/low-storage/Adams sessions integrated | Physical qualification, DF32 dense/spatial, remaining restart/admission matrix and x86 measurements |
-| 4: devices | Reviewed CUDA and Metal execution/FFT foundations integrated | Complete sessions, ROCm, vendor JET and Metal subnormal blocker 739 |
+| 3: binary32 and DF32 | Substantial internal implementation and reviewed RK dense engine attachment preserved | Remaining qualification is deferred outside the baseline |
+| 4: devices | CUDA execution/FFT foundation tested; storage and complete sessions in progress | CUDA full sessions, vendor quality, measurements; Metal and ROCm/HIP deferred |
 | 5: documentation and Final | Manual/design records evolving with implementation | Complete measurements, final integration review, required green gates, archival/Final commit |
 
 No implementation phase is declared complete while its required evidence is missing.
@@ -33,10 +39,21 @@ Shared interfaces and integration remain master-owned.
 
 | Owner | Exclusive active scope |
 |---|---|
-| Master | Shared interfaces, integration, CI and records; physical reference refinement and device session attachment |
-| Independent reviewer | ROCm stride correction and CUDA storage/readback review |
-| CPU numerical agent | DF32 RK dense leaf, note and tests; agreed observation/flow hooks, followed by Adams dense design |
-| Device agent | CUDA storage/readback leaves, tests and note; agreed transfer span/space/owner hooks, PythonCall host-space hook and module includes |
+| Master | Shared interfaces, integration, CI and records; CUDA bridge, exports and services |
+| Independent reviewer | CUDA march, storage and capture; then complete CPU/CUDA integration |
+| Numerical agent | CUDA modal source composition and modal contraction helpers; source tests/note |
+| Device agent | A40 storage qualification; common/CUDA capture guards; low-storage device method |
+
+The RK dense leaf `990871fb` is independently approved and integrated as `ad5ab855`,
+with its reviewed engine attachment at `98f6af3e`. Python DF32 dense admission remains
+closed. Adams dense is an unqualified deferred draft at `973fc351`, outside this branch;
+no numerical test completed before deferral. Its intended retained polynomial and
+rate-provenance design is not qualified evidence.
+
+Reviewed CUDA storage/readback, capture guards and RK orchestration are integrated at
+`75d6849a`, `ba632416` and `9e41cdb1`. Host execution-model tests pass; actual A40
+storage qualification is queued, and device RK qualification remains pending.
+The master develops transactional device export in a separate worktree.
 
 The RK/low-storage DF32 bridge attachment is independently approved: ten files covering
 `backend.py`, `_session.py`, `_wide.py`, PythonCall launch/wide attachment, its focused
@@ -108,6 +125,19 @@ both owned kernel launch forms. DF32 Metal is not qualified.
 
 ## Latest validation
 
+- The amended baseline selector passes 79 committed tool tests and 104 independent
+  inventory/verifier checks. Actual opt-in collection selects 1,374 baseline cases
+  across 55 modules and exactly 118 deferred precision cases across seven modules;
+  all ten required Julia CPU conformance names remain in the baseline collection.
+  Missing, skipped, failed or errored mandatory tests still fail either command.
+- The integrated RK dense attachment passes 2,419 bounds-enabled assertions across
+  40 testsets. The subsequent device storage/RK integration passes 1,353 targeted
+  assertions; CPU Aqua/JET passes 16 checks with all 2,266 definitions analyzed and
+  none cached. These are CPU checks, not CUDA hardware evidence.
+- CI at `118e600c` reports 15 qualification-test typing errors, corrected and
+  independently reviewed at `5a7d4300`, plus Linux package-mirror DNS failures (757).
+  Local types have zero errors and three unresolved-native-stub warnings; the local
+  command therefore exits nonzero. No full green CI result is claimed.
 - Integrated Julia Core: 156,695 assertions in 484 testsets pass, bounds enabled,
   two threads. Aqua/JET: 16 checks pass, all 2,067 definitions analyzed, none cached.
 - Reviewed binary32 composition: 84 actual managed retained-owner cases plus 27 pure
@@ -143,14 +173,14 @@ source identities, validation counts and ownership handoffs.
 
 ## Next actions
 
-1. Investigate the completed helium comparison's twice-RK failure (753) against
-   identical NumPy binary32 controls. Translation and quadrature fixes (737, 738)
-   now pass their repeated physical cases; independent reference refinement is recorded.
-2. Qualify DF32 dense/spatial execution and the remaining same-precision
-   restart/admission matrix.
-3. Complete actual CUDA foundation checks and vendor JET analysis, then attach complete
-   device sessions. Rotate independent vendor work after shared interfaces stabilize.
-4. Finish CPU/GPU, startup, setup/depot and spawned-worker measurements on short windows.
+1. Commit the reviewed scope amendment and retained precision evidence; no further
+   binary32 numerical campaign is on the baseline critical path.
+2. Complete binary64 CUDA modal source, low-storage/Adams methods, observations,
+   export and shared services; integrate the selected-device bridge and registry.
+3. Qualify actual CUDA kernels, ownership and complete session behavior on A40,
+   including vendor quality and CPU regression checks.
+4. Finish binary64 CPU/CUDA, startup, setup/depot and spawned-worker measurements
+   on short windows. No AMD rental or Metal campaign is required for this baseline.
 5. Reconcile final CI and SEP 47 interfaces, finish manual/design/ADR/release records,
    complete integration review, then prepare Final and mark the one PR ready.
 
@@ -160,6 +190,10 @@ changes work order and does not turn a failed qualification into a pass.
 
 ## Decisions
 
+- The maintainer narrowed completion to binary64 CPU/CUDA on 11 November. Defer
+  Metal, ROCm/HIP and unfinished binary32 execution with either wide arithmetic.
+  DF32 is a wide-intermediate choice for binary32 state, not a whole-state precision.
+  Deferred evidence stays explicit and public admission remains closed.
 - The accepted SEP's scope is retained with binary64-only input noise. Every binary32
   path, including Metal, refuses noise. No physics default changes.
 - Start with Julia 1.13.3 and matching JuliaCall/PythonCall 0.9.37. Sources and

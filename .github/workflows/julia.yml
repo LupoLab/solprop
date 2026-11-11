@@ -118,7 +118,10 @@ jobs:
       # SEP 48 permits omitting the optional Tier 3 adapter from the default coverage
       # lane. This separate Julia lane qualifies it, including real runtime subprocess
       # probes; their presence and explicit opt-in are mandatory.
-      - name: Run Python Julia adapter and runtime subprocess tests
+      # Binary32 qualification remains an explicit `check_julia.py precision`
+      # command after the maintainer selected the binary64 CPU/CUDA baseline.
+      # Engine regressions, public refusals and every binary64 suite still run.
+      - name: Run binary64 Julia adapter and runtime subprocess tests
         if: matrix.stage == 'adapter'
         run: uv run --no-sync python tools/check_julia.py python
       - name: Refuse changes to committed Julia inputs

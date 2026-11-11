@@ -5,6 +5,13 @@ The package and explicit setup commands are available on its implementation bran
 Numerical sessions and device qualification remain in progress; installing a device
 environment does not establish that its propagation kernels are qualified.
 
+The maintainer-approved completion baseline is binary64 CPU and CUDA. CPU selection
+is available on the implementation branch; CUDA sessions are still being integrated
+and qualified. Metal, ROCm/HIP, and public binary32 execution with either wide
+arithmetic option are deferred. DF32 replaces selected wide intermediates alongside
+binary32 state and FFTs; it is not a separate whole-state precision. Their
+internal implementation and test evidence do not make them supported selections.
+
 Select the prepared CPU engine with `SimulationSettings(backend="julia", ...)`.
 `backend_options={"setup_id": identity}` selects an explicit published setup; omitting
 the identity requires exactly one compatible setup. Availability checks probe the

@@ -21,7 +21,19 @@ from xml.etree import ElementTree
 __all__ = ["main"]
 
 _ROOT = Path(__file__).resolve().parents[1]
-_CHECKS = ("metadata", "setup", "format", "core", "quality", "python")
+_CHECKS = ("metadata", "setup", "format", "core", "quality", "python", "precision")
+# The maintainer deferred public binary32 and its wide-arithmetic choices. Keep
+# their complete qualification runnable, with failures fatal, outside the binary64
+# baseline gate. Pure lowering, refusal and retained engine regression tests remain.
+_PRECISION_TESTS = (
+    "tests/backends/julia/test_cpu_single.py",
+    "tests/backends/julia/test_cpu_df32.py",
+    "tests/backends/julia/test_cpu_df32_adams.py",
+    "tests/backends/julia/test_cpu_df32_history_boundary.py",
+    "tests/backends/julia/test_cpu_df32_boundary.py",
+    "tests/backends/julia/test_cpu_single_groups.py",
+    "tests/backends/julia/test_cpu_single_adams.py",
+)
 _RUNTIME_TESTS = (
     "tests/backends/julia/test_runtime_subprocess.py",
     "tests/backends/julia/runtime_probe.py",
@@ -256,7 +268,7 @@ def _quality(root: Path) -> None:
     )
 
 
-def _python(root: Path) -> None:
+def _python(root: Path, *, precision: bool = False) -> None:
     _require_files(root, _RUNTIME_TESTS)
     if os.environ.get("SOLPROP_TEST_JULIA") != "1":
         raise ValueError("the Julia lane requires SOLPROP_TEST_JULIA=1")
@@ -264,9 +276,18 @@ def _python(root: Path) -> None:
         raise ValueError(
             "the Julia lane requires a published SOLPROP_TEST_JULIA_SETUP_ID"
         )
-    # The directory includes each future conformance module without maintaining a
-    # second list. Runtime probes use subprocesses; CPU session tests initialize the
-    # managed runtime on main. Isolated adapter mocks restore their state afterwards.
+    # The baseline still discovers the whole adapter directory, except the explicit
+    # deferred qualification list. Runtime and all supported binary64 session tests
+    # remain mandatory. No failing precision test is converted to a skip or xfail.
+    selection = (
+        _PRECISION_TESTS
+        if precision
+        else (
+            "tests/backends/julia",
+            "tests/sessions/test_conformance.py",
+            *(f"--ignore={path}" for path in _PRECISION_TESTS),
+        )
+    )
     with tempfile.TemporaryDirectory(prefix="solprop-julia-ci-") as directory:
         report = Path(directory) / "results.xml"
         _run(
@@ -275,19 +296,19 @@ def _python(root: Path) -> None:
                 sys.executable,
                 "-m",
                 "pytest",
-                "tests/backends/julia",
-                "tests/sessions/test_conformance.py",
+                *selection,
                 "-k",
                 "julia",
                 "--durations=20",
                 f"--junitxml={report}",
             ),
         )
-        _verify_runtime_report(report)
+        _verify_runtime_report(report, precision=precision)
 
 
-def _verify_runtime_report(report: Path) -> None:
+def _verify_runtime_report(report: Path, *, precision: bool = False) -> None:
     results = tuple(ElementTree.parse(report).iter("testcase"))
+    precision_modules = {Path(path).stem for path in _PRECISION_TESTS}
     for module in (
         "test_runtime_subprocess",
         "test_control_oracle",
@@ -314,6 +335,8 @@ def _verify_runtime_report(report: Path) -> None:
         "test_cpu_material_routes",
         "test_transfer_aliases",
     ):
+        if (module in precision_modules) != precision:
+            continue
         cases = [
             case for case in results if module in case.get("classname", "").split(".")
         ]
@@ -329,7 +352,8 @@ def _verify_runtime_report(report: Path) -> None:
                 raise ValueError(
                     f"mandatory Julia test did not pass: {case.get('name')}"
                 )
-    _verify_conformance_report(results)
+    if not precision:
+        _verify_conformance_report(results)
 
 
 def _verify_conformance_report(results: Sequence[ElementTree.Element]) -> None:
@@ -395,6 +419,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             _setup(root)
             return
         _check_runtime(root)
+        if arguments.check == "precision":
+            _python(root, precision=True)
+            return
         checks = {
             "format": _format,
             "core": _core,

@@ -1838,7 +1838,33 @@ windows, method policy and thresholds are unchanged. The complete evidence and
 remaining comparison are in `julia/CPU_SINGLE_ADAMS_QUALIFICATION.md`; the failure
 remains an ordinary required test and public binary32 admission remains closed.
 
+### Maintainer-approved completion baseline — 2026-11-11
+
+The maintainer narrowed this implementation's completion target to **binary64 CPU
+and CUDA**, deferring Metal and ROCm/HIP. Binary32/DF32 CPU is secondary: finish the
+already reviewed RK dense engine attachment, preserve the existing implementation
+and exact evidence, and defer its remaining qualification and public admission.
+The accepted Part I remains the historical full proposal; this recorded scope
+amendment supersedes its all-vendor/all-precision merge requirement for this PR.
+The binary64 CPU/CUDA baseline still requires its complete session contract,
+supported physics/method catalogue, independent review, measurements and green gates.
+
+Metal's subnormal incompatibility (739) and vendor qualification work (743–745),
+ROCm's hardware/quality work (750), and the unfinished binary32/DF32 qualification
+remain deferred work, with no tolerance relaxation or claim of successful execution.
+The current narrow-precision state and exact outstanding tasks are recorded in
+`julia/DEFERRED.md`. In particular, both helium Adams comparisons remain failures
+of the unchanged twice-RK rule (753). Deferred qualification is explicitly separate
+from the baseline gate; admission/refusal and retained-code regression tests remain.
+
+The maintainer also directed that new issues track only work the implementation PR
+will leave unresolved. In-PR defects and their corrections belong in its working
+record and review, rather than separate issues.
+
 ## Part III — History
+
+- 2026-11-11: The maintainer selected binary64 CPU/CUDA as the completion baseline,
+  with Metal, ROCm/HIP and remaining binary32/DF32 work deferred as recorded in Part II.
 
 - 2026-11-10: The maintainer accepted external hard-kill supervision for stalled Julia
   SIGTERM shutdown and directed numerical implementation to proceed before further
