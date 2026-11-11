@@ -3136,7 +3136,8 @@ NB_MODULE(_core, module_) {
   // Each registration makes the Python exception type; the handle need not outlive it.
   const nb::exception<native::EnvelopeConvergenceError> envelope_convergence_error(
       module_, "EnvelopeConvergenceError");
-  const nb::exception<native::BackendRefusal> backend_refusal(module_, "BackendRefusal");
+  const nb::exception<native::BackendRefusal> backend_refusal(module_,
+                                                              "BackendRefusal");
   module_.doc() = "Private nanobind seam for solprop-native";
   module_.def("initialize_runtime", &initialize_kokkos, "threads"_a, "kernels"_a = 0,
               "fft"_a = 0, "raman_fft"_a = 0, "raman_tail_fft"_a = 0,
