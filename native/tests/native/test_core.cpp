@@ -949,7 +949,8 @@ TEST(GeneralState, HeldCurrentMatchesTheDiscreteSinusoidalDrift) {
   const double amplitude = 2.0 * problem.synthesis / static_cast<double>(problem.n_to);
   const double current_scale = population * problem.charge_mass_ratio * amplitude *
                                problem.dt_fine / (2.0 * std::tan(theta / 2.0));
-  std::vector<Complex> product(problem.n_to), edge(problem.n_to);
+  std::vector<Complex> product(problem.n_to);
+  std::vector<Complex> edge(problem.n_to);
   double operand = 0.0;
   for (std::size_t time = 0; time < problem.n_to; ++time) {
     const double angle = theta * static_cast<double>(time);
@@ -967,7 +968,8 @@ TEST(GeneralState, HeldCurrentMatchesTheDiscreteSinusoidalDrift) {
   const double tolerance =
       512.0 * static_cast<double>(problem.n_to) * kEpsilon * operand;
   ASSERT_GT(tolerance, 0.0);
-  const auto x = dft(product), z = dft(edge);
+  const auto x = dft(product);
+  const auto z = dft(edge);
   native::GeneralState state(problem);
   auto scalars = trial(problem);
   scalars.preionisation = {population};
@@ -1652,7 +1654,9 @@ PlanarElement planar_element(const native::Problem& problem, const std::size_t c
 // and each column's prefactor.
 std::vector<Complex> planar_reference(const native::Problem& problem,
                                       const std::vector<Complex>& columns) {
-  const auto n_p = problem.n_p, n_x = problem.n_x, n_y = problem.n_y;
+  const auto n_p = problem.n_p;
+  const auto n_x = problem.n_x;
+  const auto n_y = problem.n_y;
   const auto n = problem.n_omega;
   std::vector<std::vector<double>> rows(n_p * n_y);
   for (std::size_t iy = 0; iy < n_y; ++iy)
@@ -1882,7 +1886,8 @@ team_band_scan(const std::vector<double>& values, const std::size_t rows,
       Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, filtered);
   const auto host_prefixes =
       Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, prefixes);
-  std::vector<double> filtered_values(rows * samples), prefix_values(rows * samples);
+  std::vector<double> filtered_values(rows * samples);
+  std::vector<double> prefix_values(rows * samples);
   for (std::size_t row = 0; row < rows; ++row)
     for (std::size_t sample = 0; sample < samples; ++sample) {
       filtered_values[row * samples + sample] = host_filtered(row, sample);
@@ -2546,7 +2551,8 @@ std::vector<Complex> low_storage_reference(const native::Problem& problem,
       result[element] = base[element] + weight * slope[element];
     return result;
   };
-  std::vector<Complex> picture(size), g1(size);
+  std::vector<Complex> picture(size);
+  std::vector<Complex> g1(size);
   const auto f1 = multimode_reference(problem, state);
   for (std::size_t element = 0; element < size; ++element) {
     picture[element] = flow[element] * state[element];

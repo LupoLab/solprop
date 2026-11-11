@@ -1434,7 +1434,8 @@ void require_general_problem(const Problem& problem) {
     for (std::size_t channel = 0; channel < problem.n_channels; ++channel)
       for (std::size_t level = 0; level < 4; ++level) {
         const auto order = std::size_t{64} << level;
-        double sum = 0.0, previous = -1.0;
+        double sum = 0.0;
+        double previous = -1.0;
         for (std::size_t index = 0; index < 512; ++index) {
           const auto offset = (channel * 4 + level) * 512 + index;
           const auto node = problem.envelope_rule_nodes[offset];
@@ -1967,8 +1968,10 @@ struct StageTerms {
                                      const double error_weight,
                                      const std::size_t column, const std::size_t first,
                                      const std::size_t count) const {
-    double real[stage_block], imag[stage_block];
-    double source_real[stage_block], source_imag[stage_block];
+    double real[stage_block];
+    double imag[stage_block];
+    double source_real[stage_block];
+    double source_imag[stage_block];
     for (std::size_t bin = 0; bin < count; ++bin) {
       real[bin] = 0.0;
       imag[bin] = 0.0;
@@ -2044,8 +2047,10 @@ struct StageTerms {
   combine_block(const std::size_t stage, const double dz, const std::size_t column,
                 const std::size_t first, const std::size_t count,
                 const EntryBlock& factors, const bool store_whole) const {
-    double real[stage_block], imag[stage_block];
-    double sum_real[stage_block], sum_imag[stage_block];
+    double real[stage_block];
+    double imag[stage_block];
+    double sum_real[stage_block];
+    double sum_imag[stage_block];
     Complex* inverse = &stage_inverse(column, first);
     for (std::size_t bin = 0; bin < count; ++bin) {
       if constexpr (Mode == EntryPhase::repeated) {
@@ -5737,7 +5742,8 @@ void GeneralWorkspace::low_storage_flows_formed(const bool rebuild_table) {
             const std::size_t width =
                 columns - first < stage_block ? columns - first : stage_block;
             const bool in_band = active(omega) != 0U;
-            double real[stage_block], imag[stage_block];
+            double real[stage_block];
+            double imag[stage_block];
             for (std::size_t offset = 0; offset < width; ++offset) {
               const Complex x =
                   delta(2) *
@@ -5763,7 +5769,8 @@ void GeneralWorkspace::low_storage_flows_formed(const bool rebuild_table) {
           const std::size_t column = item / blocks;
           const std::size_t first = (item % blocks) * stage_block;
           const std::size_t bins = n - first < stage_block ? n - first : stage_block;
-          double real[stage_block], imag[stage_block];
+          double real[stage_block];
+          double imag[stage_block];
           const auto form = [&](const std::size_t flow, const std::size_t offset) {
             terms.phase_block(offset, column, first, bins, real, imag);
             vmath::exp_complex(real, imag, real, imag, bins);
@@ -7526,7 +7533,8 @@ adams_lanes_predicted_compensation(AdamsLanes& lanes, const ExponentialWeights& 
       lanes.ci[t][b] = ri + ir;
     }
   }
-  double total_r[AdamsLanes::B], total_i[AdamsLanes::B];
+  double total_r[AdamsLanes::B];
+  double total_i[AdamsLanes::B];
   for (std::size_t b = 0; b < count; ++b) {
     total_r[b] = 0.0;
     total_i[b] = 0.0;
@@ -7589,7 +7597,8 @@ inline void adams_lanes_corrected_compensation(AdamsLanes& lanes,
   SOLPROP_NATIVE_STRICT_BLOCK
   constexpr std::size_t B = AdamsLanes::B;
   const std::size_t count = lanes.count;
-  double total_r[B], total_i[B];
+  double total_r[B];
+  double total_i[B];
   const double weight0 = weights.comp_corrector[0];
   for (std::size_t b = 0; b < count; ++b) {
     const double scaled_r = inverse_dz * lanes.xr[b];
@@ -7633,7 +7642,10 @@ inline void adams_lanes_defects(AdamsLanes& lanes, const ExponentialWeights& wei
   constexpr std::size_t B = AdamsLanes::B;
   const std::size_t count = lanes.count;
   for (std::size_t row = 0; row < scored; ++row) {
-    double difference_r[B], difference_i[B], weight_r[B], weight_i[B];
+    double difference_r[B];
+    double difference_i[B];
+    double weight_r[B];
+    double weight_i[B];
     const double weight0 = weights.rows[row][0];
     for (std::size_t b = 0; b < count; ++b) {
       difference_r[b] = weight0 * lanes.wr[b];
@@ -7659,7 +7671,8 @@ inline void adams_lanes_defects(AdamsLanes& lanes, const ExponentialWeights& wei
         weight_i[b] = weight_i[b] + imag;
       }
     }
-    double defect_r[B], defect_i[B];
+    double defect_r[B];
+    double defect_i[B];
     for (std::size_t b = 0; b < count; ++b) {
       const double rr = difference_r[b] * weight_r[b];
       const double ii = difference_i[b] * weight_i[b];
@@ -7671,7 +7684,8 @@ inline void adams_lanes_defects(AdamsLanes& lanes, const ExponentialWeights& wei
       defect_i[b] = dz * product_i;
     }
     if (weights.compensated) {
-      double total_r[B], total_i[B];
+      double total_r[B];
+      double total_i[B];
       const double first = weights.comp_rows[row][0];
       for (std::size_t b = 0; b < count; ++b) {
         total_r[b] = first * lanes.nr[b];
@@ -7838,7 +7852,8 @@ inline double adams_lanes_predict(
   adams_lanes_history(lanes, weights, store, weights.order, column, first);
   // The prediction exp(x) u + dz sum_k M_k sum_j c_jk F_j.
   const Complex* accepted = &current(column, first);
-  double total_r[B], total_i[B];
+  double total_r[B];
+  double total_i[B];
   for (std::size_t b = 0; b < n; ++b) {
     lanes.ur[b] = accepted[b].real();
     lanes.ui[b] = accepted[b].imag();
@@ -7846,7 +7861,8 @@ inline double adams_lanes_predict(
     total_i[b] = 0.0;
   }
   for (std::size_t k = 0; k < weights.order; ++k) {
-    double combined_r[B], combined_i[B];
+    double combined_r[B];
+    double combined_i[B];
     for (std::size_t b = 0; b < n; ++b) {
       combined_r[b] = 0.0;
       combined_i[b] = 0.0;
@@ -7992,13 +8008,15 @@ struct ExponentialCorrection {
         lanes.mi[k][b] = moment[b].imag();
       }
     }
-    double total_r[B], total_i[B];
+    double total_r[B];
+    double total_i[B];
     for (std::size_t b = 0; b < count; ++b) {
       total_r[b] = 0.0;
       total_i[b] = 0.0;
     }
     for (std::size_t k = 0; k < weights.count; ++k) {
-      double combined_r[B], combined_i[B];
+      double combined_r[B];
+      double combined_i[B];
       const double weight0 = weights.corrector[0][k];
       for (std::size_t b = 0; b < count; ++b) {
         combined_r[b] = weight0 * lanes.wr[b];
@@ -9724,7 +9742,8 @@ void GeneralWorkspace::separable_stage_input(const std::size_t stage, const doub
     crossing_tiles(
         "solprop_native.free.stage_input", execution_space_, problem_.n_columns(),
         problem_.n_omega, [=](const CrossingTile& tile) {
-          PropagatorTile step, finish;
+          PropagatorTile step;
+          PropagatorTile finish;
           Complex linear[PropagatorTile::capacity];
           tile.visit<true>([&](const std::size_t column, const std::size_t omega) {
             const auto k = tile.at(column, omega);
@@ -12754,8 +12773,8 @@ void GeneralWorkspace::finish_raman(const std::size_t stage,
           const double w = drives == 3 ? convolved(row + 2, time) : 0.0;
           const double factor = epsilon0 * density(stage);
           if (family == FieldFamily::envelope) {
-            const Complex x = node_complex(base, time),
-                          y = node_complex(base + 1, time);
+            const Complex x = node_complex(base, time);
+            const Complex y = node_complex(base + 1, time);
             out_complex(base, time) =
                 (out_complex(base, time) + factor * ((u + v) * x + w * y)) *
                 window(time);
@@ -13949,7 +13968,9 @@ void GeneralWorkspace::scan_plasma_statistics(const std::size_t first_node,
                                             node_count),
         KOKKOS_LAMBDA(const std::size_t node) {
           for (std::size_t channel = 0; channel < channels; ++channel) {
-            double exposure = 0.0, previous_rate = 0.0, largest_rate = 0.0;
+            double exposure = 0.0;
+            double previous_rate = 0.0;
+            double largest_rate = 0.0;
             for (std::size_t time = 0; time < n_to; ++time) {
               const double first =
                   (real_family ? node_real(node * n_pol, time)
@@ -14461,7 +14482,8 @@ std::vector<double> GeneralWorkspace::statistics(
             double power = 0.0;
             for (std::size_t row = 0; row < rows; ++row) {
               for (std::size_t pol = 0; pol < n_pol; ++pol) {
-                Complex value{}, weighted_value{};
+                Complex value{};
+                Complex weighted_value{};
                 for (std::size_t mode = 0; mode < modes; ++mode) {
                   value += matrix(row * modes + mode) * field(mode * n_pol + pol, time);
                   if (!unit_weight)
@@ -15033,7 +15055,9 @@ void GeneralWorkspace::separable_fluence(const double intensity_factor) {
       KOKKOS_LAMBDA(const std::size_t item) {
         const std::size_t first = item * run;
         const std::size_t count = n_nodes - first < run ? n_nodes - first : run;
-        double sum[run] = {}, electric_size[run] = {}, magnetic_size[run] = {};
+        double sum[run] = {};
+        double electric_size[run] = {};
+        double magnetic_size[run] = {};
         for (std::size_t index = 0; index < n; ++index) {
           const double weight = envelope || index == 0 || index + 1 == n ? 1.0 : 4.0;
           for (std::size_t pol = 0; pol < n_pol; ++pol) {
@@ -15582,7 +15606,8 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
           const bool live = active(index) != 0U;
           double power = 0.0;
           for (std::size_t pol = 0; pol < n_pol; ++pol) {
-            Complex electric{}, magnetic{};
+            Complex electric{};
+            Complex magnetic{};
             for (std::size_t mode = 0; mode < n_modes; ++mode) {
               const Complex value =
                   axis_weights(mode) * current(mode * n_pol + pol, index);
@@ -15635,7 +15660,8 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
           KOKKOS_LAMBDA(const std::size_t time) {
             double power = 0.0;
             for (std::size_t pol = 0; pol < n_pol; ++pol) {
-              Complex electric{}, magnetic{};
+              Complex electric{};
+              Complex magnetic{};
               for (std::size_t mode = 0; mode < n_modes; ++mode) {
                 electric += axis_weights(mode) * field(mode * n_pol + pol, time);
                 magnetic += axis_weights(mode) * closure(mode * n_pol + pol, time);
@@ -15695,7 +15721,8 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
           "solprop_native.spatial.physical_intensity",
           Range2(execution_space_, {0, 0}, {n_nodes, n_t}),
           KOKKOS_LAMBDA(const std::size_t node, const std::size_t time) {
-            double total = 0.0, size = 0.0;
+            double total = 0.0;
+            double size = 0.0;
             for (std::size_t pol = 0; pol < n_pol; ++pol) {
               const std::size_t at = 2 * (pol * n_t + time);
               const Complex electric =
@@ -15715,7 +15742,8 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
           Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_nodes),
           KOKKOS_LAMBDA(const std::size_t node) {
             double peak = lowest;
-            double sum = 0.0, size = 0.0;
+            double sum = 0.0;
+            double size = 0.0;
             for (std::size_t time = 0; time < n_t; ++time) {
               peak = Kokkos::max(peak, power(node, time));
               sum += power(node, time);

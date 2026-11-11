@@ -243,14 +243,18 @@ std::vector<double> reference(const Case& data, const int profile, const int exp
   const std::size_t row = native::far_field_aperture_constants + n;
   const std::size_t n_apertures = data.apertures.size() / row;
   const std::size_t n_regions = data.regions.size() / 4;
-  std::vector<double> beam(n), absorbed(native::far_field_absorbed_channels), axis(n);
+  std::vector<double> beam(n);
+  std::vector<double> absorbed(native::far_field_absorbed_channels);
+  std::vector<double> axis(n);
   std::vector<std::vector<double>> regions(n_regions, std::vector<double>(n));
   std::vector<std::vector<double>> collected(n_apertures, std::vector<double>(n));
   std::vector<std::vector<double>> through(n_apertures, std::vector<double>(n));
   for (std::size_t bin = 0; bin < n; ++bin) {
     // Each amplitude and its magnetic closure, the same sum with conj(eta) applied.
-    std::vector<std::complex<double>> amplitude(n_pol), axial(n_apertures * n_pol);
-    std::vector<std::complex<double>> closed(n_pol), closed_axial(n_apertures * n_pol);
+    std::vector<std::complex<double>> amplitude(n_pol);
+    std::vector<std::complex<double>> axial(n_apertures * n_pol);
+    std::vector<std::complex<double>> closed(n_pol);
+    std::vector<std::complex<double>> closed_axial(n_apertures * n_pol);
     for (std::size_t column = 0; column < columns; ++column) {
       const double kx = problem.spatial_k_x[column % problem.n_x];
       const double ky = problem.spatial_k_y[column / problem.n_x];

@@ -27,9 +27,12 @@ KOKKOS_INLINE_FUNCTION EnvelopeAxes envelope_axes(
                   Kokkos::max(Kokkos::abs(second.real()), Kokkos::abs(second.imag())));
   if (scale == 0.0)
     return {};
-  const double xr = first.real() / scale, xi = first.imag() / scale;
-  const double yr = second.real() / scale, yi = second.imag() / scale;
-  const double xx = xr * xr + yr * yr, yy = xi * xi + yi * yi;
+  const double xr = first.real() / scale;
+  const double xi = first.imag() / scale;
+  const double yr = second.real() / scale;
+  const double yi = second.imag() / scale;
+  const double xx = xr * xr + yr * yr;
+  const double yy = xi * xi + yi * yi;
   const double xy = xr * xi + yr * yi;
   // A scaled norm avoids an underflow observed in the device hypot.
   const double larger = Kokkos::max(Kokkos::abs(xx - yy), Kokkos::abs(2 * xy));
@@ -40,8 +43,10 @@ KOKKOS_INLINE_FUNCTION EnvelopeAxes envelope_axes(
   const double determinant = xr * yi - xi * yr;
   const double ratio = Kokkos::min(1.0, Kokkos::abs(determinant) / major_square);
   const double angle = 0.5 * Kokkos::atan2(2 * xy, xx - yy);
-  const double cosine = Kokkos::cos(angle), sine = Kokkos::sin(angle);
-  const double ux = xr * cosine + xi * sine, uy = yr * cosine + yi * sine;
+  const double cosine = Kokkos::cos(angle);
+  const double sine = Kokkos::sin(angle);
+  const double ux = xr * cosine + xi * sine;
+  const double uy = yr * cosine + yi * sine;
   // The determinant retains the small axis near a degenerate linear ellipse.
   const double signed_ratio = determinant / major_square;
   return {scale * Kokkos::sqrt(major_square),
@@ -83,7 +88,8 @@ envelope_moments(const double major, const double ratio, const double field_min,
   if (!Kokkos::isfinite(major) || !Kokkos::isfinite(ratio))
     return {0.0, 0.0, true};
   constexpr double half_pi = std::numbers::pi_v<double> / 2.0;
-  const double high = field_max / major, low = field_min / major;
+  const double high = field_max / major;
+  const double low = field_min / major;
   const double high_edge =
       high >= 1.0     ? 0.0
       : high <= ratio ? half_pi
@@ -94,10 +100,12 @@ envelope_moments(const double major, const double ratio, const double field_min,
                               ? half_pi
                               : Kokkos::acos(Kokkos::sqrt((low * low - ratio * ratio) /
                                                           (1 - ratio * ratio)));
-  double previous_c = 0.0, previous_s = 0.0;
+  double previous_c = 0.0;
+  double previous_s = 0.0;
   for (std::size_t level = 0; level < 4; ++level) {
     const std::size_t order = std::size_t{64} << level;
-    double mc = 0.0, ms = 0.0;
+    double mc = 0.0;
+    double ms = 0.0;
     for (std::size_t panel = 0; panel < 3; ++panel) {
       const double lower = panel == 0 ? 0.0 : panel == 1 ? high_edge : low_edge;
       const double upper = panel == 0 ? high_edge : panel == 1 ? low_edge : half_pi;
@@ -106,8 +114,10 @@ envelope_moments(const double major, const double ratio, const double field_min,
         continue;
       for (std::size_t index = 0; index < order; ++index) {
         const double theta = lower + (nodes(level, index) + 1) * (0.5 * width);
-        const double cosine = Kokkos::cos(theta), sine = Kokkos::sin(theta);
-        const double c2 = cosine * cosine, s2 = sine * sine;
+        const double cosine = Kokkos::cos(theta);
+        const double sine = Kokkos::sin(theta);
+        const double c2 = cosine * cosine;
+        const double s2 = sine * sine;
         const double denominator = c2 + ratio * ratio * s2;
         const double rate = rate_at(major * Kokkos::sqrt(denominator)) / denominator;
         const double weight =
@@ -135,7 +145,8 @@ envelope_loss(const EnvelopeAxes& axes, const double mc, const double ms,
   const Kokkos::complex<double> major_phase(axes.cosine, axes.sine);
   const Kokkos::complex<double> minor_phase(-axes.sine, axes.cosine);
   // Dividing moments first avoids an overflowing standalone inverse tiny scale.
-  const double major_moment = mc / axes.scale, minor_moment = ms / axes.scale;
+  const double major_moment = mc / axes.scale;
+  const double minor_moment = ms / axes.scale;
   const double factor = 2 * work / axes.major_square;
   return {factor * (major_moment * axes.ux * major_phase +
                     minor_moment * axes.vx * minor_phase),

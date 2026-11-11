@@ -438,7 +438,8 @@ inline PlanAlone time_fft_plan(const std::string& key, const std::string& wisdom
   // The step's waiting policy and FFTW team: without the scope LLVM's runtime sleeps
   // its idle threads at once (`KMP_BLOCKTIME=0`) and each loop pays their wake-up.
   const CpuTeamScope scope(threads);
-  const bool r2c = kind == "r2c", c2r = kind == "c2r";
+  const bool r2c = kind == "r2c";
+  const bool c2r = kind == "c2r";
   const bool planes = kind.starts_with("planes-");
   const int sign = kind.ends_with("backward") ? FFTW_BACKWARD : FFTW_FORWARD;
   if (!r2c && !c2r && !planes && !kind.starts_with("c2c-"))

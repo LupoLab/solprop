@@ -91,7 +91,12 @@ KOKKOS_INLINE_FUNCTION void dispersive_conserving(const Complex x0, const Comple
                                                   const Complex y0, const Complex y1,
                                                   const Complex z0, const Complex z1,
                                                   Complex& out0, Complex& out1) {
-  Complex a0, a1, b0, b1, c0, c1;
+  Complex a0;
+  Complex a1;
+  Complex b0;
+  Complex b1;
+  Complex c0;
+  Complex c1;
   dispersive_isotropic(x0, x1, y0, y1, Kokkos::conj(z0), Kokkos::conj(z1), a0, a1);
   dispersive_isotropic(x0, x1, Kokkos::conj(y0), Kokkos::conj(y1), z0, z1, b0, b1);
   dispersive_isotropic(Kokkos::conj(x0), Kokkos::conj(x1), y0, y1, z0, z1, c0, c1);
@@ -105,11 +110,21 @@ KOKKOS_INLINE_FUNCTION void dispersive_harmonic(const Complex x0, const Complex 
                                                 const Complex z0, const Complex z1,
                                                 const Complex carrier, Complex& out0,
                                                 Complex& out1) {
-  Complex u0, u1, a0, a1, b0, b1, c0, c1;
+  Complex u0;
+  Complex u1;
+  Complex a0;
+  Complex a1;
+  Complex b0;
+  Complex b1;
+  Complex c0;
+  Complex c1;
   dispersive_isotropic(x0, x1, y0, y1, z0, z1, u0, u1);
-  const Complex x0c = Kokkos::conj(x0), x1c = Kokkos::conj(x1);
-  const Complex y0c = Kokkos::conj(y0), y1c = Kokkos::conj(y1);
-  const Complex z0c = Kokkos::conj(z0), z1c = Kokkos::conj(z1);
+  const Complex x0c = Kokkos::conj(x0);
+  const Complex x1c = Kokkos::conj(x1);
+  const Complex y0c = Kokkos::conj(y0);
+  const Complex y1c = Kokkos::conj(y1);
+  const Complex z0c = Kokkos::conj(z0);
+  const Complex z1c = Kokkos::conj(z1);
   dispersive_isotropic(x0, x1, y0c, y1c, z0c, z1c, a0, a1);
   dispersive_isotropic(x0c, x1c, y0, y1, z0c, z1c, b0, b1);
   dispersive_isotropic(x0c, x1c, y0c, y1c, z0, z1, c0, c1);
@@ -201,13 +216,17 @@ template <std::size_t Components>
 KOKKOS_INLINE_FUNCTION void
 dispersive_conserving_n(const Complex (&x)[Components], const Complex (&y)[Components],
                         const Complex (&z)[Components], Complex (&out)[Components]) {
-  Complex xc[Components], yc[Components], zc[Components];
+  Complex xc[Components];
+  Complex yc[Components];
+  Complex zc[Components];
   for (std::size_t c = 0; c < Components; ++c) {
     xc[c] = Kokkos::conj(x[c]);
     yc[c] = Kokkos::conj(y[c]);
     zc[c] = Kokkos::conj(z[c]);
   }
-  Complex a[Components], b[Components], d[Components];
+  Complex a[Components];
+  Complex b[Components];
+  Complex d[Components];
   dispersive_isotropic_n(x, y, zc, a);
   dispersive_isotropic_n(x, yc, z, b);
   dispersive_isotropic_n(xc, y, z, d);

@@ -104,7 +104,10 @@ TEST(FftProvider, RealAndComplexBatchesPreserveSignAndNormalization) {
 }
 
 TEST(FftProvider, StackedTailPlansLeaveEveryBlocksPaddingUntouched) {
-  constexpr std::size_t length = 32, rows = 7, active = 3, blocks = 3;
+  constexpr std::size_t length = 32;
+  constexpr std::size_t rows = 7;
+  constexpr std::size_t active = 3;
+  constexpr std::size_t blocks = 3;
   const RealRows input("fft_contract.stacked_input", blocks * rows, length);
   const ComplexRows output("fft_contract.stacked_output", blocks * rows,
                            length / 2 + 1);

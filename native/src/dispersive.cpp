@@ -99,10 +99,12 @@ template <class Value, std::size_t Components, DispersiveForm Form> struct SelfP
           x0 = x0 - offset[base];
           x1 = x1 - offset[base + 1];
         }
-        Complex p0, p1;
+        Complex p0;
+        Complex p1;
         dispersive_conserving(x0, x1, x0, x1, x0, x1, p0, p1);
         if constexpr (Form == DispersiveForm::harmonic) {
-          Complex h0, h1;
+          Complex h0;
+          Complex h1;
           dispersive_harmonic(x0, x1, x0, x1, x0, x1, carrier[time], h0, h1);
           p0 = p0 + h0;
           p1 = p1 + h1;
@@ -156,10 +158,18 @@ struct PairProducts {
     if constexpr (Form == DispersiveForm::real) {
       if constexpr (Components == 2) {
         const std::size_t at1 = (base + 1) * n_to + time;
-        const double x0 = field[at0], x1 = field[at1];
-        const double f0 = first[at0], f1 = first[at1];
-        const double h0 = second[at0], h1 = second[at1];
-        double p0 = 0.0, p1 = 0.0, a0 = 0.0, a1 = 0.0, b0 = 0.0, b1 = 0.0;
+        const double x0 = field[at0];
+        const double x1 = field[at1];
+        const double f0 = first[at0];
+        const double f1 = first[at1];
+        const double h0 = second[at0];
+        const double h1 = second[at1];
+        double p0 = 0.0;
+        double p1 = 0.0;
+        double a0 = 0.0;
+        double a1 = 0.0;
+        double b0 = 0.0;
+        double b1 = 0.0;
         dispersive_isotropic(x0, x1, x0, x1, f0, f1, p0, p1);
         dispersive_isotropic(x0, x1, x0, x1, h0, h1, a0, a1);
         dispersive_isotropic(x0, x1, f0, f1, f0, f1, b0, b1);
@@ -168,7 +178,9 @@ struct PairProducts {
         second[at0] = (c0 * a0 + c1 * b0) * collar;
         second[at1] = (c0 * a1 + c1 * b1) * collar;
       } else {
-        const double x = field[at0], f = first[at0], h = second[at0];
+        const double x = field[at0];
+        const double f = first[at0];
+        const double h = second[at0];
         first[at0] = dispersive_real_pair(x, f) * collar;
         second[at0] =
             (c0 * dispersive_real_pair(x, h) + c1 * dispersive_real_cross(x, f)) *
@@ -177,20 +189,29 @@ struct PairProducts {
     } else {
       if constexpr (Components == 2) {
         const std::size_t at1 = (base + 1) * n_to + time;
-        Complex x0 = field[at0], x1 = field[at1];
+        Complex x0 = field[at0];
+        Complex x1 = field[at1];
         if (shifted) {
           x0 = x0 - offset[base];
           x1 = x1 - offset[base + 1];
         }
-        const Complex f0 = first[at0], f1 = first[at1];
-        const Complex h0 = second[at0], h1 = second[at1];
-        Complex p0, p1, a0, a1, b0, b1;
+        const Complex f0 = first[at0];
+        const Complex f1 = first[at1];
+        const Complex h0 = second[at0];
+        const Complex h1 = second[at1];
+        Complex p0;
+        Complex p1;
+        Complex a0;
+        Complex a1;
+        Complex b0;
+        Complex b1;
         dispersive_conserving(x0, x1, x0, x1, f0, f1, p0, p1);
         dispersive_conserving(x0, x1, x0, x1, h0, h1, a0, a1);
         dispersive_conserving(x0, x1, f0, f1, f0, f1, b0, b1);
         if constexpr (Form == DispersiveForm::harmonic) {
           const Complex c = carrier[time];
-          Complex g0, g1;
+          Complex g0;
+          Complex g1;
           dispersive_harmonic(x0, x1, x0, x1, f0, f1, c, g0, g1);
           p0 = p0 + g0;
           p1 = p1 + g1;
@@ -506,7 +527,9 @@ template <bool Real, std::size_t Components> struct GeneralPairs {
       }
       return;
     }
-    Value x[Components], f[Components], h[Components];
+    Value x[Components];
+    Value f[Components];
+    Value h[Components];
     for (std::size_t c = 0; c < Components; ++c) {
       const std::size_t at = (base + c) * n_to + time;
       if constexpr (Real) {
@@ -521,7 +544,9 @@ template <bool Real, std::size_t Components> struct GeneralPairs {
         h[c] = second_field[at];
       }
     }
-    Value p[Components], a[Components], b[Components];
+    Value p[Components];
+    Value a[Components];
+    Value b[Components];
     if constexpr (Real) {
       dispersive_isotropic_n(x, x, f, p);
       dispersive_isotropic_n(x, x, h, a);

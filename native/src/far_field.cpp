@@ -244,7 +244,8 @@ void FarFieldPass::axis_spectrum(const bool closed, const ComplexView2& spectrum
   launch::parallel_for(
       "solprop_native.far_field.axis_spectrum", Range2(execution_, {0, 0}, {n_pol_, n}),
       KOKKOS_LAMBDA(const std::size_t pol, const std::size_t bin) {
-        double real = 0.0, imag = 0.0;
+        double real = 0.0;
+        double imag = 0.0;
         for (std::size_t band = 0; band < n_bands; ++band) {
           real += partials((band * slots + first + 2 * pol) * n + bin);
           imag += partials((band * slots + first + 2 * pol + 1) * n + bin);

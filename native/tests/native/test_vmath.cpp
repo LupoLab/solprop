@@ -61,7 +61,12 @@ TEST(VectorMath, EveryElementOfABlockIsItsOwnValue) {
   for (const std::size_t n : lengths()) {
     const auto x = uniform(n, -30.0, 5.0, 11U + static_cast<unsigned>(n));
     const auto angle = uniform(n, -400.0, 400.0, 29U + static_cast<unsigned>(n));
-    std::vector<double> e(n), l(n), s(n), c(n), re(n), im(n);
+    std::vector<double> e(n);
+    std::vector<double> l(n);
+    std::vector<double> s(n);
+    std::vector<double> c(n);
+    std::vector<double> re(n);
+    std::vector<double> im(n);
     std::vector<double> positive(n);
     for (std::size_t i = 0; i < n; ++i)
       positive[i] = std::exp(x[i]);
@@ -70,8 +75,12 @@ TEST(VectorMath, EveryElementOfABlockIsItsOwnValue) {
     vmath::sincos(angle.data(), s.data(), c.data(), n);
     vmath::exp_complex(x.data(), angle.data(), re.data(), im.data(), n);
     for (std::size_t i = 0; i < n; ++i) {
-      double one_e = 0.0, one_l = 0.0, one_s = 0.0, one_c = 0.0, one_re = 0.0,
-             one_im = 0.0;
+      double one_e = 0.0;
+      double one_l = 0.0;
+      double one_s = 0.0;
+      double one_c = 0.0;
+      double one_re = 0.0;
+      double one_im = 0.0;
       vmath::exp(&x[i], &one_e, 1);
       vmath::log(&positive[i], &one_l, 1);
       vmath::sincos(&angle[i], &one_s, &one_c, 1);
@@ -94,7 +103,8 @@ TEST(VectorMath, InPlaceGivesTheSameValues) {
   auto in_place = x;
   vmath::exp(in_place.data(), in_place.data(), n);
   EXPECT_EQ(in_place, out);
-  std::vector<double> s(n), c(n);
+  std::vector<double> s(n);
+  std::vector<double> c(n);
   vmath::sincos(x.data(), s.data(), c.data(), n);
   auto sine = x;
   vmath::sincos(sine.data(), sine.data(), c.data(), n);
@@ -112,7 +122,12 @@ TEST(VectorMath, AgreesWithTheSystemLibm) {
   const auto magnitude_exponent = uniform(n, -300.0, 300.0, 13U);
   const auto phase = uniform(n, -1.0e4, 1.0e4, 17U);
   const auto huge_phase = uniform(n, -1.0e15, 1.0e15, 19U);
-  std::vector<double> out(n), s(n), c(n), re(n), im(n), magnitude(n);
+  std::vector<double> out(n);
+  std::vector<double> s(n);
+  std::vector<double> c(n);
+  std::vector<double> re(n);
+  std::vector<double> im(n);
+  std::vector<double> magnitude(n);
   for (const auto* values : {&exponent, &small}) {
     vmath::exp(values->data(), out.data(), n);
     for (std::size_t i = 0; i < n; ++i)
@@ -179,7 +194,8 @@ TEST(VectorMath, SpecialValuesFollowC99) {
   expect_within_two_ulps(l[6], std::log(std::numeric_limits<double>::denorm_min()));
 
   const std::vector<double> angle = {0.0, -0.0, infinity, -infinity, quiet_nan};
-  std::vector<double> s(angle.size()), c(angle.size());
+  std::vector<double> s(angle.size());
+  std::vector<double> c(angle.size());
   vmath::sincos(angle.data(), s.data(), c.data(), angle.size());
   EXPECT_EQ(s[0], 0.0);
   EXPECT_FALSE(std::signbit(s[0]));
@@ -196,10 +212,12 @@ TEST(VectorMath, SpecialValuesFollowC99) {
   // NaN in either part makes both parts NaN.
   const std::vector<double> a = {0.0, -0.0, quiet_nan, 0.0};
   const std::vector<double> b = {0.5, -0.5, 0.5, quiet_nan};
-  std::vector<double> re(a.size()), im(a.size());
+  std::vector<double> re(a.size());
+  std::vector<double> im(a.size());
   vmath::exp_complex(a.data(), b.data(), re.data(), im.data(), a.size());
   for (std::size_t i = 0; i < 2; ++i) {
-    double sine = 0.0, cosine = 0.0;
+    double sine = 0.0;
+    double cosine = 0.0;
     vmath::sincos(&b[i], &sine, &cosine, 1);
     EXPECT_EQ(re[i], cosine);
     EXPECT_EQ(im[i], sine);

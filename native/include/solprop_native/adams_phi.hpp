@@ -329,7 +329,10 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
   constexpr double stop = quarter_ulp * quarter_ulp;
   // The series: every lane takes its terms until its own stopping test holds; a lane
   // that has stopped keeps its sum and carries a zero term.
-  double term_r[B], term_i[B], sum_r[B], sum_i[B];
+  double term_r[B];
+  double term_i[B];
+  double sum_r[B];
+  double sum_i[B];
   std::int64_t live[B];
   const double first = adams_lane_reciprocal[order];
   for (std::size_t b = 0; b < count; ++b) {
@@ -412,7 +415,8 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
     double half = 1.0; // 2^-k, exact
     for (std::size_t k = 1; k <= order; ++k) {
       half *= 0.5;
-      double total_r[B], total_i[B];
+      double total_r[B];
+      double total_i[B];
       for (std::size_t b = 0; b < count; ++b) {
         const double rr = lanes.qr[0][b] * lanes.qr[k][b];
         const double ii = lanes.qi[0][b] * lanes.qi[k][b];
@@ -440,7 +444,10 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
   // Large arguments: phi_k = (phi_{k-1} - 1/(k-1)!) / x, the inverse by
   // `strict_divide`'s scaled algorithm.
   if (lanes.any_large) {
-    double inverse_r[B], inverse_i[B], last_r[B], last_i[B];
+    double inverse_r[B];
+    double inverse_i[B];
+    double last_r[B];
+    double last_i[B];
     for (std::size_t b = 0; b < count; ++b) {
       const double s = Kokkos::fabs(lanes.ar[b]) + Kokkos::fabs(lanes.ai[b]);
       const double numerator_r = 1.0 / s;
