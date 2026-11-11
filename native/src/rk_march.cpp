@@ -170,7 +170,7 @@ Result run(const Policy& policy, State& state, Engine& engine,
   const double target = bounds.target;
   const int ulps = policy.landings.landing_ulps;
   std::uint64_t accepted = 0;
-  const auto elapsed = [&]() {
+  const auto elapsed = [&] {
     return std::chrono::duration<double>(Clock::now() - started).count();
   };
   const auto record = [&](const double end, const double dz, const double norm,
@@ -192,7 +192,7 @@ Result run(const Policy& policy, State& state, Engine& engine,
   };
   // The step's boundary check, as the Adams march takes it (SEP 45 4.8); true when the
   // call returns.
-  const auto watched = [&]() {
+  const auto watched = [&] {
     if (!bounds.watch)
       return false;
     const auto& rules = bounds.watch_policy;
@@ -201,7 +201,7 @@ Result run(const Policy& policy, State& state, Engine& engine,
       // A session's owning monitor checks the step itself (SEP 47 section 6.4).
       try {
         verdict = watch::owned_check(
-            *bounds.owner, [&engine]() { return engine.reading(); }, state.z,
+            *bounds.owner, [&engine] { return engine.reading(); }, state.z,
             bounds.replay, schedule.steps, state.cursor);
       } catch (const std::exception& error) {
         fail(result, march::Stage::accept, error);
@@ -266,7 +266,7 @@ Result run(const Policy& policy, State& state, Engine& engine,
   };
   // A stop, after the attempt's commit and accounting (SEP 47 section 5.5), the
   // call's own bound, and the readings' buffer; true when the call returns.
-  const auto bounded = [&]() {
+  const auto bounded = [&] {
     if (march::stop_requested(bounds)) {
       result.reason = march::Reason::stopped;
       return true;
@@ -291,7 +291,7 @@ Result run(const Policy& policy, State& state, Engine& engine,
     const std::size_t n_steps = schedule.steps.size();
     if (schedule.edges.size() != n_steps + 1)
       throw std::invalid_argument("a schedule has one edge more than its steps");
-    const auto running = [&]() {
+    const auto running = [&] {
       return state.cursor < n_steps && state.z < target - bounds.slack;
     };
     // A stop already requested ends the call before its first attempt.

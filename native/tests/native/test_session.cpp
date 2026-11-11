@@ -491,7 +491,7 @@ TEST(Session, StatusAndControlsNeedNoLock) {
   std::atomic<bool> gate{false};
   built.engine->hold(&entered, &gate);
   session::Batch batch;
-  std::thread advancing([&]() { batch = run.advance(256, 10.0); });
+  std::thread advancing([&] { batch = run.advance(256, 10.0); });
   while (!entered.load())
     std::this_thread::yield();
   const auto status = run.status();

@@ -691,15 +691,15 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
   if (state_.load() == State::finished)
     throw LifecycleError("the session has ended and cannot advance");
   const auto started = Clock::now();
-  const auto elapsed = [&started]() {
+  const auto elapsed = [&started] {
     return std::chrono::duration<double>(Clock::now() - started).count();
   };
   const std::size_t budget = std::max<std::size_t>(work_limit, 1);
   const std::uint64_t before = attempts_;
   Batch batch;
-  const auto made = [&]() { return static_cast<std::size_t>(attempts_ - before); };
+  const auto made = [&] { return static_cast<std::size_t>(attempts_ - before); };
   // Issue a filled batch, terminal or not.
-  const auto ready = [&]() {
+  const auto ready = [&] {
     const Outcome outcome =
         batch.event.kind == EventKind::terminal ? batch.event.outcome : Outcome::none;
     return issue(std::move(batch), outcome);
@@ -807,7 +807,7 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
                                                 target, landing_ulps_)
                              : 0.0;
     const std::size_t n_steps = schedule().steps.size();
-    const auto running = [&]() {
+    const auto running = [&] {
       // `replay_to`'s and `march_to`'s loops: to the edge within the slack, or
       // reached.
       const double z = position();

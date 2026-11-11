@@ -1628,7 +1628,7 @@ void accept_update(const ExecutionSpace& execution, const std::size_t count,
               update.error_sum += squared_abs(one_residual);
             },
             Kokkos::Sum<NormSums>(sums));
-        Kokkos::single(Kokkos::PerTeam(team), [&]() {
+        Kokkos::single(Kokkos::PerTeam(team), [&] {
           values.old_partial[slot] = sums.old_sum;
           values.new_partial[slot] = sums.new_sum;
           values.error_partial[slot] = sums.error_sum;

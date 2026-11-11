@@ -403,7 +403,7 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
   const double z_end = policy.interpolate ? policy.z_end : target;
   std::uint64_t accepted = 0;
   std::array<double, max_orders> norms{};
-  const auto elapsed = [&]() {
+  const auto elapsed = [&] {
     return std::chrono::duration<double>(Clock::now() - started).count();
   };
   const auto record = [&](const double end, const double dz, const double norm,
@@ -416,7 +416,7 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
   // A replay runs while the schedule has steps and its target is not within the
   // slack (`HostAdamsMarch._replay_to`); an adaptive march until the target is reached.
   const std::size_t n_steps = schedule.steps.size();
-  const auto running = [&]() {
+  const auto running = [&] {
     if (bounds.replay)
       return state.cursor < n_steps && state.z < target - bounds.slack;
     return !reached(state.z, target, policy.landing_ulps);
@@ -431,8 +431,8 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
   const auto take_check = [&]() -> watch::Verdict {
     if (bounds.owner != nullptr)
       return watch::owned_check(
-          *bounds.owner, [&engine]() { return engine.reading(); }, state.z,
-          bounds.replay, schedule.steps, state.cursor);
+          *bounds.owner, [&engine] { return engine.reading(); }, state.z, bounds.replay,
+          schedule.steps, state.cursor);
     const auto& rules = bounds.watch_policy;
     if (!watch::due(rules, state.watch, state.z)) {
       watch::skip(state.watch);
