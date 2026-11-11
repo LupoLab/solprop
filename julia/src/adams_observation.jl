@@ -4,11 +4,14 @@
 public AdamsObservationWork, retain_adams_observation!, observe_adams!
 
 """
-    AdamsObservationWork(execution, state, max_order; compensated=false)
+    AdamsObservationWork(execution, state, max_order; compensated=false,
+                         arithmetic=SourceArithmetic(Float64))
 
-Prepare exclusively owned binary64 CPU storage for one accepted Adams dense window.
+Prepare exclusively owned CPU storage in state precision for one Adams dense window.
 
 `state` supplies the nonempty `(n_omega,n_columns)` shape and is not retained.
+Its precision must match `arithmetic`, which is retained without changing physical
+units. Source/sample-state arrays have that precision; exponents and rates stay binary64.
 `max_order` is one through six, and `compensated` matches the session history.
 The workspace owns `dense::AdamsDense`, the observed `field`, and finite-check scratch.
 Its finite `destination` is the canonical accepted landing coordinate in metres once
@@ -20,23 +23,27 @@ observation by clearing its field. This numerical owner has no delivery cursor, 
 counter, controller, monitor or portable-history state. Throw `ArgumentError` for
 unsupported execution, empty state or unsupported order.
 """
-mutable struct AdamsObservationWork{D, A}
+mutable struct AdamsObservationWork{D, A, P}
     dense::D
     field::A
     failures::Vector{Int}
     destination::Float64
     ready::Bool
+    arithmetic::P
 
     function AdamsObservationWork(
-            execution::KernelExecution, state::AbstractMatrix{ComplexF64},
+            execution::KernelExecution, state::AbstractMatrix{Complex{T}},
             max_order::Integer; compensated::Bool = false,
-        )
+            arithmetic::SourceArithmetic = SourceArithmetic(Float64),
+        ) where {T <: Union{Float32, Float64}}
+        T === source_type(arithmetic) ||
+            throw(ArgumentError("Adams dense state differs from its source arithmetic"))
         oncpu(execution) ||
             throw(ArgumentError("Adams dense observation currently requires CPU"))
         dense = AdamsDense(execution, state, max_order; compensated)
-        field = dzeros(execution, ComplexF64, size(state)...)
-        return new{typeof(dense), typeof(field)}(
-            dense, field, zeros(Int, size(state, 2)), 0.0, false,
+        field = dzeros(execution, Complex{T}, size(state)...)
+        return new{typeof(dense), typeof(field), typeof(arithmetic)}(
+            dense, field, zeros(Int, size(state, 2)), 0.0, false, arithmetic,
         )
     end
 end
@@ -92,6 +99,8 @@ here; dense admission remains the shared request policy.
 function retain_adams_observation!(
         observation::AdamsObservationWork, session::AdamsSession, destination::Float64,
     )
+    observation.arithmetic == session.arithmetic ||
+        throw(ArgumentError("Adams dense and session arithmetic differ"))
     _adams_observation_landing(session, destination)
     observation.ready = false
     _source_finite!(

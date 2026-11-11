@@ -122,12 +122,16 @@ _adams_varying_operator(operator) =
     AdamsSession(execution, state, z, proposal, policy, norm, schedule, source, flow;
                  stop=StopFlag(), capacity=256, services=_NoSessionServices(),
                  exports=nothing, plane_index=nothing, plane_pending=true,
-                 source_absent=false)
+                 source_absent=false, arithmetic=SourceArithmetic(Float64))
 
-Own a binary64 exponential Adams session and bounded delivery state.
+Own a binary32 or binary64 exponential Adams session and bounded delivery state.
 
-`state` is a complex binary64 matrix `(n_omega,n_columns)` in internal units; `z`
-and `proposal` are metres. The launch is copied and hard-masked. `policy` is the
+`state` is a complex matrix `(n_omega,n_columns)` in stored internal units; `z`
+and `proposal` are metres. Its precision, the known prepared source arithmetic and
+the linear-flow precision must match `arithmetic` before allocating session storage.
+Binary32 callers supply already-scaled state and absolute tolerance; this constructor
+does not convert physical units. Generic source callables must obey the same precision
+and scale contract. The launch is copied and hard-masked. `policy` is the
 translated `AdamsControlPolicy`; `norm` and `schedule` have the shared march meanings.
 The policy and schedule retain identical hard-kink/operator breakpoint arrays and
 landing stretch. Landed policy save planes equal the schedule; interpolating policy
@@ -163,7 +167,7 @@ unsupported execution/flow, inconsistent run topology or incompatible initial ar
 Advance errors become the shared terminal failure event; no Python callback runs
 inside a trial.
 """
-struct AdamsSession{E, A, P, H, W, N, S, F, B, O, X, D} <: _MarchSession
+struct AdamsSession{E, A, P, H, W, N, S, F, B, O, X, D, R} <: _MarchSession
     execution::E
     field::A
     policy::P
@@ -190,15 +194,18 @@ struct AdamsSession{E, A, P, H, W, N, S, F, B, O, X, D} <: _MarchSession
     rate::_AdamsSessionRate{F}
     source_absent::Bool
     observation::D
+    arithmetic::R
 end
 
 function AdamsSession(
-        execution, state::AbstractMatrix{ComplexF64}, z::Float64, proposal::Float64,
+        execution, state::AbstractMatrix{Complex{T}}, z::Float64, proposal::Float64,
         policy::AdamsControlPolicy, norm::MarchNorm, schedule::MarchSchedule, source, flow;
         stop = StopFlag(), capacity::Int = 256, services = _NoSessionServices(),
         exports = nothing, plane_index::Union{Nothing, Int} = nothing,
         plane_pending::Bool = true, source_absent::Bool = false,
-    )
+        arithmetic::SourceArithmetic = SourceArithmetic(Float64),
+    ) where {T <: Union{Float32, Float64}}
+    _march_arithmetic(state, arithmetic, source, flow)
     oncpu(execution) || throw(ArgumentError("Adams sessions currently require CPU"))
     policy.interpolate && !isempty(schedule.replay_steps) &&
         throw(ArgumentError("interpolated planes require adaptive Adams; replay lands"))
@@ -223,7 +230,8 @@ function AdamsSession(
     # AdamsObservationWork is included after this method definition. Preparation
     # runs after module loading, so no include cycle or mutable global is needed.
     observation = policy.interpolate ? _AdamsSessionObservation(
-            AdamsObservationWork(execution, owned, policy.order; compensated), NaN, false,
+            AdamsObservationWork(execution, owned, policy.order; compensated, arithmetic),
+            NaN, false,
         ) : nothing
     return AdamsSession(
         execution, owned, policy,
@@ -234,7 +242,7 @@ function AdamsSession(
         zeros(policy.order + 1), zeros(Int, policy.order + 1),
         zeros(3), zeros(Int, capacity),
         _AdamsSessionSource(source, ledger), _AdamsSessionExponent(flow),
-        _AdamsSessionRate(flow), source_absent, observation,
+        _AdamsSessionRate(flow), source_absent, observation, arithmetic,
     )
 end
 
