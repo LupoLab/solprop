@@ -742,7 +742,18 @@ class JuliaPrepared:
 
 
 def _node_metadata(plan: JuliaNodePlan) -> dict[str, object]:
-    """Describe the request's node-array bound separately from total session memory."""
+    """Describe the request's node-array bound separately from total session memory.
+
+    Parameters
+    ----------
+    plan : JuliaNodePlan
+        The complete run request's immutable array inventory and selected capacity.
+
+    Returns
+    -------
+    dict
+        Detached execution metadata, including the budget's explicit exclusions.
+    """
     return {
         **plan.plan.record(),
         "node_chunk_array_bytes": plan.chunk_bytes,

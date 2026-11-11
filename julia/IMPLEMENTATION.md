@@ -893,3 +893,14 @@ successful forced termination is recorded separately from voluntary Julia shutdo
   tests including cold imports with absent signal constants. The unrelated service
   scheduling assumption is tracked in #700. A macOS shard passes 7,229 tests but its
   artifact upload fails DNS resolution; the next push must re-establish every gate.
+- Source range/coefficient helpers are independently reviewed at `dd38b8bf` and
+  integrated at `25b9c775`. All 159 authored bounds assertions and 128 additional
+  extreme-scale, signed-zero, coefficient-order and transactional-refusal assertions
+  pass on the exact detached review tree. These are preparation helpers, not yet
+  public binary32 execution. The original shared arithmetic record stays unchanged.
+- Service test correction #700 is reviewed and integrated at `43fb2b7c`. It waits on
+  the actual stop-file watcher at a selected saved plane and separately tests a stop
+  at the final plane. Both independent cases pass, preserving every saved array.
+  The author additionally passes all 50 affected service/helper-consumer checks.
+  Production behavior and signal policy are unchanged. A new metadata helper's missing
+  parameter/return docstrings were caught and corrected by the local fast check.
