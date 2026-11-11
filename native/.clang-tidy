@@ -14,6 +14,9 @@
 # - misc-include-cleaner: too noisy across Kokkos's umbrella headers to gate; it runs
 #   as a weekly report (.github/workflows/native-deep.yml).
 # - misc-no-recursion: recursion is a design choice in host code, not a defect.
+# - misc-const-correctness: it judges one template instantiation and the active #if
+#   branch, so it marks const the locals another instantiation's `if constexpr` or a
+#   device branch assigns (its fixes broke the CPU build in about 30 places).
 # - readability-magic-numbers: the numerical constants are cited where they appear.
 # - readability-identifier-length: short names follow the mathematics (dz, n, k).
 # - readability-math-missing-parentheses: precedence in arithmetic is not ambiguous.
@@ -44,6 +47,7 @@ Checks: >
   -misc-non-private-member-variables-in-classes,
   -misc-include-cleaner,
   -misc-no-recursion,
+  -misc-const-correctness,
   readability-*,
   -readability-magic-numbers,
   -readability-identifier-length,
