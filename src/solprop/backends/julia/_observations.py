@@ -1128,7 +1128,7 @@ def lower_observations(
         Matching original grid, required for half-maximum widths. Otherwise the
         documented centred coarse time lattice is sufficient.
     modes : sequence of Mode or None, optional
-        Matching original mode set, required only for peak on-axis intensity.
+        Matching original mode set for on-axis intensity and plasma statistics.
     profiles : mapping of str to ZProfile or None, optional
         Independent density, pressure and core-radius profiles when requested.
         Pressure is already in catalogue bar; no conversion occurs here.

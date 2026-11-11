@@ -57,6 +57,10 @@ _prepared_nodes(data::ModalSourceData) = size(data.map.synthesis, 1)
 _prepared_nodes(data::RadialSourceData) = _prepared_nodes(data.modal)
 _prepared_nodes(data::CartesianSourceData) = prod(data.shape)
 
+_prepared_arithmetic(data::ModalSourceData) = data.grid.arithmetic
+_prepared_arithmetic(data::RadialSourceData) = data.arithmetic
+_prepared_arithmetic(data::CartesianSourceData) = data.arithmetic
+
 """
     with_node_chunk(preparation, node_chunk::Int)
 

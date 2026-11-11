@@ -19,6 +19,7 @@ if group == "Core"
     include("cpu_blas.jl")
     include("execution.jl")
     include("precision.jl")
+    include("state_scaling.jl")
     include("double_float.jl")
     include("observation_precision.jl")
     include("double_float_functions.jl")

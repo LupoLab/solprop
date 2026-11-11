@@ -5,12 +5,13 @@
 """Own frequency-first numerical descriptors for Julia modal preparation."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass
 from weakref import WeakKeyDictionary
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Inexact, Int
 
+from solprop.backends.julia._precision import ArithmeticTransfer, lower_arithmetic
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError
 from solprop.translate.chebyshev import PiecewiseChebyshev
@@ -256,6 +257,8 @@ class SourceTransfer:
         Fine-grid harmonic carrier.
     kerr, raman, plasma : KerrTransfer or None, tuple, PlasmaTransfer or None
         Independent material responses with unchanged translated coefficients.
+    arithmetic : ArithmeticTransfer
+        State/source precision and the original launch's physical scale exponents.
     """
 
     kind: str
@@ -272,6 +275,7 @@ class SourceTransfer:
     kerr: KerrTransfer | None
     raman: tuple[RamanTransfer, ...]
     plasma: PlasmaTransfer | None
+    arithmetic: ArithmeticTransfer = field(default_factory=ArithmeticTransfer)
 
 
 @dataclass(frozen=True, eq=False)
@@ -306,6 +310,8 @@ class ModalTransfer:
         Translated harmonic carrier on the fine time axis.
     kerr, raman, plasma : KerrTransfer or None, tuple, PlasmaTransfer or None
         Independent material responses, retaining each response's own profiles.
+    arithmetic : ArithmeticTransfer
+        State/source precision and the original launch's physical scale exponents.
     """
 
     kind: str
@@ -329,6 +335,7 @@ class ModalTransfer:
     kerr: KerrTransfer | None
     raman: tuple[RamanTransfer, ...]
     plasma: PlasmaTransfer | None
+    arithmetic: ArithmeticTransfer = field(default_factory=ArithmeticTransfer)
 
 
 _MODAL: WeakKeyDictionary[PropagationProblem, ModalTransfer] = WeakKeyDictionary()
@@ -712,6 +719,7 @@ def lower_source(problem: PropagationProblem) -> SourceTransfer:
             _raman(component, responses.density) for component in responses.raman_terms
         ),
         _plasma(problem),
+        lower_arithmetic(problem),
     )
 
 
@@ -778,6 +786,7 @@ def lower_mapped(problem: PropagationProblem) -> ModalTransfer:
         source.kerr,
         source.raman,
         source.plasma,
+        source.arithmetic,
     )
 
 

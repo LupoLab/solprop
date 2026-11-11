@@ -40,9 +40,11 @@ function prepare_spatial(transfer::Py, threads::Int, node_chunk::Int)
     data = SolpropJulia.CartesianSourceData(
         grid, shape, operator, copy_preparation(transfer.spatial_rate),
         pyconvert(Float64, transfer.pad_scale);
-        kerr = _kerr(execution, source.kerr),
-        raman = Tuple(_raman(execution, component, grid.dt) for component in source.raman),
-        plasma = _plasma(execution, source.plasma, grid.dt),
+        kerr = _kerr(execution, source.kerr, grid.arithmetic),
+        raman = Tuple(
+            _raman(execution, component, grid.dt, grid.arithmetic) for component in source.raman
+        ),
+        plasma = _plasma(execution, source.plasma, grid.dt, grid.arithmetic),
     )
     1 <= node_chunk <= prod(shape) ||
         throw(ArgumentError("node chunk must fit the prepared spatial grid"))

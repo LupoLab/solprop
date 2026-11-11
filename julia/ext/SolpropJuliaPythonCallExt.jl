@@ -42,6 +42,16 @@ end
 
 _optional_copy(value) = pyis(value, nothing) ? nothing : copy_preparation(value)
 
+function _arithmetic(transfer)
+    name = pyconvert(String, transfer.name)
+    name in ("double", "single") || throw(ArgumentError("unknown state precision"))
+    return SolpropJulia.SourceArithmetic(
+        name == "single" ? Float32 : Float64;
+        state_exponent = pyconvert(Int, transfer.state_exponent),
+        field_exponent = pyconvert(Int, transfer.field_exponent),
+    )
+end
+
 function _profile(execution, value, name)
     if pyisinstance(value, pybuiltins.float)
         return SolpropJulia.SourceProfile(pyconvert(Float64, value); name)
@@ -49,16 +59,20 @@ function _profile(execution, value, name)
     return SolpropJulia.SourceProfile(_table(execution, value); name)
 end
 
-function _prefactor(execution, transfer, shape)
+function _prefactor(execution, transfer, shape, arithmetic)
     if !pyis(transfer.table, nothing)
-        return SolpropJulia.SourcePrefactor(_table(execution, transfer.table), shape)
+        return SolpropJulia.SourcePrefactor(
+            _table(execution, transfer.table), shape; arithmetic,
+        )
     elseif !pyis(transfer.weights, nothing)
         return SolpropJulia.SourcePrefactor(
             execution, copy_preparation(transfer.values),
-            _table(execution, transfer.weights),
+            _table(execution, transfer.weights); arithmetic,
         )
     end
-    return SolpropJulia.SourcePrefactor(execution, copy_preparation(transfer.values))
+    return SolpropJulia.SourcePrefactor(
+        execution, copy_preparation(transfer.values); arithmetic,
+    )
 end
 
 function _operator(execution, transfer, shape)
@@ -88,7 +102,7 @@ function _power_weight(execution, transfer, shape)
     return SolpropJulia.ObservationWeight(execution, copy_preparation(transfer.values))
 end
 
-function _kerr(execution, transfer)
+function _kerr(execution, transfer, arithmetic)
     pyis(transfer, nothing) && return nothing
     coefficients = SolpropJulia.KerrCoefficients(
         pyconvert(Float64, transfer.coefficient), Symbol(pyconvert(String, transfer.form));
@@ -98,11 +112,11 @@ function _kerr(execution, transfer)
         take_real = pyconvert(Bool, transfer.take_real),
     )
     return SolpropJulia.ModalKerr(
-        coefficients, _profile(execution, transfer.density, :kerr),
+        coefficients, _profile(execution, transfer.density, :kerr); arithmetic,
     )
 end
 
-function _raman(execution, transfer, dt)
+function _raman(execution, transfer, dt, arithmetic)
     kernel = SolpropJulia.RamanKernel(copy_preparation(transfer.undamped), dt)
     return SolpropJulia.ModalRaman(
         kernel, Tuple(_profile(execution, rate, :raman_decay) for rate in transfer.rates),
@@ -110,10 +124,11 @@ function _raman(execution, transfer, dt)
         fraction = pyconvert(Float64, transfer.fraction),
         material_factor = pyconvert(Float64, transfer.material_factor),
         thg = pyconvert(Bool, transfer.thg),
+        arithmetic,
     )
 end
 
-function _plasma_channel(execution, transfer)
+function _plasma_channel(execution, transfer, arithmetic)
     value = transfer.rate
     rate = SolpropJulia.IonisationRateTable(
         copy_preparation(value.coefficients), pyconvert(Float64, value.field_min),
@@ -133,23 +148,26 @@ function _plasma_channel(execution, transfer)
         )
     return SolpropJulia.ModalPlasmaChannel(
         channel, _profile(execution, transfer.density, :plasma_density),
-        _profile(execution, transfer.preionisation, :preionisation); quadrature,
+        _profile(execution, transfer.preionisation, :preionisation); quadrature, arithmetic,
     )
 end
 
-function _plasma(execution, transfer, dt)
+function _plasma(execution, transfer, dt, arithmetic)
     pyis(transfer, nothing) && return nothing
-    channels = Tuple(_plasma_channel(execution, channel) for channel in transfer.channels)
+    channels = Tuple(
+        _plasma_channel(execution, channel, arithmetic) for channel in transfer.channels
+    )
     if !pyis(transfer.taps, nothing)
         rule = SolpropJulia.RunningIntegralRule(
             copy_preparation(transfer.taps), dt;
             floor_exposure = pyconvert(Bool, transfer.floor_exposure),
         )
-        return SolpropJulia.ModalPlasma(execution, channels, rule)
+        return SolpropJulia.ModalPlasma(execution, channels, rule; arithmetic)
     end
     return SolpropJulia.ModalPlasma(
         execution, channels; drude = copy_preparation(transfer.drude),
         loss = copy_preparation(transfer.loss),
+        arithmetic,
     )
 end
 
@@ -165,6 +183,7 @@ function _source_grid(execution, transfer)
         source_window_derivative = copy_preparation(transfer.source_window_derivative),
         temporal_rate = _optional_copy(transfer.temporal_rate),
         carrier = _optional_copy(transfer.carrier),
+        arithmetic = _arithmetic(transfer.arithmetic),
     )
 end
 
@@ -176,13 +195,16 @@ function _modal_data(execution, transfer)
         projection = copy_preparation(transfer.projection),
         coarse_projection = _optional_copy(transfer.coarse_projection),
         taper = _profile(execution, transfer.taper, :taper),
+        arithmetic = grid.arithmetic,
     )
     shape = (length(grid.omega), size(map.synthesis, 2))
     return SolpropJulia.ModalSourceData(
-        grid, map, _prefactor(execution, transfer.prefactor, shape);
-        kerr = _kerr(execution, transfer.kerr),
-        raman = Tuple(_raman(execution, component, dt) for component in transfer.raman),
-        plasma = _plasma(execution, transfer.plasma, dt),
+        grid, map, _prefactor(execution, transfer.prefactor, shape, grid.arithmetic);
+        kerr = _kerr(execution, transfer.kerr, grid.arithmetic),
+        raman = Tuple(
+            _raman(execution, component, dt, grid.arithmetic) for component in transfer.raman
+        ),
+        plasma = _plasma(execution, transfer.plasma, dt, grid.arithmetic),
     )
 end
 
@@ -220,12 +242,16 @@ function _launch(preparation, transfer, field)
     host = copy_preparation(field)
     ndims(host) == 3 && size(host, 2) == 1 ||
         throw(DimensionMismatch("the starting field needs mode/component/frequency axes"))
-    state = reshape(permutedims(host, (3, 2, 1)), size(host, 3), size(host, 1))
+    physical = reshape(permutedims(host, (3, 2, 1)), size(host, 3), size(host, 1))
+    arithmetic = SolpropJulia._prepared_arithmetic(preparation.data)
+    state = SolpropJulia._prepare_scaled_state(execution, physical, arithmetic)
     control = transfer.control
     norm = SolpropJulia.MarchNorm(
         execution, copy_preparation(transfer.active), copy_preparation(transfer.observed),
         copy_preparation(transfer.weights), pyconvert(Float64, control.controller.rtol),
-        pyconvert(Float64, control.controller.atol),
+        SolpropJulia._scaled_absolute_tolerance(
+            pyconvert(Float64, control.controller.atol), arithmetic,
+        ),
     )
     schedule = SolpropJulia.MarchSchedule(;
         planes = copy_preparation(transfer.planes),

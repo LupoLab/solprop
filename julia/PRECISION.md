@@ -18,6 +18,21 @@ descriptors; Julia owns their precision-specific preparation. The master derives
 state exponent from the original translated launch using the shared precision helpers.
 It is unchanged by restart or replacement of the current field.
 
+`ArithmeticTransfer(name, state_exponent, field_exponent)` carries that record from
+Python. A physical starting field converts component by component with `ldexp`,
+then rounds once to state precision; it never forms a reciprocal scale. The same
+power scales the host absolute tolerance. Preparation refuses nonfinite inputs and
+overflow in the scaled state or tolerance. State entries retain gradual underflow;
+the separate table-buffer normal-range rule is not imposed on individual samples.
+
+Field export widens the stored state before restoring its physical scale and applying
+the existing power/optics recipe. Portable Adams history follows a different existing
+contract: the accepted raw scaled state widens to complex128, source and sampled-state
+rows retain the state's dtype, and sampled rates remain complex128. It does not apply
+physical scaling. This matches the NumPy engine and HDF5 schema. Restore requires the
+same scientific precision and exact matching row dtypes; the original launch fixes
+the common scale. Binary32 rates are never narrowed during history transport.
+
 Every narrowed source/observation buffer has a named block exponent and range fact.
 An exponent may be folded at upload only when the result retains the oracle's admitted
 range; otherwise its pass carries the exponent. Raman kernels retain normalization

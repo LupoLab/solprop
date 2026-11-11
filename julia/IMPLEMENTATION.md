@@ -7,73 +7,33 @@ The completed implementation is left ready for maintainer review, not auto-merge
 
 ## Current status
 
-Latest integration: device selection and recipe/runner transport are reviewed and
-integrated at `7c9a1e4a` (84 integration checks; managed runtime checks separate).
-The binary32 march review found and corrected actual-trial tableau admission (#707)
-and inactive norm-row overflow (#708). The corrected leaf passes 92 assertions with
-bounds checks and retains zero warmed allocation. Public single precision remains
-closed until the source, observations, Adams/history and session composition pass.
-CPU qualification exposed missing default plasma statistics (#702) and low-storage
-flow tables (#704); these are active completion work, not qualified exclusions.
-The flow-table implementation passes 265 focused Julia checks and six managed
-low-storage/reference runs with unchanged replay and scientific defaults. Its exact
-constant-span/two-endpoint keys, bounded ownership and failed-build invalidation
-await independent review. The public-selection fixture corrections (#706) pass
-154 directly affected tests, and whole-tree typing reports zero errors (three
-existing native stub warnings). An earlier local test start overlapped the device
-cherry-pick and restarted four import-failed workers; the stable rerun is the cited
-result. No numerical/runtime crash is inferred from that orchestration error.
-Independent review of `397a8407` passed 196 assertions, including all 92 committed
-march checks and 104 additional transaction, range and mask witnesses.
-The flow review identified cross-precision caller reuse (#709). Both flow modes now
-require the prepared input/output element type before touching any cache or output.
-The corrected flow leaf passes 297 assertions; all 92 march checks still pass.
-The public managed CPU module passes all 11 tests, and probe/lowering checks pass 54.
-Flow-cache independent review passed 777 checks at exact `26dbb82f` (297 committed,
-480 additional), with no remaining blocker. The six default plasma/species rows are
-integrated at `b7fe3caa`; Python lowering, physical-measure transfer and the diagnostic
-node inventory are attached. Lowering/planning passes 90 tests (38 managed skips),
-the two real field/envelope launch-statistic cases pass with runtime type checks,
-and all 12 inventory tests pass, including actual buffers at chunks 1, 3 and 7.
-Independent review approves exact `3c53598d`: 3,720 bounds-enabled Julia assertions,
-243 fresh comparisons with the actual NumPy functions, and 14 typed managed tests
-all pass. Warmed allocations remain zero. The remaining on-axis and spectral-flux
-rows are a separate assigned slice. Binary32 source composition `8e0818ac` is reviewed
-and integrated at `3ffab027`. The master reran 6,168 bounds-enabled assertions,
-including 154 additional scale-covariance, retained-map and failed-range transaction
-checks; all pass and warmed allocations remain zero. An initial private harness
-omitted the unaliased package import and was corrected before this run. Adams and
-observation precision proceed in their disjoint worktrees. Public binary32 remains
-closed pending the complete session and scaling attachment.
+The binary64 CPU source/session/services path is integrated. Device-selection and
+execution-option transport are reviewed; actual device execution remains refused.
+Reviewed completion fixes cover low-storage flow caching, default plasma/species
+statistics and on-axis/spectral-flux statistics. Latest integration is `c9be0c2b`.
+Independent attachment review passes all 14 typed managed/pure cases plus 109
+additional numerical, range, shape and memory checks. Source and flow leaves retain
+zero warmed allocation. Full phase 2 qualification remains open.
 
-The first comparative CPU campaign has completed with four successful short-window
-comparisons and the retained #702/#704 refusals. Its partial results are recorded
-in `docs/dev/benchmarks.md`; it is not a complete phase 2 qualification. The next
-campaign must run the same scientific settings with the reviewed completion fixes.
-Linux Julia CI at `08721c9d` passes package core/quality and 1,152 adapter checks;
-65 fixture errors are corrected by #706. One pure-Python supervisor smoke test
-also fails and is corrected independently in #710. macOS finishes package quality
-but reaches the one-hour job deadline during its adapter selection (#712); the next
-run has a bounded two-hour job allowance and reports slow-test durations. Individual
-runtime-probe deadlines remain unchanged. No cloud resources have been rented;
-campaign spend remains zero. The measured redundant RK source work is tracked in
-#711, separately from the mandatory capability completion.
-Supervisor correction `228f14ab` is reviewed and integrated at `5a5581a1`; 40
-supervisor/Windows-collection checks pass after updating the expected collected
-case count. The CI-driver selection passes 64 checks; scoped types report no errors
-or warnings. The documentation build passes with the partial benchmark ledger.
+Phase 3 has reviewed source composition, march arithmetic and protected-reduction
+foundations. Adams leaf `d1a0c1f3` and RK/session/probe leaf `cf78b0b4` have passed
+author bounds/quality checks and are under independent integration review. Observation
+numerical leaf `077211b5` is under independent review; reconstruction is the next
+assigned slice. Master launch-scale records and source/launch bridge attachment pass
+51 Python checks, 235 bounds-enabled Julia assertions, 25 typed managed CPU/axis
+cases and scoped types with no errors or warnings. Independent review of that
+attachment remains required; it does not enable public single precision.
+Public single precision remains closed until source, observations, session export,
+portable history and all admitted routes compose correctly.
 
-The next CPU campaign uses `5fc63437` and the same short-window settings for all
-twelve admitted standard tracking cases. The excluded general-modal case retains
-its original named refusal. The new full CI run is in progress; its static lane
-found one unformatted documentation code block, now formatted with the configured
-tool. The binary64 on-axis/spectral leaf is independently approved and integrated
-at `1e9f6a5f`/`b2baf14b`, including #713's foreign-span alias correction. Review
-passes 345 Julia assertions and 435 actual NumPy comparisons with zero warmed
-allocations. Public attachment passes 13 typed axis/lowering/inventory tests and
-one additional managed unit-flux test; the wider pure selection passes 88 tests,
-with 41 declared managed-runtime skips. Scoped types report no errors or warnings.
-The flux witness explicitly applies the launch hard mask before comparison.
+The corrected CPU campaign at `5fc63437` has passed 23 managed CPU/inventory smoke
+checks and is running all twelve admitted standard short-window cases at one thread
+and the default CPU budget. Four earlier successful comparisons and their retained
+failures are documented in `docs/dev/benchmarks.md`; they are partial evidence.
+The current CI run is in progress. Its one documentation formatting failure is fixed
+locally; earlier fixture/supervisor corrections and the bounded two-hour Julia job
+allowance are in the pushed revision. No full qualification is claimed from targeted
+checks. No cloud resources have been rented; campaign spend remains zero.
 
 | Phase | Status | Evidence or prerequisite |
 |---|---|---|
