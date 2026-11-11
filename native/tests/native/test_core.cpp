@@ -130,21 +130,23 @@ native::Problem base_problem(const native::FieldFamily family) {
 
 native::TrialScalars trial(const native::Problem& problem, const double taper = 1.0) {
   return {
-      std::vector<double>((problem.n_stages + 1) * problem.n_phi_terms, 0.0),
-      std::vector<double>(problem.n_stages * problem.n_phi_terms, 0.0),
-      std::vector<double>(problem.n_stages * problem.n_prefactor_terms, 1.0),
-      std::vector<double>(problem.n_stages, 1.0),
-      std::vector<double>(problem.n_stages, taper),
-      {},
-      std::vector<double>(problem.n_stages * problem.n_raman_terms, 0.0),
-      {},
-      {},
-      {},
-      {},
-      0,
-      {},
-      {},
-      {},
+      .phi_delta =
+          std::vector<double>((problem.n_stages + 1) * problem.n_phi_terms, 0.0),
+      .phi_at = std::vector<double>(problem.n_stages * problem.n_phi_terms, 0.0),
+      .prefactor =
+          std::vector<double>(problem.n_stages * problem.n_prefactor_terms, 1.0),
+      .density = std::vector<double>(problem.n_stages, 1.0),
+      .taper = std::vector<double>(problem.n_stages, taper),
+      .preionisation = {},
+      .raman_rates = std::vector<double>(problem.n_stages * problem.n_raman_terms, 0.0),
+      .kerr_density = {},
+      .plasma_densities = {},
+      .plasma_preionisation = {},
+      .raman_densities = {},
+      .flow_section = 0,
+      .flow_weights = {},
+      .transform_weights = {},
+      .dispersive_densities = {},
   };
 }
 
@@ -1643,10 +1645,11 @@ PlanarElement planar_element(const native::Problem& problem, const std::size_t c
   const double attenuation =
       propagating ? root.imag()
                   : std::min(std::abs(root.imag()), problem.spatial_evanescent_rate);
-  return {Complex(-attenuation, -(root.real() - problem.spatial_frame[omega])) -
+  return {.linear =
+              Complex(-attenuation, -(root.real() - problem.spatial_frame[omega])) -
               0.5 * problem.spatial_spectral_rate[omega],
-          propagating ? problem.spatial_numerator[omega] / root.real()
-                      : problem.spatial_clamped[omega]};
+          .prefactor = propagating ? problem.spatial_numerator[omega] / root.real()
+                                   : problem.spatial_clamped[omega]};
 }
 
 // The stage straight from the definitions: the inverse DFT in y, each row's real time
@@ -2308,8 +2311,11 @@ WindowedScan windowed_band_scan(const std::vector<double>& row,
       Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, windowed);
   const auto host_totals =
       Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, totals);
-  WindowedScan result{std::vector<double>(samples), std::vector<double>(samples),
-                      std::vector<double>(samples), window, host_totals(0)};
+  WindowedScan result{.filtered = std::vector<double>(samples),
+                      .whole = std::vector<double>(samples),
+                      .windowed = std::vector<double>(samples),
+                      .window = window,
+                      .total = host_totals(0)};
   for (std::size_t i = 0; i < samples; ++i) {
     result.filtered[i] = host_filtered(0, i);
     result.whole[i] = host_whole(0, i);
@@ -2755,7 +2761,8 @@ TEST(CpuThreadPolicy, AutomaticBoundariesAreMonotoneAndCapped) {
       native::test::table()[native::CpuOperation::modal].threshold,
       native::test::table()[native::CpuOperation::adams].full};
   for (const int cap : {1, 2, 3, 8, 72}) {
-    native::ThreadPolicy policy{cap, cap, cap, cap};
+    native::ThreadPolicy policy{
+        .kernels = cap, .fft = cap, .raman_fft = cap, .raman_tail_fft = cap};
     for (std::size_t index = 0; index < operations.size(); ++index) {
       const auto width = [&](const std::size_t elements) {
         return native::operation_threads(policy, native::test::table(),
@@ -2784,7 +2791,8 @@ TEST(CpuThreadPolicy, AutomaticBoundariesAreMonotoneAndCapped) {
 }
 
 TEST(CpuThreadPolicy, ShortCopiesDoNotInheritTheStageWidth) {
-  native::ThreadPolicy policy{18, 18, 18, 18};
+  native::ThreadPolicy policy{
+      .kernels = 18, .fft = 18, .raman_fft = 18, .raman_tail_fft = 18};
   EXPECT_EQ(native::operation_threads(policy, native::test::table(),
                                       native::CpuPool::kernels,
                                       native::CpuOperation::copy, 8192),
@@ -2808,7 +2816,8 @@ TEST(CpuThreadPolicy, SmoothGridSizesKeepThePowerOfTwoWidths) {
 #ifdef __APPLE__
   GTEST_SKIP() << "macOS keeps the 8192/32768 boundaries";
 #endif
-  native::ThreadPolicy policy{18, 18, 18, 18};
+  native::ThreadPolicy policy{
+      .kernels = 18, .fft = 18, .raman_fft = 18, .raman_tail_fft = 18};
   const auto width = [&](const native::CpuOperation operation, const std::size_t n) {
     return native::operation_threads(policy, native::test::table(),
                                      native::CpuPool::kernels, operation, n);
@@ -2821,7 +2830,11 @@ TEST(CpuThreadPolicy, SmoothGridSizesKeepThePowerOfTwoWidths) {
 }
 
 TEST(CpuThreadPolicy, CoupledMatrixWindowRetainsFullWidth) {
-  native::ThreadPolicy policy{72, 72, 72, 72, -1};
+  native::ThreadPolicy policy{.kernels = 72,
+                              .fft = 72,
+                              .raman_fft = 72,
+                              .raman_tail_fft = 72,
+                              .band_tiles = -1};
   // Active bins * modes^3 in the measured three-mode wall, independent of runtime.
   EXPECT_EQ(native::operation_threads(policy, native::test::table(),
                                       native::CpuPool::kernels,
@@ -2833,7 +2846,8 @@ TEST(CpuThreadPolicy, ResponseShapeThresholdsAreMonotoneAndCapped) {
   using native::CpuOperation;
   using native::CpuPool;
   for (const int cap : {1, 3, 18, 72}) {
-    native::ThreadPolicy policy{cap, cap, cap, cap};
+    native::ThreadPolicy policy{
+        .kernels = cap, .fft = cap, .raman_fft = cap, .raman_tail_fft = cap};
     const auto width = [&](const std::size_t rows, const std::size_t samples) {
       return native::operation_threads(policy, native::test::table(), CpuPool::kernels,
                                        CpuOperation::response, rows * samples, samples);
@@ -2869,7 +2883,8 @@ TEST(CpuThreadPolicy, ResponseShapeThresholdsAreMonotoneAndCapped) {
 TEST(CpuThreadPolicy, ExplicitPoolsBypassSizingIndependently) {
   using native::CpuOperation;
   using native::CpuPool;
-  native::ThreadPolicy policy{7, 6, 5, 4};
+  native::ThreadPolicy policy{
+      .kernels = 7, .fft = 6, .raman_fft = 5, .raman_tail_fft = 4};
   const std::array pools{CpuPool::kernels, CpuPool::fft, CpuPool::raman_fft,
                          CpuPool::raman_tail_fft};
   for (unsigned requested = 0; requested < pools.size(); ++requested) {
@@ -2897,7 +2912,8 @@ TEST(CpuThreadPolicy, ExplicitPoolsBypassSizingIndependently) {
 }
 
 TEST(CpuThreadPolicy, GeneralModalTransformsKeepTheirMeasuredWidth) {
-  native::ThreadPolicy policy{18, 18, 18, 18};
+  native::ThreadPolicy policy{
+      .kernels = 18, .fft = 18, .raman_fft = 18, .raman_tail_fft = 18};
   for (const std::size_t elements : {98496U, 209304U}) {
     EXPECT_EQ(native::operation_threads(policy, native::test::table(),
                                         native::CpuPool::kernels,
@@ -3002,12 +3018,13 @@ TEST(CpuThreadPolicy, TransformBatchesThreadByRowsAndRowLength) {
   if (!native::cpu_size_policy_enabled)
     GTEST_SKIP() << "needs automatic per-operation sizing";
   native::CpuExecution execution = native::test::table();
-  execution.grain[static_cast<std::size_t>(native::CpuOperation::fft)] = {8192,
-                                                                          1U << 22};
+  execution.grain[static_cast<std::size_t>(native::CpuOperation::fft)] = {
+      .threshold = 8192, .full = 1U << 22};
   execution.fft_thread_elements = 4096;
   execution.fft_long_row = 16384;
   execution.medium_threads = 4;
-  const native::ThreadPolicy policy{18, 18, 18, 18};
+  const native::ThreadPolicy policy{
+      .kernels = 18, .fft = 18, .raman_fft = 18, .raman_tail_fft = 18};
   const auto threads = [&](const std::size_t rows, const std::size_t length) {
     return native::operation_threads(policy, execution, native::CpuPool::fft,
                                      native::CpuOperation::fft, rows * length, length);

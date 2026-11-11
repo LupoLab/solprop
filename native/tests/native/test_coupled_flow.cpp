@@ -113,21 +113,21 @@ Actions actions() {
 
 native::TrialScalars scalars(const bool residual, const std::size_t section) {
   native::TrialScalars result{
-      std::vector<double>((kStages + 1), kStep),
-      std::vector<double>(kStages, kStep),
-      std::vector<double>(kStages, 1.0),
-      std::vector<double>(kStages, 1.0),
-      std::vector<double>(kStages, 1.0),
-      {},
-      {},
-      {},
-      {},
-      {},
-      {},
-      section,
-      {},
-      {},
-      {},
+      .phi_delta = std::vector<double>((kStages + 1), kStep),
+      .phi_at = std::vector<double>(kStages, kStep),
+      .prefactor = std::vector<double>(kStages, 1.0),
+      .density = std::vector<double>(kStages, 1.0),
+      .taper = std::vector<double>(kStages, 1.0),
+      .preionisation = {},
+      .raman_rates = {},
+      .kerr_density = {},
+      .plasma_densities = {},
+      .plasma_preionisation = {},
+      .raman_densities = {},
+      .flow_section = section,
+      .flow_weights = {},
+      .transform_weights = {},
+      .dispersive_densities = {},
   };
   if (residual)
     for (std::size_t index = 0; index < kStages * kTerms; ++index)

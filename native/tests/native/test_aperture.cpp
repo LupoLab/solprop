@@ -174,18 +174,18 @@ std::vector<double> run(Case& data, const std::uint64_t flags, const int profile
   Kokkos::deep_copy(field, host);
   native::FarFieldPass pass(data.problem, native::ExecutionSpace{});
   const native::FarFieldPass::Inputs inputs{
-      device("test.weights", data.weights),
-      device("test.on_axis", data.on_axis),
-      device("test.square", data.square),
-      device("test.square_low", data.square_low),
-      device("test.transverse", data.transverse),
-      device("test.transverse_low", data.transverse_low),
-      device("test.spectral_rate", data.spectral_rate),
-      device("test.user_rate", data.user_rate),
-      device("test.transverse_rate", data.transverse_rate),
-      device("test.omega", data.omega),
-      device("test.active", data.active),
-      data.evanescent};
+      .weights = device("test.weights", data.weights),
+      .on_axis = device("test.on_axis", data.on_axis),
+      .square = device("test.square", data.square),
+      .square_low = device("test.square_low", data.square_low),
+      .transverse = device("test.transverse", data.transverse),
+      .transverse_low = device("test.transverse_low", data.transverse_low),
+      .spectral_rate = device("test.spectral_rate", data.spectral_rate),
+      .user_rate = device("test.user_rate", data.user_rate),
+      .transverse_rate = device("test.transverse_rate", data.transverse_rate),
+      .omega = device("test.omega", data.omega),
+      .active = device("test.active", data.active),
+      .evanescent = data.evanescent};
   auto values = pass.run(flags, apertures, exponent, data.regions, 0.5, field, inputs);
   pass.close();
   return values;
@@ -218,12 +218,13 @@ double host_weight(const Case& data, const std::size_t index, const double kx,
   return native::far_field_shaped_weight(
       native::far_field_offset(scale, kx, centre_x),
       native::far_field_offset(scale, ky, centre_y),
-      native::FarFieldOutline{constants[native::far_field_half_width],
-                              constants[native::far_field_half_height],
-                              constants[native::far_field_stretch_x],
-                              constants[native::far_field_stretch_y],
-                              constants[native::far_field_inverse_width],
-                              constants[native::far_field_edge]},
+      native::FarFieldOutline{.half_width = constants[native::far_field_half_width],
+                              .half_height = constants[native::far_field_half_height],
+                              .stretch_x = constants[native::far_field_stretch_x],
+                              .stretch_y = constants[native::far_field_stretch_y],
+                              .inverse_width =
+                                  constants[native::far_field_inverse_width],
+                              .edge = constants[native::far_field_edge]},
       shape, code);
 }
 
@@ -518,9 +519,12 @@ TEST(FarFieldPass, TheShapesAreTheirFormulas) {
   const auto outline = [](const double half_width, const double half_height,
                           const double stretch_x, const double stretch_y,
                           const double width) {
-    return native::FarFieldOutline{
-        half_width, half_height, stretch_x, stretch_y, width > 0.0 ? 1.0 / width : 0.0,
-        width};
+    return native::FarFieldOutline{.half_width = half_width,
+                                   .half_height = half_height,
+                                   .stretch_x = stretch_x,
+                                   .stretch_y = stretch_y,
+                                   .inverse_width = width > 0.0 ? 1.0 / width : 0.0,
+                                   .edge = width};
   };
   // The offset is X - x, so x >= X reads across <= 0, whichever side is asked for.
   EXPECT_EQ(native::far_field_offset(2.0, -3.0, 1.0), -5.0);

@@ -394,8 +394,10 @@ void crossing_tiles(const char* label, const ExecutionSpace& execution,
         const std::size_t first_row = (index / bin_tiles) * tile_rows;
         const std::size_t first_bin = (index % bin_tiles) * tile_bins;
         visit(CrossingTile{
-            first_row, rows - first_row < tile_rows ? rows : first_row + tile_rows,
-            first_bin, width - first_bin < tile_bins ? width : first_bin + tile_bins});
+            .first_row = first_row,
+            .last_row = rows - first_row < tile_rows ? rows : first_row + tile_rows,
+            .first_bin = first_bin,
+            .last_bin = width - first_bin < tile_bins ? width : first_bin + tile_bins});
         // Each thread orders its own streaming stores before the region ends.
         if constexpr (Streaming)
           stream_fence();
@@ -815,7 +817,8 @@ struct SpatialCoefficients {
     const Complex prefactor =
         propagating ? numerator(omega) / root.real() : clamped(omega);
 #endif
-    return {linear - 0.5 * spectral_rate(omega), active ? prefactor : Complex{}};
+    return {.linear = linear - 0.5 * spectral_rate(omega),
+            .prefactor = active ? prefactor : Complex{}};
   }
 };
 
@@ -1668,8 +1671,12 @@ struct EntryBlock {
   double noise_cosine[stage_block], noise_sine[stage_block];
 
   [[nodiscard]] EntryFactors at(const std::size_t bin) const {
-    return {cosine[bin],  sine[bin],         magnitude[bin],
-            inverse[bin], noise_cosine[bin], noise_sine[bin]};
+    return {.cosine = cosine[bin],
+            .sine = sine[bin],
+            .magnitude = magnitude[bin],
+            .inverse = inverse[bin],
+            .noise_cosine = noise_cosine[bin],
+            .noise_sine = noise_sine[bin]};
   }
 };
 
@@ -2488,8 +2495,12 @@ public:
   // Free space and the hybrid planar kind (`Problem::separable_geometry`).
   TransverseLayout transverse_layout() const noexcept {
     const std::size_t plane = transverse_.extent(1) * transverse_.extent(2);
-    return problem_.slab_geometry() ? TransverseLayout{problem_.n_p, true, plane}
-                                    : TransverseLayout{problem_.n_x, false, plane};
+    return problem_.slab_geometry() ? TransverseLayout{.inner = problem_.n_p,
+                                                       .channel_fastest = true,
+                                                       .plane = plane}
+                                    : TransverseLayout{.inner = problem_.n_x,
+                                                       .channel_fastest = false,
+                                                       .plane = plane};
   }
   RegisterIndex register_index() const noexcept {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
@@ -2497,8 +2508,11 @@ public:
 #else
     constexpr bool plane = true;
 #endif
-    return {transverse_layout(), problem_.n_pol_state, problem_.n_omega, plane,
-            problem_.n_pol_state == 1};
+    return {.layout = transverse_layout(),
+            .n_pol = problem_.n_pol_state,
+            .n = problem_.n_omega,
+            .plane = plane,
+            .scalar = problem_.n_pol_state == 1};
   }
   // A stage's scratch positions: the volume route's own order on a device, or the
   // scratch's (`register_index`). Every other pass over the scratch forms its own input
@@ -4383,17 +4397,32 @@ void GeneralWorkspace::allocate() {
     const bool slab = problem_.slab_geometry();
     separable_dispersive_ = std::make_unique<SeparableDispersive>(
         problem_, kernel_pool_,
-        SeparableDispersive::StageViews{
-            fine_spectrum_, projected_spectrum_, node_real_, polarisation_real_,
-            node_complex_, polarisation_complex_, slab ? synthesis_ : RealView2{},
-            slab ? projection_ : RealView2{}, time_window_, carrier_});
+        SeparableDispersive::StageViews{.fine_spectrum = fine_spectrum_,
+                                        .projected_spectrum = projected_spectrum_,
+                                        .node_real = node_real_,
+                                        .polarisation_real = polarisation_real_,
+                                        .node_complex = node_complex_,
+                                        .polarisation_complex = polarisation_complex_,
+                                        .synthesis = slab ? synthesis_ : RealView2{},
+                                        .projection = slab ? projection_ : RealView2{},
+                                        .time_window = time_window_,
+                                        .carrier = carrier_});
   } else if (problem_.dispersive && !problem_.general_modal) {
     dispersive_ = std::make_unique<DispersiveResponse>(
         problem_, kernel_pool_,
         DispersiveResponse::StageViews{
-            fine_spectrum_, projected_spectrum_, projected_coarse_spectrum_, node_real_,
-            polarisation_real_, node_complex_, polarisation_complex_, scaled_synthesis_,
-            scaled_projection_, scaled_projection_coarse_, time_window_, carrier_});
+            .fine_spectrum = fine_spectrum_,
+            .projected_spectrum = projected_spectrum_,
+            .projected_coarse_spectrum = projected_coarse_spectrum_,
+            .node_real = node_real_,
+            .polarisation_real = polarisation_real_,
+            .node_complex = node_complex_,
+            .polarisation_complex = polarisation_complex_,
+            .scaled_synthesis = scaled_synthesis_,
+            .scaled_projection = scaled_projection_,
+            .scaled_projection_coarse = scaled_projection_coarse_,
+            .time_window = time_window_,
+            .carrier = carrier_});
   }
   if (problem_.dispersive) {
     // The response holds execution-space copies of its layout (the general route's
@@ -5413,17 +5442,18 @@ std::vector<double> GeneralWorkspace::trial_step(const double dz,
       execution_space_, count, n, dz,
       KOKKOS_LAMBDA(const std::size_t column) {
         const auto slot = column * slots;
-        return UpdateColumn{current.data() + column * current.stride(0),
-                            solution.data() + column * solution.stride(0),
-                            error.data() + column * error.stride(0),
-                            whole.data() + column * whole.stride(0),
-                            advanced.data() + column * advanced.stride(0),
-                            residual.data() + column * residual.stride(0),
-                            in_norm.data(),
-                            partials.data() + slot,
-                            partials.data() + partials.stride(0) + slot,
-                            partials.data() + 2 * partials.stride(0) + slot,
-                            carried.data() + column * carried.stride(0)};
+        return UpdateColumn{.current = current.data() + column * current.stride(0),
+                            .solution = solution.data() + column * solution.stride(0),
+                            .error = error.data() + column * error.stride(0),
+                            .whole = whole.data() + column * whole.stride(0),
+                            .advanced = advanced.data() + column * advanced.stride(0),
+                            .residual = residual.data() + column * residual.stride(0),
+                            .in_norm = in_norm.data(),
+                            .old_partial = partials.data() + slot,
+                            .new_partial = partials.data() + partials.stride(0) + slot,
+                            .error_partial =
+                                partials.data() + 2 * partials.stride(0) + slot,
+                            .carried = carried.data() + column * carried.stride(0)};
       },
       "solprop_native.step.accept_error_partials", slots);
   return collect_trial();
@@ -5457,7 +5487,7 @@ std::vector<Complex> GeneralWorkspace::adams_source(const std::vector<Complex>& 
     std::unique_ptr<CoupledFlowAction>& held;
     // NOLINTNEXTLINE(modernize-use-equals-default): restores the slot (see FlowAside).
     ~RestoreFlow() { slot = std::move(held); }
-  } restore{flow_, held_flow};
+  } restore{.slot = flow_, .held = held_flow};
   require_trial_scalars(scalars);
   upload_trial(scalars);
   if (general_)
@@ -6619,9 +6649,15 @@ GeneralWorkspace::adams_fused_trial(const double dz, const AdamsWeights& weights
         advanced(column, index) =
             propagator(column, index) * (current(column, index) + dz * total);
       });
-  const AdamsDefectNorms reducer{weights.n_rows, store,      source,
-                                 propagator,     norm_mask_, adams_divisor_,
-                                 weights,        dz,         n};
+  const AdamsDefectNorms reducer{.value_count = weights.n_rows,
+                                 .store = store,
+                                 .source = source,
+                                 .propagator = propagator,
+                                 .in_norm = norm_mask_,
+                                 .divisor = adams_divisor_,
+                                 .weights = weights,
+                                 .dz = dz,
+                                 .n = n};
   return adams_norms(
       "solprop_native.adams.defect_norms",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns * n), reducer,
@@ -8424,35 +8460,35 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
   // On a device the source's launches replay as one graph while they repeat.
   adams_source_graph_.run(execution_space_, [&] { adams_evaluate_source(sample); });
   std::swap(current_, adams_saved_);
-  const ExponentialCorrection reducer{weights.n_rows,
-                                      store,
-                                      moments,
-                                      stages_,
-                                      carried,
-                                      phi_terms,
-                                      adams_source_,
-                                      flow,
-                                      current_,
-                                      advanced_,
-                                      exponent,
-                                      lab,
-                                      adams_endpoint_,
-                                      adams_endpoint_rate_,
-                                      stage_rate_weights_,
-                                      in_norm,
-                                      adams_divisor_,
-                                      adams_scale_weights_,
-                                      adams_magnitude_sum_,
-                                      weights,
-                                      dz,
-                                      inverse_dz,
-                                      adams_rtol_,
-                                      adams_atol_,
-                                      n,
-                                      blocks,
-                                      n_phi,
-                                      device_scale,
-                                      !separable};
+  const ExponentialCorrection reducer{.value_count = weights.n_rows,
+                                      .store = store,
+                                      .moments = moments,
+                                      .stages = stages_,
+                                      .carried = carried,
+                                      .phi_terms = phi_terms,
+                                      .source = adams_source_,
+                                      .flow = flow,
+                                      .current = current_,
+                                      .advanced = advanced_,
+                                      .exponent = exponent,
+                                      .lab = lab,
+                                      .endpoint = adams_endpoint_,
+                                      .endpoint_rate = adams_endpoint_rate_,
+                                      .rate_weights = stage_rate_weights_,
+                                      .in_norm = in_norm,
+                                      .divisor = adams_divisor_,
+                                      .scale_weights = adams_scale_weights_,
+                                      .magnitude_sum = adams_magnitude_sum_,
+                                      .weights = weights,
+                                      .dz = dz,
+                                      .inverse_dz = inverse_dz,
+                                      .rtol = adams_rtol_,
+                                      .atol = adams_atol_,
+                                      .n = n,
+                                      .blocks = blocks,
+                                      .n_phi = n_phi,
+                                      .device_scale = device_scale,
+                                      .rate_formed = !separable};
   auto norms = adams_norms("solprop_native.adams.exponential_correct", tasks, reducer,
                            weights.n_rows);
   adams_trial_compensated_ = compensated;
@@ -9241,10 +9277,20 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
         }
       });
 #endif
-  const CoupledDefectNorms reducer{weights.n_rows, store,          moments, source,
-                                   carried,        endpoint,       block,   slots,
-                                   norm_mask_,     adams_divisor_, weights, dz,
-                                   modes,          adams_channels_};
+  const CoupledDefectNorms reducer{.value_count = weights.n_rows,
+                                   .store = store,
+                                   .moments = moments,
+                                   .source = source,
+                                   .carried = carried,
+                                   .endpoint = endpoint,
+                                   .block = block,
+                                   .slots = slots,
+                                   .in_norm = norm_mask_,
+                                   .divisor = adams_divisor_,
+                                   .weights = weights,
+                                   .dz = dz,
+                                   .modes = modes,
+                                   .channels = adams_channels_};
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   // A device item is a (bin, channel) pair, a host item a bin.
   const auto items = n * modes;
@@ -9518,14 +9564,14 @@ void GeneralWorkspace::rk_dense_hold(const double dz) {
     weights.dense[stage] = rk_dense_weights_[stage];
   }
   // The trial's own scalars are bound: their last row is the whole step's.
-  const StepExponent step{problem_.separable_geometry(),
-                          spatial_,
-                          active_mask_,
-                          stage_phi_delta_,
-                          phi_terms_,
-                          problem_.n_pol_state,
-                          problem_.n_stages,
-                          problem_.n_phi_terms};
+  const StepExponent step{.separable = problem_.separable_geometry(),
+                          .spatial = spatial_,
+                          .active = active_mask_,
+                          .delta = stage_phi_delta_,
+                          .phi_terms = phi_terms_,
+                          .n_pol = problem_.n_pol_state,
+                          .n_stages = problem_.n_stages,
+                          .n_phi = problem_.n_phi_terms};
   const auto current = current_;
   const auto stages = stages_;
   const auto coefficients = rk_dense_coefficients_;
@@ -9568,14 +9614,14 @@ void GeneralWorkspace::rk_dense_observe(const double theta, const TrialScalars& 
   require_trial_scalars(carry);
   graph::deep_copy(execution_space_, rk_dense_held_, current_);
   upload_trial(carry);
-  const StepExponent flow{problem_.separable_geometry(),
-                          spatial_,
-                          active_mask_,
-                          stage_phi_delta_,
-                          phi_terms_,
-                          problem_.n_pol_state,
-                          problem_.n_stages,
-                          problem_.n_phi_terms};
+  const StepExponent flow{.separable = problem_.separable_geometry(),
+                          .spatial = spatial_,
+                          .active = active_mask_,
+                          .delta = stage_phi_delta_,
+                          .phi_terms = phi_terms_,
+                          .n_pol = problem_.n_pol_state,
+                          .n_stages = problem_.n_stages,
+                          .n_phi = problem_.n_phi_terms};
   const double rest = 1.0 - theta;
   const auto coefficients = rk_dense_coefficients_;
   const auto stiff = rk_dense_stiff_;
@@ -9670,9 +9716,12 @@ GeneralWorkspace::transverse_chunk(const std::size_t first_unit) const noexcept 
   const auto units =
       std::min(transverse_units_per_chunk(), transverse_units() - first_unit);
   if (problem_.slab_geometry())
-    return {first_unit * problem_.n_p, units * problem_.n_p, first_unit * problem_.n_x,
-            units * problem_.n_x};
-  return {first_unit, units, first_unit, units};
+    return {.first_row = first_unit * problem_.n_p,
+            .rows = units * problem_.n_p,
+            .first_node = first_unit * problem_.n_x,
+            .nodes = units * problem_.n_x};
+  return {
+      .first_row = first_unit, .rows = units, .first_node = first_unit, .nodes = units};
 }
 
 void GeneralWorkspace::transverse_forward() {
@@ -11606,7 +11655,7 @@ KOKKOS_INLINE_FUNCTION BandWindow band_window_of(const BandLive& live,
   if constexpr (band_windows)
     return band_support(live.min_val, live.max_val, samples, half);
   else
-    return {0, samples - 1};
+    return {.first = 0, .last = samples - 1};
 }
 
 /** Count `index` into `live` when `value` is not exactly zero. */
@@ -15009,13 +15058,13 @@ void GeneralWorkspace::separable_fluence(const double intensity_factor) {
   const auto scratch = transverse_;
   const auto closure_scratch = flux_transverse_;
   const auto partials = spatial_statistics_partials_;
-  const PhysicalSpectrum spectrum{transverse_layout(),
-                                  synthesis_,
-                                  problem_.n_x,
-                                  problem_.n_p,
-                                  static_cast<double>(problem_.n_t) /
-                                      static_cast<double>(problem_.n_to),
-                                  problem_.slab_geometry()};
+  const PhysicalSpectrum spectrum{.layout = transverse_layout(),
+                                  .synthesis = synthesis_,
+                                  .n_x = problem_.n_x,
+                                  .n_p = problem_.n_p,
+                                  .crop_scale = static_cast<double>(problem_.n_t) /
+                                                static_cast<double>(problem_.n_to),
+                                  .slab = problem_.slab_geometry()};
   const auto n_nodes = problem_.n_nodes;
   const auto n_pol = problem_.n_pol_state;
   const auto n = problem_.n_omega;
@@ -15492,18 +15541,18 @@ std::vector<double> GeneralWorkspace::aperture_statistics(
 }
 
 FarFieldPass::Inputs GeneralWorkspace::far_field_inputs() const {
-  return FarFieldPass::Inputs{spatial_spectral_weights_,
-                              spatial_on_axis_,
-                              spatial_.square,
-                              spatial_.square_low,
-                              spatial_.transverse,
-                              spatial_.transverse_low,
-                              spatial_.spectral_rate,
-                              spatial_.user_rate,
-                              spatial_.transverse_rate,
-                              omega_,
-                              active_mask_,
-                              spatial_.evanescent};
+  return FarFieldPass::Inputs{.weights = spatial_spectral_weights_,
+                              .on_axis = spatial_on_axis_,
+                              .square = spatial_.square,
+                              .square_low = spatial_.square_low,
+                              .transverse = spatial_.transverse,
+                              .transverse_low = spatial_.transverse_low,
+                              .spectral_rate = spatial_.spectral_rate,
+                              .user_rate = spatial_.user_rate,
+                              .transverse_rate = spatial_.transverse_rate,
+                              .omega = omega_,
+                              .active = active_mask_,
+                              .evanescent = spatial_.evanescent};
 }
 
 std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t flags,
@@ -16625,8 +16674,8 @@ EdgeNumbers GeneralWorkspace::edge_reading(const bool faces, const bool whole,
       return real * real + imaginary * imaginary;
     };
     const auto sums = [&](const char* label, const RealView2& weights) {
-      return monitor_sums(label, execution_space_, n, rows, EdgeWeights{weights, first},
-                          power);
+      return monitor_sums(label, execution_space_, n, rows,
+                          EdgeWeights{.weights = weights, .first = first}, power);
     };
     take(sums("solprop_native.edge.faces", edge_faces_));
     if (whole)
@@ -16649,7 +16698,7 @@ EdgeNumbers GeneralWorkspace::edge_reading(const bool faces, const bool whole,
     };
     const auto sums = [&](const char* label, const RealView2& weights) {
       return monitor_sums(label, execution_space_, n_pol * n, nodes - first,
-                          EdgeWeights{weights, first}, power);
+                          EdgeWeights{.weights = weights, .first = first}, power);
     };
     take(sums("solprop_native.edge.faces", edge_faces_));
     if (whole)
@@ -16696,16 +16745,30 @@ EdgeNumbers GeneralWorkspace::edge_reading(const bool faces, const bool whole,
   if (strip || want_current) {
     for (const auto& line : edge_lines_) {
       if (!separable) {
-        take_line(line, EdgeRadialValue{edge_synthesis_, current, edge_scale_, n_pol, n,
-                                        problem_.n_modes});
+        take_line(line, EdgeRadialValue{.synthesis = edge_synthesis_,
+                                        .current = current,
+                                        .scale = edge_scale_,
+                                        .n_pol = n_pol,
+                                        .n = n,
+                                        .modes = problem_.n_modes});
       } else if (problem_.slab_geometry()) {
-        take_line(line, EdgeScratchValue{transverse_, transverse_units(), 1, 0, 1});
+        take_line(line, EdgeScratchValue{.scratch = transverse_,
+                                         .units = transverse_units(),
+                                         .across = 1,
+                                         .row_stride = 0,
+                                         .node_stride = 1});
       } else if (line.axis == 1) {
-        take_line(line, EdgeScratchValue{transverse_, transverse_units(), problem_.n_y,
-                                         problem_.n_x, 1});
+        take_line(line, EdgeScratchValue{.scratch = transverse_,
+                                         .units = transverse_units(),
+                                         .across = problem_.n_y,
+                                         .row_stride = problem_.n_x,
+                                         .node_stride = 1});
       } else {
-        take_line(line, EdgeScratchValue{transverse_, transverse_units(), problem_.n_x,
-                                         1, problem_.n_x});
+        take_line(line, EdgeScratchValue{.scratch = transverse_,
+                                         .units = transverse_units(),
+                                         .across = problem_.n_x,
+                                         .row_stride = 1,
+                                         .node_stride = problem_.n_x});
       }
     }
   }

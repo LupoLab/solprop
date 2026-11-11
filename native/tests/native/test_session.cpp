@@ -258,17 +258,17 @@ std::vector<Seen> drive(session::Session& run, const std::size_t work_limit,
       run.acknowledge(batch.sequence);
       continue;
     }
-    Seen entry{event.kind,
-               event.observation,
-               event.z,
-               event.plane_index,
-               std::move(held.attempts),
-               std::move(held.row_z),
-               std::move(held.row_step),
-               std::move(held.rows),
-               event.has_stats ? batch.plane_stats : std::vector<double>{},
-               {},
-               event.outcome};
+    Seen entry{.kind = event.kind,
+               .observation = event.observation,
+               .z = event.z,
+               .plane = event.plane_index,
+               .attempts = std::move(held.attempts),
+               .row_z = std::move(held.row_z),
+               .row_step = std::move(held.row_step),
+               .rows = std::move(held.rows),
+               .stats = event.has_stats ? batch.plane_stats : std::vector<double>{},
+               .field = {},
+               .outcome = event.outcome};
     held = Held{};
     if (event.ticket) {
       entry.field.resize(2 * run.elements());

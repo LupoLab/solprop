@@ -225,7 +225,8 @@ std::vector<double> FarFieldPass::run(const std::uint64_t flags,
   if (table_size != 0)
     Kokkos::deep_copy(execution_, tables_, host_tables_);
   accumulate(layout, n_bands, n_apertures, n_regions, exponent,
-             Sharing{shared, one_distance, circles}, field, inputs);
+             Sharing{.centre = shared, .distance = one_distance, .circles = circles},
+             field, inputs);
   finish(layout, n_bands, n_apertures, n_regions, intensity_factor, packed_size);
   Kokkos::deep_copy(execution_, host_packed_, packed_);
   execution_.fence("solprop_native far-field statistics boundary");
@@ -410,12 +411,14 @@ void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_
                     transmission = far_field_shaped_weight(
                         far_field_offset(reach, kx, centre_x),
                         far_field_offset(reach, ky, centre_y),
-                        FarFieldOutline{tables(constants + far_field_half_width),
-                                        tables(constants + far_field_half_height),
-                                        tables(constants + far_field_stretch_x),
-                                        tables(constants + far_field_stretch_y),
-                                        tables(constants + far_field_inverse_width),
-                                        tables(constants + far_field_edge)},
+                        FarFieldOutline{
+                            .half_width = tables(constants + far_field_half_width),
+                            .half_height = tables(constants + far_field_half_height),
+                            .stretch_x = tables(constants + far_field_stretch_x),
+                            .stretch_y = tables(constants + far_field_stretch_y),
+                            .inverse_width =
+                                tables(constants + far_field_inverse_width),
+                            .edge = tables(constants + far_field_edge)},
                         shape, code);
                   }
                   if (transmission == 0.0)

@@ -1057,11 +1057,11 @@ SnapshotReceipt Session::request_snapshot() {
   std::uint64_t value = latch_.load(std::memory_order_acquire);
   while (true) {
     if ((value & 1U) != 0)
-      return {value >> 1U, true};
+      return {.request = value >> 1U, .coalesced = true};
     const std::uint64_t next = (((value >> 1U) + 1) << 1U) | 1U;
     if (latch_.compare_exchange_weak(value, next, std::memory_order_acq_rel)) {
       halt_.store(true, std::memory_order_release);
-      return {next >> 1U, false};
+      return {.request = next >> 1U, .coalesced = false};
     }
   }
 }

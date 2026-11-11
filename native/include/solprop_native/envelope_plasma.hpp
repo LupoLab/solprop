@@ -49,16 +49,16 @@ KOKKOS_INLINE_FUNCTION EnvelopeAxes envelope_axes(
   const double uy = yr * cosine + yi * sine;
   // The determinant retains the small axis near a degenerate linear ellipse.
   const double signed_ratio = determinant / major_square;
-  return {scale * Kokkos::sqrt(major_square),
-          ratio,
-          cosine,
-          sine,
-          ux,
-          uy,
-          -signed_ratio * uy,
-          signed_ratio * ux,
-          scale,
-          major_square};
+  return {.major = scale * Kokkos::sqrt(major_square),
+          .ratio = ratio,
+          .cosine = cosine,
+          .sine = sine,
+          .ux = ux,
+          .uy = uy,
+          .vx = -signed_ratio * uy,
+          .vy = signed_ratio * ux,
+          .scale = scale,
+          .major_square = major_square};
 }
 
 /** Positive directional cycle moments in s^-1 and a refinement failure flag. */
@@ -83,10 +83,10 @@ envelope_moments(const double major, const double ratio, const double field_min,
     return {};
   if (ratio == 1.0) {
     const double rate = 0.5 * rate_at(major);
-    return {rate, rate, false};
+    return {.cosine = rate, .sine = rate, .failed = false};
   }
   if (!Kokkos::isfinite(major) || !Kokkos::isfinite(ratio))
-    return {0.0, 0.0, true};
+    return {.cosine = 0.0, .sine = 0.0, .failed = true};
   constexpr double half_pi = std::numbers::pi_v<double> / 2.0;
   const double high = field_max / major;
   const double low = field_min / major;
@@ -129,11 +129,11 @@ envelope_moments(const double major, const double ratio, const double field_min,
     if (level > 0 && Kokkos::isfinite(mc) && Kokkos::isfinite(ms) &&
         Kokkos::abs(mc - previous_c) <= 2e-6 * Kokkos::max(mc, 1e-30) &&
         Kokkos::abs(ms - previous_s) <= 2e-6 * Kokkos::max(ms, 1e-30))
-      return {mc, ms, false};
+      return {.cosine = mc, .sine = ms, .failed = false};
     previous_c = mc;
     previous_s = ms;
   }
-  return {previous_c, previous_s, true};
+  return {.cosine = previous_c, .sine = previous_s, .failed = true};
 }
 
 /** Reconstruct the two loss-current components in A/m^2 from work in J/m^3. */

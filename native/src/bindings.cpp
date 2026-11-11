@@ -208,8 +208,9 @@ native::CpuExecution cpu_execution_from(const nb::dict& values) {
   try {
     for (std::size_t index = 0; index < native::cpu_operation_count; ++index) {
       const std::string name = cpu_operation_names[index];
-      result.grain[index] = {nb::cast<std::size_t>(field(name + "_threshold")),
-                             nb::cast<std::size_t>(field(name + "_full"))};
+      result.grain[index] = {.threshold =
+                                 nb::cast<std::size_t>(field(name + "_threshold")),
+                             .full = nb::cast<std::size_t>(field(name + "_full"))};
     }
     result.response_full_samples =
         nb::cast<std::size_t>(field("response_full_samples"));
@@ -721,21 +722,21 @@ native::TrialScalars trial_from(const RealInput phi_delta, const RealInput phi_a
                                 const RealInput prefactor, const RealInput density,
                                 const RealInput taper, const RealInput preionisation,
                                 const RealInput raman_rates) {
-  return {real_vector(phi_delta),
-          real_vector(phi_at),
-          real_vector(prefactor),
-          real_vector(density),
-          real_vector(taper),
-          real_vector(preionisation),
-          real_vector(raman_rates),
-          {},
-          {},
-          {},
-          {},
-          0,
-          {},
-          {},
-          {}};
+  return {.phi_delta = real_vector(phi_delta),
+          .phi_at = real_vector(phi_at),
+          .prefactor = real_vector(prefactor),
+          .density = real_vector(density),
+          .taper = real_vector(taper),
+          .preionisation = real_vector(preionisation),
+          .raman_rates = real_vector(raman_rates),
+          .kerr_density = {},
+          .plasma_densities = {},
+          .plasma_preionisation = {},
+          .raman_densities = {},
+          .flow_section = 0,
+          .flow_weights = {},
+          .transform_weights = {},
+          .dispersive_densities = {}};
 }
 
 // A trial's scalars with its material rows, as the Adams entry points take them.
@@ -1012,8 +1013,11 @@ void initialize_kokkos(const int threads, const int kernels, const int fft,
     throw std::runtime_error(
         "Kokkos was already initialized with another thread count");
   }
-  native::configure_thread_policy(
-      {kernels, fft, raman_fft, raman_tail_fft, band_tiles});
+  native::configure_thread_policy({.kernels = kernels,
+                                   .fft = fft,
+                                   .raman_fft = raman_fft,
+                                   .raman_tail_fft = raman_tail_fft,
+                                   .band_tiles = band_tiles});
 }
 
 // ------------------------------------------------------------- the native Adams march
@@ -1400,10 +1404,11 @@ march::State march_state_from(const nb::dict values) {
     state.cursor = nb::cast<std::size_t>(values["cursor"]);
     for (const auto entry : nb::cast<nb::list>(values["history"])) {
       const auto parts = nb::cast<nb::tuple>(entry);
-      state.history.push_back({nb::cast<double>(parts[0]),
-                               nb::cast<bool>(parts[1]) ? march::Identity::predicted
-                                                        : march::Identity::accepted,
-                               nb::cast<std::size_t>(parts[2])});
+      state.history.push_back({.z = nb::cast<double>(parts[0]),
+                               .identity = nb::cast<bool>(parts[1])
+                                               ? march::Identity::predicted
+                                               : march::Identity::accepted,
+                               .row = nb::cast<std::size_t>(parts[2])});
     }
     const auto ledger = nb::cast<nb::dict>(values["ledger"]);
     state.ledger.startup = nb::cast<std::uint64_t>(ledger["startup"]);
@@ -1530,7 +1535,8 @@ public:
   ScriptedMarch(const nb::dict policy, const RealInput norms, const double carrier_rate,
                 const RealInput steps, const RealInput edges)
       : policy_(march_policy_from(policy)), norms_(real_vector(norms)),
-        carrier_rate_(carrier_rate), schedule_{real_vector(steps), real_vector(edges)} {
+        carrier_rate_(carrier_rate),
+        schedule_{.steps = real_vector(steps), .edges = real_vector(edges)} {
     if (norms_.size() % 3 != 0)
       throw std::invalid_argument("a script of norms is (attempts, 3)");
   }
@@ -1582,7 +1588,7 @@ public:
   ScriptedRkMarch(const nb::dict policy, const RealInput norms, const double h0,
                   const RealInput steps, const RealInput edges)
       : policy_(rk_policy_from(policy)), norms_(real_vector(norms)), h0_(h0),
-        schedule_{real_vector(steps), real_vector(edges)} {}
+        schedule_{.steps = real_vector(steps), .edges = real_vector(edges)} {}
   nb::dict run(const nb::dict state_values, const nb::dict bounds_values) {
     auto state = rk_state_from(state_values);
     const auto bounds = march_bounds_from(bounds_values);
@@ -1683,8 +1689,11 @@ public:
     const std::size_t sections = row_sum.size();
     if (sections == 0 || condition_bound.size() % sections != 0)
       throw std::invalid_argument("the flow guard's certificate is one row a section");
-    flow_guard_ = FlowGuard{std::move(row_sum), std::move(condition_bound),
-                            taylor_scale, max_squarings, allowance};
+    flow_guard_ = FlowGuard{.row_sum = std::move(row_sum),
+                            .condition_bound = std::move(condition_bound),
+                            .taylor_scale = taylor_scale,
+                            .max_squarings = max_squarings,
+                            .allowance = allowance};
     flow_key_.reset();
   }
   void guarded_flow_actions(const std::size_t section, const double dz,
@@ -1759,7 +1768,7 @@ public:
     rk_nodes_ = std::move(nodes);
     rk_rtol_ = rtol;
     rk_atol_ = atol;
-    rk_schedule_ = {std::move(steps), std::move(edges)};
+    rk_schedule_ = {.steps = std::move(steps), .edges = std::move(edges)};
   }
   nb::dict rk_march_run(const nb::dict state_values, const nb::dict bounds_values) {
     require_unleased();
@@ -1826,7 +1835,8 @@ public:
     open_state();
     if (flows > 2)
       throw std::invalid_argument("the low-storage march holds at most two flows");
-    low_storage_ = native::rk::low_storage::Config{flows, separable, origin};
+    low_storage_ = native::rk::low_storage::Config{
+        .flows = flows, .separable = separable, .origin = origin};
   }
   // solprop SEP 45 phase 4: a weighted controller's weights, and its norm from a
   // trial's partials, for both Runge-Kutta loops.
@@ -1976,7 +1986,7 @@ public:
     const auto row = native::stage::row(*stage_tables_, stage_anchor_, z0, z1);
     auto step = native::stage::trial(*stage_tables_, row);
     auto sample = native::stage::sample(*stage_tables_, stage_anchor_, step, z1);
-    return {std::move(step), std::move(sample)};
+    return {.step = std::move(step), .sample = std::move(sample)};
   }
   [[nodiscard]] std::vector<double> stage_rate(const double z) const {
     require_open();
@@ -3754,8 +3764,9 @@ NB_MODULE(_core, module_) {
           [](BoundState& self, const nb::dict policy, const bool fused,
              const bool compensated, const bool interpolate, const RealInput steps,
              const RealInput edges) {
-            self.march_configure(march_policy_from(policy), fused, compensated,
-                                 interpolate, {real_vector(steps), real_vector(edges)});
+            self.march_configure(
+                march_policy_from(policy), fused, compensated, interpolate,
+                {.steps = real_vector(steps), .edges = real_vector(edges)});
           },
           "policy"_a, "fused"_a, "compensated"_a, "interpolate"_a,
           "steps"_a.noconvert(), "edges"_a.noconvert())

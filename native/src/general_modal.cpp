@@ -359,7 +359,8 @@ GeneralModalSource::GeneralModalSource(const Problem& problem)
   if (problem.dispersive)
     dispersive_ = std::make_unique<GeneralDispersive>(
         problem, kernel_pool_,
-        GeneralDispersive::StageViews{node_spectrum_, node_field_, node_source_});
+        GeneralDispersive::StageViews{
+            .spectrum = node_spectrum_, .field = node_field_, .source = node_source_});
   kernels_.fence("solprop_native general modal upload");
 }
 

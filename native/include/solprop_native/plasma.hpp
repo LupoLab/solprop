@@ -320,9 +320,9 @@ KOKKOS_INLINE_FUNCTION BandWindow band_support(const int live_first,
                                                const int live_last, const int samples,
                                                const int half) {
   if (live_first > live_last)
-    return {samples, -1};
-  return {live_first > half ? live_first - half : 0,
-          live_last + half < samples - 1 ? live_last + half : samples - 1};
+    return {.first = samples, .last = -1};
+  return {.first = live_first > half ? live_first - half : 0,
+          .last = live_last + half < samples - 1 ? live_last + half : samples - 1};
 }
 
 /**

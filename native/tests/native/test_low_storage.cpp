@@ -133,7 +133,7 @@ TEST(LowStorage, EachPositionIsItsOwnAnchorAndTheEndPadsTheStages) {
   const double dz = 0.0625;
   const double midpoint = z + 0.5 * dz;
   const double end = z + dz;
-  const low_storage::Config recompute{0, false, 0.0};
+  const low_storage::Config recompute{.flows = 0, .separable = false, .origin = 0.0};
   const auto scalars =
       low_storage::scalars(tables, anchor, recompute, z, dz, false, std::nan(""));
   EXPECT_EQ(scalars.phi_at, (std::vector<double>{z, midpoint, end, end}));
@@ -153,7 +153,7 @@ TEST(LowStorage, AConstantOperatorsTableIsBuiltFromItsOrigin) {
   const double z = 0.375;
   const double dz = 0.1;
   const double key = 0.09999999999999998;
-  const low_storage::Config table{1, false, 0.25};
+  const low_storage::Config table{.flows = 1, .separable = false, .origin = 0.25};
   const auto built = low_storage::scalars(tables, anchor, table, z, dz, true, key);
   // fl(origin + key / 2) - origin, not key / 2: solprop's engines build it so.
   const double middle = 0.25 + 0.5 * key;
@@ -161,7 +161,7 @@ TEST(LowStorage, AConstantOperatorsTableIsBuiltFromItsOrigin) {
   const auto reused = low_storage::scalars(tables, anchor, table, z, dz, false, key);
   EXPECT_EQ(reused.phi_delta, (std::vector<double>(5, 0.0)));
   // A separable operator's increments are the distances themselves.
-  const low_storage::Config separable{1, true, 0.25};
+  const low_storage::Config separable{.flows = 1, .separable = true, .origin = 0.25};
   const auto spatial =
       low_storage::scalars(tables, anchor, separable, z, dz, true, key);
   EXPECT_EQ(spatial.phi_delta,
@@ -187,7 +187,9 @@ TEST(LowStorage, AnExpansionsIncrementsAreItsWeightsDifferences) {
   const double dz = 0.2;
   const double midpoint = z + 0.5 * dz;
   const auto scalars = low_storage::scalars(
-      tables, anchor, low_storage::Config{2, false, 0.0}, z, dz, false, std::nan(""));
+      tables, anchor,
+      low_storage::Config{.flows = 2, .separable = false, .origin = 0.0}, z, dz, false,
+      std::nan(""));
   stage::Anchor fresh;
   const auto first = stage::row(tables, fresh, z, midpoint).phi_delta;
   const auto second = stage::row(tables, fresh, midpoint, z + dz).phi_delta;

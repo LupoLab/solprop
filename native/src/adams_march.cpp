@@ -186,7 +186,7 @@ OrderChoice choose_order(const Policy& policy, const Stencil& stencil,
                          const double* norms, const double dz, const bool quiet) {
   const std::size_t current = stencil.order;
   if (!policy.variable_order)
-    return {policy.order, current, norms[0]};
+    return {.stored = policy.order, .control = current, .norm = norms[0]};
   std::array<double, max_orders> weights{};
   for (std::size_t index = 0; index < stencil.n_orders; ++index)
     weights[index] =
@@ -197,8 +197,10 @@ OrderChoice choose_order(const Policy& policy, const Stencil& stencil,
     if (weights[index] > weights[best])
       best = index;
   if (stencil.orders[best] != current && weights[best] > policy.hysteresis * weights[0])
-    return {stencil.orders[best], stencil.orders[best], norms[best]};
-  return {current, current, norms[0]};
+    return {.stored = stencil.orders[best],
+            .control = stencil.orders[best],
+            .norm = norms[best]};
+  return {.stored = current, .control = current, .norm = norms[0]};
 }
 
 Rejection rejection(const Policy& policy, const double norm, const std::size_t order,
@@ -208,7 +210,7 @@ Rejection rejection(const Policy& policy, const double norm, const std::size_t o
   const double scale = !std::isfinite(norm)
                            ? policy.min_factor
                            : factor(policy, norm, order, policy.rejection_growth);
-  return {scale, restart ? 0 : count, restart};
+  return {.factor = scale, .rejections = restart ? 0 : count, .restart = restart};
 }
 
 double carrier_capped(const Policy& policy, const double z, const double proposal,
@@ -287,15 +289,16 @@ Landing landing(const Policy& policy, const double z, const double dz,
       return false;
     return static_cast<int>(candidate.target) > static_cast<int>(held.target);
   };
-  Bound cap{dz, Target::none, 0.0};
-  for (const Bound& other : {Bound{policy.dz_max, Target::max_step, 0.0},
-                             Bound{width, Target::interval_width, 0.0}})
+  Bound cap{.dz = dz, .target = Target::none, .at = 0.0};
+  for (const Bound& other :
+       {Bound{.dz = policy.dz_max, .target = Target::max_step, .at = 0.0},
+        Bound{.dz = width, .target = Target::interval_width, .at = 0.0}})
     if (better(other, cap))
       cap = other;
   bool any = false;
   Bound land{};
   const auto consider = [&](const Target target, const double position) {
-    const Bound candidate{position - z, target, position};
+    const Bound candidate{.dz = position - z, .target = target, .at = position};
     if (!any || better(candidate, land)) {
       land = candidate;
       any = true;
@@ -310,10 +313,10 @@ Landing landing(const Policy& policy, const double z, const double dz,
   if (!(z_end < from))
     consider(Target::end, z_end);
   if (land.dz <= cap.dz)
-    return {land.dz, land.target, true, land.at};
+    return {.dz = land.dz, .target = land.target, .landed = true, .z_target = land.at};
   if (land.dz <= py_min(policy.stretch * cap.dz, policy.dz_max))
-    return {land.dz, land.target, true, land.at};
-  return {cap.dz, cap.target, false, 0.0};
+    return {.dz = land.dz, .target = land.target, .landed = true, .z_target = land.at};
+  return {.dz = cap.dz, .target = cap.target, .landed = false, .z_target = 0.0};
 }
 
 bool next_landing(const Policy& policy, const double z, const double target,
@@ -340,7 +343,7 @@ Approach approach(const Policy& policy, const double z, const Landing& stop,
     if (next_landing(policy, z, target, ahead) && stop.dz < ahead - z &&
         ahead - z < 2.0 * stop.dz) {
       const double half = 0.5 * (ahead - z);
-      return {half, z + half, false};
+      return {.dz = half, .end = z + half, .kink = false};
     }
   }
   const double end = stop.landed ? stop.z_target : z + stop.dz;
@@ -353,7 +356,8 @@ Approach approach(const Policy& policy, const double z, const Landing& stop,
         on_kink = true;
         break;
       }
-  return {stop.dz, end, stop.target == Target::hard_kink || on_kink};
+  return {
+      .dz = stop.dz, .end = end, .kink = stop.target == Target::hard_kink || on_kink};
 }
 
 double proposal(const Policy& policy, const double dz, const double factor) {
@@ -474,7 +478,7 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         fail(result, Stage::startup, error);
         return result;
       }
-      state.history = {Entry{state.z, Identity::accepted, 0}};
+      state.history = {Entry{.z = state.z, .identity = Identity::accepted, .row = 0}};
       state.order = policy.variable_order ? 1 : policy.order;
     }
     Approach step;
@@ -563,7 +567,8 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         fail(result, Stage::accept, error);
         return result;
       }
-      kept.push_back(Entry{state.z + step.dz, Identity::predicted, free});
+      kept.push_back(
+          Entry{.z = state.z + step.dz, .identity = Identity::predicted, .row = free});
       state.history = std::move(kept);
       ++state.ledger.accepted_steps;
       state.rejections = 0;

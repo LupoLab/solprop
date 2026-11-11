@@ -30,7 +30,11 @@ ThreadPolicy thread_policy() {
   if (configured_threads.kernels != 0)
     return configured_threads;
   const int count = Kokkos::DefaultHostExecutionSpace().concurrency();
-  return {count, count, count, count, -1};
+  return {.kernels = count,
+          .fft = count,
+          .raman_fft = count,
+          .raman_tail_fft = count,
+          .band_tiles = -1};
 }
 
 void configure_thread_policy(ThreadPolicy requested) {
