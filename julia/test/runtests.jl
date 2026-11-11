@@ -81,6 +81,7 @@ if group == "Core"
     include("quadrature_precision.jl")
     include("march.jl")
     include("runge_kutta_observation.jl")
+    include("device_rk_observation.jl")
     include("runge_kutta_spatial_observation.jl")
     include("session_precision.jl")
     include("trial_probe_precision.jl")

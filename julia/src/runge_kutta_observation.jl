@@ -27,7 +27,7 @@ end
     RungeKuttaObservationWork(execution, state, tableau, dense_weights, operator;
                               arithmetic=SourceArithmetic(Float64))
 
-Prepare owned CPU storage in state precision for the translated RK continuous extension.
+Prepare owned storage in state precision for the translated RK continuous extension.
 
 `state` supplies a finite nonempty `(n_omega,n_columns)` shape in internal spectral
 units. `tableau` and finite `dense_weights` supply one dimensionless weight per stage;
@@ -49,6 +49,9 @@ replaced. `runge_kutta_observation_memory` lists newly owned bytes; borrowed ope
 storage is accounted by its preparation. Retention and observation allocate nothing
 once warmed. Throw `ArgumentError` for unsupported data/execution and
 `DimensionMismatch` for incompatible extents.
+Device execution admits binary64 state and owns the numerical arrays in its prepared
+context. Each finite check downloads one integer per column, never the field or
+coefficient volume. Device binary32 refuses before allocation.
 
 The five-coefficient form is the established DOPRI5 fourth-order continuous extension
 of Hairer, Nørsett and Wanner, *Solving Ordinary Differential Equations I*, second
@@ -56,7 +59,7 @@ edition, §II.6, doi:10.1007/978-3-540-78862-1. Its midpoint constraints recover
 weights from Dormand and Prince, "Runge-Kutta triples" (1986), p.1014,
 doi:10.1016/0898-1221(86)90025-8. Coefficients remain translated inputs.
 """
-mutable struct RungeKuttaObservationWork{N, O, C, A, X, M, W, F, P}
+mutable struct RungeKuttaObservationWork{N, O, C, A, X, M, W, F, P, H}
     solution_weights::NTuple{N, Float64}
     dense_weights::NTuple{N, Float64}
     operator::O
@@ -67,7 +70,7 @@ mutable struct RungeKuttaObservationWork{N, O, C, A, X, M, W, F, P}
     factor::F
     stiff::M
     weights::W
-    failures::Vector{Int}
+    failures::H
     position::Float64
     step::Float64
     destination::Float64
@@ -77,10 +80,10 @@ mutable struct RungeKuttaObservationWork{N, O, C, A, X, M, W, F, P}
     function RungeKuttaObservationWork(
             solution_weights::NTuple{N, Float64}, dense_weights::NTuple{N, Float64},
             operator::O, coefficients::C, endpoint::A, field::A, exponent::X, factor::F,
-            stiff::M, weights::W, failures::Vector{Int}, position::Float64,
+            stiff::M, weights::W, failures::H, position::Float64,
             step::Float64, destination::Float64, ready::Bool, arithmetic::P,
-        ) where {N, O, C, A, X, M, W, F, P}
-        return new{N, O, C, A, X, M, W, F, P}(
+        ) where {N, O, C, A, X, M, W, F, P, H}
+        return new{N, O, C, A, X, M, W, F, P, H}(
             solution_weights, dense_weights, operator, coefficients, endpoint, field,
             exponent, factor, stiff, weights, failures, position, step, destination, ready,
             arithmetic,
@@ -120,9 +123,11 @@ function RungeKuttaObservationWork(
         execution::KernelExecution, state, tableau::EmbeddedTableau{N}, dense_weights,
         operator; arithmetic::SourceArithmetic = SourceArithmetic(Float64),
     ) where {N}
-    oncpu(execution) || throw(ArgumentError("RK dense observation currently requires CPU"))
     T = source_type(arithmetic)
-    state isa AbstractMatrix{Complex{T}} && !isempty(state) && all(isfinite, state) ||
+    oncpu(execution) || T === Float64 ||
+        throw(ArgumentError("device RK dense observation requires binary64 state"))
+    state isa AbstractMatrix{Complex{T}} && !isempty(state) &&
+        (!oncpu(execution) || all(isfinite, state)) ||
         throw(ArgumentError("RK dense observation needs a finite matching state matrix"))
     Base.require_one_based_indexing(state)
     N >= 2 && first(tableau.nodes) == 0.0 && last(tableau.nodes) == 1.0 ||
@@ -138,6 +143,8 @@ function RungeKuttaObservationWork(
     shape, count = _rk_observation_shape(operator)
     shape == size(state) ||
         throw(DimensionMismatch("the RK dense operator and state shapes disagree"))
+    oncpu(execution) || _rk_observation_device_operator(operator, execution)
+    failures = _rk_observation_failure_storage(execution, state)
     return RungeKuttaObservationWork(
         tableau.solution_weights, copied, operator,
         dzeros(execution, Complex{T}, shape..., 5),
@@ -145,7 +152,7 @@ function RungeKuttaObservationWork(
         T === Float64 ? dzeros(execution, ComplexF64, shape...) : nothing,
         T === Float32 ? dzeros(execution, ComplexF32, shape...) : nothing,
         dzeros(execution, Bool, shape...), dzeros(execution, Float64, count),
-        zeros(Int, shape[2]), 0.0, 0.0, 0.0, false, arithmetic,
+        failures, 0.0, 0.0, 0.0, false, arithmetic,
     )
 end
 
@@ -262,7 +269,8 @@ function _rk_observation_exponent!(work, origin, destination, execution)
 end
 
 function _rk_observation_coefficients_finite!(work, execution)
-    coefficients, failures = work.coefficients, work.failures
+    coefficients = work.coefficients
+    failures = _rk_observation_failure_array(work.failures)
     each_column!(execution, size(work.field, 2)) do column
         failed = 0
         for row in 1:size(coefficients, 1), term in 1:5
@@ -273,11 +281,10 @@ function _rk_observation_coefficients_finite!(work, execution)
         end
         failures[column] = failed
     end
-    for column in eachindex(failures)
-        failures[column] == 0 ||
-            throw(NonfiniteSourceError(:dense_coefficients, failures[column], column))
-    end
-    return nothing
+    return _source_check_rows(
+        _rk_observation_failure_host(work.failures, execution), size(coefficients, 2),
+        :dense_coefficients,
+    )
 end
 
 """
@@ -309,10 +316,9 @@ function retain_runge_kutta_observation!(
         work::RungeKuttaObservationWork{N}, initial, endpoint, stages, z::Float64,
         dz::Float64, destination::Float64, execution::KernelExecution,
     ) where {N}
-    oncpu(execution) || throw(ArgumentError("RK dense observation currently requires CPU"))
+    _rk_observation_execution(work, execution)
     T = source_type(work.arithmetic)
-    initial isa StridedMatrix{Complex{T}} && endpoint isa StridedMatrix{Complex{T}} &&
-        stages isa StridedArray{Complex{T}, 3} ||
+    _rk_observation_input_types(initial, endpoint, stages, T, execution) ||
         throw(ArgumentError("RK dense retention needs strided arrays in state precision"))
     Base.require_one_based_indexing(initial, endpoint, stages)
     size(initial) == size(endpoint) == size(work.field) &&
@@ -328,12 +334,13 @@ function retain_runge_kutta_observation!(
         _retained_alias(initial, work) || _retained_alias(endpoint, work) ||
             _retained_alias(stages, work)
     ) && throw(ArgumentError("RK dense trial inputs must not alias retained storage"))
+    _rk_observation_device_inputs(execution, initial, endpoint, stages)
     _march_scalar(T, dz)
     _rk_observation_preflight(work, work.operator, z, dz, destination, execution)
     work.ready = false
     _source_finite!(work.failures, initial, execution, :dense_initial)
     _source_finite!(work.failures, endpoint, execution, :dense_endpoint)
-    all(isfinite, stages) ||
+    _rk_observation_stages_finite(work.failures, stages, execution) ||
         throw(ArgumentError("RK dense stage derivatives must be finite"))
     if work.exponent === nothing
         _rk_observation_narrow_factors!(work, z, raw_end, execution, true)
@@ -365,8 +372,8 @@ function retain_runge_kutta_observation!(
         end
     end
     _rk_observation_coefficients_finite!(work, execution)
-    copyto!(work.endpoint, endpoint)
-    fill!(work.field, 0)
+    _source_copy!(work.endpoint, endpoint, execution)
+    _source_zero!(work.field, execution)
     work.position, work.step, work.destination = z, dz, destination
     work.ready = true
     return nothing
@@ -396,20 +403,21 @@ function observe_runge_kutta!(
         work::RungeKuttaObservationWork, position::Float64, active,
         execution::KernelExecution,
     )
-    oncpu(execution) || throw(ArgumentError("RK dense observation currently requires CPU"))
+    _rk_observation_execution(work, execution)
     work.ready || throw(ArgumentError("no accepted RK dense window is available"))
-    active isa StridedVector{Bool} ||
+    (oncpu(execution) ? active isa StridedVector{Bool} : active isa AbstractVector{Bool}) ||
         throw(ArgumentError("the RK dense mask needs strided unpacked Boolean storage"))
     length(active) == size(work.field, 1) &&
         axes(active, 1) == Base.OneTo(length(active)) ||
         throw(DimensionMismatch("the RK dense mask and retained field disagree"))
     _retained_alias(active, work) &&
         throw(ArgumentError("the RK dense mask must not alias retained storage"))
+    _rk_observation_device_inputs(execution, active)
     isfinite(position) && work.position <= position <= work.destination ||
         throw(ArgumentError("the observation lies outside its accepted RK window"))
     field, coefficients = work.field, work.coefficients
     if position == work.destination || position > work.position + work.step
-        copyto!(field, work.endpoint)
+        _source_copy!(field, work.endpoint, execution)
     elseif position == work.position
         each!(execution, size(field)...) do row, column
             field[row, column] = coefficients[row, column, 1]
@@ -458,7 +466,8 @@ end
 Return named byte counts for every owned dense array, excluding the borrowed operator.
 
 The scalar tuple covers `coefficients`, `endpoint`, `field`, `exponent`, `stiff`,
-`factor`, `weights`, and `failures`. Absent precision-specific arrays count as zero.
+`factor`, `weights`, and `failures`. Device failures include both numerical storage
+and its owned host mirror. Absent precision-specific arrays count as zero.
 Storage is bounded independently of trials and save planes.
 """
 function runge_kutta_observation_memory(work::RungeKuttaObservationWork)
@@ -468,7 +477,7 @@ function runge_kutta_observation_memory(work::RungeKuttaObservationWork)
         exponent = work.exponent === nothing ? 0 : sizeof(work.exponent),
         factor = work.factor === nothing ? 0 : sizeof(work.factor),
         stiff = sizeof(work.stiff), weights = sizeof(work.weights),
-        failures = sizeof(work.failures),
+        failures = _rk_observation_failure_bytes(work.failures),
     )
 end
 

@@ -296,7 +296,7 @@ composition supports landed planes and field restarts. Supplying the translated
 `dense_weights` enables the existing DOPRI5 continuous extension, with a separate
 owned observation field and one retained accepted window. The caller selects the
 compatible tableau/extension; stage count alone never selects a method. Dense planes
-require adaptive CPU flow and refuse per-step splitting. `LinearFlow` uses binary64
+require adaptive flow and refuse per-step splitting. `LinearFlow` uses binary64
 wide operands; `DF32LinearFlow` certifies each retained/query phase separately and
 refuses an uncertain stiff-branch decision before replacing an observation.
 They change no source-call count, accepted field, controller history or receipt rule.
@@ -334,8 +334,8 @@ function RungeKuttaSession(
     _march_arithmetic(state, arithmetic, source, flow)
     _flow_start(flow, tableau, z, schedule)
     if dense_weights !== nothing
-        oncpu(execution) ||
-            throw(ArgumentError("Runge-Kutta dense observation currently requires CPU"))
+        oncpu(execution) || T === Float64 ||
+            throw(ArgumentError("device RK dense observation requires binary64 state"))
         isempty(schedule.replay_steps) ||
             throw(ArgumentError("interpolated planes require adaptive RK; replay lands"))
         _rk_dense_admit(flow, state)
