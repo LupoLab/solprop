@@ -92,7 +92,9 @@ class OwnerRegistry:
             Owners that must outlive Julia's access to borrowed storage.
         on_release : callable or None, optional
             Python-only cleanup before releasing borrowed storage, such as detaching
-            a stop listener. It must not raise or enter Julia.
+            a stop listener. It must not enter Julia. A foreign cleanup failure
+            is reported after the wrapper is released; retryable Python resources
+            must retain their own failed-cleanup ownership independently.
 
         Returns
         -------

@@ -134,6 +134,13 @@ reduces first-use compilation for those paths; new shapes, responses and thread
 configurations may still compile on their first use. The workload changes no process
 thread policy and stores no mutable simulation state.
 
+CPU preparation shares solprop's host BLAS limits. The default is one BLAS thread;
+`SOLPROP_BLAS_THREADS` requests another width within the process budget. Overlapping
+construction and Julia preparations retain the narrowest active request, and release
+restores the previous width only after the last owner finishes. Metadata records the
+actual controllable libraries and their current widths. The current engine uses its
+Julia OpenBLAS provider; macOS Accelerate forwarding remains to be attached.
+
 ## Install and inspect
 
 The extra installs the Python bridge, JuliaCall. Julia and its packages are installed

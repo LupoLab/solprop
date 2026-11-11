@@ -54,7 +54,7 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Numerical transform/Adams agent | New `transverse_observations.jl` and focused tests; shared transverse decision stages in `monitor.jl` | Spatial source and observation leaves independently approved and integrated; resumable transverse monitor follows the frozen interface |
+| Numerical transform/Adams agent | New `transverse_observations.jl` and focused tests; transverse decision stages in `monitor.jl`; subsequent Julia service/transport hooks in `observation_session.jl`, `monitor_transfer.jl`, narrow launch hooks in `transfer.jl`, and new `ext/transverse.jl` | Spatial attachment is committed at `09fb770a`; transverse leaf and attachment remain separate reviewable commits |
 | Numerical services agent | New `fft_plans.jl`, Python `_fft_cache.py` and their focused tests | Precompile and source layout fixes #688/#689 reviewed and integrated; FFT planning/cache leaf in progress |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
 | Independent reviewer | Production code read-only; independent transaction tests returned to master | Group, dense scheduler/adapter and corrected input-noise leaf approved; independent integration review continues |
@@ -761,3 +761,13 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   Actual bridge regressions cover nonzero launch phase, material-free physical
   absorption and foreign-preparation export rejection (#690). Additional preparation,
   transverse monitoring and per-route material/service witnesses remain outstanding.
+- Shared BLAS lifetime attachment is independently approved. Fresh discovery after
+  runtime loading joins `_process.acquire_host_blas`, including libraries absent from
+  an outer construction scope. The loaded native backend's private BLAS is excluded.
+  Main-thread registry cleanup owns release, and interrupted publication retains one
+  complete preparation or rolls back the unpublished resources. A foreign restoration
+  failure keeps a Python-only retry owner and preserves the primary failure. The
+  127-test affected typed selection passes; independent review repeated 46 BLAS/runtime
+  cases, including both acquisition/release orders and abandoned-owner cleanup.
+  Actual controller widths are metadata. The separately planned macOS Accelerate
+  forwarding remains unimplemented; no provider-selection qualification is inferred.

@@ -10,8 +10,10 @@ from collections.abc import Callable, Mapping, Sequence
 from functools import partial
 from weakref import WeakSet
 
+from solprop import _interrupts
 from solprop.backends.driver_session import foreign_request
 from solprop.backends.julia import _calls
+from solprop.backends.julia._blas import BlasHold, acquire_blas
 from solprop.backends.julia._descriptors import lower_modal, transfer_memory
 from solprop.backends.julia._group import JuliaGroupSession
 from solprop.backends.julia._lower import RunTransfer, lower_run
@@ -137,6 +139,7 @@ class JuliaBackend:
         self._grid, self._modes, self._profiles = grid, modes, profiles
         self._runtime: JuliaRuntime | None = None
         self._preparation: JuliaHandle | None = None
+        self._blas: BlasHold | None = None
         self._sessions: WeakSet[JuliaSession] = WeakSet()
         self._groups: WeakSet[JuliaGroupSession] = WeakSet()
         self._prepared: WeakSet[JuliaPrepared] = WeakSet()
@@ -229,15 +232,8 @@ class JuliaBackend:
             else None
         )
         if self._preparation is None:
-            runtime = get_runtime(setup_id=self._setup_id, device="cpu")
-            handle = runtime.own_call(
-                "prepare_spatial" if self._spatial else "prepare_modal",
-                self._lowered,
-                runtime.threads,
-                self._node_chunk,
-            )
-            self._runtime, self._preparation = runtime, handle
-        assert self._runtime is not None
+            self._prepare_numerical()
+        assert self._runtime is not None and self._preparation is not None
         prepared = (
             self._preparation
             if observation is None
@@ -259,6 +255,44 @@ class JuliaBackend:
                 else request.boundary.monitor.check
             ),
         )
+
+    def _prepare_numerical(self) -> None:
+        """Publish numerical preparation and its BLAS lifetime as one transaction."""
+        runtime = get_runtime(setup_id=self._setup_id, device="cpu")
+        blas: BlasHold | None = None
+        handle: JuliaHandle | None = None
+        try:
+            with _interrupts.committing():
+                blas = acquire_blas()
+                handle = runtime.own_call(
+                    "prepare_spatial" if self._spatial else "prepare_modal",
+                    self._lowered,
+                    runtime.threads,
+                    self._node_chunk,
+                    owners=(blas,),
+                    on_release=blas.close,
+                )
+                self._runtime, self._preparation, self._blas = runtime, handle, blas
+        except BaseException as failure:
+            published = (
+                handle is not None
+                and self._runtime is runtime
+                and self._preparation is handle
+                and self._blas is blas
+            )
+            if not published:
+                self._runtime, self._preparation, self._blas = None, None, None
+                resource = handle if handle is not None else blas
+                if resource is not None:
+                    try:
+                        resource.close()
+                    except BaseException as cleanup:
+                        # The Python-only hold retains failed foreign restoration.
+                        # Keep the construction error primary and report the retry.
+                        failure.add_note(
+                            f"BLAS cleanup failed; retained for retry: {cleanup}"
+                        )
+            raise
 
     def metadata(self) -> dict[str, object]:
         """Return actual execution choices, outside scientific and resume identities.
@@ -285,6 +319,8 @@ class JuliaBackend:
                 julia_threads=runtime.threads,
                 python_entry="main_thread",
             )
+        if self._blas is not None:
+            record.update(self._blas.metadata())
         return record
 
     def march_export_refusal(self) -> str | None:
@@ -500,6 +536,7 @@ class JuliaBackend:
         if self._preparation is not None:
             self._preparation.close()
             self._preparation = None
+        self._blas = None
         if failure is not None:
             raise failure
 

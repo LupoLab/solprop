@@ -331,6 +331,7 @@ def boundary(monkeypatch, setup_record):
     owner = object.__new__(JuliaBackend)
     owner._runtime = runtime
     owner._preparation = preparation
+    owner._blas = None
     owner._closed = False
     owner._sessions = WeakSet()
     owner._groups = WeakSet()

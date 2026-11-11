@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from solprop.backends.julia import _runtime
+from solprop.backends.julia import _blas, _runtime
 from solprop.exceptions import BackendError
 
 
@@ -112,6 +112,27 @@ def test_first_preparation_pins_stack_and_restores_actual_sigint(
     assert os.environ["PYTHON_JULIACALL_HANDLE_SIGNALS"] == "yes"
     assert os.environ["PYTHON_JULIACALL_THREADS"] == "2,0"
     runtime.check()
+
+
+def test_runtime_installs_blas_cleanup_before_bridge_and_owner_shutdown(
+    isolated_runtime, monkeypatch
+):
+    order = []
+    monkeypatch.setattr(_blas._CLEANUP, "registered", False)
+    monkeypatch.setattr(_blas.atexit, "register", order.append)
+    importer = isolated_runtime.importer.import_module
+
+    def load(name):
+        assert order == [_blas._release_pending]
+        order.append(name)
+        return importer(name)
+
+    monkeypatch.setattr(isolated_runtime.importer, "import_module", load)
+    runtime = _runtime.get_runtime()
+    assert order == [_blas._release_pending, "juliacall", runtime.owners.close]
+    _blas.prepare_blas_cleanup()
+    assert len(order) == 3
+    runtime.owners.close()
 
 
 def test_repeated_preparation_rechecks_inventory_before_loading_device(

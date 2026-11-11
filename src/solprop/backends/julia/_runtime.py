@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from solprop import _process
+from solprop.backends.julia._blas import prepare_blas_cleanup
 from solprop.backends.julia._bridge import invoke
 from solprop.backends.julia._identity import SetupRecord
 from solprop.backends.julia._ownership import (
@@ -175,7 +176,8 @@ class JuliaRuntime:
         owners : tuple of object, optional
             Python allocations borrowed by the returned Julia value.
         on_release : callable or None, optional
-            Python-only, non-raising cleanup before releasing borrowed storage.
+            Python-only cleanup before releasing borrowed storage. Retryable foreign
+            resources retain failed-cleanup ownership independently of the wrapper.
 
         Returns
         -------
@@ -368,6 +370,7 @@ def _start_runtime(record: SetupRecord, threads: int) -> JuliaRuntime:
     JuliaRuntime
         The rooted runtime, with its owner shutdown hook registered.
     """
+    prepare_blas_cleanup()
     previous_sigint = signal.getsignal(signal.SIGINT)
     try:
         bridge = importlib.import_module("juliacall")
