@@ -473,8 +473,8 @@ function ObservationWorkspace(
         window_pair = _observation_pair(execution, n_time, n_modes * n_windows)
         _ObservationWindows(
             window_pair,
-            reshape(window_pair.samples, n_time, n_modes, n_windows),
-            reshape(window_pair.weighted, n_time, n_modes, n_windows)
+            reshape(view(window_pair.samples, :, :), n_time, n_modes, n_windows),
+            reshape(view(window_pair.weighted, :, :), n_time, n_modes, n_windows)
         )
     else
         nothing
