@@ -20,6 +20,7 @@
 
 #include <Kokkos_Core.hpp>
 
+#include <algorithm>
 #include <cmath>
 
 // `available_device_memory` calls the vendor runtime directly. Kokkos pulls
@@ -1632,8 +1633,7 @@ public:
   ~BoundState() {
     close();
     const std::scoped_lock lock(runtime_state.mutex);
-    const auto found =
-        std::find(runtime_state.states.begin(), runtime_state.states.end(), this);
+    const auto found = std::ranges::find(runtime_state.states, this);
     if (found != runtime_state.states.end())
       runtime_state.states.erase(found);
   }

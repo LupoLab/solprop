@@ -60,8 +60,8 @@ void put(std::vector<double>& phi_delta, const std::size_t row, const std::size_
          const std::vector<double>& weights) {
   if (weights.size() != n_phi)
     throw std::logic_error("an increment's weights are not the stage rows' width");
-  std::copy(weights.begin(), weights.end(),
-            phi_delta.begin() + static_cast<std::ptrdiff_t>(row * n_phi));
+  std::ranges::copy(weights,
+                    phi_delta.begin() + static_cast<std::ptrdiff_t>(row * n_phi));
 }
 
 } // namespace
@@ -103,7 +103,7 @@ double schedule_key(const std::vector<double>& keys, const std::vector<double>& 
   // `searchsorted(edges, z + 0.5 * dz) - 1`, clamped to the steps.
   const double half = 0.5 * dz;
   const double midpoint = z + half;
-  const auto found = std::lower_bound(edges.begin(), edges.end(), midpoint);
+  const auto found = std::ranges::lower_bound(edges, midpoint);
   const auto index = static_cast<std::ptrdiff_t>(found - edges.begin()) - 1;
   const auto last = static_cast<std::ptrdiff_t>(keys.size()) - 1;
   return keys[static_cast<std::size_t>(

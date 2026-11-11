@@ -8,6 +8,7 @@
 
 #include <KokkosFFT.hpp>
 
+#include <algorithm>
 #include <memory>
 
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
@@ -142,12 +143,12 @@ inline bool adds_wisdom(const std::string& planned, const std::string& stored) {
       found.emplace_back(text.data() + first, last - first);
       first = last + 1;
     }
-    std::sort(found.begin(), found.end());
+    std::ranges::sort(found);
     return found;
   };
   const auto had = lines(stored);
   for (const auto line : lines(planned))
-    if (!std::binary_search(had.begin(), had.end(), line))
+    if (!std::ranges::binary_search(had, line))
       return true;
   return false;
 }
@@ -414,7 +415,7 @@ inline double median_execution(fftw_plan plan) {
       fftw_execute(plan);
     batch = std::chrono::duration<double>(Clock::now() - start).count() / repeats;
   }
-  std::sort(batches.begin(), batches.end());
+  std::ranges::sort(batches);
   return batches[2];
 }
 } // namespace detail

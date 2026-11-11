@@ -1352,12 +1352,10 @@ void require_general_problem(const Problem& problem) {
     require_extent(problem.channel_parameters.size(),
                    checked_product(problem.n_channels, 9, "channel parameters"),
                    "channel_parameters");
-    if (!std::all_of(problem.channel_parameters.begin(),
-                     problem.channel_parameters.end(),
-                     [](double value) { return std::isfinite(value); }) ||
-        !std::all_of(problem.channel_coefficients.begin(),
-                     problem.channel_coefficients.end(),
-                     [](double value) { return std::isfinite(value); }))
+    if (!std::ranges::all_of(problem.channel_parameters,
+                             [](double value) { return std::isfinite(value); }) ||
+        !std::ranges::all_of(problem.channel_coefficients,
+                             [](double value) { return std::isfinite(value); }))
       throw std::invalid_argument("channel parameters and coefficients must be finite");
     std::size_t expected_offset = 0;
     for (std::size_t channel = 0; channel < problem.n_channels; ++channel) {
@@ -1409,8 +1407,8 @@ void require_general_problem(const Problem& problem) {
   // solprop SEP 18's running-integral rule. Translation certified the taps; only their
   // extent, finiteness, the trapezoid's identity tap and the route are checked here.
   if (problem.plasma_taps.empty() || problem.plasma_taps.size() > plasma_max_taps ||
-      !std::all_of(problem.plasma_taps.begin(), problem.plasma_taps.end(),
-                   [](double value) { return std::isfinite(value); }))
+      !std::ranges::all_of(problem.plasma_taps,
+                           [](double value) { return std::isfinite(value); }))
     throw std::invalid_argument("plasma_taps must hold one to nine finite taps");
   if (!problem.plasma_band &&
       (problem.plasma_taps.size() != 1 || problem.plasma_taps[0] != 1.0))
@@ -1504,8 +1502,8 @@ void require_general_problem(const Problem& problem) {
         !(problem.raman_epsilon0 > 0.0) || !std::isfinite(problem.raman_epsilon0))
       throw std::invalid_argument(
           "Raman fraction, dt_fine and epsilon0 must be positive and finite");
-    if (!std::all_of(problem.raman_undamped.begin(), problem.raman_undamped.end(),
-                     [](const double value) { return std::isfinite(value); }))
+    if (!std::ranges::all_of(problem.raman_undamped,
+                             [](const double value) { return std::isfinite(value); }))
       throw std::invalid_argument("raman_undamped must contain only finite values");
   } else if (problem.raman_thg || problem.n_raman_terms != 0 ||
              !problem.raman_undamped.empty() || !problem.raman_tensor_weights.empty() ||
@@ -4513,9 +4511,8 @@ void GeneralWorkspace::upload() {
   lossless_phase_ = false;
   if (!problem_.phi_table) {
     copy_vector(execution_space_, phi_terms_, problem_.phi_terms);
-    lossless_phase_ =
-        std::all_of(problem_.phi_terms.begin(), problem_.phi_terms.end(),
-                    [](const Complex& term) { return term.real() == 0.0; });
+    lossless_phase_ = std::ranges::all_of(
+        problem_.phi_terms, [](const Complex& term) { return term.real() == 0.0; });
   }
   if (!problem_.prefactor_table)
     copy_vector(execution_space_, prefactor_terms_, problem_.prefactor_terms);
@@ -4529,9 +4526,8 @@ void GeneralWorkspace::upload() {
     copy_vector(execution_space_, projection_coarse_,
                 problem_.projection_coarse_matrix);
   copy_vector(execution_space_, absorber_fine_, problem_.absorber_fine);
-  spatial_only_absorber_ =
-      std::all_of(problem_.absorber_fine.begin(), problem_.absorber_fine.end(),
-                  [](const double rate) { return rate == 0.0; });
+  spatial_only_absorber_ = std::ranges::all_of(
+      problem_.absorber_fine, [](const double rate) { return rate == 0.0; });
   copy_vector(execution_space_, absorber_coarse_, problem_.absorber_coarse);
   if (problem_.plasma)
     copy_vector(execution_space_, rate_coefficients_, problem_.rate_coefficients);
@@ -5109,9 +5105,9 @@ void GeneralWorkspace::require_trial_scalars(const TrialScalars& scalars) const 
   if (problem_.raman) {
     require_extent(scalars.raman_rates.size(),
                    problem_.n_stages * problem_.n_raman_terms, "raman_rates");
-    if (!std::all_of(
-            scalars.raman_rates.begin(), scalars.raman_rates.end(),
-            [](const double value) { return std::isfinite(value) && value >= 0.0; }))
+    if (!std::ranges::all_of(scalars.raman_rates, [](const double value) {
+          return std::isfinite(value) && value >= 0.0;
+        }))
       throw std::invalid_argument("Raman decay rates must be finite and non-negative");
   }
 }
@@ -5197,7 +5193,7 @@ void GeneralWorkspace::upload_trial(const TrialScalars& scalars,
                            const std::vector<double>& source) {
       if (source.size() != stage_offsets_[region + 1] - stage_offsets_[region])
         throw std::invalid_argument("fixed problem array has the wrong extent");
-      std::copy(source.begin(), source.end(), base + stage_offsets_[region]);
+      std::ranges::copy(source, base + stage_offsets_[region]);
     };
     const auto fill = [&](const std::size_t region, const double value) {
       std::fill(base + stage_offsets_[region], base + stage_offsets_[region + 1],
@@ -5244,7 +5240,7 @@ void GeneralWorkspace::upload_trial(const TrialScalars& scalars,
     fill_slot(1, *sample);
   if (rate != nullptr) {
     require_extent(rate->size(), problem_.n_phi_terms, "Adams rate weights");
-    std::copy(rate->begin(), rate->end(), staging.data() + stage_offsets_[13]);
+    std::ranges::copy(rate, staging.data() + stage_offsets_[13]);
   }
   graph::deep_copy(execution_space_, stage_scalars_, staging);
   bind_stage_scalars(0);
@@ -5263,7 +5259,7 @@ void GeneralWorkspace::prepare_raman(const std::vector<double>& rates,
   if (!problem_.raman)
     throw std::logic_error("this state has no Raman workspace");
   require_extent(rates.size(), problem_.n_raman_terms, "Raman decay rates");
-  if (!std::all_of(rates.begin(), rates.end(), [](const double value) {
+  if (!std::ranges::all_of(rates, [](const double value) {
         return std::isfinite(value) && value >= 0.0;
       }))
     throw std::invalid_argument("Raman decay rates must be finite and non-negative");
@@ -5274,8 +5270,9 @@ void GeneralWorkspace::prepare_raman(const std::vector<double>& rates,
   if (problem_.n_raman_components > 1) {
     require_extent(densities.size(), problem_.n_raman_components,
                    "Raman amplitude densities");
-    if (!std::all_of(densities.begin(), densities.end(),
-                     [](double value) { return std::isfinite(value) && value >= 0.0; }))
+    if (!std::ranges::all_of(densities, [](double value) {
+          return std::isfinite(value) && value >= 0.0;
+        }))
       throw std::invalid_argument(
           "Raman amplitude densities must be finite and non-negative");
     auto density_host = Kokkos::create_mirror_view(stage_raman_densities_);
@@ -14145,8 +14142,8 @@ std::vector<double> GeneralWorkspace::statistics(
   require_open();
   const auto& selected_weight =
       power_weight.empty() ? problem_.power_weight : power_weight;
-  statistics_unit_weight_ = std::all_of(selected_weight.begin(), selected_weight.end(),
-                                        [](double value) { return value == 1.0; });
+  statistics_unit_weight_ =
+      std::ranges::all_of(selected_weight, [](double value) { return value == 1.0; });
   if (!selected_weight.empty()) {
     require_extent(selected_weight.size(), statistics_power_weight_.size(),
                    "statistics power weight");

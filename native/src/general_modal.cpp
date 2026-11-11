@@ -286,9 +286,8 @@ GeneralModalSource::GeneralModalSource(const Problem& problem)
   // A gas region's dispersive channels respond where every regional tensor may be
   // zero; with no regional tensor and no delayed response the contraction is
   // identically zero, and it and its transform are skipped.
-  const bool tensor =
-      std::any_of(problem.general_tensor.begin(), problem.general_tensor.end(),
-                  [](const double value) { return value != 0.0; });
+  const bool tensor = std::ranges::any_of(
+      problem.general_tensor, [](const double value) { return value != 0.0; });
   regional_ = tensor || terms_ != 0;
   responds_ = tensor || problem.dispersive;
   const auto chunk_rows = chunk_ * components_;

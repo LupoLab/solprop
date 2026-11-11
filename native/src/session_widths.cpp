@@ -84,7 +84,7 @@ double interp(const double point, const std::vector<double>& x,
   if (point > x.back())
     return samples.back();
   // The last `j` with `x[j] <= point`.
-  const auto above = std::upper_bound(x.begin(), x.end(), point);
+  const auto above = std::ranges::upper_bound(x, point);
   const auto j = static_cast<std::size_t>(above - x.begin()) - 1;
   if (j == n - 1 || x[j] == point)
     return samples[j];
@@ -119,10 +119,9 @@ std::array<double, 3> line_widths(const std::vector<double>& x,
                                   const std::vector<double>& values,
                                   const double e2_fraction) {
   const auto finite = [](const double value) { return std::isfinite(value); };
-  if (x.size() < 2 || values.size() != x.size() ||
-      !std::all_of(x.begin(), x.end(), finite) ||
-      !std::all_of(values.begin(), values.end(), finite) ||
-      std::any_of(values.begin(), values.end(), [](const double v) { return v < 0.0; }))
+  if (x.size() < 2 || values.size() != x.size() || !std::ranges::all_of(x, finite) ||
+      !std::ranges::all_of(values, finite) ||
+      std::ranges::any_of(values, [](const double v) { return v < 0.0; }))
     throw std::invalid_argument("Cartesian fluence widths require finite axes "
                                 "and matching nonnegative samples");
   require_uniform(x);

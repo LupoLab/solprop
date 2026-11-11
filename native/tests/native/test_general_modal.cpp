@@ -678,7 +678,7 @@ TEST(GeneralModal, TheAdamsRowsNeedTheHistory) {
 
 TEST(GeneralModal, ALinearGuideLeavesTheStageZero) {
   auto problem = modal_problem(true, 2, false);
-  std::fill(problem.general_tensor.begin(), problem.general_tensor.end(), 0.0);
+  std::ranges::fill(problem.general_tensor, 0.0);
   native::GeneralState state(problem);
   std::vector<Complex> field(kModes * problem.n_omega, Complex(1.0, 0.5));
   state.set_initial(field, {});

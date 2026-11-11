@@ -48,14 +48,12 @@ double py_max(const double a, const double b) { return b > a ? b : a; }
 
 /** `bisect.bisect_left` over an increasing sequence. */
 std::size_t bisect_left(const std::vector<double>& values, const double x) {
-  return static_cast<std::size_t>(std::lower_bound(values.begin(), values.end(), x) -
-                                  values.begin());
+  return static_cast<std::size_t>(std::ranges::lower_bound(values, x) - values.begin());
 }
 
 /** `bisect.bisect_right` over an increasing sequence. */
 std::size_t bisect_right(const std::vector<double>& values, const double x) {
-  return static_cast<std::size_t>(std::upper_bound(values.begin(), values.end(), x) -
-                                  values.begin());
+  return static_cast<std::size_t>(std::ranges::upper_bound(values, x) - values.begin());
 }
 
 void refuse(const char* field, const double value) {
@@ -67,8 +65,8 @@ bool increasing(const std::vector<double>& values) {
   for (std::size_t index = 1; index < values.size(); ++index)
     if (!(values[index] > values[index - 1]))
       return false;
-  return std::all_of(values.begin(), values.end(),
-                     [](const double value) { return std::isfinite(value); });
+  return std::ranges::all_of(values,
+                             [](const double value) { return std::isfinite(value); });
 }
 
 } // namespace
@@ -365,8 +363,9 @@ double proposal(const Policy& policy, const double dz, const double factor) {
 }
 
 bool replay_kink(const Policy& policy, const double end, const double slack) {
-  return std::any_of(policy.hard_kinks.begin(), policy.hard_kinks.end(),
-                     [&](const double kink) { return std::fabs(kink - end) <= slack; });
+  return std::ranges::any_of(policy.hard_kinks, [&](const double kink) {
+    return std::fabs(kink - end) <= slack;
+  });
 }
 
 bool reached(const double position, const double target, const int ulps) {
@@ -558,8 +557,8 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
                               state.history.end());
       std::size_t free = 0;
       for (;; ++free)
-        if (std::none_of(kept.begin(), kept.end(),
-                         [free](const Entry& entry) { return entry.row == free; }))
+        if (std::ranges::none_of(
+                kept, [free](const Entry& entry) { return entry.row == free; }))
           break;
       try {
         engine.accept(step.dz, free, trial, kept);

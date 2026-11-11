@@ -206,7 +206,7 @@ Session::Session(std::unique_ptr<Resident> resident, Method method, Plan plan,
           "a session interpolates its planes with the march's dense output");
     dense_ = runge_kutta.dense.get();
   }
-  if (!std::is_sorted(plan_.planes.begin(), plan_.planes.end()))
+  if (!std::ranges::is_sorted(plan_.planes))
     throw std::invalid_argument("a session's save planes increase");
   if (plan_.next_plane > plan_.planes.size())
     throw std::invalid_argument("a session's first plane is past its planes");

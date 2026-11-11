@@ -650,7 +650,7 @@ void require_dispersive(const Problem& problem) {
   std::vector<std::size_t> distinct;
   for (std::size_t group = 0; group < groups; ++group) {
     const auto key = keys.empty() ? 0 : keys[group];
-    if (std::find(distinct.begin(), distinct.end(), key) == distinct.end())
+    if (std::ranges::find(distinct, key) == distinct.end())
       distinct.push_back(key);
   }
   const std::size_t fields = problem.dispersive_symmetric ? groups : 2 * groups;
@@ -739,7 +739,7 @@ DispersiveWeights::DispersiveWeights(const Problem& problem,
     // `dispersive_terms_layout`).
     cube_of_.assign(groups_, 0);
     for (std::size_t group = 0; group < groups_; ++group) {
-      const auto at = std::find(cube_keys_.begin(), cube_keys_.end(), keys_[group]);
+      const auto at = std::ranges::find(cube_keys_, keys_[group]);
       cube_of_[group] = static_cast<std::size_t>(at - cube_keys_.begin());
       if (at == cube_keys_.end())
         cube_keys_.push_back(keys_[group]);
@@ -796,7 +796,7 @@ void DispersiveWeights::require_densities(const std::vector<double>& densities) 
 
 void DispersiveWeights::set_densities(const std::vector<double>& densities) {
   require_densities(densities);
-  std::copy(densities.begin(), densities.end(), densities_.begin());
+  std::ranges::copy(densities, densities_.begin());
 }
 
 void DispersiveWeights::update(const std::size_t stage) {

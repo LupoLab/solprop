@@ -32,7 +32,7 @@ void require_size(const std::size_t actual, const std::size_t expected,
 }
 
 bool finite(const std::vector<Complex>& values) {
-  return std::all_of(values.begin(), values.end(), [](const Complex& value) {
+  return std::ranges::all_of(values, [](const Complex& value) {
     return std::isfinite(value.real()) && std::isfinite(value.imag());
   });
 }
@@ -440,7 +440,7 @@ CoupledFlowAction::form_actions(const std::size_t section, const double dz,
     throw std::invalid_argument("flow_section names no section of the coupled flow");
   require_size(fractions.size(), n_stages_ + 1, "stage fractions");
   if (!std::isfinite(dz) || dz <= 0.0 ||
-      !std::all_of(fractions.begin(), fractions.end(), [](const double value) {
+      !std::ranges::all_of(fractions, [](const double value) {
         return std::isfinite(value) && value >= 0.0 && value <= 1.0;
       }))
     throw std::invalid_argument("coupled flow step and fractions must be finite, the "
@@ -559,8 +559,8 @@ void CoupledFlowAction::set_trial(const std::size_t section,
     return;
   }
   require_size(weights.size(), n_stages_ * terms_, "flow_weights");
-  if (!std::all_of(weights.begin(), weights.end(),
-                   [](const double value) { return std::isfinite(value); }))
+  if (!std::ranges::all_of(weights,
+                           [](const double value) { return std::isfinite(value); }))
     throw std::invalid_argument("flow_weights must be finite");
   upload(kernels_, weights_, weights);
   const auto& listed = host_active_terms_;

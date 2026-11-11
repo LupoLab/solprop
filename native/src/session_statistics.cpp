@@ -82,8 +82,8 @@ public:
     return set_[static_cast<std::size_t>(stat)];
   }
   [[nodiscard]] bool any(std::initializer_list<Stat> stats) const {
-    return std::any_of(stats.begin(), stats.end(),
-                       [this](const Stat stat) { return (*this)(stat); });
+    return std::ranges::any_of(stats,
+                               [this](const Stat stat) { return (*this)(stat); });
   }
 
 private:
@@ -198,14 +198,13 @@ void species(const Plan& plan, const double z, const double taper,
   if (weights.size() != n_nodes)
     throw std::invalid_argument("species statistics require one weight per node");
   const auto valid = [](const std::vector<double>& values) {
-    return std::all_of(values.begin(), values.end(), [](const double value) {
+    return std::ranges::all_of(values, [](const double value) {
       return std::isfinite(value) && value >= 0.0;
     });
   };
   if (fractions.empty() || !valid(densities) || !valid(fractions) || !valid(peaks) ||
       !valid(potentials) || !valid(weights) ||
-      std::any_of(fractions.begin(), fractions.end(),
-                  [](const double value) { return value > 1.0; }))
+      std::ranges::any_of(fractions, [](const double value) { return value > 1.0; }))
     throw std::invalid_argument("species statistics require finite non-negative "
                                 "populations and fractions in [0, 1]");
   std::vector<double> electrons(n_species * n_nodes);
@@ -636,7 +635,7 @@ template <class Value> void Table<Value>::validate(const char* name) const {
   check(n_terms >= 1 && n_values >= 1, std::string("table has no terms: ") + name);
   check(coefficients.size() == (edges.size() - 1) * n_terms * n_values,
         std::string("table's coefficients have the wrong extent: ") + name);
-  check(std::is_sorted(edges.begin(), edges.end()),
+  check(std::ranges::is_sorted(edges),
         std::string("table's edges do not increase: ") + name);
   check(lower <= edges.front() && upper >= edges.back(),
         std::string("table's span is not inside its slack: ") + name);
@@ -734,11 +733,11 @@ void Plan::validate() const {
           "has a pad scale that is not positive");
   }
   if (wanted(Stat::zdw))
-    check(zdw.size() == n_modes && std::all_of(zdw.begin(), zdw.end(),
-                                               [](const RealTable& table) {
-                                                 return table.present() &&
-                                                        table.n_values == 1;
-                                               }),
+    check(zdw.size() == n_modes && std::ranges::all_of(zdw,
+                                                       [](const RealTable& table) {
+                                                         return table.present() &&
+                                                                table.n_values == 1;
+                                                       }),
           "lacks a mode's zero-dispersion wavelength table");
   if (wanted.any({Stat::beam_radius, Stat::fwhm_r})) {
     check(route == Route::spatial && widths != Widths::none,

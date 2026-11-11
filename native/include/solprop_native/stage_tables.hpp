@@ -162,7 +162,7 @@ struct Sections {
 private:
   [[nodiscard]] std::size_t clamped(const double key) const {
     // `numpy.searchsorted(edges, key, side="right") - 1`, clamped to the sections.
-    const auto above = std::upper_bound(edges.begin(), edges.end(), key);
+    const auto above = std::ranges::upper_bound(edges, key);
     const auto raw = static_cast<std::ptrdiff_t>(above - edges.begin()) - 1;
     const auto last = static_cast<std::ptrdiff_t>(edges.size()) - 2;
     return static_cast<std::size_t>(std::min(std::max(raw, std::ptrdiff_t{0}), last));
@@ -257,7 +257,7 @@ struct ZSlots {
                                 const std::vector<double>& positions) {
     std::vector<double> wanted;
     for (const double z : positions)
-      if (std::find(wanted.begin(), wanted.end(), z) == wanted.end())
+      if (std::ranges::find(wanted, z) == wanted.end())
         wanted.push_back(z);
     if (wanted.size() > slots)
       throw std::invalid_argument("a native call reads the z table at " +
@@ -267,7 +267,7 @@ struct ZSlots {
     std::vector<std::size_t> slot_of(wanted.size(), slots);
     std::vector<bool> taken(slots, false);
     for (std::size_t index = 0; index < wanted.size(); ++index) {
-      const auto at = std::find(held.begin(), held.end(), wanted[index]);
+      const auto at = std::ranges::find(held, wanted[index]);
       if (at != held.end()) {
         slot_of[index] = static_cast<std::size_t>(at - held.begin());
         taken[slot_of[index]] = true;
@@ -299,8 +299,8 @@ struct ZSlots {
     std::vector<std::size_t> out;
     out.reserve(positions.size());
     for (const double z : positions)
-      out.push_back(slot_of[static_cast<std::size_t>(
-          std::find(wanted.begin(), wanted.end(), z) - wanted.begin())]);
+      out.push_back(slot_of[static_cast<std::size_t>(std::ranges::find(wanted, z) -
+                                                     wanted.begin())]);
     return out;
   }
 
@@ -317,7 +317,7 @@ struct ZSlots {
 
 private:
   void touch(const std::size_t slot) {
-    order.erase(std::find(order.begin(), order.end(), slot));
+    order.erase(std::ranges::find(order, slot));
     order.push_back(slot);
   }
 
@@ -543,7 +543,7 @@ inline TrialScalars sample(const Tables& tables, Anchor& anchor,
   if (tables.flow.present())
     return trial(tables, row(tables, anchor, end, end));
   auto out = step;
-  std::fill(out.phi_delta.begin(), out.phi_delta.end(), 0.0);
+  std::ranges::fill(out.phi_delta, 0.0);
   return out;
 }
 
