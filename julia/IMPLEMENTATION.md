@@ -8,73 +8,65 @@ The completed implementation is left ready for maintainer review, not auto-merge
 ## Current status
 
 Resumed on 11 November 2026 after the maintainer's brief network pause.
-The binary32 physical-export and portable-history attachment now composes with Adams
-sessions. It passes 81 pure Python tests, 3,338 affected Julia assertions and 23 managed
-binary64 history/public-CPU tests. Independent review adds 390 raw-history, 58 actual
-PythonCall mixed-buffer and 135 field-export/probe assertions. Review corrected complete
-physical-format overflow before destination writes (#718). Public binary32 selection
-remains closed pending complete observation composition. Package quality exposed
-abstract-argument inference errors in launch and physical conversion; explicit scalar
-types and Cartesian indexing address them, with twelve additional exact view/ownership
-checks. The final Aqua/JET gate passes all 16 checks, analyzing all 1,858 definitions
-with zero cached. Runic, changed-file spelling and whitespace checks pass.
-Whole-package Python types have zero errors and three existing missing-native-source
-warnings; the changed scope has zero errors or warnings.
+The binary64 CPU source, session and service path is integrated. Full phase 2
+qualification remains open. Device-selection and execution-option transport are
+reviewed; actual device execution remains refused. The implementation stays in draft.
 
-The binary64 CPU source/session/services path is integrated. Device-selection and
-execution-option transport are reviewed; actual device execution remains refused.
-Reviewed completion fixes cover low-storage flow caching, default plasma/species
-statistics and on-axis/spectral-flux statistics. Latest integration is `c9be0c2b`.
-Independent attachment review passes all 14 typed managed/pure cases plus 109
-additional numerical, range, shape and memory checks. Source and flow leaves retain
-zero warmed allocation. Full phase 2 qualification remains open.
+Binary32 source composition, RK/low-storage/Adams marching, launch scales, physical
+export and portable history are integrated and independently reviewed. The latest
+transport milestone passes 81 pure Python tests, 3,338 affected Julia assertions and
+23 managed binary64 history/public-CPU tests. Independent review adds 390 raw-history,
+58 actual PythonCall mixed-buffer and 135 export/probe assertions. Complete physical
+formatting now refuses overflow before destination writes (#718). Final Aqua/JET
+passes all 16 checks, analyzing all 1,858 definitions with zero cached; changed Python
+scope has zero type errors or warnings. Whole-package types retain three existing
+missing-native-source warnings and zero errors.
 
-Phase 3 has reviewed source composition, march arithmetic and protected-reduction
-foundations. Adams leaf `d1a0c1f3` is independently approved: the master passes 3,617
-bounds-enabled assertions including 68 new MPFR/range witnesses. Review corrected
-the imaginary-transport guard (#714); the final author gate passes 5,820 affected
-assertions and Aqua/JET. RK/session/probe leaf `cf78b0b4` is independently approved;
-the master repeats its focused source/dense/session/probe families and adds 240
-scale, bounded-delivery and exact-work witnesses. All pass with bounds enabled.
-The author gate passes 2,552 affected assertions and Aqua/JET. Observation
-numerical leaf `077211b5` is under independent review; reconstruction is the next
-assigned slice. Master launch-scale records and source/launch bridge attachment pass
-51 Python checks, 235 bounds-enabled Julia assertions, 25 typed managed CPU/axis
-cases and scoped types with no errors or warnings. Independent review approves that
-attachment with 2,545 Julia assertions (2,310 additional MPFR/range witnesses) and
-seven typed Python tests; it does not claim a second managed bridge run.
-Public single precision remains closed until source, observations, session export,
-portable history and all admitted routes compose correctly.
+Spatial RK dense observation now accepts the existing separable line/Cartesian
+operator (#719), retaining its protected root and branch assembly without a dense
+operator copy. The master independently repeats 6,016 bounds-enabled assertions at
+two threads. Author qualification adds a one-thread repeat and passing Aqua/JET
+across all 1,861 definitions. Integration is `cd34de38`.
 
-The corrected CPU campaign at `5fc63437` has passed 23 managed CPU/inventory smoke
-checks and is running all twelve admitted standard short-window cases at one thread
-and the default CPU budget. Four earlier successful comparisons and their retained
-failures are documented in `docs/dev/benchmarks.md`; they are partial evidence.
-The current CI run finished with three stale fixture assumptions and one missing
-Windows skip declaration, tracked with #706. Both Julia lanes reached the same obsolete
-analytic-Kerr fixture; neither completed its gate. The documentation formatting failure
-is fixed locally. Corrected fixtures pass 57 Python tests and 105 Julia assertions,
-including the axis-observation record added after the pushed revision. All twelve
-CPU benchmark cases completed their first round at one and 64 threads; two further
-rounds remain. GPU-free CUDA artifact preparation is running in a separate CPU
-allocation with an isolated depot. No full qualification is claimed from targeted
-checks. No cloud resources have been rented; campaign spend remains zero.
+Binary32 observation reductions and monitor calculations are independently approved
+and integrated through `ff9dedf6`. Corrections preserve actual weighted products,
+per-node fluence exponents, physical identity and retained-buffer aliases (#715–717).
+The reviewer passes 3,895 assertions, including 2,672 additional product, weak-node
+and alias witnesses; the author passes 1,223 assertions at both thread budgets and
+Aqua/JET across all 1,897 definitions. Reconstruction, shared service attachment and
+node-memory accounting remain in progress. Public binary32 selection stays closed
+until these paths compose. The wide arithmetic agent is binding actual run/history
+geometry; no public DF32 execution is claimed.
 
-Observation leaf `077211b5` remains unapproved: #715 tracks foreign
-monitor-scratch aliases, #716 lost dominant products under separate normalization,
-and #717 physical identity classification. The observation agent owns corrections;
-none is integrated as qualified. Adams session precision is checkpointed separately
-at `ad893886`: 6,177 affected assertions and package Aqua/JET pass, with a private
-concrete-analysis harness correction, one-thread repeat and independent review pending.
-Adams session precision is independently approved and integrated at `f1e71a80`.
-The master passed 645 bounds-enabled assertions, including 288 additional precision,
-scale, order and bounded-delivery checks against MPFR. Author qualification completes
-the one-thread repeat and 21 concrete-analysis/fixture checks. The observation
-correction retains a
-bounded integer exponent per spatial node, avoiding a new public range refusal while
-preserving weak terms before coordinate/quadrature weighting; its inventory counts
-that storage explicitly. The reviewer is also inspecting the master export/history
-checkpoint independently.
+Temporal split precision is independently approved through `dcc443bf`. Review found
+and corrected a tiny-collar regression (#720): binary32 must use the existing SEP33
+`expm1` correction graph, with the original spectrum added only after transforming
+the correction. The corrected leaf passes 522 authored and 566 independent assertions,
+including candidate preservation after overflow and strided retries. Final Aqua/JET
+passes 16 checks across all 1,949 definitions, zero cached. Binary64's original product
+graph is unchanged. Shared observation factories still await matching preparations.
+
+The binary32 node-inventory update is in progress: 27 pure tests pass, but eight new
+managed source-owner cases stop at the intentional current descriptor admission guard.
+They are not qualified or counted as passing. The complete bridge attachment must
+remove that guard in coordination with the remaining observation work. Fixed source
+coefficient buffers and physical readouts remain host-wide; the inventory counts them
+separately from narrow state scratch and integer exponent metadata.
+
+The CPU campaign at `5fc63437` passes 23 managed CPU/inventory smoke checks and is
+collecting twelve standard short-window cases at one and 64 threads. Every case has
+completed round one; round two is underway. Four earlier successful comparisons and
+their retained failures are documented in `docs/dev/benchmarks.md`. CPU-only CUDA
+artifact preparation has passed with an isolated depot; first A40 loading and offline
+execution are pending. No cloud resources have been rented; spend remains zero.
+
+CI for `984444ce` is running. Static checks, native quality, device compilation,
+distribution wheels and the no-native lane have passed. The Windows GUI lane found
+an immediate-resume event-log sharing violation after 424 passing tests; unrelated
+issue #724 retains the evidence. A targeted rerun must wait for the current workflow
+to finish. Earlier stale fixtures and the Windows skip declaration
+were corrected and independently reviewed; local targeted checks pass 57 Python tests
+and 105 Julia assertions. Required unfinished lanes remain visible.
 
 | Phase | Status | Evidence or prerequisite |
 |---|---|---|
@@ -120,10 +112,10 @@ Current assignments after resumption:
 
 | Owner | Exclusive files and task |
 |---|---|
-| Master | Shared Python/Julia bridge, export/history attachment, module/test inclusion, CI, integration and compute records |
-| Observation agent | Observation/statistics/monitor/power-weight leaves and their tests; correct #715–717, then attach binary32 reconstruction |
+| Master | Shared Python/Julia bridge and service attachment; `observation_session.jl`, `spatial_session.jl` and temporal split precision tests; node inventory, module/test inclusion, CI and compute records |
+| Observation agent | Observation/statistics/monitor/power-weight files and tests; reviewed numerical corrections complete, binary32 reconstruction underway |
 | Wide arithmetic agent | New `_wide.py`, `wide_binding.jl`, focused tests and `DF32_INTEGRATION.md`; bind actual run/history geometry before execution wiring |
-| Dense/review agent | `runge_kutta_observation.jl` and a new spatial dense test; qualify separable spatial operators, then resume independent observation review |
+| Quadrature/review agent | Split and observation correction review complete; `quadrature_alarm.jl`, new `quadrature_precision.jl` tests and `QUADRATURE_PRECISION.md` for binary32 diagnostic arithmetic |
 
 The maintainer explicitly moved remaining runtime investigation off the critical path
 on 2026-11-10. Continue core implementation using the experiment's numerical work,
