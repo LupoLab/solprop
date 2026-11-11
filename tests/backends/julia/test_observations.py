@@ -323,6 +323,7 @@ def test_power_weight_representation_is_copied_without_refitting(representation)
         ),
     )
     actual = lower_observations(problem, _request(case, ("omega0",))).power_weight
+    assert actual is not None
     if representation == "constant":
         assert actual.values is not None
         assert np.array_equal(actual.values[:, 0], constant.ravel())

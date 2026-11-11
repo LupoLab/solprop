@@ -15,8 +15,8 @@ reviewed with the standalone spatial observation leaf.
 import math
 
 import numpy as np
+from tests.bounds import gamma
 
-from bounds import gamma
 from solprop import fourier
 from solprop.constants import EPS0, C
 from solprop.spatial import _fluence_rings

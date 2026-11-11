@@ -10,10 +10,10 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+from tests.bounds import gamma
 
 from backends.julia.spatial_cases import spatial_case, spatial_collar
 from backends.julia.spatial_observation_bounds import spatial_observation_bounds
-from bounds import gamma
 from sessions.executors import IDENTITY, Started, drive
 from solprop.backends.events import ObservationReady, Outcome, join_attempts
 from solprop.backends.julia import _calls
@@ -26,6 +26,7 @@ from solprop.exceptions import BackendError
 from solprop.stats import StatsSpec
 from solprop.translate.linop import delta_phi, unitary_phase
 from solprop.translate.problem import Initial, Translation
+from solprop.translate.routes import SpatialRoute
 
 pytestmark = [
     pytest.mark.medium,
@@ -150,6 +151,7 @@ def test_material_free_spatial_absorption_keeps_the_physical_source(kind, geomet
     case = spatial_collar(base)
     actual = spatial_run(case, grid, julia=True).fields[-1]
     assert np.linalg.norm((actual - references[-1]).ravel()) < 1e-8 * scale
+    assert case.problem.transform.geometry is not None
     weights = case.problem.transform.geometry.spectral_weights[:, None, None]
     initial_energy = np.sum(weights * abs(case.problem.initial.field0) ** 2)
     final_energy = np.sum(weights * abs(actual) ** 2)
@@ -233,6 +235,7 @@ def test_spatial_observations_use_the_selected_field_and_physical_flux(
         if isinstance(event, ObservationReady)
     ]
     for event, field in zip(planes, result.fields, strict=True):
+        assert isinstance(case.problem.route, SpatialRoute)
         bounds = spatial_observation_bounds(case.problem, grid, field, event.z)
         reference = collect_spatial(
             StatsSpec(names=names[:-1], periodic=()),
