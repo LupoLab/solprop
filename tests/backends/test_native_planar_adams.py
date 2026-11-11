@@ -38,6 +38,7 @@ import math
 import numpy as np
 import pytest
 
+from backends._session_probe_b2 import run_session
 from backends.planar_cases import CASES, planar_case
 from bounds import gamma, step_evaluations
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -111,12 +112,15 @@ def with_steps(run_request, steps, length):
 
 
 def run(backend_class, problem, run_request, grid, length):
-    """Propagate the problem's launch and return the state and the summary."""
+    """Run the problem's launch to `length`, its last plane, in the backend's session.
+
+    Returns the state there and the accepted steps.
+    """
+    assert float(run_request.stepper.save_planes[-1]) == length
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(length)
-        return backend.observe().require_field().copy(), summary
+        landed = run_session(backend, problem, run_request)
+        return landed.field, landed.n_accepted
     finally:
         backend.close()
 
@@ -164,7 +168,7 @@ def test_a_step_and_a_run_are_the_reference_s(
     bound = ladder_bound(name, grid, space, problem, run_request, count, length)
     reference, summary = run(NumpyRefBackend, problem, run_request, grid, length)
     actual, ours = run(native.NativeBackend, problem, run_request, grid, length)
-    assert ours.n_steps == summary.n_steps == count
+    assert ours == summary == count
     measured = relative(actual, reference)
     record_property("measured", measured)
     record_property("bound", bound)

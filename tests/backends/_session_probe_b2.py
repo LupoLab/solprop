@@ -269,3 +269,64 @@ def launch_field(
         observation,
     ):
         return np.array(session.export(observation.ticket, IDENTITY))
+
+
+def load_native(backend: Any, field: np.ndarray) -> Any:
+    """Load a host state into a native backend's state, its recycled stage dropped.
+
+    The kernel-level tests call the native state (``solprop_native._core.State``)
+    directly, as the session's march does, in place of the retired driver load.
+
+    Parameters
+    ----------
+    backend : solprop_native.NativeBackend
+        The backend.
+    field : numpy.ndarray
+        The state, shape ``(n_modes, n_pol, n_omega)``.
+
+    Returns
+    -------
+    solprop_native._core.State
+        The loaded native state.
+    """
+    state = backend._native_state
+    flat = np.ascontiguousarray(field, dtype=np.complex128).reshape(-1)
+    state.set_initial(flat, np.empty(0, dtype=np.complex128))
+    state.clear_fsal()
+    return state
+
+
+def native_trial(
+    backend: Any,
+    request: RunRequest,
+    z: float,
+    dz: float,
+    *,
+    field: np.ndarray | None = None,
+) -> np.ndarray:
+    """Take one Runge-Kutta trial on a native state's staged rows.
+
+    The trial is the native state's own (``rk_trial`` on the uploaded stage tables),
+    as the native march takes it; its stages stay in the state for ``stage_to_host``.
+
+    Parameters
+    ----------
+    backend : solprop_native.NativeBackend
+        The backend.
+    request : solprop.translate.run_request.RunRequest
+        Its run's request, whose tableau's nodes the trial evaluates at.
+    z, dz : float
+        The trial's anchor and step, m.
+    field : numpy.ndarray or None, optional
+        A state to load first (:func:`load_native`); the state as it is by default.
+
+    Returns
+    -------
+    numpy.ndarray
+        The trial's error partials.
+    """
+    if field is not None:
+        load_native(backend, field)
+    backend._staged_rows()
+    nodes = [float(node) for node in request.stepper.tableau.nodes]
+    return np.asarray(backend._native_state.rk_trial(z, dz, nodes, prepare_only=False))
