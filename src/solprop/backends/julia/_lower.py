@@ -109,10 +109,6 @@ def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
         raise BackendError("julia refuses custom controllers; use numpy_ref")
     if request.observation.dense:
         raise BackendError("julia refuses interpolated planes; use native or numpy_ref")
-    if request.boundary.monitor is not None:
-        raise BackendError(
-            "this julia march composition does not yet evaluate monitors"
-        )
     tableau, control = request.integration.tableau, request.error_control
     replay = request.replay
     weights = control.controller.weights

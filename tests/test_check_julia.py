@@ -10,6 +10,7 @@ import sys
 import textwrap
 from pathlib import Path
 from types import SimpleNamespace
+from xml.etree import ElementTree
 
 import pytest
 from tools import check_julia
@@ -246,16 +247,32 @@ def test_python_phase_runs_the_whole_adapter_directory(pinned_tree, monkeypatch)
                     "test_cpu_session",
                     "test_cpu_history",
                     "test_cpu_observations",
+                    "test_cpu_monitor",
                 )
             )
             + "</testsuite>",
+            encoding="utf-8",
+        )
+        report = Path(command[-1].removeprefix("--junitxml="))
+        text = report.read_text(encoding="utf-8")
+        report.write_text(
+            text.replace(
+                "</testsuite>",
+                "".join(
+                    '<testcase classname="tests.sessions.test_conformance" '
+                    f'name="{name}[julia-cpu]"/>'
+                    for name in check_julia._CONFORMANCE_REQUIRED
+                )
+                + "</testsuite>",
+            ),
             encoding="utf-8",
         )
 
     monkeypatch.setattr(check_julia, "_run", run)
     check_julia._python(pinned_tree)
     assert calls[0][:4] == (sys.executable, "-m", "pytest", "tests/backends/julia")
-    assert calls[0][4].startswith("--junitxml=")
+    assert calls[0][4:7] == ("tests/sessions/test_conformance.py", "-k", "julia")
+    assert calls[0][7].startswith("--junitxml=")
 
 
 @pytest.mark.parametrize("result", ("skipped", "failure", "error"))
@@ -279,6 +296,49 @@ def test_runtime_evidence_cannot_be_satisfied_by_mock_tests(tmp_path):
     )
     with pytest.raises(ValueError, match="produced no test results"):
         check_julia._verify_runtime_report(report)
+
+
+@pytest.mark.parametrize("result", ["failure", "error", "skipped"])
+def test_conformance_evidence_refuses_an_unexpected_nonpass(result):
+    cases = [
+        ElementTree.fromstring(
+            '<testcase classname="tests.sessions.test_conformance" '
+            f'name="{name}[julia-cpu]"/>'
+        )
+        for name in check_julia._CONFORMANCE_REQUIRED
+    ]
+    cases[-1].append(ElementTree.Element(result, message="unexpected missing runtime"))
+    with pytest.raises(ValueError, match=r"did not pass|unexpected Julia"):
+        check_julia._verify_conformance_report(cases)
+
+
+def test_conformance_evidence_requires_the_core_contract_cases():
+    with pytest.raises(ValueError, match="missing passed Julia conformance"):
+        check_julia._verify_conformance_report([])
+
+
+def test_conformance_evidence_accepts_only_declared_capability_and_bitwise_skips():
+    cases = [
+        ElementTree.fromstring(
+            '<testcase classname="tests.sessions.test_conformance" '
+            f'name="{name}[julia-cpu]"/>'
+        )
+        for name in check_julia._CONFORMANCE_REQUIRED
+    ]
+    for message in (
+        "the julia-cpu executor promises numerical error bounds, "
+        "not bitwise repetition",
+        "the julia-cpu executor does not run a dense output",
+        "the julia-cpu executor does not run a transverse",
+    ):
+        case = ElementTree.Element(
+            "testcase",
+            classname="tests.sessions.test_conformance",
+            name="optional[julia-cpu]",
+        )
+        case.append(ElementTree.Element("skipped", message="Skipped: " + message))
+        cases.append(case)
+    check_julia._verify_conformance_report(cases)
 
 
 def test_instantiation_refuses_manifest_changes(pinned_tree, monkeypatch):

@@ -57,6 +57,9 @@ EXPECTED: tuple[str, ...] = (
     # (tests/sessions/executors.py): the scripted drivers run no Adams march.
     r"a scripted driver runs no Adams march",
     r"the [a-z-]+ executor does not run an? [a-z -]+",
+    # Compiled threaded/device execution is tested against numerical bounds; these
+    # conformance cases specifically require bitwise-repeatable CPU execution.
+    r"the [a-z-]+ executor promises numerical error bounds, not bitwise repetition",
     # The parametrization reaches a case its subject excludes.
     r"the interaction formulation is refused beside a coupled flow",
     r"the translation refuses dense output beside the modified noise",

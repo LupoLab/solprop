@@ -20,6 +20,14 @@ profiles belong to each run request. Periodic cadence counts accepted steps and 
 unchanged by event yields. A failed copy can retry the same closed chunk; acknowledgment
 drains it only after its complete values are owned by Python. Already delivered rows
 remain readable after session cleanup.
+Temporal monitoring also belongs to Julia: launch checks, accepted-step cadence,
+guard decisions and cumulative removal are evaluated there. Python formats the
+shared record and warning types from the numerical facts. A warning pauses at a
+closed service barrier, with a valid export ticket if a warning filter turns it
+into an error. Monitor continuation restores its original launch, cumulative totals
+and saved rows; it does not judge a resumed launch again. The first continuation
+supplied in `Start` takes precedence over a later output-record fallback. Monitor
+metadata remains readable after the session closes.
 Snapshots, cooperative stops and field exports use the same session contract as other
 backends. An acknowledged event invalidates its export ticket; arrays already returned
 to Python remain valid. Failed output consumers can recover an undelivered history chunk
@@ -50,7 +58,7 @@ Unsupported combinations currently refuse by name at preparation. The standalone
 Statistics and temporal/transverse-monitor components have separate tests;
 their presence alone does not establish complete Python session support.
 The current session supports in-stage temporal absorption. Split absorption, noise,
-vector responses, general modal and spatial transforms, and monitor/dense attachment remain
+vector responses, general modal and spatial transforms, and dense attachment remain
 pending. An explicit node chunk bounds the source's physical-node scratch; memory-budget
 admission remains pending. These execution choices do not alter scientific identities.
 
@@ -61,6 +69,13 @@ is NaN at launch and when no distinct embedded projection exists. Short same-fie
 comparisons use explicit transform and reduction bounds and certify temporal-width
 brackets separately; they do not assign a generic relative tolerance to material rates.
 Complete route/catalogue qualification remains part of phase 2.
+
+The binary32 work includes reviewed double-float exponential, phase-reduction and
+phi-function kernels. Their conservative function domain and underflow assumptions
+are derived separately from the bounds on a complete run's operands. They are not
+yet selectable for propagation: admission must account for the actual replay steps,
+every represented operator interval and restored Adams history, including arithmetic
+that forms the exponent before these functions receive it.
 
 ## Install and inspect
 

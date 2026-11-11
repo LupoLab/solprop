@@ -11,8 +11,8 @@ The completed implementation is left ready for maintainer review, not auto-merge
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
 | 1: package and runtime | Setup/package integrated; remaining runtime qualification deferred | Maintainer directs core implementation to proceed; failures remain tracked |
-| 2: CPU binary64 session | Scalar modal RK, landed Adams, low-storage and statistics pass; remaining services in progress | Fifty-three real bridge cases include portable histories and same-field statistics |
-| 3: CPU binary32 | Scalar DF32 foundation reviewed; full execution pending | Finite-expression and transcendental admission remain unqualified |
+| 2: CPU binary64 session | Scalar modal stepping, statistics and temporal monitoring pass; remaining services/routes in progress | Histories, same-field statistics and 24 common conformance cases pass; dense and transverse cases remain pending |
+| 3: CPU binary32 | DF32 primitives and conservative function leaf reviewed; full execution pending | Complete operand analysis in progress; whole-expression and device admission remain unqualified |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
 
@@ -54,9 +54,9 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 | Assignment | Exclusive files | State |
 |---|---|---|
 | Numerical transform/Adams agent | New `_phase_bounds.py`, its test and `julia/PHASE_ADMISSION.md` | Proposing complete exponent-operand bounds and an explicit assembly certificate interface; protected function leaf returned to master |
-| Numerical services agent | New `julia/src/monitor_transfer.jl`, `julia/ext/monitor.jl` and focused tests after interface agreement | Monitor transport proposal; reviewed group leaf returns to master |
+| Numerical services agent | Alias helpers in `julia/src/transfer.jl`, `julia/ext/observations.jl`, monitor alias section and Adams pairwise helper; two new alias tests | Fixing confirmed foreign-storage overlap in #671; no other history/monitor edits |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
-| Independent reviewer | Production code read-only | Statistics, groups and exact DF32 function leaf approved; reviewing monitor transport |
+| Independent reviewer | Production code read-only | Monitor leaf and Python integration approved in scope; shared alias correction and operand analysis next |
 
 The temporary CI assignments for `restore_control!`, CPU allocation and source/monitor
 constructors are complete and integrated after independent review. Their files return
@@ -81,7 +81,7 @@ The request-specific statistics bridge has passed integration and independent re
 Its first runtime pass found a PythonCall automatic-array-conversion dispatch gap;
 a distinct Python copy entry now transposes the packed destination explicitly.
 Transactional retries, buffer alias/admission and retained-array cleanup now pass.
-Monitoring, dense output, groups, noise
+Dense output, groups, noise
 and broader routes still block phase 2 completion. The subsequent phases continue
 without another approval step; the completed implementation PR remains unmerged.
 The reviewer-authored statistic-bound helper is integrated at `8e8aa1c6` after
@@ -98,9 +98,9 @@ passed 639 bounds-enabled assertions, including original witnesses for nonprogre
 near-coincident planes (#666) and zero-trial deadline turns (#667). Warmed advancement
 allocates zero; the author's package/concrete quality checks pass. Public compatibility,
 transactional original-start adoption and complete Python group windows remain pending.
-The initial DF32 function API admits only a proposed `abs(real(z)) <= 16`,
+The DF32 function API admits only the documented `abs(real(z)) <= 16`,
 `abs(imag(z)) <= 2^20` domain with a separate `u/8` input-error budget. Protected
-exponential, phasor and phi helpers are being implemented against that derivation;
+exponential, phasor and phi helpers implement that derivation;
 neither whole-run admission nor device qualification is inferred from this decision.
 The protected function leaf `5db7d4de` is integrated at `93ba2e53` after independent
 review. The exact committed source passed 66,336 bounds-enabled assertions at two
@@ -110,6 +110,30 @@ checks and the separately reviewed finite-underflow proof. These results establi
 the documented conservative CPU arithmetic domain only. Actual replay spans,
 restored Adams history and represented-operator operand bounds are the next
 certificate inputs; public binary32 admission and each device remain unqualified.
+The temporal monitor transport `a7d77050` is integrated at `8c625d0b`, with its
+Python publication/service adapter independently approved. Julia owns decisions and
+totals; Python retains detached rows and formats the existing record/messages.
+The first continuation is committed atomically with its numerical restore. A fallback
+after launch acknowledgment retains the last published scalars until the next valid
+generation. External attempt/start callbacks can request a snapshot while recursive
+advance, acknowledgment and close still refuse. Exact regressions cover #672 and #673.
+The new managed monitor/conformance selection passes 35 cases: eleven monitor cases
+and 24 common contract cases. Thirty skips name unfinished dense/transverse capabilities
+or inapplicable bitwise repetition; they do not qualify those missing capabilities.
+The integrated bounds-enabled Core passes 110,066 assertions in 224 sets. The 240-test
+typed affected selection, scoped types, docstrings, spelling and Sphinx pass. Integrated
+Aqua/JET passes all 16 checks over 1,169 definitions. All 53 previous real core, history
+and statistic bridge regressions also pass. The numerical monitor leaf's separate
+Aqua/JET and bridge checks passed.
+Linux CPU qualification of `23f38f03` passes all 53 bridge/history/statistic cases at
+one thread (215.32 seconds) and eight threads (1,011.55 seconds) on an eight-core
+allocation of AMD EPYC 7513 hardware with Julia 1.13.3 and GCC 16.2. The allocation
+is shared; these preparation/compilation-inclusive test durations are correctness
+evidence, not comparative kernel benchmarks. The job completed successfully and its
+evidence was retrieved. Cloud spend remains zero.
+The previous pushed head `5c18bb90` still fails Julia Linux and combined coverage in
+GitHub CI. Coverage is down to four statements and four branches in group-owner
+refusals; targeted regressions are next. No full-gate success is claimed.
 
 The foundation is committed at `540794bd`. Setup commits `6c569742`, `fadae531` and
 `52269788` were independently reviewed and integrated as `9fe74c26`, `5cec895c` and

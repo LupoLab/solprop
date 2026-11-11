@@ -30,6 +30,11 @@ quadrature diagnostics remain NaN; closed sessions release their request prepara
 ([#653](https://github.com/LupoLab/solprop/issues/653),
 [#662](https://github.com/LupoLab/solprop/issues/662)).
 
+Julia also owns temporal monitoring and its warning and stop decisions. Closed
+events carry detached records; failed copies can retry without duplicating rows.
+Resumed runs retain the original launch, removal totals and monitor history, with
+the first supplied continuation taking precedence over an output-record fallback.
+
 Adams preserves shared control policy, exact logical budget charges, actual source-call
 counts and compact accepted-order records across event yields and resumes. Portable
 binary64 snapshots transfer raw accepted state and full history stores losslessly;

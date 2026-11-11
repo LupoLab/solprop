@@ -152,8 +152,8 @@ def _deterministic(executor: Executor) -> None:
     """
     if not executor.deterministic:
         pytest.skip(
-            "a native run on several threads may vary its reduction order; the "
-            "default lane runs one (SOLPROP_NATIVE_THREADS=1)"
+            f"the {executor.name} executor promises numerical error bounds, "
+            "not bitwise repetition"
         )
 
 

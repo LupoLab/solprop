@@ -42,7 +42,7 @@ import os
 import warnings
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import numpy as np
 
@@ -594,6 +594,43 @@ def _native_low_storage(problem, request, start, *, stop=None, listener=None, **
     )
 
 
+def _julia_session(
+    problem, request, start, *, stop=None, listener=None, context=None, **script
+):
+    """Start Julia's complete numerical session through its prepared execution owner.
+
+    Parameters
+    ----------
+    problem, request, start : object
+        Scientific descriptor, immutable run request and initial session state.
+    stop, listener : object, optional
+        Cancellation token and observational attempt listener.
+    context : mapping or None, optional
+        Grid and modes; the shared soliton context is used by default.
+    **script
+        Refused: Julia's numerical outcomes are not scripted.
+
+    Returns
+    -------
+    Started
+        Independently owned session, with its field-export counter.
+    """
+    assert not script, "the Julia session takes no script"
+    from solprop.backends.julia.backend import JuliaBackend  # noqa: PLC0415
+    from solprop.backends.session import ExecutionOptions  # noqa: PLC0415
+
+    owner = JuliaBackend(
+        problem,
+        request,
+        options=ExecutionOptions(
+            backend_options={"setup_id": os.environ["SOLPROP_TEST_JULIA_SETUP_ID"]}
+        ),
+        **(_soliton_context() if context is None else context),
+    )
+    session = owner.prepare(problem, request).start(start, stop=stop, listener=listener)
+    return Started(session, field_reads=lambda: session._field_exports)
+
+
 MONITOR = "monitor"
 """The capability of watching the boundary with a monitor (SEP 21)."""
 
@@ -744,6 +781,9 @@ class Executor:
         What it can be asked to run on a device build, where the native session
         refuses :data:`DEVICE_REFUSED`; ``None`` where it does not run there at all.
         Unused on a CPU build.
+    repeatability : {'exact', 'native', 'rounding'}
+        Explicit test classification: scripted/reference exact runs, native CPU
+        exact runs at one thread, or only the numerical error-bound contract.
     """
 
     name: str
@@ -753,6 +793,7 @@ class Executor:
     capabilities: frozenset[str] = CAPABILITIES
     native_monitor: bool = False
     device: frozenset[str] | None = CAPABILITIES
+    repeatability: Literal["exact", "native", "rounding"] = "exact"
 
     @property
     def available(self) -> bool:
@@ -791,9 +832,11 @@ class Executor:
         Returns
         -------
         bool
-            True for the reference and the script, and for native on one thread.
+            True for explicitly exact executors, or native CPU at one thread.
         """
-        return not self.name.startswith("native") or _one_thread()
+        if self.repeatability == "native":
+            return _one_thread() and not device_build()
+        return self.repeatability == "exact"
 
 
 EXECUTORS: dict[str, Executor] = {
@@ -805,6 +848,7 @@ EXECUTORS: dict[str, Executor] = {
         "native",
         _over_driver(_selected("native"), host_state=False),
         requires="solprop_native",
+        repeatability="native",
     ),
     "scripted": Executor(
         "scripted",
@@ -818,6 +862,7 @@ EXECUTORS: dict[str, Executor] = {
         requires="solprop_native",
         native_monitor=True,
         device=CAPABILITIES - DEVICE_REFUSED,
+        repeatability="native",
     ),
     "native-session-low-storage": Executor(
         "native-session-low-storage",
@@ -826,6 +871,7 @@ EXECUTORS: dict[str, Executor] = {
         capabilities=CAPABILITIES - {DENSE},
         native_monitor=True,
         device=None,
+        repeatability="native",
     ),
     "scripted-host": Executor(
         "scripted-host",
@@ -835,6 +881,15 @@ EXECUTORS: dict[str, Executor] = {
     ),
 }
 """Every executor of the suite, by name."""
+
+if os.environ.get("SOLPROP_TEST_JULIA") == "1":
+    EXECUTORS["julia-cpu"] = Executor(
+        "julia-cpu",
+        _julia_session,
+        capabilities=frozenset({MONITOR, STATISTICS}),
+        native_monitor=True,
+        repeatability="rounding",
+    )
 
 
 @dataclass

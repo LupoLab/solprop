@@ -685,6 +685,25 @@ def test_callbacks_cannot_reenter_session_or_close_its_owner(
     session.acknowledge(batch.receipt)
 
 
+@pytest.mark.parametrize("callback", ["started", "listener"])
+def test_external_callbacks_can_latch_a_snapshot(boundary, callback):
+    requests = []
+
+    def observe(*unused):
+        requests.extend((session.request_snapshot(), session.request_snapshot()))
+
+    session = _start(
+        boundary, _frame(0), _frame(3, z=0.1, attempts=1), **{callback: observe}
+    )
+    _launch(session)
+    batch = session.advance()
+    assert len(requests) == 2
+    assert requests[0].request == requests[1].request
+    assert not requests[0].coalesced and requests[1].coalesced
+    assert not session._servicing
+    session.acknowledge(batch.receipt)
+
+
 def test_interrupted_acknowledgment_keeps_both_ledgers_consistent(boundary):
     session = _start(boundary, _frame(0), _frame(3, z=0.1, attempts=1))
     launch = session.advance()

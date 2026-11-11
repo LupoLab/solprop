@@ -8,6 +8,7 @@ import SolpropJulia
 import SolpropJulia: copy_preparation, prepare_modal, start_runge_kutta, start_adams
 import SolpropJulia: start_low_storage
 import SolpropJulia: prepare_observations, copy_session_observations!
+import SolpropJulia: copy_session_monitor_rows!, restore_session_monitor!
 import SolpropJulia: export_session!, session_attempts!, session_orders!
 import SolpropJulia: export_adams_history!, restore_adams_history!, restore_session_counts!
 
@@ -354,6 +355,7 @@ function export_session!(
 end
 
 include("observations.jl")
+include("monitor.jl")
 
 function session_attempts!(
         positions::Py, lengths::Union{Py, PyArray},

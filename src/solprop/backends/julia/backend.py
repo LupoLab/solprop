@@ -29,6 +29,7 @@ from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
 from solprop.log import StopFlag
 from solprop.modes.protocol import Mode
+from solprop.monitor import BoundaryCheck
 from solprop.profiles import ZProfile
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
@@ -115,7 +116,7 @@ class JuliaBackend:
             lower_observations(
                 problem, request, grid=grid, modes=modes, profiles=profiles
             )
-            if request.observation.stats.names
+            if request.observation.stats.names or request.boundary.monitor is not None
             else None
         )
         self._setup_id = setup_id
@@ -205,7 +206,7 @@ class JuliaBackend:
                 modes=self._modes,
                 profiles=self._profiles,
             )
-            if request.observation.stats.names
+            if request.observation.stats.names or request.boundary.monitor is not None
             else None
         )
         if self._preparation is None:
@@ -229,6 +230,11 @@ class JuliaBackend:
             transfer,
             problem.shape,
             observation=observation,
+            monitor=(
+                None
+                if request.boundary.monitor is None
+                else request.boundary.monitor.check
+            ),
         )
 
     def metadata(self) -> dict[str, object]:
@@ -476,9 +482,11 @@ class JuliaPrepared:
         Host field shape ``(n_modes, n_pol, n_omega)``.
     observation : ObservationTransfer or None, optional
         Request-specific immutable observation layout and represented inputs.
+    monitor : solprop.monitor.BoundaryCheck or None, optional
+        Immutable temporal monitor policy for formatting Julia's records and notices.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - numerical preparation and independent service context
         self,
         owner: JuliaBackend,
         runtime: JuliaRuntime,
@@ -487,6 +495,7 @@ class JuliaPrepared:
         shape: tuple[int, int, int],
         *,
         observation: ObservationTransfer | None = None,
+        monitor: BoundaryCheck | None = None,
     ) -> None:
         """Retain numerical preparation without creating mutable march state."""
         self._owner = owner
@@ -495,6 +504,7 @@ class JuliaPrepared:
         self._transfer = transfer
         self._shape = shape
         self._observation = observation
+        self._monitor = monitor
         self._owner._prepared.add(self)
 
     @property
@@ -559,6 +569,7 @@ class JuliaPrepared:
             listener=listener,
             started=started,
             observation=self._observation,
+            monitor=self._monitor,
         )
         self._owner.register(session)
         return session

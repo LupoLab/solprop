@@ -29,10 +29,21 @@ _RUNTIME_TESTS = (
     "tests/backends/julia/test_cpu_session.py",
     "tests/backends/julia/test_cpu_history.py",
     "tests/backends/julia/test_cpu_observations.py",
+    "tests/backends/julia/test_cpu_monitor.py",
     "tests/backends/julia/test_session_boundary.py",
+    "tests/sessions/executors.py",
+    "tests/sessions/test_conformance.py",
     "julia/test/control_oracle.jl",
     "julia/test/march.jl",
     "julia/test/transfer.jl",
+)
+_CONFORMANCE_REQUIRED = (
+    "test_a_stale_repeated_or_foreign_receipt_is_refused",
+    "test_advancing_across_a_pending_batch_is_refused",
+    "test_events_follow_the_committed_order",
+    "test_every_attempt_and_row_is_delivered_exactly_once",
+    "test_a_plane_nobody_exports_transfers_no_field",
+    "test_exported_arrays_are_never_written_again",
 )
 
 
@@ -238,6 +249,9 @@ def _python(root: Path) -> None:
                 "-m",
                 "pytest",
                 "tests/backends/julia",
+                "tests/sessions/test_conformance.py",
+                "-k",
+                "julia",
                 f"--junitxml={report}",
             ),
         )
@@ -252,6 +266,7 @@ def _verify_runtime_report(report: Path) -> None:
         "test_cpu_session",
         "test_cpu_history",
         "test_cpu_observations",
+        "test_cpu_monitor",
     ):
         cases = [
             case for case in results if module in case.get("classname", "").split(".")
@@ -268,6 +283,39 @@ def _verify_runtime_report(report: Path) -> None:
                 raise ValueError(
                     f"mandatory Julia test did not pass: {case.get('name')}"
                 )
+    _verify_conformance_report(results)
+
+
+def _verify_conformance_report(results: Sequence[ElementTree.Element]) -> None:
+    cases = [
+        case
+        for case in results
+        if "test_conformance" in case.get("classname", "").split(".")
+        and "julia-cpu" in case.get("name", "")
+    ]
+    passed = set()
+    for case in cases:
+        name = case.get("name", "")
+        skipped = case.find("skipped")
+        if skipped is not None:
+            reason = (skipped.get("message") or "").removeprefix("Skipped: ")
+            allowed = {
+                "the julia-cpu executor promises numerical error bounds, "
+                "not bitwise repetition",
+                "the julia-cpu executor does not run a dense output",
+                "the julia-cpu executor does not run a transverse",
+            }
+            if reason not in allowed:
+                raise ValueError(f"unexpected Julia conformance skip: {name}: {reason}")
+        elif case.find("failure") is not None or case.find("error") is not None:
+            raise ValueError(f"Julia conformance test did not pass: {name}")
+        else:
+            passed.add(name.split("[")[0])
+    missing = set(_CONFORMANCE_REQUIRED) - passed
+    if missing:
+        raise ValueError(
+            "missing passed Julia conformance cases: " + ", ".join(sorted(missing))
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> None:

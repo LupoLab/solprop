@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import TracebackType
 from typing import TYPE_CHECKING
 
@@ -43,6 +43,15 @@ from solprop.backends.julia._history import (
     restore_history,
 )
 from solprop.backends.julia._lower import RunTransfer
+from solprop.backends.julia._monitor import (
+    MonitorLog,
+    MonitorPayload,
+    monitor_error,
+    monitor_finished,
+    monitor_warning,
+    parse_resume,
+    read_monitor,
+)
 from solprop.backends.julia._observations import ObservationTransfer
 from solprop.backends.julia._ownership import JuliaHandle, require_main_thread
 from solprop.backends.julia._runtime import JuliaRuntime
@@ -68,6 +77,7 @@ from solprop.exceptions import (
     StopRequested,
 )
 from solprop.log import StopFlag
+from solprop.monitor import BoundaryCheck
 from solprop.output.schema import MarchSnapshot
 
 if TYPE_CHECKING:
@@ -81,7 +91,12 @@ _OBSERVATIONS = {
     1: ObservationKind.PLANE,
     2: ObservationKind.STEP,
 }
-_OUTCOMES = {5: Outcome.COMPLETED, 6: Outcome.STOPPED, 7: Outcome.FAILED}
+_OUTCOMES = {
+    5: Outcome.COMPLETED,
+    6: Outcome.STOPPED,
+    7: Outcome.FAILED,
+    9: Outcome.FAILED,
+}
 
 
 @dataclass(frozen=True)
@@ -130,6 +145,8 @@ class JuliaSession:
         Announcement before numerical work, after an owed launch observation.
     observation : ObservationTransfer or None, optional
         Immutable shapes and offsets for Julia-owned observation services.
+    monitor : solprop.monitor.BoundaryCheck or None, optional
+        Immutable policy for formatting Julia-decided monitor records and notices.
 
     Raises
     ------
@@ -153,12 +170,16 @@ class JuliaSession:
         listener: Callable[[float, float, bool], None] | None = None,
         started: Callable[[float, float, int], None] | None = None,
         observation: ObservationTransfer | None = None,
+        monitor: BoundaryCheck | None = None,
     ) -> None:
         """Validate the start, construct its independent engine, then take the field."""
         runtime.check()
         self._validate_start(start, shape)
         self._runtime = runtime
         self._observation = observation
+        self._monitor = None if monitor is None else MonitorLog(monitor, start.z)
+        if self._monitor is not None and start.monitor is not None:
+            self._monitor = self._monitor.continued(parse_resume(start.monitor))
         self._payload: ObservationPayload | None = None
         self._preparation = preparation
         self._shape = shape
@@ -196,12 +217,14 @@ class JuliaSession:
         self._engine = self._start_engine(transfer, start, restored)
         start.take_field()
         self._busy = False
+        self._servicing = False
         self._held = False
         self._report: _calls.EngineReport | None = None
         self._last_status = SessionStatus(
             start.z, start.plane_index, 0, 0, SessionState.READY
         )
         self._exports: dict[ExportRecipe, np.ndarray] = {}
+        self._field_exports = 0
         self._abandoned: tuple[float, float] | None = None
 
     def _start_engine(
@@ -249,6 +272,20 @@ class JuliaSession:
                 self._march_refusal = restore_history(
                     runtime, engine, start.march, transfer, self._shape
                 )
+            if self._monitor is not None:
+                resume = self._monitor.resume
+                if resume is not None:
+                    _calls.call_void(
+                        runtime,
+                        "restore_session_monitor!",
+                        engine,
+                        resume.numerical,
+                        resume.plane,
+                    )
+                payload = read_monitor(runtime, engine, 0)
+                if payload is None:
+                    raise BackendError("Julia temporal monitor preparation is missing")
+                self._monitor = self._monitor.captured(payload)
         except BaseException:
             try:
                 if engine is not None:
@@ -289,13 +326,17 @@ class JuliaSession:
             or not math.isfinite(start.z)
         ):
             raise BackendError("julia requires a finite complex128 starting field")
-        if start.noise is not None or start.monitor:
-            raise BackendError(
-                "this Julia composition does not yet restore noise or monitors"
-            )
+        if start.noise is not None:
+            raise BackendError("this Julia composition does not yet restore noise")
 
-    def _check(self) -> None:
+    def _check(self, *, allow_control: bool = False) -> None:
         """Require an open session on main without recursive entry.
+
+        Parameters
+        ----------
+        allow_control : bool, optional
+            Permit a snapshot request from an external service callback, where Julia
+            has returned. Recursive numerical advancement and closure still refuse.
 
         Raises
         ------
@@ -306,7 +347,7 @@ class JuliaSession:
         """
         require_main_thread()
         self._ledger.check_open()
-        if self._busy:
+        if self._busy and not (allow_control and self._servicing):
             raise SessionError("recursive Julia session entry is not allowed")
 
     @property
@@ -432,13 +473,17 @@ class JuliaSession:
         assert translated is not None
         chunk, event = translated
         if self._listener is not None:
-            for z, dz, accepted in zip(
-                chunk.z.tolist(),
-                chunk.dz.tolist(),
-                chunk.accepted.tolist(),
-                strict=True,
-            ):
-                self._listener(z, dz, bool(accepted))
+            self._servicing = True
+            try:
+                for z, dz, accepted in zip(
+                    chunk.z.tolist(),
+                    chunk.dz.tolist(),
+                    chunk.accepted.tolist(),
+                    strict=True,
+                ):
+                    self._listener(z, dz, bool(accepted))
+            finally:
+                self._servicing = False
         return EventBatch(receipt, (event,))
 
     def _hold(self, report: _calls.EngineReport) -> Receipt:
@@ -518,6 +563,7 @@ class JuliaSession:
         Event
             The shared observation, progress, service or terminal event.
         """
+        monitored = self._capture_monitor(report.generation)
         payload = self._capture_observations(report.generation)
         rows = payload.rows
         ticket = ExportTicket(receipt, report.generation, report.z)
@@ -551,10 +597,28 @@ class JuliaSession:
                 history=chunk,
                 step_stats=rows,
             )
+        if report.kind == 8:
+            if self._monitor is None or monitored is None or monitored.notice is None:
+                raise BackendError("Julia warning barrier has no temporal notice")
+            warning = monitor_warning(self._monitor.check, monitored.notice)
+            return ServiceRequired(
+                ServiceKind.WARNING,
+                report.z,
+                str(warning),
+                type(warning),
+                ticket,
+                chunk,
+                rows,
+                warning,
+            )
         outcome = _OUTCOMES[report.kind]
         error: BaseException | None = None
         if outcome is Outcome.STOPPED:
             error = StopRequested(self._token if self._stop is None else self._stop)
+        elif report.kind == 9:
+            if self._monitor is None or monitored is None:
+                raise BackendError("Julia boundary stop has no temporal monitor")
+            error = monitor_error(self._monitor.check, monitored)
         elif outcome is Outcome.FAILED:
             code, message, _, _, _ = _calls.failure(self._runtime, self._engine)
             if code == "AdamsBudgetError":
@@ -593,6 +657,33 @@ class JuliaSession:
             )
             self._payload = current
         return current
+
+    def _capture_monitor(self, generation: int) -> MonitorPayload | None:
+        """Publish a complete monitor record and its new rows once per generation.
+
+        Parameters
+        ----------
+        generation : int
+            Pending numerical generation, or zero before numerical attachment.
+
+        Returns
+        -------
+        MonitorPayload or None
+            Owned numerical monitor data, absent for an unwatched session.
+        """
+        current = self._monitor
+        if current is None:
+            return None
+        previous = current.payload
+        if previous is not None and previous.generation == generation:
+            return previous
+        payload = read_monitor(self._runtime, self._engine, generation)
+        if payload is None:
+            raise BackendError("Julia temporal monitor preparation is missing")
+        self._monitor = current.captured(payload)
+        if payload.finished and (previous is None or not previous.finished):
+            monitor_finished(payload)
+        return payload
 
     def _budget_error(self, report: _calls.EngineReport) -> ResponseBudgetError:
         """Attach the accepted field and exact charges to the shared budget error.
@@ -634,7 +725,11 @@ class JuliaSession:
             return
         announce, self._started = self._started, None
         if announce is not None and self._start_z < self._end_z:
-            announce(self._start_z, self._end_z, self._n_planes)
+            self._servicing = True
+            try:
+                announce(self._start_z, self._end_z, self._n_planes)
+            finally:
+                self._servicing = False
 
     def acknowledge(self, receipt: Receipt) -> None:
         """Release exactly the pending event, expiring its export generation.
@@ -655,6 +750,7 @@ class JuliaSession:
         assert self._report is not None
         with committing():
             self._capture_execution(self._report.generation)
+            self._capture_monitor(self._report.generation)
             self._capture_observations(self._report.generation)
             _calls.call_void(
                 self._runtime,
@@ -749,6 +845,7 @@ class JuliaSession:
             recipe.power,
             recipe.optics,
         )
+        self._field_exports += 1
         if out is None:
             destination.setflags(write=False)
             self._exports[recipe] = destination
@@ -778,7 +875,7 @@ class JuliaSession:
         solprop.backends.session.SnapshotReceipt
             Request sequence and whether it coalesced with a pending request.
         """
-        self._check()
+        self._check(allow_control=True)
         if self.finished:
             raise SessionError("the finished session cannot accept a snapshot request")
         request, coalesced = _calls.snapshot(self._runtime, self._engine)
@@ -874,17 +971,24 @@ class JuliaSession:
         return record
 
     def monitor_record(self) -> Mapping[str, object] | None:
-        """Return no monitor record for this unwatched composition.
+        """Return the last published monitor metadata, including after closure.
 
         Returns
         -------
         collections.abc.Mapping or None
-            None; monitored requests are refused at preparation.
+            Shared record with all delivered rows; None for an unwatched session.
         """
-        return None
+        require_main_thread()
+        if (
+            not self.closed
+            and self._ledger.pending is not None
+            and self._report is not None
+        ):
+            self._capture_monitor(self._report.generation)
+        return None if self._monitor is None else self._monitor.summary()
 
     def continue_monitor(self, continuation: Mapping[str, object]) -> None:
-        """Refuse a nonempty continuation for a composition with no monitor.
+        """Restore the first continuation before Julia attaches its temporal monitor.
 
         Parameters
         ----------
@@ -893,14 +997,41 @@ class JuliaSession:
 
         Raises
         ------
-        BackendError
-            For a nonempty continuation, without changing numerical state.
+        SessionError
+            If the numerical monitor already watches the run.
         """
         self._check()
-        if continuation:
-            raise BackendError(
-                "this Julia composition has no boundary monitor to continue"
+        if self._ledger.pending is not None and self._report is not None:
+            self._capture_monitor(self._report.generation)
+        current = self._monitor
+        if current is None:
+            return
+        if current.payload is not None and current.payload.attached:
+            raise SessionError(
+                "a boundary monitor is continued before it watches the run"
             )
+        resume = current.resume
+        if resume is None:
+            resume = parse_resume(continuation)
+        published = current.continued(resume)
+        pending = self._ledger.pending is not None
+        if not pending and self._report is not None:
+            # Between the launch acknowledgment and attachment no engine generation
+            # can be read. Keep its last complete scalar publication until the next
+            # barrier, without manufacturing Julia-derived totals on the host.
+            published = replace(published, payload=current.payload)
+        with committing():
+            _calls.call_void(
+                self._runtime,
+                "restore_session_monitor!",
+                self._engine,
+                resume.numerical,
+                resume.plane,
+            )
+            self._monitor = published
+            if pending or self._report is None:
+                generation = 0 if self._report is None else self._report.generation
+                self._capture_monitor(generation)
 
     def undelivered(self, ticket: ExportTicket) -> tuple[BackendHistory, StepStats]:
         """Deliver a failed consumer's held chunk once for its terminal checkpoint.
@@ -919,6 +1050,7 @@ class JuliaSession:
         if not self._held:
             return join_attempts(())
         self._capture_execution(report.generation)
+        self._capture_monitor(report.generation)
         chunk = _calls.attempts(self._runtime, self._engine, report.generation)
         payload = self._capture_observations(report.generation)
         self._held = False
@@ -985,6 +1117,11 @@ class JuliaSession:
             ledger.update(
                 (f"observation.{name}", size)
                 for name, size in transfer_memory(self._payload).items()
+            )
+        if self._monitor is not None:
+            ledger.update(
+                (f"monitor.{name}", size)
+                for name, size in transfer_memory(self._monitor).items()
             )
         for recipe, values in self._exports.items():
             ledger[f"export_power_{recipe.power}_optics_{recipe.optics}"] = (

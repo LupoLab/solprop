@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from sessions import executors
 from sessions.executors import soliton, window
 from sessions.test_group import available, constructed, drive, member
 from solprop.backends.events import Outcome
@@ -18,6 +19,24 @@ from solprop.backends.session import SessionError, Start
 from solprop.backends.sessions import start_group, start_session
 from solprop.exceptions import BackendError
 from solprop.stepper import FixedSchedule
+
+
+@pytest.mark.parametrize("threads", [1, 4])
+@pytest.mark.parametrize("device", [False, True])
+def test_executor_repeatability_is_explicit_and_independent_of_its_name(
+    monkeypatch, threads, device
+):
+    monkeypatch.setattr(executors, "_one_thread", lambda: threads == 1)
+    monkeypatch.setattr(executors, "device_build", lambda: device)
+    factory = executors.EXECUTORS["reference"].start
+    for name in ("reference", "native", "julia-cpu", "renamed"):
+        assert executors.Executor(name, factory, repeatability="exact").deterministic
+        assert not executors.Executor(
+            name, factory, repeatability="rounding"
+        ).deterministic
+        assert executors.Executor(
+            name, factory, repeatability="native"
+        ).deterministic is (threads == 1 and not device)
 
 
 def _owner(driver, *, group=None) -> ExecutionBackend:
