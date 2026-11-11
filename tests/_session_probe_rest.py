@@ -126,7 +126,8 @@ def final_field(
 ) -> np.ndarray:
     """Return the state at the end of `request`'s run of `backend`, as a host copy.
 
-    The run observes no statistics and watches no boundary (:func:`bare`).
+    The run observes no statistics and watches no boundary (:func:`bare`); a run that
+    fails raises its terminal error.
 
     Parameters
     ----------
@@ -145,6 +146,10 @@ def final_field(
         The last plane's state, ``(n_modes, n_pol, n_omega)``, in the FFT convention.
     """
     run = run_session(backend, problem, bare(request), start)
+    # A failed run raises its error, as the step driver's march did.
+    error = run.terminal.error
+    if error is not None:
+        raise error
     last = run.observations[-1]
     assert isinstance(last, ObservationReady)
     # The run's end; a replay lands on its schedule's last edge, the steps' sum, which
