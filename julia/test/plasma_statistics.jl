@@ -124,7 +124,7 @@ end
 @testset "Diagnostic failures preserve aggregate maxima and observed arrays" begin
     execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 2, true)
     case = plasma_statistics_case(execution)
-    @test_throws ArgumentError SolpropJulia.PlasmaDiagnosticWorkspace(execution, Float32, 1)
+    @test_throws ArgumentError SolpropJulia.PlasmaDiagnosticWorkspace(execution, Float16, 1)
     @test_throws ArgumentError SolpropJulia.PlasmaDiagnosticWorkspace(execution, Float64, 0)
     @test_throws DimensionMismatch SolpropJulia.plasma_diagnostics!(
         case.work, case.samples,

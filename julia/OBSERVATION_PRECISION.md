@@ -98,3 +98,42 @@ FFT and synthesis error models are hypotheses of each composed test. Neither Sum
 nor a count of floating-point operations proves the accuracy of generated twiddle
 factors. Tests against an independently evaluated DFT or tighter numerical reference
 remain required for the actual transform and route under qualification.
+
+## Numerical families and owned scratch
+
+The standalone statistics and monitor leaves now use these rules for binary32.
+This does not open public session admission or qualify device execution.
+
+- `StatisticsWorkspace` retains binary32 per-time power, total power, per-column
+  energy/moment, per-node total/fluence/magnitude and radial-average buffers. One
+  Int exponent per column and small scalar family exponents accompany them.
+- Spectral column reductions normalize amplitudes and metric weights independently.
+  Per-bin spectral flux gives each bin its own amplitude exponent. Temporal pairs
+  normalize both analytic members independently; their signed pairing is preserved.
+  Species inventories normalize the node weights and each species' fractions before
+  multiplication. Density, potential and physical transverse measure are combined
+  only at the final binary64 result boundary; no large intermediate factor is formed.
+- Transverse node energies, temporal power and strip/current products remain
+  binary32. Their final reading arrays, occupancy vectors and control scalars stay
+  binary64, with the same physical thresholds and continuation representation.
+- `PlasmaDiagnosticWorkspace` owns six binary32 parts per active-node capacity and
+  three Int exponents per node. Its six global maxima are host binary64. Raw
+  exposure increments, paid-work defect and fraction/field integrands have separate
+  scales. The freed-fraction denominator remains unscaled and cannot disappear when
+  the paid work is large. All chunks and channels share one field scale, which
+  cancels from the boundary-level ratio. The paid-work sum uses `n_time-1` terms.
+- `NormalizedObservationWeight` retains the immutable original binary64 direct
+  table/expansion for varying weights, or an independently owned normalized binary32
+  constant. `ObservationWeightWorkspace` retains only one binary64 coefficient per
+  expansion term and scalar range/identity facts. Each varying element is evaluated
+  in binary64, normalized and rounded once; correlated cancellation is not moved
+  into binary32 Clenshaw arithmetic. Exact identity classification precedes narrowing.
+
+Physical powers supplied to the leaves lie in `[-1074,1023]`, matching
+`SourceArithmetic`. Checking that range before numerical work also bounds exponent
+addition and prevents integer wraparound. Final physical underflow is gradual;
+nonfinite or overflowing results raise before a reading or statistic row is published.
+
+The binary64 branches retain their existing arithmetic order and array element
+types. The new optional metadata is absent on those paths. Composition into modal,
+spatial and transverse observation workspaces is a separate qualification milestone.

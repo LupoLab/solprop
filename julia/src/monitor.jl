@@ -265,20 +265,151 @@ function _monitor_temporal_power!(power, samples, weights, execution)
     return nothing
 end
 
+function _single_monitor_power!(power, samples, weights, execution)
+    _float32_sum_count(size(samples, 2))
+    _float32_sum_count(length(power))
+    size(samples) == (length(power), length(weights.columns)) &&
+        length(power) == size(weights.regions, 1) ||
+        throw(DimensionMismatch("temporal monitor samples and scratch disagree"))
+    all(isfinite, samples) || throw(ArgumentError("temporal monitor samples are nonfinite"))
+    (
+        Base.mightalias(power, samples) || Base.mightalias(power, weights.regions) ||
+            Base.mightalias(power, weights.columns) ||
+            (weights.buckets !== nothing && Base.mightalias(power, weights.buckets))
+    ) && throw(ArgumentError("temporal monitor scratch aliases its input"))
+    sample_scale = _observation_exponent(samples)
+    column_scale = _observation_exponent(weights.columns)
+    columns = weights.columns
+    each!(execution, length(power), 1) do row, _
+        sum = _Float32Sum()
+        for column in axes(samples, 2)
+            value = _observation_scaled(columns[column], column_scale) *
+                _observation_square(samples[row, column], sample_scale)
+            sum = _float32_add(sum, value)
+        end
+        power[row] = _float32_value(sum)
+    end
+    all(isfinite, power) || throw(ArgumentError("temporal monitor power overflowed"))
+    return 2sample_scale + column_scale
+end
+
+function _single_monitor_region_add(
+        regions::NTuple{N, _Float32Sum}, value, weights, row, scales,
+    ) where {N}
+    return ntuple(Val(N)) do region
+        _float32_add(
+            regions[region], value *
+                _observation_scaled(weights[row, region], scales[region])
+        )
+    end
+end
+
+function _single_monitor_region_restore(
+        regions::NTuple{N, _Float32Sum}, scales, physical,
+    ) where {N}
+    return ntuple(Val(N)) do region
+        _observation_restore(_float32_value(regions[region]), physical + scales[region])
+    end
+end
+
+function _single_monitor_regions(power, weights, power_scale)
+    scales = ntuple(region -> _observation_column_exponent(weights.regions, region), 4)
+    total = _Float32Sum()
+    regions = (_Float32Sum(), _Float32Sum(), _Float32Sum(), _Float32Sum())
+    for row in eachindex(power)
+        value = power[row]
+        total = _float32_add(total, value)
+        regions = _single_monitor_region_add(regions, value, weights.regions, row, scales)
+    end
+    physical_total = _observation_restore(_float32_value(total), power_scale)
+    physical_regions = _single_monitor_region_restore(regions, scales, power_scale)
+    return physical_total, physical_regions
+end
+
+function _single_temporal_reading!(
+        reading, samples, weights, power, execution, spectrum, amplitude_exponent,
+    )
+    weights.buckets === nothing || _float32_sum_count(length(spectrum))
+    eltype(reading.occupancy) === Float64 ||
+        throw(ArgumentError("monitor control readings require binary64 result storage"))
+    power_scale = _single_monitor_power!(power, samples, weights, execution)
+    total, regions = _single_monitor_regions(
+        power, weights, power_scale + 2amplitude_exponent
+    )
+    if weights.buckets !== nothing
+        spectrum_scale = _observation_exponent(spectrum)
+        column_scale = _observation_exponent(weights.columns)
+        physical = 2spectrum_scale + column_scale + 2amplitude_exponent
+        # The output is the final physical control reading; every accumulation is
+        # binary32. Validate all physical buckets before publishing any of them.
+        for pass in 1:2, bucket in eachindex(reading.occupancy)
+            sum = _Float32Sum()
+            for column in axes(spectrum, 2), row in axes(spectrum, 1)
+                weights.buckets[row, column] == bucket || continue
+                value = _observation_scaled(weights.columns[column], column_scale) *
+                    _observation_square(spectrum[row, column], spectrum_scale)
+                sum = _float32_add(sum, value)
+            end
+            value = _observation_restore(_float32_value(sum), physical)
+            pass == 2 && (reading.occupancy[bucket] = value)
+        end
+    end
+    reading.total, reading.regions = total, regions
+    return nothing
+end
+
+function _single_split_reading!(
+        reading, samples, step, weights, power, execution, add, amplitude_exponent,
+    )
+    power_scale = _single_monitor_power!(power, samples, weights, execution)
+    physical = power_scale + 2amplitude_exponent
+    region_scales = ntuple(
+        region -> _observation_column_exponent(weights.regions, region), 3
+    )
+    taken = total = _Float32Sum()
+    regions = (_Float32Sum(), _Float32Sum(), _Float32Sum())
+    for row in eachindex(power)
+        rate = Float64(weights.regions[row, 4])
+        # Exponentials are host scalar coefficients evaluated wide then rounded
+        # once, as SEP33 requires. Pointwise field products remain binary32.
+        removed = Float32(-expm1(-rate * step))
+        factor = Float32(exp(-0.5 * rate * step))
+        half = power[row] * factor
+        taken = _float32_add(taken, power[row] * removed)
+        total = _float32_add(total, half)
+        regions = _single_monitor_region_add(
+            regions, half, weights.regions, row, region_scales
+        )
+    end
+    removed = _observation_restore(_float32_value(taken), physical)
+    add && (removed += reading.removed)
+    physical_regions = _single_monitor_region_restore(regions, region_scales, physical)
+    found = (_observation_restore(_float32_value(total), physical), physical_regions...)
+    isfinite(removed) || throw(ArgumentError("split monitor reduction overflowed"))
+    reading.removed, reading.found = removed, found
+    reading.has_found = true
+    return nothing
+end
+
 """
-    temporal_reading!(reading, samples, weights, power, execution; spectrum=nothing)
+    temporal_reading!(reading, samples, weights, power, execution;
+                      spectrum=nothing, amplitude_exponent=0)
 
 Reduce actual coarse inverse samples into temporal proxy energy and four regions.
 
 `samples` is real for a field or complex for an envelope, `(n_t,n_columns)`; it is
-not an analytic field. `power` is caller-owned binary64 length-`n_t` scratch. Optional
+not an analytic field. `power` is caller-owned length-`n_t` scratch at the sample's
+binary32 or binary64 precision. Optional
 raw `spectrum` is required when crossing buckets are prepared. Split `removed/found`
 fields are preserved, so the last accepted split can be combined with this reading.
 All writable storage must be disjoint from inputs. Invalid/nonfinite data raise.
+For binary32, `amplitude_exponent` in `[-1074,1023]` restores the physical field's
+power of two only after normalized pointwise products and protected reductions.
+Reading/control/continuation data stay binary64; binary64 samples require zero exponent.
 """
 function temporal_reading!(
         reading, samples, weights, power, execution;
-        spectrum = nothing
+        spectrum = nothing, amplitude_exponent::Int = 0,
     )
     buckets = weights.buckets
     if buckets !== nothing
@@ -299,6 +430,14 @@ function temporal_reading!(
     elseif !isempty(reading.occupancy)
         throw(DimensionMismatch("crossing occupancy needs prepared bucket indices"))
     end
+    if eltype(power) === Float32
+        _observation_scale_exponents((amplitude_exponent,))
+        return _single_temporal_reading!(
+            reading, samples, weights, power, execution, spectrum, amplitude_exponent
+        )
+    end
+    iszero(amplitude_exponent) ||
+        throw(ArgumentError("binary64 monitor samples cannot carry a scale exponent"))
     _monitor_temporal_power!(power, samples, weights, execution)
     totals = (0.0, 0.0, 0.0, 0.0, 0.0)
     for row in eachindex(power)
@@ -330,7 +469,8 @@ function temporal_reading!(
 end
 
 """
-    split_reading!(reading, samples, step, weights, power, execution; add=false)
+    split_reading!(reading, samples, step, weights, power, execution;
+                   add=false, amplitude_exponent=0)
 
 Reduce one accepted split's removed energy and its halfway occupancies.
 
@@ -339,15 +479,26 @@ committed field. `step` is positive in m. Removal uses `-expm1(-rate*step)` and 
 power uses `exp(-rate*step/2)`. `add=true` accumulates removal since an earlier check;
 the found tuple always replaces the previous accepted step's tuple. Other reading
 fields are preserved. Buffers/validation match `temporal_reading!`.
+Binary32 uses the same physical `amplitude_exponent` convention. Split exponentials
+evaluate from the original wide rate and step before one binary32 rounding; monitor
+thresholds and policy remain physical binary64.
 """
 function split_reading!(
         reading, samples, step, weights, power, execution;
-        add::Bool = false
+        add::Bool = false, amplitude_exponent::Int = 0,
     )
     isfinite(step) && step > 0 ||
         throw(ArgumentError("split monitor step must be positive"))
     Base.mightalias(power, reading.occupancy) &&
         throw(ArgumentError("split scratch aliases the retained crossing occupancy"))
+    if eltype(power) === Float32
+        _observation_scale_exponents((amplitude_exponent,))
+        return _single_split_reading!(
+            reading, samples, step, weights, power, execution, add, amplitude_exponent
+        )
+    end
+    iszero(amplitude_exponent) ||
+        throw(ArgumentError("binary64 monitor samples cannot carry a scale exponent"))
     _monitor_temporal_power!(power, samples, weights, execution)
     taken = total = low = high = collar = 0.0
     for row in eachindex(power)
@@ -1063,24 +1214,103 @@ function _transverse_numerical_check(reading, node_spectrum, column_spectrum, ta
     return nothing
 end
 
+function _single_monitor_weighted(values, weights, column, physical_scale)
+    _float32_sum_count(length(values))
+    value_scale = _observation_exponent(values)
+    weight_scale = _observation_column_exponent(weights, column)
+    sum = _Float32Sum()
+    for row in eachindex(values)
+        value = _observation_scaled(values[row], value_scale) *
+            _observation_scaled(weights[row, column], weight_scale)
+        sum = _float32_add(sum, value)
+    end
+    return _observation_restore(
+        _float32_value(sum), physical_scale + value_scale + weight_scale
+    )
+end
+
+function _single_transverse_reading!(
+        reading, node_spectrum, column_spectrum, tables, nodes,
+        execution, full, node_exponent, column_exponent,
+    )
+    _float32_sum_count(length(nodes))
+    _float32_sum_count(size(node_spectrum, 1))
+    _float32_sum_count(size(column_spectrum, 1))
+    eltype(reading.columns) === eltype(reading.strip) === Float64 ||
+        throw(ArgumentError("monitor control readings require binary64 result storage"))
+    node_scale = _observation_exponent(node_spectrum)
+    each_column!(execution, length(nodes)) do node
+        sum = _Float32Sum()
+        for row in axes(node_spectrum, 1)
+            sum = _float32_add(
+                sum, _observation_square(node_spectrum[row, node], node_scale)
+            )
+        end
+        nodes[node] = _float32_value(sum)
+    end
+    all(isfinite, nodes) || throw(ArgumentError("transverse node reduction overflowed"))
+    physical_scale = 2(node_scale + node_exponent)
+    faces = ntuple(
+        face -> _single_monitor_weighted(nodes, tables.faces, face, physical_scale), 4
+    )
+    clip = ntuple(
+        face -> _single_monitor_weighted(nodes, tables.clip, face, physical_scale), 4
+    )
+    totals = ntuple(
+        face -> _single_monitor_weighted(nodes, tables.totals, face, physical_scale), 4
+    )
+    # Columns are final physical control readings, not reduction scratch. Their
+    # independent scales retain weak occupied columns for the crossing policy.
+    for pass in 1:2, column in eachindex(reading.columns)
+        scale = _observation_column_exponent(column_spectrum, column)
+        sum = _Float32Sum()
+        for row in axes(column_spectrum, 1)
+            sum = _float32_add(
+                sum, _observation_square(column_spectrum[row, column], scale)
+            )
+        end
+        value = _observation_restore(_float32_value(sum), 2(scale + column_exponent))
+        pass == 2 && (reading.columns[column] = value)
+    end
+    reading.faces, reading.clip, reading.totals = faces, clip, totals
+    reading.has_faces, reading.full = true, full
+    reading.has_strip, reading.has_current = false, false
+    return nothing
+end
+
 """
     transverse_reading!(reading, node_spectrum, column_spectrum, tables, nodes,
-                        execution; full=false)
+                        execution; full=false, node_exponent=0,
+                        column_exponent=node_exponent)
 
 Reduce actual physical-node and spectral-column matrices into an edge reading.
 
 Matrices are `(n_omega,n_nodes)` and `(n_omega,n_columns)` for admitted scalar routes.
 The caller supplies shared spatial transforms, including zeroed inactive nodes.
-`nodes` is caller-owned binary64 scratch. `full=true` certifies all launch nodes were
+`nodes` is caller-owned binary32 or binary64 scratch matching the numerical spectra.
+`full=true` certifies all launch nodes were
 prepared. Ordinary reads may omit unused nodes but must include all rate/face weights.
 Only raw squared norms are reduced here. Strip/current flags are cleared; their
 fresh leaves run afterwards. Invalid inputs raise before any scratch write.
+Binary32 `node_exponent` and `column_exponent` in `[-1074,1023]` independently restore
+the nodal-field and stored-state physical powers after protected normalized sums.
+The resulting readings stay binary64. Binary64 input requires both exponents zero.
 """
 function transverse_reading!(
         reading, node_spectrum, column_spectrum, tables,
-        nodes, execution; full::Bool = false
+        nodes, execution; full::Bool = false,
+        node_exponent::Int = 0, column_exponent::Int = node_exponent,
     )
     _transverse_numerical_check(reading, node_spectrum, column_spectrum, tables, nodes)
+    if eltype(nodes) === Float32
+        _observation_scale_exponents((node_exponent, column_exponent))
+        return _single_transverse_reading!(
+            reading, node_spectrum, column_spectrum, tables, nodes,
+            execution, full, node_exponent, column_exponent
+        )
+    end
+    iszero(node_exponent) && iszero(column_exponent) ||
+        throw(ArgumentError("binary64 transverse samples cannot carry scale exponents"))
     each_column!(execution, length(nodes)) do node
         value = 0.0
         for row in axes(node_spectrum, 1)
@@ -1158,17 +1388,43 @@ struct TransverseStripLine{A}
     end
 end
 
+function _single_strip_values(line, amplitude_exponent)
+    _float32_sum_count(length(line.spectrum))
+    spectrum, count = line.spectrum, size(line.spectrum, 1)
+    count == 0 && return (0.0, 0.0)
+    scale = _observation_exponent(spectrum)
+    inward, total = _Float32Sum(), _Float32Sum()
+    for column in axes(spectrum, 2), row in axes(spectrum, 1)
+        energy = _observation_square(spectrum[row, column], scale)
+        total = _float32_add(total, energy)
+        line.first <= row <= line.last && (inward = _float32_add(inward, energy))
+    end
+    factors, divisors = (line.spacing, line.measure), (Float64(count),)
+    return (
+        _observation_restore_ratio(
+            _float32_value(inward), 2(scale + amplitude_exponent), factors, divisors
+        ),
+        _observation_restore_ratio(
+            _float32_value(total), 2(scale + amplitude_exponent), factors, divisors
+        ),
+    )
+end
+
 """
-    transverse_strip!(reading, lines, execution)
+    transverse_strip!(reading, lines, execution; amplitude_exponent=0)
 
 Fill every inward/windowed strip pair from a concrete tuple of prepared spectra.
+
+Binary32 spectra retain a common physical `amplitude_exponent` in `[-1074,1023]`;
+normalized protected reductions restore degree two only into binary64 readings.
+Binary64 spectra require a zero exponent.
 
 Each energy is `sum(abs2(FFT))*spacing/n_fft*measure`; only the supplied inward bins
 enter its first member. This matches the neutral strip definition. All spectra must
 be finite and disjoint from the writable strip. The session computes fresh strip
 spectra for the observed field before invoking this reduction.
 """
-function transverse_strip!(reading, lines::Tuple, execution)
+function transverse_strip!(reading, lines::Tuple, execution; amplitude_exponent::Int = 0)
     size(reading.strip) == (length(lines), 2) ||
         throw(DimensionMismatch("transverse strip destination does not match its lines"))
     Base.mightalias(reading.strip, reading.columns) &&
@@ -1178,9 +1434,25 @@ function transverse_strip!(reading, lines::Tuple, execution)
         all(isfinite, spectrum) || throw(ArgumentError("strip spectrum is nonfinite"))
         Base.mightalias(reading.strip, spectrum) &&
             throw(ArgumentError("strip output aliases its spectrum"))
+        if eltype(spectrum) === ComplexF32
+            _observation_scale_exponents((amplitude_exponent,))
+            eltype(reading.strip) === Float64 ||
+                throw(ArgumentError("monitor control readings require binary64 results"))
+            _single_strip_values(line, amplitude_exponent)
+        else
+            iszero(amplitude_exponent) ||
+                throw(ArgumentError("binary64 strip samples cannot carry a scale exponent"))
+        end
     end
     for (index, line) in pairs(lines)
         spectrum, spacing, measure = line.spectrum, line.spacing, line.measure
+        if eltype(spectrum) === ComplexF32
+            inward, total = _single_strip_values(line, amplitude_exponent)
+            reading.strip[index, 1], reading.strip[index, 2] = inward, total
+            continue
+        end
+        iszero(amplitude_exponent) ||
+            throw(ArgumentError("binary64 strip samples cannot carry a scale exponent"))
         inward = total = 0.0
         count = size(spectrum, 1)
         if count > 0
@@ -1233,8 +1505,28 @@ struct TransverseCurrentLine{A}
     end
 end
 
+function _single_current_line(line, k_min, amplitude_exponent)
+    _float32_sum_count(size(line.samples, 2))
+    line.node == 0 && return 0.0
+    samples = line.samples
+    scale = _observation_exponent(samples)
+    sum = _Float32Sum()
+    for column in axes(samples, 2)
+        center = _observation_scaled(samples[line.node, column], scale)
+        before = _observation_scaled(samples[line.before, column], scale)
+        after = _observation_scaled(samples[line.after, column], scale)
+        difference = after - before
+        current = real(center) * imag(difference) - imag(center) * real(difference)
+        sum = _float32_add(sum, max(current, 0.0f0))
+    end
+    return _observation_restore_ratio(
+        _float32_value(sum), 2(scale + amplitude_exponent),
+        (line.measure,), (line.onset_step, Float64(k_min)),
+    )
+end
+
 """
-    transverse_current!(reading, lines, k_min)
+    transverse_current!(reading, lines, k_min; amplitude_exponent=0)
 
 Reduce rectified inward onset current from explicit line stencils.
 
@@ -1242,13 +1534,24 @@ The neutral convention gives `Im(conj(E)*(E_after-E_before)/onset_step)/k_min`;
 rectify each trace at zero before summing and applying its measure. `k_min` is positive
 in rad/m. The result is proxy energy per propagation metre, independent of launch
 normalisation. Finite inputs and a representable result are required.
+Binary32 stencils use one common physical `amplitude_exponent` in `[-1074,1023]`;
+differences and products are normalized before the protected reduction, with degree
+two restored in the final binary64 value. Binary64 input requires zero exponent.
 """
-function transverse_current!(reading, lines::Tuple, k_min)
+function transverse_current!(reading, lines::Tuple, k_min; amplitude_exponent::Int = 0)
     isfinite(k_min) && k_min > 0 || throw(ArgumentError("current needs positive k_min"))
     total = 0.0
     for line in lines
         line.node == 0 && continue
         samples = line.samples
+        if eltype(samples) === ComplexF32
+            _observation_scale_exponents((amplitude_exponent,))
+            all(isfinite, samples) || throw(ArgumentError("current samples are nonfinite"))
+            total += _single_current_line(line, k_min, amplitude_exponent)
+            continue
+        end
+        iszero(amplitude_exponent) ||
+            throw(ArgumentError("binary64 current samples cannot carry a scale exponent"))
         all(isfinite, samples) || throw(ArgumentError("current samples are nonfinite"))
         value = 0.0
         for column in axes(samples, 2)

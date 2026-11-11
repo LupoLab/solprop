@@ -124,3 +124,158 @@ function evaluate_weight!(output, weight::ObservationWeight, z, execution; work)
         throw(ArgumentError("evaluated modal power weights must be positive finite"))
     return nothing
 end
+
+public NormalizedObservationWeight, ObservationWeightWorkspace
+
+"""
+    NormalizedObservationWeight(execution, weight, arithmetic::SourceArithmetic{Float32})
+
+Own a host-wide power-weight representation with normalized binary32 output.
+
+`weight` is an `ObservationWeight`. Constant values are narrowed once with an explicit
+power-of-two exponent. A varying direct table or expansion retains its immutable
+binary64 representation: every element is evaluated in the original wide scalar
+order, normalized, then rounded once. This is SEP 33's host coefficient boundary,
+not binary32 Clenshaw evaluation. No state-sized mutable binary64 buffer is allocated.
+The initial implementation requires CPU execution; it makes no device-wide claim.
+Nonpositive, nonfinite or unrepresentable normalized weights raise `ArgumentError`.
+"""
+struct NormalizedObservationWeight{W, A, R}
+    original::W
+    constant::A
+    range::R
+    shape::Tuple{Int, Int}
+    identity::Bool
+end
+
+function NormalizedObservationWeight(
+        execution, weight::ObservationWeight, arithmetic::SourceArithmetic{Float32},
+    )
+    oncpu(execution) ||
+        throw(ArgumentError("normalized power weights require host-wide CPU evaluation"))
+    if weight.weights === nothing && weight.data isa Matrix{Float64}
+        data, fact = source_narrow(
+            execution, weight.data, arithmetic, :observation_power_weight; normalize = true,
+        )
+        all(>(0.0f0), data) ||
+            throw(ArgumentError("normalized power weights underflow binary32 positivity"))
+        return NormalizedObservationWeight(
+            nothing, data, fact, weight.shape, all(isone, weight.data)
+        )
+    end
+    original = if weight.weights === nothing
+        ObservationWeight(weight.data, weight.shape)
+    else
+        ObservationWeight(execution, weight.data, weight.weights)
+    end
+    return NormalizedObservationWeight(original, nothing, nothing, weight.shape, false)
+end
+
+"""
+    ObservationWeightWorkspace(weight::NormalizedObservationWeight)
+
+Allocate only the small host expansion-coefficient vector and scalar range facts.
+
+`host` has one binary64 value per represented expansion term, or zero length for a
+constant/direct table. `range` and `identity` describe the last successful evaluation.
+The caller owns a separate binary32 matrix for normalized output. The physical value
+is that matrix multiplied by `2^range.block_exponent`; this exponent must remain
+explicit through subsequent pointwise products and final host restoration.
+"""
+mutable struct ObservationWeightWorkspace{V}
+    host::V
+    range::SourceRange
+    identity::Bool
+end
+function ObservationWeightWorkspace(weight::NormalizedObservationWeight)
+    original = weight.original
+    count = original === nothing || original.weights === nothing ? 0 :
+        size(original.weights.coefficients, 1)
+    return ObservationWeightWorkspace(
+        zeros(count), SourceRange(:observation_power_weight, 0, 0, true, 0.0, 0.0), false,
+    )
+end
+
+function _normalized_weight_value(weight, index, z, coefficients)
+    if weight.weights === nothing
+        table = weight.data
+        return _table_value(table.coefficients, table.breakpoints, index, z)
+    end
+    terms = weight.data
+    row = mod(index - 1, weight.shape[1]) + 1
+    column = div(index - 1, weight.shape[1]) + 1
+    total = 0.0
+    for term in axes(terms, 3)
+        total += coefficients[term] * terms[row, column, term]
+    end
+    return total
+end
+
+"""
+    evaluate_weight!(output, weight::NormalizedObservationWeight, z, execution; work)
+
+Evaluate wide host coefficients and publish one normalized binary32 weight matrix.
+
+`output` is a disjoint writable binary32 matrix with `weight.shape`. `work` is an
+`ObservationWeightWorkspace`. Before the first output write, a scalar scan verifies
+positive finite wide values and normalized binary32 representability. A second scan
+rounds each wide value once into output. No state-sized binary64 scratch is retained.
+Return the explicit block exponent and update `work.range`/`work.identity` only after
+success. Exact identity classification uses the wide represented values, not rounded
+values. Invalid position, storage, overlap or range raises before output mutation.
+Warmed CPU calls allocate nothing. The original binary64 overload is unchanged.
+"""
+function evaluate_weight!(
+        output, weight::NormalizedObservationWeight, z, execution;
+        work::ObservationWeightWorkspace,
+    )
+    oncpu(execution) && output isa AbstractMatrix{Float32} ||
+        throw(ArgumentError("normalized power weights require CPU binary32 output"))
+    size(output) == weight.shape ||
+        throw(DimensionMismatch("power-weight output does not match its modal shape"))
+    original = weight.original
+    count = original === nothing || original.weights === nothing ? 0 :
+        size(original.weights.coefficients, 1)
+    work.host isa StridedVector{Float64} ||
+        throw(ArgumentError("power-weight host coefficients require binary64 storage"))
+    length(work.host) == count ||
+        throw(DimensionMismatch("power-weight expansion scratch has the wrong length"))
+    isfinite(z) || throw(ArgumentError("power-weight position must be finite"))
+    _transfer_writable_destination(output)
+    (
+        _retained_alias(output, weight) || _retained_alias(work.host, weight) ||
+            _transfer_arrays_alias(output, work.host)
+    ) && throw(ArgumentError("power-weight writable storage aliases prepared input"))
+    if original === nothing
+        copyto!(output, weight.constant)
+        work.range, work.identity = weight.range, weight.identity
+        return weight.range.block_exponent
+    end
+    if original.weights === nothing
+        _check_table_position(original.data, z)
+    else
+        evaluate_table!(work.host, original.weights, z, execution)
+    end
+    largest, smallest, identity = 0.0, Inf, true
+    for index in 1:length(output)
+        value = _normalized_weight_value(original, index, z, work.host)
+        isfinite(value) && value > 0 ||
+            throw(ArgumentError("evaluated modal power weights must be positive finite"))
+        largest, smallest = max(largest, value), min(smallest, value)
+        identity &= isone(value)
+    end
+    exponent = last(frexp(largest)) - 1
+    normalized_smallest = ldexp(smallest, -exponent)
+    Float32(normalized_smallest) > 0 ||
+        throw(ArgumentError("normalized power weights underflow binary32 positivity"))
+    fact = SourceRange(
+        :observation_power_weight, exponent, 0, true,
+        ldexp(largest, -exponent), normalized_smallest,
+    )
+    for index in 1:length(output)
+        value = _normalized_weight_value(original, index, z, work.host)
+        output[index] = Float32(ldexp(value, -exponent))
+    end
+    work.range, work.identity = fact, identity
+    return exponent
+end

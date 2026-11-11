@@ -23,6 +23,12 @@ function _float32_sum_count(count::Int)
     return nothing
 end
 
+function _observation_scale_exponents(exponents::Tuple)
+    all(exponent -> -1074 <= exponent <= 1023, exponents) ||
+        throw(ArgumentError("observation scales require finite nonzero binary64 powers"))
+    return nothing
+end
+
 # Component maxima avoid overflowing abs(complex) at finite component extremes.
 # The normalized components lie in [-1,1], including original subnormal inputs.
 function _observation_exponent(values::AbstractArray)

@@ -632,7 +632,8 @@ _observation_arrays(work::_ObservationAxisPopulationWork) = (
     work.padding.crop, work.padding.uncrop,
 )
 _observation_arrays(work::PopulationWorkspace) = _population_arrays(work)
-_observation_arrays(work::PlasmaDiagnosticWorkspace) = (work.parts, work.maxima)
+_observation_arrays(work::PlasmaDiagnosticWorkspace) =
+    (work.parts, work.maxima, work.scales === nothing ? () : work.scales)
 _observation_arrays(work::_ObservationPopulationWork) =
     (
     work.spectrum, work.modal, work.nodes, work.densities,
