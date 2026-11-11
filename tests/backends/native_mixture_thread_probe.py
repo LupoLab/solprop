@@ -17,6 +17,7 @@ import importlib
 import importlib.util
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
@@ -59,6 +60,7 @@ def _runtime_threads() -> np.ndarray:
 
 
 if __name__ == "__main__":
+    from backends._session_probe_b1 import history, last_field, rows, run
     from backends.forced_threads import record_sizing
 
     record_sizing(sys.argv[1])
@@ -66,18 +68,17 @@ if __name__ == "__main__":
     problem, run_request, grid = problem_and_grid()
     backend = solprop_native.NativeBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(grid.length)
-        observed = backend.observe()
-        values = backend.stats(StatsSpec(names=NAMES))
-        arrays = {
-            "field": observed.field,
+        result = run(backend, problem)
+        values = result.observations[-1].stats
+        taken = rows(result)
+        arrays: dict[str, Any] = {
+            "field": last_field(result),
             "threads": np.array(solprop_native.build_info().thread_count),
-            "steps": np.array(summary.n_steps),
-            "rows": np.array(observed.step_stats.n_rows),
+            "steps": np.array(history(result).n_steps),
+            "rows": np.array(taken.n_rows),
         }
         for name in NAMES:
-            arrays[f"rows:{name}"] = observed.step_stats.values[name]
+            arrays[f"rows:{name}"] = taken.values[name]
             arrays[f"stats:{name}"] = values[name]
         np.savez(
             sys.argv[1],

@@ -25,6 +25,9 @@ from typing import Any
 
 import numpy as np
 
+from backends._session_probe_b1 import last_field, native_source
+from backends._session_probe_b1 import run as session_run
+from backends._session_probe_b1 import summary as run_summary
 from bounds import gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from modal_provider_cases import GENERAL_Z_END, WAVELENGTH, general_grid
@@ -190,9 +193,15 @@ def source(
     grid: TimeGrid,
     options: ExecutionOptions | None = None,
 ) -> np.ndarray:
-    """Return one evaluation of the source at the launch, in the lab frame."""
+    """Return one evaluation of the source at the launch, in the lab frame.
+
+    The reference's lab-frame sample, and the native state's own evaluation of it
+    (:func:`backends._session_probe_b1.native_source`).
+    """
     backend = backend_class(problem, run_request, grid=grid, options=options)
     try:
+        if backend.name == "native":
+            return native_source(backend, problem.initial.field0)
         backend.set_initial(problem.initial.field0, None)
         return np.array(backend._adams_lab_source(problem.initial.field0[None], 0.0))
     finally:
@@ -206,12 +215,19 @@ def run(
     grid: TimeGrid,
     **options: object,
 ) -> tuple[np.ndarray, Any]:
-    """Propagate to the last save plane and return the field and the summary."""
+    """Run the session to the last save plane; return the field and the run's summary.
+
+    The summary spans the run, every plane's attempts together
+    (:func:`backends._session_probe_b1.summary`).
+    """
     backend = backend_class(problem, run_request, grid=grid, **options)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-        return backend.observe().require_field().copy(), summary
+        # The step driver's march computed no statistic, which a case's profiles
+        # would be needed for.
+        result = session_run(
+            backend, problem, backend.request.for_run(stats=StatsSpec())
+        )
+        return last_field(result), run_summary(result)
     finally:
         backend.close()
 
