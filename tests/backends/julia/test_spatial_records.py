@@ -20,8 +20,7 @@ from solprop.backends.julia._spatial import (
     lower_spatial,
 )
 from solprop.backends.julia.backend import JuliaBackend
-from solprop.exceptions import BackendError
-from solprop.translate.precision import SINGLE
+from solprop.translate.precision import DOUBLE, SINGLE
 
 
 @pytest.mark.parametrize("kind", ["field", "envelope"])
@@ -86,8 +85,9 @@ def test_spatial_absorption_keeps_an_adams_source_without_material(geometry, col
 
 
 @pytest.mark.parametrize("geometry", ["radial", "cartesian", "line"])
-def test_spatial_admission_is_lazy_and_refuses_single_before_runtime(
-    geometry, monkeypatch
+@pytest.mark.parametrize("precision", [DOUBLE, SINGLE], ids=["double", "single"])
+def test_internal_spatial_admission_is_lazy_at_both_precisions(
+    geometry, precision, monkeypatch
 ):
     case, _ = spatial_case("field", geometry)
 
@@ -95,11 +95,12 @@ def test_spatial_admission_is_lazy_and_refuses_single_before_runtime(
         pytest.fail("descriptor admission entered Julia")
 
     monkeypatch.setattr("solprop.backends.julia.backend.get_runtime", forbidden)
-    owner = JuliaBackend(case.problem, case.request)
-    owner.close()
-    problem = replace(case.problem, precision=SINGLE)
-    with pytest.raises(BackendError, match="binary32"):
-        JuliaBackend(problem, case.request)
+    problem = replace(case.problem, precision=precision)
+    owner = JuliaBackend(problem, case.request)
+    try:
+        assert owner.metadata()["precision"] == precision.name
+    finally:
+        owner.close()
 
 
 @pytest.mark.parametrize("geometry", ["radial", "cartesian", "line"])

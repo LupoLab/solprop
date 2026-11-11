@@ -55,6 +55,24 @@ def test_unqualified_devices_refuse_without_entering_preparation(
         registry.select(name, problem, request, options=ExecutionOptions(device=device))
 
 
+@pytest.mark.parametrize("device", ["cpu", "metal"])
+def test_public_julia_binary32_remains_closed_before_device_preparation(
+    device, linear_problem, narrow_grid, monkeypatch
+):
+    problem, request = linear_problem(
+        narrow_grid,
+        save_planes=[0.001],
+        precision=SINGLE,
+        controller=PIController(rtol=1e-4, atol=1e-10),
+    )
+    monkeypatch.setattr(registry, "_construct", _forbidden)
+    monkeypatch.setattr(first_use, "ensure", _forbidden)
+    with pytest.raises(BackendError, match="does not support precision='single'"):
+        registry.select(
+            "julia", problem, request, options=ExecutionOptions(device=device)
+        )
+
+
 def test_metal_binary32_still_requires_a_qualified_extension(
     linear_problem, narrow_grid, monkeypatch
 ):
@@ -64,7 +82,14 @@ def test_metal_binary32_still_requires_a_qualified_extension(
         precision=SINGLE,
         controller=PIController(rtol=1e-4, atol=1e-10),
     )
+    # Isolate the device gate from the independently closed public precision gate.
+    monkeypatch.setattr(
+        registry,
+        "SINGLE_PRECISION_BACKENDS",
+        (*registry.SINGLE_PRECISION_BACKENDS, "julia"),
+    )
     monkeypatch.setattr(registry, "_construct", _forbidden)
+    monkeypatch.setattr(first_use, "ensure", _forbidden)
     with pytest.raises(BackendError, match="qualified devices: cpu"):
         registry.select(
             "julia", problem, request, options=ExecutionOptions(device="metal")
