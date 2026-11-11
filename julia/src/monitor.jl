@@ -1451,8 +1451,9 @@ end
 
 Fill every inward/windowed strip pair from a concrete tuple of prepared spectra.
 
-Binary32 spectra retain a common physical `amplitude_exponent` in `[-1074,1023]`;
-normalized protected reductions restore degree two only into binary64 readings.
+Binary32 spectra retain a common derived `amplitude_exponent`, with magnitude
+at most `4*1074`; this integer normalization metadata is not materialized separately.
+Normalized protected reductions restore degree two only into binary64 readings.
 Binary64 spectra require a zero exponent.
 
 Each energy is `sum(abs2(FFT))*spacing/n_fft*measure`; only the supplied inward bins
@@ -1471,7 +1472,7 @@ function transverse_strip!(reading, lines::Tuple, execution; amplitude_exponent:
         _transfer_arrays_alias(reading.strip, spectrum) &&
             throw(ArgumentError("strip output aliases its spectrum"))
         if eltype(spectrum) === ComplexF32
-            _observation_scale_exponents((amplitude_exponent,))
+            _observation_derived_exponents((amplitude_exponent,))
             eltype(reading.strip) === Float64 ||
                 throw(ArgumentError("monitor control readings require binary64 results"))
             _single_strip_values(line, amplitude_exponent)
@@ -1614,8 +1615,9 @@ The neutral convention gives `Im(conj(E)*(E_after-E_before)/onset_step)/k_min`;
 rectify each trace at zero before summing and applying its measure. `k_min` is positive
 in rad/m. The result is proxy energy per propagation metre, independent of launch
 normalisation. Finite inputs and a representable result are required.
-Binary32 stencils use one common physical `amplitude_exponent` in `[-1074,1023]`;
-differences and products are normalized before the protected reduction, with degree
+Binary32 stencils use one common derived `amplitude_exponent`, with magnitude
+at most `4*1074`; this integer normalization metadata is not materialized separately.
+Differences and products are normalized before the protected reduction, with degree
 two restored in the final binary64 value. Binary64 input requires zero exponent.
 """
 function transverse_current!(reading, lines::Tuple, k_min; amplitude_exponent::Int = 0)
@@ -1625,7 +1627,7 @@ function transverse_current!(reading, lines::Tuple, k_min; amplitude_exponent::I
         line.node == 0 && continue
         samples = line.samples
         if eltype(samples) === ComplexF32
-            _observation_scale_exponents((amplitude_exponent,))
+            _observation_derived_exponents((amplitude_exponent,))
             all(isfinite, samples) || throw(ArgumentError("current samples are nonfinite"))
             total += _single_current_line(line, k_min, amplitude_exponent)
             continue

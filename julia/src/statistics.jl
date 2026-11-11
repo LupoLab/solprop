@@ -413,9 +413,12 @@ conversion belongs to this explicit factor. `widths` is `SpatialWidthGrid` when 
 `source_columns` counts the columns summed by spatial synthesis and sets the existing
 fluence rounding budget `8*(n_omega+source_columns)*eps(Float64)*max(magnitude)`.
 Preparation may omit unrequested pairs with `nothing`.
-Binary32 pairs retain independent physical powers of two in `field_exponent` and
-`closure_exponent`, in `[-1074,1023]`. Physical intensity/spectrum outputs restore their
-sum; homogeneous widths cancel it. Binary64 inputs require zero exponents.
+Binary32 pairs retain a base field power in `field_exponent`, in `[-1074,1023]`,
+and a derived `closure_exponent`, bounded by `abs(closure_exponent)<=4*1074`.
+The latter may combine the field and a normalized wide admittance; it is integer
+metadata and is never materialized as a power by itself. Physical intensity/spectrum
+outputs restore their sum; homogeneous widths cancel it. Binary64 inputs require
+zero exponents.
 """
 struct SpatialStatisticsInput{S, C, A, B, X, Y, U, V, T, W}
     spectrum::S
@@ -657,7 +660,8 @@ function _stat_precision(input::TemporalStatisticsInput, workspace)
 end
 function _stat_precision(input::SpatialStatisticsInput, workspace)
     if eltype(workspace.power) === Float32
-        _observation_scale_exponents((input.field_exponent, input.closure_exponent))
+        _observation_scale_exponents((input.field_exponent,))
+        _observation_derived_exponents((input.closure_exponent,))
         input.widths === nothing || _float32_sum_count(length(input.widths.cosines))
     else
         iszero(input.field_exponent) && iszero(input.closure_exponent) ||

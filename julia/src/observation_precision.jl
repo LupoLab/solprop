@@ -29,6 +29,23 @@ function _observation_scale_exponents(exponents::Tuple)
     return nothing
 end
 
+# A reconstructed closure uses a base field scale plus a wide coefficient.
+# Strip work may also combine two wide factors and one stored component scale.
+# Each constituent exponent has magnitude <=1074; the derived integer need not
+# itself describe a materializable Float64 power. The complete restoration graph
+# combines fewer than 32 such blocks, well within even a signed 32-bit Int.
+# OBSERVATION_PRECISION.md gives the per-path bound and its finite-input hypotheses.
+function _observation_derived_exponents(exponents::Tuple)
+    limit = 4 * 1074
+    all(exponent -> -limit <= exponent <= limit, exponents) ||
+        throw(
+        ArgumentError(
+            "derived observation exponent exceeds four finite scale blocks",
+        )
+    )
+    return nothing
+end
+
 # Component maxima avoid overflowing abs(complex) at finite component extremes.
 # The normalized components lie in [-1,1], including original subnormal inputs.
 function _observation_exponent(values::AbstractArray)

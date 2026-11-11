@@ -169,10 +169,57 @@ This does not open public session admission or qualify device execution.
   in binary64, normalized and rounded once; correlated cancellation is not moved
   into binary32 Clenshaw arithmetic. Exact identity classification precedes narrowing.
 
-Physical powers supplied to the leaves lie in `[-1074,1023]`, matching
-`SourceArithmetic`. Checking that range before numerical work also bounds exponent
-addition and prevents integer wraparound. Final physical underflow is gradual;
-nonfinite or overflowing results raise before a reading or statistic row is published.
+## Base scales and derived normalization metadata
+
+The base state and nodal-field powers remain in `[-1074,1023]`, exactly as in
+`SourceArithmetic`; this admission is unchanged. A reconstructed closure or transverse
+strip/stencil may instead carry a *derived* integer exponent. For example, a base
+field exponent `100` and a normalized admittance exponent `1000` give closure exponent
+`1100`. The latter is never materialized as `2^1100`. Two stored components `2^-100`
+then give finite physical paired flux `2^1000` when the other field exponent is `100`.
+Refusing the derived exponent as though it were a base scale would reject this finite
+expression before its factorized restoration.
+
+Derived closure/strip/stencil exponents have magnitude at most `4*1074`. The four
+blocks cover one base field scale, up to two finite binary64 preparation factors,
+and the component normalization of the stored binary32 field. This is a bound on
+integer metadata, not a new range promise for a materialized field or coefficient.
+Preparation must account for each constituent explicitly. Each finite nonzero
+binary64 factor has a `frexp` exponent with magnitude at most `1074`; binary32 has
+the smaller bound `149`. All-zero products keep the existing sentinel and never
+add it to another exponent.
+
+The integer audit uses `B=1074` and the actual fixed-depth paths below. The generic
+product helper admits at most eight factors; its exponent sum therefore has magnitude
+at most `8B`. A finite reduced value contributes at most another `B` when decomposed
+at the final host boundary. Counting that value directly also covers any increase
+from a protected sum; no unbounded running exponent accumulator exists.
+
+- Spatial paired results combine at most `B+4B` physical scale, `8B` product scale,
+  then `B+B` for the reduced value and final factor: at most `15B`.
+- Strip energy combines at most `2B` sample-product scale and `2*(4B)` amplitude
+  metadata, then `B+2B+B` for the value, two factors and one divisor: at most `14B`.
+- Rectified onset current combines at most `2B` sample-product scale and `2*(4B)`
+  amplitude metadata, then `B+B+2B` for the value, one factor and two divisors:
+  at most `14B`.
+- Spatial width intermediates combine the three-factor node partial with a finite
+  partial and at most three coordinate/quadrature factors: at most `7B`. Differences
+  of these exponents give at most `14B`; final restoration remains below `16B`.
+
+The other spectral, population and temporal paths retain their original base-scale
+admission. Their actual-product sums and fixed-depth partial merges remain below the
+conservative common bound `32B=34368`, as do the rows above. Multiplication by two,
+addition, subtraction, negation and the radial exponent split therefore cannot wrap
+even a signed 32-bit `Int`. The widened checks run before any use of supplied metadata;
+`typemin(Int)`, `typemax(Int)` and values just outside the derived range are refused
+before output mutation. This reasoning applies to these bounded call graphs, not to
+arbitrary repeated calls of the internal exponent helpers with unchecked integers.
+
+Final physical underflow is gradual. `_observation_restore` and its ratio counterpart
+combine mantissas before one final `ldexp`; nonfinite or overflowing physical results
+still raise before publication. Tests cover finite closure exponent `1100`, finite
+strip/current restoration with the same exponent, unchanged base-scale refusal,
+integer-boundary rejection, final physical overflow and zero warmed allocations.
 
 The binary64 branches retain their existing arithmetic order and array element
 types. The new optional metadata is absent on those paths. Composition into modal,
