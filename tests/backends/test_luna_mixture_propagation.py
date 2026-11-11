@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
+from _session_probe_extra import run as session_run
 from gated_source import _gated_source
 from mixture_cases import AnalyticRate
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -210,14 +211,12 @@ def check_luna_mixture_field_witness(tag, backend_class):
     refinement = np.linalg.norm(reference - spectrum(f"{tag}_FINAL_32") * root) / 31
     bound = rounding + 2 * refinement / np.linalg.norm(reference)
     assert bound > 0.0
-    backend = backend_class(problem, run_request, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(grid.length)
-        assert summary.n_steps == steps == int(LUNA[f"{tag}_RUN_64"][0])
-        actual = backend.observe().require_field().reshape(-1) * root
-    finally:
-        backend.close()
+    ran = session_run(
+        backend_class(problem, run_request, grid=grid), problem, run_request
+    )
+    assert ran.final.z == grid.length
+    assert ran.n_steps == steps == int(LUNA[f"{tag}_RUN_64"][0])
+    actual = ran.final.field.reshape(-1) * root
     discrepancy = np.linalg.norm(actual - reference) / np.linalg.norm(reference)
     assert discrepancy < bound
     # The finest single-gas refinements reach arithmetic noise rather than an

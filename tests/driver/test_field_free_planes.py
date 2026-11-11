@@ -22,7 +22,6 @@ import pytest
 
 from bounds import AccuracyEnvelope, assert_within, fft_bound, gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
-from solprop.backends.driver import StepDriver
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.protocol import BackendHistory, Observation
@@ -437,8 +436,12 @@ def test_an_output_that_cannot_store_field_free_planes_is_refused():
 # --- the seam: observe(field=False) (SEP 22 phase 2) --------------------------------
 
 
-@pytest.mark.parametrize("backend", available())
-def test_a_field_free_observation_crosses_no_field(backend, monkeypatch):
+def test_a_field_free_observation_crosses_no_field(monkeypatch):
+    # The reference's driver seam. The native backend has no such seam: its session
+    # exports a field only on request (SEP 47 section 5.4), which
+    # tests/sessions/test_conformance.py::test_a_plane_nobody_exports_transfers_no_field
+    # counts on every executor.
+    backend = "numpy_ref"
     simulation = cartesian(backend, noise=True)
     problem = simulation.translate()
     run_request = simulation._run_request()
@@ -446,7 +449,7 @@ def test_a_field_free_observation_crosses_no_field(backend, monkeypatch):
     for field in (True, False):
         owner = select(backend, problem, run_request, grid=simulation.grid)
         copies = []
-        original = cast("type[StepDriver | HostDriver]", type(owner))._observed_field
+        original = cast("type[HostDriver]", type(owner))._observed_field
 
         def counted(self, state, copies=copies, original=original):
             copies.append(1)
@@ -460,7 +463,7 @@ def test_a_field_free_observation_crosses_no_field(backend, monkeypatch):
         finally:
             owner.close()
             monkeypatch.undo()
-        # The field-free observation makes no copy at all (on ``native``, no transfer).
+        # The field-free observation makes no copy at all.
         assert len(copies) == (1 if field else 0)
     kept, free = observations
     assert kept.field is not None and kept.noise_phase is not None

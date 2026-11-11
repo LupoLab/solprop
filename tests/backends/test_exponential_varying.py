@@ -19,8 +19,10 @@ import math
 import numpy as np
 import pytest
 
+from _session_probe_extra import run as session_run
 from backends.conftest import EQUIVALENCE_BACKENDS
 from solprop.backends.host.adams import HostAdamsMarch
+from solprop.backends.multistep import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver.simulation import Simulation
 from solprop.gasflow import steady_fill
@@ -96,6 +98,24 @@ def march(simulation, backend_class=NumpyRefBackend, *, compensation=None, plane
         return fields[plane], backend._adams, np.array(steps)
     finally:
         backend.close()
+
+
+def session_march(simulation, backend_class):
+    """Run to the last plane through the backend's own session; return its field, the
+    march's call ledger and every attempt's step."""
+    problem = simulation.translate()
+    run_request = simulation._run_request()
+    owner = backend_class(
+        problem,
+        run_request,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
+    )
+    ran = session_run(owner, problem, run_request)
+    assert ran.final.z == float(run_request.stepper.save_planes[-1])
+    calls = CallLedger.from_record(ran.record["response_calls"])
+    return ran.final.field, calls, np.asarray(ran.history.dz)
 
 
 def test_the_rate_is_the_derivative_of_the_flow():
@@ -232,9 +252,9 @@ def test_dense_observation_matches_landing():
 @pytest.mark.parametrize("backend_name", sorted(COMPILED))
 def test_a_compiled_backend_follows_the_reference(backend_name):
     reference, first, steps = march(gradient())
-    field, second, compiled_steps = march(gradient(), COMPILED[backend_name])
-    assert first is not None and second is not None
-    assert second.ledger.total == first.ledger.total
+    field, calls, compiled_steps = session_march(gradient(), COMPILED[backend_name])
+    assert first is not None
+    assert calls.total == first.ledger.total
     # As on the constant routes (tests/backends/test_exponential_routes.py).
     np.testing.assert_allclose(compiled_steps, steps, rtol=1e-3)
     scale = np.max(np.abs(reference))
@@ -294,7 +314,15 @@ def test_a_compiled_backend_steps_a_z_table_as_the_reference(backend_name):
     simulation = gradient()
     tabulated = _tabulated(simulation.translate())
     reference = _table_field(tabulated, simulation, NumpyRefBackend)
-    actual = _table_field(tabulated, simulation, COMPILED[backend_name])
+    run_request = simulation._run_request()
+    owner = COMPILED[backend_name](
+        tabulated,
+        run_request,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
+    )
+    actual = session_run(owner, tabulated, run_request).final.field
     # A compiled backend evaluates the table through its own evaluator: the reference's
     # trajectory to rounding.
     peak = np.max(np.abs(reference))

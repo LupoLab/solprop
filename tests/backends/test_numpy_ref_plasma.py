@@ -22,6 +22,7 @@ import warnings
 import numpy as np
 import pytest
 
+from _session_probe_extra import run
 from bounds import fft_bound, scan_bound
 from plasma_cases import (
     CARRIER,
@@ -391,14 +392,17 @@ def test_the_pre_ionisation_is_read_at_the_plane(ionising_capillary):
         assert replaced.preionisation == pytest.approx(0.4, rel=1e-14)
 
 
-def test_a_plasma_run_steps_and_ionises(backend_class, ionising_capillary):
+def test_a_plasma_run_steps_and_ionises(backend_class, ionising_capillary, field_grid):
     """A propagation that actually frees electrons, end to end."""
     problem, run_request, _, _ = ionising_capillary()
-    backend = backend_class(problem, run_request)
-    backend.set_initial(problem.initial.field0, None)
-    summary = backend.propagate_to(0.1)
-    plane = backend.observe()
-    assert summary.met_tolerance
+    plane = run(
+        backend_class(problem, run_request, grid=field_grid),
+        problem,
+        run_request,
+        until=0.1,
+    ).final
+    assert plane.z == 0.1
+    assert plane.summary.met_tolerance
     assert np.all(np.isfinite(plane.field))
     # The plasma blue-shifts the pulse, so the spectrum must not be the linear one.
     linear = np.exp(delta_phi(problem.linear, 0.0, 0.1)) * problem.initial.field0
@@ -433,30 +437,40 @@ def test_an_envelope_grid_refuses_the_plasma_by_name(field_grid):
 # --------------------------------------------------------------- backend statistics
 
 
+IONISED = StatsSpec(
+    names=(
+        "energy",
+        "electron_density",
+        "peak_ionisation_rate",
+        "peak_intensity",
+        "peak_power_total",
+        "quadrature_error",
+    )
+)
+"""The statistics the ionised plane's tests read, all evaluated at that plane."""
+
+
 @pytest.fixture
 def ionised_backend(field_grid, ionising_capillary, backend_class):
-    """A capillary propagated far enough to leave a plasma behind."""
+    """A capillary propagated far enough to leave a plasma behind: the problem, the
+    plane its backend's own session observed there with :data:`IONISED`, and the
+    mode."""
     problem, run_request, _, _ = ionising_capillary()
     mode = MarcatiliMode(
         125e-6, "Ar", PressureGradient.two_point(0.2, 2.0, 0.2), cladding=1.45
     )
+    run_request = run_request.for_run(stats=IONISED)
     backend = backend_class(problem, run_request, grid=field_grid, modes=[mode])
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(0.1)
-        yield problem, backend
-    finally:
-        backend.close()
+    plane = run(backend, problem, run_request, until=0.1).final
+    assert plane.z == 0.1
+    return problem, plane, mode
 
 
 def test_the_backend_reports_the_plasma_it_made(ionised_backend):
     """The statistics a saved plane does not carry are the backend's own."""
-    problem, backend = ionised_backend
-    spec = StatsSpec(
-        names=("energy", "electron_density", "peak_ionisation_rate", "peak_intensity")
-    )
-    values = backend.stats(spec)
-    assert sorted(values) == sorted(spec.names)
+    problem, plane, _ = ionised_backend
+    values = plane.stats
+    assert sorted(values) == sorted(IONISED.names)
     # The catalogue's shapes: a scalar per channel, the energy per mode and pol.
     for name in ("electron_density", "peak_ionisation_rate", "peak_intensity"):
         assert values[name].shape == ()
@@ -475,9 +489,8 @@ def test_the_electron_density_is_the_fraction_the_pulse_leaves(ionised_backend):
     Not the largest fraction reached in passing, and not an on-axis field
     re-synthesised for it.
     """
-    problem, backend = ionised_backend
+    problem, plane, _ = ionised_backend
     plasma = problem.responses.plasma_coefficients
-    plane = backend.observe()
     transform = problem.transform
     taper = (
         1.0 if transform.taper_scale is None else float(transform.taper_scale(plane.z))
@@ -498,9 +511,7 @@ def test_the_electron_density_is_the_fraction_the_pulse_leaves(ionised_backend):
         dt=problem.grids.dt_fine,
     )
     densest = int(np.argmax(fraction[:, -1]))
-    values = backend.stats(
-        StatsSpec(names=("electron_density", "peak_ionisation_rate"))
-    )
+    values = plane.stats
     expected = float(problem.responses.density(0.1)) * float(fraction[densest, -1])
     # The backend and this independently re-synthesised reference cross FFT, GEMM and
     # scalar/vector libm paths. Use the existing 1e-10 propagated-statistic contract.
@@ -518,10 +529,8 @@ def test_the_peak_intensity_of_a_mode_averaged_run_is_taken_on_its_mode_s_axis(
     The mode-averaged form ``P/A_eff`` is the average intensity, which is the on-axis
     value only for a top-hat profile.
     """
-    problem, backend = ionised_backend
-    plane = backend.observe()
-    mode = backend._modes[0]
-    values = backend.stats(StatsSpec(names=("peak_intensity", "peak_power_total")))
+    problem, plane, mode = ionised_backend
+    values = plane.stats
     profile = mode.field(np.zeros((1, 2)), plane.z)[0] / math.sqrt(
         mode.normalisation(plane.z)
     )
@@ -540,9 +549,8 @@ def test_the_quadrature_error_is_reported_and_is_not_a_number_without_a_rule(
     ionised_backend,
 ):
     """A one-node transform has no embedded pair: the estimate is nan, not zero."""
-    _, backend = ionised_backend
-    values = backend.stats(StatsSpec(names=("quadrature_error",)))
-    assert np.isnan(values["quadrature_error"])
+    _, plane, _ = ionised_backend
+    assert np.isnan(plane.stats["quadrature_error"])
 
 
 def test_a_plasma_statistic_without_a_plasma_is_refused(backend_class, field_grid):
@@ -561,10 +569,13 @@ def test_a_plasma_statistic_without_a_plasma_is_refused(backend_class, field_gri
             dz_max=0.01,
             dz_init=1e-4,
         )
+    run_request = run_request.for_run(stats=StatsSpec(names=("electron_density",)))
     backend = backend_class(problem, run_request, grid=field_grid)
-    backend.set_initial(problem.initial.field0, None)
-    with pytest.raises(BackendError, match="declares none"):
-        backend.stats(StatsSpec(names=("electron_density",)))
+    try:
+        with pytest.raises(BackendError, match="declares none"):
+            run(backend, problem, run_request, owns=False, until=0.0)
+    finally:
+        backend.close()
 
 
 # ------------------------------------------------- guards on an inconsistent order
@@ -637,15 +648,11 @@ def test_the_plasma_statistics_are_the_same_between_planes_as_at_one(
         125e-6, "Ar", PressureGradient.two_point(0.2, 2.0, 0.2), cladding=1.45
     )
     backend = backend_class(problem, run_request, grid=field_grid, modes=[mode])
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(0.1)
-        observed = backend.observe()
-        at_plane = backend.stats(run_request.observation.stats)
-    finally:
-        backend.close()
-    rows = observed.step_stats
-    assert rows.n_rows == int(np.count_nonzero(observed.step_history.accepted))
+    observed = run(backend, problem, run_request, until=0.1).final
+    assert observed.z == 0.1
+    at_plane = observed.stats
+    rows = observed.rows
+    assert rows.n_rows == int(np.count_nonzero(observed.history.accepted))
     for name in names:
         np.testing.assert_allclose(
             rows.values[name][-1],
@@ -661,6 +668,15 @@ def test_the_plasma_statistics_are_the_same_between_planes_as_at_one(
     assert float(np.ptp(density)) > 0.0
 
 
+MODE_MATRIX_BUILDERS = (
+    "solprop.backends.host.driver",
+    "solprop.backends.driver",
+    "solprop_native._statistics",
+    "solprop_native.backend",
+)
+"""The modules that build the on-axis mode matrix, each patched where it is present."""
+
+
 def test_the_on_axis_matrix_is_built_once_and_rescaled(
     field_grid, ionising_capillary, monkeypatch, backend_class
 ):
@@ -670,8 +686,7 @@ def test_the_on_axis_matrix_is_built_once_and_rescaled(
     the matrix is built once at the entrance and rescaled with the taper, so a run of
     many rows builds it exactly once, and the row at the plane is the plane's own.
     """
-    import solprop.backends.driver as driver_module  # noqa: PLC0415 - patched here
-    import solprop.backends.host.driver as host_module  # noqa: PLC0415 - patched here
+    import importlib  # noqa: PLC0415 - the builders' modules, patched here
 
     names = ("peak_intensity",)
     problem, run_request, _, _ = ionising_capillary()
@@ -682,23 +697,25 @@ def test_the_on_axis_matrix_is_built_once_and_rescaled(
         125e-6, "Ar", PressureGradient.two_point(0.2, 2.0, 0.2), cladding=1.45
     )
     builds = []
-    real = driver_module.mode_matrix
-    # The reference's driver and the native bridge's each build it in their own module.
-    for module in (driver_module, host_module):
-        monkeypatch.setattr(
-            module,
-            "mode_matrix",
-            lambda *args, **kwargs: builds.append(args) or real(*args, **kwargs),
-        )
+    real = importlib.import_module("solprop.modes.quadrature").mode_matrix
+    # Every module that builds it: the reference's driver, native's statistics and,
+    # while it exists, the legacy step driver.
+    for name in MODE_MATRIX_BUILDERS:
+        try:
+            module = importlib.import_module(name)
+        except ImportError:
+            continue
+        if hasattr(module, "mode_matrix"):
+            monkeypatch.setattr(
+                module,
+                "mode_matrix",
+                lambda *args, **kwargs: builds.append(args) or real(*args, **kwargs),
+            )
     backend = backend_class(problem, run_request, grid=field_grid, modes=[mode])
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(0.1)
-        observed = backend.observe()
-        at_plane = backend.stats(run_request.observation.stats)
-    finally:
-        backend.close()
-    rows = observed.step_stats
+    observed = run(backend, problem, run_request, until=0.1).final
+    assert observed.z == 0.1
+    at_plane = observed.stats
+    rows = observed.rows
     assert rows.n_rows > 1
     assert len(builds) == 1
     np.testing.assert_allclose(
@@ -742,17 +759,27 @@ def test_the_on_axis_matrix_follows_a_taper(field_grid, backend_class):
     assert problem.transform.taper_scale is not None
     backend = backend_class(problem, run_request, grid=field_grid, modes=[mode])
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(0.1)
-        observed = backend.observe()
-        at_plane = backend.stats(run_request.observation.stats)
-        rescaled = backend._on_axis_synthesis([mode])
+        observed = run(backend, problem, run_request, owns=False).final
+        if isinstance(backend, NumpyRefBackend):
+            rescaled = backend._on_axis_synthesis([mode])
+        else:
+            # Native keeps the entrance matrix (its statistics' own) and rescales it
+            # by the transform's taper factor where it reads it.
+            from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+                _statistics,
+            )
+
+            rescaled = _statistics._on_axis([mode]) * float(
+                problem.transform.taper_scale(observed.z)
+            )
     finally:
         backend.close()
+    assert observed.z == 0.1
+    at_plane = observed.stats
     rule = on_axis_rule(mode.dimlimits(0.1)[0])
     built = mode_matrix([mode], rule, 0.1, components=("x", "y")).synthesis
     np.testing.assert_allclose(rescaled, built, rtol=1e-8, atol=0.0)
-    rows = observed.step_stats
+    rows = observed.rows
     assert rows.n_rows > 1
     np.testing.assert_allclose(
         rows.values["peak_intensity"][-1],

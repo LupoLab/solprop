@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from _session_probe_extra import run as session_run
 from backends import test_envelope_plasma_geometries as plasma_cases
 from backends.test_batch_responses import compare
 from backends.test_envelope_plasma_geometries import geometry_case, geometry_options
@@ -32,16 +33,14 @@ envelope_mixture = plasma_cases.envelope_mixture
 
 
 def run(backend_class, problem, run_request, grid, options=None):
-    """Return one source evaluation and a complete fixed-schedule run."""
+    """Return one source evaluation and a complete fixed-schedule run, the latter
+    through the backend's own session."""
     rhs = derivative(backend_class, problem, run_request, grid, options)
     owner = backend_class(problem, run_request, grid=grid, options=options)
-    try:
-        owner.set_initial(problem.initial.field0, None)
-        summary = owner.propagate_to(grid.length)
-        assert summary.met_tolerance
-        return rhs, owner.observe().require_field().copy()
-    finally:
-        owner.close()
+    ran = session_run(owner, problem, run_request)
+    assert ran.final.z == grid.length
+    assert ran.met_tolerance
+    return rhs, ran.final.field
 
 
 def check_run(backend_class, problem, run_request, grid, options=None):

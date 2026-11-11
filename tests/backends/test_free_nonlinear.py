@@ -10,6 +10,8 @@ from functools import partial
 import numpy as np
 import pytest
 
+from _session_probe_extra import final_field
+from _session_probe_extra import run as session_run
 from backends.test_radial_nonlinear import derivative, make_problem
 from bounds import gamma
 from cartesian_oracles import longitudinal_square
@@ -177,16 +179,12 @@ def test_resolved_grazing_allows_backend_construction_and_a_zero_field_trial(
         [KerrResponse(1e-22)],
     )
     backend = spatial_backend_class(problem, run_request, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        error, advanced = backend._trial_step(0.0, 1e-7)
-        # All terms are homogeneous in E. Cutoff correction cannot create a field.
-        assert error == 0.0
-        np.testing.assert_array_equal(
-            backend._observed_field(advanced)[0], problem.initial.field0
-        )
-    finally:
-        backend.close()
+    ran = session_run(backend, problem, run_request)
+    # All terms are homogeneous in E. Cutoff correction cannot create a field: every
+    # step of the backend's own session scores zero and leaves the zero field.
+    assert ran.n_steps > 0
+    np.testing.assert_array_equal(ran.history.error_norm, 0.0)
+    np.testing.assert_array_equal(ran.final.field, problem.initial.field0)
 
 
 @pytest.mark.parametrize("residual", [-(2.0**-30), 0.0, 2.0**-30])
@@ -225,10 +223,5 @@ def test_cartesian_linear_flow_resolves_both_sides_and_exact_cutoff(
     # operations on O(1) amplitudes; the represented square root is exact here.
     bound = 64 * np.finfo(float).eps
     backend = spatial_backend_class(problem, run_request, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(grid.length)
-        actual = backend.observe().require_field()
-        np.testing.assert_allclose(actual, expected, rtol=0, atol=bound)
-    finally:
-        backend.close()
+    actual = final_field(backend, problem, run_request, grid.length)
+    np.testing.assert_allclose(actual, expected, rtol=0, atol=bound)
