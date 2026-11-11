@@ -164,7 +164,7 @@ function _plasma_channel(execution, transfer, arithmetic)
             negligible_rate = pyconvert(Float64, cycle.negligible_rate),
         )
     return SolpropJulia.ModalPlasmaChannel(
-        channel, _profile(execution, transfer.density, :plasma_density),
+        execution, channel, _profile(execution, transfer.density, :plasma_density),
         _profile(execution, transfer.preionisation, :preionisation); quadrature, arithmetic,
     )
 end
@@ -216,7 +216,8 @@ function _modal_data(execution, transfer)
     )
     shape = (length(grid.omega), size(map.synthesis, 2))
     return SolpropJulia.ModalSourceData(
-        grid, map, _prefactor(execution, transfer.prefactor, shape, grid.arithmetic);
+        execution, grid, map,
+        _prefactor(execution, transfer.prefactor, shape, grid.arithmetic);
         kerr = _kerr(execution, transfer.kerr, grid.arithmetic),
         raman = Tuple(
             _raman(execution, component, dt, grid.arithmetic)

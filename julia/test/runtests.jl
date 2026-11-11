@@ -62,6 +62,7 @@ if group == "Core"
     include("linear_table.jl")
     include("composition.jl")
     include("device_composition.jl")
+    include("device_responses.jl")
     include("spatial_operators.jl")
     include("spatial_composition.jl")
     include("source_composition_precision.jl")
