@@ -886,7 +886,7 @@ if os.environ.get("SOLPROP_TEST_JULIA") == "1":
     EXECUTORS["julia-cpu"] = Executor(
         "julia-cpu",
         _julia_session,
-        capabilities=frozenset({MONITOR, STATISTICS, DENSE}),
+        capabilities=CAPABILITIES,
         native_monitor=True,
         repeatability="rounding",
     )

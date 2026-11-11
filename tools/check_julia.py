@@ -34,6 +34,10 @@ _RUNTIME_TESTS = (
     "tests/backends/julia/test_cpu_dense.py",
     "tests/backends/julia/test_cpu_noise.py",
     "tests/backends/julia/test_cpu_split.py",
+    "tests/backends/julia/test_cpu_spatial.py",
+    "tests/backends/julia/test_cpu_transverse.py",
+    "tests/backends/julia/test_cpu_probe.py",
+    "tests/backends/julia/test_cpu_fft.py",
     "tests/backends/julia/test_transfer_aliases.py",
     "tests/backends/julia/test_session_boundary.py",
     "tests/sessions/executors.py",
@@ -53,6 +57,7 @@ _CONFORMANCE_REQUIRED = (
     "test_dense_planes_follow_the_committed_order",
     "test_a_snapshot_waits_for_the_planes_its_step_crossed",
     "test_yields_change_nothing_beside_dense_planes",
+    "test_a_transverse_edge_is_read_in_the_committed_order",
 )
 
 
@@ -280,6 +285,10 @@ def _verify_runtime_report(report: Path) -> None:
         "test_cpu_dense",
         "test_cpu_noise",
         "test_cpu_split",
+        "test_cpu_spatial",
+        "test_cpu_transverse",
+        "test_cpu_probe",
+        "test_cpu_fft",
         "test_transfer_aliases",
     ):
         cases = [
@@ -316,7 +325,6 @@ def _verify_conformance_report(results: Sequence[ElementTree.Element]) -> None:
             allowed = {
                 "the julia-cpu executor promises numerical error bounds, "
                 "not bitwise repetition",
-                "the julia-cpu executor does not run a transverse",
             }
             if reason not in allowed:
                 raise ValueError(f"unexpected Julia conformance skip: {name}: {reason}")

@@ -839,3 +839,8 @@ successful forced termination is recorded separately from voluntary Julia shutdo
   42–47 ms, so those probes did not reproduce the intermittent stall. The supervisor
   records which signal completed shutdown and still fails unverified startup or an
   unsuccessful hard deadline. This implements the accepted policy, not a runtime fix.
+- The shared conformance and affected spatial/monitor/noise/group regression selection
+  passes 147 tests, with 20 explicit numerical-versus-bitwise skips and two stale
+  transverse capability skips. Both newly enabled transverse conformance cases then
+  pass separately. CI now requires them and the spatial, transverse, timing-probe and
+  FFT managed modules; only the explicit bitwise-repeatability skips remain allowed.

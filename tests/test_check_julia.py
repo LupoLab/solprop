@@ -252,6 +252,10 @@ def test_python_phase_runs_the_whole_adapter_directory(pinned_tree, monkeypatch)
                     "test_cpu_dense",
                     "test_cpu_noise",
                     "test_cpu_split",
+                    "test_cpu_spatial",
+                    "test_cpu_transverse",
+                    "test_cpu_probe",
+                    "test_cpu_fft",
                     "test_transfer_aliases",
                 )
             )
@@ -322,7 +326,7 @@ def test_conformance_evidence_requires_the_core_contract_cases():
         check_julia._verify_conformance_report([])
 
 
-def test_conformance_evidence_accepts_only_declared_capability_and_bitwise_skips():
+def test_conformance_evidence_accepts_only_declared_bitwise_skips():
     cases = [
         ElementTree.fromstring(
             '<testcase classname="tests.sessions.test_conformance" '
@@ -333,7 +337,6 @@ def test_conformance_evidence_accepts_only_declared_capability_and_bitwise_skips
     for message in (
         "the julia-cpu executor promises numerical error bounds, "
         "not bitwise repetition",
-        "the julia-cpu executor does not run a transverse",
     ):
         case = ElementTree.Element(
             "testcase",
