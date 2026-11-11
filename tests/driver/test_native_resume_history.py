@@ -303,6 +303,7 @@ def test_a_resume_without_the_snapshot_restarts_the_history(build_simulation, ca
         session.close()
 
 
+@quiet
 @pytest.mark.medium
 @pytest.mark.parametrize("case", CASE_PARAMS)
 def test_a_resumed_native_run_is_the_uninterrupted_one(
