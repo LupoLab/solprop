@@ -856,14 +856,7 @@ def test_both_backends_check_the_whitelist_before_the_spatial_branch(name):
     "name",
     [
         "numpy_ref",
-        pytest.param(
-            "native",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="the native session's admission does not yet apply "
-                "weight_refusal_for, which the retired per-plane stats call did",
-            ),
-        ),
+        "native",
     ],
 )
 def test_a_general_statistic_under_a_weight_that_is_not_one_is_refused(strand, name):
@@ -932,7 +925,7 @@ def test_the_reference_refuses_a_regional_response_it_cannot_execute(
 
     Checked through the backend's constructor rather than through
     `node_kerr_tensor`, because that is where it matters: the refusal is in the
-    admission list, which runs before `StepDriver.__init__` allocates a stage.
+    admission list, which runs before the backend allocates a stage.
     """
     problem, run_request = spoiled_problem(
         strand,

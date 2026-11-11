@@ -730,7 +730,7 @@ def test_a_group_the_native_group_does_not_run_is_refused_at_the_door():
         ):
             start_group(owners, problems, requests, starts)
         # Nothing was started: the members are still unloaded.
-        assert all(owner._state is None for owner in owners)
+        assert all(owner._loaded is None for owner in owners)
 
 
 def _terminals(batch: GroupBatch) -> list[Terminal]:

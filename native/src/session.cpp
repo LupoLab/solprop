@@ -989,6 +989,13 @@ std::optional<double> Session::monitor_cap() const {
   return monitor_->cap();
 }
 
+double Session::quadrature_peak() {
+  const std::scoped_lock lock(mutex_);
+  if (closed())
+    return std::numeric_limits<double>::quiet_NaN();
+  return resident_->quadrature_peak();
+}
+
 void Session::acknowledge(const std::uint64_t sequence) {
   const std::scoped_lock lock(mutex_);
   require_open();

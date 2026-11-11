@@ -9,14 +9,11 @@ March, replay, landing, controller bookkeeping, history, the noise model and the
 evaluated: they touch the state and ``HostDriver._trial_step`` and nothing
 else. Written once here, they are the step control of every NumPy reference backend.
 
-**The reference owns this loop** since SEP 47 phase 2: :class:`HostDriver` is a copy of
-the inherited driver the native bridge still runs on
-(:class:`solprop.backends.driver.StepDriver`), so that the reference shares stateless
-numerical modules -- the controller cores, tableaux, coefficient evaluation and stage
-tables -- with that bridge, and transitionally the session lifecycle and the host
-engines (the exceptions :mod:`solprop.backends.host` records). The copies started
-identical; their decisions on identical inputs stay bit-identical (the decision traces
-of ``tests/backends``).
+**The reference owns this loop** since SEP 47 phase 2: :class:`HostDriver` began as a
+copy of the step driver the native backend inherited until phase 5, and shares only
+stateless numerical modules -- the controller cores, tableaux, coefficient evaluation,
+stage tables and host engines -- with the native backend. Its decisions on identical
+inputs are the native marches' (the decision traces of ``tests/backends``).
 What a backend supplies is ``_trial_step``, ``_apply_mask`` and ``stats``, plus
 ``_finish`` when it has boundary treatments of its own; two optional hooks,
 ``_begin_plane`` and ``_on_accepted_step``, are where a backend scores whatever a plane
@@ -67,7 +64,13 @@ from solprop.profiles import ZProfile
 from solprop.stats import StatsSpec
 from solprop.stepper.controller import ControlRecord, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule, StepTargets, landing
+from solprop.stepper.schedule import (
+    FixedSchedule,
+    StepTargets,
+    landing,
+    reached,
+    replay_tolerance,
+)
 from solprop.stepper.tableau import extension_coefficients, extension_value
 from solprop.translate.linop import delta_phi, unitary_phase
 from solprop.translate.masks import noise_spectrum
@@ -99,68 +102,6 @@ __all__ = [
 ]
 
 _StateT = TypeVar("_StateT")
-
-
-def reached(position: float, target: float) -> bool:
-    """Return whether a march at ``position`` has arrived at ``target``.
-
-    Parameters
-    ----------
-    position : float
-        Current position, m.
-    target : float
-        Position being marched to, m.
-
-    Returns
-    -------
-    bool
-        True when no further step is due.
-
-    Examples
-    --------
-    >>> from solprop.backends.host.driver import reached
-    >>> reached(0.5, 1.0), reached(1.0, 1.0)
-    (False, True)
-    """
-    tolerance = LANDING_ULPS * float(np.spacing(max(abs(position), abs(target))))
-    return bool(position >= target - tolerance)
-
-
-def replay_tolerance(schedule: FixedSchedule, position: float) -> float:
-    """Return how far a replayed schedule's edge may sit from a target it lands on, m.
-
-    A schedule's edges are the running sum of its steps, and a sum of ``n`` rounded
-    steps can drift from the position they were chosen to reach by about ``n`` ulps:
-    ``FixedSchedule(np.full(160, L / 160))`` ends 12 ulps short of ``L``. The slack
-    is therefore :data:`~solprop.stepper.schedule.LANDING_ULPS` or the step count,
-    whichever is larger, in ulps of the larger of the position and the schedule's
-    length -- still far inside the ``1e-9`` of the length that
-    :meth:`~solprop.translate.problem.PropagationProblem.validate` allows an edge to
-    miss a save plane by, so no step is ever skipped.
-
-    Parameters
-    ----------
-    schedule : solprop.stepper.schedule.FixedSchedule
-        The schedule being replayed.
-    position : float
-        The position the edge is compared with, m.
-
-    Returns
-    -------
-    float
-        The slack, m.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop.backends.host.driver import replay_tolerance
-    >>> from solprop.stepper.schedule import FixedSchedule
-    >>> schedule = FixedSchedule(np.full(160, 1e-3 / 160))
-    >>> bool(1e-3 - schedule.z_end <= replay_tolerance(schedule, 1e-3))
-    True
-    """
-    ulps = max(LANDING_ULPS, schedule.n_steps)
-    return ulps * float(np.spacing(max(schedule.total_length, abs(position))))
 
 
 INITIAL_STEP_STATS_CAPACITY = 64

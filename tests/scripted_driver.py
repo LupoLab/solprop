@@ -4,25 +4,20 @@
 
 """A step driver whose numerical outcomes are scripted rather than computed.
 
-:class:`solprop.backends.driver.StepDriver` is the marching half of a backend with the
-kernels left abstract. :class:`ScriptedDriver` fills them with a stage evaluation that
-multiplies by a constant and an error norm taken from a list, so step control, the
+:class:`solprop.backends.host.driver.HostDriver` is the reference's marching half, with
+the kernels left abstract. :class:`HostScriptedDriver` fills them with a stage
+evaluation that multiplies by a constant and an error norm taken from a list, so step
+control, the
 session lifecycle and the service loop can be tested without any physics being
-evaluated correctly. ``tests/backends/test_driver.py`` tests the step loop with it and
-``tests/sessions`` the execution-session lifecycle (SEP 47 section 7.1: "Script the
-same numerical outcomes to test this exact lifecycle property on every executor").
-
-Since SEP 47 phase 2 the step loop has two copies: the native bridge's
-:class:`~solprop.backends.driver.StepDriver` and the reference's own
-:class:`~solprop.backends.host.driver.HostDriver`. The script is a mixin over either:
-:class:`ScriptedDriver` on the bridge's, :class:`HostScriptedDriver` on the reference's.
+evaluated correctly. ``tests/sessions`` tests the execution-session lifecycle with it
+(SEP 47 section 7.1: "Script the same numerical outcomes to test this exact lifecycle
+property on every executor").
 """
 
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from solprop.backends.driver import StepDriver
 from solprop.backends.host.driver import HostDriver
 
 SCALE = 0.02 / 8
@@ -109,9 +104,5 @@ class _Scripted:
         self._closed = True
 
 
-class ScriptedDriver(_Scripted, StepDriver):
-    """The script on the native bridge's inherited driver."""
-
-
 class HostScriptedDriver(_Scripted, HostDriver):
-    """The script on the reference's own driver (SEP 47 phase 2)."""
+    """The script on the reference's step driver."""

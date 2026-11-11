@@ -32,6 +32,7 @@ is how these tests reach that route without keeping separate code for it.
 import math
 import warnings
 from dataclasses import replace
+from typing import Any
 
 import numpy as np
 import pytest
@@ -305,7 +306,8 @@ def test_a_coupled_flow_keeps_its_collar_in_every_stage(transient, name, monkeyp
     problem, run_request, grid = transient
     assert problem.linear.coupled_flow is not None
     if name == "numpy_ref":
-        driver = backend(problem, run_request, grid=grid)
+        # The reference's driver, whose collar rule the native session's mirrors.
+        driver: Any = backend(problem, run_request, grid=grid)
         try:
             assert not driver._collar_can_rest()
             driver._set_collar_quiet(True)

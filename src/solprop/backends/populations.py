@@ -229,7 +229,7 @@ def axis_populations(
         Plane position in m.
     axis : numpy.ndarray
         The mode set's synthesis on the axis at `z`, taper included, rows x and y
-        (``StepDriver._on_axis_synthesis``).
+        (``HostDriver._on_axis_synthesis``).
 
     Returns
     -------
@@ -261,7 +261,7 @@ def axis_row_matrix(
         The translated problem.
     axis : numpy.ndarray
         The mode set's synthesis on the axis at this position, taper included, rows x
-        and y (``StepDriver._on_axis_synthesis``).
+        and y (``HostDriver._on_axis_synthesis``).
 
     Returns
     -------

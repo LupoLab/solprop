@@ -19,6 +19,7 @@ from march_bounds import FIXED_ORDER, assert_in_envelope, assert_matched, march_
 from sessions.executors import IDENTITY
 from solprop.backends.events import ObservationReady
 from solprop.backends.host.driver import HostDriver
+from solprop.backends.protocol import stepping
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -603,9 +604,9 @@ def test_set_initial_refuses_a_position_outside_the_table(build_simulation):
     run_request = simulation._run_request()
     backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     with pytest.raises(BackendError, match="operator table"):
-        backend.set_initial(problem.initial.field0, None, z=2 * LENGTH)
+        stepping(backend).set_initial(problem.initial.field0, None, z=2 * LENGTH)
     with pytest.raises(BackendError, match="operator table"):
-        backend.set_initial(problem.initial.field0, None, z=-LENGTH)
+        stepping(backend).set_initial(problem.initial.field0, None, z=-LENGTH)
     backend.close()
 
 
@@ -616,7 +617,7 @@ def test_set_initial_refuses_a_position_off_a_replayed_schedule(build_simulation
     backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     # Half a step past an edge: a replay could not continue in step from there.
     with pytest.raises(BackendError, match="one of its edges"):
-        backend.set_initial(problem.initial.field0, None, z=LENGTH / 80)
+        stepping(backend).set_initial(problem.initial.field0, None, z=LENGTH / 80)
     backend.close()
 
 
@@ -626,9 +627,9 @@ def test_a_state_loaded_at_a_plane_starts_the_run_there(build_simulation):
     problem = simulation.translate()
     run_request = simulation._run_request()
     backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
-    backend.set_initial(problem.initial.field0, None, z=LENGTH / 2)
-    assert backend.observe().z == LENGTH / 2
-    summary = backend.propagate_to(LENGTH)
+    stepping(backend).set_initial(problem.initial.field0, None, z=LENGTH / 2)
+    assert stepping(backend).observe().z == LENGTH / 2
+    summary = stepping(backend).propagate_to(LENGTH)
     # Half the fibre at forty steps over the whole of it: twenty steps left.
     assert summary.n_steps == 20
     backend.close()

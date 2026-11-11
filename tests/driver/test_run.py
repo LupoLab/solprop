@@ -11,6 +11,7 @@ import h5py
 import numpy as np
 import pytest
 
+from _session_probe_rest import final_field
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import (
     FIXED_ORDER,
@@ -20,7 +21,13 @@ from march_bounds import (
     simulation_bound,
 )
 from solprop import fourier
-from solprop.backends.protocol import Backend, BackendHistory, Observation, StepSummary
+from solprop.backends.protocol import (
+    Backend,
+    BackendHistory,
+    Observation,
+    StepSummary,
+    stepping,
+)
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings, metadata_for, run_problem
@@ -238,7 +245,9 @@ def failing_backend(simulation, error):
     def propagate_to(z):
         raise error
 
-    backend.propagate_to = propagate_to
+    # A patched instance attribute: the reference's stepping seam fails each march.
+    stepped = stepping(backend)
+    stepped.propagate_to = propagate_to  # pyright: ignore[reportAttributeAccessIssue]
     return backend
 
 
@@ -330,16 +339,14 @@ def test_the_stored_field_is_the_optics_spectrum_of_the_observation(build_simula
         grid=simulation.grid,
         modes=simulation.modes,
     )
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(float(simulation.settings.save_planes[-1]))
-    observation = backend.observe()
-    backend.close()
-    expected = fourier.spectrum_to_optics(observation.require_field(), kind="envelope")
+    # Its last plane's state through the backend's own session, in the FFT convention.
+    last = final_field(backend, problem, run_request, Start.entrance(problem))
+    expected = fourier.spectrum_to_optics(last, kind="envelope")
     # The same problem stepped the same way, a matched march; the storage boundary
     # is a conjugation and a sign flip, both exact in floating point (ADR-017).
     bound = simulation_bound(simulation)
     assert_matched(handler["field"][-1], expected, bound)
-    assert_matched(handler.fields("fft")[-1], observation.require_field(), bound)
+    assert_matched(handler.fields("fft")[-1], last, bound)
     # And on one stored array the two conventions are that exact map of each other.
     assert np.array_equal(
         handler["field"][-1],

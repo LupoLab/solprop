@@ -25,11 +25,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
-from solprop.backends.driver import (
-    _declared_discard,  # pyright: ignore[reportPrivateUsage] - one predicate
-)
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.spatial_absorber import RAMP_K_FLOOR
+from solprop.translate.routes import transverse_of
 from solprop.transverse_monitor import (
     _UNWATCHED_MESSAGE,  # pyright: ignore[reportPrivateUsage] - the edge's texts
     _UNWATCHED_REASON,  # pyright: ignore[reportPrivateUsage]
@@ -176,7 +174,8 @@ def declared(problem: PropagationProblem) -> bool:
     bool
         True when its transverse specification sets ``discard_above``.
     """
-    return _declared_discard(problem)
+    design = transverse_of(problem.route)
+    return design is not None and design.specification.discard_above is not None
 
 
 def edge_config(
@@ -189,7 +188,7 @@ def edge_config(
     edge : solprop.transverse_monitor.TransverseEdge
         The run's fresh edge; it is not changed.
     problem : solprop.translate.problem.PropagationProblem
-        The translated problem: its declared content, as ``StepDriver.attach_monitor``
+        The translated problem: its declared content, as ``HostDriver.attach_monitor``
         hands it to the edge's launch.
     stepper : solprop.translate.problem.StepperSettings
         The run's stepper section: its fixed schedule, if any.
@@ -299,7 +298,7 @@ def noise_readings(
         The input noise's draw, shape ``(n_modes, n_pol, n_omega)``, a host array.
     clean : numpy.ndarray or None
         Each column's unweighted launch energy without that noise
-        (``StepDriver._edge_clean_columns``), or ``None``.
+        (``NativeBackend._launch_clean_columns``), or ``None``.
 
     Returns
     -------

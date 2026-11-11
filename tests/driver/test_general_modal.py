@@ -53,6 +53,7 @@ from solprop import fourier
 from solprop.backends import select
 from solprop.backends.host.group import HostGroup, _general_leaves
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
+from solprop.backends.protocol import stepping
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_group
 from solprop.constants import ROOM_TEMPERATURE, C
@@ -1147,12 +1148,14 @@ def test_the_backend_refuses_an_inadmissible_name_on_its_own(guide, grid):
     run_request = simulation._run_request()
     backend = select("numpy_ref", problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
+        stepping(backend).set_initial(problem.initial.field0, None)
         with pytest.raises(BackendError, match="peak_intensity is unavailable"):
-            backend.stats(StatsSpec(names=("peak_intensity",)))
+            stepping(backend).stats(StatsSpec(names=("peak_intensity",)))
         with pytest.raises(BackendError, match="energy is unavailable"):
-            backend.stats(StatsSpec(names=("energy",)))
-        assert backend.stats(StatsSpec(names=("physical_energy", "analytic_flux")))
+            stepping(backend).stats(StatsSpec(names=("energy",)))
+        assert stepping(backend).stats(
+            StatsSpec(names=("physical_energy", "analytic_flux"))
+        )
     finally:
         backend.close()
 
@@ -1276,7 +1279,7 @@ def test_a_general_guide_batch_is_what_its_members_run_alone(
             for bucket in (members, alone):
                 backend = select("numpy_ref", problem, run_request, grid=grid)
                 cleanup.callback(backend.close)
-                backend.set_initial(problem.initial.field0, simulation.noise)
+                stepping(backend).set_initial(problem.initial.field0, simulation.noise)
                 bucket.append(backend)
         runner = runner_factory(members)
         cleanup.callback(runner.close)
@@ -1336,7 +1339,7 @@ def test_two_guides_never_share_a_batch_group(guide, grid):
         for problem, run_request in zip(problems, requests, strict=True):
             backend = select("numpy_ref", problem, run_request, grid=grid)
             cleanup.callback(backend.close)
-            backend.set_initial(problem.initial.field0, None)
+            stepping(backend).set_initial(problem.initial.field0, None)
             loaded.append(backend)
         with pytest.raises(BackendError, match="identical guide/table/gauge identity"):
             HostGroup(loaded)

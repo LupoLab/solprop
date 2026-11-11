@@ -48,12 +48,11 @@ def test_the_corpus_reaches_every_decision_it_was_written_for():
         assert stops[name] == "done", name
 
 
-@pytest.mark.parametrize("host", [True, False], ids=["host", "bridge"])
 @pytest.mark.parametrize(
     "entry", ENTRIES, ids=[entry["scenario"]["name"] for entry in ENTRIES]
 )
-def test_the_march_reproduces_its_trace(entry, host):
-    # The reference's own driver and the native bridge's copy (SEP 47 phase 2) both
-    # reproduce the corpus, so the reference's decisions stay the native march's.
+def test_the_march_reproduces_its_trace(entry):
+    # The reference's driver reproduces the corpus, so its decisions stay the native
+    # march's (`test_native_rk_traces.py`).
     scenario = Scenario.from_json(entry["scenario"])
-    assert same_trace(run_scenario(scenario, host=host), entry["trace"])
+    assert same_trace(run_scenario(scenario), entry["trace"])

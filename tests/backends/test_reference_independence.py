@@ -2,24 +2,24 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The NumPy reference runs on its own host machinery, never on the native bridge's.
+"""The NumPy reference runs on its own host machinery; the legacy control is gone.
 
 SEP 47 section 6.6 and the maintainer's decision at acceptance on the transition: the
-reference session is built independently in phase 2 and shares only stateless
-numerical modules with the inherited driver, which remains solely as the native
-bridge. These checks hold the reference package (``solprop.backends.numpy_ref``) and
-its host package (``solprop.backends.host``) to that: no import of a legacy control
-module or class, at module level or inside a function; no legacy class among their
-module globals or in a reference backend's ancestry; the reference's marches and its
-group are the host copies; and the run layer serves a reference backend with the host
-session and a reference group with the host group session. The bridge's transitional
-sessions (:mod:`solprop.backends.driver_session`) are legacy control too: the
-reference composes the parts every Python session shares
-(:mod:`solprop.backends.session_core`) instead.
+reference session is built independently and shares only stateless numerical modules
+with the native backend, and phase 5 deletes the step driver the native backend
+inherited (``solprop.backends.driver``), its Adams and low-storage marches and the
+bridge's sessions. These checks hold the reference package
+(``solprop.backends.numpy_ref``) and its host package (``solprop.backends.host``) to
+that -- no import of a legacy control module or class, at module level or inside a
+function, by any route -- and the tree to the deletion: no legacy module imports and no
+legacy class remains in the shared modules. The reference's marches and its group are
+the host copies, and the run layer serves a reference backend with the host session and
+a reference group with the host group session.
 """
 
 import ast
 import importlib
+import importlib.util
 import os
 import pkgutil
 import subprocess
@@ -27,14 +27,12 @@ import sys
 from contextlib import closing
 from pathlib import Path
 from types import ModuleType
-from typing import Any, cast
 
 import pytest
 
 import solprop.backends.host
 import solprop.backends.numpy_ref
-from scripted_driver import ScriptedDriver
-from solprop.backends import driver, low_storage, multistep
+from solprop.backends import low_storage, multistep
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.group import HostGroup
@@ -84,13 +82,6 @@ LEGACY_CLASS_NAMES = frozenset(
 )
 """The bridge's control classes by name: no identifier of the reference may be one,
 whatever route reached it -- an import, an alias, or a module attribute."""
-
-LEGACY_CLASSES = (
-    driver.StepDriver,
-    multistep.AdamsMarch,
-    low_storage.LowStorageMarch,
-)
-"""The bridge's control classes still in the tree."""
 
 
 def _modules() -> list[str]:
@@ -194,6 +185,14 @@ def test_the_route_check_sees_a_module_attribute():
     assert set(attributes) & LEGACY_CLASS_NAMES == {"AdamsMarch"}
 
 
+def test_the_legacy_control_is_deleted():
+    # SEP 47 phase 5: the modules are gone and the shared modules hold no legacy class.
+    for name in LEGACY_MODULES:
+        assert importlib.util.find_spec(name) is None, name
+    for module in (low_storage, multistep):
+        assert not set(vars(module)) & LEGACY_CLASS_NAMES, module.__name__
+
+
 def test_importing_the_reference_loads_no_legacy_driver():
     # A fresh interpreter, without the native package: the reference, its session and
     # the run layer's door load neither the inherited driver nor the bridge's batch.
@@ -224,7 +223,8 @@ def test_a_reference_module_holds_no_legacy_control(name):
         if isinstance(value, ModuleType):
             assert value.__name__ not in LEGACY_MODULES, (name, key)
         else:
-            assert not any(value is legacy for legacy in LEGACY_CLASSES), (name, key)
+            legacy = isinstance(value, type) and value.__name__ in LEGACY_CLASS_NAMES
+            assert not legacy, (name, key)
 
 
 @pytest.mark.parametrize(
@@ -232,7 +232,7 @@ def test_a_reference_module_holds_no_legacy_control(name):
 )
 def test_a_reference_backend_inherits_only_the_host_driver(backend):
     assert issubclass(backend, HostDriver)
-    assert not set(backend.__mro__) & set(LEGACY_CLASSES)
+    assert not {one.__name__ for one in backend.__mro__} & LEGACY_CLASS_NAMES
 
 
 def test_the_reference_marches_and_groups_with_the_host_copies(
@@ -280,9 +280,6 @@ def test_the_run_layer_serves_the_reference_with_the_host_session(
     reference = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     with start_session(reference, problem, request, Start.entrance(problem)) as session:
         assert type(session) is HostSession
-    # The inherited driver serves no session of its own any more (SEP 47 phase 5).
-    assert not hasattr(driver.StepDriver, "prepare")
-    assert not hasattr(driver.StepDriver, "prepare_group")
 
 
 def test_the_run_layer_serves_a_reference_group_with_the_host_group_session(
@@ -304,16 +301,6 @@ def test_the_run_layer_serves_a_reference_group_with_the_host_group_session(
     ) as group:
         assert type(group) is HostGroupSession
         assert isinstance(getattr(group, "_runner"), NumpyBatchBackend)  # noqa: B009
-
-
-def test_the_host_session_refuses_a_bridge_driver(soliton_problem, narrow_grid):
-    problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[1e-3])
-    scripted = cast("Any", ScriptedDriver(problem, run_request, grid=narrow_grid))
-    try:
-        with pytest.raises(BackendError, match="host driver"):
-            HostSession(scripted, problem, run_request, Start.entrance(problem))
-    finally:
-        scripted.close()
 
 
 def test_an_injected_adams_engine_is_gated_and_checked_as_the_bridge_s(

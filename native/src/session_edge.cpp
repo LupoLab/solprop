@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // The native session's transverse edge actions (solprop SEP 40 section 5.3, SEP 47
-// sections 5.3 and 6.4): `StepDriver.attach_monitor`'s launch of the edge,
+// sections 5.3 and 6.4): `HostDriver.attach_monitor`'s launch of the edge,
 // `_read_transverse` at a committed endpoint and at a plane, and the barrier each
 // warning makes. The edge itself is `transverse::Edge`; the readings are the resident
 // state's (`Resident::edge_reading`), so nothing here returns to Python.
@@ -21,7 +21,7 @@
 namespace solprop_native::session {
 
 double Session::next_step() const {
-  // `StepDriver._next_step`: a replay's scheduled step, none past its end, else the
+  // `HostDriver._next_step`: a replay's scheduled step, none past its end, else the
   // controller's proposal.
   return std::visit(
       [this](const auto& method) {

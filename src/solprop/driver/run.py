@@ -39,7 +39,7 @@ import numpy as np
 from solprop._host import RunClock, machine, usage
 from solprop._interrupts import committing, handled
 from solprop.backends.populations import axis_refusal
-from solprop.backends.protocol import Backend, BackendHistory, Observation
+from solprop.backends.protocol import Backend, BackendHistory, HostStepping, Observation
 from solprop.backends.registry import statistics_refusal
 from solprop.backends.session import RunSession, Start, statistics_unavailable
 from solprop.driver.summary import run_summary
@@ -185,10 +185,10 @@ def plane_from_observation(
     ----------
     observation : solprop.backends.protocol.Observation
         The state at a save plane, from
-        :meth:`solprop.backends.protocol.Backend.observe`.
+        :meth:`solprop.backends.protocol.HostStepping.observe`.
     stats : collections.abc.Mapping, optional
-        What :meth:`solprop.backends.protocol.Backend.stats` returned there, keyed by
-        statistic name. Empty when omitted.
+        What :meth:`solprop.backends.protocol.HostStepping.stats` returned there, keyed
+        by statistic name. Empty when omitted.
     field : bool, optional
         Whether the plane keeps the field and its noise phase; ``False``, or an
         observation that carries no field, builds a field-free plane (SEP 22), which
@@ -1117,8 +1117,9 @@ class _MarchKeeper:
     ----------
     output : solprop.output.schema.Output
         The run's handler; only one with ``save_march`` keeps a snapshot.
-    backend : solprop.backends.protocol.Backend
-        The run's backend, whose march has a snapshot to keep or none.
+    backend : solprop.backends.protocol.HostStepping or SessionFacts
+        The reference's driver, or a session's facts, whose march has a snapshot to
+        keep or none.
     policy : bool or None
         The run's ``resume_history``.
     method : {'adams', 'rk', 'low_storage'}, optional
@@ -1131,7 +1132,7 @@ class _MarchKeeper:
     def __init__(
         self,
         output: Output,
-        backend: Backend | SessionFacts,
+        backend: HostStepping | SessionFacts,
         policy: bool | None,
         *,
         method: Literal["adams", "rk", "low_storage"] = "adams",

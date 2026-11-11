@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import math
 import os
@@ -83,7 +84,10 @@ def _worker(
         else:
             blas_threads = "disabled"
 
+    import numpy as np
     from solprop.backends.registry import select
+    from solprop.backends.session import Start
+    from solprop.backends.sessions import start_session
     from solprop.driver import Simulation
     from solprop.exceptions import MaterialRangeWarning
     from solprop.stats import StatsSpec
@@ -129,6 +133,11 @@ def _worker(
     )
 
     def run(request: RunRequest) -> Arm:
+        # One plane at the target, through the backend's session (SEP 47): the
+        # accepted steps and the periodic rows its batches carry.
+        request = request.with_stepper(
+            dataclasses.replace(request.stepper, save_planes=(target,))
+        )
         backend = select(
             backend_name,
             problem,
@@ -137,17 +146,27 @@ def _worker(
             modes=simulation.modes,
             profiles=simulation.profiles,
         )
+        start = Start(
+            field=problem.initial.field0, z=problem.initial.z, noise=simulation.noise
+        )
+        session = start_session(backend, problem, request, start)
+        steps = rows = 0
         try:
-            backend.set_initial(problem.initial.field0, simulation.noise)
             started = time.perf_counter()
-            summary = backend.propagate_to(target)
+            while not session.finished:
+                batch = session.advance()
+                for event in batch.events:
+                    history = getattr(event, "history", None)
+                    if history is not None:
+                        steps += int(np.count_nonzero(history.accepted))
+                    periodic = getattr(event, "step_stats", None)
+                    if periodic is not None:
+                        rows += int(periodic.n_rows)
+                session.acknowledge(batch.receipt)
             seconds = time.perf_counter() - started
-            rows = backend.observe().step_stats.n_rows
-            # A row follows each accepted step's period; n_steps counts rejections too.
-            steps = summary.n_steps - summary.n_rejected
-            return {"seconds": seconds, "steps": steps, "rows": rows}
         finally:
-            backend.close()
+            session.close()
+        return {"seconds": seconds, "steps": steps, "rows": rows}
 
     run(plain)
     run(stashed)

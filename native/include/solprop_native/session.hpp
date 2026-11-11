@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -38,7 +39,7 @@
  *
  * The scheduler's decisions -- which plane is next, when a step plane, a statistics
  * row, a bounded yield or a snapshot falls due, and the reached and replay tolerances
- * -- are solprop's `DriverSession`, `StepDriver` and `solprop.backends.driver`
+ * -- are solprop's `DriverSession`, `HostDriver` and `solprop.backends.host.driver`
  * functions, transcribed. Like the marches they are compiled strict (no contraction, no
  * fast-math) in their own translation unit, so they round as solprop's Python does;
  * that unit also holds the export, whose recipe is `solprop.backends.export`'s
@@ -127,6 +128,9 @@ public:
   virtual void set_collar_quiet(bool /*quiet*/) {
     throw std::logic_error("this state cannot rest its collar");
   }
+  /** The largest accepted step's transverse quadrature score since the last read,
+      clearing it (`quadrature_peak`); NaN where none was scored. */
+  virtual double quadrature_peak() { return std::numeric_limits<double>::quiet_NaN(); }
   /** The committed state's transverse edge reading (`state.edge_reading`, SEP 44): the
       faces' sums and the columns when `faces`, with the clip and totals of every node
       when `whole`, the totals when `totals`, a collar's strip when `strip` and its
@@ -371,6 +375,9 @@ public:
       without a monitor; takes the session's lock. Outside the record, whose layout is
       the reference's. */
   [[nodiscard]] std::optional<double> monitor_cap() const;
+  /** The resident state's quadrature peak since the last read (`Resident::
+      quadrature_peak`), NaN once closed; takes the session's lock. */
+  [[nodiscard]] double quadrature_peak();
   /** The transverse edge's record (`TransverseEdge.summary`'s numbers) and its finish,
       or none without an edge; takes the session's lock. */
   [[nodiscard]] std::optional<std::pair<transverse::Record, transverse::Finish>>
@@ -549,7 +556,7 @@ private:
     returned at `position` reached the plane it was sent to (`DriverSession.advance`).
  */
 [[nodiscard]] bool plane_reached(double position, double target);
-/** `solprop.backends.driver.replay_tolerance`: a replayed edge's slack at `position`,
+/** `solprop.stepper.schedule.replay_tolerance`: a replayed edge's slack at `position`,
     m, for a schedule of `steps` steps and length `length`. */
 [[nodiscard]] double replay_tolerance(std::size_t steps, double length, double position,
                                       int landing_ulps);

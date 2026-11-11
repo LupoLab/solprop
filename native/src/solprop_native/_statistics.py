@@ -865,7 +865,7 @@ def _shape(
 def _on_axis(modes: Sequence[Mode]) -> np.ndarray:
     """Return the mode set's synthesis on the axis at the reference position.
 
-    ``StepDriver._on_axis_synthesis`` before its taper: the single node ``r = 0`` of
+    ``HostDriver._on_axis_synthesis`` before its taper: the single node ``r = 0`` of
     :func:`~solprop.modes.quadrature.on_axis_rule`, rows x and y.
 
     Parameters
@@ -1341,7 +1341,7 @@ def lower(
         ``_aperture_payload``): the apertures, the regions and the exponent.
     on_axis : numpy.ndarray or None, optional
         The mode set's synthesis on the axis at the reference position, when the
-        caller already built it (``StepDriver._on_axis``); built here otherwise.
+        caller already built it (``HostDriver._on_axis``); built here otherwise.
     z_end : float
         The run's last plane, m, which a profile statistic's table must reach.
     planes : sequence of float or None, optional

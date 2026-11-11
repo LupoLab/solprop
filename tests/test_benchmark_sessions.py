@@ -245,18 +245,16 @@ def test_counters_attribute_a_host_step_to_the_work_due_on_it():
     assert record["planes"] == 1
     assert (record["field_crossings"], record["field_bytes"]) == ({"export": 1}, 64)
     assert (record["field_loads"], record["load_bytes"]) == ({"start": 1}, 32)
-    # The per-attempt hooks live on the backend only while counting.
-    hooks = ("_record", "_record_step_stats")
+    # Counting installs nothing on the backend: every count is the session's or the
+    # state's own (SEP 47 phase 5).
+    before = dict(vars(NativeBackend))
     assert _counters.disable() is None
-    assert not any(name in NativeBackend.__dict__ for name in hooks)
     assert _counters.enable() is _counters.active
-    assert all(name in NativeBackend.__dict__ for name in hooks)
+    assert dict(vars(NativeBackend)) == before
     assert isinstance(_counters.disable(), _counters.Counters)
     assert _counters.active is None
-    assert not any(name in NativeBackend.__dict__ for name in hooks)
     # The reason names are the backend's, in march::Reason order.
     assert backend._REASONS[backend._HOST_STEP] == "host_step"
-    assert backend._reason_name(99) == "reason_99"
 
 
 def test_cases_that_set_their_integrator_refuse_an_override():

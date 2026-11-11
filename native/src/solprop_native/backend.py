@@ -10,23 +10,19 @@ import dataclasses
 import functools
 import logging
 import math
-import time
 import types
 import weakref
 from collections.abc import Callable, Mapping, Sequence
 from importlib.metadata import version
 from pathlib import Path
 from types import TracebackType
-from typing import Any, ClassVar, Literal, Protocol, cast
+from typing import Any, ClassVar, Literal, cast
 
 import numpy as np
 import numpy.typing as npt
 from solprop import transverse_monitor
 from solprop._helpers import Helpers
-from solprop._interrupts import committing
 from solprop._process import acquire_host_blas, thread_budget
-from solprop.backends import rk_core
-from solprop.backends.driver import StepDriver, reached, replay_tolerance
 from solprop.backends.exponential import (
     CarrierReference,
     carrier_reference,
@@ -41,16 +37,11 @@ from solprop.backends.memory import (
     z_table_slots,
 )
 from solprop.backends.multistep import (
-    AdamsKernels,
     CallLedger,
-    ExponentialKernels,
-    HostHistory,
     _Derivative,  # pyright: ignore[reportPrivateUsage] - the march's history entries
-    budget_error,
     source_absent,
 )
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
-from solprop.backends.numpy_ref import QUADRATURE_ALARM
 from solprop.backends.numpy_ref.admission import refuse_general_route
 from solprop.backends.numpy_ref.general_modal import (
     DELAYED_TERMS,
@@ -59,18 +50,12 @@ from solprop.backends.numpy_ref.general_modal import (
     node_kerr_form,
     node_kerr_tensor,
 )
-from solprop.backends.populations import (
-    axis_refusal,
-    axis_row_matrix,
-    axis_row_populations,
-)
 from solprop.backends.protocol import Backend, TimingProbe
 from solprop.backends.session import (
     ExecutionOptions,
     PreparedExecution,
     PreparedGroup,
     Start,
-    statistics_unavailable,
 )
 from solprop.backends.spatial import (
     FarFieldTables,
@@ -82,17 +67,11 @@ from solprop.constants import EPS0, C
 from solprop.exceptions import (
     BackendError,
     ConvergenceError,
-    ResponseBudgetError,
 )
 from solprop.grid import RadialGrid, TimeGrid
 from solprop.modes.protocol import Mode
-from solprop.monitor import BoundaryEnergies, BoundaryMonitor
+from solprop.monitor import BoundaryMonitor
 from solprop.noise import NoiseRealisation
-from solprop.output.capability import (
-    declared_capability,
-    refusal_for,
-    withheld_accessors,
-)
 from solprop.output.schema import MarchSnapshot
 from solprop.profiles import ZProfile
 from solprop.spatial import (
@@ -101,14 +80,9 @@ from solprop.spatial import (
     ApertureTables,
 )
 from solprop.stats import (
-    ON_AXIS_PLASMA_STATISTICS,
-    PLASMA_INTEGRATION_STATISTICS,
-    PROFILE_STATISTICS,
     StatsSpec,
-    profile_value,
-    weight_refusal_for,
 )
-from solprop.stepper.controller import START_GROWTH, PIController
+from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import (
     ComparisonMultistep,
@@ -118,7 +92,6 @@ from solprop.stepper.multistep import (
     lagrange_coefficients,
     march_policy,
 )
-from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule
 from solprop.translate.chebyshev import (
     _EDGE_SLACK_FRACTION,  # pyright: ignore[reportPrivateUsage] - the tables' own admitted span
     PiecewiseChebyshev,
@@ -177,8 +150,6 @@ from . import (
     PROC_BIND,
     THREAD_BUDGET,
     WAIT_POLICY,
-    WATCH_POLICY_FIELDS,
-    WATCH_STATE_FIELDS,
     _core,
     _counters,
     _host_blas,
@@ -191,12 +162,8 @@ from ._helpers import NATIVE
 from ._load import Loaded, StageCache, collar_rests, load, propagator_mode
 from ._probe import NativeProbe
 from ._statistics import (
-    NODE_POPULATIONS,
     StatisticsLowering,
-    lower,
     metric_refusal,
-    translated,
-    uncovered,
 )
 
 type ComplexArray = npt.NDArray[np.complex128]
@@ -297,7 +264,7 @@ _STATISTICS_PLANS = 16
 """The most native statistics plans a backend keeps, one per spec and names."""
 
 
-class NativeBackend(StepDriver[_core.State]):
+class NativeBackend:
     """Propagate modal, radial or Cartesian fields with persistent Kokkos state.
 
     Parameters
@@ -312,9 +279,21 @@ class NativeBackend(StepDriver[_core.State]):
         are evaluated and finished natively (solprop SEP 47 section 6.4).
     grid, modes, profiles
         Host context used only for plane statistics.
+    cpu_execution
+        A CPU execution record to build the workspace with (a SEP 46 refinement's);
+        the process's own by default.
+    fft_planning
+        An FFT planning to apply (``fft_planning``); the plan policy by default.
     far_field
         The far-field tables already formed for this problem (a native session's),
         formed here by default.
+    options
+        The run's execution options, from which the node chunk is planned.
+
+    The backend is a resource holder: it lowers the problem and request into the
+    native state once, and every run is a native session it prepares
+    (:meth:`prepare`, solprop SEP 47 section 5.2) or a timing probe's trials
+    (:meth:`timing_probe`). It keeps no march state between them.
 
     Raises
     ------
@@ -325,7 +304,6 @@ class NativeBackend(StepDriver[_core.State]):
     name = "native"
     max_batch = 1
     helpers = NATIVE
-    propagator_default = "recompute"
     far_field_statistics: ClassVar[frozenset[str]] = frozenset(FAR_FIELD_STATISTICS)
     """The far-field statistics of solprop SEP 23 this build forms natively.
 
@@ -339,8 +317,8 @@ class NativeBackend(StepDriver[_core.State]):
     section 5.4).
     """
     reads_transverse_edge = True
-    """The transverse edge is read on the host from the native state (solprop SEP 40
-    section 5.3); the Adams march stops at each read."""
+    """The transverse edge is read from the native state where it lives (solprop SEP 40
+    section 5.3, SEP 44), by the native session at each read."""
 
     def __init__(
         self,
@@ -394,9 +372,6 @@ class NativeBackend(StepDriver[_core.State]):
         self._closed = False
         # The start the native state was last loaded with (`_load`).
         self._loaded: Loaded | None = None
-        # Bridge only: the legacy direct API's march bookkeeping (solprop's
-        # `StepDriver`), removed with the inheritance (SEP 47 phase 5).
-        self._init_march()
         # solprop SEP 47 section 6.5: this backend's lowering of the host plan, and
         # the general route's own chunk at the plan's budget.
         self._node_chunk = native_node_chunk(
@@ -412,8 +387,6 @@ class NativeBackend(StepDriver[_core.State]):
         # solprop SEP 45 phase 2: the staged Runge-Kutta rows, decided on first use.
         self._rk_staged = False
         self._rk_nodes: list[float] = []
-        # solprop SEP 45 phase 3: the native Runge-Kutta march, decided on first use.
-        self._rk_march_state: _NativeRungeKuttaMarch | None = None
         self._rk_weighted = False
         tables = problem.transform.modal_tables
         self._moving_maps = (
@@ -505,15 +478,6 @@ class NativeBackend(StepDriver[_core.State]):
         if self._z_tables is not None:
             self._z_tables.upload(self._native_state)
         _upload_flux_table(self._native_state, problem)
-        # Set while `set_initial` runs the driver's load, whose mask step then leaves
-        # the upload to the one with the noise that follows: the state crosses once.
-        # The state it leaves lives for that load alone: the upload copies and fences,
-        # so a temporary, such as the input draw's sum, is not held for the backend's
-        # life, outside its ledger.
-        self._loading = False
-        self._to_upload: ComplexArray | None = None
-        self._alarm = math.nan
-        self._alarm_reported = False
         # The native Adams march's record (SEP 39): its policy, ledger and history,
         # over the resident history the native state keeps (`_adams_engine`).
         integrator = stepper.integrator
@@ -583,14 +547,6 @@ class NativeBackend(StepDriver[_core.State]):
         """
         n_modes, n_pol, n_omega = self._problem.shape
         return (1, n_modes, n_pol, n_omega)
-
-    def _apply_mask(self, state: ComplexArray) -> _core.State:
-        flat = np.ascontiguousarray(state.reshape(-1))
-        if self._loading:
-            self._to_upload = flat
-        else:
-            self._native_state.set_initial(flat, np.empty(0, dtype=np.complex128))
-        return self._native_state
 
     def _load(
         self,
@@ -715,103 +671,6 @@ class NativeBackend(StepDriver[_core.State]):
         self._install(np.array(snapshot.state, copy=True)[None])
         return None, float(snapshot.proposal)
 
-    def set_initial(
-        self,
-        field: ComplexArray,
-        noise: NoiseRealisation | None,
-        *,
-        z: float = 0.0,
-        resume: bool = False,
-    ) -> None:
-        """Load a host `complex128` state and optional noise (the legacy direct API).
-
-        Bridge only: the native load (`_load`) and the legacy march's bookkeeping,
-        removed with the ``StepDriver`` inheritance (SEP 47 phase 5).
-        """
-        loaded = self._load(field, noise, z=z, resume=resume)
-        self._state = self._native_state
-        self._noise = loaded.noise
-        self._input_floor = loaded.floor
-        self._clean_columns = loaded.clean_columns
-        self._begin_load(loaded.z)
-
-    def restore_march(self, snapshot: MarchSnapshot) -> str | None:
-        """Continue the Adams march from a snapshot (the legacy direct API).
-
-        Bridge only, removed with the ``StepDriver`` inheritance (SEP 47 phase 5): a
-        session restores through `_restore`.
-
-        Parameters
-        ----------
-        snapshot : solprop.output.schema.MarchSnapshot
-            The snapshot a file holds.
-
-        Returns
-        -------
-        str or None
-            ``None`` when the history was continued, otherwise why the march starts
-            afresh.
-        """
-        if self._adams is None:
-            march = (
-                "low-storage"
-                if self._resident_low_storage is not None
-                else "Runge-Kutta"
-            )
-            return f"the run steps with the {march} march, which keeps no history"
-        return self._adams.load(snapshot)
-
-    def _march_to(self, target: float) -> None:
-        """Step to `target` with the native Adams march when one is set, else the
-        native Runge-Kutta march (the legacy direct API)."""
-        self._refuse_low_storage()
-        try:
-            if self._adams is not None:
-                self._adams.march_to(target)
-            else:
-                self._rk_march().march_to(target)
-        finally:
-            self._check_quadrature(target)
-
-    def _replay_to(self, schedule: FixedSchedule, target: float) -> None:
-        """Replay on the native Runge-Kutta march (SEP 45; the legacy direct API)."""
-        self._refuse_low_storage()
-        self._rk_march().replay_to(schedule, target)
-
-    def _refuse_low_storage(self) -> None:
-        """Refuse the legacy direct API a low-storage run: the session marches it.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            For a low-storage run (SEP 24), which the native session replays.
-        """
-        if self._resident_low_storage is not None:
-            raise BackendError(
-                "native steps the low-storage march in its session alone (solprop "
-                "SEP 47 section 6.8): start it with backend.prepare(problem, "
-                "request).start(start), or solprop.backends.sessions.start_session"
-            )
-
-    def _rk_march(self) -> _NativeRungeKuttaMarch:
-        """Return the native Runge-Kutta march, built on first use (SEP 45).
-
-        Its trials read the stage tables, uploaded then (`_staged_rows`).
-        """
-        if self._rk_march_state is None:
-            self._staged_rows()
-            self._rk_march_state = _NativeRungeKuttaMarch(self)
-        return self._rk_march_state
-
-    def _adams_state(self) -> ComplexArray:
-        """Return the host copy of the accepted state the Adams march reads.
-
-        The history is resident (solprop SEP 16 phase 3b): the march reads the state
-        only to report a stopped run, so it is copied from the engine when asked for.
-        """
-        self._require_state()
-        return self._native_state.field_to_host().reshape(self._layout)
-
     def _adams_engine(
         self,
         method: Multistep,
@@ -856,7 +715,7 @@ class NativeBackend(StepDriver[_core.State]):
             n_omega=self._problem.grids.n_omega,
             arrays=self._resident_arrays,
             hoist=self._hoist,
-            adopted=self._resident_adopted,
+            adopted=_adopt_nothing,
             rate=self._rate_weights,
             shape=self._layout,
             helpers=self.helpers,
@@ -1030,31 +889,6 @@ class NativeBackend(StepDriver[_core.State]):
             "plasma_preionisation": _repeated_row(bundle.plasma_preionisation, stages),
             "raman_densities": _repeated_row(bundle.raman_densities, stages),
         }
-
-    def _resident_adopted(self, z: float | None) -> None:
-        """Make the native state the march's, at `z` when the march moved there."""
-        self._state = self._native_state
-        if z is not None:
-            self._z = z
-
-    def _dense_stages(self) -> list[ComplexArray]:
-        """Return the accepted trial's stage derivatives from the engine (SEP 14)."""
-        stages = self._stepper.tableau.n_stages
-        return [
-            self._native_state.stage_to_host(index).reshape(self._layout)
-            for index in range(stages)
-        ]
-
-    def _adams_restore(self, z: float, state: ComplexArray) -> None:
-        """Resume the bridge's Adams march after a dense observation or a resume.
-
-        The modified noise model's realisation is part of the native state and is
-        loaded with the field (`_install`), so that a restored march keeps adding it
-        to its sources.
-        """
-        self._z = z
-        self._install(state)
-        self._state = self._native_state
 
     def _trial_step(self, z: float, dz: float) -> tuple[float, _core.State]:
         partials = self._prepare_trial(z, dz)
@@ -1469,76 +1303,11 @@ class NativeBackend(StepDriver[_core.State]):
             current=rate_value,
         )
 
-    def _boundary_energies(self, state: _core.State) -> BoundaryEnergies:
-        """Reduce the monitor's five numbers where the state lives (solprop SEP 21).
-
-        Only they, the split's removal since the last reading and the energies of
-        what the last step's split found cross to the host.
-        """
-        if state is not self._native_state:
-            raise BackendError("the monitored state does not belong to this backend")
-        if self._monitor is None:
-            raise BackendError(f"{self.name}: no boundary monitor is attached")
-        reading = np.asarray(state.monitor_reading(), dtype=np.float64).reshape(-1)
-        # Zeros until the first accepted step's split, which the monitor passes over.
-        found = reading[6:10].copy() if self._monitor.split else None
-        occupancy = None
-        if self._monitor.crossing is not None:
-            occupancy = reading[10 : 10 + SPLIT_RATE_BUCKETS].copy()
-        return BoundaryEnergies(
-            float(reading[0]),
-            reading[1:5].copy(),
-            removed=float(reading[5]),
-            found=found,
-            occupancy=occupancy,
-        )
-
     def _finish(self, state: _core.State, dz: float) -> _core.State:
         if state is not self._native_state:
             raise BackendError("the advanced state does not belong to this backend")
         state.finish(dz)
         return state
-
-    def _begin_plane(self) -> None:
-        # The recycled stage is kept across a plane (solprop SEP 14 phase 3); a resume
-        # or a dense observation reloads the state, which clears it.
-        self._alarm = math.nan
-        self._alarm_reported = False
-        if (counters := _counters.active) is not None:
-            counters.planes += 1
-
-    def _on_accepted_step(self) -> None:
-        # The step's quadrature score stays on the device; `_check_quadrature` reads
-        # its peak once a march, not once a step (a device synchronisation each).
-        self._native_state.promote_fsal()
-
-    def _check_quadrature(self, position: float) -> None:
-        """Warn once a plane if any step's quadrature score passed the alarm."""
-        peak = self._native_state.quadrature_peak()
-        if math.isnan(peak):
-            return
-        # The last step's score, as the statistic reports it; the warning reads the
-        # largest of the march's.
-        self._alarm = self._native_state.quadrature_error
-        if peak > QUADRATURE_ALARM and not self._alarm_reported:
-            self._alarm_reported = True
-            logger.warning(
-                "the transverse quadrature reproduces the nonlinear polarisation to "
-                "only %.2e by z = %.6g m, above the %.0e alarm; the integrand is not "
-                "resolved by this rule (a kinked ionisation rate, or too few nodes "
-                "for the mode set) and no step size can fix it",
-                peak,
-                position,
-                QUADRATURE_ALARM,
-            )
-
-    def _collar_changed(self) -> None:
-        """Pass the boundary monitor's quiet collar to the native stage (SEP 21).
-
-        The reused stage was evaluated under the other setting, so it is dropped.
-        """
-        self._native_state.set_absorber_quiet(self._collar_quiet)
-        self._native_state.clear_fsal()
 
     def _collar_rests(self) -> bool:
         """Return whether this run's stages may leave a quiet collar out (SEP 21)."""
@@ -1623,284 +1392,6 @@ class NativeBackend(StepDriver[_core.State]):
         """Return the number of native Raman-kernel transforms."""
         return int(self._native_state.raman_kernel_transforms)
 
-    def stats(self, spec: StatsSpec) -> dict[str, np.ndarray]:
-        """Collect field and response statistics without observing the full field.
-
-        The native evaluators lay each statistic out with the leading axis of one of
-        the build's state layout; the trajectory's cross without it (solprop SEP 47
-        section 6.2).
-        """
-        return {
-            name: np.asarray(value[0])
-            for name, value in self._stacked_statistics(spec).items()
-        }
-
-    def _stacked_statistics(self, spec: StatsSpec) -> dict[str, np.ndarray]:
-        """Collect the statistics with the leading axis of one of the state layout."""
-        self._require_state()
-        if (counters := _counters.active) is not None:
-            counters.statistics_evaluations += 1
-        self._require_grid()
-        # The accessor whitelist comes first, as on every CPU backend: a caller may ask
-        # a backend directly, and a spatial run is refused rather than answered.
-        general_modal = self._problem.transform.modal_tables is not None
-        refusal = refusal_for(
-            declared_capability(
-                general_modal=general_modal,
-                spatial=self._problem.transform.geometry is not None,
-            ),
-            spec.names,
-            withheld=withheld_accessors(
-                general_modal=general_modal,
-                coupled_flow=self._problem.linear.coupled_flow is not None,
-            ),
-        )
-        if refusal is not None:
-            raise BackendError(refusal)
-        if general_modal:
-            # solprop SEP 47: the route's statistics are the native plan's, the one
-            # implementation a native session's rows and planes also read; a metric
-            # that varies inside an interval is refused by name.
-            refused = metric_refusal(self._problem, spec.names)
-            if refused is not None:
-                raise BackendError(f"native refuses {refused}")
-            weight_refusal = weight_refusal_for(
-                spec.names, power_weight_at(self._problem, self._z)
-            )
-            if weight_refusal is not None:
-                raise BackendError(weight_refusal)
-            return self._planned_statistics(spec)
-        if self._problem.transform.geometry is None:
-            # A spatial statistic of a modal state, refused as every executor refuses
-            # it before a session starts.
-            unavailable = statistics_unavailable(self._problem, spec.names)
-            if unavailable is not None:
-                raise BackendError(unavailable)
-        integration_names = set(PLASMA_INTEGRATION_STATISTICS) & set(spec.names)
-        if integration_names and (
-            not self._problem.responses.population_channels
-            or self._problem.responses.envelope_plasma is not None
-        ):
-            raise BackendError(
-                "the plasma integration diagnostics read the field-grid plasma "
-                "column, and this problem carries none"
-            )
-        spatial_names: set[str] = (
-            set(spec.names) & (_SPATIAL_STAT_FLAGS.keys() | _FAR_FIELD_FLAGS.keys())
-            if self._problem.transform.geometry is not None
-            else set()
-        )
-        refusal = axis_refusal(self._problem, spec.names)
-        if refusal is not None:
-            raise BackendError(refusal)
-        axis_names = set(spec.names) & set(ON_AXIS_PLASMA_STATISTICS)
-        population_names = {name for name in spec.names if name.startswith("species_")}
-        if (
-            len(self._problem.responses.population_channels) > 1
-            or self._problem.responses.envelope_plasma is not None
-        ):
-            population_names.update(
-                set(spec.names) & {"electron_density", "peak_ionisation_rate"}
-            )
-        native_names = tuple(
-            name
-            for name in spec.names
-            if name in _STAT_FLAGS
-            and name not in spatial_names
-            and name not in population_names
-        )
-        if self._problem.transform.geometry is not None:
-            # Mirror numpy_ref: on Hankel or DFT columns the temporal statistics
-            # describe no observable, and the Cartesian native buffers hold one
-            # node chunk, not every column.
-            response_names = {
-                "electron_density",
-                "peak_ionisation_rate",
-                "quadrature_error",
-            }
-            for name in native_names:
-                if name not in response_names:
-                    raise BackendError(
-                        f"the {name!r} statistic is not a spatial saved-field statistic"
-                    )
-        plasma_names = {"electron_density", "peak_ionisation_rate"}
-        if (
-            plasma_names & set(native_names)
-            and self._problem.responses.plasma_coefficients is None
-        ):
-            raise BackendError(
-                "the electron density and the peak ionisation rate need a compiled "
-                "plasma response, and this problem declares none"
-            )
-        # solprop SEP 47: the native plan, the one implementation of each statistic a
-        # native session's rows and planes also read; only the plane-only statistics
-        # (the axis row's, zdw) take the host.
-        return self._planned_with_host(spec, axis_names, population_names)
-
-    def _planned_statistics(
-        self, spec: StatsSpec, left: Sequence[str] = (), *, scanned: bool = False
-    ) -> dict[str, np.ndarray]:
-        """Evaluate a spec's statistics with the native plan (solprop SEP 47 6.4).
-
-        The plan is lowered once for the spec and its names and kept: every
-        statistic is evaluated and finished natively, from the problem's own z
-        tables, as a native session's rows and planes are.
-
-        Parameters
-        ----------
-        spec : solprop.stats.StatsSpec
-            The statistics.
-        left : sequence of str, optional
-            Names the plan does not evaluate, left to the caller.
-        scanned : bool, optional
-            Whether to hand over the node populations too
-            (:data:`~solprop_native._statistics.NODE_POPULATIONS`).
-
-        Returns
-        -------
-        dict
-            The statistics, each with a leading batch axis.
-
-        Raises
-        ------
-        solprop.exceptions.SolpropError
-            The reference's exception for a native refusal of the same condition.
-        """
-        names = tuple(name for name in spec.names if name not in left)
-        if scanned:
-            names = (*names, NODE_POPULATIONS)
-        if not names:
-            return {}
-        key = (id(spec), names)
-        held = self._statistics_plans.get(key)
-        if held is None or held[0] is not spec:
-            apertures = None
-            if self._problem.transform.geometry is not None:
-                apertures = _aperture_payload(
-                    self._far_field.for_spec(spec), self._problem.shape[-1]
-                )
-            on_axis = None
-            if (
-                "peak_intensity" in names
-                and self._modes
-                and self._problem.transform.geometry is None
-            ):
-                # The driver's matrix, built once and kept (`_on_axis_synthesis`).
-                self._on_axis_synthesis(self._modes)
-                on_axis = self._on_axis
-            lowering = lower(
-                self._problem,
-                spec,
-                names,
-                grid=self._grid,
-                modes=self._modes,
-                profiles=self._profiles,
-                apertures=apertures,
-                on_axis=on_axis,
-                z_end=self._stepper.z_end,
-            )
-            if len(self._statistics_plans) >= _STATISTICS_PLANS:
-                self._statistics_plans.clear()
-            held = (spec, lowering)
-            self._statistics_plans[key] = held
-            self._statistics_tables.update(lowering.tables)
-        lowering: StatisticsLowering = held[1]
-        assert lowering.plan is not None
-        try:
-            with _envelope_errors():
-                packed = self._native_state.planned_statistics(lowering.plan, self._z)
-        except (ValueError, IndexError, RuntimeError) as error:
-            raised = translated(error)
-            if raised is error:
-                raise
-            raise raised from error
-        return {name: value[None] for name, value in lowering.unpack(packed).items()}
-
-    def _planned_with_host(
-        self,
-        spec: StatsSpec,
-        axis_names: set[str],
-        population_names: set[str],
-    ) -> dict[str, np.ndarray]:
-        """Evaluate a modal or spatial spec: the plan, then the names it leaves.
-
-        Every statistic the plan covers is the plan's, a spatial route's fluence widths
-        among them (SEP 47 section 6.4). An on-axis plasma statistic is the host's
-        here (SEP 19), for the backend's own ``stats``; on a Radau rule it reuses the
-        node scan of this call's
-        species statistics, which the plan hands over with them
-        (:data:`~solprop_native._statistics.NODE_POPULATIONS`).
-
-        Parameters
-        ----------
-        spec : solprop.stats.StatsSpec
-            The statistics.
-        axis_names : set of str
-            Its on-axis plasma statistics.
-        population_names : set of str
-            Its statistics that scan the node populations.
-
-        Returns
-        -------
-        dict
-            The statistics, each with a leading batch axis.
-        """
-        # The backend's own plane statistics keep the host's axis scan; the native
-        # session's plan scans the row natively.
-        plan_left = set(uncovered(self._problem, spec.names))
-        left = tuple(
-            name for name in spec.names if name in axis_names or name in plan_left
-        )
-        scanned = bool(
-            axis_names
-            and population_names
-            and self._problem.responses.population_channels
-        )
-        values = self._planned_statistics(spec, left, scanned=scanned)
-        if axis_names:
-            scan = None
-            rows = values.pop(NODE_POPULATIONS, None)
-            if rows is not None:
-                scan = (rows[0, :, :, 0].T, rows[0, :, :, 1].T)
-            axis = self._axis_statistics(None, scan)
-            values.update({name: axis[name][None] for name in axis_names})
-        rest = tuple(name for name in left if name not in axis_names)
-        if rest:
-            values.update(
-                self._profile_statistics(
-                    dataclasses.replace(spec, names=rest, periodic=())
-                )
-            )
-        return values
-
-    def _axis_row_populations(
-        self,
-        field: ComplexArray | None,
-        axis: RealArray,
-    ) -> tuple[RealArray, RealArray]:
-        """Scan the axis row from its spectrum, read natively (solprop #359).
-
-        Parameters
-        ----------
-        field : None
-            Unused: the row is read from the native state.
-        axis : numpy.ndarray
-            The mode set's synthesis on the axis at this position.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            The final ionised fraction and the largest rate on the axis, per channel.
-        """
-        del field
-        matrix = np.ascontiguousarray(axis_row_matrix(self._problem, axis))
-        spectrum = self._native_state.axis_spectrum(matrix)
-        return axis_row_populations(
-            self._problem,
-            np.asarray(spectrum).reshape(1, -1, self._problem.shape[-1]),
-            self._z,
-        )
-
     def _far_field_statistics(
         self, names: set[str], spec: StatsSpec | None
     ) -> dict[str, np.ndarray]:
@@ -1964,30 +1455,16 @@ class NativeBackend(StepDriver[_core.State]):
             )
         return values
 
-    def _profile_statistics(self, spec: StatsSpec) -> dict[str, np.ndarray]:
-        """Evaluate the profile statistics left outside the plan, on the host."""
-        values: dict[str, np.ndarray] = {}
-        for name in spec.names:
-            if (
-                name in _STAT_FLAGS
-                or name in PLASMA_INTEGRATION_STATISTICS
-                or name in ON_AXIS_PLASMA_STATISTICS
-                or name.startswith("species_")
-                or (
-                    self._problem.transform.geometry is not None
-                    and (name in _SPATIAL_STAT_FLAGS or name in _FAR_FIELD_FLAGS)
-                )
-            ):
-                continue
-            if name in PROFILE_STATISTICS:
-                if self._profiles is None or name not in self._profiles:
-                    raise BackendError(
-                        f"the {name} statistic needs the {name!r} profile"
-                    )
-                values[name] = np.array([profile_value(self._profiles[name], self._z)])
-            else:
-                raise BackendError(f"the native backend cannot collect {name!r}")
-        return values
+    def march_export_refusal(self) -> str | None:
+        """Return ``None``: every march the backend admits carries its history.
+
+        Returns
+        -------
+        None
+            The resident Adams engine exports and installs its rows; a Runge-Kutta
+            or low-storage march keeps none.
+        """
+        return None
 
     def metadata(self) -> dict[str, object]:
         """Return the shared execution metadata plus the native build record.
@@ -2015,8 +1492,6 @@ class NativeBackend(StepDriver[_core.State]):
             work["source_evaluations"] = self._low_storage_evaluations
         else:
             work["source_evaluations"] = self._native_state.rk_source_evaluations
-        if self._monitor is not None:  # bridge only: the legacy API's monitor
-            work["boundary_monitor"] = self._monitor.summary()
         # Which march steps the run (solprop SEP 39 and 45 section 5): the native one,
         # the only one since SEP 47 phase 5.
         if self._adams is not None:
@@ -2193,9 +1668,18 @@ class NativeBackend(StepDriver[_core.State]):
         if not self._closed:
             self._native_state.close()
             _host_blas.release()
-        self._state = None
-        self._noise = None
         self._closed = True
+
+
+def _adopt_nothing(z: float | None) -> None:
+    """Adopt nothing: the backend keeps no march state beside the native state.
+
+    Parameters
+    ----------
+    z : float or None
+        Where the engine's state moved, m; unused.
+    """
+    del z
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2883,8 +2367,6 @@ benchmark counters (:mod:`solprop_native._counters`) report these names."""
     _STOPPED,
     _HALTED,
 ) = range(len(_REASONS))
-_VERDICTS = ("none", "stop", "warning", "quiet verdict", "refused crossing", "error")
-"""A watch return's verdicts, by ``watch::Verdict`` (solprop SEP 45 section 4.8)."""
 
 _CONVERGENCE, _BACKEND, _VALUE, _REFUSED = 1, 2, 3, 4
 """Which error a native failure maps to (``march::Category``)."""
@@ -2960,100 +2442,6 @@ def host_rows_refusal(problem: PropagationProblem) -> str | None:
     )
 
 
-class _MarchRunner(Protocol):
-    """What runs the native march: the native state, or a script in the tests."""
-
-    def run(
-        self, state: dict[str, object], bounds: dict[str, object]
-    ) -> dict[str, Any]: ...
-
-
-def _reason_name(reason: int) -> str:
-    """Name a native march call's return reason, for the benchmark counters."""
-    return _REASONS[reason] if 0 <= reason < len(_REASONS) else f"reason_{reason}"
-
-
-def _host_due(backend: Any, watching: bool) -> dict[str, int]:
-    """Return the accepted steps to each piece of the driver's work, by its name.
-
-    A native march call returns after the first accepted step on which any falls due
-    (the ``host_step`` bound each march's ``_bounds`` forms from the same work):
-    a periodic statistics row, a natural stop, the boundary monitor's check by steps,
-    and a collar's per-step current beside a transverse edge. Formed only while the
-    benchmark counters are on, which attribute a ``host_step`` return to these names.
-    """
-    due: dict[str, int] = {}
-    if backend._row_spec is not None:
-        period = backend._row_period
-        due["statistics"] = period - backend._accepted_steps % period
-    every = backend._stepper.step_planes
-    if every:
-        due["step_planes"] = every - backend._natural_count % every
-    monitor = backend._monitor
-    if monitor is not None and not watching:
-        due["monitor"] = monitor.steps_to_check()
-        edge = monitor.transverse
-        if edge is not None and edge.every_step:
-            due["transverse"] = 1
-    return due
-
-
-def _watch_policy_of(monitor: BoundaryMonitor) -> dict[str, object]:
-    """Return a monitor's watch policy, refusing one with other fields (SEP 45 4.8)."""
-    policy = monitor.watch_policy()
-    if tuple(policy) != WATCH_POLICY_FIELDS:
-        raise BackendError(
-            "solprop's boundary watch policy has the fields "
-            f"{tuple(policy)}, not the {WATCH_POLICY_FIELDS} this build reads"
-        )
-    return policy
-
-
-def _readings_of(
-    monitor: BoundaryMonitor, result: dict[str, Any]
-) -> dict[int, BoundaryEnergies]:
-    """Return the readings a native call's checks took, by the row they follow."""
-    rows = [int(row) for row in result["reading_rows"]]
-    if not rows:
-        return {}
-    values = np.asarray(result["readings"], dtype=np.float64).reshape(len(rows), -1)
-    readings: dict[int, BoundaryEnergies] = {}
-    for row, reading in zip(rows, values, strict=True):
-        readings[row] = BoundaryEnergies(
-            float(reading[0]),
-            reading[1:5].copy(),
-            removed=float(reading[5]),
-            found=reading[6:10].copy() if monitor.split else None,
-            occupancy=None
-            if monitor.crossing is None
-            else reading[10 : 10 + SPLIT_RATE_BUCKETS].copy(),
-        )
-    return readings
-
-
-def _verify_watch_of(monitor: BoundaryMonitor, result: dict[str, Any]) -> None:
-    """Hold solprop's monitor, a drain done, to a native march's predictions.
-
-    Raises
-    ------
-    BackendError
-        If they disagree: a fault in the native transcription of the monitor's
-        checks, which the run cannot continue past (solprop SEP 45, Q4).
-    """
-    predicted = result["state"]["watch"]
-    actual = monitor.watch_state()
-    if any(predicted[name] != actual[name] for name in WATCH_STATE_FIELDS):
-        raise BackendError(
-            "the native march's boundary checks disagree with solprop's monitor: "
-            f"predicted {dict(predicted)}, booked {actual}"
-        )
-    if int(result["reason"]) == _WATCH and int(result["verdict"]) in (1, 4, 5):
-        raise BackendError(
-            "the native march returned to stop the run on a "
-            f"{_VERDICTS[int(result['verdict'])]}, and solprop's monitor did not"
-        )
-
-
 class _NativeAdamsMarch:
     """The native Adams march's record: its policy, ledger and history (SEP 39, 47).
 
@@ -3068,52 +2456,23 @@ class _NativeAdamsMarch:
     state once (:meth:`start_state`, :meth:`_configure`) and holds the march's state
     there from then on (solprop SEP 47 section 5.2).
 
-    The bridge (removed with the native backend's ``StepDriver`` inheritance, SEP 47
-    phase 5) also drives the native march from here, a call of attempts at a time,
-    for the legacy direct API (:meth:`march_to`): between calls the march's state is
-    this object's, and each call takes it and hands it back. One ``committing()``
-    spans each call, the state's synchronisation and the step history's rows, so a
-    signal arriving meanwhile is raised with the host's records in step with the
-    native state. A run's stop flag, which native code cannot read, is polled before
-    each call, not before each attempt: both a signal and a stop wait for the call in
-    hand, at most its bound and one attempt.
-
     Parameters
     ----------
     backend : NativeBackend
         The backend, whose resident history (``_adams_engine``) the march keeps.
     method : solprop.stepper.multistep.Multistep
         The method.
-    runner : object, optional
-        The scripted march of the decision-trace tests, in the native state's place.
-    kernels, exponential : object, optional
-        A scripted harness's host field arithmetic, for a host history
-        (:class:`~solprop.backends.multistep.HostHistory`) where its backend keeps
-        none resident.
+    engine : object, optional
+        The history to keep instead of the backend's resident one: a scripted
+        harness's, in the decision-trace tests.
     """
 
-    MAX_ATTEMPTS: ClassVar[int] = 256
-    """A call's most attempts, the bound on the wait of a signal or a stop flag (solprop
-    SEP 39 Q3)."""
-    MAX_SECONDS: ClassVar[float] = 0.1
-    """A call's most wall time, s, read once per attempt."""
-
     def __init__(
-        self,
-        backend: Any,
-        method: Multistep,
-        *,
-        runner: _MarchRunner | None = None,
-        kernels: AdamsKernels | None = None,
-        exponential: ExponentialKernels | None = None,
+        self, backend: Any, method: Multistep, *, engine: object | None = None
     ) -> None:
         """Build the record over the backend's resident history, with no history."""
         self._backend = backend
-        # The backend's protected bookkeeping the bridge's march books into, held
-        # untyped: a scripted harness stands in for it in the decision-trace tests.
-        self._driver: Any = backend
-        self._runner = runner
-        self._configured: tuple[float | None] | None = None
+        self._configured = False
         self._method = method
         stepper = backend._stepper
         problem = backend._problem
@@ -3132,32 +2491,14 @@ class _NativeAdamsMarch:
             )
         )
         assert self._fused or exponential_form
-        resident = backend._adams_engine(method, "transported")
-        if resident is None:
-            # A scripted harness's host history; the native backend's is resident.
-            helpers = backend.helpers
-            self._engine: Any = HostHistory(
-                backend,
-                method,
-                AdamsKernels(helpers=helpers) if kernels is None else kernels,
-                (
-                    (
-                        ExponentialKernels(helpers=helpers)
-                        if exponential is None
-                        else exponential
-                    )
-                    if exponential_form
-                    else None
-                ),
-                "transported",
-            )
-        else:
-            self._engine = resident
+        resident = engine is None
+        self._engine: Any = (
+            backend._adams_engine(method, "transported") if engine is None else engine
+        )
         self._history: list[_Derivative] = []
         self._rejections = 0
         self._last_rejected = False
         self._order = 1 if method.variable_order else method.order
-        self._ahead: tuple[float, object] | None = None
         self.ledger = CallLedger()
         # An in-stage temporal collar's largest rate bounds each order's stable step
         # in the exponential formulation (`adams_core`'s order choice).
@@ -3190,7 +2531,7 @@ class _NativeAdamsMarch:
         self._collar_was_quiet = False
         # The admission refuses a carrier frame on an operator with no chord
         # (``refuse_carrier_frame``); a scripted harness keeps its own engine.
-        assert runner is not None or (
+        assert not resident or (
             isinstance(self._engine, _ResidentAdams)
             and not (
                 self._policy.carrier
@@ -3206,7 +2547,6 @@ class _NativeAdamsMarch:
         self._history = []
         self._rejections = 0
         self._engine.reset()
-        self._ahead = None
 
     def begin_run(self) -> None:
         """Start a run's accounting afresh: the ledger and the last attempt's flags.
@@ -3280,7 +2620,6 @@ class _NativeAdamsMarch:
         self._rejections = snapshot.rejections
         self._last_rejected = snapshot.last_rejected
         self._collar_was_quiet = snapshot.collar_was_quiet
-        self._ahead = None
         return None
 
     def _refusal(self, snapshot: MarchSnapshot, z: float) -> str | None:
@@ -3354,49 +2693,43 @@ class _NativeAdamsMarch:
             "ledger": {name: getattr(ledger, name) for name in _MARCH_COUNTERS},
         }
 
-    def _configure(self, interval: float | None = None) -> None:
-        """Hand the native state the run's policy, again when `interval` changed.
+    def _configure(self) -> None:
+        """Hand the native state the run's policy and a replay's schedule, once.
 
-        Parameters
-        ----------
-        interval : float or None, optional
-            The boundary monitor's quiet interval (``BoundaryMonitor.interval``) for
-            the bridge's march, which judges the collar on the host; ``None`` for a
-            session, whose native monitor holds its own.
+        The policy carries no quiet interval: a session's native monitor holds its
+        own (SEP 47 section 6.4).
         """
-        if self._configured == (interval,):
+        if self._configured:
             return
-        policy = dataclasses.replace(self._policy, quiet_interval=interval)
-        if self._runner is None:
-            backend = self._backend
-            engine = cast("_ResidentAdams", self._engine)
-            schedule = backend._stepper.schedule
-            steps = edges = _NO_SCHEDULE
-            if schedule is not None:
-                steps = np.ascontiguousarray(schedule.steps, dtype=np.float64)
-                edges = np.ascontiguousarray(schedule.edges, dtype=np.float64)
-            backend._native_state.adams_march_configure(
-                dataclasses.asdict(policy),
-                self._fused,
-                engine.compensated,
-                engine.interpolate,
-                steps,
-                edges,
-            )
-        self._configured = (interval,)
+        policy = dataclasses.replace(self._policy, quiet_interval=None)
+        backend = self._backend
+        engine = cast("_ResidentAdams", self._engine)
+        schedule = backend._stepper.schedule
+        steps = edges = _NO_SCHEDULE
+        if schedule is not None:
+            steps = np.ascontiguousarray(schedule.steps, dtype=np.float64)
+            edges = np.ascontiguousarray(schedule.edges, dtype=np.float64)
+        backend._native_state.adams_march_configure(
+            dataclasses.asdict(policy),
+            self._fused,
+            engine.compensated,
+            engine.interpolate,
+            steps,
+            edges,
+        )
+        self._configured = True
 
     def _raise(self, reason: int, result: dict[str, Any]) -> None:
         """Raise the error a native call returned with, if any.
 
+        A session forms the call budget's own error (``NativeSession._budget_error``)
+        before it asks here.
+
         Raises
         ------
-        solprop.exceptions.ResponseBudgetError
-            For the bridge's march at the call budget.
         solprop.exceptions.ConvergenceError
             At the step floor, for a diverged replay or a native refinement.
         """
-        if reason == _BUDGET:
-            raise self._budget_error(int(result["cost"]))
         if reason == _FLOOR:
             proposed = float(result["floor_proposal"])
             msg = (
@@ -3408,7 +2741,7 @@ class _NativeAdamsMarch:
             dz, end = float(result["replay_dz"]), float(result["replay_end"])
             norm = float(result["replay_norm"])
             msg = (
-                f"{self._driver.name}: a replayed {self._method.name} step of "
+                f"{self._backend.name}: a replayed {self._method.name} step of "
                 f"{dz:.4g} m ending at z = {end:.6g} m has a non-finite error norm "
                 f"({norm!r}): the field has diverged. A replayed schedule takes "
                 "its steps as given and cannot reject one, so a step beyond an "
@@ -3421,752 +2754,6 @@ class _NativeAdamsMarch:
             raise ConvergenceError(msg)
         if reason == _ERROR:
             _raise_native(result)
-
-    # -- the bridge's march (the legacy direct API; removed with the inheritance) ----
-
-    def snapshot(self) -> MarchSnapshot | None:
-        """Return the bridge march's state at its accepted position, for a resume.
-
-        Returns
-        -------
-        solprop.output.schema.MarchSnapshot or None
-            ``None`` with no history yet or the march ahead of an interpolated plane.
-        """
-        if not self._history or self._ahead is not None:
-            return None
-        backend = self._driver
-        return MarchSnapshot(
-            z=float(backend._z),
-            state=np.array(backend._adams_state()[0], dtype=np.complex128, copy=True),
-            proposal=float(backend._proposal),
-            method=repr(self._method),
-            order=int(self._order),
-            rejections=int(self._rejections),
-            last_rejected=bool(self._last_rejected),
-            positions=np.array([entry.z for entry in self._history], dtype=np.float64),
-            identities=tuple(entry.identity for entry in self._history),
-            slots=np.array([entry.slot for entry in self._history], dtype=np.int64),
-            rows=self._engine.snapshot_rows(),
-            collar_was_quiet=self._collar_was_quiet,
-            history_key=self._method.history_key,
-        )
-
-    def snapshot_nbytes(self) -> int | None:
-        """Return the bytes :meth:`snapshot` would copy, copying nothing.
-
-        Returns
-        -------
-        int or None
-            The state and every engine row, or ``None`` where :meth:`snapshot` is.
-        """
-        if not self._history or self._ahead is not None:
-            return None
-        state = math.prod(self._backend._problem.shape) * 16
-        return state + int(self._engine.snapshot_nbytes())
-
-    def load(self, snapshot: MarchSnapshot) -> str | None:
-        """Continue the bridge's march from a snapshot at the loaded position.
-
-        Parameters
-        ----------
-        snapshot : solprop.output.schema.MarchSnapshot
-            The snapshot.
-
-        Returns
-        -------
-        str or None
-            ``None`` when continued, otherwise why the march starts afresh.
-        """
-        backend = self._driver
-        reason = self.resume(snapshot, float(backend._z))
-        if reason is None:
-            backend._adams_restore(
-                snapshot.z, np.array(snapshot.state, copy=True)[None]
-            )
-            backend._proposal = snapshot.proposal
-        return reason
-
-    def _observe(self, position: float) -> object:
-        """Return the field at `position` inside the last accepted step."""
-        return self._engine.observe(position)
-
-    def _budget_error(self, cost: int) -> ResponseBudgetError:
-        """Return the error of a trial the call budget cannot pay for."""
-        backend = self._driver
-        return budget_error(
-            self._policy.max_calls,
-            self.ledger.total,
-            backend._z,
-            cost,
-            backend._adams_state()[0].copy(),
-        )
-
-    def march_to(self, target: float) -> None:
-        """Step the backend's state to `target`, natively when the march is admitted.
-
-        Parameters
-        ----------
-        target : float
-            Position to reach, m.
-
-        Raises
-        ------
-        ConvergenceError
-            If the proposal falls below the contract's ``dz_min``, or a native
-            refinement fails.
-        ResponseBudgetError
-            If the next trial would exceed the method's call budget.
-        """
-        backend = self._driver
-        if self._ahead is not None:
-            # The march is ahead of the last observation; resume it there.
-            self._engine.restore(*self._ahead)
-            self._ahead = None
-        if backend._natural_stop_due(target):
-            return
-        monitor = backend._monitor
-        self._configure(None if monitor is None else float(monitor.interval))
-        schedule = backend._stepper.schedule
-        if schedule is not None:
-            # A replay takes the schedule's steps as given.
-            slack = replay_tolerance(schedule, target)
-            while (
-                backend._schedule_index < schedule.n_steps
-                and backend._z < target - slack
-            ):
-                if self._call(target, slack):
-                    return
-            if backend._z < target - slack:
-                msg = (
-                    f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
-                    f"cannot reach z = {target:.6g} m"
-                )
-                raise BackendError(msg)
-            return
-        while not reached(backend._z, target):
-            if self._call(target):
-                return
-        if self._interpolate and backend._z > target:
-            self._ahead = (backend._z, self._engine.hold())
-            backend._state = cast("Any", self._observe(target))
-            backend._z = target
-            self.ledger.dense_observations += 1
-
-    def _watching(self) -> bool:
-        """Whether the march takes the boundary checks itself (solprop SEP 45 4.8).
-
-        Every monitored run but one with a transverse edge, whose reads stay the
-        host's (SEP 44), and a scripted run, whose engine takes no readings.
-        """
-        monitor = self._driver._monitor
-        return (
-            self._runner is None and monitor is not None and monitor.transverse is None
-        )
-
-    def _watch_policy(self) -> dict[str, object]:
-        """Return the monitor's watch policy, refusing one with other fields."""
-        return _watch_policy_of(self._driver._monitor)
-
-    def _bounds(
-        self, target: float, slack: float | None, watching: bool = False
-    ) -> dict[str, object]:
-        """Return a call's bounds: the target, the steps the driver has work on and,
-        for a replay, the edges' slack; under the march's own checks, their policy."""
-        backend = self._driver
-        steps: list[int] = []
-        if backend._row_spec is not None:
-            period = backend._row_period
-            steps.append(period - backend._accepted_steps % period)
-        every = backend._stepper.step_planes
-        if every:
-            steps.append(every - backend._natural_count % every)
-        monitor = backend._monitor
-        checked = None
-        read_at = None
-        spacing = 0.0
-        if monitor is not None and not watching:
-            steps.append(monitor.steps_to_check())
-            checked = monitor.checked_at
-            # The transverse edge is read on the host (solprop SEP 40 section 5.3):
-            # steps are capped at its spacing, the march returns before a step
-            # would carry past its next read, and a collar's current is taken at
-            # every committed step.
-            edge = monitor.transverse
-            if edge is not None:
-                if edge.every_step:
-                    steps.append(1)
-                if math.isfinite(edge.next_read):
-                    read_at = float(edge.next_read)
-                    spacing = float(edge.ceiling(backend._z))
-        return {
-            "target": float(target),
-            "quiet": bool(backend._collar_quiet),
-            "host_step": int(min(steps)) if steps else 0,
-            "monitor": checked is not None,
-            "first_check": False,
-            "check_interval": 0.0 if monitor is None else float(monitor.interval),
-            "last_check": 0.0 if checked is None else float(checked),
-            "read_at": read_at,
-            "read_spacing": spacing,
-            # The split collar's crossing limit, read at the last check (solprop
-            # #440): a ceiling on every adaptive step until the next.
-            "step_cap": math.inf if monitor is None else float(monitor.step_cap),
-            "max_attempts": self.MAX_ATTEMPTS,
-            "max_seconds": self.MAX_SECONDS,
-            "replay": slack is not None,
-            "slack": 0.0 if slack is None else float(slack),
-            "watch": self._watch_policy() if watching else None,
-            "watch_capacity": self.MAX_ATTEMPTS,
-        }
-
-    def _state(self, watching: bool = False) -> dict[str, object]:
-        """Return the bridge march's state as the native call takes it."""
-        backend = self._driver
-        state = self.start_state(backend._z, backend._proposal, backend._schedule_index)
-        if watching:
-            state["watch"] = backend._monitor.watch_state()
-        return state
-
-    def _readings(self, result: dict[str, Any]) -> dict[int, BoundaryEnergies]:
-        """Return the readings a call's checks took, by the row they follow."""
-        return _readings_of(self._driver._monitor, result)
-
-    def _verify_watch(self, result: dict[str, Any]) -> None:
-        """Hold solprop's monitor, the drain done, to the march's predictions."""
-        _verify_watch_of(self._driver._monitor, result)
-
-    def _call(self, target: float, slack: float | None = None) -> bool:
-        """Make one native call and drain it; return whether a natural stop is due.
-
-        `slack` is a replay's (:func:`solprop.backends.driver.replay_tolerance`), or
-        ``None`` for an adaptive march.
-        """
-        backend = self._driver
-        backend._poll_stop()
-        watching = self._watching()
-        counters = _counters.active
-        due = None if counters is None else _host_due(backend, watching)
-        bounds = self._bounds(target, slack, watching)
-        started = time.perf_counter() - backend._clock
-        cursor = int(backend._schedule_index)
-        position = float(backend._z)
-        with committing():
-            result = self._native_run(self._state(watching), bounds)
-            self._synchronise(result)
-            rows = np.asarray(result["rows"], dtype=np.float64).reshape(-1, 6)
-            reason = int(result["reason"])
-            if counters is not None and due is not None:
-                counters.march(
-                    "adams_march",
-                    _reason_name(reason),
-                    rows,
-                    due,
-                    cast("float | None", bounds["read_at"]),
-                )
-            readings = self._readings(result) if watching else {}
-            # Only the last accepted row of an event can have the driver's work; the
-            # others are accounted, each once, with any reading the march took
-            # (solprop SEP 45 section 4.10).
-            event = reason in (_REACHED, _HOST_STEP, _MONITOR, _WATCH)
-            last = len(rows) - 1
-            for index, (end, dz, norm, accepted, _, wall) in enumerate(rows.tolist()):
-                backend._record_attempt(end, dz, norm, bool(accepted), started + wall)
-                if slack is not None:
-                    backend._accepted_norms.append(norm)
-                if accepted:
-                    position = end
-                    if slack is not None:
-                        cursor += 1
-                final = index == last and (event or reason == _FLOOR)
-                if accepted and not final:
-                    try:
-                        backend._account_step(end, cursor, readings.get(index))
-                    except Exception as error:
-                        if not watching:
-                            raise
-                        # The march stops at a check whose verdict needs solprop, so
-                        # a step it went on past cannot be one.
-                        raise BackendError(
-                            "solprop's boundary monitor acted on a check the native "
-                            f"march went on past, at z = {end:.9g} m: {error}"
-                        ) from error
-        progress = backend._progress
-        for end, dz, norm, accepted, order, _ in rows.tolist():
-            progress.step(end, dz, bool(accepted))
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "native Adams attempt to z = %.9g m: dz = %.4g m, order %d, "
-                    "norm %.4g, %s",
-                    end,
-                    dz,
-                    int(order),
-                    norm,
-                    "accepted" if accepted else "rejected",
-                )
-        if event and rows.size and rows[-1, 3]:
-            if watching:
-                backend._watched_step(position, cursor, readings.get(last))
-                backend._statistics_step()
-            else:
-                backend._take_step_stats()
-            if watching:
-                self._verify_watch(result)
-            if backend._natural_stop(target):
-                return True
-        elif watching:
-            self._verify_watch(result)
-        self._raise(reason, result)
-        return False
-
-    def _native_run(
-        self, state: dict[str, object], bounds: dict[str, object]
-    ) -> dict[str, Any]:
-        """Run the native march from `state` to an event within `bounds`."""
-        if self._runner is not None:
-            return self._runner.run(state, bounds)
-        native = self._driver._native_state
-        with _envelope_errors():
-            return native.adams_march_run(state, bounds)
-
-    def _synchronise(self, result: dict[str, Any]) -> None:
-        """Adopt the state a native call handed back."""
-        backend, engine = self._driver, self._engine
-        state = result["state"]
-        backend._z = float(state["z"])
-        backend._proposal = float(state["proposal"])
-        backend._schedule_index = int(state["cursor"])
-        self._order = int(state["order"])
-        self._rejections = int(state["rejections"])
-        self._last_rejected = bool(state["last_rejected"])
-        self._collar_was_quiet = bool(state["collar_was_quiet"])
-        self._history = [
-            _Derivative(
-                float(z), None, "predicted" if predicted else "accepted", int(slot)
-            )
-            for z, predicted, slot in state["history"]
-        ]
-        ledger = self.ledger
-        for name, value in state["ledger"].items():
-            setattr(ledger, name, int(value))
-        ledger.orders.extend(int(order) for order in result["orders"])
-        if isinstance(engine, _ResidentAdams):
-            step = None
-            if result["stepped"]:
-                order = int(result["step_order"])
-                nodes = [1.0, *(float(node) for node in result["step_nodes"][:order])]
-                step = (float(result["step_z"]), float(result["step_dz"]), nodes)
-            engine.march_stepped(
-                step, fused=self._fused, carrier=list(result["step_carrier"])
-            )
-
-
-class _NativeRungeKuttaMarch:
-    """The Runge-Kutta march stepped by the native state (solprop SEP 45 phase 3).
-
-    The adaptive loop of ``StepDriver._march_to`` -- the landing candidate, the trial
-    on the staged rows, the equivalent norm and acceptance, the start-up rule, the
-    next proposal or the rejection's, and the boundary checks -- runs natively from one
-    policy record, a call of attempts at a time; solprop books each call's attempts
-    and the checks' readings and takes the event step's statistics and natural stop,
-    as it does for the native Adams march. The kernel contract's section 12 is the
-    algorithm's interface.
-    """
-
-    MAX_ATTEMPTS = 256
-    MAX_SECONDS = 0.1
-
-    def __init__(
-        self, backend: NativeBackend, runner: Any = None, *, monitored: bool = True
-    ) -> None:
-        # `runner`, the scripted march of the decision-trace tests, takes the native
-        # state's place. A session's march is not `monitored`: its native monitor holds
-        # the quiet interval, and the policy carries none (SEP 47 section 6.4).
-        self._driver: Any = backend
-        self._runner = runner
-        self._monitored = monitored
-        self._configured: tuple[float | None] | None = None
-        self._replaying: FixedSchedule | None = None
-
-    def _interval(self) -> float | None:
-        """Return the bridge's monitor's quiet interval, ``None`` for a session."""
-        monitor = self._driver._monitor if self._monitored else None
-        return None if monitor is None else float(monitor.interval)
-
-    def _policy(self) -> dict[str, object]:
-        """Return the run's controller and landing record (kernel contract 12)."""
-        backend = self._driver
-        stepper = backend._stepper
-        controller = stepper.controller
-        breakpoints = np.asarray(backend._problem.linear.phi_breakpoints, np.float64)
-        if not stepper.interval_cap:
-            breakpoints = breakpoints[[0, -1]]
-        interval = self._interval()
-        return {
-            "dz_min": float(stepper.dz_min),
-            "dz_max": float(stepper.dz_max),
-            "stretch": float(stepper.stretch),
-            "z_end": float(stepper.z_end),
-            # Interpolated planes are stepped across (SEP 14 section 4.3).
-            "save_planes": []
-            if stepper.interpolate_planes
-            else [float(z) for z in stepper.save_planes],
-            "interpolate": bool(stepper.interpolate_planes),
-            "hard_kinks": [float(z) for z in backend._problem.linear.hard_kinks],
-            "breakpoints": [float(z) for z in breakpoints],
-            "landing_ulps": LANDING_ULPS,
-            "quiet_interval": interval,
-            "safety": float(controller.safety),
-            "beta1": float(controller.beta1),
-            "beta2": float(controller.beta2),
-            "min_factor": float(controller.min_factor),
-            "max_factor": float(controller.max_factor),
-            "lag": int(controller.lag),
-            "reject_free": bool(controller.reject_free),
-            "power": float(controller.estimator_order + 1),
-            "exponent": 1.0 / (controller.estimator_order + 1),
-            "start_growth": float(START_GROWTH),
-            "auto_init": bool(stepper.auto_init),
-        }
-
-    def _configure(self) -> None:
-        """Hand the native state the run's policy, again when the monitor changed."""
-        backend = self._driver
-        interval = self._interval()
-        if self._configured == (interval,) or self._runner is not None:
-            return
-        stepper = backend._stepper
-        controller = stepper.controller
-        if controller.weights is not None:
-            backend._rk_weights_ready()
-        schedule = stepper.schedule
-        steps = edges = _NO_SCHEDULE
-        if schedule is not None:
-            steps = np.ascontiguousarray(schedule.steps, dtype=np.float64)
-            edges = np.ascontiguousarray(schedule.edges, dtype=np.float64)
-        backend._native_state.rk_march_configure(
-            self._policy(),
-            list(backend._rk_nodes),
-            float(controller.rtol),
-            float(controller.atol),
-            steps,
-            edges,
-        )
-        self._configured = (interval,)
-
-    def _watching(self) -> bool:
-        """Whether the march takes the boundary checks itself (SEP 45 4.8)."""
-        monitor = self._driver._monitor
-        return (
-            self._runner is None and monitor is not None and monitor.transverse is None
-        )
-
-    def march_to(self, target: float) -> None:
-        """Step the backend's state to `target` on the native march.
-
-        Parameters
-        ----------
-        target : float
-            Position to reach, m.
-
-        Raises
-        ------
-        ConvergenceError
-            If the proposal falls below the contract's ``dz_min``, or a native
-            trial fails.
-        """
-        backend = self._driver
-        dense = backend._stepper.interpolate_planes
-        if dense and backend._dense_ahead is not None:
-            # The march is ahead of the last interpolated plane; resume it there.
-            backend._adams_restore(*backend._dense_ahead)
-            backend._dense_ahead = None
-        if backend._natural_stop_due(target):
-            return
-        self._configure()
-        while not reached(backend._z, target):
-            if self._call(target):
-                return
-        if dense and not reached(target, backend._z):
-            backend._observe_inside(target)
-
-    def replay_to(self, schedule: FixedSchedule, target: float) -> None:
-        """Replay the contract's schedule to `target` on the native march.
-
-        ``StepDriver._replay_to``, a call of steps at a time: the steps as given, never
-        rejected, the edges hit exactly.
-
-        Parameters
-        ----------
-        schedule : solprop.stepper.schedule.FixedSchedule
-            The schedule to replay.
-        target : float
-            Position to reach, m.
-
-        Raises
-        ------
-        BackendError
-            If the schedule runs out before the target is reached.
-        ConvergenceError
-            If a step's error norm is not finite.
-        """
-        backend = self._driver
-        self._replaying = schedule
-        self._configure()
-        slack = replay_tolerance(schedule, target)
-        while (
-            backend._schedule_index < schedule.n_steps and backend._z < target - slack
-        ):
-            if self._call(target, slack):
-                return
-        if backend._z < target - slack:
-            msg = (
-                f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
-                f"cannot reach z = {target:.6g} m"
-            )
-            raise BackendError(msg)
-
-    def _bounds(
-        self, target: float, watching: bool, slack: float | None = None
-    ) -> dict[str, object]:
-        """Return a call's bounds: the target and the steps the driver has work on."""
-        backend = self._driver
-        steps: list[int] = []
-        if backend._row_spec is not None:
-            period = backend._row_period
-            steps.append(period - backend._accepted_steps % period)
-        every = backend._stepper.step_planes
-        if every:
-            steps.append(every - backend._natural_count % every)
-        monitor = backend._monitor
-        checked = None
-        read_at = None
-        ceiling = math.inf
-        if monitor is not None and not watching:
-            steps.append(monitor.steps_to_check())
-            checked = monitor.checked_at
-            # The transverse edge is read on the host (solprop SEP 40 section 5.3):
-            # its ceiling caps every step, the march returns before a step would carry
-            # past its next read, and a collar's current is taken at every step.
-            edge = monitor.transverse
-            if edge is not None:
-                ceiling = float(edge.ceiling(backend._z))
-                if edge.every_step:
-                    steps.append(1)
-                if math.isfinite(edge.next_read):
-                    read_at = float(edge.next_read)
-        return {
-            "target": float(target),
-            "quiet": bool(backend._collar_quiet),
-            "host_step": int(min(steps)) if steps else 0,
-            "monitor": checked is not None,
-            "first_check": False,
-            "check_interval": 0.0 if monitor is None else float(monitor.interval),
-            "last_check": 0.0 if checked is None else float(checked),
-            "read_at": read_at,
-            "read_spacing": ceiling,
-            "step_cap": math.inf if monitor is None else float(monitor.step_cap),
-            "max_attempts": self.MAX_ATTEMPTS,
-            "max_seconds": self.MAX_SECONDS,
-            "watch": _watch_policy_of(monitor)
-            if watching and monitor is not None
-            else None,
-            "watch_capacity": self.MAX_ATTEMPTS,
-            "replay": slack is not None,
-            "slack": 0.0 if slack is None else float(slack),
-        }
-
-    def _state(self, watching: bool) -> dict[str, object]:
-        """Return the march's state as the native call takes it."""
-        backend = self._driver
-        state: dict[str, object] = {
-            "z": float(backend._z),
-            "proposal": float(backend._proposal),
-            "norms": [float(norm) for norm in backend._accepted_norms],
-            "cursor": int(backend._schedule_index),
-        }
-        if watching:
-            state["watch"] = backend._monitor.watch_state()
-        return state
-
-    def _call(self, target: float, slack: float | None = None) -> bool:
-        """Make one native call and drain it; return whether a natural stop is due."""
-        backend = self._driver
-        backend._poll_stop()
-        watching = self._watching()
-        counters = _counters.active
-        due = None if counters is None else _host_due(backend, watching)
-        bounds = self._bounds(target, watching, slack)
-        started = time.perf_counter() - backend._clock
-        cursor = int(backend._schedule_index)
-        position = float(backend._z)
-        with committing():
-            result = self._native_run(self._state(watching), bounds)
-            state = result["state"]
-            backend._z = float(state["z"])
-            backend._schedule_index = int(state["cursor"])
-            backend._proposal = float(state["proposal"])
-            backend._accepted_norms.clear()
-            backend._accepted_norms.extend(float(norm) for norm in state["norms"])
-            rows = np.asarray(result["rows"], dtype=np.float64).reshape(-1, 6)
-            reason = int(result["reason"])
-            if counters is not None and due is not None:
-                counters.march(
-                    "rk_march",
-                    _reason_name(reason),
-                    rows,
-                    due,
-                    cast("float | None", bounds["read_at"]),
-                )
-            readings = _readings_of(backend._monitor, result) if watching else {}
-            # Beside a transverse edge the march returns at a check due by distance,
-            # which solprop takes on the event step (`_take_step_stats`).
-            event = reason in (_REACHED, _HOST_STEP, _MONITOR, _WATCH)
-            last = len(rows) - 1
-            for index, (end, dz, norm, accepted, _, wall) in enumerate(rows.tolist()):
-                backend._record_attempt(end, dz, norm, bool(accepted), started + wall)
-                if accepted and not (index == last and reason == _DENSE):
-                    position = end
-                    if slack is not None:
-                        # The row's own replay cursor (SEP 45 4.10).
-                        cursor += 1
-                final = index == last and (event or reason in (_FLOOR, _DENSE))
-                if accepted and not final:
-                    try:
-                        backend._account_step(end, cursor, readings.get(index))
-                    except Exception as error:
-                        if not watching:
-                            raise
-                        raise BackendError(
-                            "solprop's boundary monitor acted on a check the native "
-                            f"march went on past, at z = {end:.9g} m: {error}"
-                        ) from error
-        progress = backend._progress
-        for end, dz, _, accepted, _, _ in rows.tolist():
-            progress.step(end, dz, bool(accepted))
-        if event and rows.size and rows[-1, 3]:
-            if watching:
-                backend._watched_step(position, cursor, readings.get(last))
-                backend._statistics_step()
-                _verify_watch_of(backend._monitor, result)
-            else:
-                backend._take_step_stats()
-            if backend._natural_stop(target):
-                return True
-        elif watching:
-            _verify_watch_of(backend._monitor, result)
-        if reason == _DENSE:
-            end, dz = float(rows[-1, 0]), float(rows[-1, 1])
-            return self._finish_crossing(
-                target, end, dz, float(result["pending_equivalent"])
-            )
-        self._raise(reason, result)
-        return False
-
-    def _finish_crossing(
-        self, target: float, end: float, dz: float, equivalent: float
-    ) -> bool:
-        """Finish the accepted step across an interpolated plane, as the reference.
-
-        `StepDriver._march_to`'s acceptance, line for line: the accepted-step hook
-        `_record` makes, the step's extension from the state before it, the finish and
-        the commit, the norm, the start-up rule, the proposal, the statistics and the
-        natural stop. The native march returned the step accepted and unfinished.
-        """
-        backend = self._driver
-        policy = backend._controller_policy()
-        backend._on_accepted_step()
-        backend._dense_step = backend._dense_record(backend._z, dz)
-        finished = backend._finish(backend._state, dz)
-        with committing():
-            backend._state = finished
-            backend._z = end
-        backend._accepted_norms.append(equivalent)
-        if policy.auto_init and len(backend._accepted_norms) == 1:
-            backend._start_up(equivalent)
-        backend._proposal = rk_core.propose(
-            policy, backend._proposal, backend._accepted_norms
-        )
-        backend._take_step_stats()
-        return bool(backend._natural_stop(target))
-
-    def _native_run(
-        self, state: dict[str, object], bounds: dict[str, object]
-    ) -> dict[str, Any]:
-        """Make one native call: the native state's march, or the scripted one."""
-        if self._runner is not None:
-            return self._runner.run(state, bounds)
-        with _envelope_errors():
-            return self._driver._native_state.rk_march_run(state, bounds)
-
-    def _raise(self, reason: int, result: dict[str, Any]) -> None:
-        """Raise the error a call returned with, if any."""
-        backend = self._driver
-        schedule = self._replaying
-        _raise_rk(
-            reason,
-            result,
-            name=backend.name,
-            dz_min=float(backend._stepper.dz_min),
-            at=(float(backend._z), int(backend._schedule_index)),
-            n_steps=0 if schedule is None else schedule.n_steps,
-        )
-
-
-def _raise_rk(
-    reason: int,
-    result: Mapping[str, Any],
-    *,
-    name: str,
-    dz_min: float,
-    at: tuple[float, int],
-    n_steps: int,
-) -> None:
-    """Raise the error a native Runge-Kutta march returned with, if any.
-
-    Parameters
-    ----------
-    reason : int
-        The call's return reason.
-    result : collections.abc.Mapping
-        Its result: the diverged replay's step and norm, the floor's proposal, or a
-        native error's message and category.
-    name : str
-        The backend's name, for a diverged replay's message.
-    dz_min : float
-        The step floor, m.
-    at : tuple of float and int
-        The position, m, and the replay's cursor the diverged step started from.
-    n_steps : int
-        The replayed schedule's steps.
-
-    Raises
-    ------
-    solprop.exceptions.ConvergenceError
-        For a diverged replay, the step floor or a native convergence failure.
-    """
-    if reason == _DIVERGED:
-        z, cursor = at
-        dz, norm = float(result["replay_dz"]), float(result["replay_norm"])
-        msg = (
-            f"{name}: replayed step {cursor + 1} of {n_steps}, {dz:.4g} m from "
-            f"z = {z:.6g} m, has a non-finite error norm ({norm!r}): the field has "
-            "diverged. A replayed schedule takes its steps as given and cannot "
-            "reject one, so a step beyond an explicit stability limit -- the "
-            "in-stage temporal collar's or a coupled flow's advisory step -- grows "
-            "until it overflows; the translation refuses a declared step past the "
-            "collar's limit and warns on one past the flow's. Take shorter steps, or "
-            "let the controller choose them"
-        )
-        raise ConvergenceError(msg)
-    if reason == _FLOOR:
-        proposed = float(result["floor_proposal"])
-        msg = (
-            f"step control asked for {proposed:.3e} m, below the floor dz_min ="
-            f" {dz_min:.3e} m; the tolerance cannot be met here"
-        )
-        raise ConvergenceError(msg)
-    if reason == _ERROR:
-        _raise_native(result)
 
 
 def _raise_native(result: Mapping[str, Any]) -> None:

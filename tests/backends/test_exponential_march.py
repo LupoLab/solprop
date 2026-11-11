@@ -23,13 +23,11 @@ import pytest
 from bounds import assert_within, gamma, step_evaluations
 from legacy_geometry import LEGACY_GRID
 from solprop._helpers import PLAIN
-from solprop.backends.driver import StepDriver
 from solprop.backends.exponential import refuse_formulation
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.group import HostGroup
 from solprop.backends.multistep import (
-    AdamsMarch,
     compensation_tables,
     exponential_tables,
     fused_tables,
@@ -670,10 +668,8 @@ def test_lockstep_members_must_share_the_integrator(narrow_grid, soliton_problem
         lockstep_of(problems, narrow_grid)
 
 
-DRIVERS = pytest.mark.parametrize(
-    "driver", [HostDriver, StepDriver], ids=["host", "bridge"]
-)
-"""The reference's driver and the native bridge's copy, whose default hooks agree."""
+DRIVERS = pytest.mark.parametrize("driver", [HostDriver], ids=["host"])
+"""The reference's driver, whose default hooks refuse what it lacks."""
 
 
 @DRIVERS
@@ -724,9 +720,9 @@ def test_the_formulation_refuses_a_cf4_section(narrow_grid, soliton_problem):
         refuse_formulation(coupled, run_request.stepper, "probe")
 
 
-@pytest.fixture(params=[HostAdamsMarch, AdamsMarch], ids=["host", "bridge"])
+@pytest.fixture(params=[HostAdamsMarch], ids=["host"])
 def march_class(request):
-    """The reference's Adams march and the native bridge's copy, which decide alike."""
+    """The reference's Adams march, whose decisions the native march's are held to."""
     return request.param
 
 
@@ -751,7 +747,7 @@ def _chooser(march_class, method, collar_rate, *, quiet=False):
         collar_rate=collar_rate,
     )
     march._order = 5
-    # A stand-in, not a StepDriver: the order choice reads one flag from it.
+    # A stand-in, not a driver: the order choice reads one flag from it.
     march._backend = cast("Any", SimpleNamespace(_collar_quiet=quiet))
     march._collar_was_quiet = False
     return march

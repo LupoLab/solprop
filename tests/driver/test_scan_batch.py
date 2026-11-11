@@ -16,7 +16,6 @@ import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_points_matched
-from solprop.backends.driver import StepDriver
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.group import HostGroup
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
@@ -302,16 +301,14 @@ def test_a_batch_asks_its_members_only_for_the_fields_the_scan_reads(
 
     monkeypatch.setattr(HostGroup, "observe_members", spy)
     crossed = []
-    # Every member observation, through the group or alone: the reference's own
-    # driver and the inherited one the native backend still subclasses, which the
-    # native session never observes through.
-    for driver in (HostDriver, StepDriver):
 
-        def observed(self, *, field=True, original=driver.observe):
-            crossed.append(field)
-            return original(self, field=field)
+    # Every member observation of the reference's driver, through the group or
+    # alone; the native session never observes through a driver.
+    def observed(self, *, field=True, original=HostDriver.observe):
+        crossed.append(field)
+        return original(self, field=field)
 
-        monkeypatch.setattr(driver, "observe", observed)
+    monkeypatch.setattr(HostDriver, "observe", observed)
     exported = []
     if backend == "native":
         # The noisy native members run in the native group session (SEP 47 section

@@ -185,7 +185,7 @@ ResidentLowStorage::ResidentLowStorage(GeneralState& state, const stage::Tables&
 
 double ResidentLowStorage::trial(const double z, const double dz) {
   // In flight from here to the finish: the state is overwritten in place
-  // (`StepDriver._in_flight`, set before the engine's step).
+  // (`HostDriver._in_flight`, set before the engine's step).
   in_flight_ = true;
   double key = std::numeric_limits<double>::quiet_NaN();
   bool rebuild = false;

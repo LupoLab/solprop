@@ -5,7 +5,7 @@
 """SEP 16 phase 2: the exponential formulation on every constant-operator route.
 
 The only route-specific part of the exponential formulation is its source sample,
-``StepDriver._adams_lab_source``: one evaluation of the route's own source pipeline,
+``HostDriver._adams_lab_source``: one evaluation of the route's own source pipeline,
 untransported. On each route it must be the source the transported formulation
 evaluates when the anchor is the sample's own position, where the propagator is one;
 and a short run must reproduce the Runge-Kutta march's field. The routes are the

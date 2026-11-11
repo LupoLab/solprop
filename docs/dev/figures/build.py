@@ -708,7 +708,6 @@ MODULES = {
             (
                 "protocol",
                 "registry",
-                "driver",
                 "spatial",
                 "populations",
                 "memory",
@@ -942,12 +941,12 @@ RUN_STAGES = (
     ),
     Stage(
         "B",
-        "StepDriver.propagate_to(z_save)",
+        "session.advance() to z_save",
         (
             "the march, the replay, the landing, the controller,",
             "the history, the noise, the per-stage bundle",
         ),
-        "shared Python step loop",
+        "HostDriver for numpy_ref; native's session",
     ),
     Stage(
         "D",
@@ -1216,29 +1215,16 @@ TABLEAU = (
 SEAM_METHODS = (
     ("prepare", "bind a problem and its run request; each start opens a session"),
     ("prepare_group", "bind compatible members; the start opens their group"),
-    ("set_initial", "the state and the noise realisation, host to device, once"),
-    ("set_progress", "the observer each attempted step reports to; never an input"),
-    ("set_stop", "the flag polled between trials, or none"),
-    ("attach_monitor", "watch the time window's edges from here on"),
     ("edge_memory", "what reading a grid's edge will hold, for an estimate"),
-    ("propagate_to", "the driver's way in, returning a StepSummary"),
-    ("observe", "host arrays: the field at the plane and the step history"),
-    (
-        "restore_call_ledgers",
-        "resume cumulative calls; numerical history starts afresh",
-    ),
-    ("march_snapshot", "the Adams history for a resume, or None"),
-    ("march_snapshot_nbytes", "its size, copying nothing"),
     ("march_export_refusal", "why the march cannot carry its history, or None"),
-    ("restore_march", "continue the history, or say why it starts afresh"),
     ("timing_probe", "single trials from a start, committing nothing, for timing"),
-    ("stats", "one fused pass, a dict of small host arrays"),
     ("metadata", "what the execution was: pools, plans, digests, propagator mode"),
     ("memory_ledger", "every named buffer and its size"),
     ("available_device_memory", "free device bytes for batch admission; None on hosts"),
     ("close", "idempotent"),
 )
-"""The methods of `backends.protocol.Backend`, including resume call accounting."""
+"""The methods of `backends.protocol.Backend`; the reference's stepping seam is
+`HostStepping`'s, which its session drives."""
 
 DRIVER_PARTS = (
     ("the march and the landing", ("_march_to",)),
@@ -1256,7 +1242,7 @@ DRIVER_PARTS = (
         ("_trial_step", "_apply_mask", "_finish", "_begin_plane", "_on_accepted_step"),
     ),
 )
-"""What `backends/driver.py` owns, and the `StepDriver` members of each part."""
+"""What `backends/host/driver.py` owns, and the `HostDriver` members of each part."""
 
 CONTROLLER_PARTS = ("propose", "accepts", "rejection_factor", "equivalent_norm")
 """The methods of `stepper.controller.PIController` the driver calls."""
@@ -2547,7 +2533,7 @@ def _step_panel(
 
 
 BACKEND_OVERRIDES = ("_trial_step", "_apply_mask", "_finish", "_observed_field")
-"""What a backend supplies to `StepDriver`, and nothing else of the loop."""
+"""What a reference backend supplies to `HostDriver`, and nothing else of the loop."""
 
 DEVICE_SLOT = (
     "solprop-native distribution, native/",
@@ -2651,7 +2637,7 @@ def backends() -> drawsvg.Drawing:
     _table(
         drawing,
         Slot(MARGIN, y, left_width),
-        "HostDriver (reference)  ·  StepDriver (native base, retiring)",
+        "HostDriver (the reference's step loop)",
         driver_rows,
         168,
         Paint("fill-d", "ink-d"),

@@ -29,6 +29,7 @@ from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.session import HostSession
 from solprop.backends.numpy_ref.single import NumpySingleBackend
 from solprop.backends.protocol import Backend, BackendHistory, Observation
+from solprop.backends.protocol import stepping as host_stepping
 from solprop.backends.registry import available, select
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -314,9 +315,9 @@ def _observed_at_its_first_plane(
     problem = simulation.translate()
     run_request = simulation._run_request()
     backend = select(name, problem, run_request, grid=simulation.grid)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(float(run_request.stepper.save_planes[0]))
-    return problem, backend, backend.observe()
+    host_stepping(backend).set_initial(problem.initial.field0, None)
+    host_stepping(backend).propagate_to(float(run_request.stepper.save_planes[0]))
+    return problem, backend, host_stepping(backend).observe()
 
 
 @pytest.mark.parametrize("precision", ["double", "single"])
@@ -347,7 +348,7 @@ def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(
     )
     raws: list[np.ndarray] = []
     seen: list[Observation] = []
-    observe = stepping.observe
+    observe = host_stepping(stepping).observe
 
     def recorded(*, field: bool = True) -> Observation:
         observation = observe(field=field)

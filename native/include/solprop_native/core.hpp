@@ -1080,6 +1080,8 @@ public:
   [[nodiscard]] std::size_t raman_kernel_transforms() const noexcept;
   [[nodiscard]] bool fsal_ready() const noexcept;
   [[nodiscard]] std::size_t rk_source_evaluations() const noexcept;
+  /** On-axis row scans made so far (`axis_populations`), cumulative. */
+  [[nodiscard]] std::size_t axis_scans() const noexcept;
   [[nodiscard]] bool closed() const noexcept;
   void close() noexcept;
 

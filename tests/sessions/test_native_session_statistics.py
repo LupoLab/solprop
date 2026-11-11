@@ -39,6 +39,7 @@ from sessions.executors import (
 )
 from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
+from solprop.backends.protocol import stepping
 from solprop.backends.registry import select
 from solprop.exceptions import BackendError, SolpropError, TranslationError
 from solprop.stats import (
@@ -188,8 +189,10 @@ def _reference(  # noqa: PLR0913 - the problem, its request and the backend's co
     out = []
     try:
         for record in seen:
-            backend.set_initial(record.field, None, z=record.z, resume=record.z > start)
-            values = backend.stats(spec)
+            stepping(backend).set_initial(
+                record.field, None, z=record.z, resume=record.z > start
+            )
+            values = stepping(backend).stats(spec)
             out.append({name: np.asarray(value) for name, value in values.items()})
     finally:
         backend.close()
@@ -951,8 +954,8 @@ def test_a_negative_lobe_s_widths_are_refused_by_the_session_as_by_the_reference
     with pytest.raises(BackendError, match="nonnegative fluence profile") as want:
         reference = select("numpy_ref", problem, run_request, grid=grid)
         try:
-            reference.set_initial(field, None)
-            reference.stats(StatsSpec(names=("beam_radius",)))
+            stepping(reference).set_initial(field, None)
+            stepping(reference).stats(StatsSpec(names=("beam_radius",)))
         finally:
             reference.close()
     session = native_session.NativeSession(
@@ -1036,8 +1039,10 @@ def test_a_varying_metric_s_statistics_are_refused_by_native_before_allocation()
     inside = float(run_request.stepper.save_planes[-1]) / 8
     reference = select("numpy_ref", problem, request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None, z=inside, resume=True)
-        values = reference.stats(spec)
+        stepping(reference).set_initial(
+            problem.initial.field0, None, z=inside, resume=True
+        )
+        values = stepping(reference).stats(spec)
     finally:
         reference.close()
     assert set(values) == set(GENERAL)

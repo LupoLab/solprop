@@ -175,18 +175,16 @@ order conditions are checked for both weight vectors and the propagated solution
 fifth-order one, and the FSAL stage is not recycled before anything that depends on the
 completed step (irrelevant without dense output, but tested).
 
-**Two copies of the Python control** ([SEP 47](seps/sep-0047-run-ownership.md) phase 2).
-The NumPy reference runs its own step driver and marches in `backends/host/`:
-`HostDriver`, `HostAdamsMarch`, `HostGeneralPath`, `HostLowStorageMarch` and the
-fixed-schedule group `HostGroup`. Every native run is its native session's: the
-native backend loads a start itself (`solprop_native._load`), keeps its Adams march's
-policy, ledger and history in a record of its own (`_NativeAdamsMarch`, no longer an
-`AdamsMarch`) and holds no low-storage march (the session replays it natively). It
-still inherits `StepDriver` in `backends/` for the legacy direct API alone, which the
-rest of SEP 47 phase 5 removes with `StepDriver`, `AdamsMarch` and `LowStorageMarch`.
-The copies
-started identical and the decision corpora hold both to the same decisions; where this
-page names a member of one, the other's is the same. The comparison variants
+**Who marches** ([SEP 47](seps/sep-0047-run-ownership.md)). The NumPy reference runs
+its own step driver and marches in `backends/host/`: `HostDriver`, `HostAdamsMarch`,
+`HostGeneralPath`, `HostLowStorageMarch` and the fixed-schedule group `HostGroup`. Every
+native run is its native session's, whose compiled Runge-Kutta, Adams and low-storage
+marches decide natively from one policy record each: the native backend loads a start
+itself (`solprop_native._load`) and keeps its Adams march's policy, ledger and history
+in a record of its own (`_NativeAdamsMarch`), and inherits no Python step loop. The
+decision corpora hold the reference's marches and the compiled ones to the same
+decisions on the same readings; where this page names a member of the reference's
+march, the compiled march's decision is the same. The comparison variants
 (`ComparisonMultistep`, whose general Adams path is the reference's) and a controller that
 overrides a decision are the reference's alone: the native backend refuses them by name
 (SEP 47 section 6.3).
@@ -396,7 +394,7 @@ the flow `exp(sigma)` times its `phi_0`; the transported compensation is unchang
 the untransported witness's terms are rotated as the samples (`_Compensation.rotate`).
 The accepted step keeps its `sigma` and rotated rows for dense observation. The march
 caps each proposal at `CARRIER_PHASE_CAP` of carrier phase before the landing rule
-(`AdamsMarch._capped`), measured by the reference element's chord alone
+(`HostAdamsMarch._capped`), measured by the reference element's chord alone
 (`CarrierChord`, the operator's own constant, expansion or z table at that element),
 so a capped step is not a landing; a replayed schedule is not capped. The native
 engine (`_ResidentAdams`) forms its `sigma` from the same chord on the host and passes
@@ -431,7 +429,7 @@ frozen-residual flow's generator applied once per sample. The general
 path (PECE and the comparison variants) keeps host arrays.
 
 **The native Runge–Kutta march** (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)):
-`StepDriver._march_to`'s decisions are pure functions of a `RungeKuttaPolicy`
+`HostDriver._march_to`'s decisions are pure functions of a `RungeKuttaPolicy`
 (`backends/rk_core.py`), held to a decision corpus recorded before the refactor
 (`tests/data/rk_traces.json.gz`), and `native` executes them (`native/src/rk_march.cpp`) on
 its staged trial and native norm, a call of attempts at a time, returning only at a host
@@ -477,12 +475,12 @@ solprop's tables use, so its shift and step cap are the host's (issue #255). A n
 group replays each member in its own native session (`solprop_native.group`).
 
 **Resume** (ADR-046): an engine that can export its rows (`snapshot_rows`, and
-`load_rows` to install them) lets `HostAdamsMarch.snapshot` (and `AdamsMarch.snapshot`
-on the bridge) return a `MarchSnapshot` -- the
+`load_rows` to install them) lets `HostAdamsMarch.snapshot` (and the native session's
+`march_snapshot`) return a `MarchSnapshot` -- the
 accepted state, the rows, each history entry's position, kind and row, the order, the
 rejection count and the proposed step -- which the run loop keeps beside every save
 plane and terminal checkpoint through an output's `save_march`, and which
-`AdamsMarch.load` installs at the same position on a resume. `HostHistory` exports
+`HostAdamsMarch.load` installs at the same position on a resume. `HostHistory` exports
 them, and so does the native backend's resident engine (SEP 29 §6.6): it copies its
 persistent views to the host, losslessly, under the host engine's names and layout
 (`store`, and `states` and `rates` for a compensated history), and a frozen-residual
@@ -588,12 +586,10 @@ the measurements behind them.
   crosses another plane -- so a checkpoint never needs the extension to reconstruct a
   plane ([SEP 47](seps/sep-0047-run-ownership.md) section 5.5). After an observation
   the next step evaluates its first stage afresh rather than recycle the crossing step's
-  last (FSAL), in the native session as in the bridge, which reloads the committed
-  state from its host copy: a recycled stage parted the two by up to 9e-8 in a norm,
-  and by 2e-10 in the positions after it, under some FFT plans and not others, and
-  measured planning makes the plans differ from process to process. Their trajectories
-  are now the same to the bit; their planes differ only in the flow's exponential (the
-  bridge's NumPy one, the session's native one), by 5.5e-16 of the peak.
+  last (FSAL), in the native session as on the host: a recycled stage once parted the
+  two by up to 9e-8 in a norm, and by 2e-10 in the positions after it, under some FFT
+  plans and not others, and measured planning makes the plans differ from process to
+  process.
 - **Floor**: a proposal below `dz_min` raises `ConvergenceError` at once (algorithms.md §3,
   traps). The default is `default_dz_min`, 1e-9 of the run length: a run that wants steps
   that small needs over a billion of them and would never finish, and the finest legitimate
@@ -809,7 +805,7 @@ of the run it replays, not to reproduce its bits or every adaptive decision
 ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)). `FixedSchedule` stores
 step lengths and a start position, nothing more. The Runge–Kutta replay takes those steps
 with the same fixed-order method; the Adams replay does not repeat the original
-computation: `AdamsMarch._replay_to` chooses its orders afresh, by the adaptive rule from
+computation: `HostAdamsMarch._replay_to` chooses its orders afresh, by the adaptive rule from
 the replay's own estimates, and does not replay rejected trials, so where the adaptive run
 rejected a step the replay may choose a different order; and a resumed march can rebuild
 its history from a restart rather than carry the original one. A replay of an adaptive

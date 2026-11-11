@@ -91,15 +91,13 @@ def problem_on(grid, table, modes, rule, start=None, save_planes=(0.02,)):
 
 
 def _native_axis_scans(session):
-    """Return the axis-row scans of one plane of a native session's statistics plan.
+    """Return the axis-row scans a native session's statistics have made.
 
-    The plan reads a Radau rule's axis node (``axis_node``) from the node scan it
-    makes anyway for the species reduction (``transverse``), and scans the axis row
-    itself otherwise (``session_statistics.cpp``'s ``axis``): the native counterpart
-    of the reference's ``axis_scans``.
+    The native state counts each scan of the axis row (``axis_populations``), and the
+    session reports those since it started in its record: the native counterpart of
+    the reference's ``axis_scans``.
     """
-    values = session._plane_lowering.values
-    return 0 if values["axis_node"] >= 0 and values["transverse"] != 0 else 1
+    return session.execution_record()["native_session"]["axis_scans"]
 
 
 def _stats(observation):

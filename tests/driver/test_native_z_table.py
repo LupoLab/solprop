@@ -42,6 +42,7 @@ from optmat_parity_cases import variant
 from solprop.backends import select
 from solprop.backends.events import ObservationReady
 from solprop.backends.export import ExportRecipe
+from solprop.backends.protocol import stepping
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_group
 from solprop.driver import Simulation, SimulationSettings
@@ -225,7 +226,7 @@ def loaded(simulation, cleanup):
         profiles=simulation.profiles,
     )
     cleanup.callback(owner.close)
-    owner.set_initial(problem.initial.field0, simulation.noise)
+    stepping(owner).set_initial(problem.initial.field0, simulation.noise)
     return owner
 
 

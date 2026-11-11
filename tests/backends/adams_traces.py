@@ -32,11 +32,9 @@ from typing import Any
 import numpy as np
 
 from solprop._helpers import PLAIN
-from solprop.backends.driver import StepDriver
 from solprop.backends.exponential import CarrierChord, CarrierReference
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.host.driver import HostDriver
-from solprop.backends.multistep import AdamsKernels, AdamsMarch, ExponentialKernels
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
@@ -261,9 +259,9 @@ class _Scripted:
     """A stub backend: the driver surface an Adams march calls, recording it.
 
     Built without the driver's initialiser, which needs a translated problem; the march
-    reads only the members set here and the methods overridden below. Mixed into each
-    driver family: the native bridge's (:class:`_Harness`) and the reference's own
-    (:class:`_HostHarness`, SEP 47 phase 2), whose marches must decide alike.
+    reads only the members set here and the methods overridden below. Mixed into the
+    reference's driver (:class:`_HostHarness`), whose march the native march's
+    decision traces are held to (``test_native_march_traces.py``).
     """
 
     name = "scripted"
@@ -290,7 +288,7 @@ class _Scripted:
         self.pending: dict[str, Any] = {}
         self.events: list[dict[str, Any]] = []
         self.engine: _Engine | None = None
-        self.march: AdamsMarch | HostAdamsMarch | None = None
+        self.march: Any | None = None
 
     # The driver's abstract members, which the march never calls.
 
@@ -339,18 +337,16 @@ class _Scripted:
         self.pending = {}
 
 
-class _Harness(_Scripted, StepDriver):
-    """The stub over the native bridge's driver, which hands the march its engine."""
-
-    def _adams_engine(self, method: Multistep, compensation: str) -> _Engine:
-        self.engine = _Engine(self, method)
-        return self.engine
-
-
 class _HostHarness(_Scripted, HostDriver):
     """The stub over the reference's driver; the engine is given to its march."""
 
     helpers = PLAIN
+
+    def _adams_engine(self, method: Multistep, compensation: str) -> _Engine:
+        """Return a fresh scripted engine, for a march that asks its backend for one."""
+        del compensation
+        self.engine = _Engine(self, method)
+        return self.engine
 
 
 LEDGER = (
@@ -366,17 +362,16 @@ LEDGER = (
 """The call ledger's counters, in the order a trace lists them."""
 
 
-def _march_state(
-    harness: _Scripted, march: AdamsMarch | HostAdamsMarch
-) -> dict[str, Any]:
+def _march_state(harness: _Scripted, march: Any) -> dict[str, Any]:
     """Return the march's controller state after an attempt.
 
     Parameters
     ----------
     harness : _Scripted
         The stub backend.
-    march : AdamsMarch or HostAdamsMarch
-        The march.
+    march : object
+        The march: the reference's, or the native record driven a call at a time
+        (``native_trace_marches.TraceAdamsMarch``).
 
     Returns
     -------
@@ -398,16 +393,13 @@ def _march_state(
     }
 
 
-def run_scenario(scenario: Scenario, *, host: bool = True) -> dict[str, Any]:
+def run_scenario(scenario: Scenario) -> dict[str, Any]:
     """Run a scenario through a Python Adams march and return its trace.
 
     Parameters
     ----------
     scenario : Scenario
         The scripted march.
-    host : bool, optional
-        Whether to run the reference's march (:class:`HostAdamsMarch`, the default)
-        or the native bridge's copy (:class:`AdamsMarch`).
 
     Returns
     -------
@@ -417,21 +409,9 @@ def run_scenario(scenario: Scenario, *, host: bool = True) -> dict[str, Any]:
         controller's state at that point, including any attempt left in flight.
     """
     method = Multistep(formulation="exponential", **scenario.method)
-    harness: _Scripted
-    march: AdamsMarch | HostAdamsMarch
-    if host:
-        harness = _HostHarness(scenario)
-        harness.engine = _Engine(harness, method)
-        march = HostAdamsMarch(harness, method, engine=harness.engine)
-    else:
-        harness = _Harness(scenario)
-        # Real kernels, which the scripted engine never calls.
-        march = AdamsMarch(
-            harness,
-            method,
-            kernels=AdamsKernels(helpers=PLAIN),
-            exponential=ExponentialKernels(helpers=PLAIN),
-        )
+    harness = _HostHarness(scenario)
+    harness.engine = _Engine(harness, method)
+    march = HostAdamsMarch(harness, method, engine=harness.engine)
     harness.march = march
     if scenario.targets is not None:
         targets = list(scenario.targets)

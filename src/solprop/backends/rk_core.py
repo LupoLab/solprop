@@ -4,7 +4,7 @@
 
 """The Runge-Kutta march's controller as functions of its policy and state (SEP 45).
 
-The decisions of ``StepDriver._march_to`` -- the
+The decisions of ``HostDriver._march_to`` -- the
 equivalent norm and acceptance of an attempt, the start-up rule, the next proposal
 after an accepted step and the shrink after a rejected one -- each as a function of the
 run's :class:`RungeKuttaPolicy` and the values it decides on, with no backend or field

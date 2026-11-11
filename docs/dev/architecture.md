@@ -267,11 +267,11 @@ Simulation(...)                                                    (D)
    ▼
 run loop over save planes and stats periods                        (D)
    │  session = backend.prepare(problem, request.for_run(...)).start(start)
-   │  backend.set_initial(field)  (by the session)                  host → device once
-   │  for z_save in planes: backend.propagate_to(z_save)            the driver's marches
-   │                        obs = backend.observe()                 small host arrays
-   │                        stats = backend.stats(spec)             one fused pass
-   │                        output.save(z_save, obs, stats)
+   │     the start loads once, host → device
+   │  while not session.finished: batch = session.advance()         the session's marches
+   │     ObservationReady(z, stats, ticket)                          small host arrays
+   │     session.export(ticket, recipe) → output.save(...)          one fused pass a plane
+   │     session.acknowledge(batch.receipt)
    ▼
 MemoryOutput / HDF5Output  ──►  processing / plotting               (X)
 ```
@@ -568,19 +568,17 @@ class Backend(Protocol):
     name: str
     max_batch: int
 
-    def set_initial(self, field, noise, *, z=0.0, resume=False) -> None: ...
-    def set_progress(self, reporter) -> None: ...  # an observer, never an input
-    def propagate_to(self, z: float) -> StepSummary: ...  # the driver's way in
-    def observe(self, *, field: bool = True) -> Observation: ...  # host arrays only
-    def stats(self, spec) -> dict[str, np.ndarray]: ...  # one fused pass
+    def prepare(self, problem, request) -> PreparedExecution: ...  # a run's session
+    def prepare_group(self, members, problems, requests) -> PreparedGroup: ...
+    def timing_probe(self, start) -> TimingProbe: ...  # an estimate's trial
     def metadata(self) -> dict[str, object]: ...  # what the execution was
-    def restore_call_ledgers(self, logical, atomic=None) -> None: ...  # after a resume
     def available_device_memory(self) -> int | None: ...
     def memory_ledger(self) -> dict[str, int]: ...
     def close(self) -> None: ...
 
-    # And what the run layer asks beside them: the stop flag, the held plane, the boundary
-    # monitor, the march's snapshot and an estimate's step (backends.md section 1).
+    # The reference's host stepping seam (set_initial, propagate_to, observe, stats, the
+    # monitor and the march's snapshot) is a protocol of its own, HostStepping, which
+    # its session drives (backends.md section 1).
 ```
 
 - `numpy_ref`: the readable oracle. Plain NumPy + `scipy.fft`, no fusion, no in-place
@@ -596,8 +594,8 @@ class Backend(Protocol):
   response teams, deterministic plasma scans and device reductions and is qualified on
   data-centre NVIDIA GPUs; the HIP build is qualified on AMD Instinct GPUs, with the HIP
   sanitizer run still outstanding. Fixed-schedule fibre batching runs as the native group
-  session, one native session per member (§11). The private state is exposed to the shared driver only through its
-  protected state type and the `_observed_field` host-copy hook. Its floating-point licence is
+  session, one native session per member (§11). The private state is read only by the backend's own
+  session and timing probe. Its floating-point licence is
   [SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)'s: contraction by default,
   strict opt-outs for the protected helpers (stable increments, small-argument functions,
   defects, compensated sums), reassociation only on the loops of a kernel that asks for it,
@@ -778,7 +776,7 @@ otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native 
   [SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md)): a plane without its field is not copied, converted or
   stored, the stores allocate field storage for the kept planes only, and the admission
   charges those alone (its `output` group). The backend is asked for the field only on
-  the kept planes: `StepDriver.observe(field=False)` transfers nothing from a device,
+  the kept planes: `HostDriver.observe(field=False)` transfers nothing from a device,
   scans nothing for finiteness, skips the collar diagnostic (counted in the execution
   record) and forms no noise-phase volume, so a field-free plane costs its statistics
   alone. Under the low-storage march a step abandoned in flight after such a plane leaves

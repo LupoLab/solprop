@@ -72,6 +72,7 @@ from __future__ import annotations
 
 import dataclasses
 import itertools
+import logging
 import math
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
@@ -94,6 +95,7 @@ from solprop.backends.events import (
 )
 from solprop.backends.export import destination_refusal
 from solprop.backends.multistep import CallLedger, budget_error
+from solprop.backends.numpy_ref import QUADRATURE_ALARM
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.session import (
@@ -123,9 +125,11 @@ from solprop.output.capability import (
     withheld_accessors,
 )
 from solprop.output.schema import MarchSnapshot
-from solprop.stepper.controller import ControlRecord
+from solprop.stats import weight_refusal_for
+from solprop.stepper.controller import START_GROWTH, ControlRecord
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
+from solprop.stepper.schedule import LANDING_ULPS
 from solprop.stepper.tableau import continuous_extension
 from solprop.translate.linop import power_weight_at
 
@@ -143,13 +147,21 @@ from ._statistics import (
 from .backend import (
     _BUDGET,  # pyright: ignore[reportPrivateUsage]
     _DIVERGED,  # pyright: ignore[reportPrivateUsage]
+    _ERROR,  # pyright: ignore[reportPrivateUsage]
+    _FLOOR,  # pyright: ignore[reportPrivateUsage]
+    _NO_SCHEDULE,  # pyright: ignore[reportPrivateUsage]
     NativeBackend,
     _aperture_payload,  # pyright: ignore[reportPrivateUsage]
     _low_storage_payload,  # pyright: ignore[reportPrivateUsage]
-    _NativeRungeKuttaMarch,  # pyright: ignore[reportPrivateUsage]
     _on_device,  # pyright: ignore[reportPrivateUsage]
-    _raise_rk,  # pyright: ignore[reportPrivateUsage]
+    _raise_native,  # pyright: ignore[reportPrivateUsage]
 )
+
+_LOG = logging.getLogger(__name__)
+
+_QUADRATURE_LOG = logging.getLogger("solprop.backends.numpy_ref.backend")
+"""The reference's logger, on which the transverse quadrature alarm is given, so that a
+filter on the alarm reads both backends alike (``_check_quadrature``)."""
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -334,6 +346,42 @@ def _statistics_refusal(problem: PropagationProblem, spec: StatsSpec) -> str | N
     return axis_refusal(problem, names)
 
 
+def _refuse_foreign_monitor(
+    name: str, problem: PropagationProblem, monitor: BoundaryMonitor
+) -> None:
+    """Refuse a boundary monitor built for another grid or mode set, by name.
+
+    Its weights would be read out of bounds by the compiled sums, so they are held to
+    the grid's samples and the state's modes before they are bound, as the reference
+    refuses them where it attaches the monitor.
+
+    Parameters
+    ----------
+    name : str
+        The backend's name, for the message.
+    problem : solprop.translate.problem.PropagationProblem
+        The run's problem.
+    monitor : solprop.monitor.BoundaryMonitor
+        The request's monitor.
+
+    Raises
+    ------
+    solprop.exceptions.BackendError
+        If the weights are not ``(4, n_t)`` or the columns not ``(n_modes,)``.
+    """
+    n_t = problem.grids.n_t
+    n_modes = problem.shape[0]
+    columns = monitor.columns
+    given = None if columns is None else columns.shape
+    if monitor.weights.shape != (4, n_t) or given not in {None, (n_modes,)}:
+        msg = (
+            f"{name}: the boundary monitor's weights {monitor.weights.shape} "
+            f"or columns {given} do not match the grid's {n_t} samples and the "
+            f"state's {n_modes} modes"
+        )
+        raise BackendError(msg)
+
+
 class NativeSession:
     """A :class:`~solprop.backends.session.RunSession` owned by the native backend.
 
@@ -501,8 +549,17 @@ class NativeSession:
                 options=options,
             )
         self._backend: NativeBackend | None = backend
+        self._axis_scans = 0
+        self._axis_scans_closed = 0
+        # Whether this plane's quadrature alarm was given (`_check_quadrature`), and
+        # the largest accepted step's score the session has drained for it.
+        self._alarm_reported = False
+        self._quadrature_peak = math.nan
         try:
             kind, state = self._prepare(backend, start)
+            # The on-axis row scans this session's statistics make: the state's
+            # count, less what earlier runs on the backend made (SEP 19).
+            self._axis_scans = int(backend._native_state.axis_scans)  # pyright: ignore[reportPrivateUsage]
             self._native = backend._native_state.start_session(  # pyright: ignore[reportPrivateUsage]
                 kind, state, self._plan(start), float(start.z)
             )
@@ -612,7 +669,7 @@ class NativeSession:
             # Runge-Kutta march's over the stage tables the state reads each step's
             # scalars from (SEP 47 section 6.3).
             driver._staged_rows()
-            _NativeRungeKuttaMarch(backend, monitored=False)._configure()  # pyright: ignore[reportPrivateUsage]
+            _NativeRungeKuttaMarch(backend)._configure()  # pyright: ignore[reportPrivateUsage]
         kind = "runge_kutta"
         if isinstance(integrator, Multistep):
             kind = "adams"
@@ -630,6 +687,7 @@ class NativeSession:
             )
         monitor = self._monitor
         if monitor is not None:
+            _refuse_foreign_monitor(driver.name, self._problem, monitor)
             # The monitor's weights where the state lives, read at every check, and the
             # split collar's walk-off buckets; the monitor stays solprop's and fresh:
             # the session owns its state natively.
@@ -664,8 +722,8 @@ class NativeSession:
     def _noise_readings(self, driver: Any, start: Start) -> dict[str, object] | None:
         """Return the input noise's readings the transverse edge's launch carries.
 
-        ``StepDriver.attach_monitor`` hands the edge's launch the input draw and the
-        launch's columns without it (``_edge_clean_columns``), formed where the load
+        The edge's launch takes the input draw and the launch's columns without it
+        (``NativeBackend._launch_clean_columns``), formed where the load
         holds both parts or, on a restart, from the loaded state, which is read here
         before the native session leases it. A launch that resumes an earlier edge's
         record is not judged, so it takes no such columns and no state is read for
@@ -700,10 +758,10 @@ class NativeSession:
     def _driver(backend: NativeBackend | None) -> Any:
         """Return the backend as the untyped protected surface the session lowers from.
 
-        The one place the adapter reaches the backend's protected members (its march
-        adapters, their policy and state records, its statistics unpacking), as the
-        backend's own march adapters reach them (``DRIVER_SURFACE``); confined here and
-        typed ``Any`` because those members are the driver's private surface.
+        The one place the session reaches the backend's private members (its load and
+        restore, its march records and policies, its stage tables and monitor
+        binding); confined here and typed ``Any`` because those members are the
+        backend's own, shared within this package alone.
 
         Parameters
         ----------
@@ -962,6 +1020,24 @@ class NativeSession:
         chunk, event = translated
         if (counters := _counters.active) is not None:
             self._tally(counters, batch, chunk, limit)
+        self._check_quadrature(event)
+        if _LOG.isEnabledFor(logging.DEBUG):
+            # Each attempt, as the native backend's adapter logged its march's.
+            for end, dz, norm, accepted in zip(
+                chunk.z.tolist(),
+                chunk.dz.tolist(),
+                chunk.error_norm.tolist(),
+                chunk.accepted.tolist(),
+                strict=True,
+            ):
+                _LOG.debug(
+                    "native %s attempt to z = %.9g m: dz = %.4g m, norm %.4g, %s",
+                    self._march_name,
+                    end,
+                    dz,
+                    norm,
+                    "accepted" if accepted else "rejected",
+                )
         if self._listener is not None:
             for end, dz, accepted in zip(
                 chunk.z.tolist(),
@@ -972,6 +1048,41 @@ class NativeSession:
                 self._listener(end, dz, bool(accepted))
         self._held = None
         return EventBatch(receipt, (event,))
+
+    def _check_quadrature(self, event: Event) -> None:
+        """Warn once a plane if a step's transverse quadrature score passed the alarm.
+
+        The reference's warning (``NumpyRefBackend._update_alarm``), on its logger and
+        with its threshold: the native state keeps the largest accepted step's score
+        since the last read, which the session reads under its lock once an advance
+        (``Session::quadrature_peak``); the warning
+        is given once between two observations, as the reference gives it once a
+        plane.
+
+        Parameters
+        ----------
+        event : solprop.backends.events.Event
+            The advance's event; an observation starts the next plane's watch.
+        """
+        if self.closed:
+            return
+        peak = float(self._native.quadrature_peak())
+        if not math.isnan(peak) and not peak <= self._quadrature_peak:
+            # The largest drained so far, for the record (`execution_record`).
+            self._quadrature_peak = peak
+        if peak > QUADRATURE_ALARM and not self._alarm_reported:
+            self._alarm_reported = True
+            _QUADRATURE_LOG.warning(
+                "the transverse quadrature reproduces the nonlinear polarisation to "
+                "only %.2e at z = %.6g m, above the %.0e alarm; the integrand is not "
+                "resolved by this rule (a kinked ionisation rate, or too few nodes for "
+                "the mode set) and no step size can fix it",
+                peak,
+                float(self._native.status().z),
+                QUADRATURE_ALARM,
+            )
+        if isinstance(event, ObservationReady):
+            self._alarm_reported = False
 
     def _translate(
         self, batch: _core.SessionBatch, receipt: Receipt
@@ -1125,7 +1236,7 @@ class NativeSession:
         """Return the noise phase at a pending observation, ``Im Phi`` there.
 
         Formed on the host from the problem's scalar tables, as the backend's own
-        observation forms it (``StepDriver._noise_phase``); a z table's, which the
+        observation forms it (``HostDriver._noise_phase``); a z table's, which the
         leased state holds, is its slot at the plane, read through the native session
         under its lock as the backend reads it (``NativeBackend._unitary_phase``).
 
@@ -1299,8 +1410,8 @@ class NativeSession:
         Returns
         -------
         str or None
-            The backend march's reason (:meth:`~solprop.backends.driver.StepDriver.
-            restore_march`), or ``None`` when it was installed or none was given.
+            The march record's reason (``NativeBackend._restore``), or ``None`` when
+            it was installed or none was given.
         """
         return self._march_refusal
 
@@ -1335,12 +1446,37 @@ class NativeSession:
             "exports": status.exports,
             "export_bytes": status.export_bytes,
             "buffer_bytes": status.buffer_bytes,
+            "axis_scans": self._axis_scan_count(),
+            # The largest accepted step's transverse quadrature score this session
+            # read for its alarm (`_check_quadrature`); NaN where none was scored.
+            "quadrature_peak": self._quadrature_peak,
         }
         monitor = self.monitor_record()
         if monitor is not None:
-            # Where the driver's record carries its monitor's (`StepDriver.metadata`).
+            # Where the driver's record carries its monitor's (`HostDriver.metadata`).
             record["boundary_monitor"] = monitor
         return record
+
+    def _axis_scan_count(self) -> int:
+        """Return the on-axis row scans this session's statistics made (SEP 19).
+
+        A Radau rule's axis node is read from the node scan the species reduction
+        makes anyway; any other rule scans the axis row itself, which counts here.
+
+        Returns
+        -------
+        int
+            The scans since the session started.
+        """
+        backend = self._backend
+        if backend is None or backend.closed:
+            return self._axis_scans_closed
+        try:
+            scans = int(backend._native_state.axis_scans)  # pyright: ignore[reportPrivateUsage]
+        except RuntimeError:
+            # The state was closed under the session.
+            return self._axis_scans_closed
+        return scans - self._axis_scans
 
     def _sync_calls(self) -> CallLedger | None:
         """Bring the Adams call ledger up to the native march's, and return it.
@@ -1542,6 +1678,7 @@ class NativeSession:
         self._native.close()
         self._exports.clear()
         if self._backend is not None:
+            self._axis_scans_closed = self._axis_scan_count()
             if self._owns:
                 self._backend.close()
             self._backend = None
@@ -2039,6 +2176,152 @@ class NativeSession:
         return RuntimeError(event.message or "the native session failed")
 
 
+class _NativeRungeKuttaMarch:
+    """The Runge-Kutta march's policy for the native state (solprop SEP 45 phase 3).
+
+    The adaptive loop -- the landing candidate, the trial on the staged rows, the
+    equivalent norm and acceptance, the start-up rule, the next proposal or the
+    rejection's, and the boundary checks -- runs natively in the session from one
+    policy record (the kernel contract's section 12), which this hands the native
+    state once.
+
+    Parameters
+    ----------
+    backend : NativeBackend
+        The backend whose native state steps the march; a scripted harness stands in
+        for it in the decision-trace tests.
+    """
+
+    def __init__(self, backend: Any) -> None:
+        """Hold the backend; nothing is configured yet."""
+        self._driver: Any = backend
+
+    def _policy(self, interval: float | None = None) -> dict[str, object]:
+        """Return the run's controller and landing record (kernel contract 12).
+
+        Parameters
+        ----------
+        interval : float or None, optional
+            A resting collar's quiet interval, m; ``None`` for a session, whose
+            native monitor holds its own.
+
+        Returns
+        -------
+        dict
+            The record the native march reads.
+        """
+        backend = self._driver
+        stepper = backend._stepper
+        controller = stepper.controller
+        breakpoints = np.asarray(backend._problem.linear.phi_breakpoints, np.float64)
+        if not stepper.interval_cap:
+            breakpoints = breakpoints[[0, -1]]
+        return {
+            "dz_min": float(stepper.dz_min),
+            "dz_max": float(stepper.dz_max),
+            "stretch": float(stepper.stretch),
+            "z_end": float(stepper.z_end),
+            # Interpolated planes are stepped across (SEP 14 section 4.3).
+            "save_planes": []
+            if stepper.interpolate_planes
+            else [float(z) for z in stepper.save_planes],
+            "interpolate": bool(stepper.interpolate_planes),
+            "hard_kinks": [float(z) for z in backend._problem.linear.hard_kinks],
+            "breakpoints": [float(z) for z in breakpoints],
+            "landing_ulps": LANDING_ULPS,
+            "quiet_interval": interval,
+            "safety": float(controller.safety),
+            "beta1": float(controller.beta1),
+            "beta2": float(controller.beta2),
+            "min_factor": float(controller.min_factor),
+            "max_factor": float(controller.max_factor),
+            "lag": int(controller.lag),
+            "reject_free": bool(controller.reject_free),
+            "power": float(controller.estimator_order + 1),
+            "exponent": 1.0 / (controller.estimator_order + 1),
+            "start_growth": float(START_GROWTH),
+            "auto_init": bool(stepper.auto_init),
+        }
+
+    def _configure(self) -> None:
+        """Hand the native state the run's policy and a replay's schedule."""
+        backend = self._driver
+        stepper = backend._stepper
+        controller = stepper.controller
+        if controller.weights is not None:
+            backend._rk_weights_ready()
+        schedule = stepper.schedule
+        steps = edges = _NO_SCHEDULE
+        if schedule is not None:
+            steps = np.ascontiguousarray(schedule.steps, dtype=np.float64)
+            edges = np.ascontiguousarray(schedule.edges, dtype=np.float64)
+        backend._native_state.rk_march_configure(
+            self._policy(),
+            list(backend._rk_nodes),
+            float(controller.rtol),
+            float(controller.atol),
+            steps,
+            edges,
+        )
+
+
+def _raise_rk(
+    reason: int,
+    result: Mapping[str, Any],
+    *,
+    name: str,
+    dz_min: float,
+    at: tuple[float, int],
+    n_steps: int,
+) -> None:
+    """Raise the error a native Runge-Kutta march returned with, if any.
+
+    Parameters
+    ----------
+    reason : int
+        The call's return reason.
+    result : collections.abc.Mapping
+        Its result: the diverged replay's step and norm, the floor's proposal, or a
+        native error's message and category.
+    name : str
+        The backend's name, for a diverged replay's message.
+    dz_min : float
+        The step floor, m.
+    at : tuple of float and int
+        The position, m, and the replay's cursor the diverged step started from.
+    n_steps : int
+        The replayed schedule's steps.
+
+    Raises
+    ------
+    solprop.exceptions.ConvergenceError
+        For a diverged replay, the step floor or a native convergence failure.
+    """
+    if reason == _DIVERGED:
+        z, cursor = at
+        dz, norm = float(result["replay_dz"]), float(result["replay_norm"])
+        msg = (
+            f"{name}: replayed step {cursor + 1} of {n_steps}, {dz:.4g} m from "
+            f"z = {z:.6g} m, has a non-finite error norm ({norm!r}): the field has "
+            "diverged. A replayed schedule takes its steps as given and cannot "
+            "reject one, so a step beyond an explicit stability limit -- the "
+            "in-stage temporal collar's or a coupled flow's advisory step -- grows "
+            "until it overflows; the translation refuses a declared step past the "
+            "collar's limit and warns on one past the flow's. Take shorter steps, or "
+            "let the controller choose them"
+        )
+        raise ConvergenceError(msg)
+    if reason == _FLOOR:
+        proposed = float(result["floor_proposal"])
+        msg = (
+            f"step control asked for {proposed:.3e} m, below the floor dz_min ="
+            f" {dz_min:.3e} m; the tolerance cannot be met here"
+        )
+        raise ConvergenceError(msg)
+    if reason == _ERROR:
+        _raise_native(result)
+
+
 class NativePrepared:
     """The native backend's prepared execution (SEP 47 section 5.2).
 
@@ -2093,6 +2376,15 @@ class NativePrepared:
         if refused is not None:
             msg = f"native cannot prepare this run: native refuses {refused}"
             raise BackendError(msg)
+        if problem.transform.modal_tables is not None:
+            # The general route's unit-weight statistics under a weight that is not
+            # the constant one would be silently wrong (`weight_refusal_for`); the
+            # route certifies the constant weight, so this guards a later loosening.
+            weight = power_weight_at(problem, float(problem.initial.z))
+            refused = weight_refusal_for((*stats.names, *stats.periodic), weight)
+            if refused is not None:
+                msg = f"native cannot prepare this run: {refused}"
+                raise BackendError(msg)
         self._backend = driver
         self._problem = problem
         self._request = request

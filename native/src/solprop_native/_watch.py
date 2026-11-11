@@ -24,9 +24,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
-from solprop.backends.driver import (
-    _split_crossing_message,  # pyright: ignore[reportPrivateUsage] - one text
-)
 from solprop.exceptions import BackendError, BoundaryError
 from solprop.monitor import (
     _FLOOR,  # pyright: ignore[reportPrivateUsage] - the module's constant
@@ -276,7 +273,7 @@ def monitor_config(
 
     The predictions' policy is the monitor's own (:meth:`BoundaryMonitor.watch_policy`)
     with the split collar's crossing limit the driver would give it
-    (``StepDriver.attach_monitor``).
+    (``HostDriver.attach_monitor``).
 
     Parameters
     ----------
@@ -286,7 +283,7 @@ def monitor_config(
         The split collar's crossing limit (the problem's, under the split scheme).
     can_rest : bool
         Whether the route's stages may leave a quiet collar out
-        (``StepDriver._collar_can_rest``).
+        (``HostDriver._collar_can_rest``).
 
     Returns
     -------
@@ -573,3 +570,33 @@ def notice_error(check: BoundaryCheck, notice: Notice) -> BaseException:
     if kind is NoticeKind.DIVISION:
         return _zero_division()
     return BackendError(f"the native session stopped on a {kind.name.lower()} notice")
+
+
+def _split_crossing_message(z: float, cap: float, step: float) -> str:
+    """Return the message of a fixed schedule refused by the split collar's cap.
+
+    The reference's text (``HostDriver._refuse_scheduled_crossing``), for the cap
+    the native session holds (SEP 47 section 6.4).
+
+    Parameters
+    ----------
+    z : float
+        Where the cap was read, m.
+    cap : float
+        The split temporal collar's crossing limit, m.
+    step : float
+        The schedule's longest step before the next check, m.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    return (
+        f"at z = {z:.6e} m the split temporal collar's crossing limit "
+        f"fell to {cap:.3e} m, below the fixed schedule's step {step:.3e} m "
+        "before the next check: light has spread into bins that walk faster "
+        "than the launch's, and a step that long could carry it through the "
+        "collar and round the window undamped. Take shorter steps, step "
+        'adaptively, or use absorber_scheme="nonlinear"'
+    )

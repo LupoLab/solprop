@@ -10,19 +10,14 @@ The stateful control the reference session runs on: the step driver
 low-storage march (:mod:`~solprop.backends.host.low_storage`), the fixed-schedule group
 (:mod:`~solprop.backends.host.group`), the reference's run session
 (:mod:`~solprop.backends.host.session`) and its group session
-(:mod:`~solprop.backends.host.group_session`). The reference shares stateless numerical
-modules with the native bridge -- the controller cores, tableaux, stage tables and the
-exponential coefficients -- and the parts every Python session composes
-(:mod:`solprop.backends.session_core`), and never imports the inherited driver
-(:mod:`solprop.backends.driver`) the native backend still subclasses (SEP 47, the
-maintainer's decision at acceptance on the transition).
-
-**Recorded exceptions**, transitional: the Adams host engine
-:class:`~solprop.backends.multistep.HostHistory`, whose arithmetic the bridge's march
-also calls where native keeps no resident history, and the low-storage host engine
-:class:`~solprop.backends.low_storage.HostLowStorage`, the reference's alone but still
-housed beside the bridge's march. They leave the shared modules when the bridge's
-marches are deleted (SEP 47 phase 5).
+(:mod:`~solprop.backends.host.group_session`). The reference shares only stateless
+numerical modules with the native backend -- the controller cores, tableaux, stage
+tables, the exponential coefficients, the Adams and low-storage host engines
+(:class:`~solprop.backends.multistep.HostHistory`,
+:class:`~solprop.backends.low_storage.HostLowStorage`) and the call ledger -- and the
+parts every Python session composes (:mod:`solprop.backends.session_core`), as the
+maintainer decided at SEP 47's acceptance; the native backend runs in its own session
+and inherits nothing of this package.
 
 The package imports nothing at its top level, so that a backend module can import one
 part without the others.

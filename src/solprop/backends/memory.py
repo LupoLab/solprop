@@ -270,7 +270,7 @@ def low_storage_flows(
 
     The one predicate the engines share (SEP 24 section 4.3): with
     ``propagator_mode="auto"`` resolved for this march as
-    ``StepDriver._propagator_mode`` resolves it on a CPU, a tabulated constant operator
+    ``HostDriver._propagator_mode`` resolves it on a CPU, a tabulated constant operator
     -- every separable one included, whose ``phi_representation`` is ``"separable"`` --
     holds one volume, ``exp(h_t D / 2)``; a tabulated varying operator holds the
     step's ``P`` and ``Q``; recomputing holds none. A native device build resolves

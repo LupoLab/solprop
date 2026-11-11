@@ -18,8 +18,7 @@ The session composes the parts every Python session shares
 (:mod:`solprop.backends.session_core`: the attempt counter, the yield check, the
 snapshot latch, the shared observation and its exports, and the preparation's
 refusals) with the lifecycle ledger (:class:`~solprop.backends.session.SessionLedger`).
-It imports nothing of the inherited driver the native backend still subclasses
-(:mod:`solprop.backends.driver`).
+It imports nothing of the native backend's.
 """
 
 from __future__ import annotations
@@ -89,7 +88,7 @@ if TYPE_CHECKING:
     # destination's shape before the session refuses it.
     from jaxtyping import Complex
 
-    from solprop.backends.protocol import Backend
+    from solprop.backends.protocol import Backend, HostStepping
 
 __all__ = ["HostPrepared", "HostSession"]
 
@@ -190,13 +189,13 @@ class HostSession:
     # -- protocol -------------------------------------------------------------------
 
     @property
-    def driver(self) -> Backend:
+    def driver(self) -> HostStepping:
         """Return the reference backend, whose facts the service loop records.
 
         Returns
         -------
-        solprop.backends.protocol.Backend
-            The backend.
+        solprop.backends.protocol.HostStepping
+            The backend, through the host stepping seam.
         """
         return self._driver
 

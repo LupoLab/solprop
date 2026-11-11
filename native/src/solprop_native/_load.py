@@ -6,9 +6,8 @@
 
 solprop SEP 47 phase 5 makes the native backend a resource holder that a session
 (``solprop_native.session``) or a timing probe (``solprop_native._probe``) loads a start
-into. This module holds the native backend's own forms of what solprop's legacy step
-driver (``solprop.backends.driver.StepDriver``) did for it, written against the problem
-and the request alone:
+into. This module holds what the backend does on the host for a run, written against
+the problem and the request alone:
 
 - :func:`load`: a start's field, noise realisation, position and replay cursor, as the
   native state is loaded with them. The ``input`` noise model adds its draw at the
@@ -20,8 +19,9 @@ and the request alone:
 - :func:`collar_rests` and :func:`propagator_mode`: the run's quiet-collar rule (SEP 21
   D15) and its flow treatment (SEP 24 section 4.3).
 
-Every function is the driver's arithmetic, operation for operation, so a run loaded here
-is bitwise the run the driver loaded.
+Each is the reference's arithmetic (``solprop.backends.host.driver.HostDriver``),
+operation for operation, as the step driver the native backend inherited until SEP 47
+phase 5 had it; its runs are bitwise those of that driver.
 """
 
 from __future__ import annotations
@@ -33,10 +33,10 @@ from collections.abc import Sequence
 import numpy as np
 import numpy.typing as npt
 from solprop._helpers import Helpers
-from solprop.backends.driver import replay_tolerance
 from solprop.exceptions import BackendError
 from solprop.noise import NoiseRealisation
 from solprop.stepper.low_storage import LowStorageRungeKutta
+from solprop.stepper.schedule import replay_tolerance
 from solprop.translate.masks import noise_spectrum
 from solprop.translate.problem import (
     PropagationProblem,

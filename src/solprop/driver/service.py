@@ -45,7 +45,7 @@ from solprop.backends.events import (
 )
 from solprop.backends.export import ExportRecipe
 from solprop.backends.host.session import HostSession
-from solprop.backends.protocol import Backend, BackendHistory
+from solprop.backends.protocol import BackendHistory, HostStepping
 from solprop.backends.protocol import StepStats as BackendRows
 from solprop.backends.session import RunSession
 from solprop.driver.plane_view import PlaneWatch
@@ -1087,7 +1087,7 @@ def _fallback_ticket(session: RunSession) -> ExportTicket | None:
     return session.pending_ticket()
 
 
-def _facts(session: RunSession) -> Backend | SessionFacts:
+def _facts(session: RunSession) -> HostStepping | SessionFacts:
     """Return what the service loop's records read as the session's backend.
 
     The reference session's driver, or a session's own facts

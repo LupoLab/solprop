@@ -19,10 +19,12 @@ contract and its conventions; where both apply, follow the stricter rule.
   extra.
 - The public names are `NativeBackend`, the frozen `BuildInfo`,
   `build_info`, `check_build`, `__version__`, and the contract tuples
-  `DRIVER_SURFACE`, `LINEAR_OPERATOR_FIELDS`, `TRANSFORM_FIELDS`, `RESPONSE_FIELDS`,
+  `LINEAR_OPERATOR_FIELDS`, `TRANSFORM_FIELDS`, `RESPONSE_FIELDS`,
   `SEPARABLE_OPERATOR_FIELDS`, `STAGE_TERMS_FIELDS`, `STAGE_SCALARS_FIELDS`,
   `MODAL_TABLES_FIELDS`, `REGIONAL_RESPONSE_FIELDS`, `COUPLED_FLOW_FIELDS`,
-  `DISPERSIVE_KERR_FIELDS`, `MARCH_POLICY_FIELDS` and `ADAMS_MARCH_SURFACE`. The
+  `DISPERSIVE_KERR_FIELDS`, `MARCH_POLICY_FIELDS`, `PROBLEM_FIELDS`, `REQUEST_FIELDS`,
+  `REQUEST_SECTION_FIELDS`, `ROUTE_FIELDS`, `WATCH_POLICY_FIELDS` and
+  `WATCH_STATE_FIELDS`. The
   compiled `_core` module and the C++ API are private.
 - The layers are solprop -> Python backend adapter -> nanobind seam -> a Python-free
   C++20 core. Native code never imports Python or solprop concepts and never owns
@@ -161,11 +163,10 @@ the gate.
 
 ## Python and nanobind seam
 
-- The contract with solprop is its kernel contract plus the `StepDriver` members and
-  bundle fields listed in the contract tuples. The `StepDriver` members serve only the
-  legacy direct API, which SEP 47 phase 5 removes: a session's load, the Adams record and
-  the timing probe are the backend's own (`_load.py`, `_probe.py`) and call no driver
-  member. `check_build()` refuses a missing member
+- The contract with solprop is its kernel contract plus the descriptor and bundle
+  fields listed in the contract tuples. The backend inherits no solprop driver: a run is
+  its native session (`session.py`), and the load, the Adams record and the timing probe
+  are its own (`_load.py`, `backend.py`, `_probe.py`). `check_build()` refuses a missing member
   by name and, in an editable checkout, an extension built from other sources than
   `native/` (`build_info().source_digest`; `cmake/SourceDigest.cmake` and
   `_source_digest` compute it, and stay in step). It records solprop's version without

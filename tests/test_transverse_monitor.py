@@ -20,7 +20,6 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from solprop.backends import driver as bridge
 from solprop.backends.host import driver as host
 from solprop.backends.registry import available
 from solprop.boundaries import SpatialAbsorber, SpatialAbsorberDesign
@@ -340,9 +339,9 @@ def test_a_resume_restores_a_collars_totals_and_continues_its_current() -> None:
     )
 
 
-@pytest.mark.parametrize("module", [host, bridge], ids=["host", "bridge"])
+@pytest.mark.parametrize("module", ["host", "native"])
 def test_the_clean_launch_columns_are_the_masked_launch_less_its_noise(
-    module: ModuleType,
+    module: str,
 ) -> None:
     # They stand in for `mask(field + noise) - noise`, which on a device would mean a
     # copy of the state. The two differ only by the rounding of adding and subtracting
@@ -354,7 +353,10 @@ def test_the_clean_launch_columns_are_the_masked_launch_less_its_noise(
     active = np.ones(16, dtype=bool)
     active[:3] = False
     expected = np.sum(np.abs(active * (field + noise) - noise) ** 2, axis=(1, 2))
-    found = module._clean_launch_columns(field, noise, active)
+    owner: ModuleType = (
+        host if module == "host" else pytest.importorskip("solprop_native._load")
+    )
+    found = owner._clean_launch_columns(field, noise, active)
     np.testing.assert_allclose(found, expected, rtol=1e-13)
 
 

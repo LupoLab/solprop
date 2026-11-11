@@ -155,7 +155,7 @@ struct Plan {
   std::vector<double> weight;
   RealTable weight_table;
   // The on-axis synthesis at the reference position, rows times modes, which the
-  // taper rescales (`StepDriver._on_axis_synthesis`), and the taper's table.
+  // taper rescales (`HostDriver._on_axis_synthesis`), and the taper's table.
   std::vector<double> on_axis;
   RealTable taper;
   // The on-axis plasma statistics (solprop SEP 19): the pad scale their row carries

@@ -24,7 +24,7 @@ from bounds import AccuracyEnvelope, assert_within, fft_bound, gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.protocol import BackendHistory, Observation
+from solprop.backends.protocol import BackendHistory, Observation, stepping
 from solprop.backends.registry import available, select
 from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings
@@ -457,9 +457,9 @@ def test_a_field_free_observation_crosses_no_field(monkeypatch):
 
         monkeypatch.setattr(type(owner), "_observed_field", counted)
         try:
-            owner.set_initial(problem.initial.field0, None)
-            owner.propagate_to(float(PLANES[0]))
-            observations.append(owner.observe(field=field))
+            stepping(owner).set_initial(problem.initial.field0, None)
+            stepping(owner).propagate_to(float(PLANES[0]))
+            observations.append(stepping(owner).observe(field=field))
         finally:
             owner.close()
             monkeypatch.undo()

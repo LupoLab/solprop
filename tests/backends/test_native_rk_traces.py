@@ -25,12 +25,12 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
-from tests.backends.rk_traces import Scenario, _Harness, same_trace
+from tests.backends.native_trace_marches import TraceRungeKuttaMarch
+from tests.backends.rk_traces import Scenario, _HostHarness, same_trace
 
 from solprop.backends import available
-from solprop.backends.driver import reached
 from solprop.exceptions import BackendError, ConvergenceError
-from solprop.stepper.schedule import FixedSchedule
+from solprop.stepper.schedule import FixedSchedule, reached
 
 pytestmark = pytest.mark.skipif(
     "native" not in available(), reason="native is not installed"
@@ -54,7 +54,7 @@ class _Progress:
         pass
 
 
-class _NativeHarness(_Harness):
+class _NativeHarness(_HostHarness):
     """The corpus's stub backend with the driver hooks the native adapter calls."""
 
     def __init__(self, scenario: Scenario, runner: Any) -> None:
@@ -105,8 +105,7 @@ class _NativeHarness(_Harness):
 
 
 def _policy_free(harness: _NativeHarness) -> dict[str, object]:
-    march = backend_module._NativeRungeKuttaMarch(harness)
-    return march._policy()
+    return TraceRungeKuttaMarch(harness)._policy()
 
 
 def run_native(scenario: Scenario, max_attempts: int) -> dict[str, Any]:
@@ -125,7 +124,7 @@ def run_native(scenario: Scenario, max_attempts: int) -> dict[str, Any]:
         edges = np.ascontiguousarray(schedule.edges, dtype=np.float64)
     runner = core.ScriptedRkMarch(policy, norms, scenario.h0 or 0.0, steps, edges)
     harness = _NativeHarness(scenario, runner)
-    march = backend_module._NativeRungeKuttaMarch(harness, runner=runner)
+    march = TraceRungeKuttaMarch(harness, runner=runner)
     march.MAX_ATTEMPTS = max_attempts
     targets = (
         list(scenario.targets)
