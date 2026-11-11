@@ -30,7 +30,11 @@ import numpy as np
 from scipy.interpolate import CubicSpline
 
 from solprop import fourier
+from solprop.backends.events import ObservationReady
+from solprop.backends.export import ExportRecipe
 from solprop.backends.registry import select
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
@@ -40,6 +44,7 @@ from solprop.physdata import Gas
 from solprop.physdata.glasses import GlassIndex
 from solprop.physdata.sellmeier import PoleSumSusceptibility, ReferenceState
 from solprop.spatial import SpatialMedium
+from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 
 # The test-only rate oracle lives beside the tests; a standalone run reaches it here.
@@ -61,6 +66,9 @@ ARGON = PoleSumSusceptibility(
 """Luna's argon law, supplied as a caller's own data (solprop has none of its own)."""
 
 EPS = np.finfo(float).eps
+
+STATE = ExportRecipe(power=False, optics=False)
+"""The state as the session holds it, in the FFT convention, as the planes are read."""
 # Pin provenance when this module is loaded: another task may commit documentation
 # while a long comparison queue is still executing this already-loaded code.
 SOURCE_COMMIT = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
@@ -401,26 +409,43 @@ def compare_observables(ours, theirs):
     }
 
 
-def advance(backend, simulation, file, geometry, artifact, result):
-    """Stream saved planes into compact observable records."""
+def advance(session, simulation, file, geometry, artifact, result):
+    """Stream the run's session's planes into compact observable records.
+
+    The launch plane and every saved plane of the file, in order: the session observes
+    each, and its field is exported as the state the session holds.
+    """
     ours, theirs, summaries = [], [], []
     propagation_seconds, reduction_seconds = 0.0, 0.0
-    for index, z in enumerate(file["z"][()]):
-        if index:
-            tick = time.perf_counter()
-            summary = backend.propagate_to(float(z))
-            propagation_seconds += time.perf_counter() - tick
-            summaries.append(asdict(summary))
+    positions = file["z"][()]
+    index = 0
+    batch = None
+    while not session.finished:
         tick = time.perf_counter()
-        state = backend.observe().require_field()
-        ours.append(observables(simulation, state))
-        theirs.append(observables(simulation, stored_plane(file, index, geometry)))
-        reduction_seconds += time.perf_counter() - tick
-        if index == 0 or index % 25 == 0 or index == len(file["z"]) - 1:
-            emit(
-                f"{artifact.stem}: plane {index}/{len(file['z']) - 1}, z={z:g}, "
-                f"propagation={propagation_seconds:.3f}s"
-            )
+        batch = session.advance()
+        propagation_seconds += time.perf_counter() - tick
+        for event in batch.events:
+            if not isinstance(event, ObservationReady):
+                continue
+            assert event.z == float(positions[index]), (event.z, positions[index])
+            if index:
+                summaries.append(asdict(event.summary))
+            tick = time.perf_counter()
+            state = np.asarray(session.export(event.ticket, STATE))
+            ours.append(observables(simulation, state))
+            theirs.append(observables(simulation, stored_plane(file, index, geometry)))
+            reduction_seconds += time.perf_counter() - tick
+            if index == 0 or index % 25 == 0 or index == len(positions) - 1:
+                emit(
+                    f"{artifact.stem}: plane {index}/{len(positions) - 1}, "
+                    f"z={event.z:g}, propagation={propagation_seconds:.3f}s"
+                )
+            index += 1
+        session.acknowledge(batch.receipt)
+    terminal = None if batch is None else batch.terminal
+    if terminal is not None and terminal.error is not None:
+        raise terminal.error
+    assert index == len(positions)
     keys = ("spectrum", "mode_energy", "axis_peak")
     ours = {key: np.stack([one[i] for one in ours]) for i, key in enumerate(keys)}
     theirs = {key: np.stack([one[i] for one in theirs]) for i, key in enumerate(keys)}
@@ -494,16 +519,26 @@ def run_one(path, media_path, backend_name, rtol, destination, prefactor_index=N
                     modes=simulation.modes,
                 )
                 result["memory_ledger"] = backend.memory_ledger()
-                backend.set_initial(problem.initial.field0, None)
-                result["setup_seconds"] = time.perf_counter() - started
-                advance(
+                # The run's session (SEP 47 phase 5); the backend is closed below.
+                session = start_session(
                     backend,
-                    simulation,
-                    file,
-                    geometry,
-                    destination / f"{label}.npz",
-                    result,
+                    problem,
+                    run_request.for_run(stats=StatsSpec()),
+                    Start.entrance(problem),
+                    owns=False,
                 )
+                result["setup_seconds"] = time.perf_counter() - started
+                try:
+                    advance(
+                        session,
+                        simulation,
+                        file,
+                        geometry,
+                        destination / f"{label}.npz",
+                        result,
+                    )
+                finally:
+                    session.close()
         except Exception as error:
             result.update(
                 status="failed", error=str(error), traceback=traceback.format_exc()

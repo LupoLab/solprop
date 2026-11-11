@@ -567,18 +567,33 @@ def test_the_profile_statistics_read_tables_with_a_recorded_error(radius):
 def test_a_native_plan_refusal_is_the_reference_s_exception():
     """A position outside the plasma tables: native refuses as the reference's table
     does, with the solprop exception the reference raises. A state cannot be loaded
-    there, so the backend's position is moved past the tables directly."""
+    there, so the native state evaluates the lowered plan there directly, and its
+    refusal is translated as a session's is."""
     grid, problem, run_request, modes, _ = _capillary()
     far = 100.0 * float(run_request.stepper.z_end)
     channel = problem.responses.population_channels[0]
     with pytest.raises(SolpropError) as reference:
         channel.density(far)
+    spec = StatsSpec(names=("electron_density",))
+    lowering = native_statistics.lower(
+        problem,
+        spec,
+        spec.names,
+        grid=grid,
+        modes=modes,
+        z_end=float(run_request.stepper.z_end),
+    )
+    assert lowering.plan is not None
     backend = select("native", problem, run_request, grid=grid, modes=modes)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend._z = far  # pyright: ignore[reportAttributeAccessIssue]
+        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
+        launch = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
+        state.set_initial(launch.reshape(-1), np.empty(0, dtype=np.complex128))
         with pytest.raises(SolpropError) as caught:
-            backend.stats(StatsSpec(names=("electron_density",)))
+            try:
+                state.planned_statistics(lowering.plan, far)
+            except (ValueError, IndexError, RuntimeError) as error:
+                raise native_statistics.translated(error) from error
     finally:
         backend.close()
     assert type(caught.value) is type(reference.value) is TranslationError
@@ -844,11 +859,13 @@ def _host_widths(problem, run_request, grid, record, monkeypatch):
     assert geometry is not None
     plane = geometry.kind == "free" and geometry.axes[1].size > 1
     n_terms = problem.shape[1] * problem.grids.n_t + problem.transform.n_modes
+    assert problem.initial.noise0 is None
     backend = select("native", problem, run_request, grid=grid)
-    start = float(problem.initial.z)
     try:
-        backend.set_initial(record.field, None, z=record.z, resume=record.z > start)
+        # The record's exported state, loaded into the native state itself.
         state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
+        field = np.ascontiguousarray(record.field, dtype=np.complex128)
+        state.set_initial(field.reshape(-1), np.empty(0, dtype=np.complex128))
         packed = np.ravel(
             state.spatial_statistics(32 if plane else 16, 0.5 * EPS0 * C, record.z)
         )
@@ -1034,9 +1051,6 @@ def test_a_varying_metric_s_statistics_are_refused_by_native_before_allocation()
     try:
         with pytest.raises(BackendError, match=refused):
             backend.prepare(problem, request)
-        backend.set_initial(problem.initial.field0, None)
-        with pytest.raises(BackendError, match=refused):
-            backend.stats(spec)
         # The channels' zero-dispersion wavelength weighs no metric.
         assert native_statistics.metric_refusal(problem, ("zdw",)) is None
     finally:

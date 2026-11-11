@@ -24,6 +24,7 @@ one thread.
 """
 
 import dataclasses
+import math
 import os
 import weakref
 from typing import Any
@@ -31,6 +32,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from _session_probe_rest import bare, final_field, run_session, to_planes
 from driver.test_coherent_capillary import GRID, STEPS, WEAK_COLLAR
 from driver.test_native_coupled_flow import (
     ENERGY,
@@ -51,11 +53,13 @@ from flow_parity import (
     ten_step_bound,
 )
 from sessions.executors import IDENTITY, Started, drive, entrance
-from solprop.backends.events import Outcome
+from solprop.backends.events import ObservationReady, Outcome
 from solprop.backends.exponential import carrier_reference
 from solprop.backends.multistep import CoupledBlock, coupled_moments, trial_tables
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.driver import Simulation
 from solprop.exceptions import (
     BackendError,
@@ -180,7 +184,7 @@ def test_a_wide_flow_takes_the_resident_engine_and_the_session(cases, modes):
     assert native_session.refusal(problem, request) is None
     backend = NativeBackend(problem, request, grid=case.grid)
     try:
-        assert type(backend._adams._engine).__name__ == "_ResidentAdams"
+        assert type(backend._resident).__name__ == "_ResidentAdams"
         # A CPU build's host passes' channel rows: one per bin, nine samples of every
         # channel; a device's passes hold none.
         if not DEVICE:
@@ -360,7 +364,7 @@ def test_bins_off_the_route_are_the_reference_s(
     _assert_routed(problem, route)
     backend = NativeBackend(problem, request, grid=grid)
     try:
-        assert type(backend._adams._engine).__name__ == "_ResidentAdams"
+        assert type(backend._resident).__name__ == "_ResidentAdams"
     finally:
         backend.close()
     resident = run(NativeBackend, problem, request, grid)
@@ -784,38 +788,55 @@ def test_a_wide_flow_off_the_route(cases, monkeypatch):
 
 def _round_trip(simulation, problem, middle, end):
     """Return a run's state at `end`, and the same run snapshotted at `middle`,
-    restored into a fresh backend and continued to `end`."""
-    request = simulation._run_request()
+    restored into a fresh backend's session and continued to `end`.
+
+    Each run is a native session over a fixed schedule with planes at `middle` and
+    `end`, both edges of it, so the planes take no step of their own.
+    """
+    request = to_planes(simulation._run_request(), [middle, end])
     context = {
         "grid": simulation.grid,
         "modes": simulation.modes,
         "profiles": simulation.profiles,
     }
-    whole = NativeBackend(problem, request, **context)
-    try:
-        whole.set_initial(problem.initial.field0, None)
-        whole.propagate_to(end)
-        uninterrupted = whole.observe().require_field().copy()
-    finally:
-        whole.close()
+    uninterrupted = final_field(
+        NativeBackend(problem, request, **context), problem, request
+    )
     first = NativeBackend(problem, request, **context)
-    try:
-        assert type(first._adams._engine).__name__ == "_ResidentAdams"
-        first.set_initial(problem.initial.field0, None)
-        first.propagate_to(middle)
-        stored = first.march_snapshot()
-    finally:
-        first.close()
+    assert type(first._resident).__name__ == "_ResidentAdams"
+    taken = []
+
+    def take(session, batch) -> None:
+        for event in batch.events:
+            if isinstance(event, ObservationReady) and event.plane_index == 0:
+                taken.append(session.march_snapshot(event.ticket))
+
+    run_session(first, problem, bare(request), between=take)
+    [stored] = taken
     assert stored is not None and len(stored.identities) >= 2
-    second = NativeBackend(problem, request, **context)
+    assert math.isclose(stored.z, middle, rel_tol=1e-12)
+    second: Any = start_session(
+        NativeBackend(problem, request, **context),
+        problem,
+        bare(request),
+        Start(
+            field=np.array(stored.state),
+            z=stored.z,
+            plane_index=1,
+            plane_pending=False,
+            resume=True,
+            march=stored,
+        ),
+    )
     try:
-        second.set_initial(problem.initial.field0, None, z=stored.z)
-        assert second.restore_march(stored) is None
-        second.propagate_to(end)
-        resumed = second.observe().require_field().copy()
+        assert isinstance(second, native_session.NativeSession)
+        assert second.march_refusal is None
+        resumed = drive(Started(second), export=IDENTITY)
     finally:
         second.close()
-    return uninterrupted, resumed
+    (last, *_) = reversed(resumed.observations)
+    assert math.isclose(last.z, end, rel_tol=1e-12)
+    return uninterrupted, resumed.fields[-1]
 
 
 @pytest.mark.medium

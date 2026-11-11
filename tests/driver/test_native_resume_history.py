@@ -22,6 +22,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from _session_probe_rest import Snapshots, bare, run_session, to_planes
 from driver.test_resume import LENGTH, N_SAVE, run_until
 from driver.test_resume_history import (
     AFRESH,
@@ -35,7 +36,11 @@ from driver.test_resume_history import (
 from driver.test_specified_paths import GRID, PULSE, linear_walkoff
 from driver.test_specified_paths import LENGTH as MOVING_LENGTH
 from march_bounds import TIGHTER
+from sessions.executors import IDENTITY, Started, drive, one_thread
+from solprop.backends.events import ObservationReady
 from solprop.backends.registry import available, select
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.driver import Simulation
 from solprop.exceptions import SolpropWarning
 from solprop.grid import EnvelopeGrid
@@ -136,11 +141,16 @@ def quiet(test):
     return test
 
 
-def opened(simulation, backend):
-    """Return the translated problem and `backend` built for it, at the entrance."""
+def opened(simulation, backend, planes=None):
+    """Return the translated problem, a request and `backend` built for it.
+
+    The request observes no statistics (:func:`_session_probe_rest.bare`); `planes`
+    replaces its save planes, a run that ends at the last of them.
+    """
     problem = simulation.translate()
     run_request = simulation._run_request()
-    # A step driver that is also a closable backend: no one static type names both.
+    if planes is not None:
+        run_request = to_planes(run_request, planes)
     built: Any = select(
         backend,
         problem,
@@ -149,8 +159,54 @@ def opened(simulation, backend):
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
-    built.set_initial(problem.initial.field0, None, z=problem.initial.z)
-    return problem, built
+    return problem, bare(run_request), built
+
+
+def resumed_at(stored: MarchSnapshot, request, *, pending: bool = True) -> Start:
+    """Return a resume at a snapshot's plane that carries its history.
+
+    With `pending`, the plane at the snapshot is owed, so the session observes it
+    before any step and the history it installed can be read there.
+    """
+    index = int(np.searchsorted(request.observation.save_planes, stored.z, "right"))
+    return Start(
+        field=np.array(stored.state),
+        z=stored.z,
+        plane_index=index,
+        plane_pending=pending,
+        resume=True,
+        march=stored,
+    )
+
+
+def started(*args: Any, **keywords: Any) -> Any:
+    """Start a run's session (:func:`~solprop.backends.sessions.start_session`).
+
+    Typed loosely: the tests read the session's ``march_refusal``, which the native
+    and the reference sessions both state beyond the protocol.
+    """
+    return start_session(*args, **keywords)
+
+
+def pending_snapshot(session) -> MarchSnapshot | None:
+    """Advance a session to its first observation; return the history it holds there.
+
+    The batch stays pending; the caller closes the session.
+    """
+    while True:
+        batch = session.advance()
+        for event in batch.events:
+            if isinstance(event, ObservationReady):
+                return session.march_snapshot(event.ticket)
+        session.acknowledge(batch.receipt)
+
+
+def startups(session) -> int:
+    """Return the startup samples a session's march took, which only a (re)started
+    history takes; a resume that carries no ledger counts from zero."""
+    record = session.execution_record()["response_calls"]
+    assert isinstance(record, dict)
+    return int(record["startup"])
 
 
 def assert_same_snapshot(found: MarchSnapshot | None, stored: MarchSnapshot) -> None:
@@ -173,32 +229,18 @@ def assert_same_snapshot(found: MarchSnapshot | None, stored: MarchSnapshot) -> 
         assert np.array_equal(found.rows[name], row), name
 
 
-def counted_starts(backend):
-    """Count the startup samples, which only a (re)started history takes.
-
-    The march charges each to its ledger before the engine evaluates it, so the count
-    holds on the native march, which calls its engine natively, as on the host one; a
-    restored history does not carry the ledger, so the count starts here.
-    """
-    before = backend._adams.ledger.startup
-    return lambda: backend._adams.ledger.startup - before
-
-
 @quiet
 @pytest.mark.parametrize("case", CASE_PARAMS)
 def test_the_resident_history_is_restored_exactly_and_continued(build_simulation, case):
     simulation = CASES[case](build_simulation, "native")()
-    problem, first = opened(simulation, "native")
-    planes = [float(z) for z in simulation._run_request().stepper.save_planes]
-    try:
-        engine = first._adams._engine
-        assert type(engine).__name__ == "_ResidentAdams"
-        # The engine's own layout keeps a leading axis of one after the row axis.
-        shape = (engine.n_slots, 1, *problem.shape)
-        first.propagate_to(planes[0])
-        stored = first.march_snapshot()
-    finally:
-        first.close()
+    problem, request, first = opened(simulation, "native")
+    engine = first._resident
+    assert type(engine).__name__ == "_ResidentAdams"
+    # The engine's own layout keeps a leading axis of one after the row axis.
+    shape = (engine.n_slots, 1, *problem.shape)
+    whole = Snapshots()
+    baseline = run_session(first, problem, request, between=whole)
+    stored = whole.at_plane(0)
     # Once the history has formed, the snapshot holds it.
     assert stored is not None
     assert len(stored.identities) >= 2
@@ -206,36 +248,61 @@ def test_the_resident_history_is_restored_exactly_and_continued(build_simulation
     for row in stored.rows.values():
         assert row.shape == shape and row.dtype == np.complex128
     assert np.any(stored.rows["store"][stored.slots] != 0)
-    _, second = opened(simulation, "native")
+    _, _, second = opened(simulation, "native")
+    session = started(second, problem, request, resumed_at(stored, request))
+    taken = Snapshots()
     try:
-        second.set_initial(problem.initial.field0, None, z=stored.z)
-        starts = counted_starts(second)
-        assert second.restore_march(stored) is None
-        assert_same_snapshot(second.march_snapshot(), stored)
-        second.propagate_to(planes[1])
+        assert session.march_refusal is None
+        run = drive(Started(session), export=IDENTITY, between=taken)
         # The restored history was continued: no startup sample was evaluated.
-        assert starts() == 0
-        assert np.all(np.isfinite(second._adams_state()))
+        assert startups(session) == 0
     finally:
-        second.close()
+        session.close()
+    # Installed losslessly: the history at the resumed plane, before any step, is
+    # the stored one exactly.
+    restored = taken.taken[0][1]
+    assert taken.taken[0][0].z == stored.z
+    assert_same_snapshot(restored, stored)
+    assert all(np.all(np.isfinite(field)) for field in run.fields)
+    if not one_thread():
+        return
+    # On one thread the continued march is the uninterrupted one: each later plane's
+    # field and history to the bit.
+    later = [
+        (event, field, snapshot)
+        for (event, field), (_, snapshot) in zip(
+            zip(baseline.observations, baseline.fields, strict=True),
+            whole.taken,
+            strict=True,
+        )
+        if event.z > stored.z
+    ]
+    resumed = list(zip(run.observations, run.fields, strict=True))[1:]
+    assert [event.z for event, _ in resumed] == [event.z for event, _, _ in later]
+    for (_, field), (_, expected, snapshot), (_, found) in zip(
+        resumed, later, taken.taken[1:], strict=True
+    ):
+        assert field.tobytes() == expected.tobytes()
+        assert snapshot is not None
+        assert_same_snapshot(found, snapshot)
 
 
 @quiet
 @pytest.mark.parametrize("case", ["compensated", "coupled"])
 def test_a_resume_without_the_snapshot_restarts_the_history(build_simulation, case):
-    # The witness above is a real one: the same backend without the snapshot does
-    # evaluate the startup sample.
+    # The witness above is a real one: the same run without the snapshot does
+    # evaluate the startup sample, once, on its way to the first plane.
     simulation = CASES[case](build_simulation, "native")()
-    _, backend = opened(simulation, "native")
+    first = float(simulation._run_request().stepper.save_planes[0])
+    problem, request, backend = opened(simulation, "native", planes=[first])
+    session = started(backend, problem, request, Start.entrance(problem))
     try:
-        starts = counted_starts(backend)
-        backend.propagate_to(float(simulation._run_request().stepper.save_planes[0]))
-        assert starts() == 1
+        drive(Started(session))
+        assert startups(session) == 1
     finally:
-        backend.close()
+        session.close()
 
 
-@quiet
 @pytest.mark.medium
 @pytest.mark.parametrize("case", CASE_PARAMS)
 def test_a_resumed_native_run_is_the_uninterrupted_one(
@@ -297,16 +364,17 @@ def test_a_native_run_stopped_between_planes_continues_from_its_checkpoint(
 def assert_frozen_residual_history_refused(build_simulation, taken, resumed, message):
     """Assert the coupled case's snapshot from `taken` is refused on `resumed`."""
     stored = snapshot_at_first_plane(CASES["coupled"](build_simulation, taken)())
-    problem, backend = opened(CASES["coupled"](build_simulation, resumed)(), resumed)
+    simulation = CASES["coupled"](build_simulation, resumed)()
+    problem, request, backend = opened(simulation, resumed)
+    session = started(backend, problem, request, resumed_at(stored, request))
     try:
-        backend.set_initial(problem.initial.field0, None, z=stored.z)
-        reason = backend.restore_march(stored)
+        reason = session.march_refusal
         assert reason is not None
         assert message in reason
         # Nothing was installed: the march still has no history to export.
-        assert backend.march_snapshot() is None
+        assert pending_snapshot(session) is None
     finally:
-        backend.close()
+        session.close()
 
 
 @quiet
@@ -328,13 +396,14 @@ def test_a_frozen_residual_history_does_not_cross_engines(
 def assert_same_rows_cross(build_simulation, taken, resumed, case):
     """Assert a `case` snapshot from `taken` is restored whole on `resumed`."""
     stored = snapshot_at_first_plane(CASES[case](build_simulation, taken)())
-    problem, backend = opened(CASES[case](build_simulation, resumed)(), resumed)
+    simulation = CASES[case](build_simulation, resumed)()
+    problem, request, backend = opened(simulation, resumed)
+    session = started(backend, problem, request, resumed_at(stored, request))
     try:
-        backend.set_initial(problem.initial.field0, None, z=stored.z)
-        assert backend.restore_march(stored) is None
-        assert_same_snapshot(backend.march_snapshot(), stored)
+        assert session.march_refusal is None
+        assert_same_snapshot(pending_snapshot(session), stored)
     finally:
-        backend.close()
+        session.close()
 
 
 @quiet
@@ -351,13 +420,17 @@ def test_a_history_of_the_same_rows_crosses_backends(
 
 
 def snapshot_at_first_plane(simulation):
-    """Return the march snapshot of `simulation`'s backend at its first save plane."""
-    _, backend = opened(simulation, simulation.settings.backend)
-    try:
-        backend.propagate_to(float(simulation._run_request().stepper.save_planes[0]))
-        stored = backend.march_snapshot()
-    finally:
-        backend.close()
+    """Return the march snapshot of `simulation`'s backend at its first save plane.
+
+    Its session runs to that plane alone, which it lands on as the whole run does.
+    """
+    first = float(simulation._run_request().stepper.save_planes[0])
+    problem, request, backend = opened(
+        simulation, simulation.settings.backend, planes=[first]
+    )
+    taken = Snapshots()
+    run_session(backend, problem, request, between=taken)
+    stored = taken.at_plane(0)
     assert stored is not None
     return stored
 
@@ -383,19 +456,27 @@ def test_an_incompatible_native_history_is_refused(build_simulation, damage, mes
     stored = snapshot_at_first_plane(simulation)
     rows = dict(stored.rows)
     damage(rows)
-    problem, backend = opened(simulation, "native")
+    problem, request, backend = opened(simulation, "native")
+    damaged = dataclasses.replace(stored, rows=rows)
+    session = started(
+        backend, problem, request, resumed_at(damaged, request), owns=False
+    )
     try:
-        backend.set_initial(problem.initial.field0, None, z=stored.z)
-        reason = backend.restore_march(dataclasses.replace(stored, rows=rows))
+        reason = session.march_refusal
         assert reason is not None
         assert "native backend" in reason
         assert message in reason
         # Refused before any row was copied: the history is still empty.
-        assert backend.march_snapshot() is None
-        # The intact snapshot is still taken up afterwards.
-        assert backend.restore_march(stored) is None
+        assert pending_snapshot(session) is None
     finally:
-        backend.close()
+        session.close()
+    # The intact snapshot is still taken up afterwards, by the same backend.
+    session = started(backend, problem, request, resumed_at(stored, request))
+    try:
+        assert session.march_refusal is None
+        assert_same_snapshot(pending_snapshot(session), stored)
+    finally:
+        session.close()
 
 
 @quiet
@@ -404,12 +485,16 @@ def test_a_snapshot_from_elsewhere_or_another_march_is_not_continued(build_simul
     # offered to a march that keeps no history, it is not continued, and that march
     # has no snapshot of its own to give.
     stored = snapshot_at_first_plane(soliton(build_simulation, "native")())
-    problem, backend = opened(soliton(build_simulation, "native")(), "native")
+    problem, request, backend = opened(soliton(build_simulation, "native")(), "native")
+    entrance = Start(
+        field=problem.initial.field0, z=float(problem.initial.z), march=stored
+    )
+    session = started(backend, problem, request, entrance)
     try:
-        assert "the run resumes at z = 0.0 m" in str(backend.restore_march(stored))
-        assert backend.march_snapshot() is None
+        assert "the run resumes at z = 0.0 m" in str(session.march_refusal)
+        assert pending_snapshot(session) is None
     finally:
-        backend.close()
+        session.close()
     planes = np.linspace(0.0, LENGTH, N_SAVE)[1:].tolist()
     schedule = FixedSchedule.uniform(0.0, LENGTH, LENGTH / 32, save_planes=planes)
     marches = {
@@ -425,15 +510,15 @@ def test_a_snapshot_from_elsewhere_or_another_march_is_not_continued(build_simul
     }
     for march, keywords in marches.items():
         other = soliton(build_simulation, "native", **keywords)()
-        problem, backend = opened(other, "native")
+        problem, request, backend = opened(other, "native")
+        session = started(backend, problem, request, resumed_at(stored, request))
         try:
-            backend.set_initial(problem.initial.field0, None, z=stored.z)
-            assert backend.restore_march(stored) == (
+            assert session.march_refusal == (
                 f"the run steps with the {march} march, which keeps no history"
             )
-            assert backend.march_snapshot() is None
+            assert pending_snapshot(session) is None
         finally:
-            backend.close()
+            session.close()
 
 
 @pytest.mark.medium
@@ -462,8 +547,8 @@ def test_a_native_resume_under_modified_noise_continues_the_same_march(
     # evaluates its sources without the noise (a departure of about 1e-8 here). On a
     # prescribed schedule the resumed run is the uninterrupted discrete march, so it is
     # held to the matched bound the host engines meet, not to a restart's envelope.
-    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        NativeBackend,
+    from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        NativeSession,
     )
 
     from driver.test_envelope_plasma import build  # noqa: PLC0415 - shared case
@@ -475,19 +560,27 @@ def test_a_native_resume_under_modified_noise_continues_the_same_march(
     run_until(build(**options), path, after=1)
     stored = resume(path).march
     assert stored is not None
-    restored = []
-    original = NativeBackend.restore_march
+    # The snapshot installs losslessly beside the modified noise: a session resumed at
+    # its plane, the plane owed, holds exactly the stored history there.
+    simulation = build(**options)
+    problem, request, backend = opened(simulation, "native")
+    session = started(backend, problem, request, resumed_at(stored, request))
+    try:
+        assert session.march_refusal is None
+        assert_same_snapshot(pending_snapshot(session), stored)
+    finally:
+        session.close()
+    # The production resume's session installs it too.
+    refusals = []
+    original = NativeSession.__init__
 
-    def watched(self, snapshot):
-        reason = original(self, snapshot)
-        restored.append((reason, self.march_snapshot()))
-        return reason
+    def watched(self, *args, **keywords):
+        original(self, *args, **keywords)
+        refusals.append(self.march_refusal)
 
-    monkeypatch.setattr(NativeBackend, "restore_march", watched)
+    monkeypatch.setattr(NativeSession, "__init__", watched)
     build(**options).run(path, resume=True, progress="none")
-    [(reason, found)] = restored
-    assert reason is None
-    assert_same_snapshot(found, stored)
+    assert refusals == [None]
     with open_file(path) as file:
         expected = whole.fields()
         scale = float(np.max(np.abs(expected)))

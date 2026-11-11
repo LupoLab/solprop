@@ -30,6 +30,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from _session_probe_rest import final_field
 from backends.forced_threads import (
     assert_threaded,
     saved_sizing,
@@ -59,6 +60,7 @@ from modal_provider_cases import (
 )
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
+from solprop.backends.session import Start
 from solprop.driver import Simulation
 from solprop.driver.executors import Batch, Local
 from solprop.driver.scan import Scan, run_scan
@@ -235,13 +237,17 @@ def native_class():
 def propagate(case: Case, backend, field0=None) -> np.ndarray:
     """Run one case to its end on one backend and return the final state."""
     problem = case.problem
-    driver = backend(problem, case.run_request, grid=case.grid)
-    try:
-        driver.set_initial(problem.initial.field0 if field0 is None else field0, None)
-        driver.propagate_to(case.length)
-        return driver.observe().require_field().copy()
-    finally:
-        driver.close()
+    assert math.isclose(case.length, float(case.run_request.stepper.z_end))
+    # Through the backend's session, which closes it (SEP 47 phase 5).
+    return final_field(
+        backend(problem, case.run_request, grid=case.grid),
+        problem,
+        case.run_request,
+        Start(
+            field=problem.initial.field0 if field0 is None else field0,
+            z=float(problem.initial.z),
+        ),
+    )
 
 
 def parity_bound(
@@ -424,12 +430,8 @@ def test_a_step_longer_than_the_certificate_is_refused_by_name_on_native():
         replace(case.run_request.stepper, integrator=None)
     )
     backend = native_class()(problem, run_request, grid=case.grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        with pytest.raises(BackendError, match="native measured a coupled flow"):
-            backend.propagate_to(case.length)
-    finally:
-        backend.close()
+    with pytest.raises(BackendError, match="native measured a coupled flow"):
+        final_field(backend, problem, run_request)
 
 
 def test_cf4_is_refused_by_name_at_the_backend_and_the_entry_point():

@@ -32,6 +32,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from _session_probe_rest import bare, final_field, run_error, run_session
 from driver.test_moving_guide import GRIN_PULSE, grin_taper, kinked_radius
 from driver.test_wall_beside_gas_responses import (
     entry_point,
@@ -41,6 +42,7 @@ from driver.test_wall_beside_gas_responses import (
 from flow_parity import LENGTH, QUIET, STEPS, build, departure, run
 from march_bounds import FIXED_ORDER, assert_matched
 from modal_provider_cases import grin_grid
+from solprop.backends.events import Outcome
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
 from solprop.driver import Simulation
@@ -277,15 +279,16 @@ def test_a_flow_refused_mid_run_leaves_nothing_that_breaks_the_next_backend(back
     run_request = simulation_._run_request()
     before = run(cls, problem, run_request, grid)
     refused, refused_request = mid_run_refusal(problem, run_request)
+    # Through the backend's session, which ends failed and closes it (SEP 47 phase 5).
     failing = cls(refused, refused_request, grid=grid)
-    try:
-        failing.set_initial(refused.initial.field0, None)
-        with pytest.raises(BackendError, match="measured a coupled flow conditioning"):
-            failing.propagate_to(LENGTH)
-        # The five short steps were taken before the refusal: it happened mid-run.
-        assert 0.0 < failing.observe().z < LENGTH
-    finally:
-        failing.close()
+    terminal = run_session(
+        failing, refused, bare(refused_request), recipe=None
+    ).terminal
+    assert terminal.outcome is Outcome.FAILED
+    assert isinstance(terminal.error, BackendError)
+    assert "measured a coupled flow conditioning" in str(terminal.error)
+    # The five short steps were taken before the refusal: it happened mid-run.
+    assert 0.0 < terminal.z < LENGTH
     after = run(cls, problem, run_request, grid)
     assert_matched(after, before, record_bound(simulation_, before))
 
@@ -327,19 +330,14 @@ def test_a_moving_guide_that_fails_to_converge_leaves_the_next_backend_intact(
     the march's rounding budget -- the backend built after the failure runs the
     fixed-order march the one built before it did.
     """
-    built, length = moving
+    built, _ = moving
     problem, grid = built.translate(), built.grid
     run_request = built._run_request()
     cls = backend_class(backend)
 
     def final(one, one_request):
-        driver = cls(one, one_request, grid=grid)
-        try:
-            driver.set_initial(one.initial.field0, None)
-            driver.propagate_to(length)
-            return driver.observe().require_field().copy()
-        finally:
-            driver.close()
+        # Through the backend's session, which closes it (SEP 47 phase 5).
+        return final_field(cls(one, one_request, grid=grid), one, one_request)
 
     before = final(problem, run_request)
     stuck = run_request.with_stepper(
@@ -350,6 +348,6 @@ def test_a_moving_guide_that_fails_to_converge_leaves_the_next_backend_intact(
             dz_min=run_request.stepper.dz_init,
         )
     )
-    with pytest.raises(ConvergenceError):
-        final(problem, stuck)
+    failure = run_error(cls(problem, stuck, grid=grid), problem, bare(stuck))
+    assert isinstance(failure, ConvergenceError), failure
     assert_matched(final(problem, run_request), before, record_bound(built, before))
