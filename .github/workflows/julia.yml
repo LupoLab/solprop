@@ -39,11 +39,15 @@ env:
 
 jobs:
   julia:
-    name: Julia (${{ inputs.runner || 'macos-15' }})
+    name: Julia ${{ matrix.stage }} (${{ inputs.runner || 'macos-15' }})
     runs-on: ${{ inputs.runner || 'macos-15' }}
-    # The measured macOS lane takes 103 minutes before the phase 3 expansion.
-    # Keep room for cold setup, bounds tests, JET and the complete adapter suite (#712).
+    # The combined Linux gate reached two hours while its adapter suite progressed.
+    # Give each complete stage its own bound; retain every check and failure (#712).
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        stage: [engine, adapter]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -88,8 +92,8 @@ jobs:
         run: |
           uv sync --locked --extra julia --no-install-package solprop-native
           uv pip install --no-deps wheelhouse/*.whl
-      # Scheduled runs have no native-wheel producer. This is the only native build
-      # in this workflow; pull requests always use CI's already-qualified artifact.
+      # Scheduled runs have no native-wheel producer. Each stage builds it locally;
+      # pull requests always use CI's already-qualified artifact.
       - name: Install the weekly native toolchain
         if: github.event_name == 'schedule'
         run: brew install llvm ninja fftw libomp
@@ -103,15 +107,20 @@ jobs:
       - name: Publish and verify the managed CPU setup
         run: uv run --no-sync python tools/check_julia.py setup
       - name: Check Runic formatting
+        if: matrix.stage == 'engine'
         run: uv run --no-sync python tools/check_julia.py format
       - name: Run CPU Core tests with bounds checking
+        if: matrix.stage == 'engine'
         run: uv run --no-sync python tools/check_julia.py core
       - name: Run Aqua and blocking JET error analysis
+        if: matrix.stage == 'engine'
         run: uv run --no-sync python tools/check_julia.py quality
       # SEP 48 permits omitting the optional Tier 3 adapter from the default coverage
       # lane. This separate Julia lane qualifies it, including real runtime subprocess
       # probes; their presence and explicit opt-in are mandatory.
       - name: Run Python Julia adapter and runtime subprocess tests
+        if: matrix.stage == 'adapter'
         run: uv run --no-sync python tools/check_julia.py python
       - name: Refuse changes to committed Julia inputs
+        if: always()
         run: git diff --exit-code -- julia

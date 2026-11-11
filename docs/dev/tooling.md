@@ -240,6 +240,18 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
 - **no-native** (Linux): a few modules of the default lane with no native package and
   `SOLPROP_TEST_BACKEND=numpy_ref`: that `backend="auto"` refuses there, and a real run on
   `numpy_ref` by name.
+- **julia** (Linux on non-documentation changes; macOS arm64 on Julia changes and
+  weekly): two independent stages each publish and verify the pinned CPU setup and
+  check coexistence with the matching native package. The engine stage runs Runic,
+  bounds-checked Core tests, Aqua and unfiltered JET error analysis. The adapter stage
+  runs the complete Python Julia suite, runtime subprocess probes and shared session
+  conformance, then verifies that every mandatory module produced passing results.
+  Both stages check that committed Julia inputs stayed unchanged, including after a
+  failed check; neither stage cancels its sibling on failure. Each has a three-hour
+  bound because the former combined Linux job exhausted two hours while progressing
+  through its adapter tests (#712). This separate lane covers the optional Tier 3
+  adapter's explicit omission from default Python coverage; the rest of solprop
+  retains the required 100 % coverage gate.
 - **native-quality** (Linux, three jobs): `uv run poe check-native`, the native package's
   gate (`native/scripts/check.sh`), split by `SOLPROP_NATIVE_CHECK_STAGES`. The jobs are
   its lint and strict types, clang-format and its pytest suite (`lint pytest`);
