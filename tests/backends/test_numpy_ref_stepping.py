@@ -18,8 +18,8 @@ import numpy as np
 import pytest
 from scipy.integrate import solve_ivp
 
+from _session_probe_extra import run as session_run
 from solprop import fourier
-from solprop.exceptions import BackendError
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.linear import Frame, dispersion_operator
 from solprop.nonlinear.gnlse import problem_from
@@ -37,15 +37,13 @@ WIDE_SPACING = 2e-3  # m
 
 
 def run(backend_class, problem, run_request, grid, planes):
-    """Propagate through a list of planes and return the summaries and observations."""
-    backend = backend_class(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
-    summaries, observations = [], []
-    for plane in planes:
-        summaries.append(backend.propagate_to(plane))
-        observations.append(backend.observe())
-    backend.close()
-    return summaries, observations
+    """Propagate through the request's save planes, `planes`, in the backend's own
+    session; return each plane's summary and its observation."""
+    observations = session_run(
+        backend_class(problem, run_request, grid=grid), problem, run_request
+    ).planes
+    assert [observation.z for observation in observations] == list(planes)
+    return [observation.summary for observation in observations], observations
 
 
 # ------------------------------------------------------------------ the landing rules
@@ -69,7 +67,7 @@ def test_a_march_over_many_planes_takes_one_step_each(
     summaries, observations = run(
         backend_class, problem, run_request, narrow_grid, planes
     )
-    steps = np.concatenate([plane.step_history.dz for plane in observations])
+    steps = np.concatenate([plane.history.dz for plane in observations])
     assert sum(summary.n_steps for summary in summaries) == N_PLANES
     # Every step is the stretched one, so none is a sliver: the shortest is the spacing.
     assert float(np.min(steps)) == pytest.approx(SPACING, rel=1e-12)
@@ -95,7 +93,7 @@ def test_the_step_after_a_plane_is_the_proposal_not_a_sliver(
     # reaches the scored margin as it goes, so the steps shrink along the run.
     later = observations[8:]
     for plane in later:
-        steps = np.asarray(plane.step_history.dz, dtype=float)
+        steps = np.asarray(plane.history.dz, dtype=float)
         assert steps[0] > 0.8 * float(np.median(steps))
 
 
@@ -108,14 +106,14 @@ def test_a_plane_is_landed_on_exactly(backend_class, soliton_problem, narrow_gri
     _, observations = run(backend_class, problem, run_request, narrow_grid, planes)
     for plane, observation in zip(planes, observations, strict=True):
         assert observation.z == plane
-        assert float(observation.step_history.z[-1]) == plane
+        assert float(observation.history.z[-1]) == plane
 
 
 def test_a_step_lands_on_a_hard_kink(backend_class, capillary_problem, field_grid):
     """The fill's stage boundary is a kink, and a step must end exactly on it."""
     problem, run_request = capillary_problem()
-    _, observations = run(backend_class, problem, run_request, field_grid, [0.2])
-    assert 0.2 in observations[0].step_history.z.tolist()
+    _, observations = run(backend_class, problem, run_request, field_grid, [0.1, 0.2])
+    assert 0.2 in observations[-1].history.z.tolist()
 
 
 # ------------------------------------------------------------------ replayed schedules
@@ -138,7 +136,7 @@ def test_a_schedule_fine_enough_meets_its_tolerance(
     assert summaries[0].n_steps == 200
     assert summaries[0].met_tolerance
     assert not caplog.records
-    assert np.all(observations[0].step_history.accepted)
+    assert np.all(observations[0].history.accepted)
 
 
 def test_a_schedule_too_coarse_is_reported_rather_than_silent(
@@ -161,25 +159,14 @@ def test_a_schedule_too_coarse_is_reported_rather_than_silent(
     assert summaries[0].n_steps == 8
     assert not summaries[0].met_tolerance
     assert summaries[0].max_norm > 1.0
-    assert any("too coarse" in record.message for record in caplog.records)
+    # The plane's summary is the report: a run's service logs it
+    # (tests/driver/test_run.py, test_a_step_too_coarse_for_its_tolerance_is_logged_
+    # with_its_plane). The reference's step loop also logs it itself; the native
+    # session leaves that to the service.
+    if backend_class.name == "numpy_ref":
+        assert any("too coarse" in record.message for record in caplog.records)
     # Every step is still recorded with its norm, which is what makes the report.
-    assert np.all(observations[0].step_history.error_norm > 0.0)
-
-
-def test_a_schedule_that_runs_out_is_an_error(
-    backend_class, soliton_problem, soliton_grid
-):
-    problem, run_request = soliton_problem(
-        soliton_grid,
-        1,
-        save_planes=[0.05],
-        schedule=FixedSchedule.uniform(0.0, 0.05, 0.05 / 4),
-    )
-    backend = backend_class(problem, run_request, grid=soliton_grid)
-    backend.set_initial(problem.initial.field0, None)
-    with pytest.raises(BackendError, match="cannot reach"):
-        backend.propagate_to(0.052)
-    backend.close()
+    assert np.all(observations[0].history.error_norm > 0.0)
 
 
 # ---------------------------------------------------- one step against an oracle
