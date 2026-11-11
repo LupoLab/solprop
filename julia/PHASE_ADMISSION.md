@@ -82,8 +82,8 @@ than the ceiling. Nodes inside `[0,1]` are bounded by monotonicity between the a
 and the raw endpoint. All these computations are rational before their outward
 binary64 conversion. Overflow of a required finite bound refuses.
 
-Let `s` include the shared landing/replay allowance, `A` be the actual oldest retained
-sample's age at start, and `q` the configured maximum Adams order. A conservative
+Let `s` include the shared landing/replay allowance, `A=max_j(abs(z_j-start))` be the
+actual retained coordinate radius, and `q` the configured maximum Adams order. A conservative
 history distance is
 
 \[
@@ -96,6 +96,9 @@ it may extend beyond the requested run. It must remain inside each table's expli
 admitted span, including that table's own outer-edge allowance. The `q+1` factor covers
 the retained extra oldest sample and subsequent accepted samples before it is retired.
 Rejections do not advance this history. Hard-kink resets can only shorten its age.
+The initial radius includes a newest sample slightly after the accepted anchor, as
+permitted by shared restore. An age-only bound would miss that positive offset when
+future replay steps are much smaller than the restore proximity allowance.
 
 When replay supplies a positive `h_min`, the exact normalized-history multiplier obeys
 

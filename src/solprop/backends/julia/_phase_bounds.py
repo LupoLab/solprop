@@ -644,9 +644,14 @@ def phase_spans(
     if history is not None:
         high = max(high, float(history.positions[-1]))
     stage_scale = max(1.0, float(np.max(np.abs(run.nodes))))
-    age = _rational(start) - _rational(oldest)
+    # Shared restore admits a newest sample slightly AFTER the accepted anchor.
+    # That positive offset can dominate tiny replay lengths, so both ends of the
+    # sorted retained coordinates contribute to the initial absolute radius.
+    radius = _rational(start) - _rational(oldest)
+    if history is not None:
+        radius = max(radius, _rational(float(history.positions[-1])) - _rational(start))
     order_span = run.adams.order + 1 if run.adams is not None else 1
-    span = age + order_span * (
+    span = radius + order_span * (
         _rational(stage_scale) * _rational(maximum) + 2 * _rational(slack)
     )
     span = min(span, _rational(high) - _rational(low))

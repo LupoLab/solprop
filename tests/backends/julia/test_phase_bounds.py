@@ -218,6 +218,33 @@ def test_retained_actual_positions_maximum_order_and_sampled_rates():
     )
 
 
+def test_retained_positive_sample_offset_dominates_tiny_replay_steps():
+    run = _run(order=3)
+    assert run.adams is not None
+    step = 2.0**-49
+    end = 0.5 + 2 * step
+    run = replace(
+        run,
+        adams=replace(run.adams, z_end=end, save_planes=(end,)),
+        planes=np.array([end]),
+        steps=np.array([step, step]),
+        edges=np.array([0.5, 0.5 + step, end]),
+    )
+    sample = 0.5 + 2.0**-43
+    history = replace(
+        _history(run, rates=True),
+        positions=np.array([sample]),
+        slots=np.array([0], dtype=np.int64),
+        identities=("predicted",),
+        order=1,
+    )
+    assert math.isclose(sample, 0.5, rel_tol=1e-12, abs_tol=0.0)
+    spans = phase_spans(run, 0.5, history=history)
+    _encloses(spans.transport_span, _q(sample) - _q(0.5))
+    assert spans.compensation_factor_max is not None
+    _encloses(spans.compensation_factor_max, 1 + (_q(sample) - _q(0.5)) / _q(step))
+
+
 def test_compensation_retains_replay_ratio_and_cumulative_conditioning():
     small = 2.0**-30
     run = _run(steps=[0.5, small, 0.5 - small], order=3)
