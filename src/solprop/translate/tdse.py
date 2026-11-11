@@ -724,7 +724,7 @@ class TDSEDescriptor:
     @classmethod
     def from_response(
         cls, response: TDSEGasResponse, grid: FieldGrid
-    ) -> "TDSEDescriptor":  # noqa: UP037 - beartype resolves this during class creation.
+    ) -> "TDSEDescriptor":
         """Resolve one scientific response on an already refined field grid.
 
         Parameters
@@ -1177,7 +1177,7 @@ class AtomicCallLedger:
     failed_calls: int
 
     @classmethod
-    def from_record(cls, record: Mapping[str, object]) -> "AtomicCallLedger":  # noqa: UP037 - runtime type hook resolves the enclosing class
+    def from_record(cls, record: Mapping[str, object]) -> "AtomicCallLedger":
         """Validate a persisted atomic-call accounting record.
 
         Parameters

@@ -452,7 +452,7 @@ def _current_part(
     return _CurrentPart(truncating, edge, factor * (truncating - edge), floor, bounds)
 
 
-def _edge_rounding(
+def _edge_rounding(  # noqa: PLR0917 - called positionally
     magnitudes: tuple[
         Float[np.ndarray, "n_nodes 1 n_to"], Float[np.ndarray, "n_nodes 1 n_to"]
     ],
@@ -740,7 +740,7 @@ def _leading_taper(
     }
 
 
-def _edge_diagnostic(
+def _edge_diagnostic(  # noqa: PLR0917 - called positionally
     spectra: tuple[
         Complex[np.ndarray, "n_modes 1 n_omega"],
         Complex[np.ndarray, "n_modes 1 n_omega"],
@@ -822,7 +822,7 @@ def _smooth(samples: int) -> bool:
     return samples == 1
 
 
-def project_atomic_sources(  # noqa: PLR0913 - the existing seam plus the edge array.
+def project_atomic_sources(  # noqa: PLR0917 - called positionally
     polarisation: Float[np.ndarray, "n_nodes_p 1 n_to_p"],
     current: Float[np.ndarray, "n_nodes_j 1 n_to_j"],
     result: TDSEResult,

@@ -392,7 +392,7 @@ class PIController:  # numpydoc ignore=PR02
     @classmethod
     def for_estimator_order(
         cls, estimator_order: int, rtol: float, atol: float
-    ) -> "PIController":  # noqa: UP037 - bound after the class body
+    ) -> "PIController":
         """Build a controller whose PI gains match an error estimate of order ``q``.
 
         The Lund gains are ``beta1 = 0.6 / k`` and ``beta2 = -0.2 / k`` with
@@ -706,7 +706,7 @@ class ControlRecord:
         controller: PIController,
         accepted_norms: Sequence[float],
         n_rejected: int = 0,
-    ) -> "ControlRecord":  # noqa: UP037 - bound after the class body
+    ) -> "ControlRecord":
         """Summarise a run from the scaled norms of its accepted steps.
 
         Parameters

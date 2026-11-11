@@ -457,7 +457,7 @@ class RunRequest:
         )
 
 
-def describe_run(  # noqa: PLR0913 - one resolved choice per keyword
+def describe_run(
     stepper: StepperSettings,
     *,
     stats: StatsSpec | None = None,

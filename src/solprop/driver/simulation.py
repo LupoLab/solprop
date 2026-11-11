@@ -544,7 +544,7 @@ class _AutoBackend(str):
 
     precision: str
 
-    def __new__(cls, name: str, precision: str) -> "_AutoBackend":  # noqa: UP037 - beartype resolves it while the class body still runs
+    def __new__(cls, name: str, precision: str) -> "_AutoBackend":
         """Return the name, marked with the precision it was resolved under.
 
         Parameters
@@ -585,7 +585,7 @@ class RecipeSource(Protocol):
     :class:`solprop.recipe.core.Recipe` is one (SEP 41, S2); the driver needs only this.
     """
 
-    def record(self, simulation: "Simulation") -> RecipeRecord:  # noqa: UP037 - later
+    def record(self, simulation: "Simulation") -> RecipeRecord:
         """Return the authored and resolved recipe of a run about to start.
 
         Parameters
@@ -1474,7 +1474,7 @@ def _admit_integrator(integrator: Multistep, backend: str) -> None:
         )
 
 
-def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
+def metadata_for(
     problem: PropagationProblem,
     request: RunRequest,
     grid: TimeGrid,
@@ -1728,7 +1728,7 @@ def _frame_follows_the_electronic_rule(
     )
 
 
-def _plane_reference_record(  # noqa: PLR0913 - the record's parts
+def _plane_reference_record(
     problem: PropagationProblem,
     request: RunRequest,
     grid: TimeGrid,
@@ -1786,7 +1786,7 @@ def _plane_reference_record(  # noqa: PLR0913 - the record's parts
     }
 
 
-def _plane_bases(
+def _plane_bases(  # noqa: PLR0917 - called positionally
     problem: PropagationProblem,
     request: RunRequest,
     grid: TimeGrid,
@@ -2210,7 +2210,7 @@ class Simulation(Displayed):
     # solprop.recipe.Recipe.build and dropped by every change it would not describe.
     _recipe: RecipeSource | None = None
 
-    def __init__(  # noqa: PLR0913 - the physics of a run, each a distinct object
+    def __init__(
         self,
         grid: TimeGrid,
         modes: Mode | Sequence[Mode],
@@ -2702,7 +2702,7 @@ class Simulation(Displayed):
         initial_z: float | None = None,
         configuration: Mapping[str, object] | None = None,
         input_identity: str | None = None,
-    ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates the class body
+    ) -> "Simulation":
         """Replace the input while sharing the translated propagation problem.
 
         Only what changed is validated (SEP 22 section 5.2): the replaced input's
@@ -3038,7 +3038,7 @@ class Simulation(Displayed):
         if not _all_finite(noise.spectrum):
             raise DriverError("with_input requires a finite noise realisation")
 
-    def runner(self) -> "SimulationRunner":  # noqa: UP037 - defined below
+    def runner(self) -> "SimulationRunner":
         """Return a runner that keeps this translation and one backend for many inputs.
 
         Translates (or reuses the cached translation) and constructs the backend once;
@@ -3098,7 +3098,7 @@ class Simulation(Displayed):
         )
         warnings.warn(msg, SolpropWarning, stacklevel=3)
 
-    def with_mixture(self, mixture: Mixture) -> "Simulation":  # noqa: UP037 - runtime hook evaluates the class body
+    def with_mixture(self, mixture: Mixture) -> "Simulation":
         """Update material paths while preserving the run's geometry and input.
 
         Rate tables and unchanged undamped Raman kernels are shared by identity.
@@ -3590,7 +3590,7 @@ class Simulation(Displayed):
             k_min,
         )
 
-    def run(  # noqa: PLR0913 - independent execution and output controls
+    def run(
         self,
         output: Output | Path | str | None = None,
         *,
@@ -3702,7 +3702,7 @@ class Simulation(Displayed):
             stop=stop,
         )
 
-    def _run(  # noqa: PLR0913, PLR0915 - run's controls, and the backend it may be handed
+    def _run(  # noqa: PLR0915 - run's controls, and the backend it may be handed
         self,
         output: Output | Path | str | None = None,
         *,
@@ -3882,7 +3882,7 @@ class Simulation(Displayed):
             )
         return handler
 
-    def estimate(self) -> "RunEstimate":  # noqa: UP037 - checked at run time
+    def estimate(self) -> "RunEstimate":
         """Estimate what the run would cost, without running it (SEP 41, S11).
 
         The grid, the persistent memory the constructed backend holds, the output's
@@ -3900,7 +3900,7 @@ class Simulation(Displayed):
 
         return estimate(self)
 
-    def calibrate(self, budget: float = 60.0) -> "RefinementReport":  # noqa: UP037 - later
+    def calibrate(self, budget: float = 60.0) -> "RefinementReport":
         """Refine the native backend's settings for this simulation (SEP 46 stage 2).
 
         Fresh native workspaces of this simulation's translated problem are built in
@@ -4115,7 +4115,7 @@ class Simulation(Displayed):
         self._metadata = None
         return True
 
-    def _reseeded(self, seed: int) -> "Simulation":  # noqa: UP037 - runtime hook evaluates the class body
+    def _reseeded(self, seed: int) -> "Simulation":
         """Return this run with unseeded noise drawn from `seed`, leaving it as it is.
 
         A scan's builder may return one object for every point, and a batch keeps each
@@ -4447,7 +4447,7 @@ class Simulation(Displayed):
 
     @classmethod
     @_one_material_context
-    def from_radial(  # noqa: PLR0913 - distinct physics objects and execution settings
+    def from_radial(
         cls,
         grid: TimeGrid,
         space: RadialGrid,
@@ -4464,7 +4464,7 @@ class Simulation(Displayed):
         absorber_scheme: AbsorberScheme | None = None,
         boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
         spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
-    ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates while class is defined
+    ) -> "Simulation":
         """Build a radial propagation using physical fields and the scalar QDHT.
 
         Parameters
@@ -4553,7 +4553,7 @@ class Simulation(Displayed):
 
     @classmethod
     @_one_material_context
-    def from_free(  # noqa: PLR0913 - distinct physics objects and execution settings
+    def from_free(
         cls,
         grid: TimeGrid,
         space: FreeGrid,
@@ -4570,7 +4570,7 @@ class Simulation(Displayed):
         absorber_scheme: AbsorberScheme | None = None,
         boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
         spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
-    ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates while class is defined
+    ) -> "Simulation":
         """Build a Cartesian propagation with constant media and transverse FFTs.
 
         A :class:`solprop.grid.LineGrid` runs the same transform with one y column:
@@ -4677,7 +4677,7 @@ class Simulation(Displayed):
 
     @classmethod
     @_one_material_context
-    def from_planar(  # noqa: PLR0913 - distinct physics objects and execution settings
+    def from_planar(
         cls,
         grid: TimeGrid,
         space: PlanarGrid,
@@ -4691,7 +4691,7 @@ class Simulation(Displayed):
         absorber_scheme: AbsorberScheme | None = None,
         boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
         spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
-    ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates while class is defined
+    ) -> "Simulation":
         """Build a hybrid planar propagation: slab modes in x, an FFT in y.
 
         The hollow planar guide resolved in both transverse directions: the slab modes
@@ -4807,7 +4807,7 @@ class Simulation(Displayed):
         return simulation
 
     @classmethod
-    def _from_spatial(  # noqa: PLR0913 - distinct physics objects and execution settings
+    def _from_spatial(
         cls,
         grid: TimeGrid,
         space: RadialGrid | FreeGrid,
@@ -4820,7 +4820,7 @@ class Simulation(Displayed):
         noise: NoiseSetting = "default",
         seed: int | None = None,
         materials: MaterialSelection | None = None,
-    ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates while class is defined
+    ) -> "Simulation":
         """Build a radial or Cartesian propagation using physical fields.
 
         Parameters
@@ -4922,7 +4922,7 @@ class Simulation(Displayed):
 
     @classmethod
     @_one_material_context
-    def from_gnlse(  # noqa: PLR0913 - the GNLSE's keyword surface
+    def from_gnlse(
         cls,
         gamma: float | None,
         length: float,
@@ -4968,7 +4968,7 @@ class Simulation(Displayed):
         backend: str = "auto",
         precision: PrecisionName = "double",
         materials: MaterialSelection | None = None,
-    ) -> "Simulation":  # noqa: UP037 - beartype resolves it while the body still runs
+    ) -> "Simulation":
         """Build a simulation of a GNLSE fibre from its coefficients.
 
         The constructor :func:`solprop.driver.interface.prop_gnlse` calls; its docstring
@@ -5232,7 +5232,7 @@ class Simulation(Displayed):
 
     @classmethod
     @_one_material_context
-    def from_capillary(  # noqa: PLR0913 - the interface's keyword surface
+    def from_capillary(
         cls,
         radius: float | ZProfile,
         length: float,
@@ -5304,7 +5304,7 @@ class Simulation(Displayed):
         materials: MaterialSelection | None = None,
         tdse: TDSEGasResponse | None = None,
         tdse_execution: TDSEExecution | None = None,
-    ) -> "Simulation":  # noqa: UP037 - beartype resolves it while the body still runs
+    ) -> "Simulation":
         """Build a simulation of a pulse in a gas-filled hollow waveguide.
 
         The constructor :func:`solprop.driver.interface.prop_capillary` calls. The mode
@@ -5722,7 +5722,7 @@ class Simulation(Displayed):
 
     @classmethod
     @_one_material_context
-    def from_waveguide(  # noqa: PLR0913 - the interface's keyword surface
+    def from_waveguide(
         cls,
         modes: Sequence[Mode],
         length: float,
@@ -5793,7 +5793,7 @@ class Simulation(Displayed):
         polarisation: str | float | None = None,
         taper_coupling: bool = True,
         materials: MaterialSelection | None = None,
-    ) -> "Simulation":  # noqa: UP037 - beartype resolves it while the body still runs
+    ) -> "Simulation":
         """Build a pulse simulation in a waveguide: a gas-filled mode set, or a guide.
 
         **Without `provider`** this is the gas-filled route: modes keep their
@@ -6309,7 +6309,7 @@ class Simulation(Displayed):
         )
 
     @classmethod
-    def _from_general(  # noqa: PLR0913 - it refuses from_waveguide's whole surface
+    def _from_general(
         cls,
         provider: ModalGuide,
         modes: Sequence[Mode],
@@ -6354,7 +6354,7 @@ class Simulation(Displayed):
         step_planes: int | None = None,
         polarisation_taper: bool = False,
         **refused: object,
-    ) -> "Simulation":  # noqa: UP037 - beartype resolves it while the body still runs
+    ) -> "Simulation":
         """Build a general modal run from a guide that solves its own fields.
 
         The provider half of :meth:`from_waveguide`, kept apart because it shares no
@@ -6614,7 +6614,7 @@ class Simulation(Displayed):
         return _incident_launch(simulation, beam, cast("CouplingModel", coupling))
 
     @classmethod
-    def _from_hollow(  # noqa: PLR0913, PLR0915 - the interface's keyword surface
+    def _from_hollow(  # noqa: PLR0915 - the interface's keyword surface
         cls,
         radius: float | ZProfile | None,
         length: float,
@@ -6688,7 +6688,7 @@ class Simulation(Displayed):
         materials: MaterialSelection | None = None,
         tdse: TDSEGasResponse | None = None,
         tdse_execution: TDSEExecution | None = None,
-    ) -> "Simulation":  # noqa: UP037 - beartype resolves it while the body still runs
+    ) -> "Simulation":
         """Build a simulation of a pulse in a gas-filled hollow waveguide.
 
         The shared body of :meth:`from_capillary` and :meth:`from_waveguide`. The mode
@@ -7500,7 +7500,7 @@ class SimulationRunner(Displayed):
             ("state", "closed" if self._closed else "open"),
         ]
 
-    def __enter__(self) -> "SimulationRunner":  # noqa: UP037 - bound after the class body
+    def __enter__(self) -> "SimulationRunner":
         """Return the runner, so that a ``with`` block closes it on the way out.
 
         Returns
@@ -7557,7 +7557,7 @@ class SimulationRunner(Displayed):
         self._closed = True
         self._backend.close()
 
-    def run(  # noqa: PLR0913 - one input's run, as with_input and run_problem take it
+    def run(
         self,
         initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray,
         *,
@@ -8800,7 +8800,7 @@ def _recorded_archive_uuid(state: ResumeState) -> str | None:
     return None
 
 
-def _open_tdse_archive(
+def _open_tdse_archive(  # noqa: PLR0917 - called positionally
     archive: TDSEArchive | None,
     problem: PropagationProblem,
     handler: Output,
@@ -9523,7 +9523,7 @@ def _gnlse_grid(
         return EnvelopeGrid.from_limits(length, wavelength, wavelength_limits, trange)
 
 
-def _gnlse_fibre(  # noqa: PLR0913 - the coefficients of the mapping
+def _gnlse_fibre(
     gamma: float | None,
     betas: Sequence[float] | np.ndarray | None,
     beta: object,
@@ -9741,7 +9741,7 @@ def _dispersion_table(
     raise DriverError(msg, parameter="beta")
 
 
-def _shaped_pulse(  # noqa: PLR0913 - the pulse's keyword surface
+def _shaped_pulse(
     shape: str,
     *,
     wavelength: float,
@@ -10509,7 +10509,7 @@ def default_field_range(peak_field: float) -> tuple[float, float]:
     return (peak_field * _FIELD_RANGE_BELOW, peak_field * _FIELD_RANGE_ABOVE)
 
 
-def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two switches
+def _capillary_grid(
     grid: TimeGrid | None,
     length: float,
     wavelength: float,
@@ -10587,7 +10587,7 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
         return FieldGrid.from_limits(length, wavelength, wavelength_limits, trange)
 
 
-def _capillary_modes(  # noqa: PLR0913 - capillary geometry and material keywords
+def _capillary_modes(
     modes: int | Sequence[Mode],
     radius: float | ZProfile,
     mixture: Mixture,
@@ -11053,7 +11053,7 @@ def _no_quadrature(
         )
 
 
-def _capillary_responses(  # noqa: PLR0913 - the switches of the responses, one each
+def _capillary_responses(
     gas: Gas | str,
     material: Species,
     *,
@@ -11191,7 +11191,7 @@ def _default_raman(mixture: Mixture, *, provisional: bool = False) -> bool:
     return on
 
 
-def _optmat_raman(
+def _optmat_raman(  # noqa: PLR0917 - called positionally
     gas: Gas | str,
     mixture: Mixture,
     selection: MaterialSelection,
@@ -11335,7 +11335,7 @@ class _TDSEEntry:
     record: dict[str, JsonValue]
 
 
-def _tdse_entry(  # noqa: PLR0913 - the entry point's TDSE keywords together
+def _tdse_entry(
     tdse: TDSEGasResponse | None,
     execution: TDSEExecution | None,
     *,
@@ -11447,7 +11447,7 @@ def _tdse_entry(  # noqa: PLR0913 - the entry point's TDSE keywords together
     )
 
 
-def _entry_overrides[P, R](
+def _entry_overrides[P, R](  # noqa: PLR0917 - called positionally
     atomic: _TDSEEntry | None,
     plasma: P,
     raman: R,
@@ -11796,7 +11796,7 @@ def _in_channel(
     return state
 
 
-def _general_pulse(  # noqa: PLR0913 - the pulse's keyword surface and the launch
+def _general_pulse(
     incident: SpatialPulse | None,
     channel: int | str | None,
     shape: str,
@@ -11965,10 +11965,10 @@ def _beam_grid(pulse: SpatialPulse) -> RadialGrid:
 
 
 def _incident_launch(
-    simulation: "Simulation",  # noqa: UP037 - defined above, referenced while it loads
+    simulation: "Simulation",
     pulse: SpatialPulse,
     model: CouplingModel,
-) -> "Simulation":  # noqa: UP037 - as above
+) -> "Simulation":
     """Couple an incident beam into a general modal simulation and install it.
 
     The beam becomes a radial :class:`~solprop.coupling.plane.FieldPlane` in the

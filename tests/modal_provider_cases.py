@@ -89,7 +89,7 @@ def general_grid(z_end=GENERAL_Z_END):
     return FieldGrid.from_limits(z_end, 835e-9, (815e-9, 860e-9), 60e-15)
 
 
-def general_guide(  # noqa: PLR0913, PLR0917 - one knob per fixture dimension
+def general_guide(
     descriptors=(("HE", 1, 1, "even"),),
     blocks=(),
     radius=1.5e-6,
@@ -230,7 +230,7 @@ def parabolic_beta(omega, groups=(1, 3)):
     )
 
 
-def general_case(  # noqa: PLR0913, PLR0917 - one knob per fixture dimension
+def general_case(
     descriptors=(("HE", 1, 1, "even"),),
     blocks=(),
     radius=1.5e-6,

@@ -1387,7 +1387,7 @@ class ProviderChannelMode(Displayed):
         """
         return self.path is None
 
-    def entrance(self) -> "ProviderChannelMode":  # noqa: UP037 - the hook resolves it while the body runs
+    def entrance(self) -> "ProviderChannelMode":
         """Return this channel's snapshot at the entrance, with no path.
 
         What a moving guide's cumulative ``Phi`` is carried by: the run puts one
@@ -2172,7 +2172,7 @@ class ModalGuide(Displayed):
         core: PermittivityLaw,
         cladding: PermittivityLaw,
         regions: Sequence[MaterialRegion] = (),
-    ) -> "ModalGuide":  # noqa: UP037 - runtime hook evaluates class annotations eagerly
+    ) -> "ModalGuide":
         """Build a bound provider from existing exact step-index modes.
 
         Parameters
@@ -2211,7 +2211,7 @@ class ModalGuide(Displayed):
         *,
         knots: int,
         n_r: int,
-    ) -> "ModalGuide":  # noqa: UP037 - runtime hook evaluates class annotations eagerly
+    ) -> "ModalGuide":
         """Build a guide from a provider, sampled across a time grid's active band.
 
         :meth:`from_provider` with its frequencies and node rule taken from the grid:
@@ -2284,7 +2284,7 @@ class ModalGuide(Displayed):
 
     @classmethod
     @host_blas()
-    def from_provider(  # noqa: PLR0913 - a provider and five declarations of the sampling
+    def from_provider(
         cls,
         provider: ModalProvider,
         omega: Float[np.ndarray, " n_omega"],
@@ -2296,7 +2296,7 @@ class ModalGuide(Displayed):
         beta_rtol: float = PROVIDER_BETA_RTOL,
         sections: int = 1,
         path_rtol: float | None = None,
-    ) -> "ModalGuide":  # noqa: UP037 - runtime hook evaluates class annotations eagerly
+    ) -> "ModalGuide":
         """Build a guide from a provider that solves its own fields.
 
         The route for a :class:`~solprop.modes.graded_index.GradedIndexProvider`, and
@@ -2787,7 +2787,7 @@ def _sampled_path(
     return path, moved
 
 
-def _entrance_table(  # noqa: PLR0913 - a provider, a band, a position, a rule and three declarations
+def _entrance_table(
     provider: ModalProvider,
     frequencies: Float[np.ndarray, " n_omega"],
     z: float,

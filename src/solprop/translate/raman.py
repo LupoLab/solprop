@@ -303,7 +303,7 @@ def _flat_samples(grid: TimeGrid) -> int:
     )
 
 
-def _check_window(
+def _check_window(  # noqa: PLR0917 - called positionally
     response: RamanResponse,
     model: RamanModel,
     tail: Float[np.ndarray, " n_tail"],

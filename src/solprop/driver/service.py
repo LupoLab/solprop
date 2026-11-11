@@ -809,7 +809,7 @@ def _warn_coarse(event: ObservationReady, planes: np.ndarray) -> None:
     )
 
 
-def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's context
+def _service_snapshot(  # noqa: PLR0917 - the snapshot transaction's context
     event: ServiceRequired,
     output: HDF5Output,
     checkpoint_output: CheckpointOutput | None,
@@ -907,7 +907,7 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
     )
 
 
-def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
+def _persist_failure(  # noqa: PLR0917 - the failure's whole context
     session: RunSession,
     output: CheckpointOutput | None,
     context: ServiceContext,

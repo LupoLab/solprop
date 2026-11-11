@@ -1462,7 +1462,7 @@ def _flow_certificate(
     return (relative + defect) * amplification, np.exp(float(dz_max) * spread)
 
 
-def constant_schur_flow(  # noqa: PLR0913 - the leaf's own fields plus its two limits
+def constant_schur_flow(
     omega: Float[np.ndarray, " n_omega"],
     z_edges: Float[np.ndarray, " n_edges"],
     generator: Complex[np.ndarray, "n_modes_flow_out n_modes_flow_in n_omega_flow"],
@@ -2143,7 +2143,7 @@ _TRUNCATION_OVERFLOW: float = 600.0
 """Largest ``h K`` whose truncation bound is formed: ``exp(600) 600^7`` is 1.7e280."""
 
 
-def frozen_residual_flow(  # noqa: PLR0913 - the leaf's own arrays plus its two limits
+def frozen_residual_flow(
     omega: Float[np.ndarray, " n_omega"],
     z_edges: Float[np.ndarray, " n_edges"],
     generator: Complex[
@@ -2485,7 +2485,7 @@ def _reach_spread(
     return spread
 
 
-def cf4_flow(  # noqa: PLR0913 - the leaf's own arrays plus its three limits
+def cf4_flow(
     omega: Float[np.ndarray, " n_omega"],
     z_edges: Float[np.ndarray, " n_edges"],
     generator: Complex[
@@ -2710,7 +2710,7 @@ def cf4_flow(  # noqa: PLR0913 - the leaf's own arrays plus its three limits
     )
 
 
-def _cf4_rejection(  # noqa: PLR0913 - one section's two bounds and their two limits
+def _cf4_rejection(
     index: int,
     omega: Float[np.ndarray, " n_omega"],
     growth: Float[np.ndarray, " n_omega_g"],
@@ -2970,7 +2970,7 @@ def cf4_defect(
     return defect
 
 
-def wall_identity(  # noqa: PLR0913 - the flow, its limits and the CF4 declaration
+def wall_identity(
     flow: CoupledFlowTables,
     limits: WallLimits,
     *,

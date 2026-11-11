@@ -86,7 +86,7 @@ THG = {"field": None, "envelope": False, "envelope_thg": True}
 
 
 @functools.cache
-def capillary(  # noqa: PLR0913 - the case's keywords, cached together
+def capillary(
     integrator: Multistep | RungeKutta,
     length: float = 2e-3,
     *,

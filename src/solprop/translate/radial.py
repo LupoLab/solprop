@@ -114,7 +114,7 @@ def radial_transform(
     )
 
 
-def radial_operators(  # noqa: PLR0913 - material and the shared translation controls
+def radial_operators(
     space: RadialGrid,
     dispersion: SpatialDispersion,
     *,
@@ -515,7 +515,7 @@ class _AdiabaticAmplitude:
         If a column's propagating status changes along the sampled path.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0917 - called positionally
         self,
         dispersion: SpatialDispersion,
         roots: Callable[[SpatialDispersion, float], tuple[np.ndarray, np.ndarray]],

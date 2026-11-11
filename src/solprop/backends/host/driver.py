@@ -236,7 +236,7 @@ class _TrialProbe:
 
     def __init__(
         self,
-        driver: "HostDriver[object]",  # noqa: UP037 - the driver class follows
+        driver: "HostDriver[object]",
         start: tuple[float, int],
     ) -> None:
         """Hold the loaded driver; no trial is taken yet."""

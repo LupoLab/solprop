@@ -426,7 +426,7 @@ class MaterialRecord:
         object.__setattr__(self, "sources", tuple(str(v) for v in self.sources))
 
     @classmethod
-    def from_identity(cls, identity: ModelIdentityLike) -> "MaterialRecord":  # noqa: UP037 - the hook resolves class names eagerly
+    def from_identity(cls, identity: ModelIdentityLike) -> "MaterialRecord":
         """Build a record from an optmat ``ModelIdentity``.
 
         Parameters
@@ -951,7 +951,7 @@ class MaterialManifest:
         return document
 
     @classmethod
-    def from_dict(cls, document: Mapping[str, object] | None) -> "MaterialManifest":  # noqa: UP037 - the hook resolves class names eagerly
+    def from_dict(cls, document: Mapping[str, object] | None) -> "MaterialManifest":
         """Rebuild a manifest from :meth:`to_dict`.
 
         Parameters
@@ -1100,7 +1100,7 @@ class MaterialLog:
         _, _, known = self.ranges.setdefault(digest, (material, name, set()))
         known.update(parts)
 
-    def copy(self) -> "MaterialLog":  # noqa: UP037 - the hook resolves class names eagerly
+    def copy(self) -> "MaterialLog":
         """Return an independent log holding what this one holds so far.
 
         Returns

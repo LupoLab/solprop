@@ -1117,7 +1117,7 @@ class LogReporter:
         ]
         return median(errors) if errors else math.nan
 
-    def _status(self, now: float) -> "ProgressStatus":  # noqa: UP037 - bound after the class body
+    def _status(self, now: float) -> "ProgressStatus":
         """Advance the trailing window, form both ETAs and record them.
 
         The one place the estimator's bookkeeping happens, so every reporter built on
@@ -1152,7 +1152,7 @@ class LogReporter:
         return ProgressStatus(elapsed, fraction, windowed, window, known)
 
     @staticmethod
-    def _tail(status: "ProgressStatus") -> str:  # noqa: UP037 - bound after the class body
+    def _tail(status: "ProgressStatus") -> str:
         """Return the ETA clause of a line or a bar.
 
         Parameters
@@ -1423,7 +1423,7 @@ class BarReporter(LogReporter):
     True
     """
 
-    def __init__(  # noqa: PLR0913 - the bar's own switches, one each, all keyword
+    def __init__(
         self,
         *,
         period: float = DEFAULT_BAR_PERIOD,

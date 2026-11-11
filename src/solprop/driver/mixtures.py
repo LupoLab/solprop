@@ -115,7 +115,7 @@ class ResponseSelection:
         return bind_reference_field(responses, self.reference_field, self.field_range)
 
 
-def capillary_fill(  # noqa: PLR0913 - the public constructor's material options
+def capillary_fill(
     material: Gas | str | Mapping[str, float] | Mixture,
     pressure: Pressure | None,
     *,

@@ -59,7 +59,7 @@ def freeze_harness(directory: Path) -> Record:
 
 # The suppression below is for PLR0913: the keyword options are the shared
 # command-line selection, passed through unchanged.
-def plan_rows(  # noqa: PLR0913
+def plan_rows(
     cases: tuple[Case, ...],
     steppers: tuple[str, ...],
     threads: str | None,
@@ -216,7 +216,7 @@ def calibrate_builds(
     return found
 
 
-def launch_worker(
+def launch_worker(  # noqa: PLR0917 - called positionally
     python: str,
     request: Record,
     environment: dict[str, str],

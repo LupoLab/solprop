@@ -108,7 +108,7 @@ class RunSummary(Displayed):
         return {"title": self.title, "rows": [list(row) for row in self.rows]}
 
 
-def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
+def run_summary(
     problem: PropagationProblem,
     request: RunRequest,
     metadata: RunMetadata,

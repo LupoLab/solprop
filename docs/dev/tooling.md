@@ -64,15 +64,17 @@ documentation trees. Rule families:
 pycodestyle, pyflakes, isort, pep8-naming, pydocstyle (numpy convention), annotations,
 pyupgrade, bugbear, simplify, comprehensions, pathlib, no-print, tidy-imports (absolute only),
 return, unused-arguments, PGH (no blanket `noqa`), NumPy (no legacy random), pylint subset
-(`max-args = 6`), ruff-specific (stale `noqa`). Ignored: `PLR2004` (magic values in numerics),
-`ANN401` (a commented, confined `Any`), `F722` (pyflakes reads jaxtyping shape strings such as
-`" n_omega"` as broken forward annotations; jaxtyping's own documentation asks for this
-ignore). One pyupgrade hazard is *not* ignored but avoided: `UP037` unquotes a shape string
-that looks like a quoted annotation — `"..."` becomes a bare `Ellipsis`, which jaxtyping
-rejects — so shape strings are written with names (`"*shape"`, `" n_omega"`), never as
-`"..."`, and forward references under `TYPE_CHECKING` are kept out of quoted form.
-Per-file: tests drop docstring, annotation, magic-value and unused-argument rules (dummies
-implement protocols with unused arguments); the independent oracles under
+(`max-positional-args = 5`: past five positional parameters a signature is keyword-only,
+`PLR0917`), ruff-specific (stale `noqa`). Ignored: `PLR2004` (magic values in numerics),
+`PLR0913` (the parameter count: keyword-only parameters read well at every call site, so
+`PLR0917` counts the positional ones), `ANN401` (a commented, confined `Any`), `F722`
+(pyflakes reads jaxtyping shape strings such as `" n_omega"` as broken forward annotations;
+jaxtyping's own documentation asks for this ignore) and `UP037` (quoted annotations: the
+jaxtyping/beartype hook evaluates annotations before a class body or a `TYPE_CHECKING`
+import binds the name, so the quotes it would remove are needed; see below).
+Per-file: tests drop docstring, annotation, magic-value, unused-argument and
+positional-count rules (dummies implement protocols with unused arguments, and pytest
+passes fixtures and parameters by name); the independent oracles under
 `tests/oracles/` are held to the benchmark rules;
 `docs/conf.py` drops docstring and annotation rules; gallery scripts and worked examples
 drop them too and allow `print` and cell-style imports; benchmarks allow `print`.
@@ -140,8 +142,8 @@ What the hook means for annotations:
 - A plain `float` or an empty tuple is *not* an `ArrayLike` under beartype: annotate such
   parameters `ArrayLike | float` or `Sequence[float] | np.ndarray`.
 - An `int` is accepted where a `float` is annotated (the PEP 484 numeric tower above).
-- A return annotation that names the enclosing class is quoted (`-> "Grid"`, with
-  `# noqa: UP037`): the hook evaluates it while the class body is still running.
+- A return annotation that names the enclosing class is quoted (`-> "Grid"`): the hook
+  evaluates it while the class body is still running (`UP037` is ignored for this).
 - `numpy.typing.NDArray` cannot be used: beartype cannot interpret NumPy's generic alias.
   Use jaxtyping, the one array-annotation style.
 - A dataclass whose `__post_init__` validates shape agreement between its fields gives

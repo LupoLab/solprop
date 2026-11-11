@@ -387,8 +387,8 @@ class Flags:
         linear: LinearOperator,
         transform: Transform,
         responses: CompiledResponses,
-        initial: "Initial",  # noqa: UP037 - bound after this class body
-    ) -> "Flags":  # noqa: UP037 - beartype resolves it while the body still runs
+        initial: "Initial",
+    ) -> "Flags":
         """Derive the flags from the problem's own content.
 
         Parameters
@@ -1127,7 +1127,7 @@ class PropagationProblem:
         self._check_modal_leaves(run)
         self._check_tables(run)
 
-    def validate_launch(self, request: "RunRequest") -> None:  # noqa: UP037
+    def validate_launch(self, request: "RunRequest") -> None:
         """Check the launch against the save planes, and a schedule against them.
 
         The part of :func:`validate_run` a replaced input with a new launch position
@@ -2542,10 +2542,10 @@ class Translation(NamedTuple):
     """
 
     problem: PropagationProblem
-    request: "RunRequest"  # noqa: UP037 - the request module imports this one
+    request: "RunRequest"
 
 
-def validate_run(problem: PropagationProblem, request: "RunRequest") -> None:  # noqa: UP037
+def validate_run(problem: PropagationProblem, request: "RunRequest") -> None:
     """Check a problem and the request it is run with, before anything is allocated.
 
     Everything :meth:`PropagationProblem.validate` checks, in the same order, and
@@ -2643,7 +2643,7 @@ def _budget_term(
     return name, scale * value, bounds.loss - value
 
 
-def _budget_message(
+def _budget_message(  # noqa: PLR0917 - called positionally
     source: str,
     step: float,
     bounds: RateBounds,
@@ -2774,7 +2774,7 @@ class _Assembly:
     tol: float
     has_noise: bool
     dz_max: float
-    reuse: "TranslationReuse | None"  # noqa: UP037 - bound after this class body
+    reuse: "TranslationReuse | None"
     kinks: tuple[tuple[float, str], ...] = ()
     taper_coupling: bool = True
     evanescent_rate: float | None = None
@@ -4857,7 +4857,7 @@ def _true_power_connection(
     return scattered
 
 
-def _check_wall_total_varying(
+def _check_wall_total_varying(  # noqa: PLR0917 - called positionally
     coefficients: Complex[
         np.ndarray, "n_intervals_v n_deg_v n_modes_v_out n_modes_v_in n_omega_v"
     ],
@@ -4940,7 +4940,7 @@ def _check_wall_total_varying(
             raise TranslationError(msg)
 
 
-def _validated(problem: "PropagationProblem", request: "RunRequest") -> None:  # noqa: UP037
+def _validated(problem: "PropagationProblem", request: "RunRequest") -> None:
     """Validate an assembled problem and run every diagnostic that only warns.
 
     Parameters
@@ -4999,7 +4999,7 @@ def _normalisation_rate(
 
 
 def validate_coupled_flow(
-    problem: "PropagationProblem",  # noqa: UP037
+    problem: "PropagationProblem",
     stepper: StepperSettings,
 ) -> None:
     """Warn when a run's declared steps exceed its coupled flow's advisory limit.
@@ -5783,7 +5783,7 @@ def _check_tdse_assembly_route(
         )
 
 
-def _admit_dense(problem: "PropagationProblem", stepper: StepperSettings) -> None:  # noqa: UP037 - defined below
+def _admit_dense(problem: "PropagationProblem", stepper: StepperSettings) -> None:
     """Refuse dense observation where its interpolant is not the run's field.
 
     SEP 14 section 5's admission matrix, for the Runge-Kutta extension and for SEP 13's
@@ -6001,7 +6001,7 @@ def _refuse_carrier_removing_frame(frame: Frame | None, harmonic: bool) -> None:
 
 
 @host_blas()
-def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a run
+def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
     grid: TimeGrid,
     modes: Mode | Sequence[Mode] | None,
     responses: Sequence[object],
@@ -6815,7 +6815,7 @@ def _components(
     return resolved
 
 
-def _transform(  # noqa: PLR0913 - one call site, and each argument is a distinct choice
+def _transform(
     modes: Sequence[Mode],
     grid: TimeGrid,
     quadrature: TransverseQuadrature | None,

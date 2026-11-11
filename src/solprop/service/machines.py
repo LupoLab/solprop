@@ -190,7 +190,7 @@ class Machine:
         return asdict(self)
 
     @classmethod
-    def from_value(cls, value: Mapping[str, object]) -> "Machine":  # noqa: UP037 - the runtime type hook resolves it in the class body
+    def from_value(cls, value: Mapping[str, object]) -> "Machine":
         """Return a machine from its plain data, ignoring fields it does not know.
 
         Parameters

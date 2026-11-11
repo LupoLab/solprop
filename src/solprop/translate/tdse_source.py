@@ -120,7 +120,7 @@ def _helium(mode: MarcatiliMode) -> Species:
     return material
 
 
-def admit_tdse(  # noqa: PLR0913 - admission checks the declared route together.
+def admit_tdse(
     responses: Sequence[object],
     grid: TimeGrid,
     modes: Sequence[Mode],

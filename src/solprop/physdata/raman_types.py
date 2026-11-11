@@ -646,7 +646,7 @@ class MolecularOptions:
     min_j: int = 0
     max_j: int = 50
 
-    def resolved(self, temperature: float) -> "MolecularOptions":  # noqa: UP037 - bound after the class body
+    def resolved(self, temperature: float) -> "MolecularOptions":
         """Return the options with an unset temperature taken from the caller.
 
         Parameters

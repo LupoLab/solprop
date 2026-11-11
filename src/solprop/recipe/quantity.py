@@ -97,8 +97,8 @@ class Dimension:
 
     def __mul__(
         self,
-        other: "Dimension",  # noqa: UP037 - the hook reads it in the class body
-    ) -> "Dimension":  # noqa: UP037
+        other: "Dimension",
+    ) -> "Dimension":
         """Return the dimension of a product.
 
         Parameters
@@ -119,7 +119,7 @@ class Dimension:
             self.angle + other.angle,
         )
 
-    def __pow__(self, exponent: int) -> "Dimension":  # noqa: UP037
+    def __pow__(self, exponent: int) -> "Dimension":
         """Return the dimension raised to an integer power.
 
         Parameters

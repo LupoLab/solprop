@@ -435,7 +435,7 @@ def on_axis_power(
     return time_axis(flux.grid, oversampling), values
 
 
-def on_axis_spectrogram(  # noqa: PLR0913 - a plane, its axis and the gate
+def on_axis_spectrogram(
     output: Output,
     axis: SpectralAxis = "wavelength",
     *,

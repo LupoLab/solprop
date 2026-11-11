@@ -504,7 +504,7 @@ def _baseline_probe(source: Path) -> ModuleType:
     return module
 
 
-def select(  # noqa: PLR0913 - the problem, its host context and its execution
+def select(
     name: str,
     problem: PropagationProblem,
     request: RunRequest,
@@ -685,7 +685,7 @@ def _satisfied(entry: BackendEntry) -> bool:
     )
 
 
-def _construct(  # noqa: PLR0913 - as select
+def _construct(
     name: str,
     problem: PropagationProblem,
     request: RunRequest,

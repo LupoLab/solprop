@@ -573,7 +573,7 @@ class ArrayDigest:
     shape: tuple[int, ...]
 
     @classmethod
-    def of(cls, values: np.ndarray) -> "ArrayDigest":  # noqa: UP037 - bound after the class body
+    def of(cls, values: np.ndarray) -> "ArrayDigest":
         """Return the digest of an array's contents.
 
         Parameters
@@ -677,7 +677,7 @@ class StatedInput:
     shape: tuple[int, ...]
 
     @classmethod
-    def of(cls, values: np.ndarray, identity: str) -> "StatedInput":  # noqa: UP037 - bound after the class body
+    def of(cls, values: np.ndarray, identity: str) -> "StatedInput":
         """Return the record of an array input under a stated identity.
 
         Parameters
@@ -1063,7 +1063,7 @@ class BackendRecord:
         object.__setattr__(self, "settings", dict(self.settings))
 
     @classmethod
-    def from_metadata(cls, metadata: Mapping[str, object]) -> "BackendRecord":  # noqa: UP037 - bound after the class body
+    def from_metadata(cls, metadata: Mapping[str, object]) -> "BackendRecord":
         """Return the record a backend's ``metadata()`` describes.
 
         Parameters
@@ -1129,7 +1129,7 @@ class GitProvenance:
     dirty: bool
 
     @classmethod
-    def detect(cls) -> "GitProvenance | None":  # noqa: UP037 - bound after the class body
+    def detect(cls) -> "GitProvenance | None":
         """Return the provenance of the running solprop checkout, if there is one.
 
         An installed release is not a checkout, git may be absent, and the package may
@@ -1345,7 +1345,7 @@ class GridRecord:
     t_window_max: float
 
     @classmethod
-    def from_grid(cls, grid: TimeGrid) -> "GridRecord":  # noqa: UP037 - bound after the class body
+    def from_grid(cls, grid: TimeGrid) -> "GridRecord":
         """Return the record of a grid.
 
         Parameters
@@ -1426,7 +1426,7 @@ class ModeRecord:
     label: Mapping[str, JsonValue] | None = None
 
     @classmethod
-    def from_mode(cls, mode: Mode, z: float = 0.0) -> "ModeRecord":  # noqa: UP037 - bound after the class body
+    def from_mode(cls, mode: Mode, z: float = 0.0) -> "ModeRecord":
         """Return the record of a mode.
 
         Parameters
@@ -1515,7 +1515,7 @@ class NoiseRecord:
         object.__setattr__(self, "spectrum", frozen)
 
     @classmethod
-    def from_realisation(cls, realisation: NoiseRealisation) -> "NoiseRecord":  # noqa: UP037 - bound after the class body
+    def from_realisation(cls, realisation: NoiseRealisation) -> "NoiseRecord":
         """Return the record of a drawn realisation.
 
         Parameters
@@ -1720,7 +1720,7 @@ class StepperRecord:
         schedule: FixedSchedule | None = None,
         limits: StepLimits | None = None,
         method: str | None = None,
-    ) -> "StepperRecord":  # noqa: UP037 - bound after the class body
+    ) -> "StepperRecord":
         """Return the record of the objects a run stepped with.
 
         Parameters
@@ -1763,7 +1763,7 @@ class StepperRecord:
         )
 
     @classmethod
-    def from_record(cls, document: Mapping[str, JsonValue]) -> "StepperRecord":  # noqa: UP037 - bound after the class body
+    def from_record(cls, document: Mapping[str, JsonValue]) -> "StepperRecord":
         """Return the record a stored document describes.
 
         Parameters
@@ -1937,7 +1937,7 @@ class StepHistory(Displayed):
             raise OutputError(msg)
 
     @classmethod
-    def empty(cls) -> "StepHistory":  # noqa: UP037 - bound after the class body
+    def empty(cls) -> "StepHistory":
         """Return the history of a plane no step led to, such as the starting plane.
 
         Returns
@@ -2069,7 +2069,7 @@ class StepStats(Displayed):
             raise OutputError(msg)
 
     @classmethod
-    def empty(cls) -> "StepStats":  # noqa: UP037 - bound after the class body
+    def empty(cls) -> "StepStats":
         """Return the channel a run without a periodic subset carries.
 
         Returns
@@ -3561,7 +3561,7 @@ class RunMetadata(Displayed):
         text = _canonical_json(self._hashed_record)
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-    def with_backend(self, backend: BackendRecord) -> "RunMetadata":  # noqa: UP037 - bound after the class body
+    def with_backend(self, backend: BackendRecord) -> "RunMetadata":
         """Return this record with a run's execution facts, its resume key kept.
 
         The backend record is outside the hash, so the hashed part and the resume key
@@ -3598,7 +3598,7 @@ class RunMetadata(Displayed):
                 replaced.__dict__[name] = self.__dict__[name]
         return replaced
 
-    def differences(self, other: "RunMetadata") -> tuple[str, ...]:  # noqa: UP037 - bound after the class body
+    def differences(self, other: "RunMetadata") -> tuple[str, ...]:
         """Return the dotted paths at which two records describe different runs.
 
         This is what a refused resume names, so that the reason is the field that
@@ -3630,7 +3630,7 @@ class RunMetadata(Displayed):
 
     def summarise_differences(
         self,
-        other: "RunMetadata",  # noqa: UP037 - bound after the class body
+        other: "RunMetadata",
         *,
         shown: int = _DIFFERENCES_SHOWN,
     ) -> str:
@@ -3813,7 +3813,7 @@ class RunMetadata(Displayed):
         cls,
         text: str,
         arrays: Mapping[str, object] | None = None,
-    ) -> "RunMetadata":  # noqa: UP037 - bound after the class body
+    ) -> "RunMetadata":
         """Return the record a JSON document describes.
 
         The configuration comes back as the plain structures :func:`serialise` made of
@@ -4102,7 +4102,7 @@ class FieldRetention:
             self, "field_planes", tuple(int(index) for index in self.field_planes)
         )
 
-    def resolved(self, n_planes: int) -> "FieldRetention":  # noqa: UP037 - bound after the class body
+    def resolved(self, n_planes: int) -> "FieldRetention":
         """Return the rule with its indices counted from the entrance, sorted, unique.
 
         Parameters
@@ -5038,7 +5038,7 @@ class PlaneStore(Displayed, ABC):
             rows.append(("run", repr(self._metadata)))
         return type(self).__name__, rows
 
-    def __enter__(self) -> "PlaneStore":  # noqa: UP037 - bound after the class body
+    def __enter__(self) -> "PlaneStore":
         """Return the handler, so that a ``with`` block closes it on the way out.
 
         Returns

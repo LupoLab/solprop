@@ -379,7 +379,7 @@ class _Pulse:
         peak = float(np.max(self.power(transfer)))
         return self.peak_limit / peak if peak > 0.0 else math.inf
 
-    def result(  # noqa: PLR0913 - the fields of the result that differ between compressors
+    def result(
         self,
         kind: str,
         transfer: TransferFunction,
@@ -505,7 +505,7 @@ def _require_modal(output: Output) -> None:
         )
 
 
-def _pulse_of(  # noqa: PLR0913 - the two input forms and the selection common to both
+def _pulse_of(
     output: Output | None,
     grid: TimeGrid | None,
     spectrum: Complex[np.ndarray, "*shape n_omega"] | None,
@@ -614,7 +614,7 @@ def apply_transfer(
     return omega, stored[..., keep] * _fft_norm(grid) * transfer(omega)
 
 
-def transform_limit(  # noqa: PLR0913 - the two input forms and the selection
+def transform_limit(
     output: Output | None = None,
     *,
     grid: TimeGrid | None = None,
@@ -749,7 +749,7 @@ def _gaussian_width(
     return max(from_fwhm, from_rms)
 
 
-def compress_taylor(  # noqa: PLR0913 - the input forms, the selection and the search
+def compress_taylor(
     output: Output | None = None,
     *,
     grid: TimeGrid | None = None,
@@ -895,7 +895,7 @@ def compress_taylor(  # noqa: PLR0913 - the input forms, the selection and the s
     )
 
 
-def compress_material(  # noqa: PLR0913 - the input forms, the medium and the selection
+def compress_material(
     output: Output | None = None,
     *,
     medium: Medium,
@@ -1029,7 +1029,7 @@ def _behind_mirrors(
     return pulse.objective(Chain((mirrors, insertion)))
 
 
-def compress_mirrors(  # noqa: PLR0913 - the input forms, the mirror, the wedge and the selection
+def compress_mirrors(
     output: Output | None = None,
     *,
     mirror: ChirpedMirror | str,
@@ -1272,7 +1272,7 @@ def _pair_range(bounds: tuple[float, float], name: str) -> tuple[float, float]:
     return bounds
 
 
-def _pair_pulse(  # noqa: PLR0913 - the shared input forms and fixed selection
+def _pair_pulse(
     output: Output | None,
     grid: TimeGrid | None,
     spectrum: Complex[np.ndarray, "*shape n_omega"] | None,
@@ -1538,7 +1538,7 @@ def _pair_search(
     return coordinates, success, message
 
 
-def compress_gratings(  # noqa: PLR0913 - physical settings, input forms and selection
+def compress_gratings(
     output: Output | None = None,
     *,
     pair: GratingPair,
@@ -1627,7 +1627,7 @@ def compress_gratings(  # noqa: PLR0913 - physical settings, input forms and sel
     )
 
 
-def compress_prisms(  # noqa: PLR0913 - physical settings, input forms and selection
+def compress_prisms(
     output: Output | None = None,
     *,
     pair: PrismPair,

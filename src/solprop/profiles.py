@@ -277,7 +277,7 @@ class PathVariation:
         jumps = np.abs(self.first[1:] - self.last[:-1])
         return float(np.sum(self.variation) + np.sum(jumps))
 
-    def collapse(self) -> "PathVariation":  # noqa: UP037 - evaluated in the class body
+    def collapse(self) -> "PathVariation":
         """Return the same enclosure as one piece over the whole interval.
 
         Returns
@@ -303,7 +303,7 @@ class PathVariation:
             np.array([monotone]),
         )
 
-    def scaled(self, factor: float) -> "PathVariation":  # noqa: UP037 - see collapse
+    def scaled(self, factor: float) -> "PathVariation":
         """Return the enclosure of the path multiplied by a constant.
 
         Parameters
@@ -898,7 +898,7 @@ class PiecewiseLinear(Displayed):
         cls,
         positions: Sequence[float] | np.ndarray,
         values: Sequence[float] | np.ndarray,
-    ) -> "PiecewiseLinear":  # noqa: UP037 - evaluated while the class body still runs
+    ) -> "PiecewiseLinear":
         """Build a path from any sequence of positions and values.
 
         Parameters
@@ -1298,7 +1298,7 @@ class _BoreIntegral:
         radius: ZProfile | None,
         stage_edges: Float[np.ndarray, " n_positions"],
         factor: ZProfile | None = None,
-    ) -> "_BoreIntegral":  # noqa: UP037 - evaluated while the class body still runs
+    ) -> "_BoreIntegral":
         """Cut the fill into pieces and integrate the bore weight over each.
 
         Parameters
@@ -1803,7 +1803,7 @@ class PressureGradient(Displayed):
         floor: float | None = None,
         radius: float | ZProfile | None = None,
         weight: float | ZProfile | None = None,
-    ) -> "PressureGradient":  # noqa: UP037 - evaluated while the class body still runs
+    ) -> "PressureGradient":
         """Build a single-stage fill from one end pressure to the other.
 
         Parameters
@@ -1859,7 +1859,7 @@ class PressureGradient(Displayed):
         floor: float | None = None,
         radius: float | ZProfile | None = None,
         weight: float | ZProfile | None = None,
-    ) -> "PressureGradient":  # noqa: UP037 - evaluated while the class body still runs
+    ) -> "PressureGradient":
         """Build a multi-stage fill, applying and logging the vacuum-end floor.
 
         Parameters
@@ -2156,7 +2156,7 @@ class _Compressibility:
         pressures: tuple[float, float],
         temperatures: tuple[float, float],
         what: str,
-    ) -> "_Compressibility":  # noqa: UP037 - evaluated while the class body still runs
+    ) -> "_Compressibility":
         """Tabulate ``Z`` at Chebyshev nodes, raising each axis's degree to convergence.
 
         Parameters

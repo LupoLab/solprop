@@ -294,7 +294,7 @@ class SlabMode(_WallPairFill):
         """
         return MappingProxyType({"half_gap": self.width_x, **self._fill_paths()})
 
-    def at_parameters(self, values: Mapping[str, float]) -> "SlabMode":  # noqa: UP037 - eager hook
+    def at_parameters(self, values: Mapping[str, float]) -> "SlabMode":
         """Copy the mode with the supplied gap and fill paths frozen.
 
         Parameters
@@ -427,7 +427,7 @@ class SlabMode(_WallPairFill):
         return "y" if self.polarisation == "te" else "x"
 
     @property
-    def orthogonal_polarisation(self) -> "SlabMode":  # noqa: UP037 - eager hook
+    def orthogonal_polarisation(self) -> "SlabMode":
         """Return the same order with the other polarisation.
 
         Returns

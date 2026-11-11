@@ -421,7 +421,7 @@ class SpatialPulse(Displayed):
         xy: Float[np.ndarray, "n_nodes 2"],
         *,
         index: Float[np.ndarray, " n_omega"],
-    ) -> "IncidentField":  # noqa: UP037 - defined below this class
+    ) -> "IncidentField":
         r"""Sample the beam, normalised over its whole incident plane, at given points.
 
         The incident-field boundary of a guide launch (SEP 31, phase 1): the beam is
@@ -748,7 +748,7 @@ class _Aligner:
         space: RadialGrid | FreeGrid,
         medium: SpatialMedium,
         at: float,
-    ) -> "_Aligner | None":  # noqa: UP037 - the class itself
+    ) -> "_Aligner | None":
         """Return a beam's aligner, refusing what the launch cannot carry.
 
         Parameters
@@ -1170,7 +1170,7 @@ _HERMITE_ORDER = 64
 """Gauss-Hermite nodes averaging a Gaussian's admittance over its x wave numbers."""
 
 
-def _incident_admittance(
+def _incident_admittance(  # noqa: PLR0917 - called positionally
     grid: TimeGrid,
     space: PlanarGrid,
     medium: SpatialMedium,
@@ -1573,7 +1573,7 @@ def _normalising_factor(
     return math.sqrt(target / measured)
 
 
-def _normalised(  # noqa: PLR0913 - the request, the beam, its measure and its norms
+def _normalised(  # noqa: PLR0917 - called positionally
     pulse: Pulse,
     temporal: np.ndarray,
     field: np.ndarray,
@@ -2775,7 +2775,7 @@ class DataPulse(Displayed):
         return _canonical(_rescale(spectrum, grid, self.energy, "energy"))
 
     @classmethod
-    def from_spectral_density(  # noqa: PLR0913 - the data triple plus the shared parameters
+    def from_spectral_density(
         cls,
         omega: Float[np.ndarray, " n_data"],
         intensity: Float[np.ndarray, " n_data_intensity"],
@@ -2787,7 +2787,7 @@ class DataPulse(Displayed):
         wavelength: float | None = None,
         # The return annotation stays quoted: beartype resolves it while the class body
         # is still executing, when the bare class name is not yet bound.
-    ) -> "DataPulse":  # noqa: UP037
+    ) -> "DataPulse":
         """Build a pulse from a spectral power density and an unwrapped spectral phase.
 
         This is the form a spectrometer and a phase retrieval give. Negative densities,
@@ -3575,7 +3575,7 @@ def _read_phase(
     return -phase if phase_convention == "fft" else phase
 
 
-def load_spectrum(  # noqa: PLR0913 - the keywords of a measured file's layout
+def load_spectrum(
     path: str | os.PathLike[str] | io.TextIOBase,
     *,
     energy: float,

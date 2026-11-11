@@ -296,7 +296,7 @@ def basis_from_preset(target: str, preset: _Preset) -> TDSEBasis:
 # ------------------------------------------------------------------- haCC records
 
 
-def _hacc_fields(
+def _hacc_fields(  # noqa: PLR0917 - called positionally
     hacc: _Native,
     atom: _Native,
     basis: _Native,

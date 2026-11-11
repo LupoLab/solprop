@@ -286,7 +286,7 @@ def test_a_gradient_translates_exactly_as_before_and_samples_its_wall_a_few_time
 
     computes = {"count": 0}
 
-    def uncached(self, quantity, omega, model, *, material, wavelength, compute):  # noqa: PLR0913 - the method it replaces
+    def uncached(self, quantity, omega, model, *, material, wavelength, compute):
         computes["count"] += 1
         with _optmat.translated(
             model, quantity, material=material, wavelength=wavelength

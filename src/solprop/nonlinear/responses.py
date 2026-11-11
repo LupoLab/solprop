@@ -496,7 +496,7 @@ def _analytic(
     return np.fft.ifft(spectrum, axis=-1)
 
 
-def _product_spectrum(  # noqa: PLR0913 - the three fields of a product and its context
+def _product_spectrum(
     x: Num[np.ndarray, "*nodes n_pol n_to"],
     y: Num[np.ndarray, "*nodes n_pol n_to"],
     z: Num[np.ndarray, "*nodes n_pol n_to"],

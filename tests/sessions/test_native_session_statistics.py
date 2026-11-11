@@ -94,9 +94,7 @@ def _periodic(names):
     return tuple(name for name in names if CATALOGUE[name].between_planes)
 
 
-def _run(  # noqa: PLR0913 - the problem, its request and the backend's context
-    problem, run_request, names, *, grid, modes=None, profiles=None, windows=None
-):
+def _run(problem, run_request, names, *, grid, modes=None, profiles=None, windows=None):
     """Run the native session with a plane and a row at every accepted step.
 
     Parameters
@@ -160,9 +158,7 @@ def _run(  # noqa: PLR0913 - the problem, its request and the backend's context
     return seen, status, counters, lowering, spec
 
 
-def _reference(  # noqa: PLR0913 - the problem, its request and the backend's context
-    problem, run_request, spec, seen, *, grid, modes=None, profiles=None
-):
+def _reference(problem, run_request, spec, seen, *, grid, modes=None, profiles=None):
     """Return the NumPy reference's plane statistics on each observed field.
 
     Parameters

@@ -532,7 +532,7 @@ class Start:
     @classmethod
     def entrance(
         cls, problem: PropagationProblem, *, noise: NoiseRealisation | None = None
-    ) -> "Start":  # noqa: UP037 - runtime type hook
+    ) -> "Start":
         """Return the fresh start of a problem: its launch state, its launch plane owed.
 
         Parameters
@@ -788,7 +788,7 @@ class RunSession(Protocol):
         """Release the session's resources; idempotent."""
         ...
 
-    def __enter__(self) -> "RunSession":  # noqa: UP037 - runtime type hook
+    def __enter__(self) -> "RunSession":
         """Return the session, for scoped ownership."""
         ...
 
@@ -962,7 +962,7 @@ class GroupSession(Protocol):
         """Release every member's resources; idempotent."""
         ...
 
-    def __enter__(self) -> "GroupSession":  # noqa: UP037 - runtime type hook
+    def __enter__(self) -> "GroupSession":
         """Return the group, for scoped ownership."""
         ...
 

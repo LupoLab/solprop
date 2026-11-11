@@ -94,7 +94,7 @@ def _flux(grid: TimeGrid, space: object, medium: object, z: float) -> SpatialFlu
     return SpatialFlux.resolve(grid, space, medium, z=z)  # pyright: ignore[reportArgumentType]
 
 
-def beam_reading(  # noqa: PLR0913 - the run's grids, medium and the plane
+def beam_reading(  # noqa: PLR0917 - called through a reference
     grid: TimeGrid,
     space: object,
     medium: object,

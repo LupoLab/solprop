@@ -189,7 +189,7 @@ class CallLedger:
         return record
 
     @classmethod
-    def from_record(cls, record: Mapping[str, object]) -> "CallLedger":  # noqa: UP037 - runtime hook
+    def from_record(cls, record: Mapping[str, object]) -> "CallLedger":
         """Restore validated cumulative counts without restoring numerical history.
 
         Parameters
@@ -439,7 +439,7 @@ class AdamsKernels:
         """
         return integrated_weights(nodes, upper, check=False, helpers=self._helpers)
 
-    def predict(
+    def predict(  # noqa: PLR0917 - called positionally
         self,
         state: _State,
         propagator: _State,
@@ -475,7 +475,7 @@ class AdamsKernels:
             total = passes.accumulate(total, store[slot], float(weight))
         return propagator * (state + dz * total)
 
-    def correct(  # noqa: PLR0913, PLR0917 - buffers are a kernel's parameters
+    def correct(  # noqa: PLR0917 - buffers are a kernel's parameters
         self,
         state: _State,
         propagator: _State,
@@ -720,7 +720,7 @@ def _through(
     return (left * values[:, np.newaxis, :]) @ right
 
 
-def _eigen_functions(
+def _eigen_functions(  # noqa: PLR0917 - called through a reference
     shift: np.ndarray,
     dz: float,
     count: int,
@@ -755,7 +755,7 @@ def _eigen_functions(
             matrices[k, route] = math.factorial(k) * _through(pair, phi[k + 1])
 
 
-def coupled_moments(  # noqa: PLR0913 - the optional evaluators and shift are keywords
+def coupled_moments(
     exponent: _State,
     count: int,
     block: CoupledBlock,
@@ -880,7 +880,7 @@ class ExponentialKernels:
         """Hold the backend's basis implementation."""
         self._helpers = helpers
 
-    def coupled(self) -> "CoupledExponentialKernels":  # noqa: UP037 - defined below
+    def coupled(self) -> "CoupledExponentialKernels":
         """Return the passes this backend takes beside a coupled flow.
 
         Returns
@@ -952,7 +952,7 @@ class ExponentialKernels:
         factors = np.array([math.factorial(k) for k in range(count)], dtype=np.float64)
         return phi[1:] * factors.reshape((count, *([1] * exponent.ndim)))
 
-    def carry(
+    def carry(  # noqa: PLR0917 - called positionally
         self,
         exponent: _State,
         dz: float,
@@ -1068,7 +1068,7 @@ class ExponentialKernels:
             total += self._times_moment(moments, k, combined)
         return dz * total
 
-    def predict(  # noqa: PLR0913, PLR0917 - buffers are a kernel's parameters
+    def predict(  # noqa: PLR0917 - buffers are a kernel's parameters
         self,
         state: _State,
         flow: _State,
@@ -1111,7 +1111,7 @@ class ExponentialKernels:
             state, flow, moments, store, slots, coefficients, dz, factors=factors
         )
 
-    def _predicted(  # noqa: PLR0913, PLR0917 - buffers are a kernel's parameters
+    def _predicted(  # noqa: PLR0917 - buffers are a kernel's parameters
         self,
         state: _State,
         flow: Any,
@@ -1174,7 +1174,7 @@ class ExponentialKernels:
         """
         return _exponential_rows(nodes, orders, width, helpers=self._helpers)
 
-    def correct(  # noqa: PLR0913, PLR0917 - buffers are a kernel's parameters
+    def correct(  # noqa: PLR0917 - buffers are a kernel's parameters
         self,
         state: _State,
         flow: _State,
@@ -1245,7 +1245,7 @@ class ExponentialKernels:
             extra,
         )
 
-    def _corrected(  # noqa: PLR0913, PLR0917 - buffers are a kernel's parameters
+    def _corrected(  # noqa: PLR0917 - buffers are a kernel's parameters
         self,
         state: _State,
         flow: Any,
@@ -1311,7 +1311,7 @@ class CoupledExponentialKernels(ExponentialKernels):
     those products.
     """
 
-    def coupled(self) -> "CoupledExponentialKernels":  # noqa: UP037 - this class
+    def coupled(self) -> "CoupledExponentialKernels":
         """Return these passes.
 
         Returns
@@ -1388,7 +1388,7 @@ class CoupledExponentialKernels(ExponentialKernels):
         """
         return cast("_MatrixMoments", flow).flow(values)
 
-    def carry_coupled(
+    def carry_coupled(  # noqa: PLR0917 - called positionally
         self,
         exponent: _State,
         dz: float,
@@ -1439,7 +1439,7 @@ class CoupledExponentialKernels(ExponentialKernels):
             carried.append(term)
         return np.stack(carried)
 
-    def predict(  # noqa: PLR0913, PLR0917 - buffers are a kernel's parameters
+    def predict(  # noqa: PLR0917 - buffers are a kernel's parameters
         self,
         state: _State,
         flow: _State | _MatrixMoments,
@@ -1480,7 +1480,7 @@ class CoupledExponentialKernels(ExponentialKernels):
             state, flow, moments, store, slots, coefficients, dz, factors=factors
         )
 
-    def correct(  # noqa: PLR0913, PLR0917 - buffers are a kernel's parameters
+    def correct(  # noqa: PLR0917 - buffers are a kernel's parameters
         self,
         state: _State,
         flow: _State | _MatrixMoments,
@@ -1574,7 +1574,7 @@ class _ExponentialTrial:
     advanced: _State
     slots: np.ndarray
     order: int
-    compensation: "_Compensation | None"  # noqa: UP037 - defined below
+    compensation: "_Compensation | None"
     shift: np.ndarray | None = None
     """The trial's carrier shift (SEP 35), ``None`` without one."""
     factors: np.ndarray | None = None
@@ -1887,7 +1887,7 @@ class AdamsEngine(Protocol):
         """
         ...
 
-    def fused_trial(
+    def fused_trial(  # noqa: PLR0917 - called positionally
         self,
         z: float,
         dz: float,
@@ -1932,7 +1932,7 @@ class AdamsEngine(Protocol):
         """
         ...
 
-    def exponential_trial(
+    def exponential_trial(  # noqa: PLR0917 - called positionally
         self,
         z: float,
         dz: float,
@@ -2215,7 +2215,7 @@ class HostHistory:
 
     # --- the interaction formulation's fused path -------------------------------------
 
-    def fused_trial(
+    def fused_trial(  # noqa: PLR0917 - called positionally
         self,
         z: float,
         dz: float,
@@ -2445,7 +2445,7 @@ class HostHistory:
 
     # --- the exponential formulation --------------------------------------------------
 
-    def exponential_trial(
+    def exponential_trial(  # noqa: PLR0917 - called positionally
         self,
         z: float,
         dz: float,
@@ -2670,7 +2670,7 @@ class HostHistory:
         reference = exponent / dz
         return [(self._rates[slot] - reference) * self._states[slot] for slot in slots]
 
-    def _compensation_terms(
+    def _compensation_terms(  # noqa: PLR0917 - called positionally
         self,
         exponent: _State,
         moments: Any,
@@ -2678,7 +2678,7 @@ class HostHistory:
         slots: np.ndarray,
         dz: float,
         block: CoupledBlock | None = None,
-    ) -> "_Compensation":  # noqa: UP037 - defined below
+    ) -> "_Compensation":
         """Return the trial's linear compensation of its history samples.
 
         Parameters
@@ -2829,7 +2829,7 @@ class HostHistory:
         return self._backend._apply_mask(value)
 
 
-def _trial_propagators(
+def _trial_propagators(  # noqa: PLR0917 - called positionally
     kernels: Any,
     exponent: Any,
     width: int,

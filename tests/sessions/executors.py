@@ -256,7 +256,7 @@ class _Outcomes:
         Passed to :class:`scripted_driver.HostScriptedDriver`.
     """
 
-    def __init__(  # noqa: PLR0913 - one keyword per scripted outcome
+    def __init__(
         self,
         problem: PropagationProblem,
         run_request: RunRequest,
@@ -1121,7 +1121,7 @@ class Run:
         )
 
 
-def drive(  # noqa: PLR0913 - the advance bounds and the drive's stopping rules
+def drive(
     started: Started,
     *,
     export: ExportRecipe | None = None,

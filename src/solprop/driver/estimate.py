@@ -154,7 +154,7 @@ def _calls_per_step(integrator: object) -> int:
 
 
 def estimate(
-    simulation: "Simulation",  # noqa: UP037 - checked at run time
+    simulation: "Simulation",
     *,
     repeats: int = _REPEATS,
 ) -> RunEstimate:
@@ -236,7 +236,7 @@ def estimate(
     )
 
 
-def output_bytes(simulation: "Simulation") -> int:  # noqa: UP037 - checked at run time
+def output_bytes(simulation: "Simulation") -> int:
     """Return the size of a run's output, without constructing a backend.
 
     Every saved plane's :func:`plane_bytes`, less the field of each plane the settings

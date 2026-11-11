@@ -166,7 +166,7 @@ def free_transform(
     )
 
 
-def free_operators(  # noqa: PLR0913 - geometry, operator settings and controls
+def free_operators(
     space: FreeGrid,
     dispersion: SpatialDispersion,
     *,

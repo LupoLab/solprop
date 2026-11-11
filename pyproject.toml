@@ -199,7 +199,7 @@ select = [
     "ARG",         # unused arguments
     "PGH",         # PGH004 bans blanket `# noqa`
     "NPY",         # NumPy-specific: NPY002 catches legacy np.random.seed
-    "PL",          # pylint subset; PLR0913 = too many arguments
+    "PL",          # pylint subset; PLR0917 = too many positional arguments
     "RUF",         # ruff-specific; RUF100 catches stale noqa
 ]
 ignore = [
@@ -210,6 +210,14 @@ ignore = [
     # forward annotations. jaxtyping's own documentation requires this ignore; without
     # it the annotation style AGENTS.md mandates cannot be written at all.
     "F722",        # forward-annotation-syntax-error: jaxtyping shape strings
+    # The count that hurts a reader is the positional one (PLR0917, below): a signature
+    # with many keyword-only parameters reads well at every call site.
+    "PLR0913",     # too-many-arguments
+    # A quoted annotation is required wherever the jaxtyping/beartype import hook
+    # evaluates it before the name exists: a method returning its own class, a parameter
+    # typed by a class defined later, a name imported under TYPE_CHECKING
+    # (docs/dev/tooling.md, "jaxtyping + beartype"). Unquoting it breaks the test session.
+    "UP037",       # quoted-annotation
 ]
 
 [tool.ruff.lint.pydocstyle]
@@ -222,10 +230,12 @@ ban-relative-imports = "all"
 known-first-party = ["solprop"]
 
 [tool.ruff.lint.pylint]
-max-args = 6                      # forces a config dataclass past this
+max-positional-args = 5           # past this, parameters are keyword-only
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**"          = ["D", "ANN", "PLR2004", "ARG"]   # dummies implement protocols with unused args
+# Dummies implement protocols with unused arguments; pytest passes fixtures and parameters
+# by name, so a test's positional count says nothing.
+"tests/**"          = ["D", "ANN", "PLR2004", "ARG", "PLR0917"]
 "benchmarks/**"     = ["D", "ANN", "T20"]
 "tools/setup_light.py" = ["T20"]                     # it tells a contributor what to do
 # Independent oracles that tests compare against: research code, held to the benchmark

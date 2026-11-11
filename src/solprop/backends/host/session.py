@@ -127,7 +127,7 @@ class HostSession:
         If `driver` is not a reference driver.
     """
 
-    def __init__(  # noqa: PLR0913 - the session context
+    def __init__(
         self,
         driver: Backend,
         problem: PropagationProblem,
@@ -538,7 +538,7 @@ class HostSession:
             if self._owns:
                 self._driver.close()
 
-    def __enter__(self) -> "HostSession":  # noqa: UP037 - runtime type hook
+    def __enter__(self) -> "HostSession":
         """Return the session.
 
         Returns

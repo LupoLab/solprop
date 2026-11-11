@@ -1092,7 +1092,7 @@ def _compare_round(
     return ratios, windows
 
 
-def _session_of(
+def _session_of(  # noqa: PLR0917 - called positionally
     plan: _Plan,
     child: _Child,
     base: _Setup,

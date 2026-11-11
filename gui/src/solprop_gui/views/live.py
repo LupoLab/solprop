@@ -115,7 +115,7 @@ class MapPanel:
         The readout's format, given x, z and the value.
     """
 
-    def __init__(  # noqa: PLR0913 - a map's labels
+    def __init__(
         self,
         layout: HoverLayout,
         column: int,

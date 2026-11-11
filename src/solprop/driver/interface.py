@@ -87,7 +87,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
+def prop_radial(
     grid: TimeGrid,
     space: RadialGrid,
     medium: SpatialMedium,
@@ -206,7 +206,7 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
     )
 
 
-def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
+def prop_free(
     grid: TimeGrid,
     space: FreeGrid,
     medium: SpatialMedium,
@@ -330,7 +330,7 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
     )
 
 
-def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
+def prop_planar(
     grid: TimeGrid,
     space: PlanarGrid,
     responses: Sequence[object],
@@ -440,7 +440,7 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
     )
 
 
-def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
+def prop_gnlse(
     gamma: float | None,
     length: float,
     betas: Sequence[float] | np.ndarray | None = None,
@@ -811,7 +811,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     )
 
 
-def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
+def prop_capillary(
     radius: float | ZProfile,
     length: float,
     gas: Gas | str | Mapping[str, float] | Mixture,
@@ -1345,7 +1345,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     )
 
 
-def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
+def prop_waveguide(
     modes: Sequence[Mode],
     length: float,
     gas: Gas | str | Mapping[str, float] | Mixture | None = None,

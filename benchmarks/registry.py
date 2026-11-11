@@ -170,7 +170,7 @@ class Case:
                 record.pop(key)
         return identity(record)
 
-    def configuration(  # noqa: PLR0913 - the shared command-line selection
+    def configuration(
         self,
         stepper: str,
         width: int,

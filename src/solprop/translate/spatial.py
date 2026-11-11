@@ -948,7 +948,7 @@ class FluxPlan:
 
 
 def _far_field_columns(
-    geometry: "SpatialGeometry | FreeGrid | RadialGrid | None",  # noqa: UP037
+    geometry: "SpatialGeometry | FreeGrid | RadialGrid | None",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Return the Cartesian columns a far-field statistic reads, or refuse the geometry.
 
@@ -992,7 +992,7 @@ def _far_field_columns(
 def aperture_tables(
     spec: StatsSpec,
     grids: Grids | TimeGrid,
-    geometry: "SpatialGeometry | FreeGrid | RadialGrid | None",  # noqa: UP037
+    geometry: "SpatialGeometry | FreeGrid | RadialGrid | None",
 ) -> ApertureTables | None:
     """Form the far-field statistics' tables once, for every backend (SEP 23 §6).
 

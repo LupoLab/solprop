@@ -242,7 +242,7 @@ class _Loaded:
             raise SuiteError(msg)
 
 
-def timed_run(  # noqa: PLR0913 - the run and how it is observed
+def timed_run(
     simulation: Simulation,
     problem: PropagationProblem,
     engine: Backend,
@@ -447,7 +447,7 @@ def _device_free(configuration: Record) -> int | None:
     return solprop_native.available_device_memory()
 
 
-def _repetition(
+def _repetition(  # noqa: PLR0917 - called positionally
     configuration: Record,
     simulation: Simulation,
     problem: PropagationProblem,
@@ -489,7 +489,7 @@ def _repetition(
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def _counted(
+def _counted(  # noqa: PLR0917 - called positionally
     configuration: Record,
     simulation: Simulation,
     problem: PropagationProblem,
@@ -508,7 +508,7 @@ def _counted(
     return {**record, "counters": found}
 
 
-def _warm(
+def _warm(  # noqa: PLR0917 - called positionally
     configuration: Record,
     simulation: Simulation,
     problem: PropagationProblem,

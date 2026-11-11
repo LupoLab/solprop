@@ -52,7 +52,7 @@ VARIANTS = {
 """Each variant's ramp and reads."""
 
 
-def _variant(
+def _variant(  # noqa: PLR0917 - called positionally
     name: str, backend: str, width: int, fraction: float, ramp: bool, edge: bool
 ) -> tuple[Simulation, float]:
     """Return a case's simulation with the ramp and the reads asked for, and its build.
