@@ -15,6 +15,7 @@ first order in ``h`` here and its error is invisible to the error estimate.
 import numpy as np
 import pytest
 
+from _session_probe_extra import run
 from solprop.stepper import FixedSchedule
 from solprop.translate.linop import delta_phi
 
@@ -22,13 +23,13 @@ LENGTH = 0.05  # m, a fiftieth of the soliton period: enough steps to accumulate
 
 
 def propagate(backend_class, problem, run_request, grid, z):
-    """Run a problem to a plane and return the masked initial and final spectra."""
-    backend = backend_class(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
-    summary = backend.propagate_to(z)
-    plane = backend.observe()
-    backend.close()
-    return summary, plane.field
+    """Run a problem to its last plane, `z`, through the backend's own session; return
+    the run's summary there and the final spectrum."""
+    final = run(
+        backend_class(problem, run_request, grid=grid), problem, run_request
+    ).final
+    assert final.z == z
+    return final.summary, final.field
 
 
 def exact(problem, z):
@@ -127,17 +128,16 @@ def test_a_linear_run_meets_its_tolerance_and_records_every_step(
 ):
     """A zero embedded estimate is a met tolerance, and every step is still recorded."""
     problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
-    backend = backend_class(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    summary = backend.propagate_to(LENGTH)
-    plane = backend.observe()
-    backend.close()
+    plane = run(
+        backend_class(problem, run_request, grid=narrow_grid), problem, run_request
+    ).final
+    summary = plane.summary
     assert summary.met_tolerance
     assert summary.max_norm == 0.0
-    assert plane.step_history.n_steps == summary.n_steps
-    assert np.all(plane.step_history.accepted)
+    assert plane.history.n_steps == summary.n_steps
+    assert np.all(plane.history.accepted)
     assert plane.z == LENGTH
     # The controller grows by its cap every step while the estimate stays at zero, so
     # the steps are strictly increasing until dz_max binds.
-    steps = plane.step_history.dz
+    steps = plane.history.dz
     assert steps[1] >= steps[0]
