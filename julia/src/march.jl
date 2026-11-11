@@ -73,8 +73,9 @@ Own the active mask, error-norm mask and positive per-frequency tolerance weight
 
 The masks and weights have the same nonempty frequency extent. Relative tolerance is
 positive and dimensionless; absolute tolerance is nonnegative in state units. Owned
-Boolean arrays use ordinary byte storage, never packed bits. This binary64 preparation
-refuses invalid values before allocating numerical trial buffers.
+Boolean arrays use ordinary byte storage, never packed bits. Tolerance weights and
+control scalars remain binary64 for either state precision. The caller supplies `atol`
+in stored state units, after any physical power-of-two scaling.
 """
 struct MarchNorm{M, W}
     active::M
@@ -257,13 +258,36 @@ function _march_plane_selected(session)
     return state.pending ? state.pending_kind === :plane : state.observation_kind === :plane
 end
 
+_march_source_arithmetic(source) = nothing
+_march_source_arithmetic(source::ModalSource) = source.data.grid.arithmetic
+_march_source_arithmetic(source::Union{RadialSource, CartesianSource}) =
+    source.data.arithmetic
+
+function _march_arithmetic(state, arithmetic::SourceArithmetic, source, flow)
+    eltype(state) === Complex{source_type(arithmetic)} ||
+        throw(ArgumentError("march state differs from its source arithmetic"))
+    prepared = _march_source_arithmetic(source)
+    prepared === nothing || prepared == arithmetic ||
+        throw(ArgumentError("march and prepared source arithmetic differ"))
+    if flow isa LinearFlow
+        flow.state_type === eltype(state) ||
+            throw(ArgumentError("march and prepared linear flow precision differ"))
+    end
+    return nothing
+end
+
 """
     RungeKuttaSession(execution, state, z, proposal, tableau, control, norm, schedule,
-                      source, flow; stop=StopFlag(), capacity=256, dense_weights=nothing)
+                      source, flow; stop=StopFlag(), capacity=256, dense_weights=nothing,
+                      arithmetic=SourceArithmetic(Float64))
 
-Own a complete binary64 Runge–Kutta march and its bounded delivery state.
+Own a complete binary32 or binary64 Runge–Kutta march and bounded delivery state.
 
-`state` has shape `(n_omega,n_columns)` in internal units and is copied. `source` and
+`state` has shape `(n_omega,n_columns)` in stored internal units and is copied.
+Its element type and the known prepared source/flow must match `arithmetic`.
+Binary32 callers have already scaled the field and absolute tolerance; this constructor
+does not convert physical units. Generic Julia callables must obey the same precision
+and scale contract themselves. `source` and
 `flow` are independently owned callable numerical compositions; they return `nothing`
 or throw outside leaf kernels. The session owns its trial arrays, controller history,
 accepted field, counters, cursors and attempt buffers. No Python callback runs inside
@@ -275,10 +299,10 @@ composition supports landed planes and field restarts. Supplying the translated
 `dense_weights` enables the existing DOPRI5 continuous extension, with a separate
 owned observation field and one retained accepted window. The caller selects the
 compatible tableau/extension; stage count alone never selects a method. Dense planes
-require adaptive CPU binary64 `LinearFlow` and refuse per-step split finishing.
+require adaptive CPU `LinearFlow` with binary64 wide operands and refuse per-step splitting.
 They change no source-call count, accepted field, controller history or receipt rule.
 """
-struct RungeKuttaSession{E, A, T, W, N, S, F, B, O, X, D} <: _MarchSession
+struct RungeKuttaSession{E, A, T, W, N, S, F, B, O, X, D, P} <: _MarchSession
     execution::E
     field::A
     tableau::T
@@ -295,17 +319,20 @@ struct RungeKuttaSession{E, A, T, W, N, S, F, B, O, X, D} <: _MarchSession
     services::O
     exports::X
     observation::D
+    arithmetic::P
 end
 
 function RungeKuttaSession(
-        execution, state::AbstractMatrix{ComplexF64}, z::Float64, proposal::Float64,
+        execution, state::AbstractMatrix{Complex{T}}, z::Float64, proposal::Float64,
         tableau::EmbeddedTableau, control::PIControl, norm::MarchNorm,
         schedule::MarchSchedule, source, flow; stop = StopFlag(), capacity::Int = 256,
         services = _NoSessionServices(), exports = nothing,
         plane_index::Union{Nothing, Int} = nothing,
         plane_pending::Bool = true,
         dense_weights = nothing,
-    )
+        arithmetic::SourceArithmetic = SourceArithmetic(Float64),
+    ) where {T <: Union{Float32, Float64}}
+    _march_arithmetic(state, arithmetic, source, flow)
     if dense_weights !== nothing
         oncpu(execution) ||
             throw(ArgumentError("Runge-Kutta dense observation currently requires CPU"))
@@ -324,22 +351,22 @@ function RungeKuttaSession(
     # coefficients are selected in Julia: preparation supplies the shared weights.
     observation = dense_weights === nothing ? nothing : _RungeKuttaSessionObservation(
             RungeKuttaObservationWork(
-                execution, owned, tableau, dense_weights, flow.operator,
+                execution, owned, tableau, dense_weights, flow.operator; arithmetic,
             ),
             NaN, false,
         )
     return RungeKuttaSession(
         execution, owned, tableau, RungeKuttaWork(owned, tableau), control,
         NormHistory(control), norm, schedule, source, flow, stop, AttemptBuffer(capacity),
-        progress, services, exports, observation,
+        progress, services, exports, observation, arithmetic,
     )
 end
 
 function _prepare_march(
-        execution, state::AbstractMatrix{ComplexF64}, z::Float64, proposal::Float64,
+        execution, state::AbstractMatrix{Complex{T}}, z::Float64, proposal::Float64,
         norm::MarchNorm, schedule::MarchSchedule;
         plane_index::Union{Nothing, Int}, plane_pending::Bool,
-    )
+    ) where {T <: Union{Float32, Float64}}
     all(isfinite, state) && size(state, 1) == length(norm.active) &&
         size(state, 2) > 0 || throw(ArgumentError("invalid initial march field"))
     first(schedule.breakpoints) <= z <= last(schedule.planes) &&

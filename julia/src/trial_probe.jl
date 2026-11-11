@@ -31,14 +31,18 @@ end
 
 """
     TrialProbe(execution, initial, z, dz_init, tableau, norm, schedule, source, flow;
-               split=nothing, noise=nothing, resume=false)
+               split=nothing, noise=nothing, resume=false,
+               arithmetic=SourceArithmetic(Float64))
 
 Own independent single-trial arithmetic without a propagation session or controller.
 
-Copy the finite CPU binary64 `initial` matrix `(n_omega,n_columns)` in internal units
-and the FFT convention. Copy `norm::MarchNorm`, add optional binary64 `InputNoise`
-only under its fresh-launch rule, and apply the exact active mask. The input array is
-never changed. `source`, `flow::LinearFlow`, optional split workspace and noise work
+Copy the finite CPU binary32 or binary64 `initial` matrix `(n_omega,n_columns)`
+in stored units and the FFT convention. Copy `norm::MarchNorm`, add optional binary64
+`InputNoise` only under its fresh-launch rule, and apply the exact active mask. The input
+array is never changed. Binary32 refuses noise; its caller has already scaled state
+and `atol` and supplies matching `arithmetic`. Known source and flow records are checked;
+generic Julia callbacks must implement that scale contract themselves.
+`source`, `flow::LinearFlow`, optional split workspace and noise work
 are independently owned numerical preparations adopted by the probe; they must not
 alias the originating field. Immutable source/operator data remain shared with their
 preparation. An in-stage collar is enabled independently of any prior monitor state.
@@ -54,7 +58,7 @@ Every workspace, counter and unread candidate belongs to this probe. No method
 continuation, monitor, history, event, acknowledgment or acceptance policy is created.
 Throw `ArgumentError` on invalid admission and `DimensionMismatch` for shape mismatch.
 """
-struct TrialProbe{T, E, A, W, N, S, F, B, I}
+struct TrialProbe{T, E, A, W, N, S, F, B, I, P}
     tableau::T
     execution::E
     field::A
@@ -66,6 +70,7 @@ struct TrialProbe{T, E, A, W, N, S, F, B, I}
     noise::I
     state::_TrialProbeState
     sampler::_TrialProbeSource{S}
+    arithmetic::P
 end
 
 function _trial_probe_default(z, dz_init, schedule::MarchSchedule, tableau)
@@ -96,12 +101,21 @@ function _trial_probe_mask!(field, active, execution)
 end
 
 function TrialProbe(
-        execution::KernelExecution, initial::AbstractMatrix{ComplexF64}, z::Float64,
+        execution::KernelExecution, initial::AbstractMatrix{Complex{T}}, z::Float64,
         dz_init::Float64, tableau::Union{EmbeddedTableau, RK4IPTableau}, norm::MarchNorm,
         schedule::MarchSchedule, source, flow::LinearFlow;
         split = nothing, noise::Union{Nothing, InputNoise} = nothing, resume::Bool = false,
-    )
+        arithmetic::SourceArithmetic = SourceArithmetic(Float64),
+    ) where {T <: Union{Float32, Float64}}
     oncpu(execution) || throw(ArgumentError("timing probes currently require CPU"))
+    _march_arithmetic(initial, arithmetic, source, flow)
+    T === Float32 && noise !== nothing &&
+        throw(ArgumentError("binary32 timing probes refuse input noise"))
+    split isa TemporalSplitWorkspace && eltype(split.spectrum) !== Complex{T} &&
+        throw(ArgumentError("timing-probe temporal split differs from state precision"))
+    split isa _CartesianTemporalSplit &&
+        eltype(split.temporal.spectrum) !== Complex{T} &&
+        throw(ArgumentError("timing-probe spatial split differs from state precision"))
     !isempty(initial) && all(isfinite, initial) ||
         throw(ArgumentError("a timing probe needs a finite nonempty initial field"))
     size(initial) == size(flow.exponent) && size(initial, 1) == length(norm.active) ||
@@ -126,17 +140,18 @@ function TrialProbe(
     _source_has_temporal(source) && set_temporal_source!(source, true)
     return TrialProbe(
         tableau, execution, field, work, owned_norm, source, flow, split, noise, state,
-        _TrialProbeSource(source, state),
+        _TrialProbeSource(source, state), arithmetic,
     )
 end
 
 function TrialProbe(
         execution, initial, z, dz_init, tableau, norm, schedule, source, flow;
-        split = nothing, noise = nothing, resume = false
+        split = nothing, noise = nothing, resume = false,
+        arithmetic = SourceArithmetic(Float64),
     )
     throw(
         ArgumentError(
-            "timing probes need CPU binary64 state and prepared numerical records",
+            "timing probes need CPU binary32 or binary64 state and prepared records",
         )
     )
 end
@@ -228,6 +243,9 @@ function trial_probe!(
         all(node -> isfinite(position + node * step), probe.tableau.nodes) ||
             throw(ArgumentError("a timing-probe stage position must remain finite"))
     end
+    _march_scalar(real(eltype(probe.field)), step)
+    probe.tableau isa RK4IPTableau &&
+        _march_scalar(real(eltype(probe.field)), step / 6)
     calls = _trial_probe_calls(probe)
     state.source_evaluations <= typemax(Int) - calls &&
         state.norm_evaluations < typemax(Int) && state.trials < typemax(Int) ||
@@ -249,7 +267,7 @@ end
 
 Finish and copy the last unread embedded trial into caller-owned internal field storage.
 
-`output` is a writable matching complex binary64 matrix. Validate shape, affine layout
+`output` is a writable complex matrix matching the stored precision. Validate shape, layout
 and retained-storage/foreign-span alias freedom before any numerical write. Apply the
 active mask, optional temporal split and final mask once, then copy without power or
 optics conversion. Success consumes the unread trial; the loaded state stays unchanged.
@@ -262,8 +280,8 @@ low-storage family, unsupported destination or alias; incompatible shapes raise
 function copy_trial_probe_field!(output, probe::TrialProbe{<:EmbeddedTableau})
     _trial_probe_open(probe)
     probe.state.ready || throw(ArgumentError("take a trial before reading its field"))
-    output isa AbstractMatrix{ComplexF64} ||
-        throw(ArgumentError("timing-probe output requires a binary64 complex matrix"))
+    output isa AbstractMatrix && eltype(output) === eltype(probe.field) ||
+        throw(ArgumentError("timing-probe output must match its prepared state precision"))
     size(output) == size(probe.field) ||
         throw(DimensionMismatch("timing-probe output shape differs from its field"))
     _transfer_writable_destination(output)

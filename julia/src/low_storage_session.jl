@@ -35,13 +35,17 @@ end
     LowStorageSession(execution, state, z, tableau::RK4IPTableau, norm, schedule,
                       source, flow; stop=StopFlag(), capacity=256,
                       services=_NoSessionServices(), exports=nothing,
-                      plane_index=nothing, plane_pending=true)
+                      plane_index=nothing, plane_pending=true,
+                      arithmetic=SourceArithmetic(Float64))
 
-Own a landed binary64 low-storage RK4IP replay and its bounded delivery state.
+Own a landed binary32 or binary64 low-storage RK4IP replay and bounded delivery state.
 
-`state` is a complex binary64 matrix `(n_omega,n_columns)` in internal units, copied
-and hard-masked at preparation. `z` and the translated `MarchSchedule` positions and
-step lengths are metres. The schedule must contain a fixed replay; its supplied step
+`state` is a complex matrix `(n_omega,n_columns)` in stored internal units, copied
+and hard-masked at preparation. `z` is in metres.
+`arithmetic` matches its precision and the known prepared source and flow. Binary32
+state and absolute tolerance have already been scaled by the caller. Generic source
+callables are responsible for that same scale contract. Schedule positions and step
+lengths are metres. The schedule must contain a fixed replay; its supplied step
 lengths and edges are authoritative, and no adaptive proposal, cap or rejection is
 introduced. `norm::MarchNorm` supplies the norm and hard-band masks. The recorded
 error norm is `0.0`, meaning "not estimated". This is the SEP 24 fixed RK4IP scheme,
@@ -66,7 +70,7 @@ schedule, unsupported flow, invalid capacity or initial data. Throw `DimensionMi
 for an incompatible linear-flow shape. Advancement failures become the common
 terminal failure event with their in-flight coordinate and recorded step length.
 """
-struct LowStorageSession{E, A, W, N, S, F, B, O, X} <: _MarchSession
+struct LowStorageSession{E, A, W, N, S, F, B, O, X, P} <: _MarchSession
     execution::E
     field::A
     tableau::RK4IPTableau
@@ -82,15 +86,18 @@ struct LowStorageSession{E, A, W, N, S, F, B, O, X} <: _MarchSession
     exports::X
     counts::LowStorageCallCounts
     sampler::_LowStorageSessionSource{S}
+    arithmetic::P
 end
 
 function LowStorageSession(
-        execution, state::AbstractMatrix{ComplexF64}, z::Float64, tableau::RK4IPTableau,
+        execution, state::AbstractMatrix{Complex{T}}, z::Float64, tableau::RK4IPTableau,
         norm::MarchNorm, schedule::MarchSchedule, source, flow;
         stop = StopFlag(), capacity::Int = 256, services = _NoSessionServices(),
         exports = nothing, plane_index::Union{Nothing, Int} = nothing,
         plane_pending::Bool = true,
-    )
+        arithmetic::SourceArithmetic = SourceArithmetic(Float64),
+    ) where {T <: Union{Float32, Float64}}
+    _march_arithmetic(state, arithmetic, source, flow)
     oncpu(execution) ||
         throw(ArgumentError("low-storage sessions currently require CPU"))
     isempty(schedule.replay_steps) &&
@@ -112,7 +119,7 @@ function LowStorageSession(
         execution, owned, tableau,
         LowStorageWork(execution, owned, tableau; norm_mask = norm.observed),
         norm, schedule, source, flow, stop, AttemptBuffer(capacity), progress, services,
-        exports, counts, _LowStorageSessionSource(source, counts),
+        exports, counts, _LowStorageSessionSource(source, counts), arithmetic,
     )
 end
 
@@ -142,6 +149,9 @@ function _march_trial!(session::LowStorageSession, began)
     state.flight_z, state.flight_dz = state.z, 0.0
     dz, destination = _low_storage_session_landing(session)
     state.flight_dz = dz
+    # Range admission is pretrial: no source or in-place register has been entered.
+    _march_scalar(real(eltype(session.field)), dz)
+    _march_scalar(real(eltype(session.field)), dz / 6)
     # There is no separate trial register or rollback. Even a first-stage source
     # failure has entered the reference method's in-flight contract.
     state.in_flight = true
