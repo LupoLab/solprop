@@ -4,6 +4,11 @@
 module SolpropJuliaMetalExt
 
 import Metal
+import KernelAbstractions
+import LinearAlgebra
 import SolpropJulia
+
+include("metal_execution.jl")
+include("metal_transforms.jl")
 
 end
