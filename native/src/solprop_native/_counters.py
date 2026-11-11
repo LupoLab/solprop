@@ -31,9 +31,8 @@ What is counted, and where:
   collar's per-step current, or a read of the transverse edge that fell due by
   distance, ``transverse_read``). Several causes due together are joined with ``+``.
 - **Python-stepped attempts**: every attempt the driver's own loop records (a host
-  march, a replay, the low-storage march and a lockstep group's members), each one or
-  more native calls the counters do not split. The low-storage engine's steps and a
-  native group's lockstep steps are also counted as such.
+  march, a replay and the low-storage march), each one or more native calls the
+  counters do not split. The low-storage engine's steps are also counted as such.
 - **Native session batches**: every ``advance`` of a native session, each one return
   to Python, by its event -- ``session_observation``, ``session_snapshot`` (a
   requested snapshot serviced), ``session_warning``, ``session_terminal``, or
@@ -103,13 +102,8 @@ class Counters:
     low_storage_steps : int
         Low-storage engine steps, among the host attempts.
     group_steps : int
-        Lockstep steps of a native group, each covering every member's attempt and
-        each a return to Python.
-    group_attempts : int
-        Member attempts those steps covered, among the host attempts.
-    session_group_steps : int
         Common steps of the native group session, which returns per window, not per
-        step; the record's ``group_steps`` counts both kinds.
+        step.
     planes : int
         ``propagate_to`` calls, or a native session's observations: one per saved
         plane after the launch.
@@ -139,8 +133,6 @@ class Counters:
     host_accepted: int = 0
     low_storage_steps: int = 0
     group_steps: int = 0
-    group_attempts: int = 0
-    session_group_steps: int = 0
     planes: int = 0
     statistics_rows: int = 0
     statistics_evaluations: int = 0
@@ -185,11 +177,6 @@ class Counters:
                 causes = ["transverse_read"]
             name += ":" + ("+".join(causes) or "unattributed")
         self.returns[name] += 1
-
-    def group_step(self, members: int) -> None:
-        """Count one lockstep step of a native group of `members`."""
-        self.group_steps += 1
-        self.group_attempts += members
 
     def session_batch(
         self,
@@ -236,7 +223,7 @@ class Counters:
 
     def group_window(self, steps: int) -> None:
         """Count the common steps of one window of the native group session."""
-        self.session_group_steps += steps
+        self.group_steps += steps
 
     def crossing(self, where: str, nbytes: int) -> None:
         """Count one field copied to the host."""
@@ -253,14 +240,12 @@ class Counters:
 
         ``native_returns`` is every return to Python by cause: the marches' reasons
         and the native sessions' batches, then ``host_attempt`` for solprop's own
-        loop, less the low-storage steps and group members it also counts, and
-        ``low_storage_step`` and ``group_step``.
+        loop, less the low-storage steps it also counts, and ``low_storage_step``.
         """
-        host = self.host_attempts - self.low_storage_steps - self.group_attempts
+        host = self.host_attempts - self.low_storage_steps
         loops = {
             "host_attempt": host,
             "low_storage_step": self.low_storage_steps,
-            "group_step": self.group_steps,
         }
         returns = dict(sorted(self.returns.items())) | {
             name: count for name, count in loops.items() if count
@@ -273,7 +258,7 @@ class Counters:
             "march_attempts": self.march_attempts,
             "host_attempts": self.host_attempts,
             "low_storage_steps": self.low_storage_steps,
-            "group_steps": self.group_steps + self.session_group_steps,
+            "group_steps": self.group_steps,
             "planes": self.planes,
             "statistics_rows": self.statistics_rows,
             "statistics_evaluations": self.statistics_evaluations,

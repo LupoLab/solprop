@@ -89,7 +89,6 @@ using ComplexStorage = std::vector<std::complex<double>>;
 using RealStorage = std::vector<double>;
 
 class BoundState;
-class BoundBatch;
 class BoundSession;
 
 template <class Array> Array exact_array(const nb::handle value) {
@@ -103,7 +102,6 @@ struct RuntimeState {
   // The BLAS thread policy the package applied at start-up, if any.
   std::string blas_policy;
   std::vector<BoundState*> states;
-  std::vector<BoundBatch*> batches;
 };
 
 RuntimeState runtime_state;
@@ -2191,10 +2189,6 @@ public:
     require_built();
     return general_state_->response_team_size();
   }
-  std::shared_ptr<native::GeneralState> batch_member() {
-    require_open();
-    return general_state_;
-  }
   std::size_t columns() const noexcept { return columns_; }
   std::size_t stages() const noexcept { return stages_; }
   std::size_t raman_terms() const noexcept { return raman_terms_; }
@@ -2365,51 +2359,6 @@ private:
   bool march_compensated_ = false;
   bool march_interpolate_ = false;
   std::optional<native::engines::MarchFault> march_fault_;
-};
-
-class BoundBatch {
-public:
-  explicit BoundBatch(const nb::list& members) : count_(members.size()) {
-    std::vector<std::shared_ptr<native::GeneralState>> held;
-    held.reserve(count_);
-    for (const auto& member : members)
-      held.push_back(nb::cast<BoundState&>(member).batch_member());
-    batch_ = std::make_unique<native::GeneralBatch>(std::move(held));
-    const std::scoped_lock lock(runtime_state.mutex);
-    runtime_state.batches.push_back(this);
-  }
-  ~BoundBatch() {
-    close();
-    const std::scoped_lock lock(runtime_state.mutex);
-    const auto found =
-        std::find(runtime_state.batches.begin(), runtime_state.batches.end(), this);
-    if (found != runtime_state.batches.end())
-      runtime_state.batches.erase(found);
-  }
-  BoundBatch(const BoundBatch&) = delete;
-  BoundBatch& operator=(const BoundBatch&) = delete;
-  std::vector<double> accept(const double dz) {
-    if (!batch_)
-      throw std::logic_error("native batch is closed");
-    return batch_->accept(dz);
-  }
-  std::map<std::string, std::size_t> memory_ledger() const {
-    return batch_ ? batch_->memory_ledger() : std::map<std::string, std::size_t>{};
-  }
-  native::CpuSizing execution_sizing() const {
-    return batch_ ? batch_->execution_sizing() : native::CpuSizing{};
-  }
-  std::size_t count() const noexcept { return count_; }
-  void close() noexcept {
-    if (batch_) {
-      batch_->close();
-      batch_.reset();
-    }
-  }
-
-private:
-  std::size_t count_{};
-  std::unique_ptr<native::GeneralBatch> batch_;
 };
 
 // solprop SEP 47: a native execution session over a leased state. It keeps that state
@@ -2858,8 +2807,6 @@ std::unique_ptr<BoundSession> start_session(BoundState& state, const std::string
 
 void shutdown_kokkos() {
   const std::scoped_lock lock(runtime_state.mutex);
-  for (auto* batch : runtime_state.batches)
-    batch->close();
   for (auto* state : runtime_state.states)
     state->close();
   if (runtime_state.owns_runtime && Kokkos::is_initialized() &&
@@ -4610,28 +4557,6 @@ NB_MODULE(_core, module_) {
       .def_prop_ro("step_cap", &native::watch::Monitor::cap)
       .def_prop_ro("rests", &native::watch::Monitor::rests)
       .def("steps_to_check", &native::watch::Monitor::steps_to_check);
-  nb::class_<BoundBatch>(module_, "BatchState")
-      .def(nb::init<const nb::list&>())
-      .def(
-          "accept",
-          [](BoundBatch& self, const double dz) {
-            std::vector<double> partials;
-            {
-              const nb::gil_scoped_release release;
-              partials = self.accept(dz);
-            }
-            return real_output(std::move(partials), 3 * self.count());
-          },
-          "dz"_a)
-      .def("memory_ledger",
-           [](const BoundBatch& self) {
-             nb::dict result;
-             for (const auto& [name, bytes] : self.memory_ledger())
-               result[name.c_str()] = bytes;
-             return result;
-           })
-      .def_prop_ro("execution_sizing", &BoundBatch::execution_sizing)
-      .def("close", &BoundBatch::close);
   if (Py_AtExit(&shutdown_after_interpreter) != 0)
     throw std::runtime_error(
         "cannot register the Kokkos runtime's shutdown at interpreter exit");
