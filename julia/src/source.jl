@@ -52,7 +52,9 @@ end
 Prepare a callable linear flow with its own exponent and finiteness scratch.
 
 `operator` is a prepared diagonal generator or cumulative representation; `state` sets
-the binary64 `(n_omega,n_columns)` shape. Expansion operators need their caller-owned
+the binary32 or binary64 `(n_omega,n_columns)` shape. Exponents are assembled and
+evaluated in binary64, then each propagator rounds once to the state precision before
+multiplication. Expansion operators need their caller-owned
 weight work. Calling `flow(out,input,z0,z1)` applies the represented flow and returns
 `nothing`, checking numerical failures outside leaf kernels. Input and output must be
 disjoint or the exact same array; partial overlap refuses. The CPU implementation
@@ -67,12 +69,12 @@ struct LinearFlow{E, O, A, W}
 end
 
 function LinearFlow(
-        execution::KernelExecution, operator, state::AbstractMatrix{ComplexF64};
+        execution::KernelExecution, operator, state::AbstractMatrix{Complex{T}};
         work = nothing,
-    )
+    ) where {T <: Union{Float32, Float64}}
     oncpu(execution) || throw(ArgumentError("this linear flow currently requires CPU"))
     return LinearFlow(
-        execution, operator, similar(state), work, zeros(Int, size(state, 2))
+        execution, operator, similar(state, ComplexF64), work, zeros(Int, size(state, 2))
     )
 end
 

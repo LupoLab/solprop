@@ -64,7 +64,7 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 | Preparation agent | New `_node_plan.py`, focused Python/Julia tests and `NODE_MEMORY.md`; narrow owned-window reshape correction in `observations.jl` | Derive Julia-specific chunk storage bounds and authoritative budget admission; master owns shared adapter integration |
 | Source precision agent | `precision.jl`, `composition.jl`, `spatial_composition.jl`, `responses.jl`, `raman.jl`, `plasma.jl` and their focused tests | Binary32 source preparation/kernels under the shared `PRECISION.md` interface; no Python, transfer, session or observation edits |
 | Observation precision agent | `observations.jl`, `spatial_observations.jl`, `transverse_observations.jl`, `statistics.jl`, `monitor.jl`, `observation_precision.jl`, `power_weights.jl` and focused tests | Binary32 pointwise work, protected reductions and host physical scaling; no source, Python or scheduling edits |
-| Benchmark/review agent | CI supervisor collection tests and `tests/service/test_service.py` | Benchmark slice integrated after master review; fix #699/#700 with deterministic test witnesses, then review master preparation integration |
+| Device-controls/review agent | Python execution settings/options, registry, host/native guards, recipe execution transport, runner compatibility and focused tests | Public CPU preparation independently approved; implementing device controls with Julia devices still refused; then review master march precision |
 
 The precompile workload uses only owned, small CPU arrays and existing numerical
 constructors. It covers serial CPU session/source/observation dispatch without loading
@@ -904,3 +904,36 @@ successful forced termination is recorded separately from voluntary Julia shutdo
   The author additionally passes all 50 affected service/helper-consumer checks.
   Production behavior and signal policy are unchanged. A new metadata helper's missing
   parameter/return docstrings were caught and corrected by the local fast check.
+
+- Independent public CPU review approves `f85d3b49`: 55 typed checks plus actual
+  reverse chunk adaptation, detached metadata, preparation/handle lifetime and
+  request-added monitors on three spatial geometries. No blocker remains within
+  the declared numerical node-array payload scope.
+- Protected observation helpers `3c8e4333` are integrated at `93050175` after
+  independent review. The primary Ogita–Rump–Oishi paper's Algorithm 4.1, its
+  equivalence to 4.4 and Proposition 4.5 (including underflow) were checked. All 50
+  authored and 399 independent exact-sum/scale assertions pass. A private harness
+  initially failed to expect deliberate overflow refusals; its correction changes
+  no production behavior.
+- Protected plasma `d5e48bda` is independently approved and integrated. In addition
+  to the authored regression selection, 77 independent scaled-population and saturated
+  exposure assertions pass. #701 remains visible until the implementation merge.
+  Existing binary64 composition tests and actual NumPy-single prefix witnesses pass;
+  full binary32 material/session and vendor qualification remain pending.
+- The eight-thread Linux correctness selection reached its 45-minute stage deadline
+  without completion. The one-thread selection passed 267 tests with 22 declared skips
+  at source `4ab7e15a`; two of those skips are already removed and tested locally.
+  The deadline is not a passing multithread qualification. The comparative CPU
+  campaign uses source `08721c9d`, one/64 physical cores on an otherwise idle AMD
+  EPYC 7763, three alternating rounds and three repeats of 0.001 entrance fractions.
+  It exposed missing default plasma statistics (#702) and low-storage flow-table
+  support (#704), now assigned. Failed windows are retained; no complete phase 2
+  measurement or performance conclusion is claimed.
+- Master binary32 RK/low-storage leaf now retains narrow state arithmetic and wide
+  coordinates/factors, with protected normalized norms. The focused leaf and existing
+  binary64 operator/RK/low-storage/source regressions pass; the final new march leaf
+  passes 85 assertions and the combined plasma selection passes 88. Warm RK, norm
+  and low-storage calls allocate zero. Aqua/JET passes 16 package checks over 1,711
+  definitions, none cached, plus three concrete binary32 calls before the plasma
+  leaf is combined. Independent review and combined quality remain pending; public
+  single precision, complete session scaling and Adams are not enabled by this leaf.

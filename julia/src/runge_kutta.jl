@@ -70,8 +70,10 @@ state and explicitly commits a successful trial. All buffers are reused by later
 # Returns
 A workspace containing stage derivatives, lab/source/increment buffers, candidate,
 defect and per-column norm scratch. Every entry read by a trial or norm is overwritten.
+Binary32 work also owns one mantissa/exponent pair per spectral row for tolerance
+scales. Nonzero tableau weights must fit the normal range of the state precision.
 """
-struct RungeKuttaWork{A, S, R}
+struct RungeKuttaWork{A, S, R, N}
     stages::S
     combination::A
     lab::A
@@ -80,15 +82,23 @@ struct RungeKuttaWork{A, S, R}
     candidate::A
     defect::A
     norm_parts::R
+    norm_scale::N
 end
 
 function RungeKuttaWork(
         state::AbstractMatrix{Complex{T}}, tableau::EmbeddedTableau,
-    ) where {T}
+    ) where {T <: Union{Float32, Float64}}
+    norm_scale = _march_norm_scale(state)
+    for row in tableau.matrix, coefficient in row
+        _march_scalar(T, coefficient)
+    end
+    for coefficient in (tableau.solution_weights..., tableau.error_weights...)
+        _march_scalar(T, coefficient)
+    end
     stages = similar(state, size(state)..., length(tableau.nodes))
     return RungeKuttaWork(
         stages, similar(state), similar(state), similar(state), similar(state),
-        similar(state), similar(state), similar(state, T, 4, size(state, 2)),
+        similar(state), similar(state), similar(state, T, 4, size(state, 2)), norm_scale,
     )
 end
 
@@ -126,6 +136,7 @@ function rk_trial!(
     if size(work.candidate) != size(state) || size(work.stages, 3) != count
         throw(ArgumentError("Runge–Kutta workspace and state/tableau extents disagree"))
     end
+    _march_scalar(real(eltype(state)), dz)
     for node in tableau.nodes
         if !isfinite(z + node * dz)
             throw(ArgumentError("a Runge–Kutta stage position must remain finite"))
@@ -165,13 +176,17 @@ end
 end
 
 function _rk_stage_input!(destination, state, stages, tableau, dz, stage, execution)
-    coefficients = tableau.matrix
+    # Positions remain binary64; dimensionless stage weights and the step multiplier
+    # round before pointwise state arithmetic, as required by SEP 33.
+    scalar = real(eltype(state))
+    coefficients = map(row -> map(scalar, row), tableau.matrix)
+    step = scalar(dz)
     each!(execution, size(state)...) do row, column
         increment = zero(eltype(state))
         for previous in 1:(stage - 1)
             increment += coefficients[stage][previous] * stages[row, column, previous]
         end
-        destination[row, column] = state[row, column] + dz * increment
+        destination[row, column] = state[row, column] + step * increment
     end
     return nothing
 end
@@ -179,15 +194,17 @@ end
 function _rk_weighted_sum!(
         destination, state, stages, weights, dz, include_state, execution,
     )
-    count = length(weights)
+    coefficients = map(real(eltype(state)), weights)
+    step = real(eltype(state))(dz)
+    count = length(coefficients)
     each!(execution, size(state)...) do row, column
         # The defect is a cancellation-sensitive sum. Keep ordinary Julia arithmetic;
         # no contraction/reassociation macro may be added to this protected helper.
         increment = zero(eltype(state))
         for stage in 1:count
-            increment += weights[stage] * stages[row, column, stage]
+            increment += coefficients[stage] * stages[row, column, stage]
         end
-        value = dz * increment
+        value = step * increment
         destination[row, column] = include_state ? state[row, column] + value : value
     end
     return nothing
@@ -202,6 +219,9 @@ Score the trial defect with the translated global weak or weighted error norm.
 use every masked column. The scale is `rtol * weights[row] * max(norm(state),
 norm(candidate)) + atol`, following solprop's controller contract; it is never a
 per-bin state magnitude. Tolerances are respectively dimensionless and in state units.
+Binary32 state and defect reductions use protected normalized sums; per-row tolerance
+scales and the final small column merge use binary64. A single compensated sum must
+have fewer than `2^24` terms, checked by workspace preparation.
 This initial reduction implementation admits CPU execution; device reductions are
 qualified separately. Preparation validates mask, weight and tolerance extents/ranges.
 
@@ -217,6 +237,9 @@ outside the norm mask. Scaled sums of squares avoid squaring physical amplitudes
 function rk_error_norm!(work::RungeKuttaWork, state, mask, weights, rtol, atol, execution)
     if !oncpu(execution)
         throw(ArgumentError("Runge–Kutta norm device reduction is not admitted"))
+    end
+    if eltype(state) === ComplexF32
+        return _float32_error_norm!(work, state, mask, weights, rtol, atol, execution)
     end
     parts, candidate, defect = work.norm_parts, work.candidate, work.defect
     rows, columns = size(state)

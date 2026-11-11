@@ -18,10 +18,10 @@ DOI 10.1109/JLT.2007.909373). There is no embedded error estimate or recycled sl
 struct RK4IPTableau end
 
 """
-    LowStorageWork(execution, state::AbstractMatrix{ComplexF64}, tableau::RK4IPTableau;
+    LowStorageWork(execution, state::AbstractMatrix{Complex{T}}, tableau::RK4IPTableau;
                    norm_mask=fill(true,size(state,1)))
 
-Prepare three owned binary64 work matrices for one in-place replay step.
+Prepare three owned work matrices in state precision for one in-place replay step.
 
 The caller's state is register A. `accumulator` B and `stage` C complete the three
 register scheme; `source` S is one reusable output of the complete source pipeline.
@@ -40,20 +40,21 @@ struct LowStorageWork{A, M, R, F}
 end
 
 function LowStorageWork(
-        execution::KernelExecution, state::AbstractMatrix{ComplexF64}, ::RK4IPTableau;
+        execution::KernelExecution, state::AbstractMatrix{Complex{T}}, ::RK4IPTableau;
         norm_mask::AbstractVector{Bool} = fill(true, size(state, 1)),
-    )
+    ) where {T <: Union{Float32, Float64}}
     oncpu(execution) ||
         throw(ArgumentError("low-storage preparation currently requires CPU"))
     isempty(state) && throw(ArgumentError("low-storage state must be nonempty"))
     length(norm_mask) == size(state, 1) ||
         throw(DimensionMismatch("low-storage norm mask must match the spectral rows"))
     rows, columns = size(state)
+    T === Float32 && _float32_sum_count(Base.checked_mul(2, rows))
     return LowStorageWork(
-        dzeros(execution, ComplexF64, rows, columns),
-        dzeros(execution, ComplexF64, rows, columns),
-        dzeros(execution, ComplexF64, rows, columns), upload(execution, norm_mask),
-        dzeros(execution, Float64, 2, columns),
+        dzeros(execution, Complex{T}, rows, columns),
+        dzeros(execution, Complex{T}, rows, columns),
+        dzeros(execution, Complex{T}, rows, columns), upload(execution, norm_mask),
+        dzeros(execution, T, 2, columns),
         upload(execution, fill(false, columns)),
     )
 end
@@ -87,7 +88,8 @@ end
 
 function _low_storage_first!(work, state, step, execution)
     accumulator, stage, source = work.accumulator, work.stage, work.source
-    sixth, half = step / 6, 0.5step
+    scalar = real(eltype(state))
+    sixth, half = scalar(step / 6), scalar(0.5step)
     each!(execution, size(state)...) do row, column
         anchor, slope = state[row, column], source[row, column]
         accumulator[row, column] = anchor + sixth * slope
@@ -98,18 +100,19 @@ end
 
 function _low_storage_middle!(work, state, step, stage_weight, execution)
     accumulator, stage, source = work.accumulator, work.stage, work.source
-    third = step / 3
+    scalar = real(eltype(state))
+    third, middle = scalar(step / 3), scalar(stage_weight)
     each!(execution, size(state)...) do row, column
         slope = source[row, column]
         accumulator[row, column] += third * slope
-        stage[row, column] = state[row, column] + stage_weight * slope
+        stage[row, column] = state[row, column] + middle * slope
     end
     return nothing
 end
 
 function _low_storage_final!(work, state, step, execution)
     source = work.source
-    sixth = step / 6
+    sixth = real(eltype(state))(step / 6)
     each!(execution, size(state)...) do row, column
         state[row, column] += sixth * source[row, column]
     end
@@ -120,7 +123,7 @@ function _low_storage_norm!(work, state, execution)
     parts, mask, finite_columns = work.norm_parts, work.norm_mask, work.finite_columns
     rows, columns = size(state)
     each_column!(execution, columns) do column
-        column_scale, column_sum = 0.0, 0.0
+        column_scale, column_sum = zero(eltype(parts)), zero(eltype(parts))
         column_finite = true
         for row in 1:rows
             value = state[row, column]
@@ -142,6 +145,12 @@ function _low_storage_norm!(work, state, execution)
     return Float64(scale * sqrt(total)), finite
 end
 
+function _low_storage_norm!(work, state::AbstractMatrix{ComplexF32}, execution)
+    _float32_state_parts!(work.norm_parts, state, work.norm_mask, 1, execution)
+    magnitude = _float32_norm_value(work.norm_parts, 1)
+    return magnitude, isfinite(magnitude)
+end
+
 """
     low_storage_trial!(work, state, position, step, tableau, source!, flow!, execution)
 
@@ -159,12 +168,13 @@ no facts and may leave the state overwritten by an intermediate interaction-pict
 value: the session must mark the step in flight before entry and poison on failure.
 The master owns schedules, source-absence shortcuts, flow-table caching, acceptance,
 mask/collar application, statistics and position commits. This leaf applies none of
-those policies. Preparation currently admits CPU binary64 only.
+those policies. Preparation admits CPU binary32 and binary64. Nonzero binary32
+step multipliers must remain in the normal range; a range refusal precedes mutation.
 """
 function low_storage_trial!(
-        work::LowStorageWork, state::AbstractMatrix{ComplexF64}, position::Float64,
+        work::LowStorageWork, state::AbstractMatrix{Complex{T}}, position::Float64,
         step::Float64, ::RK4IPTableau, source!::S, flow!::F, execution::KernelExecution,
-    ) where {S, F}
+    ) where {T <: Union{Float32, Float64}, S, F}
     oncpu(execution) ||
         throw(ArgumentError("low-storage device reduction is not admitted"))
     size(state) == size(work.accumulator) ||
@@ -176,6 +186,9 @@ function low_storage_trial!(
     isfinite(position) && isfinite(step) && step > 0 && isfinite(position + step) &&
         position + step > position ||
         throw(ArgumentError("invalid low-storage trial interval"))
+    # Validate every multiplier before the first in-place flow changes the state.
+    _march_scalar(T, step)
+    _march_scalar(T, step / 6)
     midpoint, endpoint = position + 0.5step, position + step
     source, stage, accumulator = work.source, work.stage, work.accumulator
 

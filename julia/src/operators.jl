@@ -254,6 +254,8 @@ Apply a prepared dimensionless diagonal exponential to a spectral state.
 
 All matrices have the same shape. In-place state use is supported, and a zero exponent
 copies that state element exactly. No Fourier or physical normalization is introduced.
+With a wider exponent, round its exponential to the state element type before the
+pointwise multiplication. This is the SEP 33 narrow-state/wide-phase boundary.
 Return `output`; the exponent is preserved.
 """
 function propagate!(output, state, exponent, execution::KernelExecution)
@@ -262,7 +264,7 @@ function propagate!(output, state, exponent, execution::KernelExecution)
     each!(execution, size(output)...) do row, column
         phase = exponent[row, column]
         output[row, column] = iszero(phase) ? state[row, column] :
-            exp(phase) * state[row, column]
+            oftype(state[row, column], exp(phase)) * state[row, column]
     end
     return output
 end
@@ -300,7 +302,8 @@ Write the stable diagonal increment `(exp(exponent)-1)*state` without subtractin
 All matrices have equal shape and state/output may alias. Real attenuation uses `expm1`;
 the real phase increment uses `-2sin(angle/2)^2`, retaining small-angle information lost
 by `cos(angle)-1`. A zero exponent writes an exact zero. This protected helper must not
-be reassociated or placed under blanket fast-math. Return `output`.
+be reassociated or placed under blanket fast-math. Round a wider increment to the state
+element type before multiplying. Return `output`.
 """
 function linear_increment!(output, state, exponent, execution::KernelExecution)
     _operator_shapes(output, state, exponent)
@@ -309,7 +312,7 @@ function linear_increment!(output, state, exponent, execution::KernelExecution)
     each!(execution, size(output)...) do row, column
         phase = exponent[row, column]
         output[row, column] = iszero(phase) ? neutral :
-            _complex_expm1(phase) * state[row, column]
+            oftype(state[row, column], _complex_expm1(phase)) * state[row, column]
     end
     return output
 end
