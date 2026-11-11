@@ -60,8 +60,11 @@ struct Table {
                                   " is outside a stage table's span");
   }
 
-  /** The table's single value at `z`. */
+  /** The table's single value at `z`; a table of several values is refused. */
   [[nodiscard]] double value(const double z) const {
+    if (n_values > 1)
+      throw std::logic_error("a stage table of " + std::to_string(n_values) +
+                             " values was read as one value");
     double out = 0.0;
     at(z, &out);
     return out;

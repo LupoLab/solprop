@@ -4,6 +4,7 @@
 
 #include "solprop_native/chebyshev.hpp"
 #include "solprop_native/core.hpp"
+#include "solprop_native/stage_tables.hpp"
 #include "solprop_native/z_table.hpp"
 
 #include <gtest/gtest.h>
@@ -197,6 +198,22 @@ TEST(ZTable, BlockedEvaluationIsThePerValueRecursionExactly) {
             << terms << " terms, position " << p << ", value " << e;
       }
   }
+}
+
+// A stage table's single value reads one column; a table of several is refused rather
+// than written past the one value it returns.
+TEST(StageTable, ValueReadsOneColumnAndRefusesSeveral) {
+  native::stage::Table table;
+  table.edges = {0.0, 1.0};
+  table.lower = 0.0;
+  table.upper = 1.0;
+  table.n_terms = 1;
+  table.n_values = 1;
+  table.coefficients = {2.5};
+  EXPECT_EQ(table.value(0.5), 2.5);
+  table.n_values = 2;
+  table.coefficients = {2.5, -1.0};
+  EXPECT_THROW(static_cast<void>(table.value(0.5)), std::logic_error);
 }
 
 } // namespace
