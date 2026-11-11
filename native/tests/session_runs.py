@@ -14,8 +14,8 @@ replaced the transitional lockstep batch in solprop SEP 47's phase 5.
 from __future__ import annotations
 
 import functools
-from collections.abc import Sequence
-from typing import Any, cast
+from collections.abc import Mapping, Sequence
+from typing import Any, NamedTuple, cast
 
 import numpy as np
 from solprop.backends.events import ObservationReady, join_attempts
@@ -67,21 +67,76 @@ class _Recorder:
             )
 
 
-def alone(owner: Any, problem: Any, request: Any, start: Start) -> list[dict[str, Any]]:
-    """Run one member alone through the native session; return its observations.
+class Finished(NamedTuple):
+    """What one trajectory's session observed, and its execution record."""
 
-    The session owns `owner` and closes it.
+    planes: list[dict[str, Any]]
+    """Each observation, as :func:`alone` returns them."""
+    record: Mapping[str, object]
+    """The session's :meth:`~solprop.backends.session.RunSession.execution_record`,
+    read before it closed."""
+
+
+def finish(
+    owner: Any,
+    problem: Any,
+    request: Any,
+    start: Start | None = None,
+    *,
+    owns: bool = True,
+) -> Finished:
+    """Run one trajectory through its backend's session to its end.
+
+    Parameters
+    ----------
+    owner : solprop.backends.protocol.Backend
+        The backend, native or the reference, built for `problem` and `request`.
+    problem, request
+        The translated problem and its run's request.
+    start : solprop.backends.session.Start or None, optional
+        Where it starts; the problem's entrance by default.
+    owns : bool, optional
+        Whether the session closes `owner`; a caller that reads the backend's
+        metadata or ledger afterwards passes ``False`` and closes it.
+
+    Returns
+    -------
+    Finished
+        Its observations, the launch plane first, and its execution record.
     """
-    session = start_session(owner, problem, request, start)
+    session = start_session(
+        owner,
+        problem,
+        request,
+        Start.entrance(problem) if start is None else start,
+        owns=owns,
+    )
     recorder = _Recorder()
     try:
         while not session.finished:
             batch = session.advance()
             recorder.take(session.export, batch.events)
             session.acknowledge(batch.receipt)
+        record = dict(session.execution_record())
     finally:
         session.close()
-    return recorder.planes
+    return Finished(recorder.planes, record)
+
+
+def alone(owner: Any, problem: Any, request: Any, start: Start) -> list[dict[str, Any]]:
+    """Run one member alone through the native session; return its observations.
+
+    The session owns `owner` and closes it.
+    """
+    return finish(owner, problem, request, start).planes
+
+
+def steps(planes: Sequence[dict[str, Any]]) -> tuple[int, int]:
+    """Return the accepted and the rejected attempts of a recorded run."""
+    accepted = np.concatenate([plane["attempts"]["accepted"] for plane in planes])
+    return int(np.count_nonzero(accepted)), int(
+        accepted.size - np.count_nonzero(accepted)
+    )
 
 
 def grouped(
