@@ -1439,7 +1439,7 @@ class NativeSession:
             # native replay makes: none for a step abandoned or diverged.
             method = cast("LowStorageRungeKutta", self._stepper.integrator)
             record["source_evaluations"] = method.evaluations * status.attempts
-        record["native_session"] = {
+        native: dict[str, float] = {
             "march_calls": status.march_calls,
             "rows_taken": status.rows_taken,
             "batches": status.batches,
@@ -1447,10 +1447,13 @@ class NativeSession:
             "export_bytes": status.export_bytes,
             "buffer_bytes": status.buffer_bytes,
             "axis_scans": self._axis_scan_count(),
-            # The largest accepted step's transverse quadrature score this session
-            # read for its alarm (`_check_quadrature`); NaN where none was scored.
-            "quadrature_peak": self._quadrature_peak,
         }
+        if not math.isnan(self._quadrature_peak):
+            # The largest accepted step's transverse quadrature score this session
+            # read for its alarm (`_check_quadrature`), where any was scored: an
+            # execution record holds finite JSON values only.
+            native["quadrature_peak"] = self._quadrature_peak
+        record["native_session"] = native
         monitor = self.monitor_record()
         if monitor is not None:
             # Where the driver's record carries its monitor's (`HostDriver.metadata`).
