@@ -175,7 +175,7 @@ order conditions are checked for both weight vectors and the propagated solution
 fifth-order one, and the FSAL stage is not recycled before anything that depends on the
 completed step (irrelevant without dense output, but tested).
 
-**Who marches** ([SEP 47](seps/sep-0047-run-ownership.md)). The NumPy reference runs
+**Who marches** ([SEP 47](seps/archive/sep-0047-run-ownership.md)). The NumPy reference runs
 its own step driver and marches in `backends/host/`: `HostDriver`, `HostAdamsMarch`,
 `HostGeneralPath`, `HostLowStorageMarch` and the fixed-schedule group `HostGroup`. Every
 native run is its native session's, whose compiled Runge-Kutta, Adams and low-storage
@@ -296,7 +296,7 @@ position) and one fold:
 replay: each step calls the host engine (`HostLowStorage.step`), applies `_finish` and
 moves the position in one commit. The native backend holds no such march: its resident
 registers (`_ResidentLowStorage`) step only for a timing probe's trial, one native call
-per step. The native execution session ([SEP 47](seps/sep-0047-run-ownership.md) section 6.3,
+per step. The native execution session ([SEP 47](seps/archive/sep-0047-run-ownership.md) section 6.3,
 `solprop_native.session`) owns the loop itself: the native Runge-Kutta march replays the
 schedule, and each step is one in-place native step whose stage scalars, the table keys
 of `table_steps` and the flows' increments, the native state forms from its stage
@@ -443,7 +443,7 @@ the transverse edge (read on the host, as the Adams march reads it) and a weight
 that overrides one of its decisions or its norm (`scale`, `accepts`, `propose`,
 `rejection_factor`, `start_factor`, `equivalent_norm`) is a reference-only experiment:
 `native` refuses it by name where the backend is built, before it allocates
-([SEP 47](seps/sep-0047-run-ownership.md) §6.3), and `numpy_ref` runs it.
+([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.3), and `numpy_ref` runs it.
 
 **The policy and the native march** (ADR-060, [SEP 39](seps/archive/sep-0039-native-adams-march.md)):
 every number the controller reads -- the order and its variability, the safety and
@@ -584,7 +584,7 @@ the measurements behind them.
   every plane its step crossed observed first -- the end of that step itself when the
   next plane lies beyond it, since with planes closer than the steps every later step
   crosses another plane -- so a checkpoint never needs the extension to reconstruct a
-  plane ([SEP 47](seps/sep-0047-run-ownership.md) section 5.5). After an observation
+  plane ([SEP 47](seps/archive/sep-0047-run-ownership.md) section 5.5). After an observation
   the next step evaluates its first stage afresh rather than recycle the crossing step's
   last (FSAL), in the native session as on the host: a recycled stage once parted the
   two by up to 9e-8 in a norm, and by 2e-10 in the positions after it, under some FFT

@@ -88,7 +88,7 @@ docstrings, in the order of [architecture.md §9](architecture.md#9-backends-in-
 
 Rules: a backend is constructed from a validated `PropagationProblem`
 ([kernel-contract.md](kernel-contract.md)), the `RunRequest` that carries the run's
-policy ([SEP 47](seps/sep-0047-run-ownership.md) §5.2; it checks the two with
+policy ([SEP 47](seps/archive/sep-0047-run-ownership.md) §5.2; it checks the two with
 `validate_run` before it allocates) and host arrays, and returns host arrays; its
 buffers, layout and plans are private; the state is never a parameter of `propagate_to` or
 `observe`; the numbers are the contract — a backend is correct when it reproduces the
@@ -325,7 +325,7 @@ reads the state's energy per walk-off bucket at each check, in the same reductio
 histogram per thread and no atomics, which is why its bucket count has a compiled limit. The
 input-noise floor is read on the host, once, at the launch.
 
-**Export into a destination** ([SEP 47](seps/sep-0047-run-ownership.md) §5.4) is how a
+**Export into a destination** ([SEP 47](seps/archive/sep-0047-run-ownership.md) §5.4) is how a
 session's field reaches the output. A session's `export(ticket, recipe, out=None)` fills a
 host destination with the pending observation's field converted by an `ExportRecipe`
 (`backends/export.py`): the true-power weight's square root on a modal route (a spatial
@@ -643,7 +643,7 @@ there. With a collar the host step is one, so the march returns at every committ
 A saved plane reads the edge unless the step that reached it already did (`TransverseEdge.wants_read`), as a second read at one position records nothing.
 A backend that does not set it reports `unwatched` and refuses a requested collar by name.
 
-**Under the native execution session the judgement is native too** ([SEP 47](seps/sep-0047-run-ownership.md) §6.4).
+**Under the native execution session the judgement is native too** ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.4).
 `NativeSession` hands no reading to a Python edge: `transverse::Edge`
 (`native/include/solprop_native/transverse.hpp`, a strict translation unit) owns the edge's every decision and record
 -- the launch's judgements, the spacing and its ceiling, each read's ledgers and verdict, a collar's current and return,
@@ -1421,7 +1421,7 @@ per ring cross, and solprop keeps the rule: `solprop.spatial._fluence_rings` fix
 and its angles, which depend on the axes alone, are formed once at lowering
 (`solprop.spatial._ring_angles`).
 
-**The widths are finished natively** ([SEP 47](seps/sep-0047-run-ownership.md) §6.4).
+**The widths are finished natively** ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.4).
 `beam_radius` and `fwhm_r` are statistics of the native plan (`Stat::beam_radius`,
 `Stat::fwhm_r`), so the native session takes them with no Python finishing,
 at planes (neither is periodic-capable). The plan runs the same fluence passes the host finishing
@@ -1870,7 +1870,7 @@ is refused by `check_build`.
 
 [SEP 33](seps/archive/sep-0033-single-precision-mlx.md)'s experimental single-precision
 backend for Apple GPUs was retired, unused, by
-[SEP 47](seps/sep-0047-run-ownership.md) §6.6, before the driver hierarchy it inherited
+[SEP 47](seps/archive/sep-0047-run-ownership.md) §6.6, before the driver hierarchy it inherited
 was restructured. `backend="mlx"` raises `BackendError` (`registry.REMOVED_BACKENDS`),
 and output that records it still opens. Single precision runs on `numpy_ref`, its
 oracle. SEP 33 and the benchmark ledger keep what it measured.
@@ -1917,7 +1917,7 @@ trial, the decision, the accept, and the boundary monitor's checks
 ([SEP 45](seps/archive/sep-0045-native-rk-march.md) §4.8) -- to each event, the session
 holding the march's state natively (SEP 47). The decisions are compiled without contraction in their own translation unit,
 so that they round as solprop's do; within one build the two marches take the same
-steps. The host marches are no longer execution modes ([SEP 47](seps/sep-0047-run-ownership.md)
+steps. The host marches are no longer execution modes ([SEP 47](seps/archive/sep-0047-run-ownership.md)
 §6.3): the environment variables `SOLPROP_ADAMS_MARCH`, `SOLPROP_RK_MARCH` and
 `SOLPROP_RK_ROWS`, the backend's `adams_march` keyword and, in phase 5, the test
 interface that replaced them (`_ADAMS_MARCH`, `_RK_MARCH`, `_RK_ROWS`) and the

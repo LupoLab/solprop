@@ -1,5 +1,5 @@
 The backend seam's problem descriptor is now one trajectory's typed description
-([SEP 47](docs/dev/seps/sep-0047-run-ownership.md) sections 6.2 and 6.7).
+([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md) sections 6.2 and 6.7).
 `solprop.translate.problem.KernelProblem` is renamed `PropagationProblem`, with no
 alias. The nominal leading batch axis is gone: `PropagationProblem.shape`,
 `initial.field0` and `initial.noise0`, `Backend.set_initial`, `Observation.field` and

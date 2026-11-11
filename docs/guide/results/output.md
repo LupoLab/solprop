@@ -544,7 +544,7 @@ reusing TDSE across inputs still applies.
 
 A snapshot requires an unbatched HDF5 run with `fields="all"`; it no longer needs
 `step_planes`, and it is taken with interpolated planes too
-([SEP 47](../../dev/seps/sep-0047-run-ownership.md)). With `interpolate_planes=True` a
+([SEP 47](../../dev/seps/archive/sep-0047-run-ownership.md)). With `interpolate_planes=True` a
 request is taken at the end of the step that crossed the plane being saved, once every
 plane that step crossed has been saved, so the snapshot holds a state the march passed
 through and `resume=True` continues it without `resume="interpolated"`. Adams runs must allow retained
