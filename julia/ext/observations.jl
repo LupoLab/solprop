@@ -88,37 +88,47 @@ function prepare_observations(modal::SolpropJulia.ModalPreparation, transfer::Py
     return SolpropJulia.SessionPreparation(modal, policy)
 end
 
+# PythonCall's PyArray has its own object identity, which does not establish
+# ownership of a foreign interior view. Its public strides use element counts.
+function SolpropJulia._transfer_storage_span(
+        array::PyArray{T, N, M, L, T},
+    ) where {T, N, M, L}
+    isempty(array) && return nothing
+    isbitstype(T) ||
+        throw(ArgumentError("transfer storage requires fixed-size foreign elements"))
+    GC.@preserve array begin
+        address = UInt(Base.unsafe_convert(Ptr{T}, array))
+        byte_strides = ntuple(axis -> Base.checked_mul(stride(array, axis), sizeof(T)), N)
+        return SolpropJulia._transfer_strided_span(
+            address, size(array), byte_strides, sizeof(T),
+        )
+    end
+end
+
 function copy_session_observations!(
         positions, steps, values, plane, session, generation::Int,
     )
-    # PyArray retains each owner during this synchronous copy. Transposing the C
-    # matrix is a view, so the core sees its canonical (width, row) packed layout.
     borrowed_positions = _python_buffer(Float64, Val(1), positions)
     borrowed_steps = _python_buffer(Int64, Val(1), steps)
     borrowed_values = _python_buffer(Float64, Val(2), values)
     borrowed_plane = _python_buffer(Float64, Val(1), plane)
     owners = (borrowed_positions, borrowed_steps, borrowed_values, borrowed_plane)
-    for (index, owner) in enumerate(owners)
+    for owner in owners
         isempty(owner) && continue
         expected = 1
         for axis in ndims(owner):-1:1
             size(owner, axis) == 1 || stride(owner, axis) == expected ||
                 throw(ArgumentError("Python observation buffers must be C-contiguous"))
-            expected *= size(owner, axis)
-        end
-        first = UInt(Base.unsafe_convert(Ptr{eltype(owner)}, owner))
-        last = first + sizeof(eltype(owner)) * length(owner)
-        for other in (index + 1):length(owners)
-            right = owners[other]
-            isempty(right) && continue
-            right_first = UInt(Base.unsafe_convert(Ptr{eltype(right)}, right))
-            right_last = right_first + sizeof(eltype(right)) * length(right)
-            first < right_last && right_first < last &&
-                throw(ArgumentError("Python observation buffers must be disjoint"))
+            expected = Base.checked_mul(expected, size(owner, axis))
         end
     end
-    return SolpropJulia.session_observations!(
-        borrowed_positions, borrowed_steps, transpose(borrowed_values), borrowed_plane,
-        session, generation,
-    )
+    # The core owns all pairwise and retained-storage checks. Transposition only
+    # changes the C matrix's view; the foreign allocation owners outlive every write.
+    GC.@preserve owners positions steps values plane begin
+        SolpropJulia.session_observations!(
+            borrowed_positions, borrowed_steps, transpose(borrowed_values), borrowed_plane,
+            session, generation,
+        )
+    end
+    return nothing
 end

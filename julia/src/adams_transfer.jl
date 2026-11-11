@@ -117,7 +117,7 @@ function _adams_transfer_destination_alias(buffers)
         arrays[first] === nothing && continue
         for second in (first + 1):length(arrays)
             arrays[second] === nothing && continue
-            Base.mightalias(arrays[first], arrays[second]) && return true
+            _transfer_arrays_alias(arrays[first], arrays[second]) && return true
         end
     end
     return false

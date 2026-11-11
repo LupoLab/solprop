@@ -98,75 +98,6 @@ function session_monitor_payload(session, generation::Int)
     )
 end
 
-function _monitor_storage_span(array::Array)
-    first = UInt(pointer(array))
-    return first, first + UInt(sizeof(array))
-end
-
-@inline function _monitor_destination_span(rows)
-    isempty(rows) && return nothing
-    rows isa Array && return _monitor_storage_span(rows)
-    owner = parent(rows)
-    owner === rows && return nothing
-    return _monitor_destination_span(owner)
-end
-
-@inline function _monitor_array_alias(rows, span, value::AbstractArray)
-    Base.mightalias(rows, value) && return true
-    if span !== nothing && value isa Array && isbitstype(eltype(value))
-        isempty(value) && return false
-        lower, upper = _monitor_storage_span(value)
-        return span[1] < upper && lower < span[2]
-    end
-    parent(value) === value && return false
-    return _monitor_array_alias(rows, span, parent(value))
-end
-
-function _monitor_alias_expression(type::Type, path)
-    if type <: AbstractArray
-        return :(_monitor_array_alias(rows, span, $path))
-    elseif type === Nothing || isbitstype(type) || type <: String
-        return :(false)
-    elseif type isa Union
-        result = :(false)
-        for alternative in Base.uniontypes(type)
-            check = _monitor_alias_expression(alternative, :($path::$alternative))
-            result = :(($path isa $alternative && $check) || $result)
-        end
-        return result
-    elseif isconcretetype(type) &&
-            (type <: Union{Tuple, NamedTuple} || parentmodule(type) === @__MODULE__)
-        result = :(false)
-        for index in fieldcount(type):-1:1
-            check = _monitor_alias_expression(
-                fieldtype(type, index), :(getfield($path, $index)),
-            )
-            result = :($check || $result)
-        end
-        return result
-    elseif !isconcretetype(type)
-        return :(_monitor_retained_alias(rows, span, $path))
-    end
-    return :(false)
-end
-
-@generated function _monitor_retained_alias(rows::R, span::S, value::T) where {R, S, T}
-    # Expand the concrete owner graph once. Re-entering a generic reflective walk
-    # boxes heterogeneous records even when each field index is separately constant.
-    result = _monitor_alias_expression(T, :value)
-    return quote
-        $(Expr(:meta, :inline))
-        return $result
-    end
-end
-
-function _monitor_rows_alias(rows, session)
-    # Foreign wrappers can start inside an allocation and have a different
-    # Base.dataids identity. Check byte overlap as well as Julia owner identity.
-    span = _monitor_destination_span(rows)
-    return _monitor_retained_alias(rows, span, session) ||
-        _monitor_retained_alias(rows, span, session.services)
-end
 
 """
     session_monitor_rows!(rows, session, generation)
@@ -188,7 +119,7 @@ function session_monitor_rows!(
     size(rows) == (5, count) ||
         throw(DimensionMismatch("temporal monitor rows require shape (5,row_count)"))
     Base.require_one_based_indexing(rows)
-    _monitor_rows_alias(rows, session) &&
+    _retained_alias(rows, (session, session.services)) &&
         throw(ArgumentError("temporal monitor rows must not alias retained storage"))
     payload === nothing && return nothing
     services = session.services

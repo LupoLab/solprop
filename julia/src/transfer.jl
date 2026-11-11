@@ -213,6 +213,8 @@ Copy a pending observation payload into detached, writable destinations.
 The Float64 vectors `positions` and Int64 `steps` have the pending row count. The
 Float64 matrix `values` is `(periodic_width,n_rows)`; `plane` has the valid packed
 plane width or zero entries. Validate dimensions and all aliases before any writes.
+Admit dense host storage and its supported parent wrappers; refuse unknown storage
+families and overlap, including foreign interior views with distinct array identities.
 The call preserves the generation and its numerical buffers for a failed-copy retry.
 """
 function session_observations!(
@@ -226,16 +228,10 @@ function session_observations!(
         throw(DimensionMismatch("observation destinations disagree with the pending chunk"))
     destinations = (positions, steps, values, plane)
     Base.require_one_based_indexing(destinations...)
-    for (index, destination) in enumerate(destinations)
-        (
-            _retained_alias(destination, session) ||
-                _retained_alias(destination, session.services)
-        ) && throw(ArgumentError("observation destinations must not alias retained storage"))
-        for other in (index + 1):length(destinations)
-            Base.mightalias(destination, destinations[other]) &&
-                throw(ArgumentError("observation destinations must be disjoint"))
-        end
-    end
+    _transfer_retained_any(destinations, (session, session.services)) &&
+        throw(ArgumentError("observation destinations must not alias retained storage"))
+    _transfer_pairwise_alias(destinations) &&
+        throw(ArgumentError("observation destinations must be disjoint"))
     services = session.services
     services isa ObservationServices || return nothing
     for row in 1:count
@@ -379,23 +375,139 @@ function _session_exportable(session, generation)
     return nothing
 end
 
-# Destinations cross an ownership boundary. Reject overlap with every retained
-# numerical array, including immutable preparation and scratch, before any write.
-# Vendor plans are opaque, but their input/output arrays are explicit owned fields.
-function _retained_alias(destination, value)
-    if value isa AbstractArray
-        return Base.mightalias(destination, value)
-    elseif value === nothing || isbitstype(typeof(value)) || value isa String
-        return false
-    elseif value isa Union{Tuple, NamedTuple}
-        return any(item -> _retained_alias(destination, item), value)
-    elseif parentmodule(typeof(value)) === @__MODULE__
-        return any(
-            name -> _retained_alias(destination, getfield(value, name)),
-            fieldnames(typeof(value)),
-        )
+# A view's entire storage owner is intentionally conservative: two views into one
+# allocation are not independent destinations, even when their selected cells differ.
+function _transfer_storage_span(array::Array)
+    isempty(array) && return nothing
+    first = UInt(pointer(array))
+    return first, Base.checked_add(first, UInt(sizeof(array)))
+end
+
+@inline function _transfer_storage_span(
+        array::Union{
+            SubArray, Base.ReshapedArray, Base.ReinterpretArray,
+            LinearAlgebra.Transpose, LinearAlgebra.Adjoint, PermutedDimsArray,
+        },
+    )
+    isempty(array) && return nothing
+    return _transfer_storage_span(parent(array))
+end
+
+function _transfer_storage_span(array::AbstractArray)
+    isempty(array) && return nothing
+    throw(ArgumentError("transfer storage needs a supported host array or parent wrapper"))
+end
+
+# Signed strides locate the first and last touched bytes, not merely length * item
+# size from the first pointer. Checked arithmetic refuses a malformed foreign span.
+function _transfer_strided_span(
+        address::UInt, dimensions::NTuple{N, Int}, byte_strides::NTuple{N, Int},
+        item_size::Int,
+    ) where {N}
+    all(>=(0), dimensions) && item_size > 0 ||
+        throw(ArgumentError("transfer storage dimensions and item size are invalid"))
+    any(iszero, dimensions) && return nothing
+    lower, upper = address, address
+    try
+        for axis in 1:N
+            offset = Base.checked_mul(dimensions[axis] - 1, byte_strides[axis])
+            if offset < 0
+                # This spelling also represents abs(typemin(Int)) without overflow.
+                distance = UInt(-(offset + 1)) + UInt(1)
+                lower = Base.checked_sub(lower, distance)
+            else
+                upper = Base.checked_add(upper, UInt(offset))
+            end
+        end
+        return lower, Base.checked_add(upper, UInt(item_size))
+    catch error
+        error isa OverflowError || rethrow()
+        throw(ArgumentError("transfer storage byte span overflows a machine address"))
     end
-    return false
+end
+
+@inline function _transfer_arrays_alias(destination, span, value::AbstractArray)
+    (isempty(destination) || isempty(value) || span === nothing) && return false
+    Base.mightalias(destination, value) && return true
+    other = _transfer_storage_span(value)
+    other === nothing && return false
+    return span[1] < other[2] && other[1] < span[2]
+end
+
+function _transfer_arrays_alias(left::AbstractArray, right::AbstractArray)
+    (isempty(left) || isempty(right)) && return false
+    GC.@preserve left right begin
+        return _transfer_arrays_alias(left, _transfer_storage_span(left), right)
+    end
+end
+
+
+# Tuple tails retain each concrete element type at the boundary. Indexing a
+# heterogeneous tuple in a runtime loop boxes arrays during an otherwise pure copy.
+_transfer_retained_any(::Tuple{}, value) = false
+function _transfer_retained_any(destinations::Tuple, value)
+    return _retained_alias(first(destinations), value) ||
+        _transfer_retained_any(Base.tail(destinations), value)
+end
+
+_transfer_alias_any(destination, ::Tuple{}) = false
+function _transfer_alias_any(destination, others::Tuple)
+    return _transfer_arrays_alias(destination, first(others)) ||
+        _transfer_alias_any(destination, Base.tail(others))
+end
+
+_transfer_pairwise_alias(::Tuple{}) = false
+function _transfer_pairwise_alias(destinations::Tuple)
+    remaining = Base.tail(destinations)
+    return _transfer_alias_any(first(destinations), remaining) ||
+        _transfer_pairwise_alias(remaining)
+end
+
+function _retained_alias_expression(type::Type, path)
+    if type <: AbstractArray
+        return :(_transfer_arrays_alias(destination, span, $path))
+    elseif type === Nothing || isbitstype(type) || type <: String
+        return :(false)
+    elseif type isa Union
+        result = :(false)
+        for alternative in Base.uniontypes(type)
+            check = _retained_alias_expression(alternative, :($path::$alternative))
+            result = :(($path isa $alternative && $check) || $result)
+        end
+        return result
+    elseif isconcretetype(type) &&
+            (type <: Union{Tuple, NamedTuple} || parentmodule(type) === @__MODULE__)
+        result = :(false)
+        for index in fieldcount(type):-1:1
+            check = _retained_alias_expression(
+                fieldtype(type, index), :(getfield($path, $index)),
+            )
+            result = :($check || $result)
+        end
+        return result
+    elseif !isconcretetype(type)
+        return :(_retained_alias(destination, span, $path))
+    end
+    return :(false)
+end
+
+@generated function _retained_alias(destination::D, span::S, value::T) where {D, S, T}
+    # Expand the concrete engine owner graph once. A reflective runtime traversal
+    # boxes heterogeneous records even when individual field indices are constant.
+    # Opaque vendor plans keep their numerical arrays in explicit engine-owned fields.
+    result = _retained_alias_expression(T, :value)
+    return quote
+        $(Expr(:meta, :inline))
+        return $result
+    end
+end
+
+function _retained_alias(destination::AbstractArray, value)
+    isempty(destination) && return false
+    GC.@preserve destination value begin
+        span = _transfer_storage_span(destination)
+        return _retained_alias(destination, span, value)
+    end
 end
 
 """
@@ -419,7 +531,7 @@ function export_session!(
     field = session.field
     size(output) == size(field) == size(power_weight) ||
         throw(DimensionMismatch("session export dimensions disagree"))
-    (_retained_alias(output, session) || Base.mightalias(output, power_weight)) &&
+    (_retained_alias(output, session) || _transfer_arrays_alias(output, power_weight)) &&
         throw(ArgumentError("an export must not alias session storage"))
     scale = power && !all(isone, power_weight)
     each!(session.execution, size(field)...) do row, column
@@ -459,14 +571,10 @@ function session_attempts!(
         length(elapsed) == buffer.count ||
         throw(DimensionMismatch("attempt destinations must match the pending chunk"))
     destinations = (positions, lengths, norms, accepted, elapsed)
-    for first in eachindex(destinations)
-        _retained_alias(destinations[first], session) &&
-            throw(ArgumentError("attempt destinations must not alias retained storage"))
-        for second in (first + 1):length(destinations)
-            Base.mightalias(destinations[first], destinations[second]) &&
-                throw(ArgumentError("attempt destinations must be pairwise disjoint"))
-        end
-    end
+    _transfer_retained_any(destinations, session) &&
+        throw(ArgumentError("attempt destinations must not alias retained storage"))
+    _transfer_pairwise_alias(destinations) &&
+        throw(ArgumentError("attempt destinations must be pairwise disjoint"))
     for row in 1:buffer.count
         positions[row] = buffer.z[row]
         lengths[row] = buffer.dz[row]
