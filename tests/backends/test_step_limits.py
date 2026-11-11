@@ -30,12 +30,12 @@ from solprop.translate.problem import _stepper_settings, assemble
 LENGTH = 0.05
 
 
-def history(problem, grid, *, z_start=0.0):
+def history(problem, run_request, grid, *, z_start=0.0):
     """Run a problem to its last plane; return the accepted starts and lengths."""
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None, z=z_start)
     starts, lengths = [], []
-    for plane in problem.stepper.save_planes:
+    for plane in run_request.stepper.save_planes:
         if plane <= z_start:
             continue
         backend.propagate_to(float(plane))
@@ -47,54 +47,52 @@ def history(problem, grid, *, z_start=0.0):
     return np.array(starts), np.array(lengths)
 
 
-def with_limits(problem, **limits):
-    """Return the problem with its stepper settings changed."""
-    return dataclasses.replace(
-        problem, stepper=dataclasses.replace(problem.stepper, **limits)
-    )
+def with_limits(run_request, **limits):
+    """Return the request with its stepper settings changed."""
+    return run_request.with_stepper(dataclasses.replace(run_request.stepper, **limits))
 
 
 def test_the_diagonal_route_drops_the_interval_cap(narrow_grid, soliton_problem):
-    problem = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
-    assert problem.stepper.interval_cap is False
+    _, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
+    assert run_request.stepper.interval_cap is False
     # An explicit dz_init is honoured as before; the interfaces ask for the rule.
-    assert problem.stepper.auto_init is False
+    assert run_request.stepper.auto_init is False
     ruled = soliton_problem(narrow_grid, 1, save_planes=[LENGTH], auto_init=True)
-    assert ruled.stepper.auto_init is True
+    assert ruled.request.stepper.auto_init is True
     capped = soliton_problem(narrow_grid, 1, save_planes=[LENGTH], interval_cap=True)
-    assert capped.stepper.interval_cap is True
+    assert capped.request.stepper.interval_cap is True
 
 
 def test_a_reject_free_controller_keeps_the_version_16_limits(
     narrow_grid, soliton_problem
 ):
-    problem = soliton_problem(
+    _, run_request = soliton_problem(
         narrow_grid,
         1,
         save_planes=[LENGTH],
         controller=PIController(rtol=1e-8, atol=1e-18, reject_free=True),
         auto_init=True,
     )
-    assert problem.stepper.interval_cap is True
-    assert problem.stepper.auto_init is False
+    assert run_request.stepper.interval_cap is True
+    assert run_request.stepper.auto_init is False
 
 
 def test_a_coupled_flow_keeps_the_version_16_limits(narrow_grid, soliton_problem):
-    problem = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
+    problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
     # A zero constant-Schur flow on the envelope's frequencies, sorted as a flow's are:
     # the policy reads only that a coupled flow is present.
     flow = constant_schur_flow(
         np.sort(problem.grids.omega),
         problem.linear.phi_breakpoints[[0, -1]],
         np.zeros((1, 1, problem.grids.omega.size), dtype=complex),
-        dz_max=problem.stepper.dz_max,
+        dz_max=run_request.stepper.dz_max,
         condition_limit=1e6,
         gauge_id="test",
         certificate_id="constant-schur",
     )
     linear = dataclasses.replace(problem.linear, coupled_flow=flow)
     fields = {
-        name: getattr(problem.stepper, name)
+        name: getattr(run_request.stepper, name)
         for name in (
             "tableau",
             "dz_min",
@@ -108,7 +106,7 @@ def test_a_coupled_flow_keeps_the_version_16_limits(narrow_grid, soliton_problem
     }
     settings = _stepper_settings(
         linear,
-        controller=problem.stepper.controller,
+        controller=run_request.stepper.controller,
         interval_cap=None,
         auto_init=True,
         **fields,
@@ -140,19 +138,20 @@ def test_without_the_cap_a_step_outgrows_the_table_s_intervals():
         backend="numpy_ref",
     )
     problem = simulation.translate()
-    assert problem.stepper.interval_cap is False
-    assert problem.stepper.auto_init is True
+    run_request = simulation._run_request()
+    assert run_request.stepper.interval_cap is False
+    assert run_request.stepper.auto_init is True
     edges = problem.linear.phi_breakpoints
     # The default Adams march carries its own cap, off unless asked for.
-    method = problem.stepper.integrator
+    method = run_request.stepper.integrator
     assert isinstance(method, Multistep) and method.interval_cap is False
     capped = with_limits(
-        problem, integrator=dataclasses.replace(method, interval_cap=True)
+        run_request, integrator=dataclasses.replace(method, interval_cap=True)
     )
 
-    def widest(problem):
+    def widest(run_request):
         # Each accepted step against the width of the interval it started in.
-        starts, lengths = history(problem, simulation.grid)
+        starts, lengths = history(problem, run_request, simulation.grid)
         # A position accumulates z + dz and can sit an ulp short of an edge it landed
         # on; the driver's landing guard counts eight ulp as reached, and so does this.
         reached = starts + 8 * np.spacing(starts)
@@ -160,12 +159,12 @@ def test_without_the_cap_a_step_outgrows_the_table_s_intervals():
         return float(np.max(lengths / np.diff(edges)[index])), lengths.size
 
     capped_ratio, capped_steps = widest(capped)
-    free_ratio, free_steps = widest(problem)
+    free_ratio, free_steps = widest(run_request)
     # The cap is the containing interval's width, stretched by at most 1.1 onto a
     # landing; without it the steps outgrow the fine intervals at the exit, as far as
     # the history's bounded growth from one step to the next lets them. Measured:
     # 1.0 and 3.3 times the interval, 101 and 93 steps.
-    assert capped_ratio <= problem.stepper.stretch
+    assert capped_ratio <= run_request.stepper.stretch
     assert free_ratio > 2.0
     assert free_steps < capped_steps
 
@@ -246,8 +245,8 @@ def test_the_start_up_rule_jumps_from_the_first_step(narrow_grid, soliton_proble
     common = {"save_planes": [LENGTH], "dz_init": dz_init}
     ruled = soliton_problem(narrow_grid, 1, auto_init=True, **common)
     grown = soliton_problem(narrow_grid, 1, **common)
-    _, ruled_steps = history(ruled, narrow_grid)
-    _, grown_steps = history(grown, narrow_grid)
+    _, ruled_steps = history(*ruled, grid=narrow_grid)
+    _, grown_steps = history(*grown, grid=narrow_grid)
     assert ruled_steps[0] == grown_steps[0] == dz_init
     # The second step is the deadbeat one, far beyond the 1.1 the cap allows.
     assert ruled_steps[1] > 10 * dz_init
@@ -258,24 +257,24 @@ def test_the_start_up_rule_jumps_from_the_first_step(narrow_grid, soliton_proble
 
 def test_a_zero_source_takes_the_largest_start(narrow_grid, linear_problem):
     dz_init = 1e-6
-    problem = linear_problem(
+    problem, run_request = linear_problem(
         narrow_grid, save_planes=[LENGTH], dz_init=dz_init, auto_init=True
     )
-    _, steps = history(problem, narrow_grid)
+    _, steps = history(problem, run_request, narrow_grid)
     # No source, no estimate: the rule grows by its cap, START_GROWTH.
     assert steps[1] == pytest.approx(START_GROWTH * dz_init, rel=1e-12)
 
 
 def test_a_resumed_run_takes_the_rule_again(narrow_grid, soliton_problem):
     dz_init = 1e-6
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         1,
         save_planes=[LENGTH / 2, LENGTH],
         dz_init=dz_init,
         auto_init=True,
     )
-    starts, steps = history(problem, narrow_grid, z_start=LENGTH / 2)
+    starts, steps = history(problem, run_request, narrow_grid, z_start=LENGTH / 2)
     assert starts[0] == LENGTH / 2
     assert steps[0] == dz_init
     assert steps[1] > 10 * dz_init

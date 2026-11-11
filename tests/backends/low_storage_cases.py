@@ -22,6 +22,7 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.stepper import FixedSchedule
 from solprop.translate.linop import delta_phi
+from solprop.translate.problem import Translation
 
 STEPS = 10
 """The qualification scope's propagation (AGENTS.md): ten steps."""
@@ -35,7 +36,7 @@ FFT_CONSTANT = 8
 """Roundings per level of a transform pair, Higham's ``log2 n`` with a margin."""
 
 
-def parity_bound(problem, *, growth=2.0, transverse=1, depth=0):
+def parity_bound(problem, run_request, *, growth=2.0, transverse=1, depth=0):
     """Return the relative bound two backends' replays of one schedule must meet.
 
     Fixed before either is run, from the case's own sizes:
@@ -57,7 +58,7 @@ def parity_bound(problem, *, growth=2.0, transverse=1, depth=0):
     over its ten steps (:func:`bounds.propagation_growth` of the nonlinear rate over
     the run is below 2 in every case here).
     """
-    schedule = problem.stepper.schedule
+    schedule = run_request.stepper.schedule
     levels = math.log2(problem.grids.n_to) + math.log2(max(transverse, 1))
     per_step = 4 * (PRODUCTS + FFT_CONSTANT * levels + depth)
     rounding = step_budget(per_step, schedule.n_steps, growth)
@@ -84,12 +85,14 @@ def parity_bound(problem, *, growth=2.0, transverse=1, depth=0):
     return rounding + growth * (float(np.max(argument[bins])) + roots)
 
 
-def replay(backend_class, problem, grid, *, modes=None, noise=None, **options):
+def replay(
+    backend_class, problem, run_request, grid, *, modes=None, noise=None, **options
+):
     """Replay the problem's schedule through its planes; return the final state."""
-    backend = backend_class(problem, grid=grid, modes=modes, **options)
+    backend = backend_class(problem, run_request, grid=grid, modes=modes, **options)
     try:
         backend.set_initial(problem.initial.field0, noise)
-        for plane in problem.stepper.save_planes:
+        for plane in run_request.stepper.save_planes:
             backend.propagate_to(float(plane))
         field = backend.observe().require_field().copy()
         assert np.all(np.isfinite(field))
@@ -98,24 +101,48 @@ def replay(backend_class, problem, grid, *, modes=None, noise=None, **options):
         backend.close()
 
 
-def assert_compiled(backend_class, problem, grid, limit, *, what="march", **replaying):
+def assert_compiled(
+    backend_class, problem, run_request, grid, limit, *, what="march", **replaying
+):
     """Replay on the reference and `backend_class`; assert it within `limit`.
 
     Returns the departure measured.
     """
-    expected = replay(NumpyRefBackend, problem, grid, **replaying)
-    got = replay(backend_class, problem, grid, **replaying)
+    expected = replay(NumpyRefBackend, problem, run_request, grid, **replaying)
+    got = replay(backend_class, problem, run_request, grid, **replaying)
     assert_within(
         got, expected, limit, what=f"{backend_class.name} against numpy_ref, {what}"
     )
     return departure(got, expected)
 
 
-def assert_parity(backend_class, problem, grid, *, modes=None, noise=None, **bound):
-    """Replay on both backends and assert the states within :func:`parity_bound`."""
-    limit = parity_bound(problem, **bound)
+def assert_parity(  # noqa: PLR0913 - the backend, the run and the bound's terms
+    backend_class,
+    problem,
+    run_request,
+    grid,
+    *,
+    modes=None,
+    noise=None,
+    options=None,
+    **bound,
+):
+    """Replay on both backends and assert the states within :func:`parity_bound`.
+
+    `options` are both backends' execution options, an exact node chunk among them.
+    """
+    limit = parity_bound(problem, run_request, **bound)
     return (
-        assert_compiled(backend_class, problem, grid, limit, modes=modes, noise=noise),
+        assert_compiled(
+            backend_class,
+            problem,
+            run_request,
+            grid,
+            limit,
+            modes=modes,
+            noise=noise,
+            options=options,
+        ),
         limit,
     )
 
@@ -125,11 +152,13 @@ def uniform(length, steps=STEPS, **planes):
     return FixedSchedule.uniform(0.0, length, length / steps * 1.0000001, **planes)
 
 
-def with_mode(problem, mode):
-    """Return the problem with its propagator mode set."""
-    return dataclasses.replace(
+def with_mode(problem, run_request, mode):
+    """Return the problem and its request with the propagator mode set."""
+    return Translation(
         problem,
-        stepper=dataclasses.replace(problem.stepper, propagator_mode=mode),
+        run_request.with_stepper(
+            dataclasses.replace(run_request.stepper, propagator_mode=mode)
+        ),
     )
 
 

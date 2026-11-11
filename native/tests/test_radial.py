@@ -6,12 +6,12 @@
 
 from __future__ import annotations
 
-import dataclasses
 import math
 
 import numpy as np
 import pytest
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse, SpatialPulse
@@ -42,7 +42,7 @@ def test_radial_short_envelope_uses_device_blas(
     grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (600e-9, 1.2e-6), 600e-15, thg=False)
     assert 256 <= grid.n_to < 1024
     space = RadialGrid(6e-4, n_r, collar_fraction=0)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [],
@@ -54,14 +54,8 @@ def test_radial_short_envelope_uses_device_blas(
         dz_init=1e-5,
         dz_max=1e-5,
     )
-    problem = dataclasses.replace(
-        problem,
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
-        ),
-    )
-    backend = NativeBackend(problem, grid=grid)
+    options = ExecutionOptions(node_chunk=chunk)
+    backend = NativeBackend(problem, run_request, grid=grid, options=options)
     try:
         metadata = backend.metadata()
         expected = "kokkosblas-tpl" if eligible else "custom"
@@ -88,7 +82,7 @@ def test_radial_partial_chunks_preserve_the_reference_source(
     start = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 1e-4
     ).build(grid, space, medium=SpatialMedium())
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [KerrResponse(1e-22, thg=family == "real")],
@@ -101,13 +95,7 @@ def test_radial_partial_chunks_preserve_the_reference_source(
         dz_init=1e-5,
         density=1.0,
     )
-    problem = dataclasses.replace(
-        problem,
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
-        ),
-    )
+    options = ExecutionOptions(node_chunk=chunk)
     # The established radial source ladder: FFT depth and two length-n_r dot
     # products, with an absolute majorant for cancellation at dark bins.
     eps = np.finfo(float).eps
@@ -115,7 +103,7 @@ def test_radial_partial_chunks_preserve_the_reference_source(
         n_r * eps / (1 - n_r * eps)
     )
     assert bound > 0
-    reference = NumpyRefBackend(problem, grid=grid)
+    reference = NumpyRefBackend(problem, run_request, grid=grid, options=options)
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage]
@@ -128,7 +116,7 @@ def test_radial_partial_chunks_preserve_the_reference_source(
         )
     finally:
         reference.close()
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid, options=options)
     try:
         ledger = backend.memory_ledger()
         # An analytic field synthesises the retained spectrum, on a host and on a

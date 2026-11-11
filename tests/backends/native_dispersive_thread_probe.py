@@ -57,8 +57,10 @@ if __name__ == "__main__":
             )
 
             route, evaluator = case.split(":")
-            problem, grid = route_case(route, evaluator)
+            problem, run_request, grid = route_case(route, evaluator)
         else:
-            problem, grid = averaged(case, envelope=False, thg=True)
-        fields[f"case{index}"], _ = run(NativeBackend, fixed_order(problem), grid)
+            problem, run_request, grid = averaged(case, envelope=False, thg=True)
+        fields[f"case{index}"], _ = run(
+            NativeBackend, problem, fixed_order(run_request), grid
+        )
     np.savez(sys.argv[1], runtime_threads=_runtime_threads(), **fields)

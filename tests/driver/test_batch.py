@@ -12,6 +12,9 @@ from jaxtyping import TypeCheckError
 
 from driver.test_scans import build_point
 from runtime_types import requires_typecheck, unchecked
+from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
+from solprop.backends.session import ExecutionOptions
+from solprop.driver import batch as batch_module
 from solprop.driver.batch import (
     BatchMember,
     _structure,
@@ -90,6 +93,33 @@ def test_batch_different_schedule_starts_a_separate_group():
         ),
     )
     assert [len(group) for group in compatible_groups([first, second], 4)] == [1, 1]
+
+
+def test_batch_groups_by_the_planned_node_chunk_not_the_budget(monkeypatch):
+    """A lockstep group shares one node chunk, whatever budgets planned it (SEP 47)."""
+    budgets = [None, None, 2**30, 2**31]
+    members = [
+        member(index, float(index + 1), node_budget=budget)
+        for index, budget in enumerate(budgets)
+    ]
+    chunks = {
+        budget: plan_node_chunk(
+            members[0].simulation.translate(), ExecutionOptions(node_budget=budget)
+        ).chunk
+        for budget in budgets
+    }
+    # The fixture's chunk is its whole node set at each budget: one group.
+    assert len(set(chunks.values())) == 1
+    assert [len(group) for group in compatible_groups(members, 4)] == [4]
+
+    def planned(problem, options):
+        """Plan a chunk that differs where the budget does, as responses can."""
+        chunk = 1 if options.node_budget is None else 2
+        return NodeChunkPlan(chunk, options.node_budget or 1, "default")
+
+    monkeypatch.setattr(batch_module, "plan_node_chunk", planned)
+    groups = compatible_groups(members, 4)
+    assert [[one.index for one in group] for group in groups] == [[0, 1], [2, 3]]
 
 
 @pytest.mark.parametrize("backend", ["jax", "numba", "unregistered_backend"])

@@ -78,14 +78,17 @@ def gradient(
 def march(simulation, backend_class=NumpyRefBackend, *, compensation=None, plane=-1):
     """Run to the last plane; return a plane's field, the march and the steps."""
     problem = simulation.translate()
-    backend = backend_class(problem, grid=simulation.grid, modes=simulation.modes)
+    run_request = simulation._run_request()
+    backend = backend_class(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     if compensation is not None:
-        method = problem.stepper.integrator
+        method = run_request.stepper.integrator
         backend._adams = HostAdamsMarch(backend, method, compensation=compensation)
     try:
         backend.set_initial(problem.initial.field0, None)
         steps, fields = [], []
-        for position in problem.stepper.save_planes:
+        for position in run_request.stepper.save_planes:
             backend.propagate_to(float(position))
             observed = backend.observe()
             steps += list(observed.step_history.dz)
@@ -261,10 +264,13 @@ def _tabulated(problem):
 
 def _table_field(candidate, simulation, backend_class):
     """Land on every save plane of `candidate` and return the last field."""
-    backend = backend_class(candidate, grid=simulation.grid, modes=simulation.modes)
+    run_request = simulation._run_request()
+    backend = backend_class(
+        candidate, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         backend.set_initial(candidate.initial.field0, None)
-        for position in candidate.stepper.save_planes:
+        for position in run_request.stepper.save_planes:
             backend.propagate_to(float(position))
         return backend.observe().require_field()
     finally:

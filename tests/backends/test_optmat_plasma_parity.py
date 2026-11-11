@@ -98,4 +98,10 @@ def test_a_batch_equals_its_members(name, equivalence_backend_name):
     # cases to: a lockstep batch's members run the same arithmetic as independent
     # runs. The compiled backends only: the reference runs a batch member by member.
     case = build_case(name)
-    compare(case.problem, case.grid, equivalence_backend_name)
+    compare(
+        case.problem,
+        case.run_request,
+        case.grid,
+        equivalence_backend_name,
+        options=None,
+    )

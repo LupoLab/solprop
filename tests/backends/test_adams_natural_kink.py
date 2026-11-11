@@ -28,7 +28,7 @@ def test_natural_save_at_hard_kink_restarts_before_the_next_trial(
     # Binary-exact positions isolate the kink/save coincidence from landing roundoff.
     step = 2.0**-20
     kink, end = 2 * step, 4 * step
-    problem = linear_problem(
+    problem, run_request = linear_problem(
         narrow_grid,
         save_planes=[end],
         integrator=Multistep(formulation=formulation),
@@ -50,7 +50,7 @@ def test_natural_save_at_hard_kink_restarts_before_the_next_trial(
             hard_kinks=split.hard_kinks,
         ),
     )
-    backend = select(backend_name, problem, grid=narrow_grid)
+    backend = select(backend_name, problem, run_request, grid=narrow_grid)
     try:
         assert isinstance(backend, (StepDriver, HostDriver))
         backend.set_initial(problem.initial.field0, None)

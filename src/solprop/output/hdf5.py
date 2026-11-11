@@ -96,6 +96,7 @@ from solprop.output.schema import (
     SavedPlane,
     StepHistory,
     StepStats,
+    StoredField,
     TerminalCheckpoint,
 )
 
@@ -1007,6 +1008,11 @@ class HDF5Output(PlaneStore):
     (1, 1, 1, 2560)
     """
 
+    _takes_exports = True
+    """Its own ``save`` adds only the flush (:meth:`_store`), which an exported plane
+    takes too, and its ``_append`` reads the stored field alone: a run hands it each
+    kept field already stored."""
+
     def __init__(
         self,
         path: Path | str,
@@ -1139,8 +1145,25 @@ class HDF5Output(PlaneStore):
         OutputError
             If the handler was built with ``readonly=True``.
         """
-        self._refuse_readonly()
         super().save(plane)
+
+    def _store(self, plane: SavedPlane, exported: StoredField | None) -> None:
+        """Store one plane and flush it to disk (:meth:`save`); refused if read-only.
+
+        An exported field (:meth:`~solprop.output.schema.PlaneStore.save_exported`)
+        is a new array, which h5py writes into the plane's chunk as it is: no NumPy
+        copy, and an uncompressed chunk no copy of HDF5's own either (a compressed one
+        is filtered through HDF5's buffer).
+
+        Parameters
+        ----------
+        plane : SavedPlane
+            The plane.
+        exported : solprop.output.schema.StoredField or None
+            Its field in the stored form, or ``None`` to convert the plane's own.
+        """
+        self._refuse_readonly()
+        super()._store(plane, exported)
         if self._file is not None:
             self._file.flush()
 
@@ -1726,7 +1749,11 @@ class HDF5Output(PlaneStore):
         Parameters
         ----------
         plane : SavedPlane
-            The plane, whose field is still in the internal convention.
+            The plane: its field in the internal convention, or ``None`` where the
+            field was exported straight into the stored form
+            (:meth:`~solprop.output.schema.PlaneStore.save_exported`) and `stored`
+            alone holds it. A subclass whose own ``_append`` reads the plane's field
+            does not take exports (``PlaneStore.takes_exports``).
         stored : numpy.ndarray or None
             That field converted to the optics convention; ``None`` on a field-free
             plane, which stores none.

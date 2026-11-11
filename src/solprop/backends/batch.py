@@ -102,7 +102,8 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
         first = self._members[0]
         # The members read the transverse edge, or not; the runner speaks for them.
         self.reads_transverse_edge = first.reads_transverse_edge
-        super().__init__(first._problem)
+        # The members' own execution options, so the runner plans the chunk they do.
+        super().__init__(first._problem, first._request, options=first._options)
         self.name = first.name
         self.max_batch = len(self._members)
         self._state = tuple(member._require_state() for member in self._members)
@@ -526,7 +527,7 @@ def _validate_members(members: tuple[StepDriver[object], ...]) -> None:
     if not members:
         raise BackendError("lockstep execution requires at least one member")
     first = members[0]
-    settings = first._problem.stepper
+    settings = first._stepper
     schedule = settings.schedule
     if schedule is None:
         raise BackendError("lockstep execution requires an explicit fixed schedule")
@@ -542,8 +543,8 @@ def _validate_members(members: tuple[StepDriver[object], ...]) -> None:
             raise BackendError(
                 "lockstep members must be freshly loaded at the entrance"
             )
-        problem = member._problem
-        tableau, reference_tableau = problem.stepper.tableau, settings.tableau
+        problem, stepper = member._problem, member._stepper
+        tableau, reference_tableau = stepper.tableau, settings.tableau
         if any(
             not np.array_equal(getattr(tableau, name), getattr(reference_tableau, name))
             for name in ("matrix", "nodes", "solution_weights", "error_weights")
@@ -551,8 +552,8 @@ def _validate_members(members: tuple[StepDriver[object], ...]) -> None:
             raise BackendError("lockstep members require the same tableau")
         if not np.array_equal(problem.grids.norm_mask, first._problem.grids.norm_mask):
             raise BackendError("lockstep members require the same frequency mask")
-        other = problem.stepper.schedule
-        if problem.stepper.integrator != settings.integrator:
+        other = stepper.schedule
+        if stepper.integrator != settings.integrator:
             raise BackendError("lockstep members require the same integrator")
         if problem.shape != first._problem.shape:
             raise BackendError("lockstep members require matching field shapes")
@@ -560,12 +561,13 @@ def _validate_members(members: tuple[StepDriver[object], ...]) -> None:
             other is None
             or other.z_start != schedule.z_start
             or not np.array_equal(other.steps, schedule.steps)
-            or not np.array_equal(problem.stepper.save_planes, settings.save_planes)
+            or not np.array_equal(stepper.save_planes, settings.save_planes)
         ):
             raise BackendError(
                 "lockstep members require the same schedule and save planes"
             )
-        spec, reference = problem.stats_spec, first._problem.stats_spec
+        spec = member._request.observation.stats
+        reference = first._request.observation.stats
         if (spec.names, spec.periodic, spec.period) != (
             reference.names,
             reference.periodic,

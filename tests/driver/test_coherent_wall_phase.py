@@ -69,11 +69,11 @@ def pair_launch(problem, grid, sign):
     )
 
 
-def transmitted(problem, grid, sign):
+def transmitted(problem, run_request, grid, sign):
     """Return the fraction of the launched true power that reaches the end."""
     index, launched = pair_launch(problem, grid, sign)
     start = launched.initial.field0[:, 0, index]
-    final = propagated(launched, grid)[:, 0, index]
+    final = propagated(launched, run_request, grid)[:, 0, index]
     weights = [power_weight_at(problem, z)[:, 0, index] for z in (0.0, LENGTH)]
     return float(
         np.sum(weights[1] * abs(final) ** 2) / np.sum(weights[0] * abs(start) ** 2)
@@ -120,8 +120,9 @@ def test_two_phases_of_one_superposition_lose_differently_through_the_wall(
     """
     simulation = uncollared(wall=CoherentWall())
     problem, grid = simulation.translate(), simulation.grid
+    run_request = simulation._run_request()
     bound = 1e-12 + 1e-13 + 1e-13
-    got = {sign: transmitted(problem, grid, sign) for sign in (1.0, -1.0)}
+    got = {sign: transmitted(problem, run_request, grid, sign) for sign in (1.0, -1.0)}
     expected = {sign: predicted(problem, grid, sign) for sign in (1.0, -1.0)}
     departures = {sign: abs(value - expected[sign]) for sign, value in got.items()}
     record_property("departure", max(departures.values()))
@@ -146,8 +147,9 @@ def test_a_diagonal_loss_takes_the_same_power_from_either_phase(record_property)
     """
     simulation = uncollared()
     problem, grid = simulation.translate(), simulation.grid
+    run_request = simulation._run_request()
     assert problem.linear.coupled_flow is None
-    got = {sign: transmitted(problem, grid, sign) for sign in (1.0, -1.0)}
+    got = {sign: transmitted(problem, run_request, grid, sign) for sign in (1.0, -1.0)}
     record_property("difference", got[1.0] - got[-1.0])
     assert abs(got[1.0] - got[-1.0]) <= 1e-12 + 2 * 10 * 32 * UNIT
     assert got[1.0] < 1.0 - 1e-4

@@ -48,22 +48,21 @@ def test_batch_matches_member_fields_histories_and_statistics(
       modulus) times the square root of the samples (a peak read from a normwise
       bound), plus the energy sum's own ``gamma(n)``.
     """
-    original, grid = phase_a_case
+    original, run_request, grid = phase_a_case
     spec = StatsSpec(names=("energy", "peak_power"), periodic=("energy",), period=2)
-    controller = original.stepper.controller
+    controller = run_request.stepper.controller
     if weighted:
         controller = dataclasses.replace(
             controller, weights=np.linspace(0.5, 1.5, grid.n_omega)
         )
-    problem = dataclasses.replace(
-        original,
-        stats_spec=spec,
-        stepper=dataclasses.replace(
-            original.stepper,
+    problem = original
+    run_request = run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
             controller=controller,
             schedule=FixedSchedule.uniform(0.0, 1e-3, 2.5e-4),
-        ),
-    )
+        )
+    ).for_run(stats=spec)
     with ExitStack() as cleanup:
         members: list[NativeBackend] = []
         singles: list[NativeBackend] = []
@@ -75,7 +74,7 @@ def test_batch_matches_member_fields_histories_and_statistics(
                 ),
             )
             for destination in (members, singles):
-                owner = NativeBackend(one, grid=grid)
+                owner = NativeBackend(one, run_request, grid=grid)
                 cleanup.callback(owner.close)
                 owner.set_initial(one.initial.field0, None)
                 destination.append(owner)
@@ -140,9 +139,9 @@ def test_batch_matches_member_fields_histories_and_statistics(
 def test_native_batch_rejects_unprepared_and_closed_members(
     phase_a_case: PhaseACase,
 ) -> None:
-    problem, grid = phase_a_case
+    problem, run_request, grid = phase_a_case
     with ExitStack() as cleanup:
-        owner = NativeBackend(problem, grid=grid)
+        owner = NativeBackend(problem, run_request, grid=grid)
         cleanup.callback(owner.close)
         owner.set_initial(problem.initial.field0, None)
         state = owner._native_state  # pyright: ignore[reportPrivateUsage]
@@ -166,19 +165,18 @@ def test_a_batch_of_adams_members_replays_on_solprop_s_march(
     The batch advances each member's `replay_step`, the Python march, so it says so
     once and its members' marches record it.
     """
-    original, grid = phase_a_case
-    problem = dataclasses.replace(
-        original,
-        stepper=dataclasses.replace(
-            original.stepper,
+    problem, run_request, grid = phase_a_case
+    run_request = run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
             integrator=Multistep(),
             schedule=FixedSchedule.uniform(0.0, 1e-3, 2.5e-4),
-        ),
+        )
     )
     with ExitStack() as cleanup:
         members: list[NativeBackend] = []
         for _ in range(2):
-            owner = NativeBackend(problem, grid=grid)
+            owner = NativeBackend(problem, run_request, grid=grid)
             cleanup.callback(owner.close)
             owner.set_initial(problem.initial.field0, None)
             members.append(owner)

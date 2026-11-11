@@ -155,17 +155,19 @@ def interface_and_backend(simulation):
     taken at the launch as the budget's propagation growth.
     """
     problem = simulation.translate()
+    run_request = simulation._run_request()
     handler = simulation.run()
     backend = select(
         simulation.settings.backend,
         problem,
+        run_request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
     try:
         backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(problem.stepper.save_planes[-1]))
+        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
         direct = backend.observe().require_field().copy()
     finally:
         backend.close()

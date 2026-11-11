@@ -12,13 +12,16 @@ import pytest
 
 from bounds import scan_bound
 from rate_oracles import adk_oracle
+from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.envelope_plasma import (
     _cycle_quantities,  # pyright: ignore[reportPrivateUsage]
     envelope_sources,
 )
+from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import (
+    BackendError,
     ConvergenceError,
     MaterialRangeWarning,
     SolpropWarning,
@@ -42,7 +45,7 @@ def host_case():
     field = pulse * np.array([1.0, 0.35j])[None, :, None] / np.sqrt(1 + 0.35**2)
     # No range warning: optmat's models are qualified here (SEP 3, Phase 4a).
     with nullcontext():
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             mode,
             [EnvelopePlasmaResponse("Ar", adk_oracle("Ar"), preionisation=0.1)],
@@ -53,7 +56,7 @@ def host_case():
             dz_init=1e-6,
             ionisation_field_range=(1e9, 1e11),
         )
-    return problem, grid
+    return problem, run_request, grid
 
 
 def test_reference_cycle_quantities_resolve_degenerate_axes(host_case):
@@ -63,7 +66,7 @@ def test_reference_cycle_quantities_resolve_degenerate_axes(host_case):
     2e-6 angular budget; the ionisation work ``Re(a* . current) / 2`` is the cycle
     average's own identity, to the arithmetic of one sample.
     """
-    problem, _ = host_case
+    problem, _, _ = host_case
     assert problem.responses.envelope_plasma is not None
     cycle = problem.responses.envelope_plasma.channels[0].cycle
     for ratio in (0.0, 1e-12, 0.35, 1 - 1e-12, 1.0):
@@ -83,7 +86,7 @@ def test_reference_cycle_quantities_resolve_degenerate_axes(host_case):
 
 
 def test_reference_source_evaluation_matches_independent_oracle(host_case):
-    problem, _ = host_case
+    problem, _, _ = host_case
     assembly = problem.responses.envelope_plasma
     assert assembly is not None
     time = np.linspace(-1, 1, 9)
@@ -112,8 +115,8 @@ def test_reference_source_evaluation_matches_independent_oracle(host_case):
 
 def test_envelope_population_values_do_not_depend_on_retaining_node_scans(host_case):
     """The optional on-axis reuse record must not alter the node statistics."""
-    problem, grid = host_case
-    with closing(NumpyRefBackend(problem, grid=grid)) as backend:
+    problem, run_request, grid = host_case
+    with closing(NumpyRefBackend(problem, run_request, grid=grid)) as backend:
         backend.set_initial(problem.initial.field0, None)
         field = problem.initial.field0
         plain = backend._species_statistics(field)
@@ -148,15 +151,15 @@ def test_envelope_population_values_do_not_depend_on_retaining_node_scans(host_c
 def test_one_eight_steps_and_complete_host_run(
     host_case, amplitude_scale, equivalence_backend_class
 ):
-    problem, grid = host_case
+    problem, run_request, grid = host_case
     problem = replace(
         problem,
         initial=replace(
             problem.initial, field0=problem.initial.field0 * amplitude_scale
         ),
-        stepper=replace(
-            problem.stepper, schedule=FixedSchedule.uniform(0.0, 8e-6, 1e-6)
-        ),
+    )
+    run_request = run_request.with_stepper(
+        replace(run_request.stepper, schedule=FixedSchedule.uniform(0.0, 8e-6, 1e-6))
     )
     if amplitude_scale == 10.0:
         assembly = problem.responses.envelope_plasma
@@ -173,7 +176,7 @@ def test_one_eight_steps_and_complete_host_run(
         assert response.ionised_fraction(physical, dt=grid.dt_fine)[-1] > 0.2
     results = []
     for cls in (NumpyRefBackend, equivalence_backend_class):
-        backend = cls(problem, grid=grid)
+        backend = cls(problem, run_request, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             first = backend.propagate_to(1e-6)
@@ -196,14 +199,14 @@ def test_one_eight_steps_and_complete_host_run(
 
 
 def test_prescribed_density_off_carrier_drude_assembly(host_case):
-    problem, grid = host_case
+    problem, run_request, grid = host_case
     initial = replace(problem.initial, field0=problem.initial.field0 * 1e-6)
     window = np.ones(problem.grids.n_to)
     window.setflags(write=False)
     problem = replace(
         problem, initial=initial, grids=replace(problem.grids, t_window_fine=window)
     )
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         bundle = scalars(problem, 0.0, 0.0)
         lab = problem.initial.field0[None]
@@ -232,7 +235,7 @@ def test_prescribed_density_off_carrier_drude_assembly(host_case):
 
 
 def test_problem_rejects_source_factors_from_another_grid(host_case):
-    problem, _ = host_case
+    problem, _, _ = host_case
     assembly = problem.responses.envelope_plasma
     assert assembly is not None
     for factors, message in (
@@ -249,7 +252,7 @@ def test_problem_rejects_source_factors_from_another_grid(host_case):
 
 @pytest.mark.medium
 def test_direct_simulation_records_carrier_approximation_and_runs(host_case):
-    original, grid = host_case
+    original, original_request, grid = host_case
     assembly = original.responses.envelope_plasma
     assert assembly is not None
     mode = MarcatiliMode(125e-6, "Ar", 1.0, loss=False)
@@ -259,7 +262,7 @@ def test_direct_simulation_records_carrier_approximation_and_runs(host_case):
         [EnvelopePlasmaResponse("Ar", assembly.channels[0].rate, preionisation=0.1)],
         original.initial.field0,
         settings=SimulationSettings(
-            controller=original.stepper.controller,
+            controller=original_request.stepper.controller,
             save_planes=[8e-6],
             dz_init=1e-6,
             dz_max=1e-6,
@@ -296,27 +299,32 @@ def test_direct_simulation_records_carrier_approximation_and_runs(host_case):
 
 
 def test_node_budget_accounts_for_envelope_histories(host_case):
-    original, grid = host_case
+    original, original_request, grid = host_case
     assembly = original.responses.envelope_plasma
     assert assembly is not None
     # The registry's argon fit range warned here; optmat's argon is qualified over
     # the band (SEP 3, Phase 4a).
-    with pytest.raises(TranslationError, match="one envelope plasma source history"):
-        assemble(
-            grid,
-            MarcatiliMode(125e-6, "Ar", 1.0, loss=False),
-            [EnvelopePlasmaResponse("Ar", assembly.channels[0].rate)],
-            original.initial.field0,
-            controller=original.stepper.controller,
-            save_planes=[8e-6],
-            dz_init=1e-6,
-            dz_max=1e-6,
-            node_budget=1,
+    problem, run_request = assemble(
+        grid,
+        MarcatiliMode(125e-6, "Ar", 1.0, loss=False),
+        [EnvelopePlasmaResponse("Ar", assembly.channels[0].rate)],
+        original.initial.field0,
+        controller=original_request.stepper.controller,
+        save_planes=[8e-6],
+        dz_init=1e-6,
+        dz_max=1e-6,
+    )
+    # The backend plans its chunk when it is prepared, before it allocates.
+    with pytest.raises(BackendError, match="one envelope plasma source history"):
+        plan_node_chunk(problem, ExecutionOptions(node_budget=1))
+    with pytest.raises(BackendError, match="one envelope plasma source history"):
+        NumpyRefBackend(
+            problem, run_request, grid=grid, options=ExecutionOptions(node_budget=1)
         )
 
 
 def test_reference_refuses_unresolved_angular_source_and_recovers(host_case):
-    problem, _ = host_case
+    problem, _, _ = host_case
     assembly = problem.responses.envelope_plasma
     assert assembly is not None
     bundle = scalars(problem, 0.0, 0.0)
@@ -334,7 +342,7 @@ def test_reference_refuses_unresolved_angular_source_and_recovers(host_case):
 
 
 def test_reference_subnormal_zero_rate_field_has_finite_sources(host_case):
-    problem, _ = host_case
+    problem, _, _ = host_case
     assembly = problem.responses.envelope_plasma
     assert assembly is not None
     bundle = scalars(problem, 0.0, 0.0)
@@ -350,9 +358,9 @@ def test_reference_subnormal_zero_rate_field_has_finite_sources(host_case):
 @pytest.mark.medium
 def test_paired_backend_executes_envelope_sources(host_case):
     native = pytest.importorskip("solprop_native")
-    problem, grid = host_case
-    reference = NumpyRefBackend(problem, grid=grid)
-    actual = native.NativeBackend(problem, grid=grid)
+    problem, run_request, grid = host_case
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
+    actual = native.NativeBackend(problem, run_request, grid=grid)
     try:
         for owner in (reference, actual):
             owner.set_initial(problem.initial.field0, None)

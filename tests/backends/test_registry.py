@@ -89,16 +89,16 @@ def test_auto_constructs_only_the_resolved_backend(
         ),
     )
     calls = []
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
-    result = NumpyRefBackend(problem, grid=narrow_grid)
+    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
+    result = NumpyRefBackend(problem, run_request, grid=narrow_grid)
 
-    def construct(name, problem, **context):
+    def construct(name, problem, request, **context):
         calls.append(name)
         return result
 
     monkeypatch.setattr(registry, "_construct", construct)
     try:
-        assert select("auto", problem) is result
+        assert select("auto", problem, run_request) is result
         assert calls == ["native"]
     finally:
         result.close()
@@ -115,17 +115,17 @@ def test_auto_does_not_hide_an_installed_native_failure(
     )
     calls = []
 
-    def construct(name, problem, **context):
+    def construct(name, problem, request, **context):
         calls.append(name)
         raise error("installed backend is unusable")
 
     monkeypatch.setattr(registry, "_construct", construct)
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
+    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
     with (
         caplog.at_level(logging.INFO, logger=registry.__name__),
         pytest.raises(error, match="installed backend is unusable"),
     ):
-        select("auto", problem)
+        select("auto", problem, run_request)
     assert calls == ["native"]
     assert not caplog.records
 
@@ -138,9 +138,9 @@ def test_availability_follows_the_installed_extras():
 
 def test_select_builds_the_reference_backend(linear_problem, narrow_grid, caplog):
     """The registry returns something that satisfies the seam."""
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
+    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
     with caplog.at_level(logging.INFO, logger=registry.__name__):
-        backend = select("numpy_ref", problem, grid=narrow_grid)
+        backend = select("numpy_ref", problem, run_request, grid=narrow_grid)
     assert isinstance(backend, NumpyRefBackend)
     assert isinstance(backend, Backend)
     assert (backend.name, backend.max_batch) == ("numpy_ref", 1)
@@ -152,8 +152,8 @@ def test_select_builds_the_installed_native_backend(linear_problem, narrow_grid)
     """The external package is imported only when its registered name is selected."""
     if importlib.util.find_spec("solprop_native") is None:
         pytest.skip("the optional solprop-native package is not installed")
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
-    backend = select("native", problem, grid=narrow_grid)
+    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
+    backend = select("native", problem, run_request, grid=narrow_grid)
     assert (backend.name, backend.max_batch) == ("native", 1)
     backend.close()
 
@@ -162,27 +162,35 @@ def test_optional_constructor_receives_the_original_contract_without_fallback(
     linear_problem, narrow_grid, monkeypatch
 ):
     package = ModuleType("solprop_native")
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
+    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
     received = []
 
-    def constructor(actual, **options):
-        received.append((actual, options))
+    def constructor(actual, request, **options):
+        received.append((actual, request, options))
         raise BackendError("optional runtime allocation refused")
 
     monkeypatch.setattr(package, "NativeBackend", constructor, raising=False)
     monkeypatch.setitem(sys.modules, "solprop_native", package)
     with pytest.raises(BackendError, match="optional runtime allocation refused"):
-        _construct("native", problem, grid=narrow_grid, modes=None, profiles=None)
+        _construct(
+            "native", problem, run_request, grid=narrow_grid, modes=None, profiles=None
+        )
     assert len(received) == 1
     assert received[0][0] is problem
-    assert received[0][1] == {"grid": narrow_grid, "modes": None, "profiles": None}
+    assert received[0][1] is run_request
+    assert received[0][2] == {
+        "grid": narrow_grid,
+        "modes": None,
+        "profiles": None,
+        "options": None,
+    }
 
 
 def test_an_unknown_name_lists_what_is_usable(linear_problem, narrow_grid):
     """The first tier: a name this package has never heard of."""
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
+    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
     with pytest.raises(ValueError, match="not a known backend; usable backends are"):
-        select("numpy-ref", problem)
+        select("numpy-ref", problem, run_request)
 
 
 def test_the_table_holds_the_backends_that_exist():
@@ -232,9 +240,9 @@ def test_selecting_the_removed_backend_names_the_replacements(
         raise AssertionError("no backend is constructed for a removed name")
 
     monkeypatch.setattr(registry, "_construct", forbidden)
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
+    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
     with pytest.raises(BackendError) as refused:
-        select(name, problem, grid=narrow_grid)
+        select(name, problem, run_request, grid=narrow_grid)
     assert_names_the_replacements(refused, name)
 
 
@@ -264,21 +272,23 @@ def test_a_known_name_without_its_extra_names_the_extra(
         "find_spec",
         lambda name: None if name == "solprop_native" else real_find_spec(name),
     )
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
+    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
     with pytest.raises(
         ImportError,
         match=r"install solprop, or build solprop-native from native/",
     ):
-        select("native", problem)
+        select("native", problem, run_request)
 
 
 def test_construct_refuses_a_registry_entry_without_an_implementation(
     linear_problem, narrow_grid
 ):
     """The private dispatcher stays exhaustive when the registry grows."""
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
+    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
     with pytest.raises(AssertionError, match="unhandled backend registry entry"):
-        _construct("unregistered", problem, grid=None, modes=None, profiles=None)
+        _construct(
+            "unregistered", problem, run_request, grid=None, modes=None, profiles=None
+        )
 
 
 def test_optional_backend_constructor_forwards_the_context(
@@ -288,17 +298,23 @@ def test_optional_backend_constructor_forwards_the_context(
     calls = []
     module = types.ModuleType("solprop_native")
 
-    def construct(problem, **context):
-        calls.append((problem, context))
-        return NumpyRefBackend(problem, **context)
+    def construct(problem, request, **context):
+        calls.append((problem, request, context))
+        return NumpyRefBackend(problem, request, **context)
 
     monkeypatch.setattr(module, "NativeBackend", construct, raising=False)
     monkeypatch.setitem(sys.modules, "solprop_native", module)
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
-    backend = _construct("native", problem, grid=narrow_grid, modes=None, profiles=None)
+    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
+    backend = _construct(
+        "native", problem, run_request, grid=narrow_grid, modes=None, profiles=None
+    )
     try:
         assert calls == [
-            (problem, {"grid": narrow_grid, "modes": None, "profiles": None})
+            (
+                problem,
+                run_request,
+                {"grid": narrow_grid, "modes": None, "profiles": None, "options": None},
+            )
         ]
         assert isinstance(backend, Backend)
     finally:
@@ -410,7 +426,7 @@ def test_explicit_native_still_raises_the_baseline_refusal(
     install_native(monkeypatch, tmp_path, "x86-64-v3")
     calls = []
 
-    def construct(name, problem, **context):
+    def construct(name, problem, request, **context):
         calls.append(name)
         raise ImportError(
             "this solprop-native build requires an x86-64-v3 processor, and this "
@@ -418,13 +434,13 @@ def test_explicit_native_still_raises_the_baseline_refusal(
         )
 
     monkeypatch.setattr(registry, "_construct", construct)
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
+    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
     with (
         warnings.catch_warnings(),
         pytest.raises(ImportError, match="requires an x86-64-v3 processor"),
     ):
         warnings.simplefilter("error")
-        select("native", problem)
+        select("native", problem, run_request)
     assert calls == ["native"]
 
 
@@ -436,14 +452,14 @@ def test_auto_raises_other_native_failures_above_the_baseline(
     install_native(monkeypatch, tmp_path, "met")
     calls = []
 
-    def construct(name, problem, **context):
+    def construct(name, problem, request, **context):
         calls.append(name)
         raise error("installed backend is unusable")
 
     monkeypatch.setattr(registry, "_construct", construct)
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
+    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
     with pytest.raises(error, match="installed backend is unusable"):
-        select("auto", problem)
+        select("auto", problem, run_request)
     assert calls == ["native"]
 
 
@@ -538,9 +554,9 @@ def test_a_required_device_is_refused_before_anything_is_constructed(
     monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, "cuda")
     built = []
     monkeypatch.setattr(registry, "_construct", lambda *a, **k: built.append(a))
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
+    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
     with pytest.raises(BackendError, match="this run is on numpy_ref"):
-        select("numpy_ref", problem, grid=narrow_grid)
+        select("numpy_ref", problem, run_request, grid=narrow_grid)
     assert not built
 
 

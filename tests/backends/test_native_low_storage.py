@@ -37,7 +37,7 @@ from backends.low_storage_cases import assert_compiled as compiled_against_refer
 from backends.low_storage_cases import assert_parity as parity_against_reference
 from backends.matched import native_thread_fields
 from backends.planar_cases import planar_case
-from backends.test_low_storage import MARCH, cartesian_march, marched
+from backends.test_low_storage import CARTESIAN_CHUNK, MARCH, cartesian_march, marched
 from backends.test_radial_nonlinear import CHI3, QuadraticRate
 from backends.test_radial_nonlinear import LENGTH as RADIAL_LENGTH
 from backends.test_radial_nonlinear import make_problem as radial_problem
@@ -50,6 +50,7 @@ from solprop.backends.memory import (
     low_storage_stage_register,
 )
 from solprop.backends.numpy_ref.backend import _general_maps
+from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import Absorber, absorber
 from solprop.constants import C
 from solprop.driver import Simulation
@@ -115,7 +116,7 @@ def test_the_soliton_agrees_with_the_reference(
     length = scales.dispersion_length / 2
     schedule = uniform(length)
     noise = modified_noise(narrow_grid, np.random.default_rng(3)) if noisy else None
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         3,
         save_planes=[length],
@@ -126,7 +127,7 @@ def test_the_soliton_agrees_with_the_reference(
         propagator_mode=mode,
         noise=noise,
     )
-    assert_parity(problem, narrow_grid, noise=noise)
+    assert_parity(problem, run_request, narrow_grid, noise=noise)
 
 
 @pytest.mark.parametrize("collar", [False, True], ids=["linear", "in-stage collar"])
@@ -139,7 +140,7 @@ def test_a_problem_without_a_response_agrees(linear_problem, narrow_grid, collar
     )
     length = 0.05
     schedule = uniform(length)
-    problem = linear_problem(
+    problem, run_request = linear_problem(
         narrow_grid,
         save_planes=[length],
         dz_max=schedule.max_step,
@@ -148,18 +149,24 @@ def test_a_problem_without_a_response_agrees(linear_problem, narrow_grid, collar
         integrator=MARCH,
         **extra,
     )
-    assert_parity(problem, narrow_grid, growth=1.0)
+    assert_parity(problem, run_request, narrow_grid, growth=1.0)
 
 
 @pytest.mark.medium
 @pytest.mark.parametrize("mode", ["tabulate", "recompute"])
 def test_a_varying_capillary_with_raman_and_plasma_agrees(mode):
     simulation = varying_capillary()
-    problem = with_mode(simulation.translate(), mode)
+    problem, run_request = with_mode(
+        simulation.translate(), simulation._run_request(), mode
+    )
     assert not problem.flags.constant_linop
     assert problem.flags.has_raman and problem.flags.has_plasma
     assert_parity(
-        problem, simulation.grid, modes=simulation.modes, depth=problem.grids.n_to
+        problem,
+        run_request,
+        simulation.grid,
+        modes=simulation.modes,
+        depth=problem.grids.n_to,
     )
 
 
@@ -204,10 +211,16 @@ def test_a_z_table_operator_agrees(mode):
         # Ten replayed steps: no collar, as before the default one.
         absorber=False,
     )
-    problem = with_mode(simulation.translate(), mode)
+    problem, run_request = with_mode(
+        simulation.translate(), simulation._run_request(), mode
+    )
     assert problem.linear.phi_representation == "table"
     assert_compiled(
-        problem, simulation.grid, parity_bound(problem), what=f"the z table, {mode}"
+        problem,
+        run_request,
+        simulation.grid,
+        parity_bound(problem, run_request),
+        what=f"the z table, {mode}",
     )
 
 
@@ -224,16 +237,16 @@ def test_the_radial_route_with_its_in_stage_collar_agrees(family):
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
-    problem = radial_problem(
+    problem, run_request = radial_problem(
         grid,
         space,
         pulse.build(grid, space, medium=SpatialMedium()),
         [KerrResponse(CHI3, thg=False)],
         steps=STEPS,
     )
-    problem = marched(problem, problem.stepper.schedule)
+    problem, run_request = marched(problem, run_request, run_request.stepper.schedule)
     assert problem.transform.geometry is not None
-    assert_parity(problem, grid)
+    assert_parity(problem, run_request, grid)
 
 
 @pytest.mark.parametrize(
@@ -246,7 +259,7 @@ def test_the_general_modal_route_agrees(name):
         grid, guide, route, state = scaled_case(name)
         length = 1e-3
         schedule = uniform(length)
-        problem = problem_for(
+        problem, run_request = problem_for(
             grid,
             guide,
             route,
@@ -262,8 +275,10 @@ def test_the_general_modal_route_agrees(name):
     phi = nonlinear_scale(maps, state, grid)
     source = source_bound(maps, grid.n_to, general_conditioning(maps, state, grid))
     # The general route's ten-step bound with RK4's weights, which sum to one.
-    limit = math.exp(phi) * (phi * source + parity_bound(problem, growth=1.0))
-    assert_compiled(problem, grid, limit, what="general route")
+    limit = math.exp(phi) * (
+        phi * source + parity_bound(problem, run_request, growth=1.0)
+    )
+    assert_compiled(problem, run_request, grid, limit, what="general route")
 
 
 # --- the Cartesian, line and planar routes ------------------------------------------
@@ -290,7 +305,9 @@ def test_a_cartesian_kerr_beam_agrees(mode, collar, noisy):
         if noisy
         else None
     )
-    problem, grid, space = cartesian_march(mode, noise=noise, collar=collar)
+    problem, run_request, grid, space = cartesian_march(
+        mode, noise=noise, collar=collar
+    )
     if noisy:
         # A beam beside the draw, so that the Kerr source carries it.
         pulse = SpatialPulse(
@@ -303,7 +320,14 @@ def test_a_cartesian_kerr_beam_agrees(mode, collar, noisy):
                 field0=pulse.build(grid, space, medium=SpatialMedium()),
             ),
         )
-    assert_parity(problem, grid, noise=noise, transverse=problem.transform.n_nodes)
+    assert_parity(
+        problem,
+        run_request,
+        grid,
+        noise=noise,
+        options=CARTESIAN_CHUNK,
+        transverse=problem.transform.n_nodes,
+    )
 
 
 def test_a_recomputed_flow_keeps_a_small_loss():
@@ -321,7 +345,7 @@ def test_a_recomputed_flow_keeps_a_small_loss():
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
     schedule = uniform(length, 4)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [KerrResponse(1e-22, thg=False)],
@@ -344,7 +368,7 @@ def test_a_recomputed_flow_keeps_a_small_loss():
         ),
         absorber_scheme="nonlinear",
     )
-    assert_parity(problem, grid, transverse=problem.transform.n_nodes)
+    assert_parity(problem, run_request, grid, transverse=problem.transform.n_nodes)
 
 
 LINE_FAMILIES = ("field_kerr", "envelope_raman", "field_plasma", "field_kerr_collar")
@@ -386,7 +410,7 @@ def test_a_line_beam_agrees(family):
         ]
     else:
         responses = [KerrResponse(CHI3, thg=False)]
-    problem = radial_problem(
+    problem, run_request = radial_problem(
         grid,
         space,
         pulse.build(grid, space, medium=SpatialMedium()),
@@ -394,7 +418,7 @@ def test_a_line_beam_agrees(family):
         steps=STEPS,
         density=density,
     )
-    problem = marched(problem, problem.stepper.schedule)
+    problem, run_request = marched(problem, run_request, run_request.stepper.schedule)
     if collar:
         problem = dataclasses.replace(
             problem,
@@ -402,14 +426,14 @@ def test_a_line_beam_agrees(family):
                 problem.responses, absorber_scheme="nonlinear"
             ),
         )
-    problem = dataclasses.replace(
+    assert_parity(
         problem,
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(problem.transform, node_chunk=7),
-        ),
+        run_request,
+        grid,
+        options=CARTESIAN_CHUNK,
+        transverse=problem.transform.n_nodes,
+        depth=depth,
     )
-    assert_parity(problem, grid, transverse=problem.transform.n_nodes, depth=depth)
 
 
 PLANAR = (
@@ -431,13 +455,20 @@ PLANAR = (
 @pytest.mark.parametrize("name", PLANAR)
 def test_a_planar_beam_agrees(name):
     """The hybrid planar kind: both halves of the column volume folded at once."""
-    grid, _, problem = planar_case(name, steps=STEPS, node_chunk=2)
-    problem = marched(problem, problem.stepper.schedule)
+    grid, _, problem, run_request = planar_case(name, steps=STEPS)
+    problem, run_request = marched(problem, run_request, run_request.stepper.schedule)
     depth = grid.n_to if "plasma" in name else 0
     geometry = problem.transform.geometry
     assert geometry is not None
     n_y = geometry.shape[1]
-    assert_parity(problem, grid, transverse=n_y, depth=depth)
+    assert_parity(
+        problem,
+        run_request,
+        grid,
+        options=ExecutionOptions(node_chunk=2),
+        transverse=n_y,
+        depth=depth,
+    )
 
 
 # --- the remaining branches of each route -------------------------------------------
@@ -445,7 +476,7 @@ def test_a_planar_beam_agrees(name):
 
 def test_a_linear_cartesian_beam_agrees():
     """No response and no collar: the pass is the fold alone, no transform."""
-    problem, grid, _ = cartesian_march("tabulate")
+    problem, run_request, grid, _ = cartesian_march("tabulate")
     problem = dataclasses.replace(
         problem,
         # Without the Kerr coefficients too, which a compiled backend may read.
@@ -457,7 +488,7 @@ def test_a_linear_cartesian_beam_agrees():
     )
     assert len(problem.responses.response_order) == 1
     assert low_storage_stage_register(problem, "native")
-    assert_parity(problem, grid, growth=1.0)
+    assert_parity(problem, run_request, grid, options=CARTESIAN_CHUNK, growth=1.0)
 
 
 @pytest.mark.medium
@@ -472,13 +503,13 @@ def test_the_dispersive_response_rides_the_cartesian_march():
     from solprop.nonlinear.responses import DispersiveKerrResponse  # noqa: PLC0415
 
     grid = free_grid("envelope", thg=False)
-    problem = free_problem(
+    problem, run_request = free_problem(
         [DispersiveKerrResponse(ARGON, "symmetric", thg=False)], grid, adams=False
     )
-    problem = marched(problem, problem.stepper.schedule)
+    problem, run_request = marched(problem, run_request, run_request.stepper.schedule)
     assert problem.responses.dispersive_kerr is not None
-    limit = 4 * STEPS * evaluation_bound(problem) + parity_bound(problem)
-    assert_compiled(problem, grid, limit, what="dispersive response")
+    limit = 4 * STEPS * evaluation_bound(problem) + parity_bound(problem, run_request)
+    assert_compiled(problem, run_request, grid, limit, what="dispersive response")
 
 
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
@@ -488,8 +519,8 @@ def test_the_dispersive_response_rides_the_cartesian_march():
 )
 def test_a_planar_beam_with_neither_term_is_the_flow():
     """No response and no collar on the planar kind: the fold of a zero source."""
-    grid, _, problem = planar_case("kerr", steps=STEPS)
-    problem = marched(problem, problem.stepper.schedule)
+    grid, _, problem, run_request = planar_case("kerr", steps=STEPS)
+    problem, run_request = marched(problem, run_request, run_request.stepper.schedule)
     problem = dataclasses.replace(
         problem,
         responses=dataclasses.replace(
@@ -503,7 +534,7 @@ def test_a_planar_beam_with_neither_term_is_the_flow():
     geometry = problem.transform.geometry
     assert geometry is not None
     n_y = geometry.shape[1]
-    assert_parity(problem, grid, transverse=n_y, growth=1.0)
+    assert_parity(problem, run_request, grid, transverse=n_y, growth=1.0)
 
 
 @pytest.mark.parametrize("variant", ["collar", "linear"])
@@ -521,7 +552,7 @@ def test_the_general_route_s_collar_and_a_linear_guide_agree(variant):
         )
         if variant == "linear":
             route = dataclasses.replace(route, responses=None)
-        problem = problem_for(
+        problem, run_request = problem_for(
             grid,
             guide,
             route,
@@ -533,14 +564,14 @@ def test_the_general_route_s_collar_and_a_linear_guide_agree(variant):
             integrator=MARCH,
             **extra,
         )
-    limit = parity_bound(problem, growth=1.0)
+    limit = parity_bound(problem, run_request, growth=1.0)
     if variant == "collar":
         maps = _general_maps(problem)
         assert maps is not None
         phi = nonlinear_scale(maps, state, grid)
         source = source_bound(maps, grid.n_to, general_conditioning(maps, state, grid))
         limit = math.exp(phi) * (phi * source + limit)
-    assert_compiled(problem, grid, limit, what=f"general route, {variant}")
+    assert_compiled(problem, run_request, grid, limit, what=f"general route, {variant}")
 
 
 # --- the engine's own --------------------------------------------------------------
@@ -556,11 +587,11 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
     four volumes tabulated without a collar and three recomputed, five and four with
     one. The estimate is the ledger to the byte for these rows.
     """
-    problem, grid, _ = cartesian_march(mode, collar=collar)
+    problem, run_request, grid, _ = cartesian_march(mode, collar=collar)
     field = 16 * math.prod(problem.shape)
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
     backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(float(problem.stepper.save_planes[-1]))
+    backend.propagate_to(float(run_request.stepper.save_planes[-1]))
     ledger = backend.memory_ledger()
     volumes = {row: ledger[row] for row in MARCH_ROWS}
     assert volumes == {
@@ -571,7 +602,9 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
         "propagators": field if mode == "tabulate" else 0,
     }
     assert low_storage_stage_register(problem, "native") == collar
-    assert low_storage_flows(problem, "native") == (mode == "tabulate")
+    assert low_storage_flows(problem, run_request.stepper, "native") == (
+        mode == "tabulate"
+    )
     assert sum(volumes.values()) == field * (3 + int(collar) + (mode == "tabulate"))
     for row in (*RUNGE_KUTTA_ROWS, "noise", "adams_history"):
         assert ledger[row] == 0, row
@@ -579,7 +612,7 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
     engine = backend._low_storage.engine
     assert engine.atomic and math.isnan(engine.stiffness)
     metadata = backend.metadata()
-    schedule = problem.stepper.schedule
+    schedule = run_request.stepper.schedule
     assert schedule is not None
     assert metadata["propagator_mode"] == mode
     assert metadata["source_evaluations"] == 4 * schedule.n_steps
@@ -594,12 +627,16 @@ def test_a_varying_operator_holds_its_pair_tabulated_and_none_recomputed():
     """
     simulation = varying_capillary()
     for mode, held in (("tabulate", 2), ("recompute", 0)):
-        problem = with_mode(simulation.translate(), mode)
-        backend = NativeBackend(problem, grid=simulation.grid, modes=simulation.modes)
+        problem, run_request = with_mode(
+            simulation.translate(), simulation._run_request(), mode
+        )
+        backend = NativeBackend(
+            problem, run_request, grid=simulation.grid, modes=simulation.modes
+        )
         field = 16 * math.prod(problem.shape)
         ledger = backend.memory_ledger()
         assert ledger["propagators"] == held * field
-        assert low_storage_flows(problem, "native") == held
+        assert low_storage_flows(problem, run_request.stepper, "native") == held
         # The modal route holds C: its input is a padded fine spectrum.
         assert ledger["register_stage"] == field
         assert all(ledger[row] == 0 for row in RUNGE_KUTTA_ROWS)
@@ -626,8 +663,8 @@ def test_a_loaded_state_is_not_held_after_the_load(monkeypatch, model):
             model=model,
         )
     )
-    problem, grid, _ = cartesian_march("tabulate", noise=noise)
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid, _ = cartesian_march("tabulate", noise=noise)
+    backend = NativeBackend(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
     loaded: list[weakref.ref[np.ndarray]] = []
     apply_mask = backend._apply_mask
 
@@ -659,9 +696,9 @@ def test_a_loaded_state_is_not_held_after_the_load(monkeypatch, model):
 
 def test_a_native_exception_leaves_the_backend_refusing(monkeypatch):
     """Section 6.2's guard: a step that raises after its passes stays in flight."""
-    problem, grid, _ = cartesian_march("tabulate")
-    end = float(problem.stepper.save_planes[-1])
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid, _ = cartesian_march("tabulate")
+    end = float(run_request.stepper.save_planes[-1])
+    backend = NativeBackend(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
     backend.set_initial(problem.initial.field0, None)
     assert backend._low_storage is not None
     engine = backend._low_storage.engine
@@ -684,7 +721,7 @@ def test_a_native_exception_leaves_the_backend_refusing(monkeypatch):
     with pytest.raises(BackendError, match="in flight"):
         backend.propagate_to(end)
     # The abandoned step's start was the first edge: the guard names it.
-    schedule = problem.stepper.schedule
+    schedule = run_request.stepper.schedule
     assert schedule is not None
     assert backend._in_flight == (calls[-1], float(schedule.steps[1]))
     backend.set_initial(problem.initial.field0, None)
@@ -701,9 +738,9 @@ def test_a_signal_during_the_native_step_waits_for_its_commit(monkeypatch):
     A Ctrl-C raised while the engine steps is held to the end of the commit: the
     step lands, the backend is not in flight, and the run can be observed.
     """
-    problem, grid, _ = cartesian_march("tabulate")
-    end = float(problem.stepper.save_planes[-1])
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid, _ = cartesian_march("tabulate")
+    end = float(run_request.stepper.save_planes[-1])
+    backend = NativeBackend(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
     backend.set_initial(problem.initial.field0, None)
     assert backend._low_storage is not None
     engine = backend._low_storage.engine
@@ -719,7 +756,7 @@ def test_a_signal_during_the_native_step_waits_for_its_commit(monkeypatch):
     with handled(), pytest.raises(KeyboardInterrupt):
         backend.propagate_to(end)
     assert backend._in_flight is None
-    schedule = problem.stepper.schedule
+    schedule = run_request.stepper.schedule
     assert schedule is not None
     assert backend._z == float(schedule.edges[1])
     assert np.all(np.isfinite(backend.observe().require_field()))
@@ -774,19 +811,19 @@ def test_the_march_agrees_across_thread_counts(tmp_path):
     assert_threaded(four["sizing"], 4, "kernels.stage", "fft.fft")
     for name in names:
         mode, collar = name.split("-")
-        problem, _, _ = cartesian_march(mode, collar=collar == "collar")
-        bound = parity_bound(problem, transverse=problem.transform.n_nodes)
+        problem, run_request, _, _ = cartesian_march(mode, collar=collar == "collar")
+        bound = parity_bound(problem, run_request, transverse=problem.transform.n_nodes)
         assert_within(again[name], one[name], bound, what=f"repeat, {name}")
         assert_within(four[name], one[name], bound, what=f"four threads, {name}")
 
 
 def test_a_trial_step_on_a_low_storage_state_is_refused_by_name():
     # #492: this state allocates none of the views the trial step writes to.
-    problem, grid, _ = cartesian_march("tabulate")
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid, _ = cartesian_march("tabulate")
+    backend = NativeBackend(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
     try:
         backend.set_initial(problem.initial.field0, None)
         with pytest.raises(RuntimeError, match=r"low-storage state .* no Runge-Kutta"):
-            backend._trial_step(0.0, problem.stepper.dz_init)
+            backend._trial_step(0.0, run_request.stepper.dz_init)
     finally:
         backend.close()

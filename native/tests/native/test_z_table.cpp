@@ -113,8 +113,8 @@ TEST(ZTable, EvaluateWritesEachPositionIntoItsSlot) {
   for (std::size_t e = 0; e < n_values; ++e) {
     EXPECT_EQ(host(0, e), Complex(7.0, 7.0));
     EXPECT_EQ(host(2, e), Complex(7.0, 7.0));
-    for (const auto [slot, k, x] : {std::array<double, 3>{3.0, 0.0, 0.5},
-                                    std::array<double, 3>{1.0, 1.0, -0.5}}) {
+    for (const auto& [slot, k, x] : {std::array<double, 3>{3.0, 0.0, 0.5},
+                                     std::array<double, 3>{1.0, 1.0, -0.5}}) {
       const auto interval = static_cast<std::size_t>(k);
       // The kernel is the header's recursion per value: the same operations.
       const Complex* column = &coefficients(interval, 0, e);

@@ -16,8 +16,13 @@ the terminal outcome with its checkpoint eligibility.
 presents the lockstep runners a batched scan steps compatible members with through
 the group protocol, :class:`~solprop.backends.session.GroupSession`.
 
-Both are temporary internal adapters, named in SEP 47's Part II with their removal
-milestone; nothing outside the session machinery constructs them directly.
+:class:`DriverPrepared` is the prepared execution (SEP 47 section 5.2) a constructed
+driver returns from ``prepare(problem, request)``: each ``start`` opens one session of
+its kind over that driver, :class:`DriverSession` by default and
+:class:`~solprop.backends.host.session.HostSession` for the reference.
+
+Both sessions are temporary internal adapters, named in SEP 47's Part II with their
+removal milestone; nothing outside the session machinery constructs them directly.
 """
 
 from __future__ import annotations
@@ -56,12 +61,15 @@ from solprop.backends.protocol import (
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
     DEFAULT_WORK_LIMIT,
+    RunSession,
     SessionError,
     SessionLedger,
     SessionState,
     SessionStatus,
     SnapshotReceipt,
     Start,
+    check_group,
+    check_member_ticket,
 )
 from solprop.exceptions import StopRequested
 from solprop.log import NullReporter, StopFlag
@@ -80,7 +88,13 @@ if TYPE_CHECKING:
     from solprop.backends.driver import StepDriver
     from solprop.backends.protocol import Backend
 
-__all__ = ["AttemptListener", "DriverGroupSession", "DriverSession"]
+__all__ = [
+    "AttemptListener",
+    "DriverGroupSession",
+    "DriverPrepared",
+    "DriverSession",
+    "foreign_request",
+]
 
 AttemptListener = Callable[[float, float, bool], None]
 """Called with each attempt's end, length and acceptance, for a progress reporter."""
@@ -444,6 +458,11 @@ class DriverSession:
         if self._index >= self._planes.size:
             return self._complete()
         target = float(self._planes[self._index])
+        if self._snapshot_pending is not None and self._holding_plane():
+            # The march restores the endpoint ahead of the plane it holds, and halts
+            # there if the target lies beyond: planes closer than the steps would
+            # otherwise put off the snapshot with every step (SEP 47 section 5.5).
+            _hook(self._driver, "halt_ahead")
         started = time.perf_counter()
         limit = self._listened + max(int(work_limit), 1)
 
@@ -741,17 +760,6 @@ class DriverSession:
         """
         return None if self._monitor is None else self._monitor.summary()
 
-    @property
-    def monitor(self) -> BoundaryMonitor | None:
-        """Return the session's own boundary monitor, for transitional reporting.
-
-        Returns
-        -------
-        solprop.monitor.BoundaryMonitor or None
-            The monitor, or ``None``.
-        """
-        return self._monitor
-
     def close(self) -> None:
         """Release the driver; idempotent."""
         if self._ledger.close():
@@ -919,7 +927,23 @@ class DriverSession:
         """
         # The starting position is no accepted endpoint of this session: an Adams
         # march holds no history there to snapshot.
-        return self._stepped and getattr(self._driver, "_dense_ahead", None) is None
+        return self._stepped and not self._holding_plane()
+
+    def _holding_plane(self) -> bool:
+        """Return whether a dense observation holds the driver's state.
+
+        Returns
+        -------
+        bool
+            True while the driver's own (a Runge-Kutta march's) or its Adams march's
+            observation holds an interpolated plane, the march ahead of it.
+        """
+        driver = self._driver
+        adams = getattr(driver, "_adams", None)
+        return (
+            getattr(driver, "_dense_ahead", None) is not None
+            or getattr(adams, "_ahead", None) is not None
+        )
 
     def _driver_halted(self) -> bool:
         """Return whether the driver stopped at a requested halt.
@@ -1144,7 +1168,192 @@ class DriverSession:
         return field.view()
 
 
-def _bound(event: Event, receipt: Receipt) -> Event:
+def foreign_request(own: RunRequest, request: RunRequest) -> str | None:
+    """Return why `request` is not a run of `own`, or ``None`` when it is.
+
+    A backend lowers its method, error control, replay and itinerary where it is
+    built (SEP 47 section 5.2), so a run it serves may differ from its own request
+    only where :meth:`~solprop.translate.run_request.RunRequest.for_run` changes it:
+    the start, retention, statistics, monitor, history and snapshots. ``for_run``
+    keeps the other sections by identity, which is what is checked.
+
+    Parameters
+    ----------
+    own : solprop.translate.run_request.RunRequest
+        The request the backend was built for.
+    request : solprop.translate.run_request.RunRequest
+        The request one run asks it to serve.
+
+    Returns
+    -------
+    str or None
+        The first section that differs, named, or ``None``.
+
+    Examples
+    --------
+    >>> from solprop.stepper import DOPRI5, PIController
+    >>> from solprop.translate.problem import StepperSettings
+    >>> from solprop.translate.run_request import describe_run
+    >>> settings = StepperSettings(DOPRI5, PIController(rtol=1e-8, atol=1e-14),
+    ...                            1e-9, 0.1, 1e-3, 1.1, None, [0.5, 1.0], "auto")
+    >>> own = describe_run(settings)
+    >>> foreign_request(own, own.for_run(start_plane=1)) is None
+    True
+    >>> foreign_request(own, describe_run(settings))
+    "the run's integration is not the backend's own"
+    """
+    sections = (
+        ("integration", own.integration, request.integration),
+        ("error control", own.error_control, request.error_control),
+        ("replay", own.replay, request.replay),
+        ("planes", own.observation.save_planes, request.observation.save_planes),
+    )
+    for name, mine, theirs in sections:
+        if mine is not theirs:
+            return f"the run's {name} is not the backend's own"
+    return None
+
+
+class DriverPrepared:
+    """A prepared execution over a constructed driver (SEP 47 section 5.2).
+
+    The driver was built for the problem and a request -- it lowered the method, the
+    error control, the itinerary, the planes and the statistics then -- so preparing
+    binds the problem and the request one run serves, a request that differs from the
+    driver's own only in its start, retention, monitor and history
+    (:meth:`~solprop.translate.run_request.RunRequest.for_run`). Each :meth:`start`
+    opens one session of `session` over the driver.
+
+    Parameters
+    ----------
+    driver : solprop.backends.protocol.Backend
+        The constructed driver; it stays its caller's unless a session owns it.
+    problem : solprop.translate.problem.PropagationProblem
+        The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's request.
+    session : type, optional
+        The session class each start opens: :class:`DriverSession` by default.
+    """
+
+    def __init__(
+        self,
+        driver: Backend,
+        problem: PropagationProblem,
+        request: RunRequest,
+        *,
+        session: type[DriverSession] | None = None,
+    ) -> None:
+        """Bind the problem and the request to the driver.
+
+        Raises
+        ------
+        solprop.backends.session.SessionError
+            If the request is not one run of the driver's own (:func:`foreign_request`).
+        """
+        foreign = foreign_request(driver.request, request)
+        if foreign is not None:
+            msg = f"{driver.name} cannot prepare this run: {foreign}"
+            raise SessionError(msg)
+        self._driver = driver
+        self._problem = problem
+        self._request = request
+        self._session = DriverSession if session is None else session
+        self._closed = False
+
+    @property
+    def backend(self) -> str:
+        """Return the registered name of the backend that prepared it.
+
+        Returns
+        -------
+        str
+            The backend's registered name.
+        """
+        return self._driver.name
+
+    def start(
+        self,
+        start: Start,
+        *,
+        listener: AttemptListener | None = None,
+        started: Callable[[float, float, int], None] | None = None,
+        stop: StopFlag | None = None,
+        owns: bool = True,
+    ) -> RunSession:
+        """Start a session from an initial state or a checkpoint.
+
+        Parameters
+        ----------
+        start : solprop.backends.session.Start
+            Where the run starts; the session takes its field.
+        listener : callable or None, optional
+            Called with each attempt as it is made, for a progress reporter.
+        started : callable or None, optional
+            Called with the start, the end and the plane count when propagation
+            begins.
+        stop : solprop.log.StopFlag or None, optional
+            The run's stop token.
+        owns : bool, optional
+            Whether closing the session closes the driver.
+
+        Returns
+        -------
+        solprop.backends.session.RunSession
+            The started session.
+
+        Raises
+        ------
+        solprop.backends.session.SessionError
+            If this preparation is closed.
+        """
+        if self._closed:
+            msg = "the prepared execution is closed"
+            raise SessionError(msg)
+        return self._session(
+            self._driver,
+            self._problem,
+            self._request,
+            start,
+            listener=listener,
+            started=started,
+            stop=stop,
+            owns=owns,
+        )
+
+    def metadata(self) -> Mapping[str, object]:
+        """Return the execution metadata recorded with the run.
+
+        Returns
+        -------
+        collections.abc.Mapping
+            The driver's own (:meth:`solprop.backends.protocol.Backend.metadata`).
+        """
+        return self._driver.metadata()
+
+    def memory_ledger(self) -> Mapping[str, int]:
+        """Return every retained buffer by name, bytes.
+
+        Returns
+        -------
+        collections.abc.Mapping
+            The driver's ledger.
+        """
+        return self._driver.memory_ledger()
+
+    def close(self) -> None:
+        """Refuse further starts and close the driver it was prepared on; idempotent.
+
+        A caller that keeps the driver for later runs leaves the preparation open: a
+        session it started with ``owns=False`` never closes the driver.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        self._driver.close()
+
+
+def _bound(event: Event, receipt: Receipt, member: int | None = None) -> Event:
     """Return an event with its ticket bound to the batch that delivers it.
 
     Parameters
@@ -1153,6 +1362,8 @@ def _bound(event: Event, receipt: Receipt) -> Event:
         An event, with an unbound ticket or none.
     receipt : solprop.backends.events.Receipt
         The batch's receipt.
+    member : int or None, optional
+        The group member the ticket names; ``None`` for a lone session.
 
     Returns
     -------
@@ -1164,7 +1375,7 @@ def _bound(event: Event, receipt: Receipt) -> Event:
         return event
     return dataclasses.replace(
         event,  # pyright: ignore[reportArgumentType]
-        ticket=dataclasses.replace(ticket, receipt=receipt),
+        ticket=dataclasses.replace(ticket, receipt=receipt, member=member),
     )
 
 
@@ -1224,22 +1435,8 @@ class DriverGroupSession:
         from solprop.backends.registry import select_batch  # noqa: PLC0415 - cycle
 
         count = len(members)
-        if count == 0 or not count == len(problems) == len(requests) == len(starts):
-            msg = (
-                f"a group needs one problem, request and start per member, and got "
-                f"{count} members, {len(problems)} problems, {len(requests)} "
-                f"requests and {len(starts)} starts"
-            )
-            raise SessionError(msg)
+        check_group(count, problems, requests, starts)
         observation = requests[0].observation
-        for start in starts:
-            fresh = start.march is None and start.monitor is None
-            if not fresh or start.plane_index:
-                msg = (
-                    "a group starts its members at their entrance, with no method "
-                    "history or monitor record to continue"
-                )
-                raise SessionError(msg)
         for member, start in zip(members, starts, strict=True):
             member.set_initial(
                 np.asarray(start.take_field()),
@@ -1368,7 +1565,8 @@ class DriverGroupSession:
             The member's converted field.
         """
         self._ledger.check_ticket(ticket)
-        problem = self._problems[self._member(member)]
+        check_member_ticket(ticket, self._member(member))
+        problem = self._problems[member]
         if recipe.power and problem.transform.geometry is not None:
             # A spatial route's field measure is already the stored quantity.
             recipe = dataclasses.replace(recipe, power=False)
@@ -1393,7 +1591,8 @@ class DriverGroupSession:
             The phase, shape ``(n_modes, n_pol, n_omega)``, or ``None`` without noise.
         """
         self._ledger.check_ticket(ticket)
-        phase = self._fielded(ticket, self._member(member)).noise_phase
+        check_member_ticket(ticket, self._member(member))
+        phase = self._fielded(ticket, member).noise_phase
         return None if phase is None else np.array(phase)
 
     def member_status(self, member: int) -> SessionStatus:
@@ -1832,7 +2031,8 @@ class DriverGroupSession:
         # Every drained attempt is delivered by this batch.
         self._drained = {}
         bound = tuple(
-            tuple(_bound(event, receipt) for event in events) for events in members
+            tuple(_bound(event, receipt, index) for event in events)
+            for index, events in enumerate(members)
         )
         return GroupBatch(receipt, bound, outcome, error)
 

@@ -77,7 +77,7 @@ def kinked():
     guide = grin_taper(kinked_radius(), kerr=True)
     simulation = build(guide, grid, energy=ENERGY)
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
-    return simulation.translate(), grid
+    return simulation.translate(), simulation._run_request(), grid
 
 
 def step_problem(descriptors, *, blocks=(), basis_block=None):
@@ -125,13 +125,13 @@ def step_problem(descriptors, *, blocks=(), basis_block=None):
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return simulation.translate(), grid
+        return simulation.translate(), simulation._run_request(), grid
 
 
-def source_at(implementation, problem, grid, positions):
+def source_at(implementation, problem, run_request, grid, positions):
     """Return each position's lab-frame source on the launch."""
     state = problem.initial.field0
-    backend = implementation(problem, grid=grid)
+    backend = implementation(problem, run_request, grid=grid)
     try:
         backend.set_initial(state, None)
         # The backend's private hook keeps the state's leading axis of one.
@@ -141,7 +141,7 @@ def source_at(implementation, problem, grid, positions):
         backend.close()
 
 
-def assert_source_parity(problem, grid, positions):
+def assert_source_parity(problem, run_request, grid, positions):
     """Assert one stage's source within its bound at each position.
 
     The bound is ``source_bound``'s with the projection's conditioning of the maps at
@@ -152,8 +152,8 @@ def assert_source_parity(problem, grid, positions):
     assert maps is not None
     assert maps.moving
     state = problem.initial.field0
-    expected = source_at(NumpyRefBackend, problem, grid, positions)
-    got = source_at(NativeBackend, problem, grid, positions)
+    expected = source_at(NumpyRefBackend, problem, run_request, grid, positions)
+    got = source_at(NativeBackend, problem, run_request, grid, positions)
     for position, mine, theirs in zip(positions, got, expected, strict=True):
         weights = scalars(problem, 0.0, position).transform_weights
         at = maps.at(weights)
@@ -171,28 +171,30 @@ def assert_source_parity(problem, grid, positions):
             assert flow_parity.departure(mine, got[0]) > 1e3 * bound
 
 
-def assert_ten_step_parity(problem, grid):
+def assert_ten_step_parity(problem, run_request, grid):
     """Assert ten fixed steps on native within the flow bound of ``numpy_ref``."""
-    expected = flow_parity.run(NumpyRefBackend, problem, grid)
-    scales = flow_parity.flow_scales(problem, grid, expected)
+    expected = flow_parity.run(NumpyRefBackend, problem, run_request, grid)
+    scales = flow_parity.flow_scales(problem, run_request, grid, expected)
     bound = flow_parity.ten_step_bound(scales)
-    got = flow_parity.run(NativeBackend, problem, grid)
+    got = flow_parity.run(NativeBackend, problem, run_request, grid)
     assert 0.0 < bound < 1e-9
     assert flow_parity.departure(got, expected) <= bound
 
 
 def test_one_stage_of_a_moving_source_is_the_reference_within_the_bound():
     """Native's source at five stage positions of the kinked taper."""
-    problem, grid = kinked()
-    assert_source_parity(problem, grid, POSITIONS)
+    problem, run_request, grid = kinked()
+    assert_source_parity(problem, run_request, grid, POSITIONS)
 
 
 @pytest.mark.slow
 def test_ten_steps_of_the_step_index_pair_are_the_reference_s():
     """``HE_11`` and ``HE_12`` on the 10 % step-index taper, with a Kerr core."""
-    problem, grid = step_problem((("HE", 1, 1, "even"), ("HE", 1, 2, "even")))
-    assert_source_parity(problem, grid, STEP_POSITIONS)
-    assert_ten_step_parity(problem, grid)
+    problem, run_request, grid = step_problem(
+        (("HE", 1, 1, "even"), ("HE", 1, 2, "even"))
+    )
+    assert_source_parity(problem, run_request, grid, STEP_POSITIONS)
+    assert_ten_step_parity(problem, run_request, grid)
 
 
 @pytest.mark.slow
@@ -203,7 +205,7 @@ def test_ten_steps_of_the_complex_basis_are_the_reference_s():
     are complex in the declared basis, so the combination runs on complex coefficients
     with real weights.
     """
-    problem, grid = step_problem(
+    problem, run_request, grid = step_problem(
         (
             ("HE", 1, 1, "even"),
             ("HE", 1, 1, "odd"),
@@ -217,5 +219,5 @@ def test_ten_steps_of_the_complex_basis_are_the_reference_s():
     assert flow is not None
     assert flow.connection is not None
     assert float(np.max(abs(np.imag(flow.connection)))) > 1.0
-    assert_source_parity(problem, grid, STEP_POSITIONS)
-    assert_ten_step_parity(problem, grid)
+    assert_source_parity(problem, run_request, grid, STEP_POSITIONS)
+    assert_ten_step_parity(problem, run_request, grid)

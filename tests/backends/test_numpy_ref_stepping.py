@@ -36,9 +36,9 @@ N_PLANES = 200
 WIDE_SPACING = 2e-3  # m
 
 
-def run(backend_class, problem, grid, planes):
+def run(backend_class, problem, run_request, grid, planes):
     """Propagate through a list of planes and return the summaries and observations."""
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     summaries, observations = [], []
     for plane in planes:
@@ -57,7 +57,7 @@ def test_a_march_over_many_planes_takes_one_step_each(
     """The stretch: a plane just beyond the proposal is landed on, not overshot and
     then reached by a sliver."""
     planes = [SPACING * (index + 1) for index in range(N_PLANES)]
-    problem = linear_problem(
+    problem, run_request = linear_problem(
         narrow_grid,
         save_planes=planes,
         # A growth cap that barely moves pins the proposal just short of the spacing,
@@ -66,7 +66,9 @@ def test_a_march_over_many_planes_takes_one_step_each(
         dz_init=0.98 * SPACING,
         dz_max=10 * SPACING,
     )
-    summaries, observations = run(backend_class, problem, narrow_grid, planes)
+    summaries, observations = run(
+        backend_class, problem, run_request, narrow_grid, planes
+    )
     steps = np.concatenate([plane.step_history.dz for plane in observations])
     assert sum(summary.n_steps for summary in summaries) == N_PLANES
     # Every step is the stretched one, so none is a sliver: the shortest is the spacing.
@@ -79,7 +81,7 @@ def test_the_step_after_a_plane_is_the_proposal_not_a_sliver(
     """The equivalent-norm rule: the controller's state is the proposal, so a landing
     does not restart it from the sliver it had to take."""
     planes = [WIDE_SPACING * (index + 1) for index in range(20)]
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         3,
         save_planes=planes,
@@ -87,7 +89,7 @@ def test_the_step_after_a_plane_is_the_proposal_not_a_sliver(
         dz_max=10 * WIDE_SPACING,
         dz_init=1e-4,
     )
-    _, observations = run(backend_class, problem, narrow_grid, planes)
+    _, observations = run(backend_class, problem, run_request, narrow_grid, planes)
     # Skip the early planes, over which the controller is still growing from dz_init.
     # Each plane's first step against that plane's own steps: the soliton's spectrum
     # reaches the scored margin as it goes, so the steps shrink along the run.
@@ -100,10 +102,10 @@ def test_the_step_after_a_plane_is_the_proposal_not_a_sliver(
 def test_a_plane_is_landed_on_exactly(backend_class, soliton_problem, narrow_grid):
     """Saved fields are exact step endpoints; there is no dense output."""
     planes = [0.1 / 3, 0.1 / 2, 0.1]
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid, 1, save_planes=planes, dz_max=0.004, dz_init=1e-4
     )
-    _, observations = run(backend_class, problem, narrow_grid, planes)
+    _, observations = run(backend_class, problem, run_request, narrow_grid, planes)
     for plane, observation in zip(planes, observations, strict=True):
         assert observation.z == plane
         assert float(observation.step_history.z[-1]) == plane
@@ -111,8 +113,8 @@ def test_a_plane_is_landed_on_exactly(backend_class, soliton_problem, narrow_gri
 
 def test_a_step_lands_on_a_hard_kink(backend_class, capillary_problem, field_grid):
     """The fill's stage boundary is a kink, and a step must end exactly on it."""
-    problem = capillary_problem()
-    _, observations = run(backend_class, problem, field_grid, [0.2])
+    problem, run_request = capillary_problem()
+    _, observations = run(backend_class, problem, run_request, field_grid, [0.2])
     assert 0.2 in observations[0].step_history.z.tolist()
 
 
@@ -122,7 +124,7 @@ def test_a_step_lands_on_a_hard_kink(backend_class, capillary_problem, field_gri
 def test_a_schedule_fine_enough_meets_its_tolerance(
     backend_class, soliton_problem, soliton_grid, caplog
 ):
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         soliton_grid,
         1,
         save_planes=[0.05],
@@ -130,7 +132,9 @@ def test_a_schedule_fine_enough_meets_its_tolerance(
         schedule=FixedSchedule.uniform(0.0, 0.05, 0.05 / 200),
     )
     with caplog.at_level(logging.WARNING):
-        summaries, observations = run(backend_class, problem, soliton_grid, [0.05])
+        summaries, observations = run(
+            backend_class, problem, run_request, soliton_grid, [0.05]
+        )
     assert summaries[0].n_steps == 200
     assert summaries[0].met_tolerance
     assert not caplog.records
@@ -141,7 +145,7 @@ def test_a_schedule_too_coarse_is_reported_rather_than_silent(
     backend_class, soliton_problem, soliton_grid, caplog
 ):
     """The fixed-mode counterpart of the dz_min error: the estimate costs nothing."""
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         soliton_grid,
         1,
         save_planes=[0.05],
@@ -151,7 +155,9 @@ def test_a_schedule_too_coarse_is_reported_rather_than_silent(
         schedule=FixedSchedule.uniform(0.0, 0.05, 0.05 / 8),
     )
     with caplog.at_level(logging.WARNING):
-        summaries, observations = run(backend_class, problem, soliton_grid, [0.05])
+        summaries, observations = run(
+            backend_class, problem, run_request, soliton_grid, [0.05]
+        )
     assert summaries[0].n_steps == 8
     assert not summaries[0].met_tolerance
     assert summaries[0].max_norm > 1.0
@@ -163,13 +169,13 @@ def test_a_schedule_too_coarse_is_reported_rather_than_silent(
 def test_a_schedule_that_runs_out_is_an_error(
     backend_class, soliton_problem, soliton_grid
 ):
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         soliton_grid,
         1,
         save_planes=[0.05],
         schedule=FixedSchedule.uniform(0.0, 0.05, 0.05 / 4),
     )
-    backend = backend_class(problem, grid=soliton_grid)
+    backend = backend_class(problem, run_request, grid=soliton_grid)
     backend.set_initial(problem.initial.field0, None)
     with pytest.raises(BackendError, match="cannot reach"):
         backend.propagate_to(0.052)
@@ -221,14 +227,14 @@ def envelope_of(state, grid, kind):
     return fourier.analytic_signal(samples)
 
 
-def spm_phase(backend_class, problem, grid, kind, distance):
+def spm_phase(backend_class, problem, run_request, grid, kind, distance):
     """Return the measured nonlinear phase, the input power and where the pulse is.
 
     The phase is read only where the pulse actually is: the ratio of two envelopes is
     meaningless in a bin the pulse never occupied, and a nonlinear phase measured there
     would be the round-off of one empty sample divided by another.
     """
-    _, observations = run(backend_class, problem, grid, [distance])
+    _, observations = run(backend_class, problem, run_request, grid, [distance])
     start = envelope_of(
         problem.initial.field0[0, 0] * problem.grids.active_mask, grid, kind
     )
@@ -254,8 +260,10 @@ def test_self_phase_modulation_is_reproduced_on_either_grid(backend_class, kind)
         if kind == "envelope"
         else FieldGrid.from_limits(**SPM_GRID)
     )
-    _, problem = spm_problem(grid)
-    measured, power, core = spm_phase(backend_class, problem, grid, kind, SPM_DISTANCE)
+    _, (problem, run_request) = spm_problem(grid)
+    measured, power, core = spm_phase(
+        backend_class, problem, run_request, grid, kind, SPM_DISTANCE
+    )
     expected = -SPM_GAMMA * power * SPM_DISTANCE
     peak = float(np.max(np.abs(expected)))
     # The measured phase is compared as a fraction of the largest nonlinear phase in the
@@ -276,8 +284,10 @@ def test_the_two_grids_agree_on_the_peak_nonlinear_phase(backend_class):
             if kind == "envelope"
             else FieldGrid.from_limits(**SPM_GRID)
         )
-        _, problem = spm_problem(grid)
-        measured, _, _ = spm_phase(backend_class, problem, grid, kind, SPM_DISTANCE)
+        _, (problem, run_request) = spm_problem(grid)
+        measured, _, _ = spm_phase(
+            backend_class, problem, run_request, grid, kind, SPM_DISTANCE
+        )
         phases[kind] = float(measured[grid.n_t // 2])
     assert phases["field"] == pytest.approx(phases["envelope"], rel=1e-8)
 
@@ -341,7 +351,7 @@ def test_one_step_matches_an_independent_integrator_at_the_scheme_s_order(
     errors = []
     for level in range(3):
         dz = base / 2**level
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             fibre.mode,
             [fibre.kerr],
@@ -355,7 +365,7 @@ def test_one_step_matches_an_independent_integrator_at_the_scheme_s_order(
             shock=False,
             prefactor_index=1.0,
         )
-        _, observations = run(backend_class, problem, grid, [dz])
+        _, observations = run(backend_class, problem, run_request, grid, [dz])
         masked = problem.initial.field0[0, 0] * problem.grids.active_mask
         oracle = reference_step(fibre, grid, problem, masked, dz)
         errors.append(float(np.max(np.abs(observations[0].field[0, 0] - oracle))))

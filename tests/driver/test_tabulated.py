@@ -103,7 +103,7 @@ def test_gradient_runs_with_one_parameter_on_both_backends():
     # evaluations' weight in each and the transform reduction length grid.n_t, with
     # 64 eps allocated per sample as the channel ladder does (the leading 64).
     # Nonzero guards against reusing one output.
-    evaluations = step_evaluations(problem)
+    evaluations = step_evaluations(simulation._run_request())
     bound = 64 * 64 * evaluations * simulation.grid.n_t * np.finfo(float).eps
     assert 0 < worst < bound
     assert np.all(np.isfinite(second))

@@ -231,14 +231,14 @@ def test_a_moving_guide_runs_ten_steps_end_to_end_and_records_its_path(
     """
     simulation = build(kinked, grin_grid(), integrator=RungeKutta())
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
-    problem = simulation.translate()
+    problem, run_request = simulation.translate(), simulation._run_request()
     run = cast("MemoryOutput", simulation.run(progress="none"))
     energy = [float(np.sum(plane.stats["physical_energy"])) for plane in run.planes()]
     assert len(energy) == 2
     drift = abs(energy[-1] / energy[0] - 1.0)
     # The Kerr term conserves energy exactly in the continuous limit and at 1 pJ its
     # step error is far below the flow's, so the flow's own bound is the budget.
-    assert drift < _truncation(problem)
+    assert drift < _truncation(problem, run_request)
     modal = simulation.metadata().modal
     assert modal is not None
     guide = modal["guide"]
@@ -279,7 +279,8 @@ def test_every_compiled_backend_admits_moving_maps_and_a_new_one_refuses_them(
     with pytest.raises(BackendError, match=r"new executes .*moving maps.*not build"):
         refuse_general_route(problem, backend="new")
     pytest.importorskip("solprop_native")
-    select("native", problem, grid=simulation.grid).close()
+    run_request = simulation._run_request()
+    select("native", problem, run_request, grid=simulation.grid).close()
 
 
 def test_the_reference_refuses_a_cf4_flow_beside_moving_maps(kinked_problem):
@@ -289,8 +290,9 @@ def test_the_reference_refuses_a_cf4_flow_beside_moving_maps(kinked_problem):
     it before the route is reached.
     """
     simulation, problem = kinked_problem
-    problem = dataclasses.replace(
-        problem, stepper=dataclasses.replace(problem.stepper, integrator=None)
+    run_request = simulation._run_request()
+    run_request = run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, integrator=None)
     )
     flow = problem.linear.coupled_flow
     assert flow is not None
@@ -301,14 +303,19 @@ def test_the_reference_refuses_a_cf4_flow_beside_moving_maps(kinked_problem):
     spoiled = dataclasses.replace(problem)
     object.__setattr__(spoiled, "linear", linear)
     with pytest.raises(BackendError, match="CF4 beside moving maps"):
-        NumpyRefBackend(spoiled, grid=simulation.grid)
+        NumpyRefBackend(spoiled, run_request, grid=simulation.grid)
 
 
 def test_a_lockstep_batch_refuses_a_moving_guide(kinked_problem):
     """The batch applies neither half of a flow, so a member carrying one is refused."""
     simulation, problem = kinked_problem
+    run_request = simulation._run_request()
     member = NumpyRefBackend(
-        problem, grid=simulation.grid, modes=list(simulation.modes), profiles=None
+        problem,
+        run_request,
+        grid=simulation.grid,
+        modes=list(simulation.modes),
+        profiles=None,
     )
     with pytest.raises(BackendError, match="lockstep batch does not execute"):
         NumpyBatchBackend([member])
@@ -387,20 +394,21 @@ def _single_bin(guide, grid, length, steps, index, **overrides):
     simulation = build(guide, grid, steps=steps, length=length, **overrides)
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     state = np.zeros_like(problem.initial.field0)
     state[0, 0, index] = 1e-9
     problem = dataclasses.replace(
         problem, initial=dataclasses.replace(problem.initial, field0=state)
     )
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(length)
     final = backend.observe().require_field()[:, 0, index].copy()
     backend.close()
-    return final / 1e-9, problem
+    return final / 1e-9, problem, run_request
 
 
-def _truncation(problem):
+def _truncation(problem, run_request):
     """Return what ten steps may move the flux norm by, from the leaf's own rows.
 
     The connection conserves the flux norm exactly where it is anti-Hermitian (the split
@@ -414,7 +422,7 @@ def _truncation(problem):
     """
     flow = problem.linear.coupled_flow
     scale = float(np.max(flow.residual_norm_bound * flow.inverse_condition_bound))
-    step = float(problem.stepper.dz_max)
+    step = float(run_request.stepper.dz_max)
     link = flow.connection
     hermitian = np.linalg.norm(
         np.moveaxis(link + np.conj(np.swapaxes(link, 2, 3)), -1, 2),
@@ -491,14 +499,16 @@ def test_a_slow_taper_is_adiabatic_its_conversion_falling_as_one_over_its_length
     ratios = []
     for length in (0.25e-3, 0.5e-3, LENGTH):
         guide = grin_taper(Linear(25e-6, 22.5e-6, length))
-        moving, problem = _single_bin(
+        moving, problem, run_request = _single_bin(
             guide, grid, length, STEPS, index, integrator=RungeKutta()
         )
-        still, _ = _single_bin(
+        still, _, _ = _single_bin(
             constant, grid, length, STEPS, index, integrator=RungeKutta()
         )
         ratios.append(abs(moving[1] / moving[0]))
-        assert abs(float(np.sum(abs(moving) ** 2)) - 1.0) < _truncation(problem)
+        assert abs(float(np.sum(abs(moving) ** 2)) - 1.0) < _truncation(
+            problem, run_request
+        )
         provider = guide.field_provider
         sampling = guide.sampling
         assert sampling is not None and sampling.path is not None
@@ -635,6 +645,7 @@ def _step_run(guide, steps, index, launch=None):
     )
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     state = np.zeros_like(problem.initial.field0)
     if launch is None:
         state[0, 0, index] = 1e-9
@@ -643,12 +654,12 @@ def _step_run(guide, steps, index, launch=None):
     problem = dataclasses.replace(
         problem, initial=dataclasses.replace(problem.initial, field0=state)
     )
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(LENGTH)
     final = backend.observe().require_field()[:, 0, index].copy()
     backend.close()
-    return final / 1e-9, problem
+    return final / 1e-9, problem, run_request
 
 
 def _dense_reference(provider, omega, *, basis=None, samples=33):
@@ -726,7 +737,7 @@ def test_a_multimode_step_index_taper_matches_a_dense_reference_and_converges():
     routed = {}
     problem = None
     for steps in (20, 40, 80):
-        routed[steps], problem = _step_run(guide, steps, index)
+        routed[steps], problem, _ = _step_run(guide, steps, index)
     reference = _dense_reference(guide.field_provider, omega)
     expected = reference[1] / reference[0]
     departures = [abs(routed[s][1] / routed[s][0] - expected) for s in (20, 40, 80)]
@@ -841,7 +852,7 @@ def test_the_connection_is_stored_unconjugated_as_a_complex_basis_decides(
     grid = step_grid()
     index = int(np.argmin(abs(grid.omega - grid.omega0)))
     omega = float(grid.omega[index])
-    routed, problem = _step_run(guide, 40, index)
+    routed, problem, run_request = _step_run(guide, 40, index)
     flow = problem.linear.coupled_flow
     assert flow is not None and flow.connection is not None
     imaginary = float(np.max(abs(np.imag(flow.connection[..., index]))))
@@ -863,7 +874,7 @@ def test_the_connection_is_stored_unconjugated_as_a_complex_basis_decides(
     object.__setattr__(linear, "coupled_flow", conjugated_flow)
     wrong_problem = dataclasses.replace(problem)
     object.__setattr__(wrong_problem, "linear", linear)
-    backend = NumpyRefBackend(wrong_problem, grid=grid)
+    backend = NumpyRefBackend(wrong_problem, run_request, grid=grid)
     backend.set_initial(wrong_problem.initial.field0, None)
     backend.propagate_to(LENGTH)
     wrong = backend.observe().require_field()[:, 0, index] / 1e-9

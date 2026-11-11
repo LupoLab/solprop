@@ -9,7 +9,7 @@ import dataclasses
 import numpy as np
 import pytest
 
-from backends.test_band_plasma_parity import CASES, bound, case
+from backends.test_band_plasma_parity import CASES, bound, case, options_for
 from backends.test_radial_nonlinear import derivative
 from gated_source import _gated_source
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -30,7 +30,7 @@ pytestmark = [
 @pytest.mark.parametrize("name", CASES)
 @pytest.mark.parametrize("rule", ["band", "trapezoid"])
 def test_current_assembly_and_ledger_on_each_route(name, rule):
-    grid, problem = case(name)
+    grid, problem, run_request = case(name)
     problem = dataclasses.replace(
         problem,
         responses=dataclasses.replace(
@@ -41,13 +41,14 @@ def test_current_assembly_and_ledger_on_each_route(name, rule):
     # its independent budget is fixed before evaluating the native source.
     allowance = bound(problem, grid, "native", 0)
     assert allowance > 0
-    expected = derivative(NumpyRefBackend, problem, grid)
-    actual = derivative(native.NativeBackend, problem, grid)
+    options = options_for(name)
+    expected = derivative(NumpyRefBackend, problem, run_request, grid, options)
+    actual = derivative(native.NativeBackend, problem, run_request, grid, options)
     scale = float(np.max(abs(expected)))
     assert scale > 0
     np.testing.assert_allclose(actual, expected, rtol=0, atol=allowance * scale)
     assert np.count_nonzero(actual[..., ~grid.active_mask]) == 0
-    backend = native.NativeBackend(problem, grid=grid)
+    backend = native.NativeBackend(problem, run_request, grid=grid, options=options)
     try:
         ledger = backend.memory_ledger()
         backend.set_initial(problem.initial.field0, None)
@@ -62,12 +63,12 @@ def test_current_assembly_and_ledger_on_each_route(name, rule):
 
 
 def test_gated_comparison_is_refused_before_native_allocation():
-    grid, problem = case("mode_averaged")
+    grid, problem, run_request = case("mode_averaged")
     with (
         _gated_source(),
         pytest.raises(BackendError, match="gated plasma benchmark requires numpy_ref"),
     ):
-        native.NativeBackend(problem, grid=grid)
+        native.NativeBackend(problem, run_request, grid=grid)
 
 
 @pytest.mark.gpu

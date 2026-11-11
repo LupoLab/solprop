@@ -35,7 +35,7 @@ from solprop.pulses import GaussianPulse
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, PIController
 from solprop.translate.chebyshev import build
 from solprop.translate.linop import delta_phi, phi_rate
-from solprop.translate.problem import assemble
+from solprop.translate.problem import Translation, assemble
 from solprop.translate.responses import prefactor_at
 
 native = pytest.importorskip("solprop_native")
@@ -96,13 +96,14 @@ def capillary(field_grid, integrator):
         )
 
 
-def tabulate(problem, substitute, *, phi=True, prefactor=True):
-    """Return `problem` with ``Phi``, the prefactor or both on the z table.
+def tabulate(translation, substitute, *, phi=True, prefactor=True):
+    """Return a translation with ``Phi``, the prefactor or both on the z table.
 
     The tables are built from the values the expansions give, as
     ``tests/backends/conftest.py``'s ``tabulated_problem`` builds them, the way a mode
     set that declares no parameters would present them.
     """
+    problem, run_request = translation
     linear, responses = problem.linear, problem.responses
     if phi:
         table = build(
@@ -140,7 +141,12 @@ def tabulate(problem, substitute, *, phi=True, prefactor=True):
             prefactor_expansion=None,
             prefactor_constant=None,
         )
-    return substitute(problem, linear=linear, responses=responses)
+    return Translation(
+        substitute(
+            problem, run_request=run_request, linear=linear, responses=responses
+        ),
+        run_request,
+    )
 
 
 def clenshaw_bound(table, z):
@@ -157,12 +163,12 @@ def clenshaw_bound(table, z):
     return 8.0 * terms**2 * EPS * np.sum(np.abs(coefficients), axis=0)
 
 
-def launch_phase(problem, grid):
+def launch_phase(problem, run_request, grid):
     """Return the run's nonlinear phase ``L ||N(a_0)|| / ||a_0||`` by the reference.
 
     ``tests/march_bounds.py``'s ``measured_scales``, at the seam.
     """
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         state = problem.initial.field0[None]
         backend._hoist(0.0)
@@ -174,9 +180,9 @@ def launch_phase(problem, grid):
     return LENGTH * float(np.linalg.norm(source) / np.linalg.norm(state))
 
 
-def replay(backend_class, problem, grid):
+def replay(backend_class, problem, run_request, grid):
     """Replay the schedule to its plane; return the observed field."""
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(LENGTH)
@@ -194,12 +200,12 @@ def tabulated(field_grid, substitute):
 
 
 def test_the_slots_hold_the_tables_values(tabulated, field_grid):
-    backend = NativeBackend(tabulated, grid=field_grid)
+    backend = NativeBackend(*tabulated, grid=field_grid)
     tables = backend._z_tables
     try:
         assert tables is not None and tables.phi and tables.prefactor
-        phi = tabulated.linear.polynomial
-        prefactor = tabulated.responses.prefactor
+        phi = tabulated.problem.linear.polynomial
+        prefactor = tabulated.problem.responses.prefactor
         # The span's ends, an interior breakpoint and points between.
         positions = sorted(
             {0.0, float(phi.breakpoints[1]), 0.3 * LENGTH, LENGTH, phi.z_span[1]}
@@ -220,11 +226,11 @@ def test_the_slots_hold_the_tables_values(tabulated, field_grid):
 
 
 def test_the_phase_sum_of_two_slots_is_the_tables_difference(tabulated, field_grid):
-    backend = NativeBackend(tabulated, grid=field_grid)
+    backend = NativeBackend(*tabulated, grid=field_grid)
     tables = backend._z_tables
     native_state = backend._native_state
     try:
-        phi = tabulated.linear.polynomial
+        phi = tabulated.problem.linear.polynomial
         z0, z1 = 0.25 * LENGTH, 0.4 * LENGTH
         slot_of = tables.load([z0, z1])
         row = tables.phi_row(slot_of, z0, z1)
@@ -250,17 +256,17 @@ def test_the_phase_sum_of_two_slots_is_the_tables_difference(tabulated, field_gr
 def test_the_rate_slot_holds_the_derivative_table(tabulated, field_grid):
     # The exponential Adams march's compensation reads D = dPhi/dz from the
     # derivative table, on the side of an interior breakpoint a step came from.
-    backend = NativeBackend(tabulated, grid=field_grid)
+    backend = NativeBackend(*tabulated, grid=field_grid)
     tables = backend._z_tables
     try:
         assert tables.rate_slot == tables.slots
-        rate = tabulated.linear.rate
+        rate = tabulated.problem.linear.rate
         edge = float(rate.breakpoints[1])
         for z, before in ((edge, True), (edge, False), (0.5 * LENGTH, True)):
             row = backend._rate_weights(z, before=before)
             assert row.tolist() == [0.0] * tables.slots + [1.0]
             got = backend._native_state.table_terms_to_host("phi", tables.rate_slot)
-            want = phi_rate(tabulated.linear, z, before=before)
+            want = phi_rate(tabulated.problem.linear, z, before=before)
             index = rate.interval_containing(z)
             if before and index > 0 and z <= float(rate.breakpoints[index]):
                 index -= 1
@@ -282,7 +288,7 @@ def test_the_rate_slot_holds_the_derivative_table(tabulated, field_grid):
 @pytest.mark.parametrize("march", MARCHES)
 def test_ten_steps_match_the_reference(field_grid, substitute, march, tables):
     phi, prefactor = TABLES[tables]
-    problem = tabulate(
+    problem, run_request = tabulate(
         capillary(field_grid, MARCHES[march]),
         substitute,
         phi=phi,
@@ -290,10 +296,13 @@ def test_ten_steps_match_the_reference(field_grid, substitute, march, tables):
     )
     assert not problem.device_ready
     bound = march_bound(
-        problem, phi=max(launch_phase(problem, field_grid), 0.1), backend="native"
+        problem,
+        run_request,
+        phi=max(launch_phase(problem, run_request, field_grid), 0.1),
+        backend="native",
     )
-    expected = replay(NumpyRefBackend, problem, field_grid)
-    got = replay(NativeBackend, problem, field_grid)
+    expected = replay(NumpyRefBackend, problem, run_request, field_grid)
+    got = replay(NativeBackend, problem, run_request, field_grid)
     assert_matched(got, expected, bound, what=f"{march}, {tables} on the table")
 
 
@@ -302,11 +311,11 @@ def test_a_device_build_refuses_the_table_naming_the_cpu_backends(
 ):
     monkeypatch.setattr(backend_module, "_on_device", lambda: True)
     with pytest.raises(BackendError, match="on an accelerator") as refused:
-        NativeBackend(tabulated, grid=field_grid)
+        NativeBackend(*tabulated, grid=field_grid)
     message = str(refused.value)
     size = (
-        tabulated.linear.phi_coefficients.nbytes
-        + tabulated.responses.prefactor.coefficients.nbytes
+        tabulated.problem.linear.phi_coefficients.nbytes
+        + tabulated.problem.responses.prefactor.coefficients.nbytes
     )
     assert f"{size / 1e6:.3g} MB" in message
     # The native CPU build is named first, the reference after it.
@@ -325,24 +334,24 @@ def test_no_cpu_configuration_refuses_a_z_table(
     monkeypatch.setattr(backend_module, "require_device_ready", refuse)
     phi, prefactor = TABLES[tables]
     for integrator in MARCHES.values():
-        problem = tabulate(
+        problem, run_request = tabulate(
             capillary(field_grid, integrator), substitute, phi=phi, prefactor=prefactor
         )
-        NativeBackend(problem, grid=field_grid).close()
+        NativeBackend(problem, run_request, grid=field_grid).close()
 
 
 def test_the_ledger_counts_the_resident_tables(tabulated, field_grid):
-    backend = NativeBackend(tabulated, grid=field_grid)
+    backend = NativeBackend(*tabulated, grid=field_grid)
     try:
         ledger = backend.memory_ledger()
         tables = backend._z_tables
         edges = 8 * (
-            tabulated.linear.polynomial.breakpoints.size
-            + tabulated.linear.rate.breakpoints.size
-            + tabulated.responses.prefactor.breakpoints.size
+            tabulated.problem.linear.polynomial.breakpoints.size
+            + tabulated.problem.linear.rate.breakpoints.size
+            + tabulated.problem.responses.prefactor.breakpoints.size
         )
         assert ledger["z_tables"] == tables.nbytes + edges
-        field = 16 * int(np.prod(tabulated.shape))
+        field = 16 * int(np.prod(tabulated.problem.shape))
         assert ledger["fixed_phi_terms"] == tables.n_phi * field
         assert ledger["fixed_prefactor_terms"] == tables.slots * field
     finally:
@@ -350,7 +359,7 @@ def test_the_ledger_counts_the_resident_tables(tabulated, field_grid):
 
 
 def test_the_slots_are_reused_least_recently_used_first(tabulated, field_grid):
-    backend = NativeBackend(tabulated, grid=field_grid)
+    backend = NativeBackend(*tabulated, grid=field_grid)
     tables = backend._z_tables
     try:
         count = tables.slots

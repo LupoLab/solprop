@@ -41,8 +41,10 @@ from solprop.stepper import PIController
 from solprop.stepper.multistep import MarchPolicy
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate import routes
+from solprop.translate import run_request as run_requests
 from solprop.translate.linop import LinearOperator, delta_phi
-from solprop.translate.problem import PropagationProblem
+from solprop.translate.problem import PropagationProblem, Translation
+from solprop.translate.run_request import RunRequest
 from solprop.translate.spatial import SeparableOperator
 from solprop.translate.stage import StageScalars, StageTerms, scalars
 
@@ -76,8 +78,8 @@ def driver(soliton_problem, narrow_grid, scripted):
     """Return ``(**kwargs) -> ScriptedDriver`` loaded at the entrance, on each copy."""
 
     def build(*, planes=(LENGTH,), field=None, noise=None, **kwargs):
-        problem = soliton_problem(narrow_grid, 1, save_planes=list(planes))
-        made = scripted(problem, grid=narrow_grid, **kwargs)
+        problem, run_request = soliton_problem(narrow_grid, 1, save_planes=list(planes))
+        made = scripted(problem, run_request, grid=narrow_grid, **kwargs)
         made.set_initial(problem.initial.field0 if field is None else field, noise)
         return made
 
@@ -135,11 +137,13 @@ def test_a_rejected_step_is_retried_at_the_rejection_factor_alone(
     forever.
     """
     controller = PIController(rtol=1e-10, atol=1e-18, max_factor=2.0)
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid, 1, save_planes=[LENGTH], controller=controller
     )
     # Three easy steps fill the lag and ask for growth; the fourth fails narrowly.
-    made = scripted(problem, grid=narrow_grid, norms=[0.01, 0.01, 0.01, 1.0001])
+    made = scripted(
+        problem, run_request, grid=narrow_grid, norms=[0.01, 0.01, 0.01, 1.0001]
+    )
     made.set_initial(problem.initial.field0, None)
     made.propagate_to(LENGTH)
     accepted = made.observe().step_history.accepted
@@ -164,7 +168,7 @@ def test_a_diverged_trial_is_rejected_shrunk_and_recorded_as_infinity(driver, di
     assert history.error_norm[0] == np.inf
     assert np.all(np.isfinite(history.error_norm[1:]))
     assert bool(history.accepted[1])
-    controller = made._problem.stepper.controller
+    controller = made._stepper.controller
     assert made.calls[1][0] == 0.0
     assert made.calls[1][1] == pytest.approx(made.calls[0][1] * controller.min_factor)
 
@@ -187,8 +191,10 @@ def test_a_replayed_schedule_takes_its_steps_as_given(
 ):
     """A replay never rejects and reads its position off the schedule's edges."""
     schedule = FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8)
-    problem = soliton_problem(narrow_grid, 1, save_planes=[LENGTH], schedule=schedule)
-    made = scripted(problem, grid=narrow_grid, norms=[5.0] * 8)
+    problem, run_request = soliton_problem(
+        narrow_grid, 1, save_planes=[LENGTH], schedule=schedule
+    )
+    made = scripted(problem, run_request, grid=narrow_grid, norms=[5.0] * 8)
     made.set_initial(problem.initial.field0, None)
     summary = made.propagate_to(LENGTH)
     assert summary.n_steps == 8
@@ -201,7 +207,7 @@ def test_a_replayed_schedule_takes_its_steps_as_given(
 
 def test_a_replay_that_runs_out_says_so(scripted, soliton_problem, narrow_grid):
     """A schedule too short for the target is an error, not a quiet stop."""
-    full = soliton_problem(
+    full, full_request = soliton_problem(
         narrow_grid,
         1,
         save_planes=[LENGTH],
@@ -209,13 +215,14 @@ def test_a_replay_that_runs_out_says_so(scripted, soliton_problem, narrow_grid):
     )
     # The operator table still covers the whole run, so the guard that fires is the
     # schedule's own and not the table's.
-    problem = dataclasses.replace(
-        full,
-        stepper=dataclasses.replace(
-            full.stepper, schedule=FixedSchedule.uniform(0.0, LENGTH / 2, LENGTH / 8)
-        ),
+    problem = full
+    run_request = full_request.with_stepper(
+        dataclasses.replace(
+            full_request.stepper,
+            schedule=FixedSchedule.uniform(0.0, LENGTH / 2, LENGTH / 8),
+        )
     )
-    made = scripted(problem, grid=narrow_grid)
+    made = scripted(problem, run_request, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     made.propagate_to(LENGTH / 2)
     with pytest.raises(BackendError, match="cannot reach"):
@@ -236,17 +243,17 @@ def test_a_schedule_of_equal_steps_lands_on_a_plane_its_running_sum_misses(
     schedule = FixedSchedule(steps)
     middle = float(schedule.edges[200])
     assert LENGTH / 2 - middle > 8 * float(np.spacing(LENGTH / 2))
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid, 1, save_planes=[LENGTH / 2, LENGTH], schedule=schedule
     )
-    made = scripted(problem, grid=narrow_grid)
+    made = scripted(problem, run_request, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     made.propagate_to(LENGTH / 2)
     assert made._schedule_index == 200
     assert made._z == middle
     made.propagate_to(LENGTH)
     assert made._schedule_index == 400
-    resumed = scripted(problem, grid=narrow_grid)
+    resumed = scripted(problem, run_request, grid=narrow_grid)
     resumed.set_initial(problem.initial.field0, None, z=LENGTH / 2)
     assert resumed._schedule_index == 200
 
@@ -256,10 +263,10 @@ def test_a_resume_continues_a_replay_from_the_edge_it_stopped_at(
 ):
     """``set_initial(z=)`` finds the schedule index the position belongs to."""
     schedule = FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8)
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid, 1, save_planes=[LENGTH / 2, LENGTH], schedule=schedule
     )
-    made = scripted(problem, grid=narrow_grid)
+    made = scripted(problem, run_request, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None, z=LENGTH / 2)
     assert made._schedule_index == 4
     made.propagate_to(LENGTH)
@@ -271,8 +278,10 @@ def test_a_resume_off_the_schedule_s_edges_is_refused(
 ):
     """A position the run never stopped at cannot continue a replay in step."""
     schedule = FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8)
-    problem = soliton_problem(narrow_grid, 1, save_planes=[LENGTH], schedule=schedule)
-    made = scripted(problem, grid=narrow_grid)
+    problem, run_request = soliton_problem(
+        narrow_grid, 1, save_planes=[LENGTH], schedule=schedule
+    )
+    made = scripted(problem, run_request, grid=narrow_grid)
     with pytest.raises(BackendError, match="one of its edges"):
         made.set_initial(problem.initial.field0, None, z=LENGTH / 3)
 
@@ -281,15 +290,15 @@ def test_the_input_noise_model_adds_its_realisation_once(
     scripted, driver, soliton_problem, narrow_grid
 ):
     """Added at the entrance and never again, so a resume is not given a second draw."""
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         1,
         save_planes=[LENGTH],
         noise=input_noise(narrow_grid, np.random.default_rng(7)),
     )
-    entrance = scripted(problem, grid=narrow_grid)
+    entrance = scripted(problem, run_request, grid=narrow_grid)
     entrance.set_initial(problem.initial.field0, None)
-    resumed = scripted(problem, grid=narrow_grid)
+    resumed = scripted(problem, run_request, grid=narrow_grid)
     resumed.set_initial(problem.initial.field0, None, z=LENGTH / 2)
     masked = problem.initial.field0 * problem.grids.active_mask
     assert not np.array_equal(present(entrance._state)[0], masked)
@@ -301,13 +310,13 @@ def test_the_modified_noise_model_keeps_its_realisation_apart(
     scripted, soliton_problem, narrow_grid
 ):
     """The propagating field never carries it; it is advanced by the unitary phase."""
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         1,
         save_planes=[LENGTH],
         noise=modified_noise(narrow_grid, np.random.default_rng(7)),
     )
-    made = scripted(problem, grid=narrow_grid)
+    made = scripted(problem, run_request, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     assert np.array_equal(
         present(made._state)[0], problem.initial.field0 * problem.grids.active_mask
@@ -324,13 +333,13 @@ def test_a_given_realisation_replaces_the_contract_s(
     scripted, soliton_problem, narrow_grid
 ):
     """The realisation given to ``set_initial`` wins over the assembled one."""
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         1,
         save_planes=[LENGTH],
         noise=modified_noise(narrow_grid, np.random.default_rng(7)),
     )
-    made = scripted(problem, grid=narrow_grid)
+    made = scripted(problem, run_request, grid=narrow_grid)
     made.set_initial(
         problem.initial.field0,
         modified_noise(narrow_grid, np.random.default_rng(11)),
@@ -352,8 +361,8 @@ def test_the_guards_refuse_what_cannot_be_done(
     scripted, driver, soliton_problem, narrow_grid
 ):
     """Closed, unloaded, backwards, off the table, and the wrong shape."""
-    problem = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
-    empty = scripted(problem, grid=narrow_grid)
+    problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
+    empty = scripted(problem, run_request, grid=narrow_grid)
     with pytest.raises(BackendError, match="no initial state"):
         empty.propagate_to(LENGTH)
     with pytest.raises(BackendError, match="expected"):
@@ -381,11 +390,13 @@ def test_statistics_without_a_grid_say_which_backend_to_give_one_to(
     scripted, soliton_problem, narrow_grid
 ):
     """The message names the backend, so it is actionable for whichever one it is."""
-    problem = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
-    made = scripted(problem)
+    problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
+    made = scripted(problem, run_request)
     with pytest.raises(BackendError, match="'scripted'"):
         made._require_grid()
-    assert scripted(problem, grid=narrow_grid)._require_grid() is narrow_grid
+    assert (
+        scripted(problem, run_request, grid=narrow_grid)._require_grid() is narrow_grid
+    )
 
 
 # --------------------------------------------------------------- progress reporting
@@ -476,10 +487,10 @@ def test_a_run_with_a_reporter_is_the_run_without(
     schedule = FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8)
 
     def run(reporter):
-        problem = soliton_problem(
+        problem, run_request = soliton_problem(
             narrow_grid, 1, save_planes=[LENGTH / 2, LENGTH], schedule=schedule
         )
-        made = backend_class(problem, grid=narrow_grid)
+        made = backend_class(problem, run_request, grid=narrow_grid)
         made.set_progress(reporter)
         made.set_initial(problem.initial.field0, None)
         fields, histories = [], []
@@ -492,7 +503,9 @@ def test_a_run_with_a_reporter_is_the_run_without(
         return fields, histories
 
     quiet_fields, quiet_history = run(NullReporter())
-    rtol = soliton_problem(narrow_grid, 1, save_planes=[LENGTH]).stepper.controller.rtol
+    rtol = soliton_problem(
+        narrow_grid, 1, save_planes=[LENGTH]
+    ).request.stepper.controller.rtol
     reporters = [
         LogReporter(
             period=period, clock=lambda: 0.0, logger=logging.getLogger("quiet")
@@ -518,8 +531,8 @@ def test_both_backends_report_the_same_calls_in_the_same_order(
 ):
     reporter = Events()
     planes = [LENGTH / 2, LENGTH]
-    problem = soliton_problem(narrow_grid, 1, save_planes=planes)
-    made = backend_class(problem, grid=narrow_grid)
+    problem, run_request = soliton_problem(narrow_grid, 1, save_planes=planes)
+    made = backend_class(problem, run_request, grid=narrow_grid)
     made.set_progress(reporter)
     made.set_initial(problem.initial.field0, None)
     summaries = []
@@ -543,10 +556,11 @@ def test_both_backends_report_the_same_calls_in_the_same_order(
 # -------------------------------------------- the statistics channel between planes
 
 
-def periodic(problem, names=("energy",), *, period=1):
-    """Return `problem` with a periodic statistics subset of `names`."""
+def periodic(translation, names=("energy",), *, period=1):
+    """Return a translation whose request asks for `names` periodically too."""
+    problem, run_request = translation
     spec = StatsSpec(names=names, periodic=names, period=period)
-    return dataclasses.replace(problem, stats_spec=spec)
+    return Translation(problem, run_request.for_run(stats=spec))
 
 
 def rows_of(made):
@@ -569,10 +583,10 @@ def test_a_row_is_taken_at_the_position_the_accepted_step_reached(
     """
     schedule = FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8)
     for extra in ({}, {"schedule": schedule}):
-        problem = periodic(
+        problem, run_request = periodic(
             soliton_problem(narrow_grid, 1, save_planes=[LENGTH], **extra)
         )
-        made = scripted(problem, grid=narrow_grid)
+        made = scripted(problem, run_request, grid=narrow_grid)
         made.set_initial(problem.initial.field0, None)
         rows = rows_of(made)
         # `ScriptedDriver.stats` returns `self._z`, so the recorded value is the
@@ -596,8 +610,10 @@ def test_a_row_indexes_the_attempt_it_was_taken_after(
     scripted, soliton_problem, narrow_grid
 ):
     """The index is into the plane's own history, which counts rejected attempts."""
-    problem = periodic(soliton_problem(narrow_grid, 1, save_planes=[LENGTH]))
-    made = scripted(problem, grid=narrow_grid, norms=[5.0, 0.1, 0.1])
+    problem, run_request = periodic(
+        soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
+    )
+    made = scripted(problem, run_request, grid=narrow_grid, norms=[5.0, 0.1, 0.1])
     made.set_initial(problem.initial.field0, None)
     made.propagate_to(LENGTH)
     observed = made.observe()
@@ -614,8 +630,12 @@ def test_the_period_counts_accepted_steps_and_a_rejection_is_not_one(
     scripted, soliton_problem, narrow_grid
 ):
     """A rejected attempt neither advances the phase nor records a row."""
-    problem = periodic(soliton_problem(narrow_grid, 1, save_planes=[LENGTH]), period=2)
-    made = scripted(problem, grid=narrow_grid, norms=[5.0, 0.1, 0.1, 0.1, 0.1])
+    problem, run_request = periodic(
+        soliton_problem(narrow_grid, 1, save_planes=[LENGTH]), period=2
+    )
+    made = scripted(
+        problem, run_request, grid=narrow_grid, norms=[5.0, 0.1, 0.1, 0.1, 0.1]
+    )
     made.set_initial(problem.initial.field0, None)
     made.propagate_to(LENGTH)
     observed = made.observe()
@@ -629,8 +649,8 @@ def test_the_rows_of_one_plane_are_flushed_with_it(
 ):
     """`observe` drains the buffer, so a plane's rows are its own."""
     planes = [LENGTH / 2, LENGTH]
-    problem = periodic(soliton_problem(narrow_grid, 1, save_planes=planes))
-    made = scripted(problem, grid=narrow_grid)
+    problem, run_request = periodic(soliton_problem(narrow_grid, 1, save_planes=planes))
+    made = scripted(problem, run_request, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     seen = []
     for plane in planes:
@@ -650,10 +670,10 @@ def test_the_buffer_grows_across_a_plane_with_more_steps_than_its_capacity(
     """More rows than `INITIAL_STEP_STATS_CAPACITY`, so the doubling is exercised."""
     n_steps = 3 * INITIAL_STEP_STATS_CAPACITY
     schedule = FixedSchedule.uniform(0.0, LENGTH, LENGTH / n_steps)
-    problem = periodic(
+    problem, run_request = periodic(
         soliton_problem(narrow_grid, 1, save_planes=[LENGTH], schedule=schedule)
     )
-    made = scripted(problem, grid=narrow_grid)
+    made = scripted(problem, run_request, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     rows = rows_of(made)
     assert rows.n_rows == n_steps
@@ -663,8 +683,10 @@ def test_the_buffer_grows_across_a_plane_with_more_steps_than_its_capacity(
 
 def test_a_load_starts_the_period_again(scripted, soliton_problem, narrow_grid):
     """`set_initial` resets the phase, so a resume is not the uninterrupted run."""
-    problem = periodic(soliton_problem(narrow_grid, 1, save_planes=[LENGTH]), period=3)
-    made = scripted(problem, grid=narrow_grid)
+    problem, run_request = periodic(
+        soliton_problem(narrow_grid, 1, save_planes=[LENGTH]), period=3
+    )
+    made = scripted(problem, run_request, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     assert made._accepted_steps == 0
     made.propagate_to(LENGTH)
@@ -708,13 +730,13 @@ def test_alternate_statistics_storage_hooks_keep_shared_acceptance_and_period(
             return StepStats(positions, indices, {"energy": positions[:, None]})
 
     extra = {"schedule": FixedSchedule.uniform(0, LENGTH, LENGTH / 8)} if replay else {}
-    problem = periodic(
+    problem, run_request = periodic(
         soliton_problem(narrow_grid, 1, save_planes=[LENGTH / 2, LENGTH], **extra),
         period=3,
     )
     norms = () if replay else (5.0, 0.1)
-    deferred = DeferredRows(problem, grid=narrow_grid, norms=norms)
-    default = scripted(problem, grid=narrow_grid, norms=norms)
+    deferred = DeferredRows(problem, run_request, grid=narrow_grid, norms=norms)
+    default = scripted(problem, run_request, grid=narrow_grid, norms=norms)
     for owner in (deferred, default):
         owner.set_initial(problem.initial.field0, None)
     for plane in (LENGTH / 2, LENGTH):
@@ -759,8 +781,10 @@ def test_a_statistic_that_changes_shape_within_a_plane_is_refused(
             width = 1 + len(self._history) // 2
             return {name: np.zeros((1, width)) for name in spec.names}
 
-    problem = periodic(soliton_problem(narrow_grid, 1, save_planes=[LENGTH]))
-    made = Widening(problem, grid=narrow_grid)
+    problem, run_request = periodic(
+        soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
+    )
+    made = Widening(problem, run_request, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     with pytest.raises(BackendError, match="came back with shape"):
         made.propagate_to(LENGTH)
@@ -804,7 +828,7 @@ def test_the_controller_keeps_only_the_norms_it_reads(driver):
     field is loaded, and its length is one only after the first accepted step.
     """
     made = driver()
-    lag = made._problem.stepper.controller.lag
+    lag = made._stepper.controller.lag
     assert made._accepted_norms.maxlen == lag + 2
     summary = made.propagate_to(LENGTH)
     assert summary.n_steps > lag + 2
@@ -819,11 +843,13 @@ FIELD = "jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega']"
 
 DRIVER_SURFACE = {
     "__init__": (
-        "(self, problem: solprop.translate.problem.PropagationProblem, *, "
+        "(self, problem: solprop.translate.problem.PropagationProblem, "
+        "request: solprop.translate.run_request.RunRequest, *, "
         "grid: solprop.grid.TimeGrid | None = None, "
         "modes: collections.abc.Sequence[solprop.modes.protocol.Mode] | None = None, "
         "profiles: collections.abc.Mapping[str, solprop.profiles.ZProfile] | None = "
-        "None"
+        "None, "
+        "options: solprop.backends.session.ExecutionOptions | None = None"
         ") -> None"
     ),
     "_trial_step": "(self, z: float, dz: float) -> tuple[float, _StateT]",
@@ -929,6 +955,11 @@ DRIVER_SURFACE = {
     ),
     "set_progress": "(self, reporter: solprop.log.ProgressReporter) -> None",
     "propagate_to": "(self, z: float) -> solprop.backends.protocol.StepSummary",
+    "prepare": (
+        "(self, problem: solprop.translate.problem.PropagationProblem, "
+        "request: solprop.translate.run_request.RunRequest) -> "
+        "solprop.backends.session.PreparedExecution"
+    ),
     "available_device_memory": "(self) -> int | None",
     # A subclass's and the shared marches' bookkeeping.
     "_axis_row_populations": (
@@ -991,9 +1022,16 @@ holds inside this one).
 
 DRIVER_ATTRIBUTES = (
     "_adams",
+    "_chunk_plan",
+    "_options",
+    "chunk_plan",
+    "node_chunk",
     "_low_storage",
     "_in_flight",
     "_problem",
+    "_request",
+    "_stepper",
+    "request",
     "_terms",
     "_grid",
     "_modes",
@@ -1154,8 +1192,8 @@ def test_the_surface_a_backend_subclasses_is_frozen(soliton_problem, narrow_grid
         assert str(inspect.signature(getattr(BatchBackend, name))) == signature, name
     for name, signature in DRIVER_SURFACE.items():
         assert str(inspect.signature(getattr(StepDriver, name))) == signature, name
-    problem = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
-    made = ScriptedDriver(problem, grid=narrow_grid)
+    problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
+    made = ScriptedDriver(problem, run_request, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     for name in DRIVER_ATTRIBUTES:
         assert hasattr(made, name), name
@@ -1329,13 +1367,23 @@ PROPAGATION_PROBLEM_FIELDS = (
     "linear",
     "responses",
     "initial",
-    "stepper",
-    "stats_spec",
     "route",
     "precision",
     "split_crossing",
 )
-"""The fields of the one descriptor that crosses into a backend, in order."""
+"""The fields of the one descriptor that crosses into a backend, in order: the
+numerical meaning alone, whose run's policy is the request's (SEP 47 section 5.2)."""
+
+RUN_REQUEST_FIELDS = (
+    "integration",
+    "error_control",
+    "replay",
+    "observation",
+    "boundary",
+    "history",
+    "snapshots",
+)
+"""The fields of the run request a backend is built with, in order."""
 
 ROUTE_VARIANT_FIELDS = {
     "ModalRoute": ("transform", "tdse"),
@@ -1356,6 +1404,10 @@ def test_the_descriptor_and_its_route_union_are_frozen():
         tuple(field.name for field in dataclasses.fields(PropagationProblem))
         == PROPAGATION_PROBLEM_FIELDS
     )
+    assert (
+        tuple(field.name for field in dataclasses.fields(RunRequest))
+        == RUN_REQUEST_FIELDS
+    )
     assert typing.get_args(routes.Route.__value__) == tuple(
         getattr(routes, name) for name in ROUTE_VARIANT_FIELDS
     )
@@ -1372,5 +1424,10 @@ def test_the_descriptor_and_its_route_union_are_frozen():
 def test_the_native_descriptor_manifest_is_inside_the_frozen_one():
     native = pytest.importorskip("solprop_native")
     assert set(native.PROBLEM_FIELDS) <= set(PROPAGATION_PROBLEM_FIELDS)
+    # The request's fields, and the stepper section it gathers for the march.
+    assert set(native.REQUEST_FIELDS) <= {*RUN_REQUEST_FIELDS, "stepper"}
     for name, fields in native.ROUTE_FIELDS.items():
         assert set(fields) <= set(ROUTE_VARIANT_FIELDS[name])
+    for name, fields in native.REQUEST_SECTION_FIELDS.items():
+        section = getattr(run_requests, name)
+        assert set(fields) <= {field.name for field in dataclasses.fields(section)}

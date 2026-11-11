@@ -95,7 +95,7 @@ class NumpyBatchBackend(HostGroup):
         """
         members = self._reference_members
         state = np.concatenate([member._require_state() for member in members])
-        tableau = self._problem.stepper.tableau
+        tableau = self._stepper.tableau
         positions = [z + dz, *(z + float(node) * dz for node in tableau.nodes)]
         for member in members:
             member._hoist(z)
@@ -166,7 +166,7 @@ class NumpyBatchBackend(HostGroup):
                 state[i : i + 1],
                 advanced[i : i + 1],
                 member._problem.grids.norm_mask,
-                member._problem.stepper.controller,
+                member._stepper.controller,
             )
             for i, member in enumerate(members)
         )

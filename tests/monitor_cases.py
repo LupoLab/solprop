@@ -23,6 +23,7 @@ from solprop.backends.driver import StepDriver
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import select
+from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
 from solprop.monitor import BoundaryCheck, BoundaryEnergies
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -30,6 +31,7 @@ from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.run_request import RunRequest
 
 ROUTE_NAMES = (
     "gnlse",
@@ -110,16 +112,27 @@ def as_driver(backend: Backend) -> StepDriver[Any] | HostDriver[Any]:
 
 
 def watched(
-    simulation: Simulation, name: str, problem: PropagationProblem | None = None
+    simulation: Simulation,
+    name: str,
+    problem: PropagationProblem | None = None,
+    options: ExecutionOptions | None = None,
+    run_request: RunRequest | None = None,
 ) -> Backend:
-    """Return a backend loaded with the edge-reaching launch and watched."""
+    """Return a backend loaded with the edge-reaching launch and watched.
+
+    `options` default to the simulation's own execution options; `problem` and
+    `run_request` to its own translation.
+    """
     problem = simulation.translate() if problem is None else problem
+    run_request = simulation._run_request() if run_request is None else run_request
     backend = select(
         name,
         problem,
+        run_request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
+        options=simulation.settings.execution_options() if options is None else options,
     )
     driver = as_driver(backend)
     driver.set_initial(with_copy(problem.initial.field0, simulation.grid.n_t), None)
@@ -136,11 +149,14 @@ def reading(backend: Backend) -> BoundaryEnergies:
 
 
 def record_after_march(
-    simulation: Simulation, name: str, problem: PropagationProblem | None = None
+    simulation: Simulation,
+    name: str,
+    problem: PropagationProblem | None = None,
+    run_request: RunRequest | None = None,
 ) -> dict[str, Any]:
     """Return a backend's monitor record after the probe's fixed steps, with the split
     collar's crossing cap the last check read (``step_cap``)."""
-    backend = watched(simulation, name, problem)
+    backend = watched(simulation, name, problem, run_request=run_request)
     try:
         backend.propagate_to(LENGTH)
         monitor = as_driver(backend)._monitor

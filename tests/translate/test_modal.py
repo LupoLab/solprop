@@ -19,8 +19,6 @@ from solprop.profiles import Linear, PressureGradient
 from solprop.pulses import SechPulse
 from solprop.stepper import PIController
 from solprop.translate.modal import (
-    BUFFERS_PER_NODE,
-    DEFAULT_NODE_BUDGET,
     Transform,
     mode_averaged_transform,
     multimode_transform,
@@ -73,7 +71,7 @@ def soliton_problem(envelope_grid, gnlse, soliton):
         density=1.0,
         shock=False,
         prefactor_index=1.0,
-    )
+    ).problem
 
 
 def scaffold_nonlinear(problem, grid, state):
@@ -347,47 +345,6 @@ def test_an_empty_mode_set_is_refused(rule, envelope_grid):
         multimode_transform([], rule, envelope_grid, z_max=1.0)
 
 
-# ------------------------------------------------------------------------ node chunks
-
-
-def test_a_small_problem_is_not_chunked(mode_set, rule, envelope_grid):
-    transform = multimode_transform(
-        mode_set, rule, envelope_grid, z_max=1.0, components=("x",)
-    )
-    assert transform.node_chunk == rule.n_nodes
-
-
-def test_the_chunk_follows_the_memory_budget(mode_set, rule, envelope_grid):
-    per_node = BUFFERS_PER_NODE * 1 * envelope_grid.n_to * 16
-    transform = multimode_transform(
-        mode_set,
-        rule,
-        envelope_grid,
-        z_max=1.0,
-        components=("x",),
-        node_budget=4 * per_node,
-    )
-    assert transform.node_chunk == 4
-
-
-def test_the_chunk_never_falls_below_one(mode_set, rule, envelope_grid):
-    transform = multimode_transform(
-        mode_set, rule, envelope_grid, z_max=1.0, components=("x",), node_budget=1
-    )
-    assert transform.node_chunk == 1
-
-
-def test_a_budget_of_nothing_is_refused(mode_set, rule, envelope_grid):
-    with pytest.raises(TranslationError, match="positive number of bytes"):
-        multimode_transform(
-            mode_set, rule, envelope_grid, z_max=1.0, components=("x",), node_budget=0
-        )
-
-
-def test_the_default_budget_is_stated_in_bytes():
-    assert DEFAULT_NODE_BUDGET == 64 * 2**20
-
-
 # ------------------------------------------------------------------------ validation
 
 
@@ -399,22 +356,6 @@ def test_a_projection_that_is_not_the_transpose_is_refused(soliton_problem):
             projection=np.ones((1, 3)),
             projection_coarse=np.ones((1, 2)),
             taper_scale=None,
-            node_chunk=1,
-            aeff=transform.aeff,
-            kind="modal",
-        )
-
-
-@pytest.mark.parametrize("chunk", [0, 3])
-def test_a_chunk_outside_the_node_set_is_refused(soliton_problem, chunk):
-    transform = soliton_problem.transform
-    with pytest.raises(TranslationError, match="node_chunk must lie"):
-        Transform(
-            synthesis=np.ones((2, 1)),
-            projection=np.ones((1, 2)),
-            projection_coarse=np.ones((1, 2)),
-            taper_scale=None,
-            node_chunk=chunk,
             aeff=transform.aeff,
             kind="modal",
         )
@@ -462,7 +403,7 @@ def test_a_spatial_kind_must_match_its_geometry(envelope_grid):
     from solprop.grid import RadialGrid  # noqa: PLC0415
     from solprop.translate.radial import radial_transform  # noqa: PLC0415
 
-    transform = radial_transform(RadialGrid(1e-3, 8), envelope_grid, n_pol=1, z_max=1.0)
+    transform = radial_transform(RadialGrid(1e-3, 8), envelope_grid, z_max=1.0)
     assert transform.kind == "radial"
     with pytest.raises(TranslationError, match="a radial geometry needs kind 'radial'"):
         dataclasses.replace(transform, kind="free")

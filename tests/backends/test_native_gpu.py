@@ -34,8 +34,8 @@ def accelerator_backend():
     return native.NativeBackend
 
 
-def _field(backend_class, problem, grid):
-    backend = backend_class(problem, grid=grid)
+def _field(backend_class, problem, run_request, grid):
+    backend = backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         summary = backend.propagate_to(1e-3)
@@ -48,14 +48,14 @@ def test_one_device_step_meets_the_predeclared_fft_bound(
     accelerator_backend, soliton_problem, soliton_grid
 ):
     """Exercise one complete seven-stage device trial against the NumPy oracle."""
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         soliton_grid,
         3,
         save_planes=[1e-3],
         schedule=FixedSchedule.uniform(0.0, 1e-3, 1e-3),
     )
-    actual, summary = _field(accelerator_backend, problem, soliton_grid)
-    expected, reference = _field(NumpyRefBackend, problem, soliton_grid)
+    actual, summary = _field(accelerator_backend, problem, run_request, soliton_grid)
+    expected, reference = _field(NumpyRefBackend, problem, run_request, soliton_grid)
     deviation = float(np.linalg.norm(actual - expected) / np.linalg.norm(expected))
     bound = ladder_bound("native", 16 * np.finfo(float).eps, soliton_grid.n_to, 7)
     assert summary.n_steps == reference.n_steps == 1
@@ -71,14 +71,18 @@ def test_same_card_launch_geometry_is_repeatable(
     order their sums differently from launch to launch, so the two are held to the
     one-step rung's predeclared device envelope (:func:`bounds.ladder_bound`).
     """
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         soliton_grid,
         3,
         save_planes=[1e-3],
         schedule=FixedSchedule.uniform(0.0, 1e-3, 1e-3),
     )
-    first, first_summary = _field(accelerator_backend, problem, soliton_grid)
-    second, second_summary = _field(accelerator_backend, problem, soliton_grid)
+    first, first_summary = _field(
+        accelerator_backend, problem, run_request, soliton_grid
+    )
+    second, second_summary = _field(
+        accelerator_backend, problem, run_request, soliton_grid
+    )
     # A prescribed one-step schedule: its work is accounting, exact.
     assert first_summary.n_steps == second_summary.n_steps
     assert first_summary.n_rejected == second_summary.n_rejected
@@ -95,11 +99,13 @@ def test_a_large_state_crosses_both_ways_through_the_ring_bit_for_bit(
     del accelerator_backend
     simulation = _simulation(192, 2, 1, None)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     engine = cast(
         "Any",
         select(
             "native",
             problem,
+            run_request,
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -131,11 +137,13 @@ def test_the_plans_of_the_scratch_hold_one_work_area(accelerator_backend):
     del accelerator_backend
     simulation = _simulation(512, 2, 1, None)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     engine = cast(
         "Any",
         select(
             "native",
             problem,
+            run_request,
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -157,11 +165,13 @@ def test_a_small_state_holds_no_pinned_ring(accelerator_backend):
     del accelerator_backend
     simulation = _simulation(32, 2, 1, None)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     engine = cast(
         "Any",
         select(
             "native",
             problem,
+            run_request,
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,

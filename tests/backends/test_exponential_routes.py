@@ -60,17 +60,21 @@ def translated(route: str, integrator, rtol: float):
             "integrator": integrator,
         }
     )
-    return simulation, simulation.translate()
+    return simulation, simulation.translate(), simulation._run_request()
 
 
 @pytest.mark.parametrize("route", CONSTANT_ROUTES)
 def test_the_lab_frame_sample_is_the_route_source(route):
-    simulation, problem = translated(route, Multistep(formulation="exponential"), 1e-6)
-    backend = NumpyRefBackend(problem, grid=simulation.grid, modes=simulation.modes)
+    simulation, problem, run_request = translated(
+        route, Multistep(formulation="exponential"), 1e-6
+    )
+    backend = NumpyRefBackend(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         rng = np.random.default_rng(5)
         field = problem.initial.field0[None] * (1.0 + 0.1 * rng.standard_normal())
-        position = 0.3 * float(problem.stepper.save_planes[-1])
+        position = 0.3 * float(run_request.stepper.save_planes[-1])
         lab = backend._adams_lab_source(field, position)
         transported, propagator = backend._adams_source(field, position, position)
     finally:
@@ -85,11 +89,13 @@ def test_the_lab_frame_sample_is_the_route_source(route):
 @pytest.mark.parametrize("route", CONSTANT_ROUTES)
 def test_a_short_run_reproduces_runge_kutta(route):
     def final(integrator, rtol):
-        simulation, problem = translated(route, integrator, rtol)
-        backend = NumpyRefBackend(problem, grid=simulation.grid, modes=simulation.modes)
+        simulation, problem, run_request = translated(route, integrator, rtol)
+        backend = NumpyRefBackend(
+            problem, run_request, grid=simulation.grid, modes=simulation.modes
+        )
         try:
             backend.set_initial(problem.initial.field0, None)
-            for plane in problem.stepper.save_planes:
+            for plane in run_request.stepper.save_planes:
                 backend.propagate_to(float(plane))
             return backend.observe().require_field()
         finally:
@@ -110,12 +116,14 @@ def test_a_short_run_reproduces_runge_kutta(route):
 
 def _march_with(backend_class, route, integrator, rtol=1e-8):
     """Run a route at `rtol`; return its final field, call total and steps."""
-    simulation, problem = translated(route, integrator, rtol)
-    backend = backend_class(problem, grid=simulation.grid, modes=simulation.modes)
+    simulation, problem, run_request = translated(route, integrator, rtol)
+    backend = backend_class(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         backend.set_initial(problem.initial.field0, None)
         steps, field = [], None
-        for plane in problem.stepper.save_planes:
+        for plane in run_request.stepper.save_planes:
             backend.propagate_to(float(plane))
             observed = backend.observe()
             steps += list(observed.step_history.dz)

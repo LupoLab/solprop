@@ -128,7 +128,7 @@ def test_radial_medium_flows_match_an_independent_cumulative_oracle(
             initial[..., grid.active_mask] * np.exp(phase)[:, None]
         )
         absolute_bound = relative_bound * float(np.max(np.abs(expected)))
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             None,
             [],
@@ -142,7 +142,7 @@ def test_radial_medium_flows_match_an_independent_cumulative_oracle(
             dz_init=length / 8,
             schedule=FixedSchedule.uniform(0.0, length, length / 8),
         )
-    backend = spatial_backend_class(problem, grid=grid)
+    backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(length)
@@ -178,7 +178,7 @@ def test_radial_gradient_flow_conserves_axial_flux_and_resumes(spatial_backend_c
         # Y_z = eps0 c^2 Re k_z / omega; the common eps0 c^2 / omega cancels per bin.
         return axial_root(medium, omega, space, z)
 
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [],
@@ -192,7 +192,7 @@ def test_radial_gradient_flow_conserves_axial_flux_and_resumes(spatial_backend_c
         dz_init=length / 8,
         schedule=FixedSchedule.uniform(0.0, length, length / 8),
     )
-    backend = spatial_backend_class(problem, grid=grid)
+    backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(length / 2)

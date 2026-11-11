@@ -69,11 +69,13 @@ def _noise_state(shape: tuple[int, ...], active: np.ndarray, seed: int) -> np.nd
 def _attached(simulation: Simulation, state: np.ndarray) -> Any:
     """Return a native backend loaded with `state` and watched by the edge."""
     problem = simulation.translate()
+    run_request = simulation._run_request()
     backend = cast(
         "Any",
         select(
             "native",
             problem,
+            run_request,
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -257,11 +259,14 @@ def test_a_read_at_every_step_leaves_the_march_where_it_was(
             ),
         )
         problem = simulation.translate()
+        run_request = simulation._run_request()
+        run_request = simulation._run_request()
         backend = cast(
             "Any",
             select(
                 "native",
                 problem,
+                run_request,
                 grid=simulation.grid,
                 modes=simulation.modes,
                 profiles=simulation.profiles,
@@ -528,11 +533,13 @@ def test_the_edge_holds_memory_only_once_a_monitor_binds_it(route: str) -> None:
     # A check-off run pays nothing, and the formula an estimate adds is the row itself.
     simulation = _case(route)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     backend = cast(
         "Any",
         select(
             "native",
             problem,
+            run_request,
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,

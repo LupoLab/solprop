@@ -68,7 +68,7 @@ def route_problem(
     schedule = (
         None if steps is None else FixedSchedule.uniform(0.0, LENGTH, LENGTH / steps)
     )
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         modes,
         [response],
@@ -82,17 +82,17 @@ def route_problem(
         schedule=schedule,
         stats_spec=StatsSpec(names=("energy", "peak_power_total", "peak_intensity")),
     )
-    return problem, modes
+    return problem, run_request, modes
 
 
 def run_route(backend_class, case, route, **options):
-    problem, modes = route_problem(case, route, **options)
-    backend = backend_class(problem, grid=case[1], modes=modes)
+    problem, run_request, modes = route_problem(case, route, **options)
+    backend = backend_class(problem, run_request, grid=case[1], modes=modes)
     try:
         backend.set_initial(problem.initial.field0, None)
         summary = backend.propagate_to(LENGTH)
         field = backend.observe().require_field().copy().reshape(2, -1)
-        statistics = backend.stats(problem.stats_spec)
+        statistics = backend.stats(run_request.observation.stats)
         return field, statistics, summary
     finally:
         backend.close()
@@ -131,12 +131,12 @@ def record_rung(request, backend_name, family, label, measured, bound):
 
 
 def first_derivative(backend_class, case, route):
-    problem, modes = route_problem(case, route)
-    return problem_derivative(backend_class, problem, case[1], modes)
+    problem, run_request, modes = route_problem(case, route)
+    return problem_derivative(backend_class, problem, run_request, case[1], modes)
 
 
-def problem_derivative(backend_class, problem, grid, modes):
-    backend = backend_class(problem, grid=grid, modes=modes)
+def problem_derivative(backend_class, problem, run_request, grid, modes):
+    backend = backend_class(problem, run_request, grid=grid, modes=modes)
     try:
         backend.set_initial(problem.initial.field0, None)
         if isinstance(backend, NumpyRefBackend):
@@ -230,7 +230,7 @@ def plasma_energy_at(backend_class, backend_name, requested_dt):
     derivatives = []
     for gas in ("He", "Ar"):
         table = build_rate_table(QuadraticRate(gas, energies[gas]), (1e3, 1e11))
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             [mode],
             # The trapezoid's second-order ladder; the band rule's error here is a
@@ -245,7 +245,9 @@ def plasma_energy_at(backend_class, backend_name, requested_dt):
             density=density,
             prefactor_index=1.0,
         )
-        derivatives.append(problem_derivative(backend_class, problem, grid, [mode]))
+        derivatives.append(
+            problem_derivative(backend_class, problem, run_request, grid, [mode])
+        )
     difference = derivatives[0] - derivatives[1]
     # U = dt/nt sum_{positive bins} 4 |Ew|^2, so dU/dz has coefficient 8.
     # End bins carry weight one instead of four; their derivative is identically 0.
@@ -374,10 +376,10 @@ def test_circular_plasma_ionises_by_magnitude_through_the_backend(
     results = []
     statistics_error = 0.0
     for route in ("rows", "product"):
-        problem, modes = route_problem(
+        problem, run_request, modes = route_problem(
             case, route, angle=math.pi / 4, phase=math.pi / 2, density=density
         )
-        backend = backend_class(problem, grid=grid, modes=modes)
+        backend = backend_class(problem, run_request, grid=grid, modes=modes)
         try:
             backend.set_initial(problem.initial.field0, None)
             actual = backend.stats(specification)
@@ -491,7 +493,7 @@ def test_full_azimuthal_propagation_obeys_selection_rules(
     # rounding budget counts projection over all 24*5 nodes through eight RK steps.
     bound = 8 * 7 * (2 * gamma(24 * 5) + 16 * EPS * math.ceil(math.log2(grid.n_to)))
     rule = transverse_quadrature(modes, n_r=24, n_theta=5)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         modes,
         [KerrResponse(chi3=1e-26, thg=True)],
@@ -504,7 +506,7 @@ def test_full_azimuthal_propagation_obeys_selection_rules(
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8),
         quadrature=rule,
     )
-    backend = backend_class(problem, grid=grid, modes=modes)
+    backend = backend_class(problem, run_request, grid=grid, modes=modes)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(LENGTH)
@@ -533,7 +535,7 @@ def test_transverse_family_linear_flow_matches_its_neff(
     mode = MarcatiliMode(125e-6, kind=kind, n=0, cladding=1.45, loss=True)
     field = GaussianPulse(wavelength=800e-9, fwhm=15e-15, energy=2e-6).build(grid)
     rule = transverse_quadrature([mode], n_r=24, n_theta=5)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         [mode],
         [],
@@ -548,7 +550,7 @@ def test_transverse_family_linear_flow_matches_its_neff(
     exponent = delta_phi(problem.linear, 0.0, LENGTH)
     bound = 32 * EPS * (1 + float(np.max(np.abs(exponent))))
     expected = problem.initial.field0 * np.exp(exponent)
-    backend = backend_class(problem, grid=grid, modes=[mode])
+    backend = backend_class(problem, run_request, grid=grid, modes=[mode])
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(LENGTH)
@@ -574,7 +576,7 @@ def test_an_underresolved_angular_rule_creates_a_forbidden_harmonic(
         rules.append(transverse_quadrature(modes, n_r=24, n_theta=2))
     leakage = []
     for rule in rules:
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             modes,
             [KerrResponse(chi3=1e-26, thg=True)],
@@ -587,7 +589,7 @@ def test_an_underresolved_angular_rule_creates_a_forbidden_harmonic(
             schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH),
             quadrature=rule,
         )
-        backend = backend_class(problem, grid=grid, modes=modes)
+        backend = backend_class(problem, run_request, grid=grid, modes=modes)
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)

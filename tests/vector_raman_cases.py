@@ -12,7 +12,6 @@ responses are optmat's (SEP 3).
 """
 
 import math
-from dataclasses import replace
 
 import numpy as np
 
@@ -25,6 +24,7 @@ from former_raman import (
     FORMER_SF6,
     former_response,
 )
+from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.nonlinear.raman import RamanResponse
@@ -66,10 +66,22 @@ def raman_response(
     return former_response(constants, thg=thg)
 
 
-def vector_problem(
-    family="envelope", material="H2", route="axis", steps=8, chunk: int | None = 5
-):
-    """Build a short constant-density run with a delayed oblique weak probe."""
+CHUNK = ExecutionOptions(node_chunk=5)
+"""Five-node chunks, which leave a partial chunk on :func:`vector_problem`'s rule."""
+
+
+def vector_problem(family="envelope", material="H2", route="axis", steps=8):
+    """Return :func:`vector_translation`'s problem, grid and modes."""
+    problem, _, grid, modes = vector_translation(family, material, route, steps)
+    return problem, grid, modes
+
+
+def vector_translation(family="envelope", material="H2", route="axis", steps=8):
+    """Build a short constant-density run with a delayed oblique weak probe.
+
+    :func:`result` runs it in :data:`CHUNK`'s partial chunks. Returns the problem, its
+    run's request (SEP 47 section 5.2), the grid and the modes.
+    """
     grid_class = EnvelopeGrid if family == "envelope" else FieldGrid
     grid = grid_class.from_limits(LENGTH, 800e-9, (300e-9, 2e-6), 100e-15)
     mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
@@ -89,7 +101,7 @@ def vector_problem(
         initial = np.sqrt(2) * polarised[:, :1] if route == "scalar" else polarised
     thg = family == "field_real"
     responses = [KerrResponse(chi3=1e-50, thg=thg), raman_response(material, thg=thg)]
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         modes,
         responses,
@@ -103,19 +115,14 @@ def vector_problem(
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / steps),
         stats_spec=StatsSpec(names=("energy", "peak_power_total", "peak_intensity")),
     )
-    if chunk is not None:
-        problem = replace(
-            problem,
-            route=replace(
-                problem.route, transform=replace(problem.transform, node_chunk=chunk)
-            ),
-        )
-    return problem, grid, modes
+    return problem, run_request, grid, modes
 
 
-def result(backend_class, problem, grid, modes):
+def result(backend_class, problem, run_request, grid, modes, options=CHUNK):
     """Return the first stage, final state, statistics and buffer ledger."""
-    backend = backend_class(problem, grid=grid, modes=modes)
+    backend = backend_class(
+        problem, run_request, grid=grid, modes=modes, options=options
+    )
     try:
         backend.set_initial(problem.initial.field0, None)
         if backend.name == "numpy_ref":
@@ -137,7 +144,7 @@ def result(backend_class, problem, grid, modes):
         return (
             rhs.reshape(2, -1),
             backend.observe().require_field().copy().reshape(2, -1),
-            backend.stats(problem.stats_spec),
+            backend.stats(run_request.observation.stats),
             backend.memory_ledger(),
         )
     finally:

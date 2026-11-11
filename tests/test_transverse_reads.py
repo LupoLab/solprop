@@ -409,15 +409,25 @@ def _driver_class(backend: str) -> type:
     return HostDriver
 
 
-@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize(
+    ("backend", "route"),
+    [("numpy_ref", "host"), ("native", "session"), ("native", "bridge")],
+    ids=["numpy_ref", "native", "native-bridge"],
+)
 def test_a_plane_the_step_already_read_reduces_nothing_more(
-    backend: str, monkeypatch: pytest.MonkeyPatch
+    backend: str, route: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Every step of this schedule is longer than the spacing, so each reads the edge,
     # and a plane landing on one has nothing to add. Its read used to cross the state,
     # synthesise it and only then find the gap zero: on a device, a whole state's copy
-    # for nothing.
+    # for nothing. The bridge, which still serves what the native session refuses,
+    # reads through the backend's `_edge_reading`; the native session reads its edge
+    # resident (`Session::edge_plane` skips the plane), with no reading through Python.
     _require(backend)
+    if route == "bridge":
+        monkeypatch.setattr(
+            "solprop_native.session.session_refusal", lambda *_: "the bridge"
+        )
     packet = REREVIEW
     length = packet.length
     planes = [length / 4, length / 2, length]
@@ -443,7 +453,7 @@ def test_a_plane_the_step_already_read_reduces_nothing_more(
     assert isinstance(output, PlaneStore)
     assert edge_record(output)["reads"] == 8
     # The launch, then one for each of the eight steps and none for the three planes.
-    assert calls["readings"] == 9
+    assert calls["readings"] == (0 if route == "session" else 9)
 
 
 @pytest.mark.parametrize("integrator", [RungeKutta(), Multistep()], ids=["rk", "adams"])

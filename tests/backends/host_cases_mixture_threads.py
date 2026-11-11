@@ -27,7 +27,7 @@ import numpy as np
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
-from mixture_cases import mixture_case
+from mixture_cases import mixture_translation
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
 
@@ -43,15 +43,14 @@ NAMES = (
 PERIODIC = ("species_ionisation", "species_electron_density")
 
 
-def fixed_schedule(problem, grid, steps=8):
-    """Return `problem` replaying ``steps`` uniform Runge-Kutta steps to its end."""
-    assert problem.stepper.integrator is None
-    return dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(
-            problem.stepper,
+def fixed_schedule(run_request, grid, steps=8):
+    """Return `run_request` replaying ``steps`` uniform Runge-Kutta steps to the end."""
+    assert run_request.stepper.integrator is None
+    return run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
             schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / steps),
-        ),
+        )
     )
 
 
@@ -63,12 +62,11 @@ if __name__ == "__main__":
 
     record_sizing(sys.argv[1])
     solprop_native = importlib.import_module("solprop_native")
-    _, grid, _, _, original = mixture_case()
-    problem = dataclasses.replace(
-        fixed_schedule(original, grid),
-        stats_spec=StatsSpec(names=PERIODIC, periodic=PERIODIC, period=1),
+    _, grid, _, _, (problem, original_request) = mixture_translation()
+    run_request = fixed_schedule(original_request, grid).for_run(
+        stats=StatsSpec(names=PERIODIC, periodic=PERIODIC, period=1)
     )
-    backend = solprop_native.NativeBackend(problem, grid=grid)
+    backend = solprop_native.NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         summary = backend.propagate_to(grid.length)

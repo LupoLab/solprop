@@ -51,13 +51,25 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | `linear` | frozen dataclass | section 3 (`translate.linop.LinearOperator`) |
 | `responses` | frozen dataclass | section 5 (`translate.responses.CompiledResponses`) |
 | `initial` | frozen dataclass | section 6 (`translate.problem.Initial`) |
-| `stepper` | frozen dataclass | section 7 (`translate.problem.StepperSettings`) |
 | `route` | `ModalRoute \| GeneralRoute \| SpatialRoute` | the closed union of route descriptions (`translate.routes`), each variant carrying exactly the fields its executor needs: the transform (§4) and the route's own leaves. Below, under *The route union* |
 | `precision` | `translate.precision.Precision` | the arithmetic the run is held in ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md), ADR-054): `state` and `source`, each `"double"` or `"single"` and equal (a mixed record is refused). Every table here is binary64 either way; a backend that admits single precision narrows its tables on upload, each with its own power-of-two exponent, and holds the state at the launch's exact power-of-two scale. Under `"single"`, `validate` refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses, the dispersive electronic response, the far-field statistics and noise models; `native` refuses a single-precision problem by name. Default `DOUBLE`. Added in version 36 |
 | `split_crossing` | `SplitCrossing` or `None` | the split temporal collar's crossing limit (`boundaries.SplitCrossing`): `buckets`, each `(mode, frequency)` bin's walk-off bucket as `(n_modes,n_omega) uint8` (the fastest of its polarisations and positions, a coupled flow's channels with the generator's diagonal added to the shared carrier; `boundaries.split_rate_buckets`), the fastest rate a bin reaches `fastest` (the open first bucket's rate), the collar's `width` and the launch's limit `launch_limit`, which holds an adaptive `dz_max` and a fixed schedule at translation. A backend that reads the boundary monitor under the `"split_step"` scheme returns the state's energy per bucket with every reading (`BoundaryEnergies.occupancy`; native: `bind_occupancy`, then `monitor_reading`'s ten numbers followed by the 128 buckets); the monitor turns it into a cap on the steps until the next check (`StepDriver._split_capped`, the native Adams march's required `step_cap` bound), and a fixed schedule whose steps before the next check exceed it, at a check or when a resumed state is watched, stops with a `BoundaryError`. `None` under the in-stage scheme or without a temporal collar. Added in version 43 |
 `PropagationProblem` also carries two **properties**, which are not fields and so not rows
 above: `transform`, the route's transform, and `device_ready`, true when Φ (§3) and the prefactor (§5) are each a weighted sum
 of a fixed set of arrays, and false when either took the z table.
+
+The problem is the run's numerical meaning and nothing of how it is run
+([SEP 47](seps/sep-0047-run-ownership.md) §5.2). The stepper settings of §7 and the
+statistics request of §8 are run policy: they travel in the immutable
+`translate.run_request.RunRequest` that `translate.problem.assemble` returns beside the
+problem (`Translation(problem, request)`), and a backend receives both where it is built
+(`registry.select(name, problem, request, ...)`). `PropagationProblem.validate()` checks
+what the problem promises alone; `translate.problem.validate_run(problem, request)` runs
+the same checks in the same order with the request-dependent ones among them — the tables
+and leaves covering the run, a schedule landing on every plane and kink, the collar's
+stability, the split collar's crossing, the exponent budget, the method's admission on the
+route and the statistics the route and precision admit — and every backend calls it before
+it allocates.
 
 ### The route union
 
@@ -261,10 +273,12 @@ derivations the adapter calls (`node_kerr_tensor`, `node_delayed_maps`, `metric_
 for that reason `ModalMetricTables` has no tuple, the adapter handing the leaf to
 `metric_at` whole.
 
-The dataclass tree is exactly `PropagationProblem` and the six array groups `grids`,
-`linear`, `transform`, `responses`, `initial` and `stepper`; every other value a field
-holds — a `Flags`, a `StatsSpec`, a `Tableau`, a `PIController`, a `RateTable`, a
-`ZProfile` table — is a leaf whose own fields are not rows of this document. Fields whose
+The dataclass tree is exactly `PropagationProblem` and the five array groups `grids`,
+`linear`, `transform`, `responses` and `initial`, and beside it the run request's
+stepper section (`RunRequest.stepper`, §7) and its statistics (`stats`, §8); every other
+value a field holds — a `Flags`, a `StatsSpec`, a `Tableau`, a `PIController`, a
+`RateTable`, a `ZProfile` table — is a leaf whose own fields are not rows of this
+document. Fields whose
 name begins with an underscore are implementation detail and are outside the contract
 too. The test that compares this document with the dataclass walks the tree by that rule,
 in both directions; a second test checks the flags and counts named in the `flags` row of this section
@@ -649,12 +663,21 @@ sections and refuse a `"cf4"` section by name
 | `projection` | `(n_modes, n_nodes·n_pol)` | weights folded in, and the basis normalisation `ε₀c/2` with them, so that `projection @ synthesis = pad_scale · I` on an orthonormal set (`modes.quadrature.BASIS_NORMALISATION`, folded in by `mode_matrix`) |
 | `projection_coarse` | same | the embedded coarse-rule projection for the error estimate |
 | `taper_scale` | `ZProfile` table or `None` | the scalar rescaling of synthesis/projection along z for scale-invariant modes |
-| `node_chunk` | int | nodes per chunk for the response pass |
 | `aeff` | `ZProfile` table | effective area for mode-averaged normalisation (`kind == "mode_averaged"`), a diagnostic otherwise |
 | `geometry` | `SpatialGeometry` or `None` | the spatial leaf below; absent for modal transforms |
 | `node_weights` | `float64 (n_nodes,)` or `None` | physical transverse weights in m² at z=0 for resolved modal populations; divide by taper scale squared at later planes; mode-averaged runs use `aeff` and spatial runs use geometry weights |
 | `kind` | `"mode_averaged"`, `"modal"`, `"radial"`, `"free"` or `"slab"` | what the transform represents, checked on construction against the geometry, the tables, the node count and the node weights; `mode_averaged` is `kind == "mode_averaged"`, so a one-node quadrature is `"modal"` and gets no area conversion |
-| `modal_tables` | `ModalTransformTables` or `None` | the full E/H reference of a general modal guide — separate synthesis S and projection Q, both on `omega`, the dense complex E and H per √W, the reciprocal partners and their Gram, the coefficient dual, the node rule with its Cartesian coordinates, area weights and per-node `int32` region index, the `−iω` source factor, the active-support mask and the declared profile error, with optional `factors`. A leaf in `translate.modal_tables`. S and Q are Chebyshev coefficients along z, `(n_intervals, n_deg, ...)`. A snapshot guide's are one coefficient over one interval, exact for a map that does not move; a **moving** solid guide's are one expansion per section of its path (`solprop.translate.modal_path.path_transform_tables`), sampled at the section's Chebyshev-Lobatto points on the provider's own rule at each position — a rule whose panel edges move with the material interfaces, so node `q` is one point `x_q(z)` moving smoothly with the geometry and keeps one material region, which is why `region_index` stays one row per node — and combined per stage over `StageScalars.transform_weights` (§1). The dense reference, its partners, the coordinate dual, `node_xy`, `weights` and `valid` are then stored at the section edges, which are `z_edges`. `omega` is `grids.omega` itself, `omega_fine` the problem's fine spectrum — which sizes the support mask `valid` and nothing else, the state being a coarse spectrum and both maps therefore coarse, `(..., n_omega)` — and `z_edges` covers the run. When it is present the general route reads these tables and the real static `synthesis`, `projection` and `projection_coarse` above are **declared placeholders**: the single zero column `(1, n_modes)` and its two `(n_modes, 1)` transposes, with `node_chunk = 1` and no taper, node weights or geometry, all checked by `Transform.__post_init__`, so that a route that does not use them cannot carry a second, silently wrong transform. The route's own chunking is its backend's ledger and not `node_chunk`. It is never present beside spatial `geometry`; a general guide has `n_pol = 1` and three physical components per channel (`MAX_N_COMPONENTS`), which is not the same thing as three state polarisations (`MAX_N_POL` stays 2). Every backend executes it in one combination — a field grid, a certified identity `linear.modal_metric` or the dense metric of a declared unitary change of basis, the tables' own execution maps at one interval of degree zero (or a moving guide's maps of any sections and degree beside the `"frozen_residual"` coupled flow that carries their connection; CF4 and no flow at all are refused by name beside them), `n_pol = 1`, the constant unit `power_weight` and each region's declared responses, instantaneous and delayed — and refuses every other by name, before it allocates. A declared change of basis also composes its identity into `gauge_id`, `<tracking>+circular(i,j)`, which the metric must match |
+| `modal_tables` | `ModalTransformTables` or `None` | the full E/H reference of a general modal guide — separate synthesis S and projection Q, both on `omega`, the dense complex E and H per √W, the reciprocal partners and their Gram, the coefficient dual, the node rule with its Cartesian coordinates, area weights and per-node `int32` region index, the `−iω` source factor, the active-support mask and the declared profile error, with optional `factors`. A leaf in `translate.modal_tables`. S and Q are Chebyshev coefficients along z, `(n_intervals, n_deg, ...)`. A snapshot guide's are one coefficient over one interval, exact for a map that does not move; a **moving** solid guide's are one expansion per section of its path (`solprop.translate.modal_path.path_transform_tables`), sampled at the section's Chebyshev-Lobatto points on the provider's own rule at each position — a rule whose panel edges move with the material interfaces, so node `q` is one point `x_q(z)` moving smoothly with the geometry and keeps one material region, which is why `region_index` stays one row per node — and combined per stage over `StageScalars.transform_weights` (§1). The dense reference, its partners, the coordinate dual, `node_xy`, `weights` and `valid` are then stored at the section edges, which are `z_edges`. `omega` is `grids.omega` itself, `omega_fine` the problem's fine spectrum — which sizes the support mask `valid` and nothing else, the state being a coarse spectrum and both maps therefore coarse, `(..., n_omega)` — and `z_edges` covers the run. When it is present the general route reads these tables and the real static `synthesis`, `projection` and `projection_coarse` above are **declared placeholders**: the single zero column `(1, n_modes)` and its two `(n_modes, 1)` transposes, with no taper, node weights or geometry, all checked by `Transform.__post_init__`, so that a route that does not use them cannot carry a second, silently wrong transform. The route's own chunking is its backend's ledger. It is never present beside spatial `geometry`; a general guide has `n_pol = 1` and three physical components per channel (`MAX_N_COMPONENTS`), which is not the same thing as three state polarisations (`MAX_N_POL` stays 2). Every backend executes it in one combination — a field grid, a certified identity `linear.modal_metric` or the dense metric of a declared unitary change of basis, the tables' own execution maps at one interval of degree zero (or a moving guide's maps of any sections and degree beside the `"frozen_residual"` coupled flow that carries their connection; CF4 and no flow at all are refused by name beside them), `n_pol = 1`, the constant unit `power_weight` and each region's declared responses, instantaneous and delayed — and refuses every other by name, before it allocates. A declared change of basis also composes its identity into `gauge_id`, `<tracking>+circular(i,j)`, which the metric must match |
+
+The transform carries **no node chunk**. How many nodes a response pass holds at once is
+an execution choice, not part of the scientific problem
+([SEP 47](seps/sep-0047-run-ownership.md) sections 4.3 and 6.5): each backend plans it when
+it is prepared, from the problem and its `ExecutionOptions` -- an explicit `node_budget`,
+which is authoritative, or the automatic choice
+(`solprop.backends.node_chunk.plan_node_chunk`) -- records it in its execution metadata,
+and keeps it out of every identity and resume key. The native backend lowers the plan
+further (`solprop_native.backend.native_node_chunk`: whole y rows on the planar kind, and
+`device_node_chunk` for a device build's automatic plan).
 
 For radial geometry, `synthesis` is the inverse raw QDHT times the temporal pad
 scale, `projection` is the forward QDHT, and `projection_coarse` equals
@@ -1109,11 +1132,18 @@ already holds, or one the translation built for it, is taken without a second co
 ## 7. Stepper settings and schedule
 
 These settings, and the statistics request of §8, are run policy rather than the
-problem's numerical meaning: a backend's session also receives them, resolved, in the
-immutable `translate.run_request.RunRequest` it is prepared with
-([SEP 47](seps/sep-0047-run-ownership.md) §§5.2, 6.3). They stay on the descriptor until
-the backends that still read `problem.stepper` and `problem.stats_spec` take them from
-the request at preparation; that move is SEP 47 work still to land.
+problem's numerical meaning, so they are not fields of `PropagationProblem`: they live in
+the immutable `translate.run_request.RunRequest`
+([SEP 47](seps/sep-0047-run-ownership.md) §§5.2, 6.3), resolved by translation —
+`assemble` fills the route's defaults and holds `dz_max` and `dz_init` to the collars'
+limits — and handed to a backend where it is built. The request structures them as its
+integration, error-control, replay and observation specifications; `RunRequest.stepper`
+gathers them back into `translate.problem.StepperSettings`, the record whose fields are
+the rows below and which the march drivers, `validate_run` and the run's configuration
+record read. `RunRequest.for_run` adapts a request to one run's start plane, retention,
+monitor, history and snapshot policy, leaving these rows alone, so a backend built for a
+request serves every run of it; `RunRequest.with_stepper` replaces them (an interior
+launch's remaining planes).
 
 | field | type | meaning |
 |---|---|---|
@@ -1138,14 +1168,17 @@ xfail in `tests/backends/test_native_planar_statistics.py` records the differenc
 
 ## 8. Statistics requests
 
+The statistics are the request's `observation.stats` (`RunRequest`, §7), not a field of
+the problem.
+
 | field | type | meaning |
 |---|---|---|
-| `stats_spec` | frozen dataclass | `solprop.stats.StatsSpec`: which statistics, energy windows (`(n_windows, 2)` in ω), periodic subset and period, validated against the catalogue at construction; and the far-field tables of [SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md), `apertures` (an `ApertureSet`: centres, diameters, distances, edges, profile, weighting, labels, and from schema 45 the optional shapes, profiles and extents, which a record leaves out while they are unset) and `spectral_regions` (`(n_regions, 4)` boxes of physical transverse wavevector in rad/m, the one leaf whose entries may be infinite), read only when a name that uses them is requested, so a backend that does not know a name refuses it rather than misreading a table. Fields of the leaf, not rows of the contract |
+| `stats` | frozen dataclass | `solprop.stats.StatsSpec`: which statistics, energy windows (`(n_windows, 2)` in ω), periodic subset and period, validated against the catalogue at construction; and the far-field tables of [SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md), `apertures` (an `ApertureSet`: centres, diameters, distances, edges, profile, weighting, labels, and from schema 45 the optional shapes, profiles and extents, which a record leaves out while they are unset) and `spectral_regions` (`(n_regions, 4)` boxes of physical transverse wavevector in rad/m, the one leaf whose entries may be infinite), read only when a name that uses them is requested, so a backend that does not know a name refuses it rather than misreading a table. Fields of the leaf, not rows of the contract |
 
 The `periodic` subset and its `period` are read **when the backend is built**, not when a
-run is started: the shared step loop arms the between-planes channel from
-`problem.stats_spec`, so a spec handed to `run_problem` that disagrees with the problem's
-own about either is refused. Every name in the subset must carry the catalogue's
+run is started: the shared step loop arms the between-planes channel from the statistics
+of the request the backend was built with, so a spec handed to `run_problem` that
+disagrees with that request's own about either is refused. Every name in the subset must carry the catalogue's
 `between_planes` trait, which `StatsSpec` enforces at construction and by name; a backend
 that cannot form one of them at all refuses the run the same way its plane statistics do.
 
@@ -1200,7 +1233,7 @@ both distributions, never through an untyped optional field
 
 | Addition | Contract, admission and qualification |
 |---|---|
-| Route | Add a variant to the union in `translate.routes`, with its scientific validation in its own `__post_init__` and in `PropagationProblem.validate`'s visit of the route. Each backend visits it (`numpy_ref`'s `refuse_route`, `native`'s `_refuse_native_route`) and either prepares it or refuses it by name before workspace allocation. Qualify the route's transforms, flow, source and export against independent references. |
+| Route | Add a variant to the union in `translate.routes`, with its scientific validation in its own `__post_init__` and in `PropagationProblem.validate`'s visit of the route (and in `validate_run`'s, for a check that reads the run's policy). Each backend visits it (`numpy_ref`'s `refuse_route`, `native`'s `_refuse_native_route`) and either prepares it or refuses it by name before workspace allocation. Qualify the route's transforms, flow, source and export against independent references. |
 | Response/operator | Add a typed component within the finite representation vocabulary (§3, §5), its units, shape, validity and error contract, and its validation. Extend reference evaluation, native lowering and the capability tests; never pass it through an untyped optional field. |
 | Statistic | Add its typed specification, dependencies, units and sampling rules to the statistics request (§8); qualify periodic and plane equivalence and reference and native reductions, including field-free execution. |
 | Auxiliary evolving state | Add a typed physical-state component, separate from method history. Its own physics SEP specifies initialisation, evolution and stage coupling, rejection rollback, error control, observations, checkpoint and reset, and group ownership before admission. The present set is empty. |
@@ -1208,7 +1241,8 @@ both distributions, never through an untyped optional field
 Every addition updates the rows of this document (which
 `tests/translate/test_problem.py` checks against the dataclasses in both directions),
 the frozen descriptor tables in `tests/backends/test_driver.py`, `native`'s
-`_check_seam` manifest when the native adapter reads it, the capability and refusal
+`_check_seam` manifest (`PROBLEM_FIELDS`, `REQUEST_FIELDS`, `ROUTE_FIELDS` and the
+leaves' tuples) when the native adapter reads it, the capability and refusal
 tests, the memory ledger ([architecture.md §8](architecture.md)), the manual and the
 source and error-budget evidence, and adds a release-note fragment. It lands on
 `numpy_ref` and native CPU, in either order (ADR-068), unless its accepted SEP records

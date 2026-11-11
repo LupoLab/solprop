@@ -82,6 +82,305 @@ TransverseStatus = Literal[
     "clear", "warned", "stopped", "insensitive", "coarse", "unwatched", "off"
 ]
 
+# What the edge reports, one text for every owner of its decisions: the edge here and a
+# backend whose session judges natively (SEP 47 section 6.4).
+
+_UNWATCHED_REASON = "this backend does not read the transverse edge"
+"""The ``transverse_reason`` of a run whose backend does not read the edge."""
+
+_UNWATCHED_MESSAGE = (
+    "this backend does not read the transverse edge of a free-space run: "
+    "the run is unwatched there and cannot report a clean verdict; "
+    "solprop's own backends read it (SEP 40 section 5.3)"
+)
+"""The warning such a run issues before its first step."""
+
+
+def _ramp_band_message(share: float, *, stop: bool) -> str:
+    """Return what a launch's share in the safety ramp's band reports.
+
+    Parameters
+    ----------
+    share : float
+        The share of the noise-free launch's energy in the band.
+    stop : bool
+        Whether it is the stop's message, else the warning's.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    if stop:
+        return (
+            f"the launch holds {share:.2e} of its energy in the safety ramp's "
+            "band, which the ramp would erase: refine the transverse grid, launch "
+            "with less tilt, declare the content with "
+            "SpatialAbsorber(discard_above=...), or remove the ramp with "
+            "spatial_absorber=False (SEP 40 section 5.3)"
+        )
+    return (
+        f"the launch holds {share:.2e} of its energy in the safety ramp's "
+        "band, which the ramp removes as the run starts"
+    )
+
+
+def _clip_message(clipped: float, face: str) -> str:
+    """Return the warning of a launch the aperture clips on a face.
+
+    Parameters
+    ----------
+    clipped : float
+        The launch's share in the outer :data:`GUARD` of the requested size there.
+    face : str
+        The face's name.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    return (
+        f"the launch holds {clipped:.2e} of its energy in the outer "
+        f"{GUARD:.0%} of the requested size on its {face} face: the "
+        "aperture clips it"
+    )
+
+
+def _insensitive_reason(allowance: float) -> str:
+    """Return the ``transverse_reason`` of an edge the input noise leaves insensitive.
+
+    Parameters
+    ----------
+    allowance : float
+        The noise's allowance, a share of the launch energy.
+
+    Returns
+    -------
+    str
+        The reason.
+    """
+    return f"the input noise's allowance {allowance:.2e} exceeds the warning"
+
+
+def _insensitive_message(allowance: float) -> str:
+    """Return the warning of an edge the input noise leaves insensitive.
+
+    Parameters
+    ----------
+    allowance : float
+        The noise's allowance, a share of the launch energy.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    return (
+        "the transverse edge cannot be judged below "
+        f"{allowance:.2e} of the launch energy under this input "
+        "noise (SEP 40 section 5.3)"
+    )
+
+
+def _coarse_message(longest: float, spacing: float) -> str:
+    """Return the warning of a fixed schedule whose steps outrun the read spacing.
+
+    Parameters
+    ----------
+    longest : float
+        The schedule's longest step, m.
+    spacing : float
+        The read spacing at the launch, m.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    return (
+        f"the fixed schedule's longest step, {longest:.3e} m, is "
+        f"longer than the transverse edge's read spacing, {spacing:.3e} m: "
+        "light could cross the edge unseen between two reads; the run is "
+        "reported as coarse (SEP 40 section 5.3)"
+    )
+
+
+def _face_message(face: str, z: float, judged: float) -> str:
+    """Return the warning of light first judged above the warning on a face.
+
+    Parameters
+    ----------
+    face : str
+        The face's name.
+    z : float
+        Where, m.
+    judged : float
+        Its judged share.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    return (
+        f"light reached the transverse edge on its {face} face at "
+        f"z = {z:.4e} m: {judged:.2e} of the launch energy above its "
+        "launch value, which the wall or the wrap returns (SEP 40 "
+        "section 5.3)"
+    )
+
+
+def _stop_message(  # noqa: PLR0913 - the numbers the message names
+    space: RadialGrid | FreeGrid | PlanarGrid,
+    length: float,
+    stop: float,
+    face: str,
+    judged: float,
+    *,
+    z: float,
+    warned_at: float,
+) -> str:
+    """Return a face's stop message, naming a size and a sample count to try.
+
+    Parameters
+    ----------
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        The run's grid.
+    length : float
+        The guide's length, m.
+    stop : float
+        The stop, an energy share: ``(stop_factor * budget) ** 2``.
+    face : str
+        The face.
+    judged : float
+        Its judged share.
+    z : float
+        Where it stopped, m.
+    warned_at : float
+        Where the edge first warned, m; NaN where it did not.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    first = warned_at if math.isfinite(warned_at) else z
+    factor = length / max(first, 1e-300)
+    if isinstance(space, RadialGrid):
+        size = f"a radius of at least {factor * space.outer_radius:.3g} m"
+        count = f"n_r of at least {math.ceil(factor * space.n_r)}"
+    elif isinstance(space, PlanarGrid):
+        outer = 0.5 * space.n_y * float(space.y[1] - space.y[0])
+        size = f"a y half-width of at least {factor * outer:.3g} m"
+        count = f"n_y of at least {math.ceil(factor * space.n_y)}"
+    else:
+        outer = 0.5 * space.n_x * float(space.x[1] - space.x[0])
+        size = f"an x half-width of at least {factor * outer:.3g} m"
+        count = f"n_x of at least {math.ceil(factor * space.n_x)}"
+    return (
+        f"light reached the transverse edge on its {face} face at z = {z:.4e} m: "
+        f"{judged:.2e} of the launch energy above its launch value, past the "
+        f"stop of {stop:.0e}; the wall or the "
+        f"wrap returns it into the aperture. Try {size}, at the same spacing "
+        f"({count}); this is a lower bound, and light generated late may need "
+        "more. A user who knows better raises BoundaryCheck.transverse_budget"
+    )
+
+
+def _return_message(returned: float, z: float, stop: float | None) -> str:
+    """Return what a requested collar's return reports.
+
+    Parameters
+    ----------
+    returned : float
+        The returned share of the launch energy.
+    z : float
+        Where, m.
+    stop : float or None
+        The stop, for the stop's message; ``None`` for the warning's.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    if stop is not None:
+        return (
+            f"the requested collar returns {returned:.2e} of the launch energy at "
+            f"z = {z:.4e} m, past the stop of {stop:.0e} (SEP 40 section 5.3): "
+            "it is absorbing too little of what reaches it; widen it, or give the "
+            "run more room"
+        )
+    return (
+        f"the requested collar returns {returned:.2e} of the launch energy at "
+        f"z = {z:.4e} m (SEP 40 section 5.3)"
+    )
+
+
+def _ramp_removal_message(removed: float, stop: float | None) -> str:
+    """Return what the safety ramp's removal reports.
+
+    Parameters
+    ----------
+    removed : float
+        Its removal above the noise's share and declared content.
+    stop : float or None
+        The stop, for the stop's message; ``None`` for the warning's.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    if stop is not None:
+        return (
+            f"the safety ramp has removed {removed:.2e} of the launch energy "
+            f"above the input noise's share, past the stop of {stop:.0e}: "
+            "content reached the grid's outer transverse wavenumbers, which the "
+            "grid cannot resolve; refine the transverse grid (SEP 40 section 5.3)"
+        )
+    return (
+        f"the safety ramp has removed {removed:.2e} of the launch energy above "
+        "the input noise's share: content reached the grid's outer "
+        "wavenumbers; refine the transverse grid (SEP 40 section 5.3)"
+    )
+
+
+def _log_declared(share: float) -> None:
+    """Log a declared launch's share in the ramp's band, which is not judged.
+
+    Parameters
+    ----------
+    share : float
+        The share.
+    """
+    logger.info("the launch holds %.2e of its energy in the ramp's band", share)
+
+
+def _log_finish(status: str, largest: float, removed: float, reads: int) -> None:
+    """Log the edge's verdict at the end of a run.
+
+    Parameters
+    ----------
+    status : str
+        The transverse status.
+    largest : float
+        The largest judged share.
+    removed : float
+        The ramp's removal.
+    reads : int
+        The reads.
+    """
+    logger.info(
+        "transverse edge: %s; largest judged share %.2e; the ramp removed %.2e; "
+        "%d reads",
+        status,
+        largest,
+        removed,
+        reads,
+    )
+
 
 @dataclass(frozen=True, eq=False)
 class _EdgeTables:
@@ -1080,25 +1379,15 @@ class TransverseEdge:
         )
         if not reads:
             self._status = "unwatched"
-            self._reason = "this backend does not read the transverse edge"
-            warnings.warn(
-                "this backend does not read the transverse edge of a free-space run: "
-                "the run is unwatched there and cannot report a clean verdict; "
-                "solprop's own backends read it (SEP 40 section 5.3)",
-                BoundaryWarning,
-                stacklevel=4,
-            )
+            self._reason = _UNWATCHED_REASON
+            warnings.warn(_UNWATCHED_MESSAGE, BoundaryWarning, stacklevel=4)
             return
         for index, face in enumerate(self._faces):
             self._baseline[index] = float(reading.faces[index]) / self._launch
             clipped = float(reading.clip[index]) / self._launch
             if clipped > warn:
                 warnings.warn(
-                    f"the launch holds {clipped:.2e} of its energy in the outer "
-                    f"{GUARD:.0%} of the requested size on its {face.name} face: the "
-                    "aperture clips it",
-                    BoundaryWarning,
-                    stacklevel=4,
+                    _clip_message(clipped, face.name), BoundaryWarning, stacklevel=4
                 )
         if noise is not None:
             noise_nodes = self._weights * self.reduction.node_power(noise)
@@ -1118,14 +1407,9 @@ class TransverseEdge:
                 )
             if self._allowance > warn:
                 self._status = "insensitive"
-                self._reason = (
-                    f"the input noise's allowance {self._allowance:.2e} exceeds the "
-                    "warning"
-                )
+                self._reason = _insensitive_reason(self._allowance)
                 warnings.warn(
-                    "the transverse edge cannot be judged below "
-                    f"{self._allowance:.2e} of the launch energy under this input "
-                    "noise (SEP 40 section 5.3)",
+                    _insensitive_message(self._allowance),
                     BoundaryWarning,
                     stacklevel=4,
                 )
@@ -1137,10 +1421,7 @@ class TransverseEdge:
             self._status = "coarse" if self._status == "clear" else self._status
             self._largest_gap = float(np.max(steps))
             warnings.warn(
-                f"the fixed schedule's longest step, {float(np.max(steps)):.3e} m, is "
-                f"longer than the transverse edge's read spacing, {spacing:.3e} m: "
-                "light could cross the edge unseen between two reads; the run is "
-                "reported as coarse (SEP 40 section 5.3)",
+                _coarse_message(float(np.max(steps)), spacing),
                 BoundaryWarning,
                 stacklevel=4,
             )
@@ -1183,23 +1464,13 @@ class TransverseEdge:
         if declared:
             # Declared above discard_above: not wanted, so its removal is not judged.
             self._declared_share = share
-            logger.info("the launch holds %.2e of its energy in the ramp's band", share)
+            _log_declared(share)
             return
         if share > stop:
-            msg = (
-                f"the launch holds {share:.2e} of its energy in the safety ramp's "
-                "band, which the ramp would erase: refine the transverse grid, launch "
-                "with less tilt, declare the content with "
-                "SpatialAbsorber(discard_above=...), or remove the ramp with "
-                "spatial_absorber=False (SEP 40 section 5.3)"
-            )
-            raise BoundaryError(msg)
+            raise BoundaryError(_ramp_band_message(share, stop=True))
         if share > warn:
             warnings.warn(
-                f"the launch holds {share:.2e} of its energy in the safety ramp's "
-                "band, which the ramp removes as the run starts",
-                BoundaryWarning,
-                stacklevel=5,
+                _ramp_band_message(share, stop=False), BoundaryWarning, stacklevel=5
             )
 
     def _collar_rate(self, reading: _EdgeReading) -> float:
@@ -1410,12 +1681,7 @@ class TransverseEdge:
                 if self._status in ("clear", "coarse"):
                     self._status = "warned"
                 warnings.warn(
-                    f"light reached the transverse edge on its {face_name} face at "
-                    f"z = {z:.4e} m: {judged:.2e} of the launch energy above its "
-                    "launch value, which the wall or the wrap returns (SEP 40 "
-                    "section 5.3)",
-                    BoundaryWarning,
-                    stacklevel=4,
+                    _face_message(face_name, z, judged), BoundaryWarning, stacklevel=4
                 )
         self._judge_ramp_removal()
 
@@ -1543,22 +1809,13 @@ class TransverseEdge:
         warn, stop = self.budget**2, (self.stop_factor * self.budget) ** 2
         if returned > stop:
             self._status = "stopped"
-            msg = (
-                f"the requested collar returns {returned:.2e} of the launch energy at "
-                f"z = {z:.4e} m, past the stop of {stop:.0e} (SEP 40 section 5.3): "
-                "it is absorbing too little of what reaches it; widen it, or give the "
-                "run more room"
-            )
-            raise BoundaryError(msg)
+            raise BoundaryError(_return_message(returned, z, stop))
         if returned > warn and not self._warned:
             self._warned = True
             self._warned_at = z
             self._status = "warned"
             warnings.warn(
-                f"the requested collar returns {returned:.2e} of the launch energy at "
-                f"z = {z:.4e} m (SEP 40 section 5.3)",
-                BoundaryWarning,
-                stacklevel=5,
+                _return_message(returned, z, None), BoundaryWarning, stacklevel=5
             )
 
     def _judge_ramp_removal(self) -> None:
@@ -1577,24 +1834,14 @@ class TransverseEdge:
         stop = (self.stop_factor * self.budget) ** 2
         if removed > stop:
             self._status = "stopped"
-            msg = (
-                f"the safety ramp has removed {removed:.2e} of the launch energy "
-                f"above the input noise's share, past the stop of {stop:.0e}: "
-                "content reached the grid's outer transverse wavenumbers, which the "
-                "grid cannot resolve; refine the transverse grid (SEP 40 section 5.3)"
-            )
-            raise BoundaryError(msg)
+            raise BoundaryError(_ramp_removal_message(removed, stop))
         if removed > self.budget**2 and not self._ramp_warned:
             self._ramp_warned = True
             # Only a run below the warning throughout is clear (section 5.3).
             if self._status in ("clear", "coarse"):
                 self._status = "warned"
             warnings.warn(
-                f"the safety ramp has removed {removed:.2e} of the launch energy above "
-                "the input noise's share: content reached the grid's outer "
-                "wavenumbers; refine the transverse grid (SEP 40 section 5.3)",
-                BoundaryWarning,
-                stacklevel=5,
+                _ramp_removal_message(removed, None), BoundaryWarning, stacklevel=5
             )
 
     def _stop_message(self, face: str, judged: float, z: float) -> str:
@@ -1614,27 +1861,14 @@ class TransverseEdge:
         str
             The message.
         """
-        first = self._warned_at if math.isfinite(self._warned_at) else z
-        factor = self.length / max(first, 1e-300)
-        space = self.space
-        if isinstance(space, RadialGrid):
-            size = f"a radius of at least {factor * space.outer_radius:.3g} m"
-            count = f"n_r of at least {math.ceil(factor * space.n_r)}"
-        elif isinstance(space, PlanarGrid):
-            outer = 0.5 * space.n_y * float(space.y[1] - space.y[0])
-            size = f"a y half-width of at least {factor * outer:.3g} m"
-            count = f"n_y of at least {math.ceil(factor * space.n_y)}"
-        else:
-            outer = 0.5 * space.n_x * float(space.x[1] - space.x[0])
-            size = f"an x half-width of at least {factor * outer:.3g} m"
-            count = f"n_x of at least {math.ceil(factor * space.n_x)}"
-        return (
-            f"light reached the transverse edge on its {face} face at z = {z:.4e} m: "
-            f"{judged:.2e} of the launch energy above its launch value, past the "
-            f"stop of {(self.stop_factor * self.budget) ** 2:.0e}; the wall or the "
-            f"wrap returns it into the aperture. Try {size}, at the same spacing "
-            f"({count}); this is a lower bound, and light generated late may need "
-            "more. A user who knows better raises BoundaryCheck.transverse_budget"
+        return _stop_message(
+            self.space,
+            self.length,
+            (self.stop_factor * self.budget) ** 2,
+            face,
+            judged,
+            z=z,
+            warned_at=self._warned_at,
         )
 
     # ------------------------------------------------------------------ results
@@ -1788,11 +2022,6 @@ class TransverseEdge:
 
     def finish(self) -> None:
         """Log the edge's verdict at the end of a run."""
-        logger.info(
-            "transverse edge: %s; largest judged share %.2e; the ramp removed %.2e; "
-            "%d reads",
-            self._status,
-            max(self._peak, default=0.0),
-            self.ramp_removed,
-            self._reads,
+        _log_finish(
+            self._status, max(self._peak, default=0.0), self.ramp_removed, self._reads
         )

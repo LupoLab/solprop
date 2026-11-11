@@ -11,7 +11,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from backends.test_mixture_ladder import NAMES, run
-from mixture_cases import mixture_case
+from mixture_cases import mixture_translation
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.grid import FreeGrid, RadialGrid
 from solprop.nonlinear.responses import KerrResponse
@@ -27,7 +27,7 @@ from solprop.translate.problem import assemble
 def test_spatial_channels_and_all_population_statistics(
     geometry, thg, n_pol, spatial_equivalence_backend_class
 ):
-    mixture, grid, _, responses, original = mixture_case()
+    mixture, grid, _, responses, (_, original_request) = mixture_translation()
     space = (
         RadialGrid(6e-4, 8, collar_fraction=0.0)
         if geometry == "radial"
@@ -44,14 +44,14 @@ def test_spatial_channels_and_all_population_statistics(
         else response
         for response in responses
     )
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         responses,
         pulse.build(grid, space, medium=SpatialMedium(mixture)),
         spatial_grid=space,
         medium=SpatialMedium(mixture),
-        controller=original.stepper.controller,
+        controller=original_request.stepper.controller,
         save_planes=[grid.length],
         dz_max=grid.length,
         dz_init=grid.length / 8,
@@ -67,8 +67,8 @@ def test_spatial_channels_and_all_population_statistics(
         * np.finfo(float).eps
     )
     assert bound > 0.0
-    oracle = run(NumpyRefBackend, problem, grid)
-    actual = run(spatial_equivalence_backend_class, problem, grid)
+    oracle = run(NumpyRefBackend, problem, run_request, grid)
+    actual = run(spatial_equivalence_backend_class, problem, run_request, grid)
     assert actual[1].n_steps == oracle[1].n_steps == 8
     assert np.linalg.norm(actual[0] - oracle[0]) / np.linalg.norm(oracle[0]) < bound
     for values, reference in zip(actual[2:], oracle[2:], strict=True):

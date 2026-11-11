@@ -19,7 +19,7 @@ from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.stepper import PIController
 from solprop.translate.free import free_transform
 from solprop.translate.linop import constant_phi, delta_phi, tabulate, unitary_phase
-from solprop.translate.problem import assemble
+from solprop.translate.problem import assemble, validate_run
 from solprop.translate.radial import radial_transform
 from solprop.translate.responses import compile_responses, prefactor_at
 from solprop.translate.routes import ModalRoute, spatial_kind
@@ -72,7 +72,7 @@ def geometry(request):
     if request.param == "radial":
         space = RadialGrid(1e-3, 8)
         grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15)
-        return radial_transform(space, grid, n_pol=1, z_max=grid.length).geometry
+        return radial_transform(space, grid, z_max=grid.length).geometry
     return free_geometry()
 
 
@@ -300,16 +300,16 @@ def test_a_gas_medium_refuses_an_explicit_response_density():
     with pytest.raises(TranslationError, match=r"Ar medium carries its density"):
         build(gas, 1e25)
     # The density meant is the medium's own, for both.
-    assert build(gas.at_density(1e25), None).device_ready
+    assert build(gas.at_density(1e25), None).problem.device_ready
 
 
 @pytest.fixture
-def free_contract():
+def free_translation():
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
     geometry = free_geometry()
     space = RadialGrid(1e-3, geometry.spatial_weights.size)
     model = SpatialDispersion(SpatialMedium(), grid, Frame.comoving(grid))
-    original = assemble(
+    original, run_request = assemble(
         grid,
         None,
         [],
@@ -341,7 +341,7 @@ def free_contract():
             float(original.linear.phi_breakpoints[-1]),
         ),
     )
-    return dataclasses.replace(
+    problem = dataclasses.replace(
         original,
         linear=dataclasses.replace(
             original.linear,
@@ -370,6 +370,17 @@ def free_contract():
             ),
         ),
     )
+    return problem, run_request
+
+
+@pytest.fixture
+def free_contract(free_translation):
+    return free_translation[0]
+
+
+@pytest.fixture
+def free_request(free_translation):
+    return free_translation[1]
 
 
 def test_separable_contract_carries_no_full_coefficient_volume(free_contract):
@@ -413,7 +424,9 @@ def test_separable_prefactor_compiles_and_reports_shared_data(free_contract, cap
     assert "no coefficient volume" in caplog.text
 
 
-def test_spatial_contract_checks_geometry_before_spatial_execution(free_contract):
+def test_spatial_contract_checks_geometry_before_spatial_execution(
+    free_contract, free_request
+):
     problem = free_contract
     without_geometry = dataclasses.replace(
         problem,
@@ -424,7 +437,6 @@ def test_spatial_contract_checks_geometry_before_spatial_execution(free_contract
                 problem.transform,
                 geometry=None,
                 kind="modal",
-                node_chunk=1,
                 synthesis=np.ones((1, 1)),
                 projection=np.ones((1, 1)),
                 projection_coarse=np.ones((1, 1)),
@@ -432,8 +444,8 @@ def test_spatial_contract_checks_geometry_before_spatial_execution(free_contract
         ),
     )
     with pytest.raises(TranslationError, match="requires free or slab geometry"):
-        without_geometry._check_spatial()
-    without_geometry._check_spatial_collar_stability()
+        without_geometry._check_spatial(None)
+    without_geometry._check_spatial_collar_stability(free_request.stepper)
     without_separable = dataclasses.replace(
         problem,
         linear=constant_phi(np.zeros(problem.shape, complex), 1e-3),
@@ -448,11 +460,11 @@ def test_spatial_contract_checks_geometry_before_spatial_execution(free_contract
         ),
     )
     with pytest.raises(TranslationError, match="constant separable"):
-        without_separable._check_spatial()
+        without_separable._check_spatial(None)
 
 
 def test_free_absorber_stability_refuses_only_above_the_unitary_transverse_limit(
-    free_contract,
+    free_contract, free_request
 ):
     problem = free_contract
     geometry = problem.transform.geometry
@@ -463,8 +475,8 @@ def test_free_absorber_stability_refuses_only_above_the_unitary_transverse_limit
     # in a million above the limit's inverse is refused, one below is not.
     rounding = 128 * geometry.spatial_weights.size * np.finfo(float).eps
     rounding /= 1 - rounding
-    assert problem.stepper.schedule is None
-    threshold = 2 * STABILITY_RADIUS / (problem.stepper.dz_min * (1 + rounding))
+    assert free_request.stepper.schedule is None
+    threshold = 2 * STABILITY_RADIUS / (free_request.stepper.dz_min * (1 + rounding))
     for factor, refused in ((1 - 1e-6, False), (1 + 1e-6, True)):
         rate = np.full_like(geometry.absorber_rate, threshold * factor)
         candidate = dataclasses.replace(
@@ -479,12 +491,14 @@ def test_free_absorber_stability_refuses_only_above_the_unitary_transverse_limit
         )
         if refused:
             with pytest.raises(TranslationError, match="spatial collar stability"):
-                candidate.validate()
+                validate_run(candidate, free_request)
         else:
-            candidate.validate()
+            validate_run(candidate, free_request)
 
 
-def test_separable_contract_rejects_unshared_or_inconsistent_data(free_contract):
+def test_separable_contract_rejects_unshared_or_inconsistent_data(
+    free_contract, free_request
+):
     problem = free_contract
     copied = dataclasses.replace(problem.responses.separable)
     with pytest.raises(TranslationError, match="share the same"):
@@ -492,10 +506,12 @@ def test_separable_contract_rejects_unshared_or_inconsistent_data(free_contract)
             problem, responses=dataclasses.replace(problem.responses, separable=copied)
         ).validate()
     with pytest.raises(TranslationError, match="tabulate"):
-        dataclasses.replace(
+        validate_run(
             problem,
-            stepper=dataclasses.replace(problem.stepper, propagator_mode="tabulate"),
-        ).validate()
+            free_request.with_stepper(
+                dataclasses.replace(free_request.stepper, propagator_mode="tabulate")
+            ),
+        )
     with pytest.raises(TranslationError, match="one linear interval"):
         dataclasses.replace(problem.linear, phi_degrees=np.zeros(1, dtype=np.intp))
     with pytest.raises(TranslationError, match="exactly"):
@@ -522,7 +538,7 @@ def test_separable_contract_rejects_mismatched_axes_or_mask(free_contract, field
 
 def test_a_cartesian_line_is_the_only_single_sample_axis():
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15)
-    line = free_transform(LineGrid(1e-3, 8), grid, n_pol=1, z_max=grid.length).geometry
+    line = free_transform(LineGrid(1e-3, 8), n_pol=1, z_max=grid.length).geometry
     assert line is not None
     assert line.kind == "free" and line.shape == (8, 1)
     with pytest.raises(TranslationError, match="integers of at least 2"):
@@ -533,9 +549,7 @@ def test_a_cartesian_line_is_the_only_single_sample_axis():
         dataclasses.replace(
             line, spectral_axes=(line.spectral_axes[0], np.array([1.0]))
         )
-    radial = radial_transform(
-        RadialGrid(1e-3, 8), grid, n_pol=1, z_max=grid.length
-    ).geometry
+    radial = radial_transform(RadialGrid(1e-3, 8), grid, z_max=grid.length).geometry
     assert radial is not None
     with pytest.raises(TranslationError, match="integers of at least 2"):
         dataclasses.replace(radial, shape=(1,))

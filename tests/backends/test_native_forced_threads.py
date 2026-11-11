@@ -166,7 +166,7 @@ def test_adaptive_adams_agrees_across_threads_on_the_other_routes(
     )
 
 
-def _adams_free_bound(problem) -> float:
+def _adams_free_bound(problem, run_request) -> float:
     """Bound a matched Adams run on the Cartesian route, relatively.
 
     The Cartesian ladder's ``32 eps`` per FFT level, per evaluation
@@ -177,13 +177,13 @@ def _adams_free_bound(problem) -> float:
     depth = math.ceil(math.log2(problem.grids.n_to)) + math.ceil(
         math.log2(problem.transform.n_nodes)
     )
-    steps = problem.stepper.schedule.n_steps
-    evaluations = steps * step_evaluations(problem)
+    steps = run_request.stepper.schedule.n_steps
+    evaluations = steps * step_evaluations(run_request)
     separable = problem.linear.separable
     root = math.sqrt(float(np.max(np.abs(separable.k_squared[separable.active]))))
-    operator = 2 * EPS * root * float(problem.stepper.save_planes[-1])
+    operator = 2 * EPS * root * float(run_request.stepper.save_planes[-1])
     return evaluations * 32 * EPS * depth + operator * 2 * (
-        problem.stepper.integrator.order + 1
+        run_request.stepper.integrator.order + 1
     )
 
 
@@ -195,9 +195,9 @@ def test_ten_matched_adams_steps_agree_across_threads(tmp_path, formulation):
     The retired test's route on a matched computation, which holds the threads to a
     rounding budget where an adaptive march can only be held to ``3e-9``.
     """
-    _, problem = route_adams_problem("cartesian", formulation)
-    problem = fixed_order(ten_steps(problem))
-    bound = _adams_free_bound(problem)
+    _, problem, run_request = route_adams_problem("cartesian", formulation)
+    run_request = fixed_order(ten_steps(run_request))
+    bound = _adams_free_bound(problem, run_request)
     case = f"adams_matched:cartesian|{formulation}"
     one = forced_run(case, 1, tmp_path)
     several = forced_run(case, WIDTH, tmp_path)
@@ -278,8 +278,9 @@ def test_the_fused_dispersive_path_agrees_across_threads(tmp_path, evaluator, ra
     simulation = dispersive_capillary(
         evaluator, gas="N2" if raman else "Ar", raman=raman, stepped=True
     )
-    problem = fixed_order(simulation.translate())
-    bound = 10 * step_evaluations(problem) * dispersive_evaluation(problem)
+    problem = simulation.translate()
+    run_request = fixed_order(simulation._run_request())
+    bound = 10 * step_evaluations(run_request) * dispersive_evaluation(problem)
     case = f"dispersive:{evaluator}-{'raman' if raman else 'plain'}"
     one = forced_run(case, 1, tmp_path)
     several = forced_run(case, WIDTH, tmp_path)
@@ -294,7 +295,7 @@ def test_the_fused_dispersive_path_agrees_across_threads(tmp_path, evaluator, ra
 # --- the planar stage -------------------------------------------------------------
 
 
-def _planar_bound(grid, space, problem, steps: int) -> float:
+def _planar_bound(grid, space, problem, run_request, steps: int) -> float:
     """Return ``numba_cpu``'s planar ladder bound of `steps` replayed Kerr steps.
 
     Per evaluation, ``32 eps`` per FFT level (time and y) and ``2 n_p gamma(n_x)`` for
@@ -307,10 +308,10 @@ def _planar_bound(grid, space, problem, steps: int) -> float:
     separable = problem.linear.separable
     root = math.sqrt(float(np.max(np.abs(separable.k_squared[separable.active]))))
     operator = 2 * EPS * root * grid.length
-    method = problem.stepper.integrator
+    method = run_request.stepper.integrator
     if method is not None:
         operator *= 2 * (method.order + 1)
-    return operator + max(1.0, step_evaluations(problem) * steps) * evaluation
+    return operator + max(1.0, step_evaluations(run_request) * steps) * evaluation
 
 
 @pytest.mark.slow
@@ -323,11 +324,13 @@ def test_the_planar_in_stage_collar_agrees_across_threads(tmp_path, march):
     it the default one, which native's planar thread test has not run. A repeat at the
     same width holds the second retired test, at one thread and at four.
     """
-    grid, space, problem = planar_case("kerr-collar")
+    grid, space, problem, run_request = planar_case("kerr-collar")
     if march == "adams":
-        problem = with_adams(problem)
-    problem = fixed_order(problem)
-    bound = _planar_bound(grid, space, problem, problem.stepper.schedule.n_steps)  # pyright: ignore[reportOptionalMemberAccess]
+        run_request = with_adams(run_request)
+    run_request = fixed_order(run_request)
+    schedule = run_request.stepper.schedule
+    assert schedule is not None
+    bound = _planar_bound(grid, space, problem, run_request, schedule.n_steps)
     case = f"planar:{march}"
     one = forced_run(case, 1, tmp_path)
     several = forced_run(case, WIDTH, tmp_path)
@@ -354,14 +357,14 @@ def test_the_modified_noise_draw_agrees_across_threads(tmp_path, march):
     the others) is far looser. It is weaker in that, and is here to catch the draw's
     term depending on the thread count: the draw moves the answer by more than that.
     """
-    problem, grid, _ = noisy_problem(march)
+    problem, run_request, grid, _ = noisy_problem(march)
     transverse = problem.transform.n_nodes
     if march == "march":
-        bound = parity_bound(problem, transverse=transverse)
+        bound = parity_bound(problem, run_request, transverse=transverse)
     else:
         depth = math.ceil(math.log2(grid.n_to)) + math.ceil(math.log2(transverse))
-        steps = problem.stepper.schedule.n_steps  # pyright: ignore[reportOptionalMemberAccess]
-        bound = steps * step_evaluations(problem) * 32 * EPS * depth
+        steps = run_request.stepper.schedule.n_steps  # pyright: ignore[reportOptionalMemberAccess]
+        bound = steps * step_evaluations(run_request) * 32 * EPS * depth
     one = forced_run(f"noisy:{march}", 1, tmp_path)
     several = forced_run(f"noisy:{march}", WIDTH, tmp_path)
     assert_threads_ran(one, several, "kernels.stage", "kernels.response", "fft.fft")
@@ -383,11 +386,11 @@ def test_the_transverse_pool_threads_its_transform_and_agrees(tmp_path, threads)
     rounding can depend on its width, so ``execution_sizing`` must show the plan
     threaded. The rule's other pools stay automatic here; the next test varies this one.
     """
-    problem, _ = wide_transverse_problem()
+    problem, run_request, _ = wide_transverse_problem()
     samples = math.prod(problem.shape)
     # The transverse planes' batch: each plane of n_y x n_x is one row of the sizing.
     key = f"fft.fft.{samples}.samples.{problem.shape[-1] * problem.shape[-2]}"
-    bound = parity_bound(problem, transverse=problem.transform.n_nodes)
+    bound = parity_bound(problem, run_request, transverse=problem.transform.n_nodes)
     one = forced_run("wide_transverse", 1, tmp_path, pools={})
     several = forced_run("wide_transverse", threads, tmp_path, pools={})
     assert one["sizing"][key]["threads"] == 1
@@ -404,14 +407,14 @@ def test_the_transverse_pool_varied_alone_agrees(tmp_path, march):
     width alone, reported by the sizing, at the same bound. The Adams row is the march
     #322 recommends beside it, the default one, on its own rounding budget.
     """
-    problem, _ = wide_transverse_problem(march)
+    problem, run_request, _ = wide_transverse_problem(march)
     # The transverse planes' batch: each plane of n_y x n_x is one row of the sizing.
     plane = problem.shape[-1] * problem.shape[-2]
     key = f"fft.fft.{math.prod(problem.shape)}.samples.{plane}"
     bound = (
-        parity_bound(problem, transverse=problem.transform.n_nodes)
+        parity_bound(problem, run_request, transverse=problem.transform.n_nodes)
         if march == "march"
-        else _adams_free_bound(problem)
+        else _adams_free_bound(problem, run_request)
     )
     pools = dict.fromkeys(POOLS, 1) | {"SOLPROP_NATIVE_FFT_THREADS": WIDTH}
     one = forced_run(f"wide_transverse:{march}", 1, tmp_path)
@@ -436,7 +439,7 @@ def test_a_threaded_accept_reduces_the_state_it_wrote(tmp_path):
     state cannot be read apart from the stages behind it: it and the residual's norm
     are held to one trial's budget, weaker than the retired ``2 eps`` on the pass alone.
     """
-    _, problem = accept_problem()
+    _, problem, _ = accept_problem()
     n_omega = problem.grids.n_omega
     depth = math.ceil(math.log2(problem.grids.n_to)) + math.ceil(
         math.log2(problem.transform.n_nodes)
@@ -478,8 +481,8 @@ def test_the_low_storage_folds_agree_across_threads(tmp_path, mode, threads):
     retired test drove every fold mode and flow treatment on random registers, each at
     once; here the march chooses them, on a beam, and there is no source to fold.
     """
-    problem, _ = linear_cartesian(mode)
-    folds = 4 * problem.stepper.schedule.n_steps  # pyright: ignore[reportOptionalMemberAccess]
+    problem, run_request, _ = linear_cartesian(mode)
+    folds = 4 * run_request.stepper.schedule.n_steps  # pyright: ignore[reportOptionalMemberAccess]
     one = forced_run(f"folds:{mode}", 1, tmp_path)
     several = forced_run(f"folds:{mode}", threads, tmp_path)
     assert widest(several["sizing"], "kernels.stage") == threads
@@ -501,8 +504,8 @@ def test_the_threaded_flow_passes_agree_across_threads(tmp_path, name):
     the retired test drew each operand at random. The residual's norm is exactly zero
     on the capillaries, which take a constant flow.
     """
-    problem, _, _ = linear_flow_problem(name)
-    state_bound = (problem.stepper.tableau.n_stages + 1) * 8 * EPS
+    problem, run_request, _, _ = linear_flow_problem(name)
+    state_bound = (run_request.stepper.tableau.n_stages + 1) * 8 * EPS
     one = forced_run(f"flow:{name}", 1, tmp_path)
     several = forced_run(f"flow:{name}", WIDTH, tmp_path)
     assert_threads_ran(one, several, "kernels.flow", "kernels.stage")

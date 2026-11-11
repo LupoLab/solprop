@@ -70,7 +70,7 @@ def build():
     initial = np.concatenate(
         [jones[str(one.principal_component(0.0))] * pulse for one in modes], axis=0
     )
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         modes,
         [KerrResponse(chi3=1e-26, thg=True)],
@@ -84,7 +84,7 @@ def build():
         density=1.0,
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / STEPS),
     )
-    return problem, grid, modes
+    return problem, run_request, grid, modes
 
 
 def main():
@@ -93,13 +93,13 @@ def main():
     parser.add_argument("--backend", required=True)
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args()
-    problem, grid, modes = build()
-    owner = select(arguments.backend, problem, grid=grid, modes=modes)
-    assert problem.stepper.schedule is not None
+    problem, run_request, grid, modes = build()
+    owner = select(arguments.backend, problem, run_request, grid=grid, modes=modes)
+    assert run_request.stepper.schedule is not None
     try:
         owner.set_initial(problem.initial.field0, None)
         history = [owner.observe().require_field().copy()]
-        for position in problem.stepper.schedule.edges[1 : STEPS + 1]:
+        for position in run_request.stepper.schedule.edges[1 : STEPS + 1]:
             summary = owner.propagate_to(float(position))
             assert summary.n_steps == 1 and summary.n_rejected == 0
             history.append(owner.observe().require_field().copy())

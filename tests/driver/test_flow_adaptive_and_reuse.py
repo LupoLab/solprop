@@ -226,8 +226,8 @@ def test_the_compiled_backends_reject_and_agree_within_the_controller_bound(
 # ------------------------------------------------------ failure, then reuse
 
 
-def mid_run_refusal(problem):
-    """Return the scalar wall's problem refused part way through its schedule.
+def mid_run_refusal(problem, run_request):
+    """Return the scalar wall's problem and request refused part way through.
 
     Five steps of 0.1 um, then five that share the rest, with the flow's
     conditioning row declared over the short step only: the row is
@@ -254,11 +254,9 @@ def mid_run_refusal(problem):
     # default exponential formulation acts forward only (ADR-044) and does not
     # measure it.
     return replace(
-        problem,
-        linear=replace(problem.linear, coupled_flow=declared),
-        stepper=replace(
-            problem.stepper, schedule=FixedSchedule(steps), integrator=None
-        ),
+        problem, linear=replace(problem.linear, coupled_flow=declared)
+    ), run_request.with_stepper(
+        replace(run_request.stepper, schedule=FixedSchedule(steps), integrator=None)
     )
 
 
@@ -276,9 +274,10 @@ def test_a_flow_refused_mid_run_leaves_nothing_that_breaks_the_next_backend(back
     cls = backend_class(backend)
     simulation_ = build("scalar", integrator=FIXED_ORDER)
     problem, grid = simulation_.translate(), simulation_.grid
-    before = run(cls, problem, grid)
-    refused = mid_run_refusal(problem)
-    failing = cls(refused, grid=grid)
+    run_request = simulation_._run_request()
+    before = run(cls, problem, run_request, grid)
+    refused, refused_request = mid_run_refusal(problem, run_request)
+    failing = cls(refused, refused_request, grid=grid)
     try:
         failing.set_initial(refused.initial.field0, None)
         with pytest.raises(BackendError, match="measured a coupled flow conditioning"):
@@ -287,7 +286,7 @@ def test_a_flow_refused_mid_run_leaves_nothing_that_breaks_the_next_backend(back
         assert 0.0 < failing.observe().z < LENGTH
     finally:
         failing.close()
-    after = run(cls, problem, grid)
+    after = run(cls, problem, run_request, grid)
     assert_matched(after, before, record_bound(simulation_, before))
 
 
@@ -330,10 +329,11 @@ def test_a_moving_guide_that_fails_to_converge_leaves_the_next_backend_intact(
     """
     built, length = moving
     problem, grid = built.translate(), built.grid
+    run_request = built._run_request()
     cls = backend_class(backend)
 
-    def final(one):
-        driver = cls(one, grid=grid)
+    def final(one, one_request):
+        driver = cls(one, one_request, grid=grid)
         try:
             driver.set_initial(one.initial.field0, None)
             driver.propagate_to(length)
@@ -341,16 +341,15 @@ def test_a_moving_guide_that_fails_to_converge_leaves_the_next_backend_intact(
         finally:
             driver.close()
 
-    before = final(problem)
-    stuck = replace(
-        problem,
-        stepper=replace(
-            problem.stepper,
+    before = final(problem, run_request)
+    stuck = run_request.with_stepper(
+        replace(
+            run_request.stepper,
             schedule=None,
             controller=PIController(rtol=1e-30, atol=0.0),
-            dz_min=problem.stepper.dz_init,
-        ),
+            dz_min=run_request.stepper.dz_init,
+        )
     )
     with pytest.raises(ConvergenceError):
-        final(stuck)
-    assert_matched(final(problem), before, record_bound(built, before))
+        final(problem, stuck)
+    assert_matched(final(problem, run_request), before, record_bound(built, before))

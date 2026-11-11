@@ -18,6 +18,7 @@ import pytest
 
 from sessions.executors import (
     CONSUMER,
+    PLANES,
     STORED,
     ScriptedError,
     soliton,
@@ -26,7 +27,6 @@ from sessions.executors import (
 from solprop.backends.events import ObservationKind, ObservationReady, Outcome
 from solprop.backends.session import RunSession
 from solprop.stepper import Multistep
-from solprop.translate.run_request import describe_run
 
 # The soliton's 1 ps window is tight for a monitor's guards; the window is not tested.
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
@@ -79,13 +79,14 @@ def test_a_second_recipe_after_an_in_place_conversion_leaves_the_first_alone(sta
     np.testing.assert_array_equal(kept, shift * np.conj(consumer))
 
 
-def test_a_runge_kutta_session_reports_no_method_history(start):
+def test_a_runge_kutta_session_reports_no_method_history(start, executor):
     """A Runge-Kutta march keeps no history: no snapshot, no size, nothing refused."""
     session = start(soliton()).session
     _, plane = _first_plane(session)
     assert session.march_snapshot(plane.ticket) is None
     assert session.march_snapshot_nbytes() is None
-    assert session.march_export_refusal() is None  # pyright: ignore[reportAttributeAccessIssue]
+    # The driver-facing answers the run layer reads, which every executor gives.
+    assert session.march_export_refusal() is None
     assert session.march_refusal is None  # pyright: ignore[reportAttributeAccessIssue]
     record = session.execution_record()
     assert isinstance(record, Mapping)
@@ -97,9 +98,11 @@ def test_an_adams_session_reports_its_history_at_the_pending_plane(start, execut
     """SEP 29 and 47 section 5.5: an Adams march's history is snapshotted at a plane."""
     if executor.scripted:
         pytest.skip("a scripted driver runs no Adams march")
+    if executor.name == "native-session-low-storage":
+        pytest.skip(f"the {executor.name} executor does not run a multistep march")
     session = start(soliton(integrator=Multistep())).session
     _, plane = _first_plane(session)
-    assert session.march_export_refusal() is None  # pyright: ignore[reportAttributeAccessIssue]
+    assert session.march_export_refusal() is None
     snapshot = session.march_snapshot(plane.ticket)
     assert snapshot is not None
     assert snapshot.z == plane.z
@@ -108,16 +111,20 @@ def test_an_adams_session_reports_its_history_at_the_pending_plane(start, execut
     assert nbytes > 0
 
 
-def test_a_monitored_session_reports_its_monitor_record(start):
-    """SEP 21: a session that feeds a monitor reports its record from the launch."""
+def test_a_monitored_session_reports_its_monitor_record(start, executor):
+    """SEP 21: a session that feeds a monitor reports its record from the launch.
+
+    A session that owns its monitor natively leaves the request's monitor untouched,
+    so only its record shows what it did (SEP 47 section 6.4).
+    """
     problem = soliton()
     log: list[tuple[str, float]] = []
-    session = start(problem, describe_run(problem, monitor=spy_monitor(log))).session
+    session = start(problem, problem.request.for_run(monitor=spy_monitor(log))).session
     _first_plane(session)
     record = session.monitor_record()
     assert isinstance(record, Mapping)
     assert record
-    assert log
+    assert bool(log) is not executor.native_monitor
 
 
 def test_a_closed_session_offers_no_pending_ticket(start):
@@ -140,3 +147,34 @@ def test_a_poisoned_session_offers_no_pending_ticket(start_scripted):
     assert isinstance(batch.terminal.error, ScriptedError)
     assert batch.terminal.ticket is None
     assert session.pending_ticket() is None  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def test_a_signal_out_of_a_propagation_leaves_its_attempts_to_the_checkpoint(
+    start_scripted,
+):
+    """SEP 47 section 5.5: a signal raised out of a propagation, between steps, leaves
+    the committed state exportable for the terminal checkpoint, with every attempt it
+    made delivered once.
+
+    The checkpoint exports the field first, as the service loop does, which drains
+    the driver's attempts; they are held for the attempts no event delivered
+    (``RunSession.undelivered``), not lost to the export.
+    """
+    session = start_scripted(soliton(), fail_at=3, signal=True).session
+    launch = session.advance()
+    session.acknowledge(launch.receipt)
+    with pytest.raises(KeyboardInterrupt):
+        session.advance()
+    ticket = session.pending_ticket()  # pyright: ignore[reportAttributeAccessIssue]
+    assert ticket is not None
+    assert 0.0 < ticket.z < PLANES[0]
+    field = session.export(ticket, CONSUMER)
+    assert np.all(np.isfinite(field))
+    history, _ = session.undelivered(ticket)
+    # The two trials before the signal, each accepted, the second ending where the
+    # committed state stands.
+    assert history.n_steps == 2 == session.status().attempts
+    assert bool(np.all(history.accepted))
+    assert history.z[-1] == ticket.z
+    assert session.undelivered(ticket)[0].n_steps == 0
+    assert session.status().outcome is Outcome.FAILED

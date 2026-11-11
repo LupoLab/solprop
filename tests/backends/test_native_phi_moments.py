@@ -82,15 +82,17 @@ def read_moments(module, grid, values):
     values : numpy.ndarray
         The arguments ``x``, complex.
     """
-    problem = _problem(grid)
+    problem, run_request = _problem(grid)
     active = np.flatnonzero(grid.active_mask)
     assert active.size >= values.size
     bins = active[: values.size]
     backend_module = module.backend
-    backend = module.NativeBackend(problem, grid=grid)
+    backend = module.NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        payload = backend_module._native_problem(problem, backend._terms, None, None)
+        payload = backend_module._native_problem(
+            problem, run_request, backend._terms, None, None
+        )
         arrays, material = backend._resident_arrays(0.0, 1e-3)
     finally:
         backend.close()

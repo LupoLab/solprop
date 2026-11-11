@@ -114,7 +114,7 @@ def general_runs(strand):
     """Return the linear, full and frozen general runs' exit fields and step counts."""
     grid = strand["field_grid"]
     launch = GaussianPulse(wavelength=835e-9, fwhm=FWHM, energy=ENERGY).build(grid)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         list(strand["guide"].mode_collection),
         [],
@@ -159,7 +159,7 @@ def general_runs(strand):
     }
     runs = {}
     for name, one in problems.items():
-        owner = NumpyRefBackend(one, grid=grid)
+        owner = NumpyRefBackend(one, run_request, grid=grid)
         try:
             owner.set_initial(one.initial.field0, None)
             summary = owner.propagate_to(LENGTH)

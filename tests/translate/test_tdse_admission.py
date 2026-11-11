@@ -27,7 +27,7 @@ from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
 from solprop.translate.masks import AbsorberScheme
-from solprop.translate.problem import _route, assemble
+from solprop.translate.problem import _route, assemble, validate_run
 from solprop.translate.responses import (
     ResponseStage,
     compile_responses,
@@ -86,8 +86,18 @@ def compile_declaration(
 
 
 @pytest.fixture
-def admitted(declaration):
+def admitted_translation(declaration):
     return compile_declaration(declaration)
+
+
+@pytest.fixture
+def admitted(admitted_translation):
+    return admitted_translation.problem
+
+
+@pytest.fixture
+def admitted_request(admitted_translation):
+    return admitted_translation.request
 
 
 def test_legacy_helium_mode_refuses_a_separate_nonlinear_density(declaration):
@@ -97,8 +107,8 @@ def test_legacy_helium_mode_refuses_a_separate_nonlinear_density(declaration):
         compile_declaration(declaration, density=1.0)
 
 
-def test_admitted_native_problem_needs_no_optional_provider(admitted):
-    admitted.validate()
+def test_admitted_native_problem_needs_no_optional_provider(admitted, admitted_request):
+    validate_run(admitted, admitted_request)
     assert admitted.route.tdse is not None
     assert admitted.route.tdse.descriptor.shadow_order == 1
     # The TDSE response is the modal route's reference-only extension.
@@ -115,13 +125,15 @@ def test_initial_seam_refuses_invalid_absolute_positions(admitted, z):
 
 
 @pytest.mark.parametrize("periodic", [False, True])
-def test_manual_atomic_seam_refuses_legacy_plasma_statistics(admitted, periodic):
+def test_manual_atomic_seam_refuses_legacy_plasma_statistics(
+    admitted, admitted_request, periodic
+):
     stats = StatsSpec(
         names=("energy", "electron_density"),
         periodic=("electron_density",) if periodic else (),
     )
     with pytest.raises(TranslationError, match="TDSE does not define legacy"):
-        dataclasses.replace(admitted, stats_spec=stats).validate()
+        validate_run(admitted, admitted_request.for_run(stats=stats))
 
 
 def _with_source(problem, **fields):
@@ -131,21 +143,27 @@ def _with_source(problem, **fields):
     return dataclasses.replace(problem, route=dataclasses.replace(route, tdse=source))
 
 
-def test_current_factor_must_be_read_only_even_when_numerically_correct(admitted):
+def test_current_factor_must_be_read_only_even_when_numerically_correct(
+    admitted, admitted_request
+):
     assert admitted.route.tdse.current_numerator is not None
     current = admitted.route.tdse.current_numerator.copy()
     assert current.flags.writeable
     with pytest.raises(TranslationError, match="frozen finite source row"):
-        _with_source(admitted, current_numerator=current).validate()
+        validate_run(
+            _with_source(admitted, current_numerator=current), admitted_request
+        )
 
 
 @pytest.mark.parametrize("offset", [0.0, 1e-5])
-def test_manual_seam_refuses_save_planes_at_or_before_entrance(admitted, offset):
+def test_manual_seam_refuses_save_planes_at_or_before_entrance(
+    admitted, offset, admitted_request
+):
     initial = dataclasses.replace(
-        admitted.initial, z=admitted.stepper.save_planes[0] + offset
+        admitted.initial, z=admitted_request.stepper.save_planes[0] + offset
     )
     with pytest.raises(TranslationError, match="save planes must follow"):
-        dataclasses.replace(admitted, initial=initial).validate()
+        validate_run(dataclasses.replace(admitted, initial=initial), admitted_request)
 
 
 def test_atomic_assembly_refuses_a_split_step_collar(declaration):
@@ -154,7 +172,9 @@ def test_atomic_assembly_refuses_a_split_step_collar(declaration):
 
 
 @pytest.mark.parametrize("change", ["samples", "spacing"])
-def test_seam_rejects_a_descriptor_for_a_different_response_lattice(admitted, change):
+def test_seam_rejects_a_descriptor_for_a_different_response_lattice(
+    admitted, change, admitted_request
+):
     grids = dataclasses.replace(
         admitted.grids,
         **(
@@ -170,11 +190,11 @@ def test_seam_rejects_a_descriptor_for_a_different_response_lattice(admitted, ch
         ),
     )
     with pytest.raises(TranslationError, match="sampling differs"):
-        dataclasses.replace(admitted, grids=grids).validate()
+        validate_run(dataclasses.replace(admitted, grids=grids), admitted_request)
 
 
 def test_seam_rejects_a_descriptor_resolved_on_another_refinement(
-    admitted, declaration
+    admitted, declaration, admitted_request
 ):
     grid, _, response = declaration
     refined = refine_response_grid(grid, TDSESampling(2))
@@ -183,31 +203,39 @@ def test_seam_rejects_a_descriptor_resolved_on_another_refinement(
         refined,
     )
     with pytest.raises(TranslationError, match="sampling differs"):
-        _with_source(admitted, descriptor=descriptor).validate()
+        validate_run(_with_source(admitted, descriptor=descriptor), admitted_request)
 
 
 @pytest.mark.parametrize("scale", [0.0, 0.5, -1.0])
-def test_seam_rejects_a_changed_current_sign_or_crop_factor(admitted, scale):
+def test_seam_rejects_a_changed_current_sign_or_crop_factor(
+    admitted, scale, admitted_request
+):
     assert admitted.route.tdse.current_numerator is not None
     changed = admitted.route.tdse.current_numerator * scale
     changed.setflags(write=False)
     # A positive row is refused by the source itself, a frozen but rescaled one by
     # validation against the physical coefficient.
     with pytest.raises(TranslationError, match=r"current numerator"):
-        _with_source(admitted, current_numerator=changed).validate()
+        validate_run(
+            _with_source(admitted, current_numerator=changed), admitted_request
+        )
 
 
 @pytest.mark.parametrize("flag", ["has_plasma", "has_raman", "mode_averaged"])
-def test_seam_rejects_unsupported_flags_before_atomic_setup(admitted, flag):
+def test_seam_rejects_unsupported_flags_before_atomic_setup(
+    admitted, flag, admitted_request
+):
     damaged = dataclasses.replace(
         admitted, flags=dataclasses.replace(admitted.flags, **{flag: True})
     )
     with pytest.raises(TranslationError, match="scalar resolved modal Adams"):
-        damaged.validate()
+        validate_run(damaged, admitted_request)
 
 
 @pytest.mark.parametrize("model", ["input", "modified"])
-def test_seam_admits_the_input_draw_and_rejects_the_modified_one(admitted, model):
+def test_seam_admits_the_input_draw_and_rejects_the_modified_one(
+    admitted, model, admitted_request
+):
     """The input draw is part of the launch that drives the atom (SEP 37, section 6).
 
     The modified draw is kept apart from the field and added at every stage, so the
@@ -223,38 +251,44 @@ def test_seam_admits_the_input_draw_and_rejects_the_modified_one(admitted, model
         flags=dataclasses.replace(admitted.flags, has_noise=True),
     )
     if model == "input":
-        noisy.validate()
+        validate_run(noisy, admitted_request)
         return
     with pytest.raises(TranslationError, match="scalar resolved modal Adams"):
-        noisy.validate()
+        validate_run(noisy, admitted_request)
 
 
 @pytest.mark.parametrize("interpolate", [False, True], ids=["no-adams", "dense"])
-def test_seam_requires_adams_and_landed_save_planes(admitted, interpolate):
-    damaged = dataclasses.replace(
+def test_seam_requires_adams_and_landed_save_planes(
+    admitted, interpolate, admitted_request
+):
+    damaged, damaged_request = (
         admitted,
-        stepper=dataclasses.replace(
-            admitted.stepper,
-            integrator=Multistep(formulation="interaction") if interpolate else None,
-            interpolate_planes=interpolate,
+        admitted_request.with_stepper(
+            dataclasses.replace(
+                admitted_request.stepper,
+                integrator=Multistep(formulation="interaction")
+                if interpolate
+                else None,
+                interpolate_planes=interpolate,
+            )
         ),
     )
     with pytest.raises(TranslationError, match="scalar resolved modal Adams"):
-        damaged.validate()
+        validate_run(damaged, damaged_request)
 
 
-def test_seam_refuses_split_step_absorption(admitted):
+def test_seam_refuses_split_step_absorption(admitted, admitted_request):
     damaged = dataclasses.replace(
         admitted,
         responses=dataclasses.replace(admitted.responses, absorber_scheme="split_step"),
     )
     with pytest.raises(TranslationError, match="scalar resolved modal Adams"):
-        damaged.validate()
+        validate_run(damaged, admitted_request)
 
 
 @pytest.mark.parametrize("model", ["tdse_native", "tdse_shadow"])
 def test_atomic_cubic_models_refuse_an_extra_compiled_kerr(
-    admitted, declaration, model
+    admitted, declaration, model, admitted_request
 ):
     grid, _, response = declaration
     response = dataclasses.replace(
@@ -272,10 +306,12 @@ def test_atomic_cubic_models_refuse_an_extra_compiled_kerr(
         responses=ordinary,
     )
     with pytest.raises(TranslationError, match=r"cubic|Kerr"):
-        damaged.validate()
+        validate_run(damaged, admitted_request)
 
 
-def test_optmat_closure_refuses_an_absent_compiled_cubic(admitted, declaration):
+def test_optmat_closure_refuses_an_absent_compiled_cubic(
+    admitted, declaration, admitted_request
+):
     grid, _, response = declaration
     replacement = dataclasses.replace(
         response, kerr_model="optmat_cubic", remainder_scale=2.0
@@ -284,7 +320,7 @@ def test_optmat_closure_refuses_an_absent_compiled_cubic(admitted, declaration):
         admitted, descriptor=TDSEDescriptor.from_response(replacement, grid)
     )
     with pytest.raises(TranslationError, match=r"cubic|Kerr"):
-        damaged.validate()
+        validate_run(damaged, admitted_request)
 
 
 @pytest.mark.parametrize(
@@ -389,17 +425,19 @@ def test_admission_preserves_the_selected_cubic_ownership(declaration, model):
 
 
 def test_filtered_seam_refuses_a_collar_not_bound_to_its_descriptor(declaration):
-    problem = compile_declaration(declaration)
-    problem.validate()
+    problem, run_request = compile_declaration(declaration)
+    validate_run(problem, run_request)
     changed = problem.grids.t_window_fine.copy()
     changed[changed.size // 2] *= 0.5
     changed.setflags(write=False)
     grids = dataclasses.replace(problem.grids, t_window_fine=changed)
     with pytest.raises(TranslationError, match="source collar differs"):
-        dataclasses.replace(problem, grids=grids).validate()
+        validate_run(dataclasses.replace(problem, grids=grids), run_request)
 
 
-def test_a_dispersive_kerr_response_beside_the_tdse_is_refused(admitted, declaration):
+def test_a_dispersive_kerr_response_beside_the_tdse_is_refused(
+    admitted, declaration, admitted_request
+):
     """The TDSE owns its gas's whole electronic response (SEP 6, section 2)."""
     grid, mode, _ = declaration
     helium = OptmatKerr("He").dispersive_model()
@@ -415,7 +453,7 @@ def test_a_dispersive_kerr_response_beside_the_tdse_is_refused(admitted, declara
         responses=dataclasses.replace(admitted.responses, dispersive_kerr=leaf),
     )
     with pytest.raises(TranslationError, match="refuses a dispersive Kerr response"):
-        damaged.validate()
+        validate_run(damaged, admitted_request)
 
 
 def test_the_tdse_source_is_the_modal_route_s_alone(admitted):

@@ -76,11 +76,11 @@ def spoiled(problem, **changes):
     )
 
 
-def on_march(problem, march):
-    """Return the problem on the default integrator or on the Runge-Kutta march."""
+def on_march(run_request, march):
+    """Return the request on the default integrator or on the Runge-Kutta march."""
     if march == "default":
-        return problem
-    return replace(problem, stepper=replace(problem.stepper, integrator=None))
+        return run_request
+    return run_request.with_stepper(replace(run_request.stepper, integrator=None))
 
 
 MARCHES = pytest.mark.parametrize("march", ["default", "runge_kutta"])
@@ -109,6 +109,7 @@ def test_a_varying_carrier_beside_a_constant_section_is_refused_in_the_same_word
     implementation = NumpyRefBackend if backend == "numpy_ref" else native_class()
     simulation = build("scalar", pressure=(1.0, 0.9), wall=None)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     spoiled_problem = replace(
         problem,
         linear=replace(
@@ -117,7 +118,7 @@ def test_a_varying_carrier_beside_a_constant_section_is_refused_in_the_same_word
                 problem.grids.omega,
                 problem.linear.phi_breakpoints[[0, -1]],
                 np.zeros((3, 3, simulation.grid.n_omega), dtype=complex),
-                dz_max=problem.stepper.dz_max,
+                dz_max=run_request.stepper.dz_max,
                 condition_limit=1e6,
                 gauge_id="capillary HE_1m",
                 certificate_id="constant-schur",
@@ -125,7 +126,7 @@ def test_a_varying_carrier_beside_a_constant_section_is_refused_in_the_same_word
         ),
     )
     with pytest.raises(BackendError, match=f"{backend} executes a constant-Schur"):
-        implementation(spoiled_problem, grid=simulation.grid)
+        implementation(spoiled_problem, run_request, grid=simulation.grid)
 
 
 @needs_native
@@ -138,7 +139,7 @@ def test_a_constant_flow_s_factors_are_the_reference_s(cases, name):
     ``frozen_generator``), so exact, as the retired test held every case.
     """
     simulation, problem = cases(name)
-    backend = native_class()(problem, grid=simulation.grid)
+    backend = native_class()(problem, simulation._run_request(), grid=simulation.grid)
     try:
         flow = backend._flow
         assert flow is not None
@@ -168,7 +169,7 @@ def test_a_varying_flow_s_factors_are_the_reference_s_to_their_rounding(cases, n
     decomposition's backward error, ``10 n^2 u`` of its norm.
     """
     simulation, problem = cases(name)
-    backend = native_class()(problem, grid=simulation.grid)
+    backend = native_class()(problem, simulation._run_request(), grid=simulation.grid)
     try:
         flow = backend._flow
         assert flow is not None
@@ -204,7 +205,7 @@ def test_every_flow_the_reference_refuses_native_refuses_in_the_same_words(
     integrator; the Runge-Kutta march reaches the leaf's own list.
     """
     simulation, problem = cases("scalar")
-    problem = on_march(problem, march)
+    run_request = on_march(simulation._run_request(), march)
     grid = simulation.grid
     flow = problem.linear.coupled_flow
     assert flow is not None and flow.generator is not None
@@ -251,9 +252,9 @@ def test_every_flow_the_reference_refuses_native_refuses_in_the_same_words(
     }
     for name, problem_spoiled in spoilers.items():
         with pytest.raises(BackendError) as theirs:
-            NumpyRefBackend(problem_spoiled, grid=grid)
+            NumpyRefBackend(problem_spoiled, run_request, grid=grid)
         with pytest.raises(BackendError) as ours:
-            native_class()(problem_spoiled, grid=grid)
+            native_class()(problem_spoiled, run_request, grid=grid)
         assert "numpy_ref" in str(theirs.value), name
         # The one difference by design: a varying flow's methods, where native names
         # 'frozen_residual' alone because it refuses 'cf4' first.
@@ -281,24 +282,25 @@ def test_the_kerr_half_is_exercised_beside_the_flow(name, march):
     built simulation rather than declared away.
     """
     simulation = build(name)
-    problem = on_march(simulation.translate(), march)
+    problem = simulation.translate()
+    run_request = on_march(simulation._run_request(), march)
     grid = simulation.grid
-    nonlinear = run(NumpyRefBackend, problem, grid)
+    nonlinear = run(NumpyRefBackend, problem, run_request, grid)
     # A fresh one: a simulation holds the problem it translated.
     linear = build(name)
     object.__setattr__(linear, "responses", ())
     linear_problem = linear.translate()
     assert len(linear_problem.responses.response_order) == 1
-    linear_problem = on_march(
-        replace(
-            linear_problem,
-            responses=replace(linear_problem.responses, absorber_scheme="split_step"),
-        ),
-        march,
+    linear_problem = replace(
+        linear_problem,
+        responses=replace(linear_problem.responses, absorber_scheme="split_step"),
     )
-    compiled = run(native_class(), linear_problem, grid)
-    reference = run(NumpyRefBackend, linear_problem, grid)
-    scales = replace(flow_scales(linear_problem, grid, reference), phi=0.0)
+    linear_request = on_march(linear._run_request(), march)
+    compiled = run(native_class(), linear_problem, linear_request, grid)
+    reference = run(NumpyRefBackend, linear_problem, linear_request, grid)
+    scales = replace(
+        flow_scales(linear_problem, linear_request, grid, reference), phi=0.0
+    )
     bound = ten_step_bound(scales)
     assert departure(compiled, reference) <= bound
     assert departure(compiled, nonlinear) > 1e3 * bound

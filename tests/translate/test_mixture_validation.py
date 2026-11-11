@@ -9,7 +9,7 @@ import dataclasses
 import numpy as np
 import pytest
 
-from mixture_cases import mixture_case
+from mixture_cases import mixture_case, mixture_translation
 from solprop.backends.numpy_ref import passes
 from solprop.exceptions import BackendError, TranslationError
 from solprop.grid import EnvelopeGrid
@@ -204,15 +204,15 @@ def test_species_metadata_and_density_shapes_are_validated(case, damage):
         problem._check_species()
 
 
-def test_explicit_response_density_cannot_override_a_mixture(case):
-    _, grid, mode, responses, original = case
+def test_explicit_response_density_cannot_override_a_mixture():
+    _, grid, mode, responses, (original, run_request) = mixture_translation()
     with pytest.raises(TranslationError, match=r"density.*mixture|mixture.*density"):
         assemble(
             grid,
             mode,
             responses,
             original.initial.field0,
-            controller=original.stepper.controller,
+            controller=run_request.stepper.controller,
             save_planes=[grid.length],
             dz_max=1e-4,
             dz_init=1e-5,

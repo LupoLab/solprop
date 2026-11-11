@@ -54,6 +54,7 @@ from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.schedule import FixedSchedule
 from solprop.tools import pulse_peak_power
+from solprop.translate.problem import Translation
 
 pytestmark = [
     # The FFT padding reaches beyond the argon fit; the notice is not the subject.
@@ -164,24 +165,26 @@ def modal_and_planar(family):
     )
     pulse = simulation._field0[0]
     shares = gaussian_coupling(modes, 0.735 * HALF_GAP)
-    modal = simulation.with_input(
+    derived = simulation.with_input(
         np.stack([math.sqrt(share) * pulse for share in shares])
-    ).translate()
+    )
+    modal = Translation(derived.translate(), derived._run_request())
     space = PlanarGrid(modes, 1e-3, n_y, collar_fraction=0.0, n_x=n_r)
     # A field uniform in y is its k_y = 0 column alone, n_y times the row value.
     field0 = np.zeros((space.n_columns, 1, grid.n_omega), complex)
-    field0[: space.n_p] = modal.initial.field0 * n_y
+    field0[: space.n_p] = modal.problem.initial.field0 * n_y
     settings = dataclasses.replace(
         simulation.settings, quadrature=None, components=None, stats=None
     )
-    planar = Simulation.from_planar(
+    hybrid = Simulation.from_planar(
         grid, space, list(simulation.responses), field0, settings=settings
-    ).translate()
+    )
+    planar = Translation(hybrid.translate(), hybrid._run_request())
     return grid, modal, planar, space, steps
 
 
-def run(problem, grid, names=()):
-    backend = NumpyRefBackend(problem, grid=grid)
+def run(problem, run_request, grid, names=()):
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(LENGTH)
@@ -263,7 +266,9 @@ def test_a_field_uniform_in_y_is_the_slab_mode_set(family):
     over the run (a factor two over four units); the stages' own rounding adds
     ``64 eps`` per stage evaluation. Measured 1.2e-10 to 2.1e-10.
     """
-    grid, modal, planar, space, steps = modal_and_planar(family)
+    grid, (modal, modal_request), (planar, planar_request), space, steps = (
+        modal_and_planar(family)
+    )
     assert_array_equal(planar.transform.synthesis, modal.transform.synthesis)
     names = (
         (
@@ -275,15 +280,15 @@ def test_a_field_uniform_in_y_is_the_slab_mode_set(family):
         if modal.flags.has_plasma
         else ()
     )
-    reference, modal_stats = run(modal, grid, names)
+    reference, modal_stats = run(modal, modal_request, grid, names)
     active = grid.omega[grid.active_mask]
     beta = (
         float(np.max(np.abs(active)))
         / C
         * float(np.max(np.real(space.modes[0].neff(active))))
     )
-    bound = 8 * EPS * beta * LENGTH + steps * step_evaluations(modal) * 64 * EPS
-    leak = steps * step_evaluations(modal) * 64 * EPS * space.n_y
+    bound = 8 * EPS * beta * LENGTH + steps * step_evaluations(modal_request) * 64 * EPS
+    leak = steps * step_evaluations(modal_request) * 64 * EPS * space.n_y
     rate_allowance = (
         # The inverse y transform adds the permitted nonzero-k_y columns with
         # weight 1 / n_y; include their existing leakage allowance as well.
@@ -296,7 +301,7 @@ def test_a_field_uniform_in_y_is_the_slab_mode_set(family):
         if family == "field-plasma"
         else None
     )
-    actual, planar_stats = run(planar, grid, names)
+    actual, planar_stats = run(planar, planar_request, grid, names)
     scale = float(np.max(np.abs(reference)))
     uniform = actual[: space.n_p] / space.n_y
     assert np.max(np.abs(uniform - reference)) <= bound * scale
@@ -385,10 +390,9 @@ def test_a_linear_beam_diffracts_in_y_and_decays_as_each_slab_mode():
         backend="numpy_ref",
         absorber=bare_absorber(grid),
     )
-    problem = Simulation.from_planar(
-        grid, space, [], field0, settings=settings
-    ).translate()
-    backend = NumpyRefBackend(problem, grid=grid)
+    hybrid = Simulation.from_planar(grid, space, [], field0, settings=settings)
+    problem, run_request = hybrid.translate(), hybrid._run_request()
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(length)
@@ -473,10 +477,11 @@ def test_the_kerr_phase_at_the_beam_centre_is_the_closed_form_b_integral():
     )
     phases = []
     for nonlinear in (list(responses), []):
-        problem = Simulation.from_planar(
+        hybrid = Simulation.from_planar(
             grid, space, nonlinear, field0, settings=settings
-        ).translate()
-        backend = NumpyRefBackend(problem, grid=grid)
+        )
+        problem, run_request = hybrid.translate(), hybrid._run_request()
+        backend = NumpyRefBackend(problem, run_request, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)
@@ -534,7 +539,8 @@ def test_the_planar_launch_carries_the_coupled_share_of_the_incident_energy():
     )
     simulation = Simulation.from_planar(grid, space, [], pulse, settings=settings)
     problem = simulation.translate()
-    backend = NumpyRefBackend(problem, grid=grid)
+    run_request = simulation._run_request()
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         values = backend.stats(spec)
@@ -601,10 +607,11 @@ def test_a_modulation_in_y_grows_at_the_modulational_instability_rate():
     )
     finals = []
     for responses in ([KerrResponse(gamma3("Ar", wavelength=800e-9), thg=False)], []):
-        problem = Simulation.from_planar(
+        hybrid = Simulation.from_planar(
             grid, space, responses, field0, settings=settings
-        ).translate()
-        backend = NumpyRefBackend(problem, grid=grid)
+        )
+        problem, run_request = hybrid.translate(), hybrid._run_request()
+        backend = NumpyRefBackend(problem, run_request, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(length)
@@ -636,7 +643,7 @@ def test_the_slab_synthesis_and_projection_invert_on_the_columns():
     """projection(synthesis(A)) = pad_scale A on an orthonormal set, per y row too."""
     modes = [SlabMode(HALF_GAP, "Ar", 1.0, order=p) for p in (1, 3)]
     space = PlanarGrid(modes, 1e-3, 8)
-    problem = Simulation.from_planar(
+    hybrid = Simulation.from_planar(
         ENVELOPE,
         space,
         [],
@@ -648,7 +655,8 @@ def test_the_slab_synthesis_and_projection_invert_on_the_columns():
             dz_init=LENGTH,
             backend="numpy_ref",
         ),
-    ).translate()
+    )
+    problem = hybrid.translate()
     columns = np.random.default_rng(49).standard_normal((space.n_columns, 1, 5)) + 0j
     physical = slab_synthesis(problem.transform, columns)
     assert physical.shape == (space.n_nodes, 1, 5)

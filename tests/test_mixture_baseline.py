@@ -185,6 +185,7 @@ def test_m2_problem_keeps_every_recorded_array(ndarrays_regression):
     with warnings.catch_warnings(record=True) as diagnostics:
         warnings.simplefilter("always", MaterialRangeWarning)
         problem = simulation.translate()
+        request = simulation._run_request()
     # This witness intentionally uses Luna's broad helium band. Preserve and assert
     # that existing diagnostic instead of changing its source model or spectral span.
     assert diagnostics
@@ -209,7 +210,14 @@ def test_m2_problem_keeps_every_recorded_array(ndarrays_regression):
     )
     bounds = {"host": HOST_BOUND, "chebyshev": CHEBYSHEV_BOUND, "phi": PHI_BOUND}
     arrays, tolerances = {}, {}
-    for path, array, kind in leaves(original):
+    # The stepper settings and the statistics left the problem for the run request
+    # (SEP 47); the record keeps their arrays under the paths it always had.
+    recorded = (
+        *leaves(original),
+        *leaves(request.stepper, ".stepper"),
+        *leaves(request.observation.stats, ".stats_spec"),
+    )
+    for path, array, kind in recorded:
         if array.size == 0:
             # Nothing to compare but the shape.
             arrays[f"{path}.shape"] = np.asarray(array.shape)

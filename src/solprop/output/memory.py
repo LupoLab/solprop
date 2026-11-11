@@ -72,6 +72,26 @@ def _grown(block: np.ndarray, used: int) -> np.ndarray:
     return grown
 
 
+def _same_array(one: np.ndarray, other: np.ndarray) -> bool:
+    """Return whether two arrays are views of exactly the same memory.
+
+    Parameters
+    ----------
+    one, other : numpy.ndarray
+        The arrays.
+
+    Returns
+    -------
+    bool
+        Whether they start at the same address with the same shape and strides.
+    """
+    return (
+        one.__array_interface__["data"][0] == other.__array_interface__["data"][0]
+        and one.shape == other.shape
+        and one.strides == other.strides
+    )
+
+
 def _history_slice(columns: Mapping[str, np.ndarray], piece: slice) -> StepHistory:
     """Return one plane's step history out of the concatenated columns.
 
@@ -183,6 +203,10 @@ class MemoryOutput(PlaneStore):
     >>> handler.close()
     """
 
+    _takes_exports = True
+    """Its ``_append`` and ``_stored_field`` keep to the exported path's contract: a
+    run hands it each kept field already stored, into its own row."""
+
     def __init__(self, block: int = INITIAL_BLOCK) -> None:
         """Start an empty store with no room allocated yet."""
         super().__init__()
@@ -224,11 +248,7 @@ class MemoryOutput(PlaneStore):
                 "memory output opened for %s", metadata.configuration_hash()[:12]
             )
 
-    def _allocate(
-        self,
-        plane: SavedPlane,
-        stored: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
-    ) -> None:
+    def _allocate(self, plane: SavedPlane, shape: tuple[int, ...] | None) -> None:
         """Preallocate every plane-indexed array from the shapes of the first plane.
 
         The room is the planes the run reserved, or the handler's block when it
@@ -238,25 +258,23 @@ class MemoryOutput(PlaneStore):
         ----------
         plane : SavedPlane
             The first plane, which fixes the statistic names.
-        stored : numpy.ndarray or None
-            Its field in the optics convention, which fixes the field's shape and
-            whether a noise phase is stored; ``None`` on a field-free plane.
+        shape : tuple of int or None
+            Its field's shape, which with its noise phase fixes the field block;
+            ``None`` on a field-free plane.
         """
         room = self._planned or self._block
         self._capacity = room
         self._z = np.zeros(room)
         self._counts = np.zeros(room, dtype=np.int64)
         self._step_counts = np.zeros(room, dtype=np.int64)
-        if stored is not None:
-            self._allocate_fields(plane, stored)
+        if shape is not None:
+            self._allocate_fields(plane, shape)
         self._stats = {
             name: np.zeros((room, *np.shape(value)), dtype=np.float64)
             for name, value in plane.stats.items()
         }
 
-    def _allocate_fields(
-        self, plane: SavedPlane, stored: Complex[np.ndarray, "n_modes n_pol n_omega"]
-    ) -> None:
+    def _allocate_fields(self, plane: SavedPlane, shape: tuple[int, ...]) -> None:
         """Preallocate the field block, and the noise phase's, at the first kept field.
 
         Every plane's room for a run that keeps every field, which then grows with
@@ -265,17 +283,18 @@ class MemoryOutput(PlaneStore):
         Parameters
         ----------
         plane : SavedPlane
-            The first plane that keeps its field.
-        stored : numpy.ndarray
-            Its field in the optics convention.
+            The first plane that keeps its field, whose noise phase says whether one
+            is stored.
+        shape : tuple of int
+            Its field's shape, ``(n_modes, n_pol, n_omega)``.
         """
         retention = self.retention
         rows = (
             self._capacity if retention.fields == "all" else len(retention.field_planes)
         )
-        self._fields = np.zeros((rows, *stored.shape), dtype=np.complex128)
+        self._fields = np.zeros((rows, *shape), dtype=np.complex128)
         if plane.noise_phase is not None:
-            self._noise_phase = np.zeros((rows, *stored.shape), dtype=np.float64)
+            self._noise_phase = np.zeros((rows, *shape), dtype=np.float64)
 
     def _expand(self) -> None:
         """Double the room in every plane-indexed array."""
@@ -291,24 +310,114 @@ class MemoryOutput(PlaneStore):
         self._capacity *= 2
         logger.debug("memory output grew to room for %d planes", self._capacity)
 
-    def _make_room(self, plane: SavedPlane) -> None:
+    def _make_room(self, plane: SavedPlane, shape: tuple[int, ...] | None) -> None:
         """Grow the blocks so that they have room for the next plane.
 
         Parameters
         ----------
         plane : SavedPlane
-            The next plane. The base class has checked it against the run's layout.
+            The next plane.
+        shape : tuple of int or None
+            Its field's shape, or ``None`` when it keeps none.
         """
         if self._capacity == 0:
-            self._allocate(plane, plane.field)
+            self._allocate(plane, shape)
         elif self._n_saved == self._capacity:
             self._expand()
+        if shape is not None and self._n_fields == 0 and not self._fields.shape[0]:
+            self._allocate_fields(plane, shape)
         if (
-            plane.field is not None
+            plane.noise_phase is not None
+            and self._noise_phase is None
             and self._n_fields == 0
-            and not self._fields.shape[0]
         ):
-            self._allocate_fields(plane, plane.field)
+            # A room given before the plane's noise phase was known
+            # (`field_destination`): the first kept plane fixes whether one is stored.
+            self._noise_phase = np.zeros(self._fields.shape, dtype=np.float64)
+
+    def field_destination(
+        self, plane: SavedPlane, shape: tuple[int, ...]
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Return the block's row that the next plane's field is to be exported into.
+
+        The row is allocated with the block, for the planes the run reserved, so a
+        kept field is written once, where it is kept (SEP 47 section 5.4). It is never
+        given to another plane, and nothing writes to it once the plane is stored.
+
+        Parameters
+        ----------
+        plane : SavedPlane
+            The plane about to be stored, without its field.
+        shape : tuple of int
+            ``(n_modes, n_pol, n_omega)`` of the field.
+
+        Returns
+        -------
+        numpy.ndarray
+            The row: writeable, C-contiguous complex128 of `shape` once the block is
+            allocated for that shape.
+
+        Raises
+        ------
+        OutputError
+            If the handler is closed or was never opened, the run keeps no field at
+            this plane, or `shape` is not the run's field shape.
+
+        Examples
+        --------
+        >>> from solprop.grid import EnvelopeGrid
+        >>> from solprop.output import MemoryOutput
+        >>> from solprop.output.schema import (
+        ...     GridRecord, RunMetadata, SavedPlane, StepperRecord, StoredField
+        ... )
+        >>> from solprop.stepper import DOPRI5, PIController
+        >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)
+        >>> handler = MemoryOutput()
+        >>> handler.open(RunMetadata(
+        ...     grid=GridRecord.from_grid(grid),
+        ...     modes=(),
+        ...     simulation_kind="mode_averaged",
+        ...     configuration={},
+        ...     stepper=StepperRecord.from_settings(
+        ...         DOPRI5, PIController(rtol=1e-8, atol=0.0)
+        ...     ),
+        ... ))
+        >>> plane = SavedPlane(z=0.0, field=None)
+        >>> row = handler.field_destination(plane, (1, 1, grid.n_omega))
+        >>> row[...] = 1.0
+        >>> handler.save_exported(plane, StoredField(row))
+        >>> stored = handler.fields("optics")
+        >>> stored.shape, bool((stored == 1.0).all())
+        ((1, 1, 1, 2560), True)
+        """
+        self._check_destination(plane, shape)
+        self._make_room(plane, shape)
+        return self._fields[self._n_fields]
+
+    def _take_exported(
+        self,
+        plane: SavedPlane,
+        exported: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Return the row holding an exported field, copying it in from elsewhere.
+
+        Parameters
+        ----------
+        plane : SavedPlane
+            The plane, without a field.
+        exported : numpy.ndarray
+            Its field in the stored form: this store's row, or another array.
+
+        Returns
+        -------
+        numpy.ndarray
+            The block's row that holds it.
+        """
+        self._make_room(plane, exported.shape)
+        row = self._fields[self._n_fields]
+        if not _same_array(row, exported):
+            np.copyto(row, exported)
+        return row
 
     def _stored_field(
         self, plane: SavedPlane, kind: GridKind
@@ -328,7 +437,7 @@ class MemoryOutput(PlaneStore):
             The block's row that now holds it.
         """
         assert plane.field is not None
-        self._make_room(plane)
+        self._make_room(plane, plane.field.shape)
         return stored_spectrum(plane.field, kind, self._fields[self._n_fields])
 
     def _append(
@@ -341,12 +450,16 @@ class MemoryOutput(PlaneStore):
         Parameters
         ----------
         plane : SavedPlane
-            The plane, whose field is still in the internal convention.
+            The plane: its field in the internal convention, or ``None`` where the
+            field was exported straight into the stored form
+            (:meth:`~solprop.output.schema.PlaneStore.save_exported`) and `stored`
+            alone holds it. A subclass whose own ``_append`` reads the plane's field
+            does not take exports (``PlaneStore.takes_exports``).
         stored : numpy.ndarray or None
             That field converted to the optics convention, in its row of the block
             (:meth:`_stored_field`); ``None`` on a field-free plane, which stores none.
         """
-        self._make_room(plane)
+        self._make_room(plane, None if stored is None else stored.shape)
         index = self._n_saved
         self._z[index] = plane.z
         if stored is not None:

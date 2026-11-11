@@ -143,11 +143,11 @@ def _launched_in(problem: PropagationProblem, index: int) -> PropagationProblem:
     return replace(problem, initial=replace(problem.initial, field0=state))
 
 
-def _frozen_product(problem: PropagationProblem, index: int):
+def _frozen_product(problem: PropagationProblem, run_request, index: int):
     """Return ``prod_k exp(dz G_{s_k})`` at one bin, the frozen flow's own answer."""
     flow = problem.linear.coupled_flow
     assert flow is not None
-    schedule = problem.stepper.schedule
+    schedule = run_request.stepper.schedule
     assert schedule is not None
     product = np.eye(flow.n_modes, dtype=complex)
     anchor = 0.0
@@ -177,12 +177,13 @@ def test_the_collar_is_carried_by_the_frozen_flow_alone(name):
     backend, bound 4.6e-13.
     """
     backend = backend_class(name)
-    problem = varying(wall=CoherentWall(), absorber=_no_temporal_collar()).translate()
+    simulation = varying(wall=CoherentWall(), absorber=_no_temporal_collar())
+    problem, run_request = simulation.translate(), simulation._run_request()
     index = int(np.flatnonzero(collar_bins(problem))[0])
     assert not GRID.inband_mask[index]
     launched = _launched_in(problem, index)
-    expected = _frozen_product(problem, index)[:, 0]
-    driver = backend(launched, grid=GRID)
+    expected = _frozen_product(problem, run_request, index)[:, 0]
+    driver = backend(launched, run_request, grid=GRID)
     try:
         driver.set_initial(launched.initial.field0, None)
         driver.propagate_to(LENGTH)
@@ -197,12 +198,16 @@ def test_the_collar_is_carried_by_the_frozen_flow_alone(name):
         2.0
         * STEPS
         * condition**STEPS
-        * apply_bound(flow.n_modes, condition, formation_bound(problem, dz))
+        * apply_bound(
+            flow.n_modes, condition, formation_bound(problem, run_request, dz)
+        )
     )
     departure = float(np.max(abs(got / got[0] - expected / expected[0])))
     assert departure <= bound, (departure, bound)
     if name == "numpy_ref":
-        old = run(NumpyRefBackend, scored_everywhere(launched), GRID)[:, 0, index]
+        old = run(NumpyRefBackend, scored_everywhere(launched), run_request, GRID)[
+            :, 0, index
+        ]
         assert float(np.max(abs(old / old[0] - expected / expected[0]))) > 1e-3
 
 
@@ -251,7 +256,7 @@ def _transient_case():
             raman=False,
             noise=None,
         )
-        return simulation.translate(), grid
+        return simulation.translate(), simulation._run_request(), grid
 
 
 @pytest.fixture(scope="module")
@@ -260,7 +265,7 @@ def transient():
     return _transient_case()
 
 
-def _seeded_growth(backend, problem, grid, collar, worst):
+def _seeded_growth(backend, problem, run_request, grid, collar, worst):
     """Return `HE_14`'s growth at the worst collar bin over the ten steps to the corner.
 
     The launch is restarted ten steps before the corner, as a probe of the full-length
@@ -271,7 +276,7 @@ def _seeded_growth(backend, problem, grid, collar, worst):
     seed = 1e-8 * float(np.max(abs(launch)))
     launch[..., collar] += seed
     start = TAPER_LENGTH - STEPS * TRANSIENT_STEP
-    driver = backend(problem, grid=grid)
+    driver = backend(problem, run_request, grid=grid)
     try:
         driver.set_initial(launch, None, z=start)
         driver.propagate_to(TAPER_LENGTH)
@@ -290,9 +295,9 @@ def test_a_coupled_flow_keeps_its_collar_in_every_stage(transient, name):
     backends (the native engine kept it and the Python ones dropped it before).
     """
     backend = backend_class(name)
-    problem, grid = transient
+    problem, run_request, grid = transient
     assert problem.linear.coupled_flow is not None
-    driver = backend(problem, grid=grid)
+    driver = backend(problem, run_request, grid=grid)
     try:
         assert not driver._collar_can_rest()
         driver._set_collar_quiet(True)
@@ -318,7 +323,7 @@ def test_a_seeded_collar_no_longer_grows_towards_a_frozen_section_s_end(
     (measured 7.8e-2 on all three backends).
     """
     backend = backend_class(name)
-    problem, grid = transient
+    problem, run_request, grid = transient
     flow = problem.linear.coupled_flow
     assert flow is not None
     collar = collar_bins(problem)
@@ -332,9 +337,11 @@ def test_a_seeded_collar_no_longer_grows_towards_a_frozen_section_s_end(
             flow, flow_section(flow, start + step * TRANSIENT_STEP)
         )[:, :, worst]
         frozen *= float(np.linalg.norm(expm(TRANSIENT_STEP * block), 2))
-    growth = _seeded_growth(backend, problem, grid, collar, worst)
+    growth = _seeded_growth(backend, problem, run_request, grid, collar, worst)
     assert growth <= frozen * (1.0 + 1e-6), (growth, frozen)
-    old = _seeded_growth(backend, scored_everywhere(problem), grid, collar, worst)
+    old = _seeded_growth(
+        backend, scored_everywhere(problem), run_request, grid, collar, worst
+    )
     assert old > 1e3, old
 
 
@@ -354,14 +361,14 @@ IN_BAND_CASES = {
 """The varying coupled-flow cases, each with a Kerr half strong enough to couple."""
 
 
-def in_band_bound(problem: PropagationProblem, grid, planes):
+def in_band_bound(problem: PropagationProblem, run_request, grid, planes):
     """Return the derived relative bound on the in-band answer's move, and its parts.
 
     ``planes`` are the new run's states after each of its steps, the last the answer.
     """
     flow = problem.linear.coupled_flow
     assert flow is not None
-    scales = flow_scales(problem, grid, planes[-1])
+    scales = flow_scales(problem, run_request, grid, planes[-1])
     collar = collar_bins(problem)
     residual = float(np.max(flow.residual_norm_bound[:, collar], initial=0.0))
     content = max(
@@ -400,10 +407,11 @@ def test_the_in_band_answer_moves_by_less_than_the_derived_bound(case):
     """
     simulation = IN_BAND_CASES[case]()
     problem = simulation.translate()
+    run_request = simulation._run_request()
     grid = simulation.grid
     band = problem.grids.inband_mask
     planes = []
-    driver = NumpyRefBackend(problem, grid=grid)
+    driver = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         driver.set_initial(problem.initial.field0, None)
         for step in range(STEPS):
@@ -411,11 +419,11 @@ def test_the_in_band_answer_moves_by_less_than_the_derived_bound(case):
             planes.append(driver.observe().require_field().copy())
     finally:
         driver.close()
-    old = run(NumpyRefBackend, scored_everywhere(problem), grid)
+    old = run(NumpyRefBackend, scored_everywhere(problem), run_request, grid)
     departure = float(
         np.linalg.norm((planes[-1] - old)[..., band]) / np.linalg.norm(old[..., band])
     )
-    bound, analytic, content = in_band_bound(problem, grid, planes)
+    bound, analytic, content = in_band_bound(problem, run_request, grid, planes)
     assert content > 0.0
     assert analytic < 1e-17, analytic
     assert departure <= bound, (departure, bound)
@@ -471,7 +479,7 @@ def test_a_flow_with_nothing_unscored_is_what_it_was(
         problem = scored_everywhere(problem)
     else:
         assert flow.section_methods == ("constant_schur",)
-    state = run(backend, problem, simulation.grid)
+    state = run(backend, problem, simulation._run_request(), simulation.grid)
     check_state(
         ndarrays_regression,
         state,

@@ -66,7 +66,7 @@ def propagate_pair(
         mode = SpecifiedMode.from_taylor([omega / C, 1 / C], omega, aeff=area)
         jones = np.asarray([1.0, 1j * ratio]) / np.sqrt(1 + ratio**2)
         initial = pulse.build(grid) * jones[None, :, None]
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             mode,
             [response],
@@ -80,12 +80,12 @@ def propagate_pair(
             absorber=absorber(grid, boundary_length=1e-3),
             stats_spec=StatsSpec(names=names),
         )
-        owner = backend_class(problem, grid=grid)
+        owner = backend_class(problem, run_request, grid=grid)
         try:
             owner.set_initial(problem.initial.field0, None)
-            before = owner.stats(problem.stats_spec)
+            before = owner.stats(run_request.observation.stats)
             summary = owner.propagate_to(length)
-            after = owner.stats(problem.stats_spec)
+            after = owner.stats(run_request.observation.stats)
             results[label] = {
                 "n_t": grid.n_t,
                 "n_to": grid.n_to,
@@ -206,7 +206,7 @@ def mixture_propagation(oversampling, *, backend_class=NumpyRefBackend):
         # band and the same material extrapolation are retained on both grids.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", MaterialRangeWarning)
-            problem = assemble(
+            problem, run_request = assemble(
                 grid,
                 mode,
                 responses_for(
@@ -222,7 +222,7 @@ def mixture_propagation(oversampling, *, backend_class=NumpyRefBackend):
                 stats_spec=StatsSpec(names=("energy", "species_ionisation")),
                 ionisation_field_range=(1.0, 1e11),
             )
-        owner = backend_class(problem, grid=grid)
+        owner = backend_class(problem, run_request, grid=grid)
         try:
             owner.set_initial(problem.initial.field0, None)
             before = owner.observe().require_field()
@@ -230,7 +230,7 @@ def mixture_propagation(oversampling, *, backend_class=NumpyRefBackend):
                 np.sum(owner.stats(StatsSpec(names=("energy",)))["energy"])
             )
             summary = owner.propagate_to(grid.length)
-            values = owner.stats(problem.stats_spec)
+            values = owner.stats(run_request.observation.stats)
             results[label] = {
                 "fractions": values["species_ionisation"].ravel().tolist(),
                 "energy": float(np.sum(values["energy"])),

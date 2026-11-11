@@ -23,8 +23,9 @@ from __future__ import annotations
 import dataclasses
 import logging
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 
@@ -40,13 +41,16 @@ from solprop.backends.events import (
     Progress,
     ServiceKind,
     ServiceRequired,
+    emit_warning,
     join_attempts,
 )
 from solprop.backends.export import ExportRecipe
-from solprop.backends.protocol import BackendHistory
+from solprop.backends.protocol import Backend, BackendHistory
 from solprop.backends.protocol import StepStats as BackendRows
+from solprop.backends.session import RunSession
 from solprop.driver.plane_view import PlaneWatch
 from solprop.driver.run import (
+    SessionFacts,
     _announce,
     _earlier_execution,
     _FailedObservation,
@@ -64,6 +68,7 @@ from solprop.driver.run import (
 )
 from solprop.driver.summary import resources
 from solprop.exceptions import ResponseBudgetError, RunTerminated, StopRequested
+from solprop.fourier import GridKind, spectrum_to_internal
 from solprop.log import (
     InterruptibleReporter,
     ProgressReporter,
@@ -81,6 +86,7 @@ from solprop.output.schema import (
     SavedPlane,
     StepHistory,
     StepStats,
+    StoredField,
     TerminalCheckpoint,
     _adopted,
 )
@@ -96,9 +102,12 @@ __all__ = ["MONITOR_RECONSTRUCTED", "ServiceContext", "serve"]
 logger = logging.getLogger("solprop.driver.run")
 
 _CONSUMER = ExportRecipe(power=True, optics=False)
-"""The field a saved plane, a plane observer and a checkpoint record all hold: output
-amplitudes in the internal FFT convention (SEP 47 section 5.4). The plane store makes
-the optics conversion on its way to disk."""
+"""The field a plane observer, a checkpoint record and an output that is not a plane
+store hold: output amplitudes in the internal FFT convention (SEP 47 section 5.4)."""
+
+_STORED = ExportRecipe(power=True, optics=True)
+"""The field a plane store keeps: :data:`_CONSUMER` in the optics convention, which the
+store's own conversion makes (``PlaneStore.save``)."""
 
 
 @dataclass(frozen=True)
@@ -201,24 +210,46 @@ def _restart(base: Mapping[str, object], keeper: _MarchKeeper) -> dict[str, obje
 
 
 class _Exports:
-    """One detached export per pending ticket, shared by every consumer.
+    """One export per pending ticket, shared by every consumer.
 
     The output, a plane observer and a terminal checkpoint asking for the same field
-    share one array (SEP 47 section 5.4); a field-free plane fetches nothing unless a
-    consumer asks.
+    share one export (SEP 47 section 5.4); a field-free plane fetches nothing unless a
+    consumer asks. A plane store's field is exported straight into its stored form,
+    into the store's own room where it has one; a consumer that wants the internal
+    convention after that is given the exact inverse of the optics conversion
+    (:func:`solprop.fourier.spectrum_to_internal`), with no second export. An output
+    that is not a plane store is given the consumer field itself.
 
     Parameters
     ----------
-    session : solprop.backends.driver_session.DriverSession
+    session : solprop.backends.session.RunSession
         The session whose tickets are exported.
+    kind : {'field', 'envelope'}
+        The grid's spectral layout.
     """
 
-    def __init__(self, session: DriverSession) -> None:
+    def __init__(self, session: RunSession, kind: GridKind) -> None:
         """Start with nothing exported."""
         self._session = session
+        self._kind: GridKind = kind
         self._ticket: ExportTicket | None = None
         self._field: np.ndarray | None = None
+        self._stored: np.ndarray | None = None
         self._phase: np.ndarray | None = None
+        self._phased = False
+
+    def _hold(self, ticket: ExportTicket) -> None:
+        """Forget what another ticket exported.
+
+        Parameters
+        ----------
+        ticket : solprop.backends.events.ExportTicket
+            The ticket now asked for.
+        """
+        if self._ticket != ticket:
+            self._ticket = ticket
+            self._field = self._stored = self._phase = None
+            self._phased = False
 
     def field(self, ticket: ExportTicket) -> np.ndarray:
         """Return the consumer field for a ticket, exporting it once.
@@ -233,21 +264,50 @@ class _Exports:
         numpy.ndarray
             Read-only output amplitudes in the internal convention.
         """
-        if self._ticket != ticket or self._field is None:
-            field = self._session.export(ticket, _CONSUMER)
+        self._hold(ticket)
+        if self._field is None:
+            if self._stored is not None:
+                field = spectrum_to_internal(self._stored, kind=self._kind)
+            else:
+                field = self._session.export(ticket, _CONSUMER)
             field.setflags(write=False)
-            phase = self._session.noise_phase(ticket)
-            if phase is not None:
-                phase.setflags(write=False)
-            self._ticket, self._field, self._phase = ticket, field, phase
+            self._field = field
         return self._field
 
+    def stored(self, ticket: ExportTicket, out: np.ndarray | None) -> np.ndarray:
+        """Export the stored form of a ticket's field into `out`.
+
+        The plane store is a plane's first consumer (:func:`_prepare_plane`), so its
+        export is the ticket's first; any consumer after it is given the consumer
+        field from it (:meth:`field`).
+
+        Parameters
+        ----------
+        ticket : solprop.backends.events.ExportTicket
+            A pending ticket.
+        out : numpy.ndarray or None
+            The plane store's room (``PlaneStore.field_destination``), or ``None``
+            for a new array.
+
+        Returns
+        -------
+        numpy.ndarray
+            Read-only output amplitudes in the optics convention: `out` when given.
+        """
+        self._hold(ticket)
+        assert self._field is None and self._stored is None, "a plane's first export"
+        stored = self._session.export(ticket, _STORED, out=out)
+        stored.setflags(write=False)
+        self._stored = stored
+        return stored
+
     def release(self) -> None:
-        """Drop the exported field once its batch is acknowledged."""
-        self._ticket = self._field = self._phase = None
+        """Drop the exports once their batch is acknowledged."""
+        self._ticket = self._field = self._stored = self._phase = None
+        self._phased = False
 
     def phase(self, ticket: ExportTicket) -> np.ndarray | None:
-        """Return the noise phase for a ticket, exported with its field.
+        """Return the noise phase for a ticket, read once.
 
         Parameters
         ----------
@@ -257,9 +317,14 @@ class _Exports:
         Returns
         -------
         numpy.ndarray or None
-            The phase, or ``None`` without a noise model.
+            The phase, read-only, or ``None`` without a noise model.
         """
-        self.field(ticket)
+        self._hold(ticket)
+        if not self._phased:
+            phase = self._session.noise_phase(ticket)
+            if phase is not None:
+                phase.setflags(write=False)
+            self._phase, self._phased = phase, True
         return self._phase
 
 
@@ -274,14 +339,30 @@ class _Chunks:
     (:mod:`solprop.backends.events`); this is where they are assembled. An observation
     takes them all as its plane's history and starts afresh; a running checkpoint
     includes them without consuming them; a terminal checkpoint includes them.
+
+    Parameters
+    ----------
+    step : callable
+        The progress reporter's per-attempt call, made with each attempt's end,
+        length and acceptance as its chunk arrives.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, step: Callable[[float, float, bool], None]) -> None:
         """Start with nothing held."""
         self._chunks: list[_Chunk] = []
+        self._step = step
 
-    def add(self, history: BackendHistory | None, rows: BackendRows | None) -> None:
-        """Hold one event's chunk.
+    def add(
+        self,
+        history: BackendHistory | None,
+        rows: BackendRows | None,
+        *,
+        report: bool = True,
+    ) -> None:
+        """Hold one event's chunk, and report its attempts.
+
+        Every attempt arrives exactly once, so the reporter hears each once, in order,
+        at the cadence of the session's yields rather than from inside its march.
 
         Parameters
         ----------
@@ -289,8 +370,20 @@ class _Chunks:
             Its attempts.
         rows : solprop.backends.protocol.StepStats or None
             Its periodic rows, without a batch axis.
+        report : bool, optional
+            Whether the reporter hears the attempts; ``False`` for the attempts no
+            event delivered, which a failure's checkpoint holds and no reporter call
+            may lose.
         """
         self._chunks.append((history, rows))
+        if report and history is not None:
+            for z, dz, accepted in zip(
+                history.z.tolist(),
+                history.dz.tolist(),
+                history.accepted.tolist(),
+                strict=True,
+            ):
+                self._step(z, dz, accepted)
 
     def joined(self) -> tuple[BackendHistory, BackendRows]:
         """Return every chunk held, assembled, without consuming them.
@@ -317,10 +410,9 @@ class _Chunks:
 
 def _plane(
     event: ObservationReady,
-    exports: _Exports,
     attempts: tuple[BackendHistory, BackendRows],
-    *,
-    keep: bool,
+    field: np.ndarray | None,
+    phase: np.ndarray | None,
 ) -> SavedPlane:
     """Build the plane an output stores from an observation.
 
@@ -328,20 +420,19 @@ def _plane(
     ----------
     event : solprop.backends.events.ObservationReady
         The observation.
-    exports : _Exports
-        Its field, when kept.
     attempts : tuple
         Its history and rows, assembled from the chunks since the previous plane.
-    keep : bool
-        Whether the plane keeps its field.
+    field : numpy.ndarray or None
+        Its field in the internal convention, or ``None``: a field-free plane, or one
+        whose field is exported straight into a plane store.
+    phase : numpy.ndarray or None
+        Its noise phase, where it keeps its field and a noise model runs.
 
     Returns
     -------
     solprop.output.schema.SavedPlane
         The plane.
     """
-    field = exports.field(event.ticket) if keep else None
-    phase = exports.phase(event.ticket) if keep else None
     return SavedPlane(
         z=event.z,
         field=None if field is None else _adopted(field),
@@ -352,16 +443,89 @@ def _plane(
     )
 
 
+def _prepare_plane(
+    event: ObservationReady,
+    output: Output,
+    exports: _Exports,
+    attempts: tuple[BackendHistory, BackendRows],
+    shape: tuple[int, ...],
+    *,
+    keep: bool,
+) -> tuple[SavedPlane, StoredField | None]:
+    """Build an observation's plane, its kept field exported once for the output.
+
+    A plane store that :attr:`~solprop.output.schema.PlaneStore.takes_exports` is
+    given the field exported straight into its stored form, into its own room where it
+    has one (SEP 47 section 5.4), and the plane carries none; any other output is
+    given the consumer field on the plane (:func:`_save_plane`).
+
+    Parameters
+    ----------
+    event : solprop.backends.events.ObservationReady
+        The observation.
+    output : solprop.output.schema.Output
+        The run's output.
+    exports : _Exports
+        The pending ticket's exports.
+    attempts : tuple
+        Its history and rows.
+    shape : tuple of int
+        ``(n_modes, n_pol, n_omega)`` of the field.
+    keep : bool
+        Whether the plane keeps its field.
+
+    Returns
+    -------
+    tuple
+        The plane and, where its field was exported into a plane store, the stored
+        field (``None`` otherwise).
+    """
+    ticket = event.ticket
+    phase = exports.phase(ticket) if keep else None
+    if keep and isinstance(output, PlaneStore) and output.takes_exports:
+        plane = _plane(event, attempts, None, None)
+        room = output.field_destination(plane, shape)
+        stored = StoredField(
+            exports.stored(ticket, room), None if phase is None else _adopted(phase)
+        )
+        return plane, stored
+    return _plane(event, attempts, exports.field(ticket) if keep else None, phase), None
+
+
+def _save_plane(output: Output, plane: SavedPlane, stored: StoredField | None) -> None:
+    """Hand a prepared plane to the output (:func:`_prepare_plane`).
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        The run's output.
+    plane : solprop.output.schema.SavedPlane
+        The plane.
+    stored : solprop.output.schema.StoredField or None
+        Its field exported into the plane store's stored form, or ``None``.
+    """
+    if stored is None:
+        output.save(plane)
+    else:
+        assert isinstance(output, PlaneStore)
+        output.save_exported(plane, stored)
+
+
 def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
-    session: DriverSession,
+    session: RunSession,
     output: Output,
     context: ServiceContext,
 ) -> None:
     """Advance a session to its end, servicing every event it reports.
 
+    Any :class:`~solprop.backends.session.RunSession` is served: the transitional
+    :class:`~solprop.backends.driver_session.DriverSession`, whose driver gives the
+    execution facts and method history, or a backend's own session, through its
+    protocol alone (:class:`~solprop.driver.run.SessionFacts`).
+
     Parameters
     ----------
-    session : solprop.backends.driver_session.DriverSession
+    session : solprop.backends.session.RunSession
         The started session.
     output : solprop.output.schema.Output
         Where the planes go; closed when the loop ends, whether or not it succeeded.
@@ -375,7 +539,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
         record and any checkpoint are written.
     """
     problem, reporter = context.problem, context.reporter
-    backend = session.driver
+    backend = _facts(session)
     planes = context.request.observation.save_planes
     started = time.perf_counter()
     clock = RunClock.start()
@@ -389,9 +553,12 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
     if reserve is not None:
         reserve(planes.size + 1)
     _retain(output, context.retention, problem.shape)
-    reached, missing_current_save = _resume_position(output, checkpoint_output, problem)
+    reached, missing_current_save = _resume_position(
+        output, checkpoint_output, problem, context.request
+    )
     _refuse_unread_collar(problem, backend)
-    monitor = session.monitor
+    # The request's own monitor: its thresholds; the session owns its state.
+    monitor = context.request.boundary.monitor
     # Read before this execution's first record replaces the earlier one's.
     earlier = None if checkpoint_output is None else checkpoint_output.outcome
     resumed, monitored, unwatched = _earlier_execution(output, checkpoint_output)
@@ -417,16 +584,18 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
         output,
         reporter,
         (context.start_plane, reached),
+        request=context.request,
         boundary_check=None if monitor is None else monitor.check,
     )
     keeper = _MarchKeeper(
         output,
         backend,
         context.resume_history,
-        method=_method_history(problem),
+        method=_method_history(context.request),
         retention=None if earlier is None else retention_at(earlier.execution, reached),
     )
-    exports = _Exports(session)
+    exports = _Exports(session, context.metadata.grid.kind)
+    shape = tuple(context.problem.shape)
     current: list[ObservationReady | None] = [None]
 
     def fetch() -> np.ndarray:
@@ -448,7 +617,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
     snapshots = context.snapshots
     snapshots_started = False
     terminal_rows: tuple[object, object] = (None, None)
-    chunks = _Chunks()
+    chunks = _Chunks(reporter.step)
     failure: BaseException | None = None
     adams = isinstance(context.request.integration.method, Multistep)
     try:
@@ -501,10 +670,12 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                     if event.kind is not ObservationKind.LAUNCH:
                         _warn_coarse(event, planes)
                     keep = context.retention.keeps(output.n_saved)
-                    pending = _plane(event, exports, attempts, keep=keep)
+                    pending, stored = _prepare_plane(
+                        event, output, exports, attempts, shape, keep=keep
+                    )
                     pending_save_count = output.n_saved
                     with committing():
-                        output.save(pending)
+                        _save_plane(output, pending, stored)
                         if event.kind is not ObservationKind.LAUNCH:
                             keeper.keep(pending.z)
                             reached = event.z
@@ -516,28 +687,35 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                             clock=clock,
                             restart=_restart(base, keeper),
                         )
-                    watch.show(pending, output.n_saved - 1)
+                    watch.show(pending, output.n_saved - 1, stored)
                     if event.kind is not ObservationKind.LAUNCH:
                         reporter.plane(event.z, event.summary)
                 elif isinstance(event, ServiceRequired):
                     chunks.add(event.history, event.step_stats)
-                    # The one service a session asks for is the snapshot this loop
-                    # requested, only with snapshots on.
-                    assert event.kind is ServiceKind.SNAPSHOT and snapshots is not None
-                    assert isinstance(output, HDF5Output)
-                    _service_snapshot(
-                        event,
-                        output,
-                        checkpoint_output,
-                        backend,
-                        keeper,
-                        exports,
-                        context,
-                        chunks.joined(),
-                        clock=clock,
-                        adams=adams,
-                        base=base,
-                    )
+                    if event.kind is ServiceKind.WARNING:
+                        # A warning barrier (SEP 47 section 5.5): the filters may
+                        # raise it, which fails the run at this committed endpoint,
+                        # its field and the attempts since the last plane there for
+                        # the checkpoint.
+                        pending_ticket = event.ticket
+                        terminal_rows = chunks.joined()
+                        emit_warning(event)
+                    else:
+                        # A snapshot, which a session yields only at the request above.
+                        assert isinstance(output, HDF5Output)
+                        _service_snapshot(
+                            event,
+                            output,
+                            checkpoint_output,
+                            backend,
+                            keeper,
+                            exports,
+                            context,
+                            chunks.joined(),
+                            clock=clock,
+                            adams=adams,
+                            base=base,
+                        )
                 else:
                     chunks.add(event.history, event.step_stats)
                     if event.outcome is Outcome.COMPLETED:
@@ -730,7 +908,7 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
 
 
 def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
-    session: DriverSession,
+    session: RunSession,
     output: CheckpointOutput | None,
     context: ServiceContext,
     keeper: _MarchKeeper,
@@ -745,7 +923,7 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
 
     Parameters
     ----------
-    session : solprop.backends.driver_session.DriverSession
+    session : solprop.backends.session.RunSession
         The session, its last batch still pending.
     output : solprop.output.schema.CheckpointOutput or None
         Handler supporting terminal checkpoints, when available.
@@ -776,11 +954,12 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
     """
     if output is None:
         return None
-    backend = session.driver
+    backend = _facts(session)
     in_flight = backend.in_flight
     if failure.pending is None and in_flight is not None:
-        # The latest running checkpoint, when one follows the last plane, is the
-        # state to resume from (SEP 47 section 5.5).
+        # A driver's step in flight, or a poisoned session's: the latest running
+        # checkpoint, when one follows the last plane, is the state to resume from
+        # (SEP 47 section 5.5).
         return _record_abandoned_step(
             backend,
             output,
@@ -804,8 +983,10 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
             history, step_rows = rows
             if history is None and step_rows is None:
                 # A failure outside the session: the chunks since the last plane, a
-                # running checkpoint's included, and what no event delivered.
-                chunks.add(*session.undelivered(ticket))
+                # running checkpoint's included, and what no event delivered, which
+                # the run's reporter does not hear: it is ending, and a reporter that
+                # raised here would lose the checkpoint.
+                chunks.add(*session.undelivered(ticket), report=False)
                 history, step_rows = chunks.joined()
             pending = SavedPlane(
                 z=ticket.z,
@@ -878,7 +1059,7 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
     return reached
 
 
-def _fallback_ticket(session: DriverSession) -> ExportTicket | None:
+def _fallback_ticket(session: RunSession) -> ExportTicket | None:
     """Return a ticket for the committed state after a failure outside the session.
 
     A service failure -- an output error, a signal during a commit -- leaves the
@@ -888,7 +1069,7 @@ def _fallback_ticket(session: DriverSession) -> ExportTicket | None:
 
     Parameters
     ----------
-    session : solprop.backends.driver_session.DriverSession
+    session : solprop.backends.session.RunSession
         The session.
 
     Returns
@@ -897,4 +1078,33 @@ def _fallback_ticket(session: DriverSession) -> ExportTicket | None:
         A ticket for the committed state, or ``None`` when the session is closed or
         its state was left in flight.
     """
+    # A session that can end itself at its committed state for the checkpoint says
+    # so (`NativeSession.failure_ticket`); the transitional session's pending ticket
+    # already does.
+    issue = getattr(session, "failure_ticket", None)
+    if callable(issue):
+        return cast("ExportTicket | None", issue())
     return session.pending_ticket()
+
+
+def _facts(session: RunSession) -> Backend | SessionFacts:
+    """Return what the service loop's records read as the session's backend.
+
+    The transitional session's driver, or a session's own facts
+    (:class:`~solprop.driver.run.SessionFacts`).
+
+    Parameters
+    ----------
+    session : solprop.backends.session.RunSession
+        The session.
+
+    Returns
+    -------
+    Any
+        The driver, or the facts.
+    """
+    # The transitional session's own module imports this loop's helpers.
+
+    if isinstance(session, DriverSession):
+        return session.driver
+    return SessionFacts(session)

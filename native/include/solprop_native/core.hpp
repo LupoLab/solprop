@@ -862,6 +862,24 @@ public:
   void adams_exponential_observe(double xi, double dz,
                                  const ExponentialWeights& weights);
   /**
+   * A Runge-Kutta march's dense output in a native session (solprop SEP 47 section
+   * 5.3), DOPRI5's continuous extension (Hairer, Norsett and Wanner II.6) as solprop's
+   * `extension_coefficients` and `_observe_inside` form it. `rk_dense_allocate` keeps
+   * the tableau's dense-output weights, one per stage, and the views the extension
+   * needs; `rk_dense_hold` contracts the accepted, unfinished trial over `dz` -- the
+   * state before it and its stages -- into the extension's five coefficients and marks
+   * the bins the step's flow changes by more than an e-fold;
+   * `rk_dense_observe` holds the committed state aside and makes the state the
+   * extension at the fraction `theta`, carried from the anchor by the flow of `carry`
+   * (a trial's arrays from the anchor to the plane) and masked; `rk_dense_restore`
+   * makes the held state current again; `rk_dense_release` frees the views.
+   */
+  void rk_dense_allocate(const std::vector<double>& weights);
+  void rk_dense_hold(double dz);
+  void rk_dense_observe(double theta, const TrialScalars& carry);
+  void rk_dense_restore();
+  void rk_dense_release() noexcept;
+  /**
    * The resident Adams history's persistent rows, for a resume (solprop SEP 29 G2):
    * `"store"`, and `"states"`, `"rates"` and `"applied"` where allocated, each
    * `(slots, columns, n_omega)`. Scratch views are not rows: a trial rebuilds them.
@@ -955,6 +973,20 @@ public:
              double preionisation, double intensity_factor,
              const std::vector<double>& channel_preionisation = {},
              const std::vector<double>& power_weight = {});
+  /**
+   * solprop SEP 47: a general modal basis's statistics, functionals of the physical
+   * flux `a.H W a` (`solprop.stats._whitened`). The state's columns are whitened by
+   * `root`, `W^(1/2)` at each frequency, `(n_omega, n_modes, n_modes)` row-major
+   * (empty for the identity), into a statistics scratch, and the temporal `flags`
+   * (omega0, energy, peak power total and the width's trace) are evaluated on
+   * `c = W^(1/2) a`. Returns their packed values, then each column's `sum |c|^2`,
+   * then, with `spectral`, each bin's `sum |c|^2` over the columns. The state is
+   * unchanged.
+   */
+  [[nodiscard]] std::vector<double>
+  whitened_statistics(const std::vector<Complex>& root, std::uint64_t flags,
+                      const std::vector<double>& windows, double intensity_factor,
+                      bool spectral);
   void finish(double dz);
   void promote_fsal();
   void clear_fsal();
@@ -990,6 +1022,13 @@ public:
   [[nodiscard]] std::vector<Complex> field_to_host() const;
   /** The field into `destination`, of the field's size: one copy from the space. */
   void field_to_host(std::span<Complex> destination) const;
+  /** The committed field where the host can read it in place, `columns * n_omega`
+      elements in row-major order, after the state's work is fenced; null where the
+      memory space is not host-accessible. A reader that passes it through the host
+      adds its bytes with `count_to_host` (solprop SEP 47 section 5.4). */
+  [[nodiscard]] const Complex* host_field() const;
+  /** Count `bytes` read out of the state by a host reader of `host_field`. */
+  void count_to_host(std::size_t bytes) const noexcept;
   /** What the transverse edge's reading sums with (solprop SEP 44). */
   void bind_edge(const std::vector<double>& faces, const std::vector<double>& clip,
                  const std::vector<double>& totals,

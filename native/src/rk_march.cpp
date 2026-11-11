@@ -197,7 +197,17 @@ Result run(const Policy& policy, State& state, Engine& engine,
       return false;
     const auto& rules = bounds.watch_policy;
     watch::Verdict verdict = watch::Verdict::none;
-    if (!watch::due(rules, state.watch, state.z)) {
+    if (bounds.owner != nullptr) {
+      // A session's owning monitor checks the step itself (SEP 47 section 6.4).
+      try {
+        verdict = watch::owned_check(
+            *bounds.owner, [&engine]() { return engine.reading(); }, state.z,
+            bounds.replay, schedule.steps, state.cursor);
+      } catch (const std::exception& error) {
+        fail(result, march::Stage::accept, error);
+        return true;
+      }
+    } else if (!watch::due(rules, state.watch, state.z)) {
       watch::skip(state.watch);
     } else {
       std::vector<double> reading;
@@ -214,19 +224,13 @@ Result run(const Policy& policy, State& state, Engine& engine,
       result.readings.insert(result.readings.end(), reading.begin(), reading.end());
       result.reading_rows.push_back(result.rows.size() / march::row_columns - 1);
       verdict = watch::check(rules, state.watch, reading.data(), state.z);
-      const std::size_t n_steps = schedule.steps.size();
-      if (verdict == watch::Verdict::none && bounds.replay && rules.crossing &&
-          state.cursor < n_steps) {
-        // `_refuse_scheduled_crossing`: the longest scheduled step before the next
-        // check against the cap this check read, as the Adams march holds it.
-        const auto ahead = static_cast<std::size_t>(std::min<std::uint64_t>(
-            watch::steps_to_check(rules, state.watch), n_steps - state.cursor));
-        double longest = schedule.steps[state.cursor];
-        for (std::size_t index = 1; index < ahead; ++index)
-          longest = std::max(longest, schedule.steps[state.cursor + index]);
-        if (longest > state.watch.cap)
-          verdict = watch::Verdict::refuse;
-      }
+      // `_refuse_scheduled_crossing`: the longest scheduled step before the next check
+      // against the cap this check read.
+      if (verdict == watch::Verdict::none &&
+          watch::refused_crossing(
+              rules.crossing, bounds.replay, schedule.steps, state.cursor,
+              watch::steps_to_check(rules, state.watch), state.watch.cap) > 0.0)
+        verdict = watch::Verdict::refuse;
     }
     if (verdict == watch::Verdict::none)
       return false;
@@ -253,10 +257,20 @@ Result run(const Policy& policy, State& state, Engine& engine,
       result.reason = march::Reason::monitor;
       return true;
     }
+    // A halt, at this accepted endpoint (SEP 47 section 5.5).
+    if (march::halt_requested(bounds)) {
+      result.reason = march::Reason::halted;
+      return true;
+    }
     return false;
   };
-  // The call's own bound, and the readings' buffer; true when the call returns.
+  // A stop, after the attempt's commit and accounting (SEP 47 section 5.5), the
+  // call's own bound, and the readings' buffer; true when the call returns.
   const auto bounded = [&]() {
+    if (march::stop_requested(bounds)) {
+      result.reason = march::Reason::stopped;
+      return true;
+    }
     if (result.rows.size() / march::row_columns >= bounds.max_attempts ||
         elapsed() >= bounds.max_seconds) {
       result.reason = march::Reason::bound;
@@ -268,7 +282,7 @@ Result run(const Policy& policy, State& state, Engine& engine,
     }
     return false;
   };
-  if (bounds.watch)
+  if (bounds.watch && bounds.owner == nullptr)
     watch::validate(bounds.watch_policy);
   if (bounds.replay) {
     // `StepDriver._replay_to` (SEP 45 phase 4): the schedule's steps as given, never
@@ -280,6 +294,11 @@ Result run(const Policy& policy, State& state, Engine& engine,
     const auto running = [&]() {
       return state.cursor < n_steps && state.z < target - bounds.slack;
     };
+    // A stop already requested ends the call before its first attempt.
+    if (running() && march::stop_requested(bounds)) {
+      result.reason = march::Reason::stopped;
+      return out;
+    }
     while (running()) {
       const double dz = schedule.steps[state.cursor];
       double norm = 0.0;
@@ -326,6 +345,11 @@ Result run(const Policy& policy, State& state, Engine& engine,
   // kinks (`StepDriver._march_to`), and returns the step that crosses the target.
   const bool dense = policy.landings.interpolate;
   const double z_end = dense ? policy.landings.z_end : target;
+  // A stop already requested ends the call before its first attempt.
+  if (!march::reached(state.z, target, ulps) && march::stop_requested(bounds)) {
+    result.reason = march::Reason::stopped;
+    return out;
+  }
   while (!march::reached(state.z, target, ulps)) {
     // The landing candidate: the proposal capped by the quiet collar's interval, the
     // transverse edge's ceiling and the split collar's cap, in that order; the
@@ -334,7 +358,7 @@ Result run(const Policy& policy, State& state, Engine& engine,
     double candidate = march::quiet_capped(policy.landings, proposal, bounds.quiet);
     // The transverse edge's ceiling (`TransverseEdge.ceiling`): infinite without one.
     candidate = py_min(candidate, bounds.read_spacing);
-    candidate = py_min(candidate, bounds.watch ? state.watch.cap : bounds.step_cap);
+    candidate = py_min(candidate, march::split_cap(bounds, state.watch));
     march::Landing stop;
     double norm = 0.0;
     try {
@@ -358,11 +382,21 @@ Result run(const Policy& policy, State& state, Engine& engine,
       state.proposal = next;
     } else {
       if (dense && !march::reached(target, end, ulps)) {
-        // solprop records the step's extension from the state before it, then
-        // finishes and commits it with the reference's own code.
-        result.reason = march::Reason::dense;
-        out.pending_equivalent = equivalent_norm;
-        return out;
+        if (!bounds.extend) {
+          // solprop records the step's extension from the state before it, then
+          // finishes and commits it with the reference's own code.
+          result.reason = march::Reason::dense;
+          out.pending_equivalent = equivalent_norm;
+          return out;
+        }
+        // A native session's: the extension from the state before the step, then
+        // the step finished and committed here (`_finish_crossing`'s order).
+        try {
+          engine.extend(state.z, stop.dz);
+        } catch (const std::exception& error) {
+          fail(result, march::Stage::accept, error);
+          return out;
+        }
       }
       try {
         engine.accept(stop.dz);

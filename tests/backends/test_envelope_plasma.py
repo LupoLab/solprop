@@ -160,7 +160,7 @@ def test_prescribed_density_drude_conserves_energy_with_fifth_order_steps():
     norm = np.linalg.norm(initial)
     errors = []
     for steps in (8, 16, 32):
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             mode,
             [EnvelopePlasmaResponse("Ar", adk_oracle("Ar"), preionisation=1.0)],
@@ -173,7 +173,7 @@ def test_prescribed_density_drude_conserves_energy_with_fifth_order_steps():
             schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / steps),
             ionisation_field_range=(1e7, 1e11),
         )
-        owner = NumpyRefBackend(problem, grid=grid)
+        owner = NumpyRefBackend(problem, run_request, grid=grid)
         try:
             owner.set_initial(problem.initial.field0, None)
             owner.propagate_to(grid.length)

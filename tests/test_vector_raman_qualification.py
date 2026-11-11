@@ -210,7 +210,7 @@ def gain_experiment(state, backend_name="numpy_ref", *, steps=8, ffac=16):
         )
     )
     mode = SpecifiedMode.from_taylor([0.0, 0.0], omega_ref=grid.omega0, aeff=1.0)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         mode,
         [response],
@@ -245,7 +245,7 @@ def gain_experiment(state, backend_name="numpy_ref", *, steps=8, ffac=16):
         )
     generator += np.diag([1j * pump_phase] * 2 + [-1j * pump_phase] * 2)
     expected = expm(length * generator) @ np.concatenate([seed * stokes, np.zeros(2)])
-    owner = select(backend_name, problem, grid=grid)
+    owner = select(backend_name, problem, run_request, grid=grid)
     try:
         owner.set_initial(problem.initial.field0, None)
         owner.propagate_to(length)

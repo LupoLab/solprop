@@ -243,7 +243,9 @@ uv run python -m benchmarks ab --case rdw --case argon_blueshift --threads 1 \
 ```
 
 Each build is calibrated before the rounds, once per interpreter and with its arm's
-variables, as two releases would be for a user (`--calibrate`, as for `track`).
+variables (`--calibrate`). A development A/B defaults to the `standard` level, which takes
+a few seconds; `thorough`, `track`'s default, is for release benchmarks and for comparing
+what a heavy user's calibration would give.
 `--baseline-env` and `--candidate-env NAME=VALUE` set an arm's own variables over the
 threading preset, and an empty value unsets one. A worker otherwise runs at the row's
 width, which keeps a profile's team width out, and with it any setting fitted at
@@ -294,7 +296,7 @@ uv run python -m benchmarks ab --set sep47 --threads 1 --counters \
 | `snapshots_idle`, `snapshots_sparse`, `snapshots_every` | the same fibre to HDF5 with `step_planes=1` and a `SnapshotController` never asked, asked after every eighth accepted step, or asked at every accepted endpoint | a plane at every step; 0, 5 and 42 snapshots published |
 | `with_input_repeat` | three runs of the fibre with other peak powers through `Simulation.with_input` | three preparations from one translation |
 | `scan_local` | `run_scan` of four peak powers on `Local`, built with `with_input`, field-free | four points, no field copied to the host |
-| `group_batch` | the same four points on `Batch(4)`, replaying ten 1.6 mm steps with the split-step collar | ten lockstep steps of four members |
+| `group_batch` | the same four points on `Batch(4)`, replaying ten 1.6 mm steps with the split-step collar | ten common steps of four members |
 | `radial_filament_256_{saved,free}_{memory,hdf5}` | the radial filament's first 3 mm, four planes, every field kept or none, to memory or to HDF5 | four planes, transverse-edge reads and collar checks |
 | `cartesian_filament_128_{saved,free}_{memory,hdf5}` | the Cartesian filament's first 1 mm, likewise | the same on a 128² grid |
 | `taper_flow_4`, `taper_flow_17` | 40 µm of a He capillary tapering from 50 to 48 µm with taper coupling, 4 or 17 modes | a coupled flow on the native Adams march, and one wider than 16 channels on solprop's host march (`HostMarchWarning`) |
@@ -313,33 +315,66 @@ guides (`mixture_gradient`, `taper`, `taper_wall`, `moving_solid_guide`) and the
 fields at production sizes (`radial_filament_512`, `cartesian_filament_256`).
 
 **Counters.** `--counters` (for `track` and `ab`) has each worker make one more
-repetition after the timed ones with the native backend's counters on, reported as the
+repetition after the timed ones with the native adapter's counters on, reported as the
 receipt's `counted` and, in `ab`'s summary, per arm; counting therefore costs no timed
-repetition anything. With counting off, the backend's path is the one before the
+repetition anything. With counting off, the adapter's path is the one before the
 counters except for a single attribute test per native call (a march call, a plane, a
-statistics call, an edge read, a field crossing, a low-storage or group step): the
-per-attempt hooks are installed only while counting, and nothing else is computed, so
-no ledger entry was taken for them. The record (`solprop_native._counters`, private to
+statistics call, an edge read, a field crossing or load, a low-storage or group step, a
+native session's `advance` or export): the per-attempt hooks are installed only while
+counting, and nothing else is computed, so no ledger entry was taken for them.
+
+A native run is served either by the native execution session
+(`solprop_native.session.NativeSession`, whenever it admits the run) or by the
+transitional bridge (`DriverSession` over the native backend's marches, for what the
+session refuses). Both are counted into the same record, so that an arm on the bridge
+and an arm on the session can be compared key for key; where the two differ in kind,
+the session's key starts `session_`. The record (`solprop_native._counters`, private to
 the harness) holds:
 
-- `native_returns`: every return to Python, by cause. A native march call's reason
-  (`reached`, `monitor` for a boundary-monitor check by distance, `bound` for its
-  attempt or time limit, `watch`, `capacity` and the errors), with `host_step` split
-  by the driver's work due on its last step: `statistics`, `step_planes`, `monitor`
-  (the check by steps), `transverse` (a collar's per-step current) or
-  `transverse_read`, joined with `+` when several fall due together. Then
+- `native_returns`: every return to Python, by cause. On the bridge, a native march
+  call's reason (`reached`, `monitor` for a boundary-monitor check by distance, `bound`
+  for its attempt or time limit, `watch`, `capacity` and the errors), with `host_step`
+  split by the driver's work due on its last step: `statistics`, `step_planes`,
+  `monitor` (the check by steps), `transverse` (a collar's per-step current) or
+  `transverse_read`, joined with `+` when several fall due together; then
   `host_attempt` for each attempt solprop's own loop steps, `low_storage_step` for the
-  low-storage march and `group_step` for a native group's lockstep step;
-- `march_calls`, `attempts` and `accepted` (native march and host attempts together),
-  `host_attempts`, `low_storage_steps` and `group_steps`;
-- `planes` (calls of `propagate_to`), `statistics_rows` and `statistics_evaluations`,
-  `transverse_reads` (native reads of the edge's faces or a collar's current), and
-  `field_crossings` with `field_bytes`: fields copied to the host at a plane, at every
-  accepted step of a host Adams engine (`step`) or at its load.
+  low-storage march and `group_step` for a transitional native group's lockstep step.
+  A native session returns once per `advance`, by its batch's event:
+  `session_observation`, `session_snapshot` (a requested snapshot serviced),
+  `session_warning`, `session_terminal`, or `session_progress` with its cause,
+  `session_progress:buffer` (the attempt or row buffer filled),
+  `session_progress:work_limit` (the caller's attempt bound) or
+  `session_progress:deadline` (its time bound). Members of the native group session are
+  native sessions and are counted so. A periodic row, a collar check, an edge read or a
+  low-storage step is never a session return (SEP 47 section 7.3);
+- `march_calls`: native march calls by march, `adams_march` and `rk_march` from Python
+  on the bridge, and the native session's own calls inside its `advance`, read from its
+  status, as `session_adams`, `session_runge_kutta` or `session_low_storage`;
+- `attempts` and `accepted` (native march, native session and host attempts together;
+  a session's from its delivered chunks), `march_attempts`, `host_attempts`,
+  `low_storage_steps` and `group_steps` (a group's common steps);
+- `planes` (calls of `propagate_to` on the bridge, observations after the launch in a
+  session), `statistics_rows` (periodic rows, wherever taken) and
+  `statistics_evaluations` (rows and plane statistics together), and
+  `transverse_reads` (reads of the edge's faces or a collar's current made through
+  Python: a native session reads its edge natively, so none);
+- `field_crossings` with `field_bytes`: fields copied to the host, by where. On the
+  bridge at a plane (`plane`), at every accepted step of a host Adams engine (`step`)
+  or at its load (`load`); in a session, each observation's field exported into its
+  destination in one native pass (`export`; a recipe asked again for the same batch is
+  served from the first and not counted) and an Adams march's state and history copied
+  for a snapshot (`snapshot`);
+- `field_loads` with `load_bytes`: host fields loaded into the native state, by where:
+  `start` (a run's start or resume, on either path) and `restore` (the Adams march's
+  reload after a dense observation or at a method history's restore). solprop's host
+  Adams engine reloads its masked state at every step, which is not counted; its `step`
+  crossings mark that route.
 
 The run's own record adds the planes saved and, for a snapshot case, the snapshots
 published; the peak resident memory is the worker's, as for every row. A host attempt
-makes several native calls, which are not counted one by one, and a device's launches,
+makes several native calls, which are not counted one by one; a group run's counts
+include each point's resource probe, a native session that returns at its launch; and a
+device's launches,
 transfers and allocations are not counted: they need a profiler. Counts explain a
 timing and do not replace it; check that both arms hold the same events before
 comparing their times (SEP 47 section 7.2).

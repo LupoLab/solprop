@@ -14,13 +14,13 @@ from solprop.stepper import FixedSchedule
 
 @pytest.mark.medium
 def test_rk_counts_reuse_and_reset(backend_class, linear_problem, narrow_grid):
-    problem = linear_problem(
+    problem, run_request = linear_problem(
         narrow_grid,
         save_planes=[0.001, 0.002],
         schedule=FixedSchedule.uniform(0.0, 0.002, 0.001),
         auto_init=False,
     )
-    with closing(backend_class(problem, grid=narrow_grid)) as engine:
+    with closing(backend_class(problem, run_request, grid=narrow_grid)) as engine:
         engine.set_initial(problem.initial.field0, None)
         assert engine.metadata()["source_evaluations"] == 0
         engine.propagate_to(0.001)
@@ -43,7 +43,7 @@ def test_python_counter_tracks_dispatch_through_rejection(
     narrow_grid,
     monkeypatch,
 ):
-    problem = linear_problem(
+    problem, run_request = linear_problem(
         narrow_grid,
         save_planes=[0.002],
         dz_init=0.001,
@@ -54,7 +54,7 @@ def test_python_counter_tracks_dispatch_through_rejection(
         # (SEP 45) takes its norms itself.
         native = pytest.importorskip("solprop_native.backend")
         monkeypatch.setattr(native, "_RK_MARCH", "host")
-    with closing(backend_class(problem, grid=narrow_grid)) as engine:
+    with closing(backend_class(problem, run_request, grid=narrow_grid)) as engine:
         engine.set_initial(problem.initial.field0, None)
         calls = []
         original_trial = engine._trial_step

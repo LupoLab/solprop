@@ -143,16 +143,16 @@ def march_problem(request):
         profiles=parent.profiles,
         frame=parent.frame,
     )
-    return simulation.translate(), simulation.grid
+    return simulation.translate(), simulation._run_request(), simulation.grid
 
 
 def opened_backend(case, limit, *, fail_at=None):
-    problem, grid = case
+    problem, run_request, grid = case
     assert tdse_descriptor(problem.route) is not None
     binding = ManufacturedBinding(
         tdse_descriptor(problem.route), limit, fail_at=fail_at
     )
-    backend = NumpyRefBackend(problem, grid=grid, tdse_binding=binding)
+    backend = NumpyRefBackend(problem, run_request, grid=grid, tdse_binding=binding)
     backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
     return backend, binding
 
@@ -233,29 +233,29 @@ def test_registry_refuses_tdse_before_constructing_a_backend(
     march_problem, monkeypatch, backend_name
 ):
     """An unsupported explicit backend never silently redirects the atomic problem."""
-    problem, grid = march_problem
+    problem, run_request, grid = march_problem
 
     def forbidden(*args, **kwargs):
         raise AssertionError("no backend is constructed for an unsupported TDSE route")
 
     monkeypatch.setattr(registry, "_construct", forbidden)
     with pytest.raises(BackendError, match=f"{backend_name} does not execute TDSE"):
-        registry.select(backend_name, problem, grid=grid)
+        registry.select(backend_name, problem, run_request, grid=grid)
 
 
 def test_direct_native_construction_refuses_tdse_before_allocating(march_problem):
     """The direct constructor enforces the same named refusal as the registry."""
     native = pytest.importorskip("solprop_native")
-    problem, grid = march_problem
+    problem, run_request, grid = march_problem
     with pytest.raises(BackendError, match="native does not execute TDSE"):
-        native.NativeBackend(problem, grid=grid)
+        native.NativeBackend(problem, run_request, grid=grid)
 
 
 def test_tdse_problem_requires_a_binding_even_at_the_direct_backend(march_problem):
     """A valid descriptor cannot create a hidden native runtime."""
-    problem, grid = march_problem
+    problem, run_request, grid = march_problem
     with pytest.raises(BackendError, match="explicit host response binding"):
-        NumpyRefBackend(problem, grid=grid)
+        NumpyRefBackend(problem, run_request, grid=grid)
 
 
 def test_a_binding_cannot_be_attached_to_an_ordinary_problem(
@@ -263,9 +263,9 @@ def test_a_binding_cannot_be_attached_to_an_ordinary_problem(
 ):
     """The response ownership is explicit in both directions of the seam."""
     binding = ManufacturedBinding(tdse_descriptor(march_problem[0].route), 4)
-    problem = linear_problem(narrow_grid, save_planes=[1e-5], dz_init=1e-6)
+    problem, run_request = linear_problem(narrow_grid, save_planes=[1e-5], dz_init=1e-6)
     with pytest.raises(BackendError, match="explicit host response binding"):
-        NumpyRefBackend(problem, grid=narrow_grid, tdse_binding=binding)
+        NumpyRefBackend(problem, run_request, grid=narrow_grid, tdse_binding=binding)
     assert binding.ledger.attempted == 0
 
 
@@ -287,8 +287,8 @@ def test_shared_rk_driver_refuses_persisted_response_budgets(
 ):
     """A Runge-Kutta backend keeps no logical ledger and refuses an atomic one."""
     native = pytest.importorskip("solprop_native")
-    problem = linear_problem(narrow_grid, save_planes=[1e-5], dz_init=1e-6)
-    backend = native.NativeBackend(problem, grid=narrow_grid)
+    problem, run_request = linear_problem(narrow_grid, save_planes=[1e-5], dz_init=1e-6)
+    backend = native.NativeBackend(problem, run_request, grid=narrow_grid)
     try:
         backend.restore_call_ledgers({}, None)
         logical = {"startup": 1} if kind == "logical" else {}
@@ -310,8 +310,8 @@ def test_reference_rk_restoration_requires_the_matching_response_path(
     narrow_grid, linear_problem, kind
 ):
     """An atomic ledger requires its TDSE owner; a logical one is provenance here."""
-    problem = linear_problem(narrow_grid, save_planes=[1e-5], dz_init=1e-6)
-    backend = NumpyRefBackend(problem, grid=narrow_grid)
+    problem, run_request = linear_problem(narrow_grid, save_planes=[1e-5], dz_init=1e-6)
+    backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     try:
         logical = CallLedger().to_record() if kind == "logical" else {}
         atomic = (

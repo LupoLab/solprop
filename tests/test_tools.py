@@ -909,8 +909,10 @@ def test_the_predicted_peak_intensity_is_the_statistic_a_run_reports_at_its_entr
         noise=None,
     )
     problem = quiet(simulation.translate)
+    run_request = simulation._run_request()
     backend = NumpyRefBackend(
         problem,
+        run_request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,

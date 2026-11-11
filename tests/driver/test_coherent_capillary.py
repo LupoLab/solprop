@@ -267,9 +267,9 @@ def energy_loss(handler):
     return 1.0 - values[-1] / values[0]
 
 
-def propagated(problem, grid, backend=NumpyRefBackend):
+def propagated(problem, run_request, grid, backend=NumpyRefBackend):
     """Run one problem to its end plane on the fixed schedule and return the state."""
-    driver = backend(problem, grid=grid)
+    driver = backend(problem, run_request, grid=grid)
     driver.set_initial(problem.initial.field0, None)
     driver.propagate_to(LENGTH)
     final = driver.observe().require_field().copy()
@@ -277,14 +277,19 @@ def propagated(problem, grid, backend=NumpyRefBackend):
     return final
 
 
-def with_flow(problem, generator, *, dz_max=None, edges=None):
+def translated(simulation):
+    """Return a simulation's problem and its run's request."""
+    return simulation.translate(), simulation._run_request()
+
+
+def with_flow(problem, run_request, generator, *, dz_max=None, edges=None):
     """Return the same problem carrying a coupled flow built on `generator`."""
     existing = problem.linear.coupled_flow
     flow = constant_schur_flow(
         problem.grids.omega,
         problem.linear.phi_breakpoints[[0, -1]] if edges is None else edges,
         generator,
-        dz_max=problem.stepper.dz_max if dz_max is None else dz_max,
+        dz_max=run_request.stepper.dz_max if dz_max is None else dz_max,
         condition_limit=1e6,
         gauge_id="capillary HE_1m" if existing is None else existing.gauge_id,
         certificate_id="constant-schur"
@@ -752,7 +757,9 @@ def test_a_varying_section_takes_the_frozen_residual_route():
     degree along z, and must declare a strictly positive residual bound. A pressure
     gradient moves no wall, so there is **no connection**: that is the taper's.
     """
-    problem = capillary(wall=CoherentWall(), pressure=(1.0, 0.1)).translate()
+    problem, run_request = translated(
+        capillary(wall=CoherentWall(), pressure=(1.0, 0.1))
+    )
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert set(flow.section_methods) == {"frozen_residual"}
@@ -767,7 +774,7 @@ def test_a_varying_section_takes_the_frozen_residual_route():
     assert problem.linear.phi_representation != "constant"
     # And it runs: a gradient is the varying route with no connection at all, so the
     # residual is the frozen variation alone and the backend holds no connection term.
-    final = propagated(problem, GRID)
+    final = propagated(problem, run_request, GRID)
     assert float(np.max(abs(final))) > 0.0
     assert np.all(np.isfinite(final))
 
@@ -794,7 +801,6 @@ def test_a_vector_state_or_a_noise_draw_refuses_a_wall_beside_it():
         loss=DEFAULT_LOSS_POLICY,
         margin=0.05,
         tol=1e-10,
-        node_budget=1,
         has_noise=False,
         dz_max=1e-5,
         reuse=None,
@@ -863,6 +869,7 @@ def test_the_reference_refuses_every_coupled_flow_it_does_not_execute():
     """Each method, representation, degree, connection and residual by its own name."""
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
+    run_request = simulation._run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     grid = simulation.grid
@@ -875,20 +882,23 @@ def test_the_reference_refuses_every_coupled_flow_it_does_not_execute():
 
     # Refused by the Adams path's check or the Runge-Kutta march's, by name either way.
     with pytest.raises(BackendError, match=r"'diagonal'"):
-        NumpyRefBackend(spoiled(section_methods=("diagonal",)), grid=grid)
+        NumpyRefBackend(spoiled(section_methods=("diagonal",)), run_request, grid=grid)
     with pytest.raises(BackendError, match="executes no taper connection"):
         NumpyRefBackend(
             spoiled(connection=np.zeros((1, 1, 3, 3, grid.n_omega), dtype=complex)),
+            run_request,
             grid=grid,
         )
     with pytest.raises(BackendError, match="no explicit"):
         NumpyRefBackend(
-            spoiled(residual_norm_bound=np.ones((1, grid.n_omega))), grid=grid
+            spoiled(residual_norm_bound=np.ones((1, grid.n_omega))),
+            run_request,
+            grid=grid,
         )
     assert flow.generator is not None
     doubled = np.concatenate([flow.generator, flow.generator], axis=1)
     with pytest.raises(BackendError, match="Chebyshev degrees along z"):
-        NumpyRefBackend(spoiled(generator=doubled), grid=grid)
+        NumpyRefBackend(spoiled(generator=doubled), run_request, grid=grid)
     factored = replace(
         problem,
         linear=replace(
@@ -904,13 +914,14 @@ def test_the_reference_refuses_every_coupled_flow_it_does_not_execute():
         ),
     )
     with pytest.raises(BackendError, match="dense generator"):
-        NumpyRefBackend(factored, grid=grid)
+        NumpyRefBackend(factored, run_request, grid=grid)
 
 
 def test_the_reference_refuses_a_problem_the_flow_cannot_sit_beside():
     """A mode-dependent Phi, a metric or a noise draw beside a flow is named."""
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
+    run_request = simulation._run_request()
     grid = simulation.grid
     constant = problem.linear.phi_constant
     assert constant is not None
@@ -919,6 +930,7 @@ def test_the_reference_refuses_a_problem_the_flow_cannot_sit_beside():
     with pytest.raises(BackendError, match="mode-independent Phi"):
         NumpyRefBackend(
             replace(problem, linear=replace(problem.linear, phi_constant=varied)),
+            run_request,
             grid=grid,
         )
     metric = orthonormal_metric(
@@ -931,6 +943,7 @@ def test_the_reference_refuses_a_problem_the_flow_cannot_sit_beside():
     with pytest.raises(BackendError, match="no explicit metric"):
         NumpyRefBackend(
             replace(problem, linear=replace(problem.linear, modal_metric=metric)),
+            run_request,
             grid=grid,
         )
     # The block is scalar and its action contracts the channel axis alone, so a
@@ -962,14 +975,18 @@ def test_the_reference_refuses_a_step_longer_than_the_certificate_was_declared_o
     """
     simulation = capillary(wall=CoherentWall(), integrator=RungeKutta())
     problem = simulation.translate()
+    run_request = simulation._run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
     understated = with_flow(
-        problem, flow.generator[0, 0], dz_max=problem.stepper.dz_max / 100.0
+        problem,
+        run_request,
+        flow.generator[0, 0],
+        dz_max=run_request.stepper.dz_max / 100.0,
     )
     with pytest.raises(BackendError, match="measured a coupled flow conditioning"):
-        propagated(understated, simulation.grid)
+        propagated(understated, simulation._run_request(), simulation.grid)
 
 
 def test_the_reference_refuses_a_flow_beside_a_varying_phi():
@@ -981,22 +998,25 @@ def test_the_reference_refuses_a_flow_beside_a_varying_phi():
     """
     simulation = capillary(pressure=(1.0, 0.9))
     problem = simulation.translate()
+    run_request = simulation._run_request()
     assert problem.linear.phi_representation != "constant"
     edges = problem.linear.phi_breakpoints[[0, -1]]
     spoiled = with_flow(
         problem,
+        run_request,
         np.zeros((3, 3, simulation.grid.n_omega), dtype=complex),
-        dz_max=problem.stepper.dz_max,
+        dz_max=run_request.stepper.dz_max,
         edges=edges,
     )
     with pytest.raises(BackendError, match="exact constant representation"):
-        NumpyRefBackend(spoiled, grid=simulation.grid)
+        NumpyRefBackend(spoiled, run_request, grid=simulation.grid)
 
 
 def test_the_reference_refuses_a_noise_draw_beside_a_flow():
     """A draw the route cannot even build is named at the backend all the same."""
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
+    run_request = simulation._run_request()
     grid = simulation.grid
     noisy = replace(
         problem,
@@ -1009,7 +1029,7 @@ def test_the_reference_refuses_a_noise_draw_beside_a_flow():
     with pytest.raises(
         BackendError, match="no 'modified' noise model beside a coupled flow"
     ):
-        NumpyRefBackend(noisy, grid=grid)
+        NumpyRefBackend(noisy, run_request, grid=grid)
 
 
 def test_a_flow_action_that_needs_squaring_is_the_exponential_all_the_same():
@@ -1073,13 +1093,15 @@ def test_a_zero_generator_propagates_bitwise_like_no_flow_at_all():
     """
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
+    run_request = simulation._run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
-    zeroed = with_flow(problem, np.zeros_like(flow.generator[0, 0]))
+    zeroed = with_flow(problem, run_request, np.zeros_like(flow.generator[0, 0]))
     without = replace(problem, linear=replace(problem.linear, coupled_flow=None))
     assert np.array_equal(
-        propagated(zeroed, simulation.grid), propagated(without, simulation.grid)
+        propagated(zeroed, simulation._run_request(), simulation.grid),
+        propagated(without, simulation._run_request(), simulation.grid),
     )
 
 
@@ -1098,6 +1120,7 @@ def test_a_diagonal_generator_matches_the_same_diagonal_inside_phi():
     """
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
+    run_request = simulation._run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
@@ -1113,9 +1136,17 @@ def test_a_diagonal_generator_matches_the_same_diagonal_inside_phi():
         problem,
         linear=replace(problem.linear, phi_constant=folded, coupled_flow=None),
     )
-    coupled = propagated(with_flow(problem, diagonal), simulation.grid)
+    coupled = propagated(
+        with_flow(problem, run_request, diagonal),
+        simulation._run_request(),
+        simulation.grid,
+    )
     scale = float(np.max(abs(coupled)))
-    assert_allclose(coupled, propagated(inside, simulation.grid), atol=1e-12 * scale)
+    assert_allclose(
+        coupled,
+        propagated(inside, simulation._run_request(), simulation.grid),
+        atol=1e-12 * scale,
+    )
 
 
 def linear_launch(problem, grid, channel=0):
@@ -1150,7 +1181,7 @@ def test_ten_steps_apply_the_block_the_translation_layer_declared():
     flow = problem.linear.coupled_flow
     assert flow is not None
     index, launched = linear_launch(problem, simulation.grid)
-    final = propagated(launched, simulation.grid)
+    final = propagated(launched, simulation._run_request(), simulation.grid)
     carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, 0, index])
     assert flow.generator is not None
     rate = complex(flow.generator[0, 0, 0, 0, index])
@@ -1177,9 +1208,9 @@ def test_the_propagated_single_channel_loss_is_marcatili_to_its_derived_bound():
     without = capillary(modes=1)
     index, walled = linear_launch(with_wall.translate(), with_wall.grid)
     _, plain = linear_launch(without.translate(), without.grid)
-    ratio = abs(propagated(walled, with_wall.grid)[0, 0, index]) / abs(
-        propagated(plain, without.grid)[0, 0, index]
-    )
+    ratio = abs(
+        propagated(walled, with_wall._run_request(), with_wall.grid)[0, 0, index]
+    ) / abs(propagated(plain, without._run_request(), without.grid)[0, 0, index])
 
     mode = MarcatiliMode(RADIUS, "He", 1.0, m=1)
     omega = np.array([float(with_wall.grid.omega[index])])
@@ -1208,7 +1239,7 @@ def test_each_channel_keeps_its_own_rate_in_the_weakly_coupled_limit():
     flow = problem.linear.coupled_flow
     assert flow is not None
     index, launched = linear_launch(problem, simulation.grid)
-    final = propagated(launched, simulation.grid)
+    final = propagated(launched, simulation._run_request(), simulation.grid)
     carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, 0, index])
     assert flow.generator is not None
     rate = complex(flow.generator[0, 0, 0, 0, index])
@@ -1230,9 +1261,10 @@ def test_the_wall_moves_power_between_channels_and_a_diagonal_loss_cannot():
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
     index, launched = linear_launch(problem, simulation.grid)
-    walled = propagated(launched, simulation.grid)
+    walled = propagated(launched, simulation._run_request(), simulation.grid)
     plain = propagated(
         replace(launched, linear=replace(launched.linear, coupled_flow=None)),
+        simulation._run_request(),
         simulation.grid,
     )
     # Not exactly zero: the capillary's Kerr response couples the channels through
@@ -1289,7 +1321,7 @@ def test_the_transmission_of_one_physical_launch_converges_with_the_channel_coun
         launched = replace(
             problem, initial=replace(problem.initial, field0=state, noise0=None)
         )
-        final = propagated(launched, simulation.grid)
+        final = propagated(launched, simulation._run_request(), simulation.grid)
         carrier = float(np.real(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, 0, index]))
         transmissions[count] = float(np.sum(abs(final[:, 0, index]) ** 2)) / (
             1e-18 * total * math.exp(2.0 * carrier)
@@ -1514,7 +1546,7 @@ def legacy_parity_bound(samples: int, simulation) -> float:
     Derived before the local-build comparison was run.
     """
     per_stage = 2 * fft_bound(samples) + 2 * gamma(samples)
-    evaluations = max(DOPRI5.n_stages, step_evaluations(simulation.translate()))
+    evaluations = max(DOPRI5.n_stages, step_evaluations(simulation._run_request()))
     return STEPS * evaluations * per_stage
 
 
@@ -1782,10 +1814,10 @@ def test_the_frozen_split_is_a_rearrangement_and_not_an_approximation():
     """
     # The gate is DOPRI5's local defect: the Runge-Kutta march's own property.
     coarse = propagated(
-        varying(wall=CoherentWall(), integrator=RungeKutta()).translate(), GRID
+        *translated(varying(wall=CoherentWall(), integrator=RungeKutta())), GRID
     )
     fine = propagated(
-        varying(wall=CoherentWall(sections=4), integrator=RungeKutta()).translate(),
+        *translated(varying(wall=CoherentWall(sections=4), integrator=RungeKutta())),
         GRID,
     )
     scale = float(np.max(abs(coarse)))
@@ -1830,13 +1862,15 @@ def _refined(steps):
     Stepped by the Runge-Kutta march, whose fifth order the refinement measures.
     """
     return propagated(
-        varying(
-            wall=CoherentWall(),
-            integrator=RungeKutta(),
-            schedule=FixedSchedule(np.full(steps, LENGTH / steps)),
-            dz_max=LENGTH / steps,
-            dz_init=LENGTH / steps,
-        ).translate(),
+        *translated(
+            varying(
+                wall=CoherentWall(),
+                integrator=RungeKutta(),
+                schedule=FixedSchedule(np.full(steps, LENGTH / steps)),
+                dz_max=LENGTH / steps,
+                dz_init=LENGTH / steps,
+            )
+        ),
         GRID,
     )
 
@@ -1903,11 +1937,11 @@ def _routed_true_power(block, index, steps=None, rtol=1e-10):
             "dz_init": LENGTH / steps,
         }
     )
-    problem = varying(wall=CoherentWall(), **stepping).translate()
+    problem, run_request = translated(varying(wall=CoherentWall(), **stepping))
     state = np.zeros_like(problem.initial.field0)
     state[0, 0, index] = 1e-9
     launched = replace(problem, initial=replace(problem.initial, field0=state))
-    internal = propagated(launched, GRID)[:, 0, index]
+    internal = propagated(launched, run_request, GRID)[:, 0, index]
     omega = GRID.omega[index : index + 1]
     weight = np.array([float(np.real(mode.neff(omega, LENGTH))[0]) for mode in block])
     # The internal amplitude is the FFT convention's: conjugated, it is the optics
@@ -2750,14 +2784,15 @@ def test_one_hybrid_family_on_a_taper_is_the_scalar_varying_route():
     record says which wall was declared.
     """
     modes = [MarcatiliMode(taper(), "He", 1.0, m=index + 1) for index in range(3)]
-    vector = varying(wall=VECTOR_WALL, modes=modes).translate()
-    scalar = varying(wall=CoherentWall(), modes=modes).translate()
+    vector, vector_request = translated(varying(wall=VECTOR_WALL, modes=modes))
+    scalar, scalar_request = translated(varying(wall=CoherentWall(), modes=modes))
     vector_flow, scalar_flow = vector.linear.coupled_flow, scalar.linear.coupled_flow
     assert vector_flow is not None and scalar_flow is not None
     assert vector_flow.connection is not None and scalar_flow.connection is not None
     assert np.array_equal(vector_flow.connection, scalar_flow.connection)
     assert vector_flow.gauge_id == "capillary azimuthal order nu=1"
-    one, two = propagated(vector, GRID), propagated(scalar, GRID)
+    one = propagated(vector, vector_request, GRID)
+    two = propagated(scalar, scalar_request, GRID)
     assert float(np.max(abs(one - two))) < 1e-13 * float(np.max(abs(two)))
 
 
@@ -2911,7 +2946,7 @@ def test_ten_steps_of_mixed_family_propagation_match_an_independent_solve():
     flow = problem.linear.coupled_flow
     assert flow is not None and flow.generator is not None
     index, launched = linear_launch(problem, simulation.grid)
-    final = propagated(launched, simulation.grid)
+    final = propagated(launched, simulation._run_request(), simulation.grid)
     carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, 0, index])
     block = np.asarray(flow.generator[0, 0, :, :, index], dtype=complex)
     start = np.zeros(4, dtype=complex)
@@ -3237,11 +3272,13 @@ def test_a_vector_taper_matches_a_true_power_solve_with_a_measured_connection():
                 "dz_init": LENGTH / steps,
             }
         )
-        problem = varying(wall=VECTOR_WALL, modes=block, **stepping).translate()
+        problem, run_request = translated(
+            varying(wall=VECTOR_WALL, modes=block, **stepping)
+        )
         state = np.zeros_like(problem.initial.field0)
         state[0, 0, index] = 1e-9
         launched = replace(problem, initial=replace(problem.initial, field0=state))
-        internal = propagated(launched, GRID)[:, 0, index]
+        internal = propagated(launched, run_request, GRID)[:, 0, index]
         omega = GRID.omega[index : index + 1]
         weight = np.array(
             [float(np.real(mode.neff(omega, LENGTH))[0]) for mode in block]
@@ -3328,14 +3365,16 @@ def _vector_refined(
     the frozen split, and CF4 sections are stepped by that march alone.
     """
     return propagated(
-        varying(
-            wall=CoherentWall(impedance="te_tm", method=method),
-            integrator=RungeKutta(),
-            modes=vector_modes(radius=taper()),
-            schedule=FixedSchedule(np.full(steps, LENGTH / steps)),
-            dz_max=LENGTH / steps,
-            dz_init=LENGTH / steps,
-        ).translate(),
+        *translated(
+            varying(
+                wall=CoherentWall(impedance="te_tm", method=method),
+                integrator=RungeKutta(),
+                modes=vector_modes(radius=taper()),
+                schedule=FixedSchedule(np.full(steps, LENGTH / steps)),
+                dz_max=LENGTH / steps,
+                dz_init=LENGTH / steps,
+            )
+        ),
         GRID,
     )
 
@@ -3559,12 +3598,14 @@ def test_a_cf4_run_converges_at_fourth_order_against_the_frozen_split():
     for count in (1, 2, 4):
         steps = STEPS * count
         final = propagated(
-            varying(
-                wall=CF4_WALL,
-                schedule=FixedSchedule(np.full(steps, LENGTH / steps)),
-                dz_max=LENGTH / steps,
-                dz_init=LENGTH / steps,
-            ).translate(),
+            *translated(
+                varying(
+                    wall=CF4_WALL,
+                    schedule=FixedSchedule(np.full(steps, LENGTH / steps)),
+                    dz_max=LENGTH / steps,
+                    dz_init=LENGTH / steps,
+                )
+            ),
             GRID,
         )
         departures.append(float(np.max(abs(final - reference))) / scale)
@@ -3624,12 +3665,16 @@ def test_a_mixed_flow_runs_each_section_by_its_own_method():
     reference = _refined(STEPS * 16)
     scale = float(np.max(abs(reference)))
     with pytest.warns(SolpropWarning, match="fall back"):
-        problem = varying(
-            wall=CoherentWall(
-                method="cf4", growth_limit=1.0011, fallback="frozen_residual"
+        problem, run_request = translated(
+            varying(
+                wall=CoherentWall(
+                    method="cf4", growth_limit=1.0011, fallback="frozen_residual"
+                )
             )
-        ).translate()
-    mixed = float(np.max(abs(propagated(problem, GRID) - reference))) / scale
+        )
+    mixed = (
+        float(np.max(abs(propagated(problem, run_request, GRID) - reference))) / scale
+    )
     assert mixed < 4.8e-8
 
 
@@ -3654,7 +3699,7 @@ def test_the_reference_measures_the_cf4_factors_against_the_declared_bound():
         ),
     )
     with pytest.raises(BackendError, match="CF4 factor-norm product"):
-        propagated(understated, simulation.grid)
+        propagated(understated, simulation._run_request(), simulation.grid)
 
 
 def test_a_cf4_step_above_the_estimated_defect_warns_by_name():
@@ -3865,19 +3910,21 @@ def test_the_cf4_record_needs_its_declaration():
 def _six_channel_taper(wall, dz):
     """Return the qualification taper with six channels on a uniform schedule."""
     return propagated(
-        varying(
-            wall=wall,
-            modes=6,
-            schedule=FixedSchedule.uniform(
-                0.0,
-                LENGTH,
-                dz,
-                save_planes=[0.0, LENGTH],
-                hard_kinks=list(SMOOTH_STAGES[1:3]),
-            ),
-            dz_max=dz,
-            dz_init=dz,
-        ).translate(),
+        *translated(
+            varying(
+                wall=wall,
+                modes=6,
+                schedule=FixedSchedule.uniform(
+                    0.0,
+                    LENGTH,
+                    dz,
+                    save_planes=[0.0, LENGTH],
+                    hard_kinks=list(SMOOTH_STAGES[1:3]),
+                ),
+                dz_max=dz,
+                dz_init=dz,
+            )
+        ),
         GRID,
     )
 

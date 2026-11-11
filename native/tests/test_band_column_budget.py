@@ -74,7 +74,8 @@ from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.problem import PropagationProblem, Translation, assemble
+from solprop.translate.run_request import RunRequest
 from test_band_stress import launch_statistics
 
 import solprop_native
@@ -151,7 +152,10 @@ def stress(name: str, n_pol: int) -> Real:
 def launched(
     problem: PropagationProblem, real: Real, integral: RunningIntegral
 ) -> PropagationProblem:
-    """Return `problem` launching `real`, band-limited, under `integral`, no collar."""
+    """Return `problem` launching `real`, band-limited, under `integral`, no collar.
+
+    Its run asks every one of :data:`STATISTICS`, which its caller's request carries.
+    """
     grids = problem.grids
     # The state's spectrum is doubled on its way to the real field.
     spectrum = 2.0 * np.fft.fft(real, axis=-1)[..., grids.crop_index] / grids.pad_scale
@@ -170,7 +174,6 @@ def launched(
             problem.initial, field0=np.ascontiguousarray(state)
         ),
         responses=dataclasses.replace(problem.responses, plasma_integral=integral),
-        stats_spec=StatsSpec(names=STATISTICS),
     )
 
 
@@ -179,7 +182,7 @@ def assembled(
     n_pol: int,
     medium: SpatialMedium,
     density: float | None = None,
-) -> PropagationProblem:
+) -> Translation:
     """Return a one-step radial problem of three nodes, launching nothing yet."""
     return assemble(
         GRID,
@@ -199,21 +202,26 @@ def assembled(
 
 def argon(
     name: str, initial: float, n_pol: int, integral: RunningIntegral
-) -> PropagationProblem:
+) -> tuple[PropagationProblem, RunRequest]:
     """Return a stress case: argon's real rate, its own pre-ionisation."""
     table = build_rate_table(OptmatRate("Ar", 800e-9), (1e8, 3e11))
-    problem = assembled(
+    problem, run_request = assembled(
         [PlasmaResponse("Ar", table, preionisation=initial)],
         n_pol,
         SpatialMedium(),
         density=DENSITY,
     )
-    return launched(problem, stress(name, n_pol), integral)
+    return (
+        launched(problem, stress(name, n_pol), integral),
+        run_request.for_run(stats=StatsSpec(names=STATISTICS)),
+    )
 
 
-def stages(problem: PropagationProblem) -> tuple[Complex, Complex]:
+def stages(
+    problem: PropagationProblem, run_request: RunRequest
+) -> tuple[Complex, Complex]:
     """Return native's and the reference's first stage on the launch."""
-    reference = NumpyRefBackend(problem, grid=GRID)
+    reference = NumpyRefBackend(problem, run_request, grid=GRID)
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
@@ -224,7 +232,7 @@ def stages(problem: PropagationProblem) -> tuple[Complex, Complex]:
         )[0]
     finally:
         reference.close()
-    backend = NativeBackend(problem, grid=GRID)
+    backend = NativeBackend(problem, run_request, grid=GRID)
     try:
         backend.set_initial(problem.initial.field0, None)
         # A zero-length trial exposes the first stage, N(E, z = 0).
@@ -238,14 +246,16 @@ def stages(problem: PropagationProblem) -> tuple[Complex, Complex]:
 
 
 def assert_stage_within_bound(
-    problem: PropagationProblem, record: Callable[[str, float], None]
+    problem: PropagationProblem,
+    run_request: RunRequest,
+    record: Callable[[str, float], None],
 ) -> None:
     bound = fft_bound(GRID.n_to) + plasma_stage_bound(
-        problem, GRID, INFO.runtime_threads
+        problem, run_request, GRID, INFO.runtime_threads
     )
     assert np.isfinite(bound)
     assert 0.0 < bound < 1e-3
-    actual, expected = stages(problem)
+    actual, expected = stages(problem, run_request)
     scale = float(np.max(np.abs(expected)))
     assert scale > 0.0
     measured = float(np.max(np.abs(actual - expected)))
@@ -254,12 +264,14 @@ def assert_stage_within_bound(
     assert measured <= bound * scale
 
 
-def launch_fraction_bound(problem: PropagationProblem) -> float:
+def launch_fraction_bound(
+    problem: PropagationProblem, run_request: RunRequest
+) -> float:
     """Return the final fraction's absolute bound at the launch (``plasma_bounds``)."""
     responses = problem.responses
     integral = responses.plasma_integral
     dt = GRID.dt_fine
-    reference = NumpyRefBackend(problem, grid=GRID)
+    reference = NumpyRefBackend(problem, run_request, grid=GRID)
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
@@ -302,8 +314,8 @@ def test_the_column_is_within_its_stage_budget(
     record_property: Callable[[str, float], None],
 ) -> None:
     """Weaker than per sample, as the module says: at the stage, one relative number."""
-    problem = argon(name, initial, n_pol, rule(name_of_rule))
-    assert_stage_within_bound(problem, record_property)
+    problem, run_request = argon(name, initial, n_pol, rule(name_of_rule))
+    assert_stage_within_bound(problem, run_request, record_property)
 
 
 @pytest.mark.parametrize(("name", "initial"), CASES)
@@ -317,10 +329,10 @@ def test_the_launch_fraction_is_within_its_scan_bound(
     record_property: Callable[[str, float], None],
 ) -> None:
     """The final fraction from one field: the exposure scan's absolute bound."""
-    problem = argon(name, initial, n_pol, rule(name_of_rule))
-    bound = launch_fraction_bound(problem)
-    expected = launch_statistics(NumpyRefBackend, problem, GRID)
-    actual = launch_statistics(NativeBackend, problem, GRID)
+    problem, run_request = argon(name, initial, n_pol, rule(name_of_rule))
+    bound = launch_fraction_bound(problem, run_request)
+    expected = launch_statistics(NumpyRefBackend, problem, run_request, GRID)
+    actual = launch_statistics(NativeBackend, problem, run_request, GRID)
     error = abs(float(actual["electron_density"] - expected["electron_density"]))
     record_property("measured", error / DENSITY)
     record_property("bound", bound)
@@ -410,7 +422,8 @@ def test_two_channels_are_within_their_budget(
     """A mixture, ``zero_crossings``: density-weighted budgets, at the stage."""
     initial = (0.0, 0.05)
     medium, responses = two_channels(initial)
-    problem = assembled(responses, 2, medium)
+    problem, run_request = assembled(responses, 2, medium)
     problem = launched(problem, stress("zero_crossings", 2), rule("K=4"))
+    run_request = run_request.for_run(stats=StatsSpec(names=STATISTICS))
     assert len(problem.responses.plasma_channels) == 2
-    assert_stage_within_bound(problem, record_property)
+    assert_stage_within_bound(problem, run_request, record_property)

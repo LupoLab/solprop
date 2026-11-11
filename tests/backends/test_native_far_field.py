@@ -57,6 +57,7 @@ from solprop.spatial import (
 )
 from solprop.stats import ApertureSet, StatsSpec
 from solprop.stepper import PIController, RungeKutta
+from solprop.translate.problem import Translation
 from solprop.translate.spatial import aperture_tables
 
 solprop_native = pytest.importorskip("solprop_native")
@@ -98,7 +99,7 @@ def problem_of(  # noqa: PLR0913 - one state and what it is measured under
         ),
         noise=None,
     )
-    return simulation.translate()
+    return Translation(simulation.translate(), simulation._run_request())
 
 
 def held_state(owner, problem):
@@ -107,16 +108,18 @@ def held_state(owner, problem):
     return native.field_to_host().reshape(problem.shape)
 
 
-def native_stats(problem, grid, field, names):
+def native_stats(problem, run_request, grid, field, names):
     """The native backend's statistics of `field`.
 
     Returns them with the state the backend holds, which loading masks to the
     problem's band: the state every other backend is compared on.
     """
-    owner = NativeBackend(problem, grid=grid)
+    owner = NativeBackend(problem, run_request, grid=grid)
     try:
         owner.set_initial(np.ascontiguousarray(field), None)
-        spec = dataclasses.replace(problem.stats_spec, names=tuple(names), periodic=())
+        spec = dataclasses.replace(
+            run_request.observation.stats, names=tuple(names), periodic=()
+        )
         values = owner.stats(spec)
         held = held_state(owner, problem)
     finally:
@@ -130,7 +133,7 @@ def case(kind, n_pol, profile, weighting):
     space = fine_space()
     spec = spec_of(holes(profile, weighting, size=FINE))
     field = random_field(space, n_pol, grid)
-    problem = problem_of(
+    problem, run_request = problem_of(
         grid,
         space,
         field,
@@ -138,7 +141,7 @@ def case(kind, n_pol, profile, weighting):
         collar=SpatialAbsorber(real_space=False, safety_fraction=0.5),
     )
     tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
-    return grid, problem, field, tables
+    return grid, problem, run_request, field, tables
 
 
 CASES = {
@@ -160,8 +163,8 @@ def require_device():
 
 @pytest.mark.parametrize("name", list(CASES))
 def test_the_native_pass_matches_the_reference(name):
-    grid, problem, field, tables = case(*CASES[name])
-    values, field = native_stats(problem, grid, field, WITH_AXIS)
+    grid, problem, run_request, field, tables = case(*CASES[name])
+    values, field = native_stats(problem, run_request, grid, field, WITH_AXIS)
     assert set(values) == set(WITH_AXIS)
     absolute = magnitudes(WITH_AXIS, grid, problem, field, tables)
     assert_matches(
@@ -201,7 +204,7 @@ def shape_case(kind, n_pol, profile, weighting):
     space = fine_space()
     spec = spec_of(masks(profile, weighting))
     field = random_field(space, n_pol, grid)
-    problem = problem_of(
+    problem, run_request = problem_of(
         grid,
         space,
         field,
@@ -209,13 +212,13 @@ def shape_case(kind, n_pol, profile, weighting):
         collar=SpatialAbsorber(real_space=False, safety_fraction=0.5),
     )
     tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
-    return grid, problem, field, tables
+    return grid, problem, run_request, field, tables
 
 
 @pytest.mark.parametrize("name", list(SHAPE_CASES))
 def test_the_native_pass_matches_the_reference_on_every_shape(name):
-    grid, problem, field, tables = shape_case(*SHAPE_CASES[name])
-    values, field = native_stats(problem, grid, field, WITH_AXIS)
+    grid, problem, run_request, field, tables = shape_case(*SHAPE_CASES[name])
+    values, field = native_stats(problem, run_request, grid, field, WITH_AXIS)
     # A rectangle's weight is two transcendentals, so twice the weight's error.
     assert_matches(
         values,
@@ -241,8 +244,10 @@ def test_the_native_shapes_sum_each_half_plane_and_its_complement_to_the_beam():
     space = fine_space()
     spec = spec_of(masks("hard"), ("aperture_spectrum", "beam_spectrum"))
     field = random_field(space, 1, grid)
-    problem = problem_of(grid, space, field, spec, medium=SpatialMedium(1.0))
-    values, _ = native_stats(problem, grid, field, spec.names)
+    problem, run_request = problem_of(
+        grid, space, field, spec, medium=SpatialMedium(1.0)
+    )
+    values, _ = native_stats(problem, run_request, grid, field, spec.names)
     beam = values["beam_spectrum"]
     bound = 2 * gamma(8 * space.n_columns + 64) * beam
     for first in (0, 2):
@@ -267,9 +272,9 @@ def test_the_native_pass_matches_the_reference_on_a_line_of_shapes():
     regions = np.array([[-np.inf, 0.0, -1.0, 1.0], [0.0, 2e4, -np.inf, np.inf]])
     spec = spec_of(apertures, regions=regions)
     field = random_field(space, 1, grid, seed=11)
-    problem = problem_of(grid, space, field, spec)
+    problem, run_request = problem_of(grid, space, field, spec)
     tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
-    values, field = native_stats(problem, grid, field, WITH_AXIS)
+    values, field = native_stats(problem, run_request, grid, field, WITH_AXIS)
     assert_matches(
         values,
         reference(WITH_AXIS, grid, problem, field, tables),
@@ -292,10 +297,10 @@ def test_the_native_pass_matches_the_reference_on_a_line():
     regions = np.array([[-np.inf, 0.0, -1.0, 1.0], [0.0, 2e4, -np.inf, np.inf]])
     spec = spec_of(apertures, regions=regions)
     field = random_field(space, 1, grid, seed=11)
-    problem = problem_of(grid, space, field, spec)
+    problem, run_request = problem_of(grid, space, field, spec)
     tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
-    assert far_field_partials(problem)[1] == 3
-    values, field = native_stats(problem, grid, field, WITH_AXIS)
+    assert far_field_partials(problem, run_request.observation.stats)[1] == 3
+    values, field = native_stats(problem, run_request, grid, field, WITH_AXIS)
     assert_matches(
         values,
         reference(WITH_AXIS, grid, problem, field, tables),
@@ -310,9 +315,11 @@ def test_the_native_operator_slots_follow_gain_and_zero_frequency():
     spec = spec_of(holes("hard"))
     field = random_field(space, 1, grid)
     field[..., 0] = 1e3  # content at zero frequency
-    problem = problem_of(grid, space, field, spec, medium=SpatialMedium(1 - 1e-5j))
+    problem, run_request = problem_of(
+        grid, space, field, spec, medium=SpatialMedium(1 - 1e-5j)
+    )
     tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
-    values, field = native_stats(problem, grid, field, WITH_AXIS)
+    values, field = native_stats(problem, run_request, grid, field, WITH_AXIS)
     expected = reference(WITH_AXIS, grid, problem, field, tables)
     assert values["absorbed_power"][3] < 0
     assert values["beam_spectrum"][0] == 0.0
@@ -336,9 +343,9 @@ def test_a_partial_native_request_packs_only_its_statistics():
     names = ("beam_spectrum", "aperture_on_axis_spectrum")
     spec = spec_of(holes("supergauss", size=FINE), names, regions=np.empty((0, 4)))
     field = random_field(space, 1, grid)
-    problem = problem_of(grid, space, field, spec)
+    problem, run_request = problem_of(grid, space, field, spec)
     tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
-    values, field = native_stats(problem, grid, field, names)
+    values, field = native_stats(problem, run_request, grid, field, names)
     assert set(values) == set(names)
     assert_matches(
         values,
@@ -365,10 +372,10 @@ def test_a_native_hole_enclosing_every_image_is_the_beam_and_the_axis():
         apertures=apertures,
     )
     field = random_field(space, 2, grid)
-    problem = problem_of(grid, space, field, spec)
+    problem, run_request = problem_of(grid, space, field, spec)
     tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
     names = (*spec.names, "on_axis_spectrum")
-    values, field = native_stats(problem, grid, field, names)
+    values, field = native_stats(problem, run_request, grid, field, names)
     absolute = magnitudes(names, grid, problem, field, tables)
     assert_within(
         values["aperture_spectrum"][0],
@@ -418,8 +425,8 @@ def test_a_column_at_a_hard_edge_is_decided_natively_as_the_reference_decides():
             centres=[list(centre)], diameters=[diameter], distances=[DISTANCE]
         )
         spec = StatsSpec(names=("aperture_spectrum",), apertures=apertures)
-        problem = problem_of(grid, space, field, spec)
-        values, field = native_stats(problem, grid, field, spec.names)
+        problem, run_request = problem_of(grid, space, field, spec)
+        values, field = native_stats(problem, run_request, grid, field, spec.names)
         inside = diameter / 2 >= radius
         # Structural: the membership is exact, so the one term is in both or neither.
         assert (values["aperture_spectrum"][0, bin_] > 0) == inside
@@ -513,8 +520,8 @@ def decide_edges(seed, shape):
         else [[row["width"], row["height"]] for _, _, row in rows],
     )
     spec = StatsSpec(names=("aperture_spectrum",), apertures=apertures)
-    problem = problem_of(grid, space, field, spec)
-    values, field = native_stats(problem, grid, field, spec.names)
+    problem, run_request = problem_of(grid, space, field, spec)
+    values, field = native_stats(problem, run_request, grid, field, spec.names)
     tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
     expected = reference(spec.names, grid, problem, field, tables)
     decided = [
@@ -562,16 +569,16 @@ def thread_case():
     space = fine_space()
     spec = spec_of(holes("tanh", shared=True, size=FINE))
     field = random_field(space, 2, grid, seed=5)
-    problem = problem_of(grid, space, field, spec)
-    return grid, problem, field
+    problem, run_request = problem_of(grid, space, field, spec)
+    return grid, problem, run_request, field
 
 
 def test_the_native_pass_does_not_depend_on_the_thread_count(tmp_path):
-    grid, problem, field = thread_case()
+    grid, problem, run_request, field = thread_case()
     tables = aperture_tables(
-        problem.stats_spec, problem.grids, problem.transform.geometry
+        run_request.observation.stats, problem.grids, problem.transform.geometry
     )
-    _, field = native_stats(problem, grid, field, ("beam_spectrum",))
+    _, field = native_stats(problem, run_request, grid, field, ("beam_spectrum",))
     absolute = magnitudes(WITH_AXIS, grid, problem, field, tables)
     results = {
         threads: native_thread_fields(PROBE, threads, WITH_AXIS, tmp_path)
@@ -595,17 +602,17 @@ def test_the_native_partials_are_held_to_the_byte():
     space = FreeGrid(3e-4, 12, 2.5e-4, 10, collar_fraction=0.1)
     spec = spec_of(holes("tanh"), WITH_AXIS)
     field = random_field(space, 2, grid)
-    problem = problem_of(grid, space, field, spec)
-    n_slots, n_bands = far_field_partials(problem)
+    problem, run_request = problem_of(grid, space, field, spec)
+    n_slots, n_bands = far_field_partials(problem, run_request.observation.stats)
     partials = 8 * n_bands * n_slots * grid.n_omega
-    owner = select("native", problem, grid=grid)
+    owner = select("native", problem, run_request, grid=grid)
     try:
         ledger = owner.memory_ledger()
         assert ledger["far_field_partials"] == partials
         # The axes, then the tables and packed output once a call has run.
         assert ledger["far_field_tables"] == 8 * (space.n_x + space.n_y)
         owner.set_initial(problem.initial.field0, None)
-        owner.stats(problem.stats_spec)
+        owner.stats(run_request.observation.stats)
         # Three apertures' rows and four boxes; twelve spectral rows (the beam, four
         # regions, three collected, three through the holes, the axis) and the five
         # absorbed powers.
@@ -626,17 +633,17 @@ def test_on_axis_intensity_reads_the_native_axis_slots():
     space = FreeGrid(3e-4, 12, 2.5e-4, 10, collar_fraction=0.1)
     field = random_field(space, 2, grid)
     spec = StatsSpec(names=("beam_spectrum", "on_axis_intensity"))
-    problem = problem_of(grid, space, field, spec)
+    problem, run_request = problem_of(grid, space, field, spec)
     # The beam, then the axis amplitude and its closure, 4 n_pol slots.
-    n_slots, n_bands = far_field_partials(problem)
+    n_slots, n_bands = far_field_partials(problem, run_request.observation.stats)
     assert n_slots == 1 + 4 * 2
-    owner = select("native", problem, grid=grid)
+    owner = select("native", problem, run_request, grid=grid)
     try:
         # Held from construction: no statistic allocates them.
         held = owner.memory_ledger()["far_field_partials"]
         assert held == 8 * n_bands * n_slots * grid.n_omega
         owner.set_initial(problem.initial.field0, None)
-        values = owner.stats(problem.stats_spec)
+        values = owner.stats(run_request.observation.stats)
         assert owner.memory_ledger()["far_field_partials"] == held
     finally:
         owner.close()
@@ -648,9 +655,11 @@ def test_declared_apertures_leave_a_request_without_them_unchanged():
     # A periodic beam or region sample carries the run's apertures; the native pass
     # gates its aperture work on the layout's aperture slot, and the values are the
     # reference's within the bound.
-    grid, problem, field, tables = case("envelope", 2, "rcos", "quadrature")
+    grid, problem, run_request, field, tables = case(
+        "envelope", 2, "rcos", "quadrature"
+    )
     names = ("beam_spectrum", "region_spectrum", "absorbed_power")
-    values, held = native_stats(problem, grid, field, names)
+    values, held = native_stats(problem, run_request, grid, field, names)
     assert_matches(
         values,
         reference(names, grid, problem, held, tables),
@@ -671,9 +680,9 @@ def test_the_native_custom_channel_is_the_reference_s(kind):
     names = ("absorbed_power",)
     spec = StatsSpec(names=names)
     field = random_field(space, 1, grid)
-    problem = problem_of(grid, space, field, spec, boundary=boundary)
+    problem, run_request = problem_of(grid, space, field, spec, boundary=boundary)
     tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
-    values, field = native_stats(problem, grid, field, names)
+    values, field = native_stats(problem, run_request, grid, field, names)
     assert values["absorbed_power"].shape == (5,)
     assert values["absorbed_power"][0] > 0 and values["absorbed_power"][4] > 0
     assert_matches(
@@ -692,9 +701,9 @@ def test_the_on_axis_spectrum_alone_reads_no_tables():
     names = ("on_axis_spectrum",)
     spec = StatsSpec(names=names)
     field = random_field(space, 1, grid)
-    problem = problem_of(grid, space, field, spec)
+    problem, run_request = problem_of(grid, space, field, spec)
     tables = aperture_tables(spec_of(holes("hard")), grid, space)
-    values, field = native_stats(problem, grid, field, names)
+    values, field = native_stats(problem, run_request, grid, field, names)
     assert_matches(
         values,
         reference(names, grid, problem, field, tables),
@@ -708,9 +717,9 @@ def test_a_native_request_beyond_the_held_partials_grows_them():
     grid = time_grid("envelope")
     space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
     field = random_field(space, 1, grid)
-    bare = problem_of(grid, space, field, StatsSpec(names=("energy",)))
-    assert far_field_partials(bare) == (0, 0)
-    owner = NativeBackend(bare, grid=grid)
+    bare, bare_request = problem_of(grid, space, field, StatsSpec(names=("energy",)))
+    assert far_field_partials(bare, bare_request.observation.stats) == (0, 0)
+    owner = NativeBackend(bare, bare_request, grid=grid)
     try:
         assert owner.memory_ledger()["far_field_partials"] == 0
         owner.set_initial(np.ascontiguousarray(field), None)
@@ -813,8 +822,8 @@ def test_the_native_refusals_name_what_is_missing():
     grid = time_grid("envelope")
     space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
     field = random_field(space, 1, grid)
-    problem = problem_of(grid, space, field, spec_of(holes("tanh")))
-    owner = NativeBackend(problem, grid=grid)
+    problem, run_request = problem_of(grid, space, field, spec_of(holes("tanh")))
+    owner = NativeBackend(problem, run_request, grid=grid)
     try:
         owner.set_initial(np.ascontiguousarray(field), None)
         native = owner._native_state

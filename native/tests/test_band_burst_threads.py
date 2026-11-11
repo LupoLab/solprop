@@ -50,6 +50,7 @@ from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, RungeKutta
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.run_request import RunRequest
 
 from legacy_geometry import LEGACY_GRID
 from test_band_plasma import (
@@ -75,7 +76,9 @@ WIDTHS = (1, 4, 8, 12, 18)
 """The retired test's thread counts, oversubscribed where a machine has fewer."""
 
 
-def _burst(steps: int, energy: float) -> tuple[FieldGrid, PropagationProblem]:
+def _burst(
+    steps: int, energy: float
+) -> tuple[FieldGrid, PropagationProblem, RunRequest]:
     rate = QuadraticRate(2e10, THRESHOLD)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
@@ -107,18 +110,19 @@ def _burst(steps: int, energy: float) -> tuple[FieldGrid, PropagationProblem]:
         problem = simulation.translate()
     grid = simulation.grid
     assert isinstance(grid, FieldGrid)
-    return grid, dataclasses.replace(problem, stats_spec=StatsSpec(names=STATISTICS))
+    statistics = StatsSpec(names=STATISTICS)
+    return grid, problem, simulation._run_request().for_run(stats=statistics)  # pyright: ignore[reportPrivateUsage]
 
 
-def burst(steps: int) -> tuple[FieldGrid, PropagationProblem]:
+def burst(steps: int) -> tuple[FieldGrid, PropagationProblem, RunRequest]:
     """Return a one-node argon column whose rate is nonzero on a few cycle peaks alone.
 
     The energy is scaled, as ``near_threshold``'s is, to put the launch's peak field
     half as far again as the quadratic rate's threshold, so the rate is exactly zero
     outside a compact burst and the pulse is still over the threshold at the exit.
     """
-    grid, problem = _burst(steps, 10e-6)
-    peak = float(np.max(np.abs(node_fields(problem, grid))))
+    grid, problem, run_request = _burst(steps, 10e-6)
+    peak = float(np.max(np.abs(node_fields(problem, run_request, grid))))
     return _burst(steps, 10e-6 * (1.5 * THRESHOLD / peak) ** 2)
 
 
@@ -159,13 +163,13 @@ def test_a_compact_burst_agrees_at_every_team_size_and_on_repeat(
     tmp_path: Path,
 ) -> None:
     """Five team sizes, two calls each, against one thread and the reference."""
-    grid, problem = burst(STEPS)
-    bound = march_bound(problem, grid, STEPS)
+    grid, problem, run_request = burst(STEPS)
+    bound = march_bound(problem, run_request, grid, STEPS)
     runs = {threads: _run_at(threads, tmp_path) for threads in WIDTHS}
     expected = runs[1]["field_0"]
     scale = float(np.max(np.abs(expected)))
     assert scale > 0.0
-    reference, reference_stats = march(NumpyRefBackend, problem, grid)
+    reference, reference_stats = march(NumpyRefBackend, problem, run_request, grid)
     assert float(np.max(np.abs(expected - reference))) <= bound * scale
     assert_statistics_agree(_statistics(runs[1], 0), reference_stats, bound)
     # The burst did ionise at the exit, where a preionisation of 1e-20 alone would round

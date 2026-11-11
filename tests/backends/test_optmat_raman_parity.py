@@ -98,7 +98,7 @@ def test_the_leaves_are_the_handoffs(name, rows, zero_at_vacuum):
         (1.0, 0.0),
         (0.25, 0.75),
     }
-    end = case.problem.stepper.save_planes[-1]
+    end = case.run_request.stepper.save_planes[-1]
     rates = np.array([float(table(end)) for table in leaf.decay_rates])
     if zero_at_vacuum:
         assert leaf.density is not None
@@ -115,8 +115,10 @@ def test_native_holds_every_row_of_the_composition_leaf():
     # is assumed (SEP 3, section 6). The two host backends read the problem's array.
     native = pytest.importorskip("solprop_native")
     case = build_case("air_floor")
-    problem = case.problem
-    backend = native.NativeBackend(problem, grid=case.grid, modes=case.modes)
+    problem, run_request = case.problem, case.run_request
+    backend = native.NativeBackend(
+        problem, run_request, grid=case.grid, modes=case.modes
+    )
     try:
         ledger = backend.memory_ledger()
     finally:
@@ -125,5 +127,6 @@ def test_native_holds_every_row_of_the_composition_leaf():
     assert ledger["raman_undamped"] == rows * 2 * problem.grids.n_to * 8
     # Two slots, the step and the Adams sample, share one packed upload per trial.
     assert (
-        ledger["stage_raman_rates"] == 2 * problem.stepper.tableau.n_stages * rows * 8
+        ledger["stage_raman_rates"]
+        == 2 * run_request.stepper.tableau.n_stages * rows * 8
     )

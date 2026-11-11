@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from bounds import assert_within
-from mixture_cases import AnalyticRate, mixture_case
+from mixture_cases import AnalyticRate, mixture_case, mixture_translation
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.grid import EnvelopeGrid
 from solprop.modes import MarcatiliMode
@@ -66,9 +66,9 @@ def smooth(length, low, high):
     )
 
 
-def run(backend_class, problem, grid, stop, *, stats=NAMES):
+def run(backend_class, problem, run_request, grid, stop, *, stats=NAMES):
     """Propagate to `stop` and return the field, the summary, the history and stats."""
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         summary = backend.propagate_to(stop)
@@ -85,11 +85,11 @@ def run(backend_class, problem, grid, stop, *, stats=NAMES):
 
 def field_case(preionisation):
     """Return the two-population field case on its fixed eight-step ladder."""
-    _, grid, _, _, problem = mixture_case(
+    _, grid, _, _, (problem, run_request) = mixture_translation(
         preionisation=preionisation,
         schedule=FixedSchedule.uniform(0.0, FIELD_LENGTH, FIELD_DZ),
     )
-    return problem, grid
+    return problem, run_request, grid
 
 
 # Kinks on the ladder's edges (a fixed schedule must land on every one), inside the
@@ -112,12 +112,12 @@ def test_a_constant_path_is_the_number_on_every_backend(backend_class):
 
     Held to the mixture ladder's bound below; the schedule's positions are exact.
     """
-    numbers, number_grid = field_case((0.03, 0.1))
-    paths, _ = field_case((Constant(0.03), Constant(0.1)))
+    numbers, numbers_request, number_grid = field_case((0.03, 0.1))
+    paths, paths_request, _ = field_case((Constant(0.03), Constant(0.1)))
     stop = FIELD_STEPS * FIELD_DZ
     bound = 64 * number_grid.n_to * 2 * 7 * FIELD_STEPS * np.finfo(float).eps
-    expected = run(backend_class, numbers, number_grid, stop)
-    actual = run(backend_class, paths, number_grid, stop)
+    expected = run(backend_class, numbers, numbers_request, number_grid, stop)
+    actual = run(backend_class, paths, paths_request, number_grid, stop)
     assert_within(actual[0], expected[0], bound, what="field")
     np.testing.assert_array_equal(actual[2].z, expected[2].z)
     for name in NAMES:
@@ -133,7 +133,7 @@ def test_a_constant_path_is_the_number_on_every_backend(backend_class):
 @pytest.mark.medium
 @pytest.mark.parametrize("paths", sorted(FIELD_PATHS))
 def test_field_plasma_paths_agree_with_the_oracle(paths, equivalence_backend_class):
-    problem, grid = field_case(FIELD_PATHS[paths])
+    problem, run_request, grid = field_case(FIELD_PATHS[paths])
     stop = FIELD_STEPS * FIELD_DZ
     # The bound of tests/backends/test_mixture_ladder.py, unchanged: seven stages per
     # step, each with two FFTs, a cubic evaluation and two accumulated current
@@ -141,8 +141,8 @@ def test_field_plasma_paths_agree_with_the_oracle(paths, equivalence_backend_cla
     # A path changes only the per-stage scalar each backend reads from the same table.
     bound = 64 * grid.n_to * 2 * 7 * FIELD_STEPS * np.finfo(float).eps
     assert bound > 0
-    ours = run(equivalence_backend_class, problem, grid, stop)
-    oracle = run(NumpyRefBackend, problem, grid, stop)
+    ours = run(equivalence_backend_class, problem, run_request, grid, stop)
+    oracle = run(NumpyRefBackend, problem, run_request, grid, stop)
     assert ours[1].n_steps == oracle[1].n_steps == FIELD_STEPS
     difference = float(np.linalg.norm(ours[0] - oracle[0]) / np.linalg.norm(oracle[0]))
     assert difference < bound
@@ -190,7 +190,7 @@ def envelope_case(preionisation):
     mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
     initial = GaussianPulse(wavelength=800e-9, fwhm=20e-15, energy=1e-7).build(grid)
     step = ENVELOPE_LENGTH / 4
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         mode,
         responses,
@@ -201,7 +201,7 @@ def envelope_case(preionisation):
         dz_init=step,
         schedule=FixedSchedule.uniform(0.0, ENVELOPE_LENGTH, step),
     )
-    return problem, grid
+    return problem, run_request, grid
 
 
 ENVELOPE_PATHS = {
@@ -221,7 +221,7 @@ ENVELOPE_PATHS = {
 @pytest.mark.medium
 @pytest.mark.parametrize("paths", sorted(ENVELOPE_PATHS))
 def test_envelope_plasma_paths_agree_with_the_oracle(paths, equivalence_backend_class):
-    problem, grid = envelope_case(ENVELOPE_PATHS[paths])
+    problem, run_request, grid = envelope_case(ENVELOPE_PATHS[paths])
     assert problem.flags.n_channels == 2
     # The bound of tests/backends/test_envelope_plasma_geometries.py for the same
     # two-population envelope case: the polynomial rate's integrals converge to
@@ -230,8 +230,17 @@ def test_envelope_plasma_paths_agree_with_the_oracle(paths, equivalence_backend_
     bound = 128 * grid.n_to * 7 * 4 * np.finfo(float).eps
     assert bound > 0
     names = ("species_ionisation", "species_electron_density", "electron_density")
-    ours = run(equivalence_backend_class, problem, grid, ENVELOPE_LENGTH, stats=names)
-    oracle = run(NumpyRefBackend, problem, grid, ENVELOPE_LENGTH, stats=names)
+    ours = run(
+        equivalence_backend_class,
+        problem,
+        run_request,
+        grid,
+        ENVELOPE_LENGTH,
+        stats=names,
+    )
+    oracle = run(
+        NumpyRefBackend, problem, run_request, grid, ENVELOPE_LENGTH, stats=names
+    )
     assert ours[1].n_steps == oracle[1].n_steps == 4
     np.testing.assert_allclose(
         ours[0], oracle[0], rtol=bound, atol=bound * np.max(np.abs(oracle[0]))
@@ -243,11 +252,13 @@ def test_envelope_plasma_paths_agree_with_the_oracle(paths, equivalence_backend_
 @pytest.mark.medium
 def test_a_constant_envelope_path_is_the_number(backend_class):
     """One run twice, held to the envelope geometry ladder's four-step bound."""
-    numbers, grid = envelope_case((0.03, 0.1))
-    paths, _ = envelope_case((Constant(0.03), Constant(0.1)))
+    numbers, numbers_request, grid = envelope_case((0.03, 0.1))
+    paths, paths_request, _ = envelope_case((Constant(0.03), Constant(0.1)))
     bound = 128 * grid.n_to * 7 * 4 * np.finfo(float).eps
-    expected = run(backend_class, numbers, grid, ENVELOPE_LENGTH, stats=())
-    actual = run(backend_class, paths, grid, ENVELOPE_LENGTH, stats=())
+    expected = run(
+        backend_class, numbers, numbers_request, grid, ENVELOPE_LENGTH, stats=()
+    )
+    actual = run(backend_class, paths, paths_request, grid, ENVELOPE_LENGTH, stats=())
     assert_within(actual[0], expected[0], bound)
 
 
@@ -256,7 +267,7 @@ def test_adaptive_steps_land_on_an_interior_kink(backend_class):
     # Kinks that are no multiple of any step the controller would choose: without
     # them among Phi's hard kinks the adaptive run steps straight across both.
     first, second = 0.3712345e-3, 0.3812345e-3
-    _, grid, _, _, problem = mixture_case(
+    _, grid, _, _, (problem, run_request) = mixture_translation(
         preionisation=(
             stepped(FIELD_LENGTH, 0.02, 0.2, first, second),
             Constant(0.1),
@@ -265,7 +276,9 @@ def test_adaptive_steps_land_on_an_interior_kink(backend_class):
     assert problem.linear.phi_representation == "constant"
     # Structural: the declared kinks are carried as given.
     np.testing.assert_array_equal(problem.linear.hard_kinks, [first, second, 1e-3])
-    _, summary, history, _ = run(backend_class, problem, grid, FIELD_LENGTH, stats=())
+    _, summary, history, _ = run(
+        backend_class, problem, run_request, grid, FIELD_LENGTH, stats=()
+    )
     assert summary.met_tolerance
     accepted = np.asarray(history.z)[np.asarray(history.accepted)]
     assert first in accepted
@@ -281,13 +294,15 @@ def test_the_fraction_follows_the_path_where_the_pulse_cannot_ionise(backend_cla
         stepped(FIELD_LENGTH, 0.02, 0.2, 3 * FIELD_DZ, 5 * FIELD_DZ),
         smooth(FIELD_LENGTH, 0.05, 0.3),
     )
-    problem, grid = field_case(paths)
+    problem, run_request, grid = field_case(paths)
     weak = dataclasses.replace(problem.initial, field0=problem.initial.field0 * 1e-9)
     problem = dataclasses.replace(problem, initial=weak)
     names = ("species_ionisation", "species_electron_density", "species_density")
     for plane in (2, 4, 7):
         stop = plane * FIELD_DZ
-        _, _, _, stats = run(backend_class, problem, grid, stop, stats=names)
+        _, _, _, stats = run(
+            backend_class, problem, run_request, grid, stop, stats=names
+        )
         f0 = np.array([float(path(np.array([stop]))[0]) for path in paths])
         # The tables reproduce a linear piece to rounding and the smooth path to
         # the translation tolerance (1e-12 relative, DEFAULT_TOL's order).

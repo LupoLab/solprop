@@ -28,18 +28,10 @@ def free_inputs():
     return space, time, SpatialDispersion(SpatialMedium(), time, Frame.comoving(time))
 
 
-def test_free_transform_budget_and_separable_storage(free_inputs):
+def test_free_transform_and_separable_storage(free_inputs):
     space, time, dispersion = free_inputs
-    column_bytes = 20 * 16 * 2 * time.n_to
-    transform = free_transform(
-        space, time, n_pol=2, z_max=time.length, node_budget=7 * column_bytes
-    )
-    assert transform.node_chunk == 7
+    transform = free_transform(space, n_pol=2, z_max=time.length)
     assert transform.synthesis.size == transform.projection.size == 0
-    with pytest.raises(TranslationError, match="node_budget"):
-        free_transform(
-            space, time, n_pol=2, z_max=time.length, node_budget=column_bytes - 1
-        )
     linear, coefficients = free_operators(space, dispersion, n_pol=2, z_max=time.length)
     expected = sum(
         getattr(coefficients, item.name).nbytes
@@ -78,9 +70,10 @@ def test_free_translation_controls_are_validated(free_inputs, name, value):
     space, time, dispersion = free_inputs
     controls = {"n_pol": 1, "z_max": time.length, "margin": 0.01}
     controls[name] = value
-    for factory, argument in ((free_transform, time), (free_operators, dispersion)):
-        with pytest.raises(TranslationError, match=r"polarisation|span"):
-            factory(space, argument, **controls)
+    with pytest.raises(TranslationError, match=r"polarisation|span"):
+        free_transform(space, **controls)
+    with pytest.raises(TranslationError, match=r"polarisation|span"):
+        free_operators(space, dispersion, **controls)
 
 
 def test_free_operator_names_its_varying_medium_refusal(free_inputs):
