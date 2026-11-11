@@ -529,15 +529,20 @@ def no_collector():
 
 
 def _spied_load(backend, monkeypatch) -> list[weakref.ref[np.ndarray]]:
-    """Return a list that keeps a weak reference to each array the backend loads."""
+    """Return a list that keeps a weak reference to each array the backend loads.
+
+    The reference loads through its driver's ``set_initial``, the native backend
+    through its own ``_load`` (SEP 47 phase 5).
+    """
     loads: list[weakref.ref[np.ndarray]] = []
-    load = backend.set_initial
+    name = "_load" if hasattr(backend, "_load") else "set_initial"
+    load = getattr(backend, name)
 
-    def spy(field, noise, *, z=0.0, resume=False) -> None:
+    def spy(field, noise, *, z=0.0, resume=False) -> object:
         loads.append(weakref.ref(field))
-        load(field, noise, z=z, resume=resume)
+        return load(field, noise, z=z, resume=resume)
 
-    monkeypatch.setattr(backend, "set_initial", spy)
+    monkeypatch.setattr(backend, name, spy)
     return loads
 
 
@@ -583,14 +588,16 @@ def test_a_runner_reads_a_digested_input_without_a_copy(backend, monkeypatch):
     field = 0.9 * simulation._field0
     before = field.copy()
     with simulation.runner() as runner:
-        load = runner.backend.set_initial
+        # The reference's driver loads through `set_initial`, native through `_load`.
+        name = "_load" if hasattr(runner.backend, "_load") else "set_initial"
+        load = getattr(runner.backend, name)
         shared: list[bool] = []
 
-        def spy(given, noise, *, z=0.0, resume=False) -> None:
+        def spy(given, noise, *, z=0.0, resume=False) -> object:
             shared.append(np.shares_memory(given, field))
-            load(given, noise, z=z, resume=resume)
+            return load(given, noise, z=z, resume=resume)
 
-        monkeypatch.setattr(runner.backend, "set_initial", spy)
+        monkeypatch.setattr(runner.backend, name, spy)
         output = stored(runner.run(field, progress="none"))
         fresh = stored(simulation.with_input(field).run(progress="none"))
     assert shared == [True]

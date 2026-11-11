@@ -169,14 +169,3 @@ def test_a_low_storage_probe_counts_its_evaluations_and_has_no_field():
         assert native.metadata()["source_evaluations"] == 0
     finally:
         native.close()
-
-
-def test_the_legacy_api_refuses_a_low_storage_run_by_name():
-    problem, request = low_storage(*soliton())
-    native: Any = select("native", problem, request, **_soliton_context())
-    try:
-        native.set_initial(np.asarray(problem.initial.field0), None)
-        with pytest.raises(BackendError, match="low-storage march in its session"):
-            native.propagate_to(float(request.stepper.save_planes[0]))
-    finally:
-        native.close()

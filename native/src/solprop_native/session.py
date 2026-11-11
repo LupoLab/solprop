@@ -541,12 +541,13 @@ class NativeSession:
                 options=options,
             )
         self._backend: NativeBackend | None = backend
-        # The on-axis row scans this session's statistics make: the state's count,
-        # less what earlier runs on the backend made (SEP 19).
-        self._axis_scans = int(backend._native_state.axis_scans)  # pyright: ignore[reportPrivateUsage]
+        self._axis_scans = 0
         self._axis_scans_closed = 0
         try:
             kind, state = self._prepare(backend, start)
+            # The on-axis row scans this session's statistics make: the state's
+            # count, less what earlier runs on the backend made (SEP 19).
+            self._axis_scans = int(backend._native_state.axis_scans)  # pyright: ignore[reportPrivateUsage]
             self._native = backend._native_state.start_session(  # pyright: ignore[reportPrivateUsage]
                 kind, state, self._plan(start), float(start.z)
             )
@@ -1402,7 +1403,12 @@ class NativeSession:
         backend = self._backend
         if backend is None or backend.closed:
             return self._axis_scans_closed
-        return int(backend._native_state.axis_scans) - self._axis_scans  # pyright: ignore[reportPrivateUsage]
+        try:
+            scans = int(backend._native_state.axis_scans)  # pyright: ignore[reportPrivateUsage]
+        except RuntimeError:
+            # The state was closed under the session.
+            return self._axis_scans_closed
+        return scans - self._axis_scans
 
     def _sync_calls(self) -> CallLedger | None:
         """Bring the Adams call ledger up to the native march's, and return it.

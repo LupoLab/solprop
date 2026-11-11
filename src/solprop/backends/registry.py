@@ -248,13 +248,19 @@ def _plugin_far_field(name: str) -> frozenset[str] | None:
     -------
     frozenset of str or None
         What the plugin declares (its row's ``far_field``: the native backend's
-        ``NativeBackend.far_field_statistics``), or ``None`` when the name is not a
-        known, installed plugin that declares them.
+        ``NativeBackend.far_field_statistics``), empty for a build that predates the
+        attribute, or ``None`` when the name is not a known, installed plugin that
+        declares them.
     """
     entry = BACKENDS.get(name)
     if entry is None or entry.far_field is None or not _satisfied(entry):
         return None
-    return frozenset(cast(Collection[str], _load(entry.far_field)))
+    try:
+        declared = _load(entry.far_field)
+    except AttributeError:
+        # A build from before the far-field statistics declares none.
+        return frozenset()
+    return frozenset(cast(Collection[str], declared))
 
 
 def available(precision: str = "double") -> tuple[str, ...]:

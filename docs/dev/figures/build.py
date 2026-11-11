@@ -708,7 +708,6 @@ MODULES = {
             (
                 "protocol",
                 "registry",
-                "driver",
                 "spatial",
                 "populations",
                 "memory",
