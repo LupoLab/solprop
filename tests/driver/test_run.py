@@ -21,7 +21,13 @@ from march_bounds import (
     simulation_bound,
 )
 from solprop import fourier
-from solprop.backends.protocol import Backend, BackendHistory, Observation, StepSummary
+from solprop.backends.protocol import (
+    Backend,
+    BackendHistory,
+    Observation,
+    StepSummary,
+    stepping,
+)
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings, metadata_for, run_problem
@@ -239,7 +245,9 @@ def failing_backend(simulation, error):
     def propagate_to(z):
         raise error
 
-    backend.propagate_to = propagate_to
+    # A patched instance attribute: the reference's stepping seam fails each march.
+    stepped = stepping(backend)
+    stepped.propagate_to = propagate_to  # pyright: ignore[reportAttributeAccessIssue]
     return backend
 
 

@@ -33,6 +33,7 @@ from sessions.executors import (
 )
 from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
+from solprop.backends.protocol import stepping
 from solprop.backends.registry import select
 from solprop.exceptions import BackendError, MaterialRangeWarning
 from solprop.grid import FieldGrid
@@ -168,8 +169,10 @@ def _reference(grid, modes, problem, request, names, seen):
     out = []
     with closing(select("numpy_ref", problem, run, grid=grid, modes=modes)) as backend:
         for record in seen:
-            backend.set_initial(record.field, None, z=record.z, resume=record.z > start)
-            values = backend.stats(run.observation.stats)
+            stepping(backend).set_initial(
+                record.field, None, z=record.z, resume=record.z > start
+            )
+            values = stepping(backend).stats(run.observation.stats)
             out.append({name: np.asarray(value) for name, value in values.items()})
     return out
 
@@ -418,8 +421,8 @@ def test_the_plan_s_axis_row_is_the_host_scan_s_and_the_reference_s(kind):
         assert problem.transform.n_pol == 1
         assert np.any(_on_axis(modes)[1])
     with closing(select("numpy_ref", problem, run, grid=grid, modes=modes)) as backend:
-        backend.set_initial(problem.initial.field0, None)
-        values = backend.stats(spec)
+        stepping(backend).set_initial(problem.initial.field0, None)
+        values = stepping(backend).stats(spec)
     assert problem.initial.noise0 is None
     with closing(select("native", problem, run, grid=grid, modes=modes)) as backend:
         state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]

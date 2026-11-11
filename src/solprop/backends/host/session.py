@@ -88,7 +88,7 @@ if TYPE_CHECKING:
     # destination's shape before the session refuses it.
     from jaxtyping import Complex
 
-    from solprop.backends.protocol import Backend
+    from solprop.backends.protocol import Backend, HostStepping
 
 __all__ = ["HostPrepared", "HostSession"]
 
@@ -189,13 +189,13 @@ class HostSession:
     # -- protocol -------------------------------------------------------------------
 
     @property
-    def driver(self) -> Backend:
+    def driver(self) -> HostStepping:
         """Return the reference backend, whose facts the service loop records.
 
         Returns
         -------
-        solprop.backends.protocol.Backend
-            The backend.
+        solprop.backends.protocol.HostStepping
+            The backend, through the host stepping seam.
         """
         return self._driver
 

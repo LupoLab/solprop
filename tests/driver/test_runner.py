@@ -27,6 +27,7 @@ from runtime_types import unchecked
 from sessions.executors import one_thread
 from solprop.backends import sessions
 from solprop.backends.host.driver import HostDriver
+from solprop.backends.protocol import stepping
 from solprop.backends.registry import available, select
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationRunner
@@ -267,7 +268,9 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(dense):
             profiles=simulation.profiles,
         )
         try:
-            fresh.set_initial(problem.initial.field0, None, z=problem.initial.z)
+            stepping(fresh).set_initial(
+                problem.initial.field0, None, z=problem.initial.z
+            )
             # Restored state is exact: the same flags, alarm and integer ledger.
             assert restored(left, problem, run_request) == restored(
                 fresh, problem, run_request

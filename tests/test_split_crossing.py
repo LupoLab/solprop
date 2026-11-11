@@ -24,6 +24,7 @@ import pytest
 
 import solprop.translate.problem as problem_module
 from monitor_cases import as_driver
+from solprop.backends.protocol import stepping
 from solprop.backends.registry import available, select
 from solprop.boundaries import (
     SPLIT_CROSSING,
@@ -286,7 +287,7 @@ def test_the_cap_tightens_as_the_beam_self_focuses() -> None:
         assert monitor.step_cap == crossing.launch_limit
         tightest = monitor.step_cap
         for z in np.linspace(0.005, 0.05, 10):
-            backend.propagate_to(float(z))
+            stepping(backend).propagate_to(float(z))
             tightest = min(tightest, monitor.step_cap)
         assert tightest < 0.7 * crossing.launch_limit
     finally:

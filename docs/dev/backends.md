@@ -38,6 +38,22 @@ class Backend(Protocol):
     max_batch: int  # 1 for backends that step one problem
     reads_transverse_edge: bool  # whether a requested real-space collar can run on it
 
+    @property
+    def request(self) -> RunRequest: ...  # the run request it was built for
+    def prepare(self, problem, request) -> PreparedExecution: ...  # a run's session
+    def prepare_group(self, members, problems, requests) -> PreparedGroup: ...
+    def timing_probe(self, start: Start) -> TimingProbe: ...  # commits nothing
+    def march_export_refusal(self) -> str | None: ...
+    def edge_memory(self, space: object) -> int: ...
+    def metadata(self) -> dict[str, object]: ...  # what the execution was
+    def memory_ledger(self) -> dict[str, int]: ...
+    def available_device_memory(self) -> int | None: ...
+    def close(self) -> None: ...  # idempotent
+    @property
+    def closed(self) -> bool: ...  # a failure can close a backend
+
+
+class HostStepping(Backend, Protocol):  # the reference's seam; `stepping(backend)`
     def set_initial(
         self,
         field: Field,
@@ -47,32 +63,25 @@ class Backend(Protocol):
         resume: bool = False,
     ) -> None: ...
     def set_progress(self, reporter: ProgressReporter) -> None: ...  # observer only
+    def set_stop(self, flag: StopFlag | None) -> None: ...  # polled between trials
+    def attach_monitor(self, monitor: BoundaryMonitor) -> None: ...
     def propagate_to(self, z: float) -> StepSummary: ...
     def observe(
         self, *, field: bool = True
     ) -> Observation: ...  # host arrays: field at z, step history
-    def restore_call_ledgers(self, logical, atomic=None) -> None: ...
-    def stats(self, spec: StatsSpec) -> dict[str, NDArray]: ...
-    def metadata(self) -> dict[str, object]: ...  # what the execution was
-    def memory_ledger(self) -> dict[str, int]: ...
-    def available_device_memory(self) -> int | None: ...
-    def close(self) -> None: ...  # idempotent
-
-    # What the run layer asks beside those.
-    def set_stop(self, flag: StopFlag | None) -> None: ...  # polled between trials
-    def set_held_plane(self, held: bool) -> None: ...  # the low-storage march's hold
-    def attach_monitor(self, monitor: BoundaryMonitor) -> None: ...
     @property
     def in_flight(self) -> tuple[float, float] | None: ...  # a step abandoned there
-    def held_observation(self) -> Observation | None: ...
+    def stats(self, spec: StatsSpec) -> dict[str, NDArray]: ...
+    def restore_call_ledgers(self, logical, atomic=None) -> None: ...
     def march_snapshot(self) -> MarchSnapshot | None: ...  # the Adams history
     def march_snapshot_nbytes(self, z: float) -> int | None: ...  # copying nothing
-    def march_export_refusal(self) -> str | None: ...
     def restore_march(self, snapshot: MarchSnapshot) -> str | None: ...
-    def timing_probe(self, start: Start) -> TimingProbe: ...  # commits nothing
-    @property
-    def closed(self) -> bool: ...  # a failure can close a backend
 ```
+
+A run goes through the backend's session (`prepare(...).start(...)`, SEP 47 §5.2). The
+NumPy reference's session drives the host stepping seam, `HostStepping`, which the
+reference's `HostDriver` implements; the native backend implements `Backend` alone, and
+its session marches natively (SEP 47 §6.8).
 
 The listing is abbreviated; `solprop/backends/protocol.py` holds the exact signatures and
 docstrings, in the order of [architecture.md §9](architecture.md#9-backends-in-one-page).
@@ -1414,7 +1423,7 @@ and its angles, which depend on the axes alone, are formed once at lowering
 
 **The widths are finished natively** ([SEP 47](seps/sep-0047-run-ownership.md) §6.4).
 `beam_radius` and `fwhm_r` are statistics of the native plan (`Stat::beam_radius`,
-`Stat::fwhm_r`), so the native session and `NativeBackend.stats` take them with no Python finishing,
+`Stat::fwhm_r`), so the native session takes them with no Python finishing,
 at planes (neither is periodic-capable). The plan runs the same fluence passes the host finishing
 read -- flag 16's block on a radial, line or planar profile, flag 32's moments and the trace on a
 Cartesian plane -- and `session_widths.cpp`, a strict translation unit, finishes them as

@@ -313,8 +313,8 @@ class ObservedField:
     A session observes its driver's field once per state generation, when a consumer
     first asks for it; every export of that ticket reads the same observation. An
     observation's arrays are read-only and nothing writes to them again
-    (:meth:`solprop.backends.protocol.Backend.observe`), so an export with nothing to
-    convert is that array; one the driver made for the session alone is converted in
+    (:meth:`solprop.backends.protocol.HostStepping.observe`), so an export with nothing
+    to convert is that array; one the driver made for the session alone is converted in
     place when it was not handed out unconverted. Attempts a field fetch drains are
     kept for the next event's chunk.
 

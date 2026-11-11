@@ -3007,8 +3007,8 @@ def collect(  # noqa: PLR0913 - a spec, a grid, a plane and four optional source
         elif CATALOGUE[name].backend:
             msg = (
                 f"the {name!r} statistic is computed by the backend from its own "
-                "buffers, not from a saved plane; ask for it through "
-                "solprop.backends.protocol.Backend.stats"
+                "buffers, not from a saved plane; ask for it in the run's "
+                "statistics (a StatsSpec)"
             )
             raise OutputError(msg)
         elif name in PROFILE_STATISTICS:

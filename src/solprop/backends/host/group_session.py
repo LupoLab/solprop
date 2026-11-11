@@ -67,6 +67,7 @@ from solprop.backends.protocol import (
     Observation,
     StepStats,
     StepSummary,
+    stepping,
 )
 from solprop.backends.session import (
     SessionError,
@@ -142,14 +143,16 @@ class HostGroupSession:
         count = len(members)
         check_group(count, problems, requests, starts)
         observation = requests[0].observation
-        for member, start in zip(members, starts, strict=True):
+        # The reference's members step on the host (`HostStepping`).
+        hosted = tuple(stepping(member) for member in members)
+        for member, start in zip(hosted, starts, strict=True):
             member.set_initial(
                 np.asarray(start.take_field()),
                 start.noise,
                 z=float(start.z),
                 resume=start.resume,
             )
-        self._members = tuple(members)
+        self._members = hosted
         # The same members, as the reference's marches whose position and attempt
         # record the group reads: the runner below steps host drivers alone.
         self._hosts = cast("tuple[HostDriver[Any], ...]", self._members)

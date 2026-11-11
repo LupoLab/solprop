@@ -48,6 +48,7 @@ from monitor_cases import (
     watched,
     with_copy,
 )
+from solprop.backends.protocol import stepping
 from solprop.backends.registry import available, select
 from solprop.backends.session import ExecutionOptions, Start
 from solprop.driver import Simulation
@@ -336,7 +337,7 @@ def _host_second_run(
     try:
         driver = as_driver(made)
         first = reading(made)
-        made.propagate_to(LENGTH)
+        stepping(made).propagate_to(LENGTH)
         problem = simulation.translate()
         driver.set_initial(with_copy(problem.initial.field0, simulation.grid.n_t), None)
         monitor = simulation._boundary_monitor()
@@ -515,7 +516,7 @@ def test_successive_occupancies_are_the_reference_s(backend: str, route: str) ->
     try:
         monitor = _fresh_bound(ours, simulation, problem)
         for third in (1, 2, 3):
-            theirs.propagate_to(LENGTH * third / 3)
+            stepping(theirs).propagate_to(LENGTH * third / 3)
             expected = reading(theirs).occupancy
             state = as_driver(theirs)._require_state()[0]
             got = native_reading(ours, monitor, np.array(state)).occupancy

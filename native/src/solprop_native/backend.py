@@ -50,7 +50,7 @@ from solprop.backends.numpy_ref.general_modal import (
     node_kerr_form,
     node_kerr_tensor,
 )
-from solprop.backends.protocol import Backend, Observation, StepSummary, TimingProbe
+from solprop.backends.protocol import Backend, TimingProbe
 from solprop.backends.session import (
     ExecutionOptions,
     PreparedExecution,
@@ -69,7 +69,6 @@ from solprop.exceptions import (
     ConvergenceError,
 )
 from solprop.grid import RadialGrid, TimeGrid
-from solprop.log import ProgressReporter, StopFlag
 from solprop.modes.protocol import Mode
 from solprop.monitor import BoundaryMonitor
 from solprop.noise import NoiseRealisation
@@ -1456,224 +1455,6 @@ class NativeBackend:
             )
         return values
 
-    # -- the backend protocol's stepping seam, which runs in the session -----------
-
-    def set_initial(
-        self,
-        field: ComplexArray,
-        noise: NoiseRealisation | None,
-        *,
-        z: float = 0.0,
-        resume: bool = False,
-    ) -> None:
-        """Refuse a direct load: a native run loads in its session.
-
-        Parameters
-        ----------
-        field : numpy.ndarray
-            The state.
-        noise : solprop.noise.NoiseRealisation or None
-            The realisation.
-        z : float, optional
-            The position, m.
-        resume : bool, optional
-            Whether the state is a saved plane's.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            Always (:func:`_session_only`).
-        """
-        del field, noise, z, resume
-        raise _session_only("loads a state")
-
-    def set_progress(self, reporter: ProgressReporter) -> None:
-        """Refuse a reporter here: a session reports its attempts to its listener.
-
-        Parameters
-        ----------
-        reporter : solprop.log.ProgressReporter
-            The reporter.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            Always (:func:`_session_only`).
-        """
-        del reporter
-        raise _session_only("reports progress")
-
-    def set_stop(self, flag: StopFlag | None) -> None:
-        """Refuse a stop flag here: a session polls the one it starts with.
-
-        Parameters
-        ----------
-        flag : solprop.log.StopFlag or None
-            The flag.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            Always (:func:`_session_only`).
-        """
-        del flag
-        raise _session_only("polls a stop flag")
-
-    def attach_monitor(self, monitor: BoundaryMonitor) -> None:
-        """Refuse a monitor here: a session's request carries it (SEP 47 6.4).
-
-        Parameters
-        ----------
-        monitor : solprop.monitor.BoundaryMonitor
-            The monitor.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            Always (:func:`_session_only`).
-        """
-        del monitor
-        raise _session_only("watches the boundary")
-
-    def propagate_to(self, z: float) -> StepSummary:
-        """Refuse a direct step: a native run marches in its session.
-
-        Parameters
-        ----------
-        z : float
-            The plane, m.
-
-        Returns
-        -------
-        solprop.backends.protocol.StepSummary
-            Never returned.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            Always (:func:`_session_only`).
-        """
-        del z
-        raise _session_only("propagates")
-
-    def observe(self, *, field: bool = True) -> Observation:
-        """Refuse a direct observation: a session's planes are its events.
-
-        Parameters
-        ----------
-        field : bool, optional
-            Whether the field is wanted.
-
-        Returns
-        -------
-        solprop.backends.protocol.Observation
-            Never returned.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            Always (:func:`_session_only`).
-        """
-        del field
-        raise _session_only("observes a plane")
-
-    def stats(self, spec: StatsSpec) -> dict[str, np.ndarray]:
-        """Refuse direct statistics: a session's plan evaluates them (SEP 47 6.4).
-
-        Parameters
-        ----------
-        spec : solprop.stats.StatsSpec
-            The statistics.
-
-        Returns
-        -------
-        dict
-            Never returned.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            Always (:func:`_session_only`).
-        """
-        del spec
-        raise _session_only("evaluates statistics")
-
-    def restore_call_ledgers(
-        self, logical: Mapping[str, object], atomic: Mapping[str, object] | None = None
-    ) -> None:
-        """Refuse a direct restore: a session restores a start's ledgers.
-
-        Parameters
-        ----------
-        logical, atomic : collections.abc.Mapping
-            The persisted counts.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            Always (:func:`_session_only`).
-        """
-        del logical, atomic
-        raise _session_only("restores call ledgers")
-
-    def restore_march(self, snapshot: MarchSnapshot) -> str | None:
-        """Refuse a direct restore: a session restores a start's history.
-
-        Parameters
-        ----------
-        snapshot : solprop.output.schema.MarchSnapshot
-            The snapshot.
-
-        Returns
-        -------
-        str or None
-            Never returned.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            Always (:func:`_session_only`).
-        """
-        del snapshot
-        raise _session_only("restores a method history")
-
-    @property
-    def in_flight(self) -> tuple[float, float] | None:
-        """Return ``None``: the backend holds no step between sessions.
-
-        Returns
-        -------
-        None
-            A session reports its own (``NativeSession.in_flight``).
-        """
-        return None
-
-    def march_snapshot(self) -> MarchSnapshot | None:
-        """Return ``None``: the backend holds no march between sessions.
-
-        Returns
-        -------
-        None
-            A session exports its history at a ticket (``NativeSession``).
-        """
-        return None
-
-    def march_snapshot_nbytes(self, z: float) -> int | None:
-        """Return ``None``: the backend holds no march between sessions.
-
-        Parameters
-        ----------
-        z : float
-            The position, m.
-
-        Returns
-        -------
-        None
-            A session sizes its own snapshot.
-        """
-        del z
-        return None
-
     def march_export_refusal(self) -> str | None:
         """Return ``None``: every march the backend admits carries its history.
 
@@ -1888,26 +1669,6 @@ class NativeBackend:
             self._native_state.close()
             _host_blas.release()
         self._closed = True
-
-
-def _session_only(what: str) -> BackendError:
-    """Return the refusal of a stepping member a native run serves in its session.
-
-    Parameters
-    ----------
-    what : str
-        What the caller asked the backend to do, for the message.
-
-    Returns
-    -------
-    solprop.exceptions.BackendError
-        The refusal, naming the session.
-    """
-    return BackendError(
-        f"native {what} only in its session (solprop SEP 47 section 6.8): start a run "
-        "with backend.prepare(problem, request).start(start), or "
-        "solprop.backends.sessions.start_session"
-    )
 
 
 def _adopt_nothing(z: float | None) -> None:

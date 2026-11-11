@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from capability_routes import ROUTES
+from solprop.backends.protocol import stepping as host_stepping
 from solprop.backends.registry import available, select
 from solprop.backends.session import SessionError, Start
 from solprop.driver import Simulation
@@ -259,9 +260,11 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
             trial = _native_committed_nothing(problem, request, probed, fresh, dz)
         else:
             # Nothing was committed: no attempt, the launch position, the loaded state.
-            fresh.set_initial(problem.initial.field0, None, z=problem.initial.z)
-            expected = fresh.observe()
-            observed = probed.observe()
+            host_stepping(fresh).set_initial(
+                problem.initial.field0, None, z=problem.initial.z
+            )
+            expected = host_stepping(fresh).observe()
+            observed = host_stepping(probed).observe()
             assert observed.n_steps == 0
             assert observed.z == problem.initial.z
             assert observed.field is not None and expected.field is not None
