@@ -429,7 +429,9 @@ def test_collect_refuses_a_backend_statistic_and_says_where_it_lives(
     """A backend forms these from its own buffers; a saved plane does not carry them."""
     assert CATALOGUE[name].backend
     spec = StatsSpec(names=(name,))
-    with pytest.raises(OutputError, match=r"Backend\.stats"):
+    with pytest.raises(
+        OutputError, match=r"computed by the backend from its own buffers"
+    ):
         collect(spec, envelope_grid, plane_of(gaussian(envelope_grid, energy_j=ENERGY)))
 
 
