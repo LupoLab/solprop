@@ -242,7 +242,10 @@ function _launch(preparation, transfer, field)
     operator = preparation.operator
     work = operator isa SolpropJulia.ExpansionOperator ?
         zeros(size(operator.terms, 3)) : nothing
-    flow = SolpropJulia.LinearFlow(execution, operator, state; work)
+    flow = SolpropJulia.LinearFlow(
+        execution, operator, state; work,
+        tabulate = pyconvert(Bool, transfer.tabulate_flow),
+    )
     return state, norm, schedule, source, flow
 end
 

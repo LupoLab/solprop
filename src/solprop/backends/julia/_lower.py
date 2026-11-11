@@ -59,6 +59,10 @@ class RunTransfer:
     dense_weights : numpy.ndarray or None
         The shared tableau's continuous-extension weights for interpolated RK
         observations, absent for landed requests and other method families.
+    tabulate_flow : bool
+        Retain exact-interval low-storage flow tables. Like the native owner, other
+        march families recompute. Automatic low-storage selection tabulates only a
+        constant operator; an explicit low-storage request can tabulate varying data.
     """
 
     control: ErrorControlSpec
@@ -82,6 +86,7 @@ class RunTransfer:
     method: str = "Runge-Kutta"
     history_key: str | None = None
     dense_weights: Float[np.ndarray, " n_stages"] | None = None
+    tabulate_flow: bool = False
 
 
 def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
@@ -158,6 +163,14 @@ def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
         if isinstance(request.integration.method, Multistep)
         else None,
         None if dense_weights is None else owned(dense_weights),
+        low_storage
+        and (
+            request.integration.propagator_mode == "tabulate"
+            or (
+                request.integration.propagator_mode == "auto"
+                and problem.flags.constant_linop
+            )
+        ),
     )
 
 

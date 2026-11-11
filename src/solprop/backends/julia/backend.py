@@ -93,6 +93,7 @@ class JuliaBackend:
         require_main_thread()
         selected = ExecutionOptions() if options is None else options
         selected.check_backend_options(self.name, ("wide", "setup_id"))
+        selected.check_device(self.name, "cpu")
         self._options = dict(selected.backend_options)
         self._execution_options = selected
         wide = self._options.get("wide", "binary64")
@@ -109,10 +110,6 @@ class JuliaBackend:
             raise BackendError(
                 "this Julia binary64 composition requires wide='binary64'"
             )
-        if request.integration.propagator_mode == "tabulate":
-            raise BackendError(
-                "this Julia composition does not yet tabulate propagators"
-            )
         self._problem = problem
         self._request = request
         self._spatial = isinstance(problem.route, SpatialRoute)
@@ -121,7 +118,7 @@ class JuliaBackend:
         )
         self._node_plan = plan_julia_nodes(problem, request, selected)
         self._node_chunk = self._node_plan.plan.chunk
-        lower_run(problem, request)
+        self._tabulate_flow = lower_run(problem, request).tabulate_flow
         self._observation = (
             lower_observations(
                 problem,
@@ -335,7 +332,7 @@ class JuliaBackend:
             "device": "cpu",
             "precision": "double",
             "wide": self._wide,
-            "propagator_mode": "recompute",
+            "propagator_mode": "tabulate" if self._tabulate_flow else "recompute",
             "backend_options": dict(self._options),
             **_node_metadata(self._node_plan),
         }
@@ -722,6 +719,9 @@ class JuliaPrepared:
         """
         record = self._owner.metadata()
         record.update(_node_metadata(self._node_plan))
+        record["propagator_mode"] = (
+            "tabulate" if self._transfer.tabulate_flow else "recompute"
+        )
         if self._observation is not None:
             record["statistics_tables"] = self._observation.profiles.record()
         return record

@@ -42,6 +42,7 @@ if group == "Core"
     include("monitor.jl")
     include("monitor_restore.jl")
     include("source.jl")
+    include("linear_table.jl")
     include("composition.jl")
     include("spatial_operators.jl")
     include("spatial_composition.jl")

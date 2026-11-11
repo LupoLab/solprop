@@ -37,6 +37,7 @@ from solprop.backends.export import ExportRecipe
 from solprop.backends.julia import _calls, _runtime
 from solprop.backends.julia import _session as session_module
 from solprop.backends.julia._lower import RunTransfer
+from solprop.backends.julia._node_plan import plan_julia_nodes
 from solprop.backends.julia._observations import lower_observations
 from solprop.backends.julia._runtime import JuliaRuntime
 from solprop.backends.julia._services import ObservationPayload
@@ -344,8 +345,11 @@ def boundary(monkeypatch, setup_record):
     owner._options = {}
     owner._wide = "binary64"
     owner._node_chunk = 1
+    owner._tabulate_flow = False
     owner._observation = None
-    owner._problem = cpu_case().problem
+    case = cpu_case()
+    owner._problem = case.problem
+    owner._node_plan = plan_julia_nodes(case.problem, case.request)
     prepared = JuliaPrepared(owner, runtime, preparation, _transfer(), SHAPE)
     harness = SimpleNamespace(
         engine=engine,
@@ -403,7 +407,7 @@ def test_prepared_ledgers_count_each_owned_run_array_once(boundary, monkeypatch)
     assert sum(first.memory_ledger().values()) == sum(expected.values())
 
 
-def test_started_session_retains_execution_owner_without_run_transfer(boundary):
+def test_started_session_retains_its_prepared_factory_until_close(boundary):
     prepared = JuliaPrepared(
         boundary.owner, boundary.runtime, boundary.preparation, _transfer(), SHAPE
     )
@@ -415,8 +419,8 @@ def test_started_session_retains_execution_owner_without_run_transfer(boundary):
     )
     del prepared
     gc.collect()
-    assert prepared_ref() is None and array_ref() is None
-    assert tuple(boundary.owner._prepared) == (boundary.prepared,)
+    assert prepared_ref() is not None and array_ref() is not None
+    assert len(boundary.owner._prepared) == 2
     assert not boundary.owner.closed
     _launch(session)
     terminal = session.advance()
@@ -425,6 +429,9 @@ def test_started_session_retains_execution_owner_without_run_transfer(boundary):
     session.acknowledge(terminal.receipt)
     session.close()
     assert not boundary.owner._sessions
+    gc.collect()
+    assert prepared_ref() is None and array_ref() is None
+    assert tuple(boundary.owner._prepared) == (boundary.prepared,)
 
 
 def test_scripted_events_bind_receipts_and_export_generations(boundary):

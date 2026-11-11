@@ -93,6 +93,26 @@ def test_run_lowering_preserves_actual_replay_lengths_beyond_the_adaptive_ceilin
     assert not transfer.matrix.flags.writeable
 
 
+@pytest.mark.parametrize("factory", [cpu_case, adams_case, low_storage_case])
+@pytest.mark.parametrize("mode", ["auto", "recompute", "tabulate"])
+def test_run_lowering_resolves_actual_flow_table_policy(factory, mode):
+    case = factory()
+    request = replace(
+        case.request,
+        integration=replace(case.request.integration, propagator_mode=mode),
+    )
+    transfer = lower_run(case.problem, request)
+    expected = factory is low_storage_case and (
+        mode == "tabulate" or (mode == "auto" and case.problem.flags.constant_linop)
+    )
+    assert transfer.tabulate_flow is expected
+    owner = JuliaBackend(case.problem, request)
+    assert owner.metadata()["propagator_mode"] == (
+        "tabulate" if expected else "recompute"
+    )
+    owner.close()
+
+
 def test_dense_adams_separates_observation_planes_from_step_landings():
     case = adams_case(steps=None)
     request = replace(

@@ -8,6 +8,7 @@ import importlib.machinery
 import importlib.util
 import os
 import sys
+from collections.abc import Mapping
 from dataclasses import replace
 
 import numpy as np
@@ -25,6 +26,7 @@ from sessions.executors import IDENTITY, Started, drive, fibre, window
 from solprop.backends import registry
 from solprop.backends.julia import backend
 from solprop.backends.julia._node_plan import plan_julia_nodes
+from solprop.backends.julia._session import JuliaSession
 from solprop.backends.session import ExecutionOptions, Start
 from solprop.driver import SimulationSettings
 from solprop.exceptions import BackendError
@@ -32,6 +34,12 @@ from solprop.output.schema import FieldRetention
 from solprop.stats import StatsSpec
 from solprop.stepper import Multistep
 from solprop.translate.problem import Translation
+
+
+def _integer_record(record: Mapping[str, object], name: str) -> int:
+    value = record[name]
+    assert isinstance(value, int)
+    return value
 
 
 def test_public_selection_is_lazy_and_reports_the_missing_extra(monkeypatch):
@@ -86,6 +94,20 @@ def test_public_adams_settings_admit_the_optional_owner():
     assert settings.backend == "julia"
 
 
+@pytest.mark.parametrize("device", ["cuda", "rocm", "metal"])
+def test_direct_cpu_owner_refuses_other_devices_before_lowering(device, monkeypatch):
+    case = cpu_case()
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("an unsupported device reached descriptor lowering")
+
+    monkeypatch.setattr(backend, "lower_modal", forbidden)
+    with pytest.raises(BackendError, match="julia executes on device 'cpu'"):
+        backend.JuliaBackend(
+            case.problem, case.request, options=ExecutionOptions(device=device)
+        )
+
+
 def test_adapted_request_budget_refuses_before_initializing_julia(monkeypatch):
     case, grid, mode = _memory_case("envelope", "modal", "mixed")
     plain = case.request.for_run(stats=StatsSpec(names=(), periodic=()))
@@ -138,7 +160,9 @@ def test_public_cpu_selection_runs_every_integrator(factory):
         assert np.isfinite(result.fields[-1]).all()
         record = session.execution_record()
         assert record["backend"] == "julia" and record["device"] == "cpu"
-        assert record["node_chunk_array_bytes"] <= record["node_budget"]
+        payload, budget = record["node_chunk_array_bytes"], record["node_budget"]
+        assert isinstance(payload, int) and isinstance(budget, int)
+        assert payload <= budget
 
 
 @_MANAGED
@@ -163,6 +187,7 @@ def test_prepared_requests_keep_independent_budgeted_chunks():
         modes=(mode,),
         options=options,
     )
+    assert isinstance(owner, backend.JuliaBackend)
     try:
         first = owner.prepare(plain_case.problem, plain_case.request)
         retained = owner._preparation
@@ -172,10 +197,11 @@ def test_prepared_requests_keep_independent_budgeted_chunks():
         assert second.metadata()["node_chunk"] == observed_plan.plan.chunk
         for prepared in (second, first, second):
             with prepared.start(Start.entrance(case.problem), owns=False) as session:
+                assert isinstance(session, JuliaSession)
                 record = session.execution_record()
                 assert record["node_chunk"] == prepared.metadata()["node_chunk"]
                 bound = sum(
-                    record[key]
+                    _integer_record(record, key)
                     for key in (
                         "node_chunk_array_bytes",
                         "node_fixed_workspace_bytes",
@@ -198,7 +224,7 @@ def test_public_simulation_and_common_benchmark_window_complete():
         backend_options={"setup_id": os.environ["SOLPROP_TEST_JULIA_SETUP_ID"]},
     )
     output = simulation.run(progress="none")
-    assert output.n_saved > 1 and np.isfinite(output.plane_field(-1)).all()
+    assert output.n_saved > 1 and np.isfinite(output.fields()[-1]).all()
     problem, request = simulation.translate(), simulation._run_request()
     owner = registry.select(
         "julia",

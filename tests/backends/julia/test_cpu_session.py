@@ -522,13 +522,26 @@ def test_adams_budget_retains_the_accepted_field_and_exact_logical_counts(
 
 
 @pytest.mark.parametrize("work_limit", [1, 256])
-def test_low_storage_replay_matches_the_reference_and_committed_counts(work_limit):
+@pytest.mark.parametrize("propagator", ["recompute", "tabulate", "auto"])
+def test_low_storage_replay_matches_the_reference_and_committed_counts(
+    work_limit, propagator
+):
     case = low_storage_case()
+    case = Translation(
+        case.problem,
+        replace(
+            case.request,
+            integration=replace(case.request.integration, propagator_mode=propagator),
+        ),
+    )
     bound = rk_rounding_budget(case)
     _, prepared = _prepared(case)
     with prepared.start(Start.entrance(case.problem)) as session:
         actual = drive(Started(session), export=IDENTITY, work_limit=work_limit)
         record = session.execution_record()
+        assert record["propagator_mode"] == (
+            "recompute" if propagator == "recompute" else "tabulate"
+        )
         assert actual.status.outcome is Outcome.COMPLETED
         assert record["source_evaluations"] == 32
         assert record["attempted_source_evaluations"] == 32

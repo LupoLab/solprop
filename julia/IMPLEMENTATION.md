@@ -15,6 +15,16 @@ bounds checks and retains zero warmed allocation. Public single precision remain
 closed until the source, observations, Adams/history and session composition pass.
 CPU qualification exposed missing default plasma statistics (#702) and low-storage
 flow tables (#704); these are active completion work, not qualified exclusions.
+The flow-table implementation passes 265 focused Julia checks and six managed
+low-storage/reference runs with unchanged replay and scientific defaults. Its exact
+constant-span/two-endpoint keys, bounded ownership and failed-build invalidation
+await independent review. The public-selection fixture corrections (#706) pass
+154 directly affected tests, and whole-tree typing reports zero errors (three
+existing native stub warnings). An earlier local test start overlapped the device
+cherry-pick and restarted four import-failed workers; the stable rerun is the cited
+result. No numerical/runtime crash is inferred from that orchestration error.
+Independent review of `397a8407` passed 196 assertions, including all 92 committed
+march checks and 104 additional transaction, range and mask witnesses.
 
 | Phase | Status | Evidence or prerequisite |
 |---|---|---|

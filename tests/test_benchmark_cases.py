@@ -256,7 +256,7 @@ def test_every_configuration_runs_in_double_precision():
     from benchmarks.runner import plan_rows  # noqa: PLC0415
     from benchmarks.track import BACKENDS  # noqa: PLC0415
 
-    assert BACKENDS == ("numpy_ref", "native")  # mlx was retired in SEP 47
+    assert BACKENDS == ("numpy_ref", "native", "julia")
     cases = (CASES["he_rdw_averaged"], CASES["planar"])
     rows, skipped = plan_rows(
         cases,

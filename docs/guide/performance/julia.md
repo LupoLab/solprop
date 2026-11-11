@@ -102,6 +102,13 @@ of committed steps and separately report `attempted_source_evaluations` and comp
 `norm_evaluations`. If an in-place trial fails, its attempted calls remain visible and
 its field is poisoned, so no field-export ticket is issued.
 
+Low-storage propagation accepts `propagator_mode="tabulate"`. A session owns one
+factor table for a constant linear operator, or two for a represented varying one.
+Constant tables match the actual floating-point interval length exactly; varying
+tables match both endpoints. An interval change rebuilds the factors without
+interpolation or a step tolerance. `auto` tabulates constant low-storage flows;
+other method families continue to recompute, as reported in execution metadata.
+
 Public CPU selection uses the same preparation and session contract as the other
 backends. Unsupported combinations refuse by name before session allocation.
 The current session supports in-stage and split temporal absorption. Transverse monitor
