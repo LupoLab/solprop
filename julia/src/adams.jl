@@ -342,15 +342,17 @@ end
 Allocate bounded buffers for exponential Adams prediction, correction and norms.
 
 State-shaped matrices retain exponent, flow, predictor, newly sampled source, candidate
-and endpoint rate/compensation. Exponents, moments and sampled rates use binary64;
-state products and accumulations use binary32 or binary64 state precision. Moments
+and endpoint rate/compensation. This constructor uses binary64 exponents, moments
+and sampled rates; the internal certified DF32 factory replaces only exponent and
+moment arithmetic, retaining binary64 sampled rates. State products and accumulations
+use binary32 or binary64 state precision. Moments
 have `max_order+1` planes and defects have three. Binary64 compensated work carries
 `max_order` source increments; binary32 recomputes complete compensation factors,
 so its unused carried array has zero planes. Coefficients are generated in Julia.
 This workspace does not contain a controller, accepted-state owner or Python callback.
 """
-mutable struct AdamsWork{A, B, W, V, R, N}
-    exponent::W
+mutable struct AdamsWork{A, B, X, W, V, R, N, C}
+    exponent::X
     flow::A
     predictor::A
     source::A
@@ -371,6 +373,7 @@ mutable struct AdamsWork{A, B, W, V, R, N}
     n_orders::Int
     source_absent::Bool
     ready::Bool
+    factor_context::C
 end
 
 function AdamsWork(
@@ -393,7 +396,7 @@ function AdamsWork(
         dzeros(execution, Complex{T}, rows, columns, 3),
         dzeros(execution, T, T === Float32 ? 4 : 2, columns), norm_scale,
         AdamsCoefficients(maximum_order),
-        maximum_order, compensated, 0.0, 0.0, 0, 0, false, false,
+        maximum_order, compensated, 0.0, 0.0, 0, 0, false, false, nothing,
     )
 end
 
@@ -911,6 +914,17 @@ function adams_trial!(
         history::AdamsHistory, stencil::AdamsStencil, source!, exponent!, rate!,
         execution::KernelExecution; source_absent::Bool = false,
     )
+    return _adams_trial_graph!(
+        work.factor_context, work, state, position, step, history, stencil,
+        source!, exponent!, rate!, execution; source_absent,
+    )
+end
+
+function _adams_trial_graph!(
+        ::Nothing, work::AdamsWork, state, position::Real, step::Real,
+        history::AdamsHistory, stencil::AdamsStencil, source!, exponent!, rate!,
+        execution::KernelExecution; source_absent::Bool = false,
+    )
     work.ready = false
     _adams_trial_shapes(work, state, history, stencil)
     if eltype(state) === ComplexF32
@@ -1023,6 +1037,8 @@ function adams_retain_dense!(
         dense::AdamsDense, work::AdamsWork, old_state, accepted_state,
         history::AdamsHistory, stencil::AdamsStencil, execution::KernelExecution,
     )
+    work.factor_context === nothing ||
+        throw(ArgumentError("DF32 Adams dense output is not qualified"))
     work.ready || throw(ArgumentError("no completed Adams trial is available"))
     dense.max_order == work.max_order == history.max_order == stencil.max_order &&
         dense.compensated == work.compensated == history.compensated ||
@@ -1244,6 +1260,7 @@ function adams_accept!(
     _adams_slot(history, slot, work.source)
     work.max_order == history.max_order && work.compensated == history.compensated ||
         throw(ArgumentError("Adams acceptance storage does not match its trial"))
+    _adams_precommit!(work.factor_context, history, slot, work, identity)
     store, states, rates = history.source, history.states, history.rates
     source, predictor, endpoint_rate = work.source, work.predictor, work.endpoint_rate
     compensated = history.compensated
@@ -1257,8 +1274,12 @@ function adams_accept!(
     history.positions[slot] = work.position + work.step
     history.identities[slot] = identity
     history.occupied[slot] = true
+    _adams_committed!(work.factor_context, history, slot, work)
     return nothing
 end
+
+_adams_precommit!(::Nothing, history, slot, work, identity) = nothing
+_adams_committed!(::Nothing, history, slot, work) = nothing
 
 """
     adams_error_norms!(output, work, state, mask, weights, rtol, atol, execution)

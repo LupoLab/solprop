@@ -209,7 +209,7 @@ function AdamsSession(
     oncpu(execution) || throw(ArgumentError("Adams sessions currently require CPU"))
     policy.interpolate && !isempty(schedule.replay_steps) &&
         throw(ArgumentError("interpolated planes require adaptive Adams; replay lands"))
-    flow isa LinearFlow || throw(ArgumentError("Adams sessions require LinearFlow"))
+    _adams_flow_start(flow, policy, z, schedule, source_absent)
     capacity > 0 || throw(ArgumentError("attempt capacity must be positive"))
     policy.z_end == last(schedule.planes) ||
         throw(ArgumentError("Adams policy and schedule ends disagree"))
@@ -218,7 +218,7 @@ function AdamsSession(
     matching_planes && policy.hard_kinks == schedule.hard_kinks &&
         policy.breakpoints == schedule.breakpoints && policy.stretch == schedule.stretch ||
         throw(ArgumentError("Adams policy and schedule topology disagree"))
-    size(flow.exponent) == size(state) ||
+    _flow_shape(flow) == size(state) ||
         throw(DimensionMismatch("Adams linear flow and state shapes disagree"))
     compensated = _adams_varying_operator(flow.operator) && !source_absent
     policy.interpolate && _march_dense_services(services)
@@ -235,8 +235,9 @@ function AdamsSession(
         ) : nothing
     return AdamsSession(
         execution, owned, policy,
-        AdamsHistory(execution, owned, policy.order; compensated),
-        AdamsWork(execution, owned, policy.order; compensated), AdamsStencil(policy.order),
+        _adams_session_history(execution, owned, policy.order, flow; compensated),
+        _adams_session_work(execution, owned, policy.order, flow; compensated),
+        AdamsStencil(policy.order),
         norm, schedule, source, flow, stop, AttemptBuffer(capacity), progress, services,
         exports, _AdamsSessionControl(0, order, 0, false, false), ledger,
         zeros(policy.order + 1), zeros(Int, policy.order + 1),
@@ -245,6 +246,19 @@ function AdamsSession(
         _AdamsSessionRate(flow), source_absent, observation, arithmetic,
     )
 end
+
+function _adams_flow_start(flow, policy, z, schedule, source_absent)
+    flow isa LinearFlow || throw(ArgumentError("Adams sessions require LinearFlow"))
+    return nothing
+end
+
+_adams_session_work(execution, state, order, flow; compensated) =
+    AdamsWork(execution, state, order; compensated)
+
+_adams_session_history(execution, state, order, flow; compensated) =
+    AdamsHistory(execution, state, order; compensated)
+
+_adams_reset_flow!(flow) = nothing
 
 function _march_pending_dense(session::AdamsSession)
     return session.observation !== nothing &&
@@ -290,6 +304,7 @@ function _adams_session_reset!(session)
     fill!(session.positions, 0)
     fill!(session.slots, 0)
     fill!(session.history.occupied, false)
+    _adams_reset_flow!(session.flow)
     return nothing
 end
 
@@ -331,7 +346,11 @@ function _adams_session_start!(session)
     return nothing
 end
 
-function _adams_session_landing(session)
+function _adams_session_landing(
+        session; commit_quiet::Bool = true,
+        stored_order::Int = session.control.order,
+        supplied_quiet::Union{Nothing, Bool} = nothing
+    )
     state, policy, schedule = session.state, session.policy, session.schedule
     if !isempty(schedule.replay_steps)
         state.replay <= length(schedule.replay_steps) ||
@@ -344,14 +363,15 @@ function _adams_session_landing(session)
         kink = adams_replay_kink(policy, destination, _replay_slack(schedule, destination))
         return AdamsApproach(dz, destination, kink)
     end
-    quiet = _session_quiet(session.services, session)
+    quiet = supplied_quiet === nothing ?
+        _session_quiet(session.services, session) : supplied_quiet
     proposal = adams_quiet_cap(policy, state.proposal; quiet)
     proposal = _session_cap(session.services, session, proposal)
     proposal = adams_collar_reentry(
-        policy, proposal, session.control.order;
+        policy, proposal, stored_order;
         was_quiet = session.control.collar_was_quiet, quiet,
     )
-    session.control.collar_was_quiet = quiet
+    commit_quiet && (session.control.collar_was_quiet = quiet)
     target = schedule.planes[state.plane]
     stop = adams_landing(policy, state.z, proposal, target)
     return adams_approach(policy, state.z, stop, target)
@@ -430,6 +450,7 @@ function _adams_session_commit!(
     keep = min(control.held, policy.order)
     offset = control.held - keep
     free = _adams_session_free(session, keep, offset)
+    _adams_precommit!(session.work.factor_context, history, free, session.work, 1)
     session.state.in_flight = true
     adams_accept!(
         history, free, session.work, session.execution;
@@ -462,24 +483,30 @@ function _adams_session_commit!(
     return nothing
 end
 
-function _march_trial!(session::AdamsSession, began)
-    # Budget and startup failures precede a planned trial, even after a restart.
-    # Do not describe them using an earlier attempt's origin and step length.
-    session.state.flight_z, session.state.flight_dz = session.state.z, 0.0
-    _adams_session_afford(session)
+function _adams_plan_trial!(session, flow)
     session.control.held == 0 && _adams_session_start!(session)
     landing = _adams_session_landing(session)
-    state, norm, stencil = session.state, session.norm, session.stencil
+    state, stencil = session.state, session.stencil
     state.flight_z, state.flight_dz = state.z, landing.dz
     adams_select_stencil!(
         stencil, session.policy, session.positions, session.slots,
         session.control.held, session.control.order;
         z = state.z, dz = landing.dz, last_rejected = session.control.last_rejected,
     )
+    return landing, session.exponent
+end
+
+function _march_trial!(session::AdamsSession, began)
+    # Budget and startup failures precede a planned trial, even after a restart.
+    # Do not describe them using an earlier attempt's origin and step length.
+    session.state.flight_z, session.state.flight_dz = session.state.z, 0.0
+    _adams_session_afford(session)
+    landing, exponent = _adams_plan_trial!(session, session.flow)
+    state, norm, stencil = session.state, session.norm, session.stencil
     session.ledger.predictor = Base.Checked.checked_add(session.ledger.predictor, 1)
     adams_trial!(
         session.work, session.field, state.z, landing.dz, session.history, stencil,
-        session.sampler, session.exponent, session.rate, session.execution;
+        session.sampler, exponent, session.rate, session.execution;
         source_absent = session.source_absent,
     )
     adams_error_norms!(
