@@ -4,6 +4,11 @@
 module SolpropJuliaCUDAExt
 
 import CUDA
+import KernelAbstractions
+import LinearAlgebra
 import SolpropJulia
+
+include("cuda_execution.jl")
+include("cuda_transforms.jl")
 
 end
