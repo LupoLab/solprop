@@ -15,7 +15,6 @@
 #include "solprop_native/far_field.hpp"
 
 #include <Kokkos_Core.hpp>
-
 #include <gtest/gtest.h>
 
 #include <array>

@@ -8,9 +8,9 @@
 #include <cstddef>
 
 #if defined(SOLPROP_NATIVE_VECTOR_MATH_SLEEF)
-#include <cstring>
-
 #include <sleef.h>
+
+#include <cstring>
 #endif
 
 /*

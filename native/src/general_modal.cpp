@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "solprop_native/general_modal.hpp"
+
 #include "solprop_native/fft_plan.hpp"
 #include "solprop_native/launch.hpp"
 

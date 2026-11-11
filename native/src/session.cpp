@@ -4,6 +4,8 @@
 
 #include "solprop_native/session.hpp"
 
+#include "solprop_native/core.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <exception>
@@ -12,8 +14,6 @@
 #include <string>
 #include <type_traits>
 #include <utility>
-
-#include "solprop_native/core.hpp"
 
 // As in adams_march.cpp (solprop #135): the scheduler's comparisons and the export's
 // recipe round as solprop's Python does, so this file takes no contraction (CMake) and

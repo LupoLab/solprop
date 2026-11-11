@@ -4,14 +4,14 @@
 
 #include "solprop_native/rk_march.hpp"
 
+#include "solprop_native/core.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <exception>
 #include <limits>
 #include <stdexcept>
-
-#include "solprop_native/core.hpp"
 
 // As in adams_march.cpp (solprop #135): the optimize attribute this pragma gives every
 // function below keeps GCC from inlining it into a contracting caller under link-time

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "solprop_native/dispersive.hpp"
+
 #include "solprop_native/gemm.hpp"
 #include "solprop_native/launch.hpp"
 #include "solprop_native/slab.hpp"

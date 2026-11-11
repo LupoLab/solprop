@@ -4,19 +4,21 @@
 
 #pragma once
 
-#include <KokkosFFT.hpp>
-#include <memory>
-
 #include "solprop_native/core.hpp"
 
+#include <KokkosFFT.hpp>
+
+#include <memory>
+
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+#include <fftw3.h>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <fftw3.h>
 #include <limits>
 #include <optional>
 #include <stdexcept>

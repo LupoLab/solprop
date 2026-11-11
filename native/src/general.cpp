@@ -15,11 +15,11 @@
 #include "solprop_native/gemm.hpp"
 #include "solprop_native/general_modal.hpp"
 #include "solprop_native/plasma.hpp"
-
 #include "solprop_native/raman_fft.hpp"
 #include "solprop_native/slab.hpp"
 #include "solprop_native/vmath.hpp"
 #include "solprop_native/z_table.hpp"
+
 #include <KokkosFFT.hpp>
 #include <Kokkos_Profiling_ScopedRegion.hpp>
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)

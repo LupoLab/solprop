@@ -2,15 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "bounds.hpp"
+#include "execution.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/gemm.hpp"
 #include "solprop_native/plasma.hpp"
 
-#include "bounds.hpp"
-#include "execution.hpp"
-
 #include <Kokkos_Core.hpp>
-
 #include <gtest/gtest.h>
 
 #include <algorithm>

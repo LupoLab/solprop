@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "solprop_native/far_field.hpp"
+
 #include "solprop_native/launch.hpp"
 
 #include <Kokkos_Core.hpp>

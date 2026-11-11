@@ -3,13 +3,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "solprop_native/dense_output.hpp"
+#include "solprop_native/engines.hpp"
+#include "solprop_native/lagrange_basis.hpp"
 
 #include <cstddef>
 #include <stdexcept>
 #include <vector>
-
-#include "solprop_native/engines.hpp"
-#include "solprop_native/lagrange_basis.hpp"
 
 // As in session.cpp (solprop #135): the weights an observation reads round as
 // solprop's Python forms them, so this file takes no contraction (CMake) and the

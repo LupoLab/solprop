@@ -4,10 +4,10 @@
 
 #pragma once
 
+#include "solprop_native/launch.hpp"
+
 #include <Kokkos_Complex.hpp>
 #include <Kokkos_Core.hpp>
-
-#include "solprop_native/launch.hpp"
 
 #include <algorithm>
 #include <array>

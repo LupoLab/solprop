@@ -4,6 +4,8 @@
 
 #include "solprop_native/adams_march.hpp"
 
+#include "solprop_native/core.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -11,8 +13,6 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
-
-#include "solprop_native/core.hpp"
 
 // GCC does not take a file's `-ffp-contract=off` as an inlining barrier: under
 // link-time optimisation, with the library's symbols hidden, it would inline a function

@@ -11,6 +11,8 @@
 
 #include "solprop_native/session.hpp"
 
+#include <gtest/gtest.h>
+
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -22,8 +24,6 @@
 #include <thread>
 #include <utility>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 namespace {
 namespace session = solprop_native::session;

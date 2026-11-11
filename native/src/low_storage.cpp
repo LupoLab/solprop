@@ -4,14 +4,14 @@
 
 #include "solprop_native/low_storage.hpp"
 
+#include "solprop_native/adams_march.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
 #include <stdexcept>
 #include <vector>
-
-#include "solprop_native/adams_march.hpp"
 
 // As in adams_march.cpp (solprop #135): the step's positions and the table keys round
 // as solprop's Python does, so this file takes no contraction (CMake) and the optimize

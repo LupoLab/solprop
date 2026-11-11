@@ -4,8 +4,6 @@
 
 #include "solprop_native/raman_fft.hpp"
 
-#include <Accelerate/Accelerate.h>
-
 #include <algorithm>
 #include <bit>
 #include <cstddef>
@@ -14,6 +12,8 @@
 #include <memory>
 #include <stdexcept>
 #include <vector>
+
+#include <Accelerate/Accelerate.h>
 
 namespace solprop_native {
 

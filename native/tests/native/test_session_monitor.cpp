@@ -13,13 +13,13 @@
 
 #include "solprop_native/session.hpp"
 
+#include <gtest/gtest.h>
+
 #include <cstdint>
 #include <cstring>
 #include <memory>
 #include <utility>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 namespace {
 namespace session = solprop_native::session;

@@ -2,11 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "solprop_native/statistics_plan.hpp"
-
 #include "solprop_native/chebyshev.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/far_field.hpp"
+#include "solprop_native/statistics_plan.hpp"
 
 #include <algorithm>
 #include <array>

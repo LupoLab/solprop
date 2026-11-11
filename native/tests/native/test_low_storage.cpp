@@ -10,6 +10,9 @@
 // flight, by a failure or a divergence.
 
 #include "solprop_native/low_storage.hpp"
+#include "solprop_native/session.hpp"
+
+#include <gtest/gtest.h>
 
 #include <cmath>
 #include <cstring>
@@ -18,10 +21,6 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
-
-#include <gtest/gtest.h>
-
-#include "solprop_native/session.hpp"
 
 namespace {
 namespace low_storage = solprop_native::rk::low_storage;
