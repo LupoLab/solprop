@@ -37,8 +37,34 @@ The bounded common scheduler preserves launch, plane, snapshot, warning, stop an
 acknowledgment ownership. The precision keyword does not enable observations whose
 prepared storage still uses another precision. In particular, binary32 probes
 refuse a binary64 temporal or Cartesian split workspace during preparation. A
-matching split/service preparation is separate integration work. All binary32
+matching service preparation is separate integration work. All binary32
 input noise remains refused; the binary64 noise path is unchanged.
+
+## Accepted temporal splitting
+
+`TemporalSplitWorkspace` retains the same arithmetic record as the state. Its
+coarse-time samples, spectral scratch and FFT plans use state precision. Binary32
+adds one real damping vector of length `n_t`; the original binary64 rate remains
+owned and wide. Each factor evaluates `exp((-0.5*rate)*dz)` in binary64 before one
+rounding to binary32. Narrowing the rate or step first is invalid even when their
+product is moderate. A large negative exponent may saturate to zero, and a tiny
+positive factor may enter gradual underflow; neither changes the admitted state
+scales. The binary64 path retains its previous scalar expression and operation order.
+
+Cartesian/line splitting first performs the transverse inverse, then the real or
+complex temporal pair, then the transverse forward. A transverse spectral column
+alone need not have real temporal endpoints. All-zero rates preserve the candidate
+exactly. Invalid shape, precision, step, field endpoints or retained-buffer overlap
+refuses before candidate mutation; the overlap guard includes independently wrapped
+foreign storage. A nonfinite transformed result also leaves the candidate intact.
+Every buffer is retained by the existing owner traversal; warmed calls allocate zero.
+
+Focused bounds-checked tests compare both precisions with MPFR direct transforms,
+cover odd/even temporal lengths, line/Cartesian ordering, wide rate/step pairs,
+subnormal damping, exact zero behavior, ownership and allocation. Their absolute
+rounding budgets use the input contribution envelope before Fourier cancellation
+and state the conditional FFT/libm error hypothesis. Shared observation preparation
+and public binary32 admission remain separate integration steps.
 
 ## RK continuous extension
 

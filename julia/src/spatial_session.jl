@@ -14,9 +14,10 @@ function _temporal_split_workspace(execution, data::SpatialObservationPreparatio
 end
 
 function finish_temporal_split!(candidate, work::_CartesianTemporalSplit, dz, execution)
-    candidate isa StridedMatrix{ComplexF64} &&
+    candidate isa StridedMatrix{eltype(work.band.band)} &&
         size(candidate) == size(work.band.band) ||
         throw(DimensionMismatch("Cartesian split candidate has an incompatible layout"))
+    dz = Float64(dz)::Float64
     isfinite(dz) && dz > 0 && all(isfinite, candidate) ||
         throw(ArgumentError("Cartesian splitting needs a finite field and positive step"))
     _transfer_writable_destination(candidate)

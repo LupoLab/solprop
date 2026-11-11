@@ -8,7 +8,8 @@ public TemporalSplitWorkspace, finish_temporal_split!
 public observation_status, observation_rows, observation_planes, observation_notices
 
 """
-    TemporalSplitWorkspace(execution, kind, rate, n_modes)
+    TemporalSplitWorkspace(execution, kind, rate, n_modes;
+                           arithmetic=SourceArithmetic(Float64))
 
 Prepare independent coarse-time buffers for one accepted scalar temporal split.
 
@@ -16,32 +17,60 @@ Prepare independent coarse-time buffers for one accepted scalar temporal split.
 in m⁻¹ and is a power-loss coefficient. Copy it into owned storage. `n_modes` is
 positive. Real field samples have spectrum `(n_t÷2+1,n_modes)`; complex envelope
 samples have spectrum `(n_t,n_modes)`. Plans use the shared normalized inverse and
-raw forward transforms. Refuse non-CPU execution, invalid layouts or nonfinite rates.
+raw forward transforms in `source_type(arithmetic)`. Binary32 retains one real
+damping vector: evaluate its factors in binary64 and narrow each factor once, without
+narrowing the rate or step first. Binary64 keeps its original scalar expression and
+allocates no damping vector. Samples remain in the state's stored units; this linear
+operator does not change either physical scale. Refuse non-CPU execution, invalid
+layouts or nonfinite rates.
 """
-struct TemporalSplitWorkspace{T, F}
+struct TemporalSplitWorkspace{T, S, F, D, A}
     rate::Vector{Float64}
-    samples::T
-    spectrum::Matrix{ComplexF64}
+    samples::S
+    spectrum::Matrix{Complex{T}}
     transform::F
+    damping::D
     kind::Symbol
     inactive::Bool
+    arithmetic::A
 end
 
 function TemporalSplitWorkspace(
         execution::KernelExecution, kind::Symbol, rate::AbstractVector{Float64},
-        n_modes::Int,
+        n_modes::Int; arithmetic::SourceArithmetic = SourceArithmetic(Float64),
     )
     oncpu(execution) && kind in (:field, :envelope) && !isempty(rate) && n_modes > 0 ||
         throw(ArgumentError("temporal splitting requires a scalar CPU temporal layout"))
     all(value -> isfinite(value) && value >= 0, rate) ||
         throw(ArgumentError("temporal split power-loss rates must be finite nonnegative"))
+    Base.require_one_based_indexing(rate)
+    T = source_type(arithmetic)::Union{Type{Float32}, Type{Float64}}
     n_time = length(rate)
-    samples = zeros(kind == :field ? Float64 : ComplexF64, n_time, n_modes)
-    spectrum = zeros(ComplexF64, kind == :field ? n_time ÷ 2 + 1 : n_time, n_modes)
+    samples = zeros(kind == :field ? T : Complex{T}, n_time, n_modes)
+    spectrum = zeros(Complex{T}, kind == :field ? n_time ÷ 2 + 1 : n_time, n_modes)
     return TemporalSplitWorkspace(
         upload(execution, rate), samples, spectrum,
-        TemporalFFT(execution, samples, spectrum), kind, all(iszero, rate),
+        TemporalFFT(execution, samples, spectrum),
+        T === Float32 ? zeros(Float32, n_time) : nothing,
+        kind, all(iszero, rate), arithmetic,
     )
+end
+
+function _temporal_damping!(samples, rate, ::Nothing, dz, execution)
+    each!(execution, size(samples)...) do row, column
+        samples[row, column] *= exp((-0.5 * rate[row]) * dz)
+    end
+    return nothing
+end
+
+function _temporal_damping!(samples, rate, damping::Vector{Float32}, dz, execution)
+    each!(execution, length(damping), 1) do row, column
+        damping[row] = Float32(exp((-0.5 * rate[row]) * dz))
+    end
+    each!(execution, size(samples)...) do row, column
+        samples[row, column] *= damping[row]
+    end
+    return nothing
 end
 
 """
@@ -49,7 +78,8 @@ end
 
 Apply `F(F⁻¹(candidate) exp(-rate*dz/2))` to an accepted spectral candidate.
 
-The binary64 complex matrix matches `work.spectrum`; `dz` is finite positive metres.
+The complex matrix matches `work.spectrum` in shape and precision; `dz` is finite
+positive binary64 metres.
 The rate is a power coefficient, so its field exponent contains one half. This is the
 same split operator as the NumPy reference's `apply_temporal_rate`: the initial and
 final active-band masks belong to the caller. Field DC and, for even `n_t`, Nyquist
@@ -62,15 +92,15 @@ shape/step or nonreal field endpoints before writing. A nonfinite transformed re
 raises `DomainError` before the candidate is replaced.
 """
 function finish_temporal_split!(candidate, work::TemporalSplitWorkspace, dz, execution)
-    candidate isa AbstractMatrix{ComplexF64} && size(candidate) == size(work.spectrum) ||
+    candidate isa AbstractMatrix{eltype(work.spectrum)} &&
+        size(candidate) == size(work.spectrum) ||
         throw(DimensionMismatch("temporal split candidate does not match its layout"))
+    dz = Float64(dz)::Float64
     isfinite(dz) && dz > 0 && all(isfinite, candidate) ||
         throw(ArgumentError("temporal split needs a finite field and positive step"))
-    (
-        Base.mightalias(candidate, work.rate) ||
-            Base.mightalias(candidate, work.samples) ||
-            Base.mightalias(candidate, work.spectrum)
-    ) &&
+    Base.require_one_based_indexing(candidate)
+    _transfer_writable_destination(candidate)
+    _retained_alias(candidate, work) &&
         throw(ArgumentError("temporal split candidate aliases its retained storage"))
     if work.kind == :field
         for column in axes(candidate, 2)
@@ -82,11 +112,8 @@ function finish_temporal_split!(candidate, work::TemporalSplitWorkspace, dz, exe
     work.inactive && return nothing
     copyto!(work.spectrum, candidate)
     temporal_inverse!(work.samples, work.transform, work.spectrum, execution)
-    rate, samples = work.rate, work.samples
-    each!(execution, size(samples)...) do row, column
-        samples[row, column] *= exp((-0.5 * rate[row]) * dz)
-    end
-    temporal_forward!(work.spectrum, work.transform, samples)
+    _temporal_damping!(work.samples, work.rate, work.damping, dz, execution)
+    temporal_forward!(work.spectrum, work.transform, work.samples)
     all(isfinite, work.spectrum) ||
         throw(DomainError(dz, "temporal split produced a nonfinite spectrum"))
     copyto!(candidate, work.spectrum)
