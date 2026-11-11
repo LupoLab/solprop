@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 public ObservationProfiles, ObservationPopulations, PopulationMeasure
+public ObservationAxisPopulations
 public TemporalObservationData, ObservationPreparation, ObservationWorkspace
 public observe!, observation_launch!, capture_split!, observation_accepted!
 public observation_check!, observation_plane!, observation_finish!
@@ -158,6 +159,102 @@ function ObservationPopulations(
     )
 end
 
+# Exact products of represented binary64 data are compared at preparation only.
+# A rounded cross-product equality can admit a genuinely elliptical envelope.
+function _observation_scalar_axis(matrix::Matrix{Float64})
+    size(matrix, 1) == 1 && return matrix
+    first_maximum = maximum(abs, view(matrix, 1, :))
+    second_maximum = maximum(abs, view(matrix, 2, :))
+    base = first_maximum >= second_maximum ? 1 : 2
+    other = 3 - base
+    pivot = 1
+    for column in axes(matrix, 2)
+        abs(matrix[base, column]) > abs(matrix[base, pivot]) && (pivot = column)
+    end
+    iszero(matrix[base, pivot]) && return zeros(1, size(matrix, 2))
+    first = Rational{BigInt}(matrix[base, pivot])
+    second = Rational{BigInt}(matrix[other, pivot])
+    for column in axes(matrix, 2)
+        Rational{BigInt}(matrix[base, column]) * second ==
+            Rational{BigInt}(matrix[other, column]) * first ||
+            throw(ArgumentError("envelope on-axis plasma requires proportional real rows"))
+    end
+    ratio = matrix[other, pivot] / matrix[base, pivot]
+    factor = hypot(1.0, ratio)
+    owned = Matrix{Float64}(undef, 1, size(matrix, 2))
+    for column in axes(matrix, 2)
+        owned[1, column] = factor * matrix[base, column]
+    end
+    all(isfinite, owned) || throw(ArgumentError("scalar on-axis map is out of range"))
+    return owned
+end
+
+"""
+    ObservationAxisPopulations(plasma, grid, synthesis; species_densities,
+                               channel_species, taper=SourceProfile(1.0))
+
+Own a fresh resolved-modal axis-population reconstruction in the scalar admitted scope.
+
+`plasma` and `grid` are matching `ModalPlasma` and fine `ModalSourceGrid` records.
+`synthesis` is a finite real binary64 `(n_components,n_modes)` map with one or two
+Cartesian rows and the existing fine-grid padding scale already folded in. Its own
+positive `SourceProfile` taper is applied at the observed z. Species profiles and
+unique one-based channel mapping retain the complete mixture order, including passive
+species. A nonempty plasma channel tuple is required. No mutable current or material
+source workspace is retained. Current-only coefficients in the immutable channel
+record do not enter admission or evaluation of populations.
+
+For a field grid, both real rows are reconstructed and their Euclidean magnitude
+feeds the scalar rate. For an envelope grid, two rows must be exactly proportional
+as represented dyadic numbers; zero rows are allowed. Compare cross-products exactly
+at preparation, then collapse the larger row by `hypot(1,other[pivot]/base[pivot])`.
+This preserves a complex scalar times a fixed real polarization direction, with the
+ordinary binary64 preparation rounding. Nonproportional rows can represent elliptical
+envelopes and raise by name before workspace allocation; no envelope magnitude
+shortcut is substituted for the vector cycle model. Malformed data also raise.
+"""
+struct ObservationAxisPopulations{P, G, A, D, I, T}
+    plasma::P
+    grid::G
+    synthesis::A
+    species_densities::D
+    channel_species::I
+    taper::T
+end
+
+function ObservationAxisPopulations(
+        plasma::ModalPlasma, grid::ModalSourceGrid,
+        synthesis; species_densities::Tuple, channel_species::Tuple,
+        taper::SourceProfile = SourceProfile(1.0)
+    )
+    synthesis isa AbstractMatrix{Float64} && 1 <= size(synthesis, 1) <= 2 &&
+        size(synthesis, 2) > 0 && all(isfinite, synthesis) ||
+        throw(ArgumentError("fine on-axis synthesis needs one or two finite binary64 rows"))
+    !isempty(species_densities) &&
+        all(profile -> profile isa SourceProfile, species_densities) ||
+        throw(ArgumentError("on-axis populations need complete species profiles"))
+    !isempty(plasma.channels) && length(channel_species) == length(plasma.channels) &&
+        all(
+        index -> index isa Int && 1 <= index <= length(species_densities),
+        channel_species
+    ) && length(unique(channel_species)) == length(channel_species) ||
+        throw(ArgumentError("on-axis population species mapping is invalid"))
+    field = grid.kind == :field
+    (field ? plasma.rule isa RunningIntegralRule : plasma.rule === nothing) &&
+        all(channel -> (channel.quadrature === nothing) == field, plasma.channels) ||
+        throw(ArgumentError("on-axis population channels disagree with their grid kind"))
+    if field
+        plasma.rule.dt == grid.dt && length(plasma.rule.taps) <= grid.n_time ||
+            throw(DimensionMismatch("on-axis population integral disagrees with its grid"))
+    end
+    owned = Matrix{Float64}(synthesis)
+    grid.kind == :envelope && (owned = _observation_scalar_axis(owned))
+    return ObservationAxisPopulations(
+        plasma, grid, owned, species_densities,
+        channel_species, taper
+    )
+end
+
 """
     TemporalObservationData(policy, weights)
 
@@ -198,7 +295,7 @@ end
     ObservationPreparation(execution, grid, selection; kind, n_modes, power_weight,
         profiles=ObservationProfiles(), axis_synthesis=nothing,
         taper=SourceProfile(1.0), intensity_factor=nothing,
-        populations=nothing, temporal=nothing)
+        populations=nothing, temporal=nothing, axis_populations=nothing)
 
 Own numerical preparation for scalar modal statistics and temporal monitoring.
 
@@ -209,13 +306,15 @@ Own numerical preparation for scalar modal statistics and temporal monitoring.
 factor. It is rescaled by its own positive `taper` profile at each observation. Axis
 intensity requires the explicitly translated positive `intensity_factor` in SI units.
 Optional population/monitor records are `ObservationPopulations` and
-`TemporalObservationData`. No Python object, session cursor or mutable source is owned.
+`TemporalObservationData`. `ObservationAxisPopulations` supplies the separate fine
+axis map and scan for the four plane-only on-axis plasma statistics. No Python object,
+session cursor or mutable source is owned.
 
 This initial composition requires CPU binary64 and refuses spatial statistics or
 vector propagation. The lowerer retains the catalogue's route eligibility rules.
 Missing required families and invalid numerical layouts raise before workspace creation.
 """
-struct ObservationPreparation{G, S, W, P, A, T, L, M} <: _ObservationPreparation
+struct ObservationPreparation{G, S, W, P, A, T, L, M, X} <: _ObservationPreparation
     kind::Symbol
     n_modes::Int
     grid::G
@@ -227,6 +326,7 @@ struct ObservationPreparation{G, S, W, P, A, T, L, M} <: _ObservationPreparation
     intensity_factor::Float64
     populations::L
     temporal::M
+    axis_populations::X
     needs::StatisticsNeeds
     periodic_needs::StatisticsNeeds
 end
@@ -251,7 +351,7 @@ function ObservationPreparation(
         kind::Symbol, n_modes::Int, power_weight::ObservationWeight,
         profiles::ObservationProfiles = ObservationProfiles(), axis_synthesis = nothing,
         taper::SourceProfile = SourceProfile(1.0), intensity_factor = nothing,
-        populations = nothing, temporal = nothing,
+        populations = nothing, temporal = nothing, axis_populations = nothing,
     )
     oncpu(execution) || throw(ArgumentError("modal observations currently require CPU"))
     n_time, n_frequency = length(grid.time), length(grid.omega)
@@ -279,11 +379,29 @@ function ObservationPreparation(
             throw(DimensionMismatch("population preparation disagrees with modal state"))
     end
     _observation_population_requirements(selection, populations, kind)
+    needs.axis_populations && !(axis_populations isa ObservationAxisPopulations) &&
+        throw(ArgumentError("on-axis statistics need independent fine population data"))
+    if axis_populations !== nothing
+        axis_populations isa ObservationAxisPopulations &&
+            axis_populations.grid.kind == kind &&
+            length(axis_populations.grid.omega) == n_frequency &&
+            size(axis_populations.synthesis, 2) == n_modes ||
+            throw(DimensionMismatch("on-axis population preparation disagrees with state"))
+    end
+    any(slot -> slot.code == 34, selection.slots) &&
+        length(grid.spectral_density) != n_frequency &&
+        throw(ArgumentError("spectral_flux needs the coarse spectral-density weights"))
     for slot in selection.slots
         expected = if slot.code in (1, 2, 4)
             n_modes
         elseif slot.code in (3, 5)
             n_modes * size(grid.windows, 2)
+        elseif slot.code == 34
+            n_frequency
+        elseif slot.code in (32, 33)
+            axis_populations === nothing &&
+                throw(ArgumentError("on-axis population preparation is missing"))
+            length(axis_populations.species_densities)
         elseif slot.code in (14, 15, 27, 28, 29)
             if populations === nothing
                 message = "selected population statistics need prepared populations"
@@ -347,7 +465,7 @@ function ObservationPreparation(
         kind, n_modes, owned_grid, selection, power_weight, profiles,
         axis_synthesis === nothing ? nothing : upload(execution, axis_synthesis), taper,
         intensity_factor === nothing ? 1.0 : intensity_factor, populations, temporal,
-        needs, statistics_needs(selection; periodic = true),
+        axis_populations, needs, statistics_needs(selection; periodic = true),
     )
 end
 
@@ -425,6 +543,38 @@ function _observation_population_work(
     )
 end
 
+struct _ObservationAxisPopulationWork{A, T, F, P, W}
+    spectrum::A
+    modal::T
+    transform::F
+    padding::P
+    components::T
+    nodes::T
+    workspace::W
+    densities::Vector{Float64}
+    fractions::Matrix{Float64}
+    peaks::Matrix{Float64}
+    diagnostics::Nothing
+end
+
+function _observation_axis_population_work(execution, data::ObservationAxisPopulations)
+    grid, modes = data.grid, size(data.synthesis, 2)
+    field = grid.kind == :field
+    scalar = field ? Float64 : ComplexF64
+    frequencies = field ? grid.n_time ÷ 2 + 1 : grid.n_time
+    spectrum = zeros(ComplexF64, frequencies, modes)
+    modal = zeros(scalar, grid.n_time, modes)
+    species = length(data.species_densities)
+    return _ObservationAxisPopulationWork(
+        spectrum, modal,
+        TemporalFFT(execution, modal, spectrum),
+        SpectralPadding(execution, grid.crop_index, frequencies, 1.0, 1.0),
+        zeros(scalar, grid.n_time, size(data.synthesis, 1)), zeros(scalar, grid.n_time, 1),
+        PopulationWorkspace(execution, Float64, ResponseLayout(grid.n_time, 1, 1)),
+        zeros(species), zeros(1, species), zeros(1, species), nothing
+    )
+end
+
 mutable struct _ObservationMonitorWork{A, T, F, R}
     spectrum::A
     samples::T
@@ -476,6 +626,11 @@ _observation_arrays(work::_ObservationMonitorWork) =
     work.spectrum, work.samples, work.power,
     work.reading.occupancy, work.pending.occupancy,
 )
+_observation_arrays(work::_ObservationAxisPopulationWork) = (
+    work.spectrum, work.modal, work.components, work.nodes, work.densities,
+    work.fractions, work.peaks, _population_arrays(work.workspace),
+    work.padding.crop, work.padding.uncrop,
+)
 _observation_arrays(work::PopulationWorkspace) = _population_arrays(work)
 _observation_arrays(work::PlasmaDiagnosticWorkspace) = (work.parts, work.maxima)
 _observation_arrays(work::_ObservationPopulationWork) =
@@ -516,7 +671,7 @@ by `buffers`. `monitor` is its optional `TemporalMonitorState`; the caller owns 
 row capacity, export and acknowledgment. `valid` is set only after successful observe!.
 Warm numerical evaluation does not allocate or increment propagation source calls.
 """
-mutable struct ObservationWorkspace{E, D, P, W, A, T, L, M, C, I, B} <:
+mutable struct ObservationWorkspace{E, D, P, W, A, T, L, M, C, I, B, X} <:
     _ObservationWorkspace
     execution::E
     data::D
@@ -528,6 +683,7 @@ mutable struct ObservationWorkspace{E, D, P, W, A, T, L, M, C, I, B} <:
     axis::A
     statistics::T
     populations::L
+    axis_populations::X
     monitor_work::M
     monitor::C
     inputs::I
@@ -581,6 +737,14 @@ function ObservationWorkspace(
             diagnostics = needs.plasma_diagnostics
         ) :
         nothing
+    axis_populations = if needs.axis_populations
+        axis_data = prepared.axis_populations
+        axis_data === nothing &&
+            throw(ArgumentError("on-axis population preparation is missing"))
+        _observation_axis_population_work(execution, axis_data)
+    else
+        nothing
+    end
     n_nodes = populations === nothing ? 0 : size(populations.fractions, 1)
     statistics = StatisticsWorkspace(
         execution, Float64;
@@ -613,22 +777,27 @@ function ObservationWorkspace(
             node_weights = prepared.populations.measure === nothing ? nothing :
             prepared.populations.measure.weights,
         )
+    axis_input = axis_populations === nothing ? nothing : PopulationStatisticsInput(
+            axis_populations.densities, axis_populations.fractions, axis_populations.peaks
+        )
     inputs = StatisticsInputs(;
         spectral = spectral_input, temporal = temporal_input,
-        populations = population_input
+        populations = population_input, axis_populations = axis_input,
     )
     values = zeros(prepared.selection.width)
     buffers = (
         spectrum, weight, weight_work, values,
         _observation_arrays(pair), _observation_arrays(windows),
         axis === nothing ? () : axis, _observation_arrays(populations),
+        _observation_arrays(axis_populations),
         _observation_arrays(monitor_work), statistics.power, statistics.total_power,
         statistics.column_energy, statistics.column_moment, statistics.node_total,
         statistics.fluence, statistics.magnitude, statistics.radial_average,
     )
     return ObservationWorkspace(
         execution, prepared, spectrum, weight, weight_work,
-        pair, windows, axis, statistics, populations, monitor_work, monitor, inputs, values,
+        pair, windows, axis, statistics, populations, axis_populations,
+        monitor_work, monitor, inputs, values,
         buffers, false, NaN
     )
 end
@@ -772,6 +941,40 @@ function _observation_populations!(
     return nothing
 end
 
+@inline function _observation_axis_sample(samples::AbstractMatrix{<:Real}, row)
+    return size(samples, 2) == 2 ? hypot(samples[row, 1], samples[row, 2]) : samples[row, 1]
+end
+@inline _observation_axis_sample(samples::AbstractMatrix{<:Complex}, row) = samples[row, 1]
+
+function _observation_axis_populations!(
+        work, data::ObservationAxisPopulations,
+        field, position, execution
+    )
+    _observation_densities!(work.densities, data.species_densities, position, 1)
+    fill!(work.fractions, 0.0)
+    fill!(work.peaks, 0.0)
+    scale = _source_profile(data.taper, position)
+    isfinite(scale) && scale > 0 || throw(ArgumentError("on-axis taper must be positive"))
+    pad_spectrum!(work.spectrum, field, work.padding, execution)
+    temporal_inverse!(work.modal, work.transform, work.spectrum, execution)
+    synthesize!(work.components, work.modal, data.synthesis, execution; n_components = 1)
+    _source_scale!(work.components, scale, execution)
+    components, output = work.components, work.nodes
+    data.grid.kind == :envelope && size(components, 2) != 1 &&
+        throw(ArgumentError("scalar envelope axis work requires one collapsed row"))
+    each!(execution, size(output, 1), 1) do row, _
+        output[row, 1] = _observation_axis_sample(components, row)
+    end
+    all(isfinite, output) || throw(ArgumentError("on-axis population field overflowed"))
+    _source_each_indexed(data.plasma.channels) do channel, index
+        _observation_channel!(
+            work, data, channel, index, (first = 1, count = 1),
+            position, execution
+        )
+    end
+    return nothing
+end
+
 function _observation_selected(selection, code, periodic)
     for (index, slot) in pairs(selection.slots)
         slot.code == code && (!periodic || index in selection.periodic) && return true
@@ -876,6 +1079,9 @@ function observe!(
         work.populations, data.populations, field, z, execution;
         diagnostics = needs.plasma_diagnostics
     )
+    needs.axis_populations && _observation_axis_populations!(
+        work.axis_populations, data.axis_populations, field, z, execution
+    )
     temporal = _observation_identity(work.inputs.temporal, all(isone, work.weight))
     profiles = (
         _observation_profile(
@@ -901,6 +1107,7 @@ function observe!(
     inputs = StatisticsInputs(;
         spectral = work.inputs.spectral, temporal, populations,
         profiles, quadrature_error, diagnostics,
+        axis_populations = work.inputs.axis_populations,
     )
     statistics!(
         work.values, data.selection, data.grid, inputs,

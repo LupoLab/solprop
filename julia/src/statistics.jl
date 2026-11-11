@@ -7,6 +7,7 @@ public StatisticsGrid, StatisticsInputs, StatisticsWorkspace, statistics!
 public SpectralStatisticsInput, TemporalStatisticsInput, PopulationStatisticsInput
 public SpatialStatisticsInput, SpatialWidthGrid
 public spectral_statistics!, temporal_statistics!, population_statistics!
+public axis_population_statistics!
 public spatial_statistics!, half_width
 
 const _STATISTIC_NAMES = (
@@ -18,6 +19,9 @@ const _STATISTIC_NAMES = (
     :beam_radius, :fwhm_r, :on_axis_spectrum,
     :plasma_undershoot, :plasma_work_defect, :plasma_boundary_level,
     :species_density, :species_ionisation_energy, :species_peak_ionisation_rate,
+    :on_axis_electron_density, :on_axis_peak_ionisation_rate,
+    :on_axis_species_electron_density, :on_axis_species_peak_ionisation_rate,
+    :spectral_flux,
 )
 
 """
@@ -27,8 +31,8 @@ Describe one statistic's contiguous slice in a caller-owned packed output vector
 
 `name` is an admitted catalogue symbol, `offset` is one-based and `count` is positive.
 Shapes and public names remain in the bridge's immutable output metadata. Spatial
-widths/spectrum, plasma integration diagnostics and species inventory/peak rows
-remain plane-only. Unknown and far-field statistics and the
+widths/spectrum, plasma integration diagnostics, species inventory/peak rows,
+on-axis plasma and spectral flux remain plane-only. Unknown and far-field statistics and the
 plane-only mode-model root `zdw` raise `ArgumentError` by name.
 """
 struct StatisticSlot
@@ -87,14 +91,15 @@ end
 
 """
     StatisticsNeeds(spectral, temporal, windows, populations, intensity, widths,
-                    axis_spectrum, plasma_diagnostics=false)
+                    axis_spectrum, plasma_diagnostics=false, axis_populations=false)
 
 Describe numerical families required to prepare one observation's inputs.
 
 Every field is a Boolean. `windows` requests windowed analytic pairs; `intensity`
 requests physical or on-axis analytic pairs, and `widths` requests local and axial
 spectral pairs. `plasma_diagnostics` requests the plane-only raw field-population
-scan parts as well as final populations. This record carries no state or callback.
+scan parts as well as final populations. `axis_populations` requests the independent
+fine-grid axis population scan. This record carries no state or callback.
 """
 struct StatisticsNeeds
     spectral::Bool
@@ -105,7 +110,16 @@ struct StatisticsNeeds
     widths::Bool
     axis_spectrum::Bool
     plasma_diagnostics::Bool
+    axis_populations::Bool
 end
+
+StatisticsNeeds(
+    spectral, temporal, windows, populations, intensity, widths, axis,
+    diagnostics
+) = StatisticsNeeds(
+    spectral, temporal, windows, populations, intensity,
+    widths, axis, diagnostics, false
+)
 
 StatisticsNeeds(spectral, temporal, windows, populations, intensity, widths, axis) =
     StatisticsNeeds(
@@ -123,11 +137,11 @@ cadence or advance any cursor. The result is an allocation-free `StatisticsNeeds
 """
 function statistics_needs(selection::StatisticsSelection; periodic::Bool = false)
     spectral = temporal = windows = populations = intensity = widths = axis = false
-    diagnostics = false
+    diagnostics = axis_populations = false
     for (index, slot) in pairs(selection.slots)
         periodic && !(index in selection.periodic) && continue
         code = slot.code
-        spectral |= code in (1, 2, 3, 7)
+        spectral |= code in (1, 2, 3, 7, 34)
         temporal |= code in (4, 6, 8, 9, 10)
         windows |= code == 5
         populations |= 14 <= code <= 17 || 24 <= code <= 29
@@ -135,10 +149,11 @@ function statistics_needs(selection::StatisticsSelection; periodic::Bool = false
         widths |= code in (21, 22)
         axis |= code == 23
         diagnostics |= 24 <= code <= 26
+        axis_populations |= 30 <= code <= 33
     end
     return StatisticsNeeds(
         spectral, temporal, windows, populations, intensity, widths, axis,
-        diagnostics
+        diagnostics, axis_populations
     )
 end
 
@@ -396,7 +411,7 @@ end
 """
     StatisticsInputs(; spectral=nothing, temporal=nothing, populations=nothing,
                      spatial=nothing, profiles=(NaN,NaN,NaN), quadrature_error=NaN,
-                     diagnostics=nothing)
+                     diagnostics=nothing, axis_populations=nothing)
 
 Group explicit inputs for one actual observed field, with no mutable field cache.
 
@@ -407,10 +422,12 @@ accepted-step alarm; statistics do not rescore the last trial. It is NaN before 
 accepted score, without an embedded rule or for a zero material source, as in the
 reference backend's `_update_alarm`. Optional `diagnostics` is the finite nonnegative
 Float64 tuple `(plasma_undershoot, plasma_work_defect, plasma_boundary_level)` from
-this observed field's complete scan. Other requested absent or nonfinite dependencies
+this observed field's complete scan. `axis_populations` is an independent
+`PopulationStatisticsInput` with exactly one row, from the actual fine-grid axis field.
+Other requested absent or nonfinite dependencies
 raise an error rather than being replaced by a default.
 """
-struct StatisticsInputs{S, T, P, G, F, Q, D}
+struct StatisticsInputs{S, T, P, G, F, Q, D, A}
     spectral::S
     temporal::T
     populations::P
@@ -418,7 +435,16 @@ struct StatisticsInputs{S, T, P, G, F, Q, D}
     profiles::F
     quadrature_error::Q
     diagnostics::D
+    axis_populations::A
 end
+
+StatisticsInputs(
+    spectral, temporal, populations, spatial, profiles, quadrature_error,
+    diagnostics
+) = StatisticsInputs(
+    spectral, temporal, populations, spatial, profiles,
+    quadrature_error, diagnostics, nothing
+)
 
 StatisticsInputs(spectral, temporal, populations, spatial, profiles, quadrature_error) =
     StatisticsInputs(
@@ -428,10 +454,10 @@ StatisticsInputs(spectral, temporal, populations, spatial, profiles, quadrature_
 StatisticsInputs(;
     spectral = nothing, temporal = nothing, populations = nothing, spatial = nothing,
     profiles = (NaN, NaN, NaN), quadrature_error = NaN,
-    diagnostics = nothing,
+    diagnostics = nothing, axis_populations = nothing,
 ) = StatisticsInputs(
     spectral, temporal, populations, spatial, profiles, quadrature_error,
-    diagnostics
+    diagnostics, axis_populations
 )
 
 """
@@ -657,11 +683,14 @@ NaN. With exactly unit power weights, the catalogue also treats columns holding
 at most `eps(Float64)` of the largest column as empty; nonidentity Poynting centroids
 use only the zero denominator rule. `total=true` makes energy a scalar and window
 energy one value per window. The
-identity-metric alias `physical_energy` requires unit weights. Every finite reduction
+identity-metric aliases `physical_energy` and `spectral_flux` require unit weights.
+The latter returns one spectral-energy-density value per frequency, using the separate
+`grid.spectral_density` weights, with no Parseval endpoint-factor substitution.
+Every finite reduction
 is accumulated in the output's scalar type; malformed/nonfinite input raises an error.
 """
 function spectral_statistics!(output, slot, grid, input, workspace, execution)
-    _stat_family(output, slot, (1, 2, 3, 7))
+    _stat_family(output, slot, (1, 2, 3, 7, 34))
     _stat_buffers(output, workspace, grid, input)
     input === nothing && throw(ArgumentError("spectral statistic needs observed spectra"))
     spectrum, weight = input.spectrum, input.power_weight
@@ -673,6 +702,25 @@ function spectral_statistics!(output, slot, grid, input, workspace, execution)
     length(workspace.column_energy) == n_columns ||
         throw(DimensionMismatch("spectral statistics workspace has wrong column count"))
     code, offset = slot.code, slot.offset
+    if code == 34
+        all(isone, weight) ||
+            throw(ArgumentError("spectral_flux requires the identity power weight"))
+        density_weights = grid.spectral_density
+        length(density_weights) == size(spectrum, 1) &&
+            all(value -> isfinite(value) && value >= 0, density_weights) ||
+            throw(ArgumentError("spectral_flux needs its finite spectral-density weights"))
+        _stat_count(slot, size(spectrum, 1))
+        each!(execution, size(spectrum, 1), 1) do row, _
+            value = zero(eltype(output))
+            for column in axes(spectrum, 2)
+                value += density_weights[row] * _stat_abs2(spectrum[row, column], value)
+            end
+            output[offset + row - 1] = value
+        end
+        all(row -> isfinite(output[offset + row - 1]), eachindex(density_weights)) ||
+            throw(ArgumentError("spectral flux overflowed"))
+        return nothing
+    end
     windows = code == 3 ? size(grid.windows, 2) : 1
     windows > 0 || throw(ArgumentError("windowed energy requires spectral windows"))
     total = code == 7 || (input.total && code != 1)
@@ -925,6 +973,48 @@ function population_statistics!(output, slot, input, workspace, execution)
             output[offset] = peaks[peak_node, species]
         end
     end
+    return nothing
+end
+
+"""
+    axis_population_statistics!(output, slot, input, workspace, execution)
+
+Write one fresh on-axis population statistic in complete species order.
+
+`input` is a `PopulationStatisticsInput` with exactly one row in its fractions and
+peak-rate matrices. The four admitted slots are total/species on-axis electron
+density in m⁻³ and total/species peak ionisation rate in s⁻¹. Sum the species densities
+for the total; take the largest species rate. Passive species retain zero fractions
+and rates. No largest-node or legacy peak-node selection applies on this one row.
+`output` and the existing `StatisticsWorkspace` must be disjoint from all inputs.
+Invalid shapes, domains, aliases and nonfinite results raise; warm calls allocate zero.
+"""
+function axis_population_statistics!(output, slot, input, workspace, execution)
+    _stat_family(output, slot, (30, 31, 32, 33))
+    _stat_buffers(output, workspace, nothing, input)
+    input === nothing && throw(ArgumentError("on-axis statistics need fresh populations"))
+    density, fraction, peaks = input.densities, input.fractions, input.peak_rates
+    count = length(density)
+    count > 0 && size(fraction) == size(peaks) == (1, count) ||
+        throw(DimensionMismatch("on-axis populations need one complete species row"))
+    all(value -> isfinite(value) && value >= 0, density) &&
+        all(value -> isfinite(value) && 0 <= value <= 1, fraction) &&
+        all(value -> isfinite(value) && value >= 0, peaks) ||
+        throw(ArgumentError("on-axis population inputs are invalid"))
+    _stat_count(slot, slot.code in (30, 31) ? 1 : count)
+    total = 0.0
+    for species in 1:count
+        value = slot.code in (30, 32) ? density[species] * fraction[1, species] :
+            peaks[1, species]
+        isfinite(value) || throw(ArgumentError("on-axis electron density overflowed"))
+        if slot.code in (32, 33)
+            output[slot.offset + species - 1] = value
+        else
+            total = slot.code == 30 ? total + value : max(total, value)
+        end
+    end
+    isfinite(total) || throw(ArgumentError("on-axis total electron density overflowed"))
+    slot.code in (30, 31) && (output[slot.offset] = total)
     return nothing
 end
 
@@ -1221,12 +1311,14 @@ function statistics!(
     for (index, slot) in pairs(selection.slots)
         periodic && !(index in selection.periodic) && continue
         code = slot.code
-        if code in (1, 2, 3, 7)
+        if code in (1, 2, 3, 7, 34)
             _stat_buffers(output, workspace, grid, inputs.spectral)
         elseif code in (4, 5, 6, 8, 9, 10) || (code == 18 && inputs.spatial === nothing)
             _stat_buffers(output, workspace, grid, inputs.temporal)
         elseif 14 <= code <= 17 || 27 <= code <= 29
             _stat_buffers(output, workspace, grid, inputs.populations)
+        elseif 30 <= code <= 33
+            _stat_buffers(output, workspace, grid, inputs.axis_populations)
         elseif code in (18, 19, 21, 22, 23)
             _stat_buffers(output, workspace, grid, inputs.spatial)
         end
@@ -1235,7 +1327,7 @@ function statistics!(
     for (index, slot) in pairs(selection.slots)
         periodic && !(index in selection.periodic) && continue
         code = slot.code
-        if code in (1, 2, 3, 7)
+        if code in (1, 2, 3, 7, 34)
             spectral_statistics!(output, slot, grid, inputs.spectral, workspace, execution)
         elseif code in (4, 5, 6, 8, 9, 10) || (code == 18 && inputs.spatial === nothing)
             temporal_statistics!(output, slot, grid, inputs.temporal, workspace, execution)
@@ -1246,6 +1338,11 @@ function statistics!(
             output[slot.offset] = value
         elseif 14 <= code <= 17 || 27 <= code <= 29
             population_statistics!(output, slot, inputs.populations, workspace, execution)
+        elseif 30 <= code <= 33
+            axis_population_statistics!(
+                output, slot, inputs.axis_populations,
+                workspace, execution
+            )
         elseif 24 <= code <= 26
             _stat_count(slot, 1)
             inputs.diagnostics isa NTuple{3, Float64} ||
