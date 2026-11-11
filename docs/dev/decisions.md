@@ -1278,8 +1278,9 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-054 — Single precision as an opt-in arithmetic, validated against its oracle
 
-- **Status:** accepted; amends [architecture.md §1](architecture.md) ("Double precision
-  throughout") and records an exception to ADR-020 for the `mlx` route
+- **Status:** superseded by ADR-077 (binary64 only). It amended
+  [architecture.md §1](architecture.md) ("Double precision throughout") and recorded an
+  exception to ADR-020 for the `mlx` route
   ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md))
 - **Context:** Apple-silicon GPUs have several times the CPU's single-precision
   throughput and no binary64 arithmetic, and Kokkos has no Metal backend. Whether a
@@ -1648,8 +1649,8 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-061 — Backend tiers: where features land first
 
-- **Status:** accepted (maintainer, 2026-10-31); amends
-  [SEP 0](seps/sep-0000-process.md)'s completion rule, which asked for every feature on
+- **Status:** superseded by ADR-077 (two backends, no tiers). Accepted (maintainer,
+  2026-10-31); amended [SEP 0](seps/sep-0000-process.md)'s completion rule, which asked for every feature on
   `numpy_ref`, `numba_cpu` and the native CPU build; Tier 2 and the statement that the
   documentation build installs no native backend are superseded by ADR-064; ADR-068 makes
   `native` the primary backend
@@ -1772,7 +1773,8 @@ Withdrawn (development-process record, not a design decision).
 
 - **Status:** accepted, with [SEP 43](seps/archive/sep-0043-retire-numba-cpu.md); supersedes
   ADR-061's Tier 2 and its statement that the documentation build installs no native
-  backend, removes the fallback of ADR-029, and ends ADR-023
+  backend, removes the fallback of ADR-029, and ends ADR-023; its single-precision clause
+  for `backend="auto"` is amended by ADR-077 (binary64 only)
 - **Context:** every test, route and kernel of `numba_cpu` was a second copy of what
   `native` does. In the 0.1.0 history it took 1.5 to 2.8 times as long as native by
   geometric mean, with no winning configuration among the 22 measured on three machines,
@@ -1921,7 +1923,8 @@ Withdrawn (development-process record, not a design decision).
 
 - **Status:** accepted (maintainer), 2026-11-04. Amends ADR-061 and
   [SEP 0](seps/sep-0000-process.md)'s implementation rules. Those records, and the SEPs
-  implemented under them, stay as written.
+  implemented under them, stay as written. ADR-077 amends its clause that `numpy_ref`
+  stays comprehensive: its end state is a slim test and development reference.
 - **Context:** production runs on `native`, and the costs of the split between Python and
   native decide what those runs can do. The written rules still steered work as if the
   reference came first: a SEP was implemented on `numpy_ref` and then on native, the kernel
@@ -2230,3 +2233,45 @@ Withdrawn (development-process record, not a design decision).
   the earlier opt-in file are not read. Measured threaded rows stay off by default: a
   plan measured once now costs nothing after, which leaves the policy's threaded-rows
   effort for the maintainer.
+
+## ADR-077 — Two backends, binary64 only
+
+- **Status:** accepted (maintainer), 2026-11-11. Supersedes ADR-054 and ADR-061; amends
+  ADR-064 (single precision under `backend="auto"`) and ADR-068 (`numpy_ref` "stays
+  comprehensive"); withdraws [SEP 48](seps/archive/sep-0048-julia-backend.md). Those
+  records, and the SEPs implemented under them, stay as written.
+- **Context:** single precision runs on `numpy_ref` alone since `mlx` was retired
+  (SEP 47): no installed backend runs it quickly, and `backend="auto"` refuses it.
+  [SEP 36](seps/archive/sep-0036-native-reduced-precision.md) measured single and mixed
+  precision on the native engine and was withdrawn, because the gains on the target
+  hardware do not repay a precision-templated engine. The tiers of ADR-061 rank two
+  backends whose roles are fixed: Tier 2 has been empty since ADR-064 and Tier 3 since
+  `mlx` went. SEP 48 proposed a Julia engine for CPUs and GPUs; the experiment behind it
+  was ended, and C++ and Kokkos kept. Every feature still pays for what is left: dtype
+  branches and a binary32 oracle, refusal tables, plugin machinery for a registry of two
+  rows, and reference-only methods that native refuses by name.
+- **Decision:**
+  - solprop computes in IEEE 754 binary64 only. Single and mixed precision are retired.
+  - There are exactly two backends. `native` is required and primary: it is what `auto`
+    selects, it runs on CPUs and GPUs, and it implements every feature except the TDSE
+    response, for now. `numpy_ref` is the numerical reference. There is no tier system,
+    and no other backend will be implemented, in this repository or as a plugin.
+  - The Julia backend (SEP 48) is withdrawn.
+  - `numpy_ref`'s end state is a slim test and development reference: the contract
+    arithmetic native is checked against, not a second complete executor. A later SEP
+    specifies it, with the TDSE response on native. Until then ADR-068's rules stand:
+    a new feature lands on both backends, in either order, and a SEP is `Final` with
+    parity on `numpy_ref` and native CPU, or an exception written into it.
+- **Why:** development and qualification time goes where the runs are. A precision that
+  no production run uses, a ranking of a fixed pair and a second engine language each
+  multiply the cost of every later feature without adding a run anyone needs.
+- **Consequences:**
+  - A following change removes the single-precision code, tests and documentation,
+    including the `precision=` keyword, its refusals, the gallery example and the
+    recipe example. The C++ engine is already binary64 only.
+  - The reference-only methods go with it: CF4 coupled-flow sections, `ComparisonMultistep`
+    with its Adams comparison variants (Hermite and Milne), and `PIController` subclasses
+    that override its decisions, which native refuses today. `PIController` becomes final.
+  - The backend registry becomes a fixed table of the two backends, with no plugin rows.
+  - The precision field and CF4's settings leave the hashed configuration in one release,
+    so resume identity changes once: a run started on an earlier release finishes on it.
