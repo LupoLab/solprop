@@ -7,9 +7,13 @@
 Where every row a trial reads is one of the uploaded stage tables', the native state
 evaluates each stage's scalars at ``z + c_i dz`` itself (``stage::rows``), as
 ``_trial_arrays`` packs the bundles of ``_stage_bundles``: the trial's partials are the
-host-packed trial's bit for bit. The norm is reduced natively for solprop's own weak
-scale, its sums in order (Q1): it agrees with the host's NumPy reduction to rounding,
-and a weighted controller, or one with its own ``scale``, keeps the host's.
+host-packed trial's bit for bit. The host-packed trial is reached by a probe local to
+the test (the backend's ``_staged_rows`` answering no on one instance), an
+identical-input control: the module switch that selected host rows was retired with
+the transitional bridge (SEP 47 section 6.3), and the host-packed path goes with the
+inherited driver in phase 5's next step. The norm is reduced natively for solprop's own
+weak scale, its sums in order (Q1), and for a weighted one (phase 4): each agrees with
+the host's NumPy reduction to rounding.
 """
 
 import dataclasses
@@ -102,7 +106,9 @@ def test_a_staged_trial_is_the_host_packed_trial(route, monkeypatch):
         for z, dz in steps(problem, backend.request):
             staged = np.asarray(backend._prepare_trial(z, dz))
             with monkeypatch.context() as patch:
-                patch.setattr(backend_module, "_RK_ROWS", "host")
+                # The identical-input control: this instance packs its rows on the
+                # host, the stage tables staying uploaded.
+                patch.setattr(backend, "_staged_rows", lambda: False)
                 packed = np.asarray(backend._prepare_trial(z, dz))
             assert np.array_equal(staged, packed), (z, dz)
     finally:
@@ -191,14 +197,11 @@ def test_the_native_norm_is_the_host_s_to_rounding(slots, atol):
             assert found == expected
 
 
-@pytest.mark.parametrize("host_rows", [True, False], ids=["host_rows", "staged"])
-def test_the_weak_scale_is_reduced_natively_but_on_host_rows(host_rows, monkeypatch):
+def test_the_weak_scale_is_reduced_natively(monkeypatch):
     # A controller with a scale of its own is refused where the backend is built
-    # (solprop SEP 47 section 6.3, `test_native_rk_admission`), so the host's
-    # reduction serves the test interface's host rows alone, by PIController's scale.
+    # (solprop SEP 47 section 6.3, `test_native_rk_admission`), so every trial's norm
+    # is reduced natively, by PIController's scale, to the host's reduction's rounding.
     controller = PIController(rtol=1e-6, atol=0.0, weights=None)
-    if host_rows:
-        monkeypatch.setattr(backend_module, "_RK_ROWS", "host")
     backend, problem = runge_kutta("gnlse", controller)
     calls: list[int] = []
     score = core.rk_score
@@ -213,12 +216,8 @@ def test_the_weak_scale_is_reduced_natively_but_on_host_rows(host_rows, monkeypa
         partials = backend._prepare_trial(z, dz)
         norm = backend._score_trial(partials)
         expected = _host_norm(np.asarray(partials), 1e-6, 0.0)
-        if host_rows:
-            assert not calls
-            assert norm == expected
-        else:
-            assert calls
-            assert norm == pytest.approx(expected, rel=1e-14)
+        assert calls
+        assert norm == pytest.approx(expected, rel=1e-14)
     finally:
         backend.close()
 

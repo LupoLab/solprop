@@ -8,7 +8,8 @@ The native session evaluates them in its statistics plan
 (:mod:`solprop_native._statistics`): the axis row the mode profiles synthesise on the
 axis is scanned natively by the node scan's own pass, or a Radau rule's axis node is
 read when the evaluation scans the nodes anyway, and the species reduction is finished
-natively. The transitional session (the bridge) scans the same row on the host
+natively. The native backend's own plane statistics (``NativeBackend.stats``) scan the
+same row of the same field on the host
 (:func:`solprop.backends.populations.axis_row_populations`), so the two agree to the
 node scans' parity tolerance rather than bit for bit, except where both read the
 native node scan of a Radau rule's axis node. An envelope's scan reads the polarisation
@@ -21,7 +22,6 @@ import dataclasses
 import math
 import warnings
 from contextlib import ExitStack, closing
-from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -32,7 +32,6 @@ from sessions.executors import (
     entrance,
     skip_device_refused,
 )
-from solprop.backends.driver_session import DriverGroupSession, DriverSession
 from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
 from solprop.backends.registry import select
@@ -153,29 +152,28 @@ def _drive(prepared, problem):
     return kind, seen
 
 
-def _run(built, names, monkeypatch, *, bridge):
-    """The session's or the bridge's observations of the run with these statistics."""
+def _run(built, names):
+    """The native session's observations of the run with these statistics."""
     grid, modes, problem, request = built
     run = request.for_run(stats=StatsSpec(names=names))
-    with (
-        closing(select("native", problem, run, grid=grid, modes=modes)) as backend,
-        monkeypatch.context() as patch,
-    ):
-        if bridge:
-            patch.setattr(
-                "solprop_native.session.session_refusal", lambda *_: "the bridge"
-            )
+    with closing(select("native", problem, run, grid=grid, modes=modes)) as backend:
         kind, seen = _drive(backend.prepare(problem, run), problem)
-    assert kind is (DriverSession if bridge else native_session.NativeSession)
+    assert kind is native_session.NativeSession
     return seen
 
 
-def _reference(grid, modes, problem, request, names, seen):
-    """The NumPy reference's statistics on each of the session's exported fields."""
+def _reference(  # noqa: PLR0913 - the run, and which backend reads it
+    grid, modes, problem, request, names, seen, *, name="numpy_ref"
+):
+    """A backend's own statistics on each of the session's exported fields.
+
+    The NumPy reference's by default; ``"native"`` takes the native backend's own
+    plane statistics, which scan the axis row on the host.
+    """
     run = request.for_run(stats=StatsSpec(names=names))
     start = float(problem.initial.z)
     out = []
-    with closing(select("numpy_ref", problem, run, grid=grid, modes=modes)) as backend:
+    with closing(select(name, problem, run, grid=grid, modes=modes)) as backend:
         for record in seen:
             backend.set_initial(record.field, None, z=record.z, resume=record.z > start)
             values = backend.stats(run.observation.stats)
@@ -192,7 +190,7 @@ def _within(actual, expected, what):
 
 
 def test_a_run_asking_for_them_opens_the_native_session():
-    """SEP 47 phase 4: nothing about the on-axis plasma statistics needs the bridge."""
+    """SEP 47 phase 4: the on-axis plasma statistics are the native session's."""
     grid, modes, problem, request = _capillary("gauss_kronrod", 32)
     run = request.for_run(stats=StatsSpec(names=ON_AXIS_PLASMA_STATISTICS))
     skip_device_refused(problem)
@@ -201,7 +199,6 @@ def test_a_run_asking_for_them_opens_the_native_session():
         prepared = backend.prepare(problem, run)
         with prepared.start(entrance(problem), owns=False) as session:
             assert type(session) is native_session.NativeSession
-        assert cast("Any", prepared).refused is None
 
 
 def test_the_mode_averaged_route_is_still_refused_by_name():
@@ -265,37 +262,32 @@ def test_the_plan_needs_the_mode_set_for_them():
 
 
 @pytest.mark.parametrize("case", list(CASES))
-def test_the_session_s_axis_statistics_are_the_bridge_s_and_the_reference_s(
-    case, monkeypatch
-):
-    """At every observation: the session against the bridge and the reference.
+def test_the_session_s_axis_statistics_are_the_host_scan_s_and_the_reference_s(case):
+    """At every observation: the session against the host's scan and the reference.
 
-    The two sessions march the same native steps, so their fields are the same bits
-    on one thread and the statistics differ by their evaluation alone: the native
-    row's scan against the host's, within the node scans' parity tolerance, and the
-    same bits where both read a Radau rule's axis node from the native node scan.
+    On the session's own exported field, the native backend's plane statistics scan
+    the axis row on the host: the statistics differ by their evaluation alone, within
+    the node scans' parity tolerance, and are the same bits where both read a Radau
+    rule's axis node from the native node scan.
     """
     build, names = CASES[case]
     grid, modes, problem, request = build()
     skip_device_refused(problem)
     built = (grid, modes, problem, request)
-    session = _run(built, names, monkeypatch, bridge=False)
-    bridge = _run(built, names, monkeypatch, bridge=True)
+    session = _run(built, names)
+    host = _reference(grid, modes, problem, request, names, session, name="native")
     reference = _reference(grid, modes, problem, request, names, session)
-    assert len(session) == len(bridge) == 3
+    assert len(session) == len(host) == 3
     same_field = EXECUTORS["native-session"].deterministic
-    for mine, theirs, want in zip(session, bridge, reference, strict=True):
-        assert mine.z == theirs.z
-        if same_field:
-            np.testing.assert_array_equal(mine.field, theirs.field)
+    for mine, theirs, want in zip(session, host, reference, strict=True):
         for name in ON_AXIS_PLASMA_STATISTICS:
             what = f"{case} {name} at {mine.z}"
             got = mine.stats[name]
             if case == "radau" and same_field:
                 np.testing.assert_array_equal(
-                    got, np.reshape(theirs.stats[name], np.shape(got)), what
+                    got, np.reshape(theirs[name], np.shape(got)), what
                 )
-            _within(got, np.asarray(theirs.stats[name]), f"{what} (bridge)")
+            _within(got, np.asarray(theirs[name]), f"{what} (host scan)")
             _within(got, want[name], f"{what} (numpy_ref)")
     assert max(
         float(np.max(seen.stats["on_axis_electron_density"])) for seen in session
@@ -379,7 +371,7 @@ ENTRANCE_KINDS = (
 
 
 @pytest.mark.parametrize("kind", ENTRANCE_KINDS)
-def test_the_plan_s_axis_row_is_the_bridge_s_and_the_reference_s(kind):
+def test_the_plan_s_axis_row_is_the_host_scan_s_and_the_reference_s(kind):
     """The plan's native row scan, at the entrance, on each kind of row and scan.
 
     A field grid's one-component scan of two rows (their magnitude), an envelope's
@@ -411,15 +403,15 @@ def test_the_plan_s_axis_row_is_the_bridge_s_and_the_reference_s(kind):
         got = lowering.unpack(state.planned_statistics(lowering.plan, 0.0))
     for name in names:
         want = np.reshape(values["numpy_ref"][name], np.shape(got[name]))
-        bridge = np.reshape(values["native"][name], np.shape(got[name]))
+        host = np.reshape(values["native"][name], np.shape(got[name]))
         assert float(np.max(want)) > 0.0
         _within(got[name], want, f"{kind} {name} (numpy_ref)")
-        _within(got[name], bridge, f"{kind} {name} (bridge)")
+        _within(got[name], host, f"{kind} {name} (host scan)")
 
 
 def test_an_envelope_s_y_row_on_a_one_component_scan_opens_the_native_session():
-    """The ellipse of both rows is scanned natively, so nothing sends the run to the
-    bridge (SEP 47 phase 4)."""
+    """The ellipse of both rows is scanned natively, in the native session (SEP 47
+    phase 4)."""
     grid, modes, problem, request = _entrance_problem("envelope-rotated-x")
     run = request.for_run(stats=StatsSpec(names=ON_AXIS_PLASMA_STATISTICS))
     skip_device_refused(problem)
@@ -427,7 +419,6 @@ def test_an_envelope_s_y_row_on_a_one_component_scan_opens_the_native_session():
         prepared = backend.prepare(problem, run)
         with prepared.start(entrance(problem), owns=False) as session:
             assert type(session) is native_session.NativeSession
-        assert cast("Any", prepared).refused is None
 
 
 def _group_planes(group):
@@ -449,8 +440,8 @@ def _group_planes(group):
 
 def test_a_native_group_scans_an_envelope_s_y_row():
     """A group of such members opens the native group, whose members' statistics are
-    the transitional group's, which scans the row on the host, and the reference's to
-    the node scans' parity tolerance."""
+    the host's scan of the row on each member's own field, and the reference's, to the
+    node scans' parity tolerance."""
     from solprop.backends.session import Start  # noqa: PLC0415
     from solprop.backends.sessions import start_group  # noqa: PLC0415
 
@@ -459,38 +450,27 @@ def test_a_native_group_scans_an_envelope_s_y_row():
     built = [_envelope_y_row() for _ in range(2)]
     problems = [problem for _, _, problem, _ in built]
     requests = [request.for_run(stats=StatsSpec(names=names)) for *_, request in built]
-    recorded = []
-    for door in (start_group, DriverGroupSession):
-        # A start is handed to one session.
-        starts = [Start.entrance(problem) for problem in problems]
-        with ExitStack() as cleanup:
-            owners = [
-                cleanup.enter_context(
-                    closing(select("native", problem, run, grid=grid, modes=modes))
-                )
-                for (grid, modes, problem, _), run in zip(built, requests, strict=True)
-            ]
-            assert group_module.refusal(problems, requests, starts) is None
-            group = door(owners, problems, requests, starts)
-            cleanup.callback(group.close)
-            expected = (
-                group_module.NativeGroupSession
-                if door is start_group
-                else DriverGroupSession
+    starts = [Start.entrance(problem) for problem in problems]
+    with ExitStack() as cleanup:
+        owners = [
+            cleanup.enter_context(
+                closing(select("native", problem, run, grid=grid, modes=modes))
             )
-            assert type(group) is expected
-            recorded.append(_group_planes(group))
-    same_field = EXECUTORS["native-session"].deterministic
-    for index, (ours, theirs) in enumerate(zip(*recorded, strict=True)):
+            for (grid, modes, problem, _), run in zip(built, requests, strict=True)
+        ]
+        assert group_module.refusal(problems, requests, starts) is None
+        group = start_group(owners, problems, requests, starts)
+        cleanup.callback(group.close)
+        assert type(group) is group_module.NativeGroupSession
+        recorded = _group_planes(group)
+    for index, ours in enumerate(recorded):
         grid, modes, problem, request = built[index]
+        host = _reference(grid, modes, problem, request, names, ours, name="native")
         reference = _reference(grid, modes, problem, request, names, ours)
-        assert len(ours) == len(theirs) == 3
-        for mine, other, want in zip(ours, theirs, reference, strict=True):
-            assert mine.z == other.z
-            if same_field:
-                np.testing.assert_array_equal(mine.field, other.field)
+        assert len(ours) == len(host) == 3
+        for mine, other, want in zip(ours, host, reference, strict=True):
             for name in names:
                 what = f"member {index} {name} at {mine.z}"
                 got = mine.stats[name]
-                _within(got, np.asarray(other.stats[name]), f"{what} (bridge)")
+                _within(got, np.asarray(other[name]), f"{what} (host scan)")
                 _within(got, want[name], f"{what} (numpy_ref)")

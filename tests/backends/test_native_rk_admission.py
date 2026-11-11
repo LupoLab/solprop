@@ -5,11 +5,11 @@
 """Which loop steps a native Runge-Kutta run (solprop SEP 45 phase 3).
 
 The native march steps an adaptive run on staged rows with ``PIController``'s norm, and
-the run's metadata records which loop stepped it. The backend's test interface
-(``solprop_native.backend._RK_MARCH``) selects solprop's loop without a warning. A
-controller that overrides one of ``PIController``'s decisions is a reference-only
-experiment (solprop SEP 47 section 6.3): the backend refuses it by name, for every
-method and on CPU and device builds alike, before it allocates anything.
+the run's metadata records which loop stepped it; no switch selects solprop's loop any
+more (solprop SEP 47 section 6.3 retired the test interface with the transitional
+bridge). A controller that overrides one of ``PIController``'s decisions is a
+reference-only experiment (solprop SEP 47 section 6.3): the backend refuses it by name,
+for every method and on CPU and device builds alike, before it allocates anything.
 """
 
 import dataclasses
@@ -153,15 +153,3 @@ def test_a_controller_that_overrides_a_decision_is_refused_before_allocation(
     )
     assert "backend='numpy_ref'" in message
     assert built_states == []
-
-
-def test_the_test_interface_is_silent(monkeypatch):
-    monkeypatch.setattr(backend_module, "_RK_MARCH", "host")
-    backend = launched("gnlse")
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", HostMarchWarning)
-            assert backend._rk_march() is None
-        assert backend.metadata()["rk_march"].startswith("host")
-    finally:
-        backend.close()

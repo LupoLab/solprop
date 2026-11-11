@@ -99,8 +99,8 @@ names by import path (`"module:attribute"`) everything selection reads of it, so
 `select`, `select_batch` and the policy checks read the row and never branch on the
 name: the modules it `requires` and the `extras` or `install` text that supply them;
 its `factory`, called as `factory(problem, request, *, grid, modes, profiles, options)`;
-the transitional lockstep runner `batch(owners)` (`select_batch`, deleted in SEP 47
-phase 5); and the native policies, each `None` on a row without it: `first_use`, called
+the reference group's lockstep runner `batch(owners)` (`select_batch`; the native row
+names none, its group running one native session per member); and the native policies, each `None` on a row without it: `first_use`, called
 before each construction (SEP 46's first-use calibration), `device`, the build
 description that `SOLPROP_REQUIRE_DEVICE` reads (a row without one is refused a required
 device by name), and `far_field`, the far-field statistics the installed build declares
@@ -138,10 +138,10 @@ alone. `modal_tables.identity`, the metric's kind and gauge and the compiled res
 model and policy enter `driver.batch._signature`, because every other entry there
 describes an execution *layout* and two different guides share all of it; and a group
 assembled outside that grouping is refused by name, at `driver.batch`'s
-`refuse_mixed_guides` and again in `backends/batch.py`'s `_validate_members`. The lockstep
-runner hands each member its own problem, so a batched general run is what its members
+`refuse_mixed_guides` and again by each backend's group: the reference's `_validate_members`
+(`backends/host/group.py`) and the native `solprop_native.group.refusal`. A group hands each member its own problem, so a batched general run is what its members
 are alone, to the same rounding bound; a problem is one trajectory and carries no batch
-axis. A member carrying a coupled flow is refused by every backend's batch.
+axis. A member carrying a coupled flow is refused by every backend's group, by name.
 
 **Three things every backend owes, beyond the ten methods.**
 
@@ -224,7 +224,6 @@ the steps to one of these loops:
 | `AdamsMarch.march_to`, in `backends/multistep.py` | adaptive Adams | an `AdamsEngine`: `HostHistory`, or `native`'s resident `_ResidentAdams` |
 | `AdamsMarch._replay_to` | Adams on a fixed schedule | the same engines |
 | `LowStorageMarch.replay_to`, in `backends/low_storage.py` | low-storage, always on a schedule | a `LowStorageEngine`: `HostLowStorage`, or `native`'s `_ResidentLowStorage`, whose step is one native call |
-| `LockstepRunner._replay_to`, in `backends/batch.py` | a batch's members on one schedule | `_trial_step` under Runge-Kutta; each member's own march otherwise |
 | `_NativeAdamsMarch.march_to`, with `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine; it returns to Python only at a host event |
 | `_NativeRungeKuttaMarch.march_to`, with `native/src/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm; it returns to Python only at a host event |
 
@@ -515,7 +514,7 @@ squares against `atol / s`; applies the split-step collar as the correction
 `a + F(F^-1(a)(f - 1))` in binary32, `f - 1` formed in binary64 and rounded once (a
 binary64 state keeps `F(F^-1(a) f)`); and checks after every trial that the
 state and stages stayed complex64, and after every step that the finished state is
-complex64 and finite. Its fixed-schedule batches are the plain `LockstepRunner`, each
+complex64 and finite. Its fixed-schedule batches are the plain `HostGroup`, each
 member through its own binary32 trial: `NumpyBatchBackend`'s stage arithmetic over the
 member axis is binary64, so it refuses a single-precision member by name, and every
 lockstep batch refuses members of mixed precisions (`_validate_members`). The
@@ -543,11 +542,10 @@ starts through the backend's own preparation shape (SEP 47 §5.2):
 without the run layer naming it. The reference's (`backends.host.session.HostPrepared`)
 opens `HostSession`, which composes the parts the Python sessions share
 (`backends.session_core`: the attempt counter, yield check, snapshot latch, shared
-observation and preparation refusals) and imports nothing of the bridge's; the native
-backend's (`solprop_native.session.NativePrepared`) opens `NativeSession` where it admits
-the run and the transitional `DriverSession` otherwise, logging the reason at debug level
-(`session_refusal`, which a test replaces to force the bridge); any other driver's
-(`backends.driver_session.DriverPrepared`) opens `DriverSession`. Statistics the problem does not
+observation and preparation refusals) and imports nothing of the inherited driver; the
+native backend's (`solprop_native.session.NativePrepared`) opens `NativeSession`, the only
+native executor since SEP 47 phase 5, which refuses by name what it does not run, and
+refuses a `NativeBackend` subclass, whose overrides it would not call. Statistics the problem does not
 carry are refused by name before any session starts, on every executor, rather than left to the
 first plane (`backends.session.statistics_unavailable`, read by every preparation, by
 `check_group` and by the run layer): a modal statistic of a spatial route, a spatial one of a modal
@@ -580,11 +578,10 @@ both read a Radau rule's axis node. A group starts through the same shape (SEP 4
 `members[0].prepare_group(members, problems, requests)`, for a `PreparedGroup` whose
 `start(starts, *, stop)` opens the backend's `GroupSession`, so it names no backend
 either. The native backend's (`solprop_native.group.NativePreparedGroup`) opens
-`NativeGroupSession` where `solprop_native.group.refusal` admits the group and the
-transitional `DriverGroupSession` otherwise, logging the reason at debug level. The
-reference's (`backends.host.group_session.HostPreparedGroup`) opens its own
-`HostGroupSession` over the group runner its registry row names, and any other step
-driver's (`driver_session.DriverPreparedGroup`) opens `DriverGroupSession`. A backend
+`NativeGroupSession`, which refuses by name what `solprop_native.group.refusal` names
+(an adaptive member, step planes, members that do not share the schedule) before any
+member session starts. The reference's (`backends.host.group_session.HostPreparedGroup`)
+opens its own `HostGroupSession` over the group runner its registry row names. A backend
 that runs no group raises `BackendError` from `prepare_group`. The
 three keyword arguments are what `stats()` needs and the kernel contract does not carry.
 
@@ -1044,8 +1041,8 @@ frequency-dependent map of three Cartesian components.
   complex product is an FMA on some hosts (§3.1a).
 - **Statistics** are solprop's `collect` on the observed channel field with the basis metric, as
   on the reference, so on one state the two agree to the statistic's rounding bound. The
-  **lockstep batch** (`NativeBatchBackend`) takes general members unchanged, within the
-  matched-discrete rounding bound of what they run alone.
+  **native group session** takes general members unchanged, each one its lone native
+  session's run.
 - **Ledger**: the `general_*` rows, named and zero on every other route; the maps and the
   record's resident E/H reference are counted as the reference counts them. Moving maps add the
   coefficients (`general_synthesis`, `general_projection`), the two maps a stage evaluates
@@ -1125,7 +1122,7 @@ point, and so is a flow beside a Cartesian free-space problem, which no translat
   actions and the steps, and `parity_bound` in `tests/driver/test_native_coupled_flow.py` for ten
   fixed steps on each case.
 - **FSAL** stays off beside a flow, as on the reference ([stepper.md §2](stepper.md));
-  the lockstep batch refuses a member carrying the leaf, as the reference's does.
+  the native group refuses a member carrying the leaf by name, as the reference's does.
 - **Ledger**: the `flow_*` rows, named and zero on every other route (§4).
 
 ### 3.10 The hybrid planar kind
@@ -1896,14 +1893,15 @@ march's state, one row per attempt (its end, step, norm, verdict, order and wall
 time) and the readings its checks took, which the driver replays through solprop's
 monitor and holds the march's predictions to (`BackendError` on a difference). The decisions are compiled without contraction in their own translation unit,
 so that they round as solprop's do; within one build the two marches take the same
-steps. A configuration it does not cover runs solprop's march on the same engine with a
-`HostMarchWarning`, and the metadata's `adams_march` says which stepped a run. The
-host marches are no longer production modes ([SEP 47](seps/sep-0047-run-ownership.md)
+steps. The host marches are no longer execution modes ([SEP 47](seps/sep-0047-run-ownership.md)
 §6.3): the environment variables `SOLPROP_ADAMS_MARCH`, `SOLPROP_RK_MARCH` and
-`SOLPROP_RK_ROWS` and the backend's `adams_march` keyword are gone, and only a test or
-a diagnostic benchmark arm (`benchmarks.adams_host --host-march`) selects solprop's
-march, through the module's test interface (`_ADAMS_MARCH`, `_RK_MARCH`, `_RK_ROWS`),
-which sends the run to the transitional bridge. Every representation the translation
+`SOLPROP_RK_ROWS`, the backend's `adams_march` keyword and, in phase 5, the test
+interface that replaced them (`_ADAMS_MARCH`, `_RK_MARCH`, `_RK_ROWS`) and the
+transitional bridge it sent a run to are gone; every native run is the native session's.
+Their diagnostic purpose is served by the identical-input decision traces
+(`tests/backends/adams_traces.py`, `rk_traces.py`), which hold the native marches to
+solprop's decisions on the same readings, and by comparison with `numpy_ref` under the
+SEP 25 bounds. Every representation the translation
 forms is read by the native stage tables (a z table on CPU builds only, which device
 builds refuse), so no admitted run has stage rows the host forms; a problem stripped of
 its representation's leaves is refused by name at admission (`host_rows_refusal`).
@@ -1984,7 +1982,7 @@ that execution space.
 | the low-storage RK4IP march (`LowStorageRungeKutta`), replay-only | every diagonal-flow route | every diagonal-flow route, a resident engine whose step is one native call | flows recomputed per element; qualified under HIP, not under CUDA |
 | moving solid guide (moving maps beside a frozen-residual flow) | yes | yes | qualified |
 | fixed-schedule lockstep batches (no coupled flow) | fibre and general guides | fibre and general guides | fibre and general guides |
-| the native execution session and group session (SEP 47) | its own session (`HostSession`) | every run and group they admit | admitted on CUDA and HIP as on the CPU build (SEP 47 phase 4): beyond the modal route with planes, rows, the temporal monitor and the Adams history (phase 3), the spatial routes (radial, Cartesian, line, planar) with their fluence widths, a transverse edge and a collar's current, the noise models, dense output, the low-storage replay, a coupled flow wider than 16 channels or off its eigenbasis route, and the native group session; run on an NVIDIA A40 against the bridge on the same device (bitwise, but for the bounded transverse sums and dense Runge-Kutta planes), not yet qualified on either vendor |
+| the native execution session and group session (SEP 47) | its own session (`HostSession`) | every native run and group (phase 5: no other native executor) | admitted on CUDA and HIP as on the CPU build (SEP 47 phase 4): beyond the modal route with planes, rows, the temporal monitor and the Adams history (phase 3), the spatial routes (radial, Cartesian, line, planar) with their fluence widths, a transverse edge and a collar's current, the noise models, dense output, the low-storage replay, a coupled flow wider than 16 channels or off its eigenbasis route, and the native group session; run on an NVIDIA A40 against the transitional bridge on the same device before phase 5 deleted it (bitwise, but for the bounded transverse sums and dense Runge-Kutta planes), not yet qualified on either vendor |
 | periodic statistics between planes | yes | yes | yes: the native session takes each row natively and keeps it in a resident buffer until the next observation, with no return to Python (SEP 47 §6.4) |
 | Adams snapshots and a resume that continues the history (`MarchSnapshot`) | yes | yes: the resident engine copies its rows (`store`, and `states`, `rates`, `applied` where kept) to the host at a kept save and back on a resume | compiles; not qualified |
 | field-free observation (`observe(field=False)`), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |

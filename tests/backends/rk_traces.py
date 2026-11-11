@@ -231,6 +231,8 @@ class _Scripted:
         self._stop = None
         self._dense_ahead = None
         self._natural_count = 0
+        # The reference's halt latch (``HostDriver``), which its host arm reads; the
+        # native backend's inherited driver has none since SEP 47 phase 5.
         self._halt_requested = False
         self._halt_ahead = False
         self._halt_check = None

@@ -536,10 +536,7 @@ def test_an_observation_refuses_a_noise_phase_without_its_field():
 
 
 def test_a_lockstep_batch_still_refuses_a_shared_observation():
-    from solprop.backends.batch import LockstepRunner  # noqa: PLC0415
     from solprop.backends.host.group import HostGroup  # noqa: PLC0415
 
     with pytest.raises(BackendError, match="observe_members"):
         HostGroup.observe(object.__new__(HostGroup), field=False)
-    with pytest.raises(BackendError, match="observe_members"):
-        LockstepRunner.observe(object.__new__(LockstepRunner), field=False)

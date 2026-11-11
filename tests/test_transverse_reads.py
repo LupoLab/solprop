@@ -414,8 +414,8 @@ def _driver_class(backend: str) -> type:
 
 @pytest.mark.parametrize(
     ("backend", "route"),
-    [("numpy_ref", "host"), ("native", "session"), ("native", "bridge")],
-    ids=["numpy_ref", "native", "native-bridge"],
+    [("numpy_ref", "host"), ("native", "session")],
+    ids=["numpy_ref", "native"],
 )
 def test_a_plane_the_step_already_read_reduces_nothing_more(
     backend: str, route: str, monkeypatch: pytest.MonkeyPatch
@@ -423,14 +423,10 @@ def test_a_plane_the_step_already_read_reduces_nothing_more(
     # Every step of this schedule is longer than the spacing, so each reads the edge,
     # and a plane landing on one has nothing to add. Its read used to cross the state,
     # synthesise it and only then find the gap zero: on a device, a whole state's copy
-    # for nothing. The bridge, which still serves what the native session refuses,
-    # reads through the backend's `_edge_reading`; the native session reads its edge
-    # resident (`Session::edge_plane` skips the plane), with no reading through Python.
+    # for nothing. The reference reads through its driver's `_edge_reading`; the
+    # native session reads its edge resident (`Session::edge_plane` skips the plane),
+    # with no reading through Python.
     _require(backend)
-    if route == "bridge":
-        monkeypatch.setattr(
-            "solprop_native.session.session_refusal", lambda *_: "the bridge"
-        )
     packet = REREVIEW
     length = packet.length
     planes = [length / 4, length / 2, length]

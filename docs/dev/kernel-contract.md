@@ -158,9 +158,12 @@ relies on by name, and in an editable checkout compares the extension with its `
 sources by digest (`BuildInfo.source_digest`). An added optional field leaves every problem
 that does not use it unchanged.
 
-**Batches and device memory.** `BatchBackend` batches independently translated and loaded
-member backends, which carry their own parameter tables and noise across construction;
-successful batch construction adopts their lifetime. `observe_members()` returns one
+**Batches and device memory.** A group (`GroupSession`, from the first member's
+`prepare_group`; SEP 47 section 6.7) runs independently translated member backends, which
+carry their own parameter tables and noise. The native group runs one native session per
+member; the reference's runs a `BatchBackend`, its lockstep runner
+(`registry.select_batch`), whose successful construction adopts the loaded members'
+lifetime. `observe_members()` returns one
 ordinary host `Observation` per member, preserving independent error histories and
 periodic-statistics rows. `member_metadata()` returns each member's resolved policies plus
 batch settings. `Backend.available_device_memory()` returns current free device bytes,

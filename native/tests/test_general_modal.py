@@ -29,12 +29,14 @@ from typing import Literal, cast
 import numpy as np
 import numpy.typing as npt
 import pytest
+from session_runs import alone, assert_same, grouped, one_thread
 from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.general_modal import (
     general_node_chunk,
     node_kerr_tensor,
 )
+from solprop.backends.session import Start
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, GeneralModalBasisWarning
 from solprop.grid import FieldGrid
@@ -60,7 +62,7 @@ from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 from thread_sizing import Sizing, assert_threaded
 
-from solprop_native import NativeBackend, NativeBatchBackend, build_info
+from solprop_native import NativeBackend, build_info
 
 type ComplexArray = npt.NDArray[np.complex128]
 
@@ -554,37 +556,42 @@ def test_the_two_channel_cases_agree_to_rounding_under_the_thread_count(
     _agree_across_threads(names, (1, threads), tmp_path)
 
 
-def test_a_batch_of_general_members_agrees_with_its_members_alone() -> None:
-    """The fixed-schedule batch shares only the accepted update across members.
+def test_a_group_of_general_members_agrees_with_its_members_alone() -> None:
+    """Each member of a native group is the same member run alone.
 
-    Each member and its solo run march the same prescribed, fixed-order steps, held to
-    the member's own :func:`_parity_bound` (solprop SEP 25).
+    Each member and its lone native session march the same prescribed, fixed-order
+    steps, each member in its own native session (solprop SEP 47 section 6.7): bit
+    for bit at one thread, and otherwise held to the member's own
+    :func:`_parity_bound` (solprop SEP 25).
     """
     case = CASES["delayed_tensor"]()
     launches = [case.state, 0.5 * case.state[::-1].copy()]
     cases = [dataclasses.replace(case, state=state) for state in launches]
-    singles = [_run(NativeBackend, one)[0] for one in cases]
     bounds = [
-        _parity_bound(one, single, _linear(one))
-        for one, single in zip(cases, singles, strict=True)
+        _parity_bound(one, _run(NativeBackend, one)[0], _linear(one)) for one in cases
     ]
-    members = [
-        NativeBackend(case.problem, case.run_request, grid=case.simulation.grid)
-        for _ in launches
+    problem, request = case.problem, case.run_request
+    z = float(problem.initial.z)
+
+    def owner() -> NativeBackend:
+        return NativeBackend(problem, request, grid=case.simulation.grid)
+
+    singles = [
+        alone(owner(), problem, request, Start(field=state, z=z)) for state in launches
     ]
-    for member, state in zip(members, launches, strict=True):
-        member.set_initial(state, None)
-    batch = NativeBatchBackend(members)
-    try:
-        batch.propagate_to(Z_END)
-        for actual, single, bound in zip(
-            batch.observe_members(), singles, bounds, strict=True
-        ):
-            assert float(np.max(np.abs(actual.require_field() - single))) <= bound
-    finally:
-        batch.close()
-        for member in members:
-            member.close()
+    members = grouped(
+        [owner() for _ in launches],
+        [problem] * len(launches),
+        [request] * len(launches),
+        [Start(field=state, z=z) for state in launches],
+    )
+    for member, single, bound in zip(members, singles, bounds, strict=True):
+        assert single[-1]["z"] == Z_END
+        if one_thread():
+            assert_same(member, single)
+        assert [plane["z"] for plane in member] == [plane["z"] for plane in single]
+        actual, expected = member[-1]["field"], single[-1]["field"]
+        assert float(np.max(np.abs(actual - expected))) <= bound
 
 
 def _moving_grin() -> tuple[Simulation, PropagationProblem, RunRequest]:

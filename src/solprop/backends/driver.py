@@ -11,13 +11,14 @@ else. Written once here, they are the same
 step control on every backend, so a change to ``docs/dev/stepper.md`` section 3 is made
 in one place and a disagreement between two backends can only be the kernels.
 
-**The native bridge's temporary copy.** Since SEP 47 phase 2 only the native backend
-runs this loop, as the bridge that keeps its execution working until its own session
-replaces it; the NumPy reference runs its own copy
+**The native backend's temporary base.** Since SEP 47 phase 2 only the native backend
+inherits this loop; the NumPy reference runs its own copy
 (:class:`solprop.backends.host.driver.HostDriver`) and shares stateless numerical
-modules with this one, plus the exceptions :mod:`solprop.backends.host` records. This
-module is removed with SEP 47's native session: the native backend leaves it in phase 3
-and phase 5 deletes it.
+modules with this one, plus the exceptions :mod:`solprop.backends.host` records. Every
+native run is the native execution session's (``solprop_native.session``), which reads
+the backend's lowering and state through this base but serves no run through it: this
+class is no longer a session or group provider (SEP 47 phase 5), and the native backend
+leaves it for a plain resource holder in the next step of that phase, which deletes it.
 
 What a backend supplies is ``_trial_step``, ``_apply_mask`` and ``stats``, plus
 ``_finish`` when it has boundary treatments of its own; two optional hooks,
@@ -33,7 +34,7 @@ import math
 import time
 from abc import ABC, abstractmethod
 from collections import deque
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, ClassVar, Literal, TypeVar, cast
 
 import numpy as np
@@ -44,7 +45,6 @@ from solprop._interrupts import committing, poll
 from solprop.backends import rk_core
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.protocol import (
-    Backend,
     BackendHistory,
     Observation,
     StepStats,
@@ -52,12 +52,7 @@ from solprop.backends.protocol import (
     TimingProbe,
 )
 from solprop.backends.rk_core import rk_policy
-from solprop.backends.session import (
-    ExecutionOptions,
-    PreparedExecution,
-    PreparedGroup,
-    Start,
-)
+from solprop.backends.session import ExecutionOptions, Start
 from solprop.exceptions import BackendError, BoundaryError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter, StopFlag
@@ -548,10 +543,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # whether a step that crossed a densely observed plane ends on a step to save.
         self._natural_count = 0
         self._natural_due = False
-        self._halt_ahead = False
-        self._halt_requested = False
-        self._halt_check: Callable[[], bool] | None = None
-        self._halted = False
         self._history: list[tuple[float, float, float, bool, float]] = []
         self._clock = time.perf_counter()
         self._progress: ProgressReporter = NullReporter()
@@ -573,74 +564,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # Physical RK source dispatches, including rejected trials and excluding
         # recycled stages. SEP 30 records work rather than estimating it from steps.
         self._rk_source_evaluations = 0
-
-    def prepare(
-        self, problem: PropagationProblem, request: RunRequest
-    ) -> PreparedExecution:
-        """Prepare a run of this backend for one problem and request (SEP 47 5.2).
-
-        The backend lowered the method, the error control, the itinerary, the planes
-        and the statistics where it was built; preparing binds the problem and the
-        request a run serves -- this backend's own, or one run's adaptation of it
-        (:meth:`~solprop.translate.run_request.RunRequest.for_run`) -- and each start
-        of the result opens the transitional session over this driver
-        (:class:`~solprop.backends.driver_session.DriverSession`).
-
-        Parameters
-        ----------
-        problem : solprop.translate.problem.PropagationProblem
-            The translated problem: this backend's, or one derived from it with
-            another input (:func:`solprop.driver.simulation.check_derived_problem`).
-        request : solprop.translate.run_request.RunRequest
-            The run's request.
-
-        Returns
-        -------
-        solprop.backends.session.PreparedExecution
-            The prepared execution.
-        """
-        from solprop.backends.driver_session import (  # noqa: PLC0415 - it builds on this module
-            DriverPrepared,
-        )
-
-        # A concrete driver is a backend: this base is the march, and the subclass
-        # supplies the rest of the protocol (`memory_ledger`, `close`). They are not
-        # abstract here, so that a batch's protocol check can refuse a driver without.
-        return DriverPrepared(cast("Backend", self), problem, request)
-
-    def prepare_group(
-        self,
-        members: Sequence[Backend],
-        problems: Sequence[PropagationProblem],
-        requests: Sequence[RunRequest],
-    ) -> PreparedGroup:
-        """Prepare a group of compatible members of this backend (SEP 47 section 6.7).
-
-        Every driver's group is the transitional group over its backend's lockstep
-        runner (:class:`~solprop.backends.driver_session.DriverGroupSession`, chosen by
-        :func:`solprop.backends.registry.select_batch`), which SEP 47 phase 5 deletes
-        with this driver; the native backend runs its own group first where it admits
-        one.
-
-        Parameters
-        ----------
-        members : sequence of solprop.backends.protocol.Backend
-            One constructed backend per member, this one first.
-        problems : sequence of solprop.translate.problem.PropagationProblem
-            Each member's independently translated problem.
-        requests : sequence of solprop.translate.run_request.RunRequest
-            Each member's run request.
-
-        Returns
-        -------
-        solprop.backends.session.PreparedGroup
-            The prepared group.
-        """
-        from solprop.backends.driver_session import (  # noqa: PLC0415 - it builds on this module
-            DriverPreparedGroup,
-        )
-
-        return DriverPreparedGroup(members, problems, requests)
 
     @property
     def request(self) -> RunRequest:
@@ -1191,7 +1114,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             record["source_evaluations"] = self._low_storage.source_evaluations
         elif self._adams is None:
             record["source_evaluations"] = self._rk_source_evaluations
-        if self._monitor is not None:
+        if self._monitor is not None:  # pragma: no cover - bridge only
             record["boundary_monitor"] = self._monitor.summary()
         return record
 
@@ -1542,9 +1465,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._history = []
         self._natural_count = 0
         self._natural_due = False
-        self._halt_ahead = False
-        self._halt_requested = False
-        self._halt_check = None
         self._clock = time.perf_counter()
         # A resume is a second run for a reporter's purposes: it starts from a different
         # z and its own clock, so the next plane announces itself afresh.
@@ -1603,7 +1523,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             Any object with an ``is_set()`` method, such as a
             :class:`threading.Event`.
         """
-        self._stop = flag
+        self._stop = flag  # pragma: no cover - bridge only
 
     def _poll_stop(self) -> None:
         """Raise when the run's stop flag is set; called before every trial or call.
@@ -1660,12 +1580,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         first = len(self._history)
         # Beside `_begin_plane` and not inside it: neither backend's override calls
         # `super()`, so a base-class body there would silently do nothing.
-        if not self._halted:
-            # A call resuming after a halt short of its target continues the same
-            # plane: its rows and per-plane latches carry on (SEP 47 section 5.1).
-            self._reset_step_stats(release=False)
-            self._begin_plane()
-        self._halted = False
+        self._reset_step_stats(release=False)
+        self._begin_plane()
         schedule = self._stepper.schedule
         if self._low_storage is not None:
             # The low-storage march replays only (SEP 24); the translation refused
@@ -1685,7 +1601,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         ):
             # The step owed as a step plane ends on the target itself, whose plane
             # observes it: it is not observed a second time there (`_natural_stop`).
-            self._natural_due = False
+            self._natural_due = False  # pragma: no cover - bridge only
         taken = self._history[first:]
         record = ControlRecord.from_norms(
             self._stepper.controller,
@@ -1715,9 +1631,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             if isinstance(self._stepper.integrator, LowStorageRungeKutta)
             else f"{record.tolerance_ratio:.3e}",
         )
-        if not self._halted:
-            # A halt short of the target is no plane (SEP 47): no plane check there.
-            self._monitor_plane()
+        self._monitor_plane()
         return StepSummary(
             z=self._z,
             n_steps=len(taken),
@@ -1850,12 +1764,12 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         settings = self._stepper
         policy = self._controller_policy()
         dense = settings.interpolate_planes
-        if dense and self._dense_ahead is not None:
+        if dense and self._dense_ahead is not None:  # pragma: no cover - bridge only
             # The march is ahead of the last interpolated plane; resume it there.
             self._adams_restore(*self._dense_ahead)
             self._dense_ahead = None
         if self._natural_stop_due(target):
-            return
+            return  # pragma: no cover - bridge only
         breakpoints = self._problem.linear.phi_breakpoints
         if not settings.interval_cap:
             # The cumulative table makes the flow exact across its intervals, so only
@@ -1898,7 +1812,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             end = stop.z_target if stop.z_target is not None else self._z + stop.dz
             self._record(end, stop.dz, norm, accepted)
             if accepted:
-                if dense and not reached(target, end):
+                if dense and not reached(target, end):  # pragma: no cover - bridge only
                     # The step crosses the plane: hold its extension for the
                     # observation, and for any later plane it also crosses.
                     self._dense_step = self._dense_record(self._z, stop.dz)
@@ -1924,7 +1838,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                 self._proposal = rk_core.reject(policy, self._proposal, equivalent)
 
         if dense and not reached(target, self._z):
-            self._observe_inside(target)
+            self._observe_inside(target)  # pragma: no cover - bridge only
 
     def _dense_record(
         self, z: float, dz: float
@@ -2125,89 +2039,18 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         every = self._stepper.step_planes
         self._natural_count += 1
         if every == 0 or self._natural_count % every:
-            return self._halted_short(target)
+            return False
         if reached(self._z, target):
             self._natural_due = not reached(target, self._z)
             return False
         return True
-
-    def request_halt(self) -> None:
-        """Stop the march at the next accepted endpoint short of its target.
-
-        The execution session's snapshot latch (SEP 47 section 5.5): ``propagate_to``
-        returns at the end of the next accepted step, as at a natural stop, without
-        counting it as one, so the session can service a snapshot there. An endpoint on
-        the target itself is observed as the plane, and the latch stays set for the
-        session to find. A native march returns after every accepted step while it is
-        set (``host_step`` of one).
-        """
-        self._halt_requested = True
-
-    def clear_halt(self) -> None:
-        """Withdraw a halt requested with :meth:`request_halt`, once it is serviced."""
-        self._halt_requested = False
-
-    def halt_ahead(self) -> None:
-        """Halt the next march at the endpoint a dense observation held, if short.
-
-        The execution session's snapshot latch beside interpolated planes (SEP 47
-        section 5.5): the march stands ahead of the plane it observed, at the end of
-        the step that crossed it. When the next march restores that endpoint and the
-        latch is set, it returns there at once, unless a step plane is owed there
-        first or the target is another plane the step crossed, so that the snapshot is
-        taken at that endpoint rather than wait for a step that crosses no plane.
-        """
-        self._halt_ahead = True
-
-    def set_halt_check(self, check: Callable[[], bool] | None) -> None:
-        """Ask `check` at every accepted endpoint whether to halt there.
-
-        The execution session's bounded yield (SEP 47 section 5.1): when `check`
-        returns True the halt latch of :meth:`request_halt` is set, so the march
-        returns at that endpoint (a native march at the end of its next step). It is
-        asked only at safe boundaries and changes nothing the march computes.
-
-        Parameters
-        ----------
-        check : callable or None
-            Returns whether a yield is due; ``None`` asks nothing.
-        """
-        self._halt_check = check
-
-    def poll_halt(self) -> None:
-        """Latch a halt when the yield check says one is due, between native calls."""
-        check = self._halt_check
-        if check is not None and not self._halt_requested and check():
-            self._halt_requested = True
-
-    def _halted_short(self, target: float) -> bool:
-        """Return whether a halt stops the march here, short of `target`.
-
-        Parameters
-        ----------
-        target : float
-            The position the call is stepping to, m.
-
-        Returns
-        -------
-        bool
-            True when a halt is requested or the yield check asks for one, and the
-            endpoint is short of `target`.
-        """
-        if reached(self._z, target):
-            return False
-        self.poll_halt()
-        if self._halt_requested:
-            self._halted = True
-        return self._halt_requested
 
     def _natural_stop_due(self, target: float) -> bool:
         """Return whether a step to save ends before `target`, with the march there.
 
         Called at the start of a march, once a dense observation's march state is
         restored: a step that crossed the last observed plane and was the ``k``-th is
-        saved now, unless `target` is another plane it also crossed; otherwise a halt
-        asked for there (:meth:`halt_ahead`) stops the march there.
+        saved now, unless `target` is another plane it also crossed.
 
         Parameters
         ----------
@@ -2219,14 +2062,10 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         bool
             Whether to return at once, at the step's end.
         """
-        ahead, self._halt_ahead = self._halt_ahead, False
-        if self._natural_due and not reached(self._z, target):
+        if self._natural_due and not reached(
+            self._z, target
+        ):  # pragma: no cover - bridge only
             self._natural_due = False
-            return True
-        if ahead and self._halt_requested and not reached(self._z, target):
-            # The restored endpoint of :meth:`halt_ahead`, every plane its step
-            # crossed observed.
-            self._halted = True
             return True
         return False
 
@@ -2456,7 +2295,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """
         schedule = self._stepper.schedule
         if schedule is None:
-            return self._proposal
+            return self._proposal  # pragma: no cover - bridge only
         if self._schedule_index >= schedule.n_steps:
             return 0.0
         return float(schedule.steps[self._schedule_index])
@@ -2536,7 +2375,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         monitor = self._monitor
         return monitor if monitor is not None and monitor.split else None
 
-    def _boundary_energies(self, state: _StateT) -> BoundaryEnergies:
+    def _boundary_energies(
+        self, state: _StateT
+    ) -> BoundaryEnergies:  # pragma: no cover - bridge only
         """Return the boundary monitor's reading of a state (SEP 21, ADR-057).
 
         The state's energy and its four weighted energies
@@ -2662,7 +2503,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         ahead = schedule.steps[first : first + monitor.steps_to_check()]
         step = float(np.max(ahead))
         cap = monitor.step_cap
-        if step > cap:
+        if step > cap:  # pragma: no cover - bridge only
             raise BoundaryError(_split_crossing_message(position, cap, step))
 
     def _set_collar_quiet(self, quiet: bool) -> None:
@@ -2683,7 +2524,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         quiet = quiet and self._collar_can_rest()
         if self._monitor is not None:
             self._monitor.note_collar(quiet)
-        if quiet != self._collar_quiet:
+        if quiet != self._collar_quiet:  # pragma: no cover - bridge only
             self._collar_quiet = quiet
             self._collar_changed()
 
@@ -2758,7 +2599,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         monitor = self._monitor
         if monitor is None:
             return
-        if monitor.stale:
+        if monitor.stale:  # pragma: no cover - bridge only
             self._check_boundaries(monitor, plane=True)
         self._read_transverse(monitor, plane=True)
         monitor.plane(self._z)
@@ -2792,7 +2633,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if monitor is not None:
             if monitor.due(self._z):
                 self._check_boundaries(monitor)
-            else:
+            else:  # pragma: no cover - bridge only
                 monitor.skip(self._z)
             self._read_transverse(monitor, plane=False)
 
@@ -2815,7 +2656,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if monitor is None:
             return
         if energies is None:
-            monitor.skip(z)
+            monitor.skip(z)  # pragma: no cover - bridge only
         else:
             self._check_at(monitor, energies, z, cursor)
 

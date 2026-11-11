@@ -8,8 +8,10 @@ SEP 47 sections 5.4 and 5.5: the native session owns the Adams march's state, so
 exports the method history (:class:`~solprop.output.schema.MarchSnapshot`) at every
 accepted endpoint a ticket names, installs a resumed run's history and call ledgers
 from its start, and states the ledger in its execution record. Each is held to the
-transitional :class:`~solprop.backends.driver_session.DriverSession` over the same
-native backend, which runs the same strict march: on one thread, bitwise.
+NumPy reference session on the same problem within the budgets of SEP 25
+(:func:`sessions.test_native_session.assert_meets_reference`), and, on one thread, to
+the native session's own run: repeated, or uninterrupted where a resume continues it,
+bit for bit.
 
 A failure outside the session -- a signal arriving during a native call, a service
 failure between batches -- still leaves the committed state exportable for its
@@ -28,15 +30,24 @@ from sessions.executors import (
     IDENTITY,
     PLANES,
     Started,
+    assert_same_run,
     drive,
     fibre,
+    masked,
+    record_layout,
     skip_device_refused,
     window,
 )
-from sessions.test_native_session import _case, _driver_session, _one_thread
+from sessions.test_native_session import (
+    PLANE_BOUND,
+    _case,
+    _one_thread,
+    _reference_session,
+    assert_meets_reference,
+)
 from solprop._interrupts import handled
-from solprop.backends.driver_session import DriverSession
 from solprop.backends.events import ObservationReady, Outcome
+from solprop.backends.host.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import SessionError, Start
 from solprop.backends.sessions import start_session
@@ -178,32 +189,66 @@ def _assert_same_snapshot(got: MarchSnapshot, expected: MarchSnapshot) -> None:
         assert row.tobytes() == expected.rows[name].tobytes(), name
 
 
-@pytest.mark.parametrize("case", sorted(SNAPSHOTTED))
-def test_the_session_exports_the_drivers_method_history(case):
-    """SEP 47 section 5.4: at every plane the native session's snapshot is the one the
-    backend's own march gives over the driver session, bitwise on one thread: the
-    state, the history's positions, identities and rows, and the march's scalars;
-    its size is known before it is copied.
+def _assert_close_snapshot(got: MarchSnapshot, expected: MarchSnapshot) -> None:
+    """Assert a native method history is the reference's within the run's budgets.
+
+    The march's discrete state -- its method, order, rejections and history layout --
+    exactly; its positions and proposal to the accepted-step budget, and its state
+    and rows to :data:`~sessions.test_native_session.PLANE_BOUND` of their peaks.
+
+    Parameters
+    ----------
+    got : solprop.output.schema.MarchSnapshot
+        The native snapshot.
+    expected : solprop.output.schema.MarchSnapshot
+        The reference's.
     """
-    if not _one_thread():
-        pytest.skip("bitwise agreement is claimed on one thread (SOLPROP_THREADS=1)")
+    for name in ("method", "order", "rejections", "last_rejected", "collar_was_quiet"):
+        assert getattr(got, name) == getattr(expected, name), name
+    assert got.z == pytest.approx(expected.z, rel=1e-6)
+    assert got.proposal == pytest.approx(expected.proposal, rel=1e-6)
+    np.testing.assert_allclose(got.positions, expected.positions, rtol=1e-6)
+    for one, other in [(got.state, expected.state)] + [
+        (row, expected.rows[name]) for name, row in got.rows.items()
+    ]:
+        assert one.shape == other.shape and one.dtype == other.dtype
+        scale = float(np.max(np.abs(other), initial=0.0))
+        np.testing.assert_allclose(one, other, rtol=0, atol=PLANE_BOUND * scale)
+    assert got.rows.keys() == expected.rows.keys()
+
+
+@pytest.mark.parametrize("case", sorted(SNAPSHOTTED))
+def test_the_session_exports_its_method_history(case):
+    """SEP 47 section 5.4: at every plane the native session exports its method
+    history, its size known before it is copied; on one thread a repeated run's are
+    bitwise its own -- the state, the history's positions, identities and rows, and
+    the march's scalars -- and they meet the reference session's
+    (:func:`_assert_close_snapshot`).
+    """
     problem, run_request = _case(**SNAPSHOTTED[case])
     request = run_request
-    expected = _snapshots(_driver_session(problem, request))
+    expected = _snapshots(_reference_session(problem, request))
     got = _snapshots(Started(_native(problem, request, _entrance(problem))))
     assert len(got) == len(expected) > len(PLANES)
     # The launch holds no history; every later plane does.
     assert got[0] == (None, None) == expected[0]
-    for (snapshot, nbytes), (reference, size) in zip(
-        got[1:], expected[1:], strict=True
-    ):
+    for (snapshot, nbytes), (reference, _) in zip(got[1:], expected[1:], strict=True):
         if case.endswith("dense") and reference is None:
             # A dense plane: the march stands ahead of it and keeps no history there.
-            assert (snapshot, nbytes, size) == (None, None, None)
+            assert (snapshot, nbytes) == (None, None)
             continue
         assert snapshot is not None and reference is not None
-        _assert_same_snapshot(snapshot, reference)
-        assert nbytes == size == snapshot.nbytes
+        _assert_close_snapshot(snapshot, reference)
+        assert nbytes == snapshot.nbytes
+    if not _one_thread():
+        pytest.skip("bitwise repetition is claimed on one thread (SOLPROP_THREADS=1)")
+    again = _snapshots(Started(_native(problem, request, _entrance(problem))))
+    for (snapshot, _), (repeated, _) in zip(got[1:], again[1:], strict=True):
+        if snapshot is None:
+            assert repeated is None
+            continue
+        assert repeated is not None
+        _assert_same_snapshot(repeated, snapshot)
 
 
 def test_a_snapshot_is_the_state_its_ticket_names():
@@ -308,11 +353,12 @@ def _at_second_plane(started: Started) -> tuple[MarchSnapshot, dict[str, object]
 
 
 @pytest.mark.parametrize("case", sorted(ADAMS))
-def test_a_resumed_history_continues_as_the_drivers_does(case):
+def test_a_resumed_history_continues_the_uninterrupted_run(case):
     """SEP 47 section 5.5: a start carrying the Adams history and the call ledger
-    continues the march as the backend's own march does from the same start: the
-    same trace and fields, bitwise on one thread, and the same ledger at the end,
-    cumulative from the restored one; the history was installed, not refused.
+    continues the march as the run that was not interrupted goes on: on one thread
+    the same accepted steps, planes and fields after the resume, bitwise, and the
+    same ledger at the end, cumulative from the restored one; the history was
+    installed, not refused.
     """
     if not _one_thread():
         pytest.skip("bitwise agreement is claimed on one thread (SOLPROP_THREADS=1)")
@@ -322,14 +368,10 @@ def test_a_resumed_history_continues_as_the_drivers_does(case):
         Started(_native(problem, request, _entrance(problem)))
     )
     assert ledger["accepted_steps"]
-    driver = select("native", problem, run_request, grid=window(), modes=[fibre().mode])
-    baseline_session = DriverSession(
-        driver, problem, request, _resumed(problem, run_request, snapshot, ledger)
-    )
-    assert baseline_session.march_refusal is None
-    baseline = drive(Started(baseline_session), export=IDENTITY)
-    expected = driver.metadata()["response_calls"]
-    baseline_session.close()
+    whole = _native(problem, request, _entrance(problem))
+    baseline = drive(Started(whole), export=IDENTITY)
+    expected = whole.execution_record()["response_calls"]
+    whole.close()
     session = _native(
         problem, request, _resumed(problem, run_request, snapshot, ledger)
     )
@@ -337,22 +379,26 @@ def test_a_resumed_history_continues_as_the_drivers_does(case):
     run = drive(Started(session), export=IDENTITY)
     got = session.execution_record()["response_calls"]
     session.close()
-    from sessions.executors import assert_same_run  # noqa: PLC0415 - beside its use
-
-    assert_same_run(run, baseline)
+    later = [one for one in baseline.observations if one.z > snapshot.z]
+    assert [(one.kind, one.z) for one in run.observations] == [
+        (one.kind, one.z) for one in later
+    ]
+    ends = baseline.accepted_ends()
+    assert run.accepted_ends().tobytes() == ends[ends > snapshot.z].tobytes()
+    for field, other in zip(run.fields, baseline.fields[-len(later) :], strict=True):
+        assert field.tobytes() == other.tobytes()
     assert got == expected
     assert got["accepted_steps"] > ledger["accepted_steps"]
 
 
-def test_the_ledger_record_is_the_drivers():
+def test_the_ledger_record_is_the_reference_s():
     """The execution record's call ledger is the native march's own: its counters and
-    every accepted step's order, as the driver session's backend records them.
+    every accepted step's order, as the reference session's march records them on the
+    same problem, which takes the same steps.
     """
-    if not _one_thread():
-        pytest.skip("bitwise agreement is claimed on one thread (SOLPROP_THREADS=1)")
     problem, run_request = _case(integrator=Multistep())
     request = run_request
-    started = _driver_session(problem, request)
+    started = _reference_session(problem, request)
     drive(started)
     driver = started.session.driver  # pyright: ignore[reportAttributeAccessIssue]
     expected = driver.metadata()["response_calls"]
@@ -365,9 +411,10 @@ def test_the_ledger_record_is_the_drivers():
     assert sum(count for _, count in got["orders"]) == got["accepted_steps"] > 0
 
 
-def test_the_budget_stops_the_session_as_it_stops_the_drivers_march():
-    """The source-call budget ends the native session where it ends the backend's
-    march: the same error, message, position, field and calls.
+def test_the_budget_stops_the_session_as_it_stops_the_reference_s_march():
+    """The source-call budget ends the native session where it ends the reference's
+    march: the same error, message, position and calls, and the field within the
+    plane budget; on one thread a repeated run's field bitwise.
     """
     problem, run_request = _case(
         integrator=Multistep(max_calls=40),
@@ -376,17 +423,23 @@ def test_the_budget_stops_the_session_as_it_stops_the_drivers_march():
         dz_max=LENGTH / 400,
     )
     request = run_request
-    baseline = drive(_driver_session(problem, request))
+    baseline = drive(_reference_session(problem, request))
     run = drive(Started(_native(problem, request, _entrance(problem))))
     got, expected = run.terminal.error, baseline.terminal.error
     assert isinstance(got, ResponseBudgetError)
     assert isinstance(expected, ResponseBudgetError)
-    assert str(got) == str(expected)
-    assert (got.z, got.calls) == (expected.z, expected.calls)
+    assert masked(str(got)) == masked(str(expected))
+    assert got.z == pytest.approx(expected.z, rel=1e-12)
+    assert got.calls == expected.calls
     field, reference = np.asarray(got.field), np.asarray(expected.field)
     assert field.shape == reference.shape == problem.shape
+    scale = float(np.max(np.abs(reference)))
+    np.testing.assert_allclose(field, reference, rtol=0, atol=PLANE_BOUND * scale)
     if _one_thread():
-        assert field.tobytes() == reference.tobytes()
+        again = drive(Started(_native(problem, request, _entrance(problem))))
+        repeated = again.terminal.error
+        assert isinstance(repeated, ResponseBudgetError)
+        assert np.asarray(repeated.field).tobytes() == field.tobytes()
 
 
 def test_a_failure_between_batches_still_checkpoints_the_committed_state():
@@ -488,31 +541,6 @@ def test_a_signal_during_an_advance_is_raised_with_its_batch_pending(monkeypatch
         session.close()
 
 
-def test_a_backend_that_steps_on_the_host_is_served_by_the_driver(monkeypatch):
-    """A backend whose own march would step on the host (here its test interface) is
-    served by the transitional session over that march, decided before the start's
-    field is taken; otherwise production runs on the native session.
-    """
-    problem, run_request = _case(integrator=Multistep(), step_planes=0)
-    request = run_request
-    for switch, served in (("native", native_session.NativeSession), ("host", None)):
-        monkeypatch.setattr(native_backend, "_ADAMS_MARCH", switch)
-        backend = select(
-            "native", problem, run_request, grid=window(), modes=[fibre().mode]
-        )
-        start = _entrance(problem)
-        session = start_session(backend, problem, request, start)
-        try:
-            if served is None:
-                assert isinstance(session, DriverSession)
-                assert native_session.backend_refusal(backend) is not None
-            else:
-                assert isinstance(session, served)
-                assert native_session.backend_refusal(backend) is None
-        finally:
-            session.close()
-
-
 def _noisy(noise: Any, *, check: bool, march: str = "adams") -> Any:
     """Return a short soliton with a noise model, its boundary monitor on or off, on
     the adaptive Adams march, densely observed, or replayed by the low-storage march.
@@ -548,12 +576,13 @@ def _noisy(noise: Any, *, check: bool, march: str = "adams") -> Any:
 @pytest.mark.parametrize("march", ["adams", "dense", "low-storage"])
 @pytest.mark.parametrize("check", [True, False], ids=["monitored", "unmonitored"])
 @pytest.mark.parametrize("noise", ["input", "modified"])
-def test_a_noisy_run_is_the_drivers(noise, check, march):
-    """The input and modified noise models run on the native session as on the
-    backend's own march, adaptive Adams, densely observed or low-storage: the same
-    noise phase at every plane, and on one thread the same trace, fields and
-    boundary-monitor record, the input draw's vacuum floor read by the native monitor
-    as solprop's monitor reads it.
+def test_a_noisy_run_meets_the_reference(noise, check, march):
+    """The input and modified noise models run on the native session, adaptive Adams,
+    densely observed or low-storage: the reference session's noise phase at every
+    plane to the plane budget, its run within the budgets of
+    :func:`~sessions.test_native_session.assert_meets_reference`, the same
+    boundary-monitor record layout, and on one thread a repeated run's trace, fields,
+    phases and record bit for bit.
     """
     if march == "dense" and noise == "modified":
         pytest.skip("the translation refuses dense output beside the modified noise")
@@ -565,14 +594,15 @@ def test_a_noisy_run_is_the_drivers(noise, check, march):
     skip_device_refused(problem)
     assert native_session.refusal(problem, request) is None
     context = {"grid": simulation.grid, "modes": simulation.modes}
-    phases: dict[str, list[np.ndarray]] = {"driver": [], "native": []}
+    kinds = ("reference", "native", "again")
+    phases: dict[str, list[np.ndarray]] = {kind: [] for kind in kinds}
     runs = {}
     records = {}
-    for kind in ("driver", "native"):
+    for kind in kinds:
         start = Start(field=problem.initial.field0, z=float(problem.initial.z))
-        if kind == "driver":
-            session: Any = DriverSession(
-                select("native", problem, run_request, **context),
+        if kind == "reference":
+            session: Any = HostSession(
+                select("numpy_ref", problem, run_request, **context),
                 problem,
                 request,
                 start,
@@ -590,20 +620,39 @@ def test_a_noisy_run_is_the_drivers(noise, check, march):
             runs[kind] = drive(Started(session), export=IDENTITY, between=phase)
         records[kind] = session.monitor_record()
         session.close()
-    assert len(phases["native"]) == len(phases["driver"]) > len(PLANES)
-    for got, expected in zip(phases["native"], phases["driver"], strict=True):
-        assert got.shape == problem.shape
-        assert got.tobytes() == expected.tobytes()
+    _assert_phases_meet(phases["native"], phases["reference"], problem.shape)
     assert (records["native"] is None) is not check
+    assert record_layout(records["native"]) == record_layout(records["reference"])
+    assert_meets_reference(runs["native"], runs["reference"])
     if not _one_thread():
         pytest.skip(
-            "the noise phases agree; the runs and records are compared bit for bit on "
-            "one thread (SOLPROP_THREADS=1), where the reductions' order is fixed"
+            "the runs and records are repeated bit for bit on one thread "
+            "(SOLPROP_THREADS=1), where the reductions' order is fixed"
         )
-    from sessions.executors import assert_same_run  # noqa: PLC0415
+    assert_same_run(runs["again"], runs["native"])
+    assert records["again"] == records["native"]
+    for got, expected in zip(phases["again"], phases["native"], strict=True):
+        assert got.tobytes() == expected.tobytes()
 
-    assert_same_run(runs["native"], runs["driver"])
-    assert records["native"] == records["driver"]
+
+def _assert_phases_meet(
+    phases: list[np.ndarray], reference: list[np.ndarray], shape: tuple[int, ...]
+) -> None:
+    """Assert a native run's noise phases are the reference's, to the plane budget.
+
+    Parameters
+    ----------
+    phases : list of numpy.ndarray
+        The native session's phase at each plane.
+    reference : list of numpy.ndarray
+        The reference session's.
+    shape : tuple of int
+        The field's shape, each phase's.
+    """
+    assert len(phases) == len(reference) > 1
+    for got, expected in zip(phases, reference, strict=True):
+        assert got.shape == expected.shape == shape
+        np.testing.assert_allclose(got, expected, rtol=0, atol=PLANE_BOUND)
 
 
 def _walkoff(
@@ -634,11 +683,12 @@ def _walkoff(
 
 @pytest.mark.parametrize("march", ["adams", "runge-kutta"])
 @pytest.mark.parametrize("noise", ["input", "modified"])
-def test_a_noisy_run_on_a_z_table_is_the_drivers(noise, march):
+def test_a_noisy_run_on_a_z_table_meets_the_reference(noise, march):
     """The noise phase at a plane reads a z table's propagator phase, which the leased
     state holds: the native session reads its slot at the plane through the session,
     under its lock, as the backend reads it from its state, and the door serves the
-    run natively. The same phase at every plane, and on one thread the same run.
+    run natively. The reference's phase at every plane and its run, within their
+    budgets, and on one thread a repeated run bit for bit.
     """
     from solprop.stepper import RungeKutta  # noqa: PLC0415 - beside its one use
 
@@ -651,17 +701,16 @@ def test_a_noisy_run_on_a_z_table_is_the_drivers(noise, march):
     skip_device_refused(problem)
     assert native_session.refusal(problem, request) is None
     context = {"grid": simulation.grid, "modes": simulation.modes}
-    phases: dict[str, list[np.ndarray]] = {"driver": [], "native": []}
+    kinds = ("reference", "native", "again")
+    phases: dict[str, list[np.ndarray]] = {kind: [] for kind in kinds}
     runs = {}
-    for kind in ("driver", "native"):
-        backend = select("native", problem, request, **context)
-        assert native_session.backend_refusal(backend) is None
+    for kind in kinds:
+        name = "numpy_ref" if kind == "reference" else "native"
+        backend = select(name, problem, request, **context)
         start = Start(field=problem.initial.field0, z=float(problem.initial.z))
-        if kind == "driver":
-            session: Any = DriverSession(backend, problem, request, start)
-        else:
-            session = start_session(backend, problem, request, start)
-            assert isinstance(session, native_session.NativeSession)
+        session: Any = start_session(backend, problem, request, start)
+        expected = HostSession if kind == "reference" else native_session.NativeSession
+        assert isinstance(session, expected)
 
         def phase(one, batch, found=phases[kind]) -> None:
             for event in batch.events:
@@ -673,19 +722,18 @@ def test_a_noisy_run_on_a_z_table_is_the_drivers(noise, march):
         finally:
             session.close()
             backend.close()
-    assert len(phases["native"]) == len(phases["driver"]) == 4
-    for got, expected in zip(phases["native"], phases["driver"], strict=True):
-        assert got.shape == problem.shape
-        assert got.tobytes() == expected.tobytes()
+    assert len(phases["native"]) == 4
+    _assert_phases_meet(phases["native"], phases["reference"], problem.shape)
     assert np.any(phases["native"][-1] != phases["native"][0])
+    assert_meets_reference(runs["native"], runs["reference"])
     if not _one_thread():
         pytest.skip(
-            "the noise phases agree; the runs are compared bit for bit on one thread "
-            "(SOLPROP_THREADS=1), where the reductions' order is fixed"
+            "the runs are repeated bit for bit on one thread (SOLPROP_THREADS=1), "
+            "where the reductions' order is fixed"
         )
-    from sessions.executors import assert_same_run  # noqa: PLC0415
-
-    assert_same_run(runs["native"], runs["driver"])
+    assert_same_run(runs["again"], runs["native"])
+    for got, expected in zip(phases["again"], phases["native"], strict=True):
+        assert got.tobytes() == expected.tobytes()
 
 
 def test_a_z_table_s_noise_phase_needs_a_pending_ticket():
@@ -799,13 +847,15 @@ RESTARTED = {
 
 
 @pytest.mark.parametrize("case", sorted(RESTARTED))
-def test_production_selects_the_session_and_a_field_restart_continues_as_the_driver(
+def test_production_selects_the_session_and_a_field_restart_meets_the_reference(
     case,
 ):
     """Production selects the native session for low-storage and dense runs, and a
     field restart from a saved plane (no history: the low-storage march keeps none,
-    and a dense plane's march stands ahead of it) continues as the backend's own march
-    continues it, bitwise on one thread.
+    and a dense plane's march stands ahead of it) continues as the reference's session
+    continues it from the same field, within the budgets of
+    :func:`~sessions.test_native_session.assert_meets_reference`, and repeats itself
+    bitwise on one thread.
     """
     problem, run_request = _case(step_planes=0, **RESTARTED[case])
     request = run_request
@@ -837,13 +887,15 @@ def test_production_selects_the_session_and_a_field_restart_continues_as_the_dri
             field=field.copy(), z=z, plane_index=index, plane_pending=False, resume=True
         )
 
-    driver = select("native", problem, run_request, grid=window(), modes=[fibre().mode])
+    driver = select(
+        "numpy_ref", problem, run_request, grid=window(), modes=[fibre().mode]
+    )
     baseline = drive(
-        Started(DriverSession(driver, problem, request, resumed())), export=IDENTITY
+        Started(HostSession(driver, problem, request, resumed())), export=IDENTITY
     )
     run = drive(Started(_native(problem, request, resumed())), export=IDENTITY)
     assert len(run.observations) == len(baseline.observations) == len(PLANES) - 2
+    assert_meets_reference(run, baseline)
     if _one_thread():
-        from sessions.executors import assert_same_run  # noqa: PLC0415
-
-        assert_same_run(run, baseline)
+        again = drive(Started(_native(problem, request, resumed())), export=IDENTITY)
+        assert_same_run(again, run)

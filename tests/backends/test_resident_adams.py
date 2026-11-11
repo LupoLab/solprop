@@ -26,6 +26,7 @@ import pytest
 from capability_routes import ROUTES
 from solprop.backends import available
 from solprop.backends.multistep import HostHistory
+from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import ResponseBudgetError
 from solprop.stepper import FixedSchedule, PIController
 from solprop.stepper.multistep import Multistep
@@ -398,65 +399,12 @@ def test_the_compensated_reference_follows_the_host_engine(dense, monkeypatch):
     np.testing.assert_allclose(fields, host, rtol=0, atol=1e-8 * scale)
 
 
-_TRIALS = frozenset(
-    {
-        "adams_fused_trial",
-        "adams_fused_trial_at",
-        "adams_exponential_trial",
-        "adams_exponential_trial_at",
-    }
-)
-"""The native trials that take the norm's divisor, empty when they form it."""
-
-
-class _HostDivisor:
-    """The native state, its trials handed the divisor formed on the host.
-
-    An identical-input control for the native scale: each trial that would form the
-    divisor itself (``_NO_DIVISOR``) is handed instead ``PIController.scale`` of the
-    accepted state's magnitude, which the engine reduces natively and the host reads,
-    as the engine formed it for a controller of its own before solprop SEP 47 refused
-    those at admission. Everything else is the native state's own.
-    """
-
-    def __init__(self, native, controller, n_omega):
-        self._native = native
-        self._controller = controller
-        self._n_omega = n_omega
-        self.trials = 0
-
-    def __getattr__(self, name):
-        found = getattr(self._native, name)
-        return _HostDivisorTrial(self, found) if name in _TRIALS else found
-
-
-class _HostDivisorTrial:
-    """One trial of :class:`_HostDivisor`, its empty divisor replaced."""
-
-    def __init__(self, owner, trial):
-        self._owner = owner
-        self._trial = trial
-
-    def __call__(self, *args):
-        owner = self._owner
-        empty = backend_module._NO_DIVISOR
-        assert sum(arg is empty for arg in args) == 1
-        magnitude = owner._native.adams_magnitude()
-        scale = owner._controller.scale(magnitude, magnitude)
-        divisor = np.ascontiguousarray(
-            np.broadcast_to(np.asarray(scale, dtype=np.float64), (owner._n_omega,))
-        )
-        owner.trials += 1
-        return self._trial(*(divisor if arg is empty else arg for arg in args))
-
-
-def test_a_divisor_formed_on_the_host_takes_the_same_steps(monkeypatch):
+def test_a_divisor_formed_on_the_host_takes_the_same_steps():
     # solprop's controller has the norm's divisor formed in the exponential trial's
-    # last pass, from the accepted state's magnitude its first pass reduces. The same
-    # trials handed the divisor formed on the host from the engine's magnitude, the
-    # same formula on the same magnitude, on solprop's march over the same engine (the
-    # test interface's): on a pressure gradient, whose compensation joins every
-    # defect, both take the same steps.
+    # last pass, from the accepted state's magnitude its first pass reduces. The
+    # reference forms the same formula's divisor on the host from its own magnitude:
+    # on a pressure gradient, whose compensation joins every defect, both take the
+    # same steps, with the same calls, to fields that agree to rounding.
     from backends.test_exponential_varying import LENGTH, gradient  # noqa: PLC0415
 
     simulation = gradient(
@@ -466,36 +414,28 @@ def test_a_divisor_formed_on_the_host_takes_the_same_steps(monkeypatch):
     run_request = simulation._run_request()
     assert type(run_request.stepper.controller) is PIController
 
-    def march(on_host):
-        with monkeypatch.context() as patch:
-            if on_host:
-                patch.setattr(backend_module, "_ADAMS_MARCH", "host")
-            backend = NativeBackend(
-                problem, run_request, grid=simulation.grid, modes=simulation.modes
-            )
+    def march(implementation):
+        backend = implementation(
+            problem, run_request, grid=simulation.grid, modes=simulation.modes
+        )
         try:
             backend.set_initial(problem.initial.field0, None)
             march = backend._adams
             assert march is not None
-            engine = march._engine
-            assert type(engine).__name__ == "_ResidentAdams"
-            assert march.native is not on_host
-            proxy = None
-            if on_host:
-                proxy = _HostDivisor(
-                    engine.native, engine.controller, problem.grids.n_omega
-                )
-                engine.native = proxy
-            fields = []
+            if implementation is NativeBackend:
+                assert type(march._engine).__name__ == "_ResidentAdams"
+                assert march.native
+            fields, steps = [], 0
             for plane in run_request.stepper.save_planes:
                 backend.propagate_to(float(plane))
-                fields.append(backend.observe().require_field().copy())
-            return np.array(fields), march.ledger.total, proxy
+                observed = backend.observe()
+                fields.append(observed.require_field().copy())
+                steps += observed.step_history.n_steps
+            return np.array(fields), march.ledger.total, steps
         finally:
             backend.close()
 
-    fields, calls, _ = march(on_host=False)
-    host, host_calls, proxy = march(on_host=True)
-    assert proxy is not None and proxy.trials > 0
-    assert calls == host_calls
+    fields, calls, steps = march(NativeBackend)
+    host, host_calls, host_steps = march(NumpyRefBackend)
+    assert (calls, steps) == (host_calls, host_steps)
     np.testing.assert_allclose(fields, host, rtol=0, atol=1e-12 * np.max(np.abs(host)))

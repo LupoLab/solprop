@@ -21,9 +21,8 @@ and the modified noise read the table's phase too.
 import copy
 import dataclasses
 import warnings
-from collections.abc import Sequence
 from contextlib import ExitStack
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import pytest
@@ -40,7 +39,11 @@ from march_bounds import (
     simulation_bound,
 )
 from optmat_parity_cases import variant
-from solprop.backends import Backend, select, select_batch
+from solprop.backends import select
+from solprop.backends.events import ObservationReady
+from solprop.backends.export import ExportRecipe
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_group
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
@@ -227,24 +230,50 @@ def loaded(simulation, cleanup):
 
 
 def test_a_batch_of_z_table_members():
-    # The native Batch prepares each member's trial on its own tables and fuses the
-    # accepted update, as it does for parameter expansions.
+    # The native group runs each member's native session on its own tables (SEP 47
+    # section 6.7), each member within the march's bound of the reference.
+    identity = ExportRecipe(power=False, optics=False)
     with ExitStack() as cleanup:
         members = [fibre(index, "native") for index in range(3)]
-        assert not members[0].translate().device_ready
-        batch = select_batch(
-            cast(Sequence[Backend], [loaded(one, cleanup) for one in members])
+        problems = [one.translate() for one in members]
+        assert not problems[0].device_ready
+        owners = [
+            select(
+                one.settings.backend,
+                problem,
+                one._run_request(),
+                grid=one.grid,
+                modes=one.modes,
+                profiles=one.profiles,
+            )
+            for one, problem in zip(members, problems, strict=True)
+        ]
+        for owner in owners:
+            cleanup.callback(owner.close)
+        group = start_group(
+            owners,
+            problems,
+            [one._run_request() for one in members],
+            [Start.entrance(problem) for problem in problems],
         )
-        cleanup.callback(batch.close)
-        assert type(batch).__name__ == "NativeBatchBackend"
-        batch.propagate_to(FIBRE_LENGTH)
-        observed = batch.observe_members()
-        for index, (member, ours) in enumerate(zip(members, observed, strict=True)):
+        cleanup.callback(group.close)
+        assert type(group).__name__ == "NativeGroupSession"
+        fields: dict[int, np.ndarray] = {}
+        while not group.finished:
+            batch = group.advance()
+            for index, events in enumerate(batch.members):
+                for event in events:
+                    if isinstance(event, ObservationReady):
+                        fields[index] = np.array(
+                            group.export(index, event.ticket, identity)
+                        )
+            group.acknowledge(batch.receipt)
+        for index, member in enumerate(members):
             reference: Any = loaded(on(member, "numpy_ref"), cleanup)
             reference.propagate_to(FIBRE_LENGTH)
             bound = simulation_bound(member, backend="native")
             assert_matched(
-                ours.require_field(),
+                fields[index],
                 reference.observe().require_field(),
                 bound,
                 what=f"member {index}",

@@ -178,9 +178,10 @@ completed step (irrelevant without dense output, but tested).
 **Two copies of the Python control** ([SEP 47](seps/sep-0047-run-ownership.md) phase 2).
 The NumPy reference runs its own step driver and marches in `backends/host/`:
 `HostDriver`, `HostAdamsMarch`, `HostGeneralPath`, `HostLowStorageMarch` and the
-fixed-schedule group `HostGroup`. The native backend runs the inherited `StepDriver`,
-`AdamsMarch`, `LowStorageMarch` and `LockstepRunner` in `backends/`, the
-native bridge's temporary copies, removed with SEP 47's native session. The copies
+fixed-schedule group `HostGroup`. The native backend still inherits `StepDriver`,
+`AdamsMarch` and `LowStorageMarch` in `backends/`, though since SEP 47 phase 5 no run
+is served through them (every native run is its native session's), and they are removed
+with the rest of that phase. The copies
 started identical and the decision corpora hold both to the same decisions; where this
 page names a member of one, the other's is the same. The comparison variants
 (`ComparisonMultistep`, whose general Adams path is the reference's) and a controller that
@@ -469,10 +470,8 @@ the interaction formulation), with a
 (`ComparisonMultistep`, the one-order-higher PEC variant among them) and a controller that
 overrides a decision are refused by name at admission (SEP 47 §6.3). A z table's carrier frame steps natively: the stage tables carry the imaginary
 part of the table's reference element as a scalar table, read by the Clenshaw helper
-solprop's tables use, so its shift and step cap are the host's (issue #255). The
-transitional lockstep
-batches replay on the host (`replay_step`); a native group the native group session
-admits replays each member in its own native session instead (`solprop_native.group`).
+solprop's tables use, so its shift and step cap are the host's (issue #255). A native
+group replays each member in its own native session (`solprop_native.group`).
 
 **Resume** (ADR-046): an engine that can export its rows (`snapshot_rows`, and
 `load_rows` to install them) lets `HostAdamsMarch.snapshot` (and `AdamsMarch.snapshot`
@@ -499,8 +498,7 @@ only at an accepted position with nothing ahead of it.
 (`HostAdamsMarch._replay_to`), accepting each whatever its estimate, which is recorded as
 the Runge–Kutta replay records it; a hard kink on an edge restarts the history.
 `HostAdamsMarch.replay_step` is also the unit a lockstep batch advances each member by
-(`HostGroup._replay_to`; `LockstepRunner._replay_to` on the native bridge), each member
-keeping its own history and ledger.
+(`HostGroup._replay_to`), each member keeping its own history and ledger.
 
 The derivation, the stability limits and the measured comparison are in
 [SEP 13](seps/archive/sep-0013-expensive-response-steppers.md) and on the manual page

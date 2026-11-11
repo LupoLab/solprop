@@ -5,10 +5,12 @@
 """Count actual RK source dispatch, including rejection and excluding stage reuse."""
 
 from contextlib import closing
+from typing import Any
 
 import numpy as np
 import pytest
 
+from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stepper import FixedSchedule
 
 
@@ -38,23 +40,21 @@ def test_rk_counts_reuse_and_reset(backend_class, linear_problem, narrow_grid):
 
 @pytest.mark.medium
 def test_python_counter_tracks_dispatch_through_rejection(
-    backend_class,
     linear_problem,
     narrow_grid,
     monkeypatch,
 ):
+    # The reference's loop, whose trial the scripted norms below replace. The native
+    # march (SEP 45) takes its norms itself, and no switch selects solprop's loop on
+    # native any more (SEP 47 section 6.3); test_rk_counts_reuse_and_reset counts it.
     problem, run_request = linear_problem(
         narrow_grid,
         save_planes=[0.002],
         dz_init=0.001,
         auto_init=False,
     )
-    if backend_class.name == "native":
-        # The scripted norms below replace solprop's loop's trial; the native march
-        # (SEP 45) takes its norms itself.
-        native = pytest.importorskip("solprop_native.backend")
-        monkeypatch.setattr(native, "_RK_MARCH", "host")
-    with closing(backend_class(problem, run_request, grid=narrow_grid)) as engine:
+    reference: Any = NumpyRefBackend(problem, run_request, grid=narrow_grid)
+    with closing(reference) as engine:
         engine.set_initial(problem.initial.field0, None)
         calls = []
         original_trial = engine._trial_step
@@ -67,20 +67,18 @@ def test_python_counter_tracks_dispatch_through_rejection(
 
         monkeypatch.setattr(engine, "_trial_step", trial)
         dispatched = []
-        if engine.name == "numpy_ref":
-            original_source = engine._nonlinear
+        original_source = engine._nonlinear
 
-            def source(*args, **kwargs):
-                dispatched.append(None)
-                return original_source(*args, **kwargs)
+        def source(*args, **kwargs):
+            dispatched.append(None)
+            return original_source(*args, **kwargs)
 
-            monkeypatch.setattr(engine, "_nonlinear", source)
+        monkeypatch.setattr(engine, "_nonlinear", source)
         summary = engine.propagate_to(0.002)
         assert summary.n_rejected == 1
         assert calls[0] == 7
         count = engine.metadata()["source_evaluations"]
         assert count == sum(calls)
         assert count > sum(calls[1:])
-        if dispatched:
-            assert count == len(dispatched)
+        assert count == len(dispatched)
         assert np.isfinite(engine.observe().field).all()

@@ -454,24 +454,25 @@ def test_cf4_is_refused_by_name_at_the_backend_and_the_entry_point():
             varying(wall=CF4_WALL, backend=name).translate()
 
 
-def test_a_native_batch_refuses_a_coupled_flow_by_name():
-    """The fused accepted update applies no flow action, so a batch is refused."""
-    # Optional wheel: absent from the base environment.
-    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        NativeBatchBackend,
-    )
+def test_a_native_group_refuses_a_coupled_flow_by_name():
+    """Coupled-flow groups stay refused (SEP 47 section 6.3), before any session."""
+    from solprop.backends.session import Start  # noqa: PLC0415
+    from solprop.backends.sessions import start_group  # noqa: PLC0415
 
     case = scalar_wall()
     members = [
         native_class()(case.problem, case.run_request, grid=case.grid) for _ in range(2)
     ]
-    for member in members:
-        member.set_initial(case.problem.initial.field0, None)
     try:
         with pytest.raises(
-            BackendError, match=r"does not execute linear\.coupled_flow"
+            BackendError, match=r"a coupled flow: coupled-flow groups remain refused"
         ):
-            NativeBatchBackend(members)
+            start_group(
+                members,
+                [case.problem] * 2,
+                [case.run_request] * 2,
+                [Start.entrance(case.problem) for _ in range(2)],
+            )
     finally:
         for member in members:
             member.close()

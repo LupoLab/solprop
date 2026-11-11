@@ -163,7 +163,7 @@ def schedule_key(
     """Return the table key of the schedule step from `z`, from :func:`table_steps`.
 
     Found by position rather than by a step counter, which a lockstep member does not
-    advance (``LockstepRunner`` keeps the batch's).
+    advance (the reference's ``HostGroup`` keeps the group's).
 
     Parameters
     ----------
@@ -596,7 +596,7 @@ class LowStorageMarch:
             backend._accepted_norms.append(norm)
             backend._take_step_stats()
             if backend._natural_stop(target):
-                return
+                return  # pragma: no cover - bridge only
         if backend._z < target - slack:
             msg = (
                 f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
@@ -607,8 +607,7 @@ class LowStorageMarch:
     def replay_step(self, dz: float, end: float, slack: float) -> float:
         """Take one prescribed step from the backend's position and accept it.
 
-        The unit a lockstep batch advances each member by
-        (:class:`solprop.backends.batch.LockstepRunner`), with
+        The unit a replay advances by, with
         :meth:`solprop.backends.multistep.AdamsMarch.replay_step`'s signature.
 
         Parameters

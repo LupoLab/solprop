@@ -243,7 +243,8 @@ STORED: dict[str, Callable[[str], Simulation]] = {
 def _copied_observations(monkeypatch: pytest.MonkeyPatch) -> list[np.ndarray]:
     """Copy each observed field as its backend returned it, before any conversion."""
     copies: list[np.ndarray] = []
-    # The reference's driver and the native bridge's each observe for themselves.
+    # The reference's driver and the native backend's inherited one each observe for
+    # themselves.
     for driver in (StepDriver, HostDriver):
 
         def copying(
@@ -325,23 +326,22 @@ def _observed_at_its_first_plane(
     return problem, backend, backend.observe()
 
 
-@pytest.mark.parametrize("backend", available())
+@pytest.mark.parametrize("precision", ["double", "single"])
 @pytest.mark.parametrize("case", ["modal", "single-mode"])
 def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(
-    backend, case, monkeypatch
+    precision, case
 ):
-    """The session converts an owned field where it is; the reference's is detached.
+    """The session converts an owned field where it is; a borrowed one is detached.
 
-    The transitional session's own conversion of a driver's observation: a native
-    backend is held to it on the bridge, which still serves what the native session
-    refuses; the native session exports from its resident state instead.
+    The reference session's own conversion of its driver's observation: the widened
+    single-precision state is a fresh, owned array, the binary64 state the driver's
+    own. The native session exports from its resident state instead
+    (``tests/sessions/test_destination_export.py``).
     """
-    if backend == "native":
-        # The prepared execution's choice, made to refuse: the bridge serves the run.
-        monkeypatch.setattr(
-            "solprop_native.session.session_refusal", lambda *_: "the test's bridge"
-        )
+    backend = "numpy_ref"
     simulation = STORED[case](backend)
+    if precision == "single":
+        simulation = _single(simulation)
     problem = simulation.translate()
     run_request = simulation._run_request()
     stepping = select(
@@ -379,7 +379,7 @@ def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(
                 break
             session.acknowledge(batch.receipt)
         held = session.export(event.ticket, ExportRecipe(power=True, optics=False))
-        owned = backend == "native"
+        owned = precision == "single"
         assert seen[-1].field_owned is owned
         expected = power_amplitude(raws[-1], power_weight_at(problem, event.z))
         assert held.tobytes() == expected.tobytes()

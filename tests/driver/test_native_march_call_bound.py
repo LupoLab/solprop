@@ -11,10 +11,9 @@ so a return has to be an exact no-op: every number a run stores is compared here
 for bit, under bounds that return at every attempt, at every seventh, at the wall
 clock's every attempt, and never.
 
-Production runs the march in the native execution session (SEP 47), whose march calls
+Every native run marches in the native execution session (SEP 47), whose march calls
 take the session's call bound (``solprop_native.session.CALL_ATTEMPTS`` and
-``CALL_SECONDS``); a case the session refuses (dense output, a transverse edge) runs on
-the backend's own march over the transitional session. Both are bounded alike here.
+``CALL_SECONDS``), dense output and a transverse edge included.
 """
 
 import dataclasses
@@ -213,22 +212,18 @@ def _stored(path) -> dict[str, np.ndarray | str]:
 
 @dataclasses.dataclass
 class Calls:
-    """The native calls of a run: each bridge call's attempts, or the native session's
-    march calls and attempts, which it counts itself."""
+    """The native session's march calls and attempts, which it counts itself."""
 
-    bridge: list[int] = dataclasses.field(default_factory=list)
     session_calls: int = 0
     session_attempts: int = 0
 
     def __len__(self) -> int:
         """Return the native calls made."""
-        return len(self.bridge) + self.session_calls
+        return self.session_calls
 
     def held(self, most: int, *, exactly: bool = False) -> None:
         """Assert no call made more than `most` attempts (every call `most`, with
         `exactly`): each session call makes at least one attempt."""
-        if self.bridge:
-            assert max(self.bridge) == most if exactly else max(self.bridge) <= most
         if self.session_calls:
             wanted = math.ceil(self.session_attempts / most)
             if exactly:
@@ -238,21 +233,13 @@ class Calls:
 
 
 def _counted_attempts(patch: pytest.MonkeyPatch, most: int, seconds: float) -> Calls:
-    """Bound both paths' native calls; return the record that fills with them."""
-    patch.setattr(NativeAdamsMarch, "MAX_ATTEMPTS", most)
-    patch.setattr(NativeAdamsMarch, "MAX_SECONDS", seconds)
+    """Bound the session's native calls; return the record that fills with them."""
     # The session's own bound: a call's attempts and time; its advances are lifted,
     # so that only the call's bound returns it.
     patch.setattr(native_session, "CALL_ATTEMPTS", most)
     patch.setattr(native_session, "CALL_SECONDS", seconds if seconds > 0 else 1e-300)
-    run = NativeAdamsMarch._native_run
     advance = native_session.NativeSession.advance
     calls = Calls()
-
-    def counted(self, state, bounds):
-        result = run(self, state, bounds)
-        calls.bridge.append(len(result["rows"]))
-        return result
 
     def unbounded(self, **_):
         before = self.native.status()
@@ -263,7 +250,6 @@ def _counted_attempts(patch: pytest.MonkeyPatch, most: int, seconds: float) -> C
             calls.session_calls += after.march_calls - before.march_calls
             calls.session_attempts += after.attempts - before.attempts
 
-    patch.setattr(NativeAdamsMarch, "_native_run", counted)
     patch.setattr(native_session.NativeSession, "advance", unbounded)
     return calls
 

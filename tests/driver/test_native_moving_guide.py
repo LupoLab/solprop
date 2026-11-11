@@ -298,14 +298,16 @@ def test_native_runs_ten_steps_of_a_moving_guide_as_numpy_ref_does(
 
 
 @pytest.mark.medium
-def test_the_moving_maps_are_combined_per_stage_not_frozen(monkeypatch):
+def test_the_moving_maps_are_combined_per_stage_not_frozen():
     """The stages of one step read different maps: a frozen map would not be caught.
 
-    Kokkos run with every stage's weights replaced by the step's first stage's --
-    the maps frozen at the step's start -- departs from ``numpy_ref`` by far more than
-    the parity bound, so the parity test above measures the combination and not
-    only the rest of the route. The stages are the Runge-Kutta march's: an Adams step
-    evaluates the source once, at the step's end.
+    The reference run with every stage's weights replaced by the step's first
+    stage's -- the maps frozen at the step's start -- departs from ``numpy_ref``'s own
+    run by far more than the parity bound, so the parity test above measures the
+    combination and not only the rest of the route. The stages are the Runge-Kutta
+    march's: an Adams step evaluates the source once, at the step's end. The frozen
+    maps are formed on the reference's host-formed bundles; the native trial reads its
+    stage tables natively and has no bundle to freeze.
     """
     built = grin_kinked()
     stepper = dataclasses.replace(built.run_request.stepper, integrator=None)
@@ -315,22 +317,15 @@ def test_the_moving_maps_are_combined_per_stage_not_frozen(monkeypatch):
     expected = propagate(case, NumpyRefBackend)
     linear = 1e3 * propagate(case, NumpyRefBackend, case.problem.initial.field0 * 1e-3)
     bound = moving_parity_bound(case, expected, linear)
-    # The frozen maps are the host's bundles: solprop's loop on host-packed rows.
-    backend_module = pytest.importorskip("solprop_native.backend")
-    monkeypatch.setattr(backend_module, "_RK_MARCH", "host")
-    monkeypatch.setattr(backend_module, "_RK_ROWS", "host")
-    backend = native_class()(case.problem, case.run_request, grid=case.grid)
-    original = backend._stage_bundles
+    backend = NumpyRefBackend(case.problem, case.run_request, grid=case.grid)
     single = backend._stage_scalars
 
-    def frozen(z0, positions):
+    def frozen(z0, z1):
         first = single(z0, z0).transform_weights
-        return tuple(
-            dataclasses.replace(bundle, transform_weights=first)
-            for bundle in original(z0, positions)
-        )
+        return dataclasses.replace(single(z0, z1), transform_weights=first)
 
-    backend._stage_bundles = frozen
+    # The reference's trial reads each stage's bundle through `_stage_scalars`.
+    backend._stage_scalars = frozen
     try:
         backend.set_initial(case.problem.initial.field0, None)
         backend.propagate_to(case.length)

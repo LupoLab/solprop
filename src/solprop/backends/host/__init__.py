@@ -14,9 +14,8 @@ low-storage march (:mod:`~solprop.backends.host.low_storage`), the fixed-schedul
 modules with the native bridge -- the controller cores, tableaux, stage tables and the
 exponential coefficients -- and the parts every Python session composes
 (:mod:`solprop.backends.session_core`), and never imports the inherited driver
-(:mod:`solprop.backends.driver`) that bridge still runs on, or its transitional
-sessions (:mod:`solprop.backends.driver_session`) (SEP 47, the maintainer's decision at
-acceptance on the transition).
+(:mod:`solprop.backends.driver`) the native backend still subclasses (SEP 47, the
+maintainer's decision at acceptance on the transition).
 
 **Recorded exceptions**, transitional: the Adams host engine
 :class:`~solprop.backends.multistep.HostHistory`, whose arithmetic the bridge's march

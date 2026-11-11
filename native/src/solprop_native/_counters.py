@@ -14,12 +14,12 @@ edge read, field crossing or load, low-storage or group step and native session
 own loop's attempts and periodic rows) are installed on ``NativeBackend`` by
 :func:`enable` and removed by :func:`disable`. Its numbers are unchanged either way.
 
-The same record covers both ways a native run is served -- the transitional bridge
-(:class:`~solprop.backends.driver_session.DriverSession` over ``NativeBackend`` and its
-native marches) and the native execution session
-(:class:`~solprop_native.session.NativeSession`) -- so that the two can be compared
-key for key. A key keeps one meaning on both; where the two differ in kind, the
-session's own key starts ``session_``.
+The record covers the native execution session
+(:class:`~solprop_native.session.NativeSession`), which serves every native run since
+solprop SEP 47 phase 5, and keeps the keys the transitional bridge it replaced was
+counted under (``NativeBackend``'s own marches, called from Python), so that a record
+taken before phase 5 can be compared with one after key for key; the session's own
+keys start ``session_``.
 
 What is counted, and where:
 

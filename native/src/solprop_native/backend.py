@@ -1046,7 +1046,7 @@ class NativeBackend(StepDriver[_core.State]):
         self, z: float, dz: float, *, defer_update: bool = False
     ) -> RealArray:
         """Prepare member stages, optionally deferring the shared accepted update."""
-        if _RK_ROWS != "host" and self._staged_rows():
+        if self._staged_rows():
             # The state's guard forms the flow's actions; the host's key is stale.
             self._flow_key = None
             with _envelope_errors():
@@ -1291,32 +1291,22 @@ class NativeBackend(StepDriver[_core.State]):
         """Reduce one member's partials to the trial's scaled error norm.
 
         solprop's own weak scale is formed natively, the partials summed in order
-        (solprop SEP 45 phase 2, Q1), and a weighted one likewise (phase 4); the test
-        interface's host rows keep the host's reduction. A controller with a scale of
-        its own never reaches here: the backend refuses it where it is built.
+        (solprop SEP 45 phase 2, Q1), and a weighted one likewise (phase 4). A
+        controller with a scale of its own never reaches here: the backend refuses it
+        where it is built.
         """
         controller = self._stepper.controller
-        if _RK_ROWS != "host":
-            if controller.weights is None:
-                return float(_core.rk_score(partials, controller.rtol, controller.atol))
-            # The weighted scale and its reduction, in order (SEP 45 phase 4).
-            self._rk_weights_ready()
-            return float(
-                self._native_state.rk_weighted_score(
-                    np.ascontiguousarray(partials, dtype=np.float64),
-                    controller.rtol,
-                    controller.atol,
-                )
+        if controller.weights is None:
+            return float(_core.rk_score(partials, controller.rtol, controller.atol))
+        # The weighted scale and its reduction, in order (SEP 45 phase 4).
+        self._rk_weights_ready()
+        return float(
+            self._native_state.rk_weighted_score(
+                np.ascontiguousarray(partials, dtype=np.float64),
+                controller.rtol,
+                controller.atol,
             )
-        old = math.sqrt(float(np.asarray(partials[0], dtype=np.float64).sum()))
-        new = math.sqrt(float(np.asarray(partials[1], dtype=np.float64).sum()))
-        residual = math.sqrt(float(np.asarray(partials[2], dtype=np.float64).sum()))
-        scale = self._stepper.controller.scale(old, new)
-        if isinstance(scale, np.ndarray):
-            native_scale = np.ascontiguousarray(scale, dtype=np.float64)
-            weighted = self._native_state.weighted_error(native_scale)
-            return math.sqrt(float(np.asarray(weighted).sum()))
-        return residual / float(scale)
+        )
 
     def _rk_weights_ready(self) -> None:
         """Hand the native state a weighted controller's weights, once (SEP 45)."""
@@ -1786,7 +1776,7 @@ class NativeBackend(StepDriver[_core.State]):
 
         Every statistic the plan covers is the plan's, a spatial route's fluence widths
         among them (SEP 47 section 6.4). An on-axis plasma statistic is the host's
-        here (SEP 19), for the transitional session; on a Radau rule it reuses the
+        here (SEP 19), for the backend's own ``stats``; on a Radau rule it reuses the
         node scan of this call's
         species statistics, which the plan hands over with them
         (:data:`~solprop_native._statistics.NODE_POPULATIONS`).
@@ -1805,8 +1795,8 @@ class NativeBackend(StepDriver[_core.State]):
         dict
             The statistics, each with a leading batch axis.
         """
-        # The backend's own plane statistics keep the host's axis scan, which the
-        # transitional session reads; the native session's plan scans the row natively.
+        # The backend's own plane statistics keep the host's axis scan; the native
+        # session's plan scans the row natively.
         plan_left = set(uncovered(self._problem, spec.names))
         left = tuple(
             name for name in spec.names if name in axis_names or name in plan_left
@@ -2088,9 +2078,8 @@ class NativeBackend(StepDriver[_core.State]):
         """Prepare a run of this backend for one problem and request (SEP 47 5.2).
 
         The backend lowered the request where it was built; each start of the result
-        opens the native session whenever it admits the run, and the transitional
-        session over this backend's own march otherwise
-        (:class:`solprop_native.session.NativePrepared`).
+        opens the native session (:class:`solprop_native.session.NativePrepared`),
+        which refuses by name what it does not run.
 
         Parameters
         ----------
@@ -2117,9 +2106,9 @@ class NativeBackend(StepDriver[_core.State]):
     ) -> PreparedGroup:
         """Prepare a group of compatible native members (SEP 47 section 6.7).
 
-        Its start opens the native group session whenever that admits the group, and
-        the transitional lockstep group otherwise
-        (:class:`solprop_native.group.NativePreparedGroup`).
+        Its start opens the native group session
+        (:class:`solprop_native.group.NativePreparedGroup`), which refuses by name a
+        group it does not run.
 
         Parameters
         ----------
@@ -2854,19 +2843,6 @@ def _low_storage_payload(
     }
 
 
-_ADAMS_MARCH: Literal["native", "host"] = "native"
-"""``"host"`` steps an admitted exponential ``Multistep()`` run with solprop's Python
-march instead of the native one (solprop SEP 39 section 5). A test interface, not a
-production mode (solprop SEP 47 section 6.3): no environment variable or keyword sets
-it; a diagnostic test or benchmark arm sets the attribute in its own process, and the
-native session then leaves the run to the transitional bridge."""
-_RK_ROWS: Literal["native", "host"] = "native"
-"""``"host"`` packs a Runge-Kutta trial's rows and reduces its norm on the host, as
-before solprop SEP 45 phase 2. A test interface, as `_ADAMS_MARCH` is."""
-_RK_MARCH: Literal["native", "host"] = "native"
-"""``"host"`` steps a Runge-Kutta run with solprop's loop instead of the native march
-(solprop SEP 45 phase 3). A test interface, as `_ADAMS_MARCH` is."""
-
 _MARCH_COUNTERS = (
     "startup",
     "predictor",
@@ -2986,36 +2962,6 @@ def host_rows_refusal(problem: PropagationProblem) -> str | None:
         "leaves the native state evaluates (solprop SEP 47 section 6.3); use "
         "backend='numpy_ref'"
     )
-
-
-def native_march_refusal(
-    problem: PropagationProblem, stepper: StepperSettings
-) -> str | None:
-    """Return why the backend would step a run's march on the host, or ``None``.
-
-    ``_NativeAdamsMarch._native_refusal`` and ``_NativeRungeKuttaMarch.refusal``,
-    decided from the problem alone (solprop SEP 47 section 5.2): the host marches the
-    backend's test interface asks for; for Adams, a coupled flow the host engine steps
-    (:func:`_flow_on_host`: beside the interaction formulation), and a carrier frame
-    with no chord. What the backend refuses at admission is not asked here: a
-    comparison method or a controller overriding a decision
-    (``_refuse_reference_only``) and stage rows the native tables do not read
-    (:func:`host_rows_refusal`).
-    """
-    integrator = stepper.integrator
-    if isinstance(integrator, Multistep):
-        if _ADAMS_MARCH == "host":
-            return "the test interface asked for the host Adams march"
-        hosted = _flow_on_host(problem, integrator.formulation == "exponential")
-        if hosted is not None:
-            return hosted
-        carrier = carrier_reference(problem, integrator)
-        if carrier is not None and carrier.active and carrier.chord is None:
-            return "the carrier frame on an operator with no chord"
-        return None
-    if _RK_MARCH == "host" or _RK_ROWS == "host":
-        return "a trial whose stage rows the host forms"
-    return None
 
 
 def _flow_on_host(problem: PropagationProblem, exponential: bool) -> str | None:
@@ -3149,7 +3095,7 @@ class _NativeAdamsMarch(AdamsMarch):
     a signal and a stop wait for the call in hand, at most its bound and one attempt.
 
     A configuration the native march does not cover runs the Python march
-    (:attr:`refusal`), with a warning unless the test interface asked for it.
+    (:attr:`refusal`), with a warning; no admitted configuration reaches it.
     """
 
     MAX_ATTEMPTS: ClassVar[int] = 256
@@ -3199,8 +3145,6 @@ class _NativeAdamsMarch(AdamsMarch):
 
     def _native_refusal(self) -> tuple[str | None, bool]:
         """Return why the native march does not step the run, and whether to warn."""
-        if _ADAMS_MARCH == "host":
-            return "the test interface asked for it", False
         engine = self._engine
         if self._runner is not None:
             return None, False
@@ -3265,8 +3209,6 @@ class _NativeAdamsMarch(AdamsMarch):
             ):
                 if self._call(target, slack):
                     return
-                # A bounded yield due between calls returns after the next step.
-                backend.poll_halt()
             if backend._z < target - slack:
                 msg = (
                     f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
@@ -3277,8 +3219,6 @@ class _NativeAdamsMarch(AdamsMarch):
         while not reached(backend._z, target):
             if self._call(target):
                 return
-            # A bounded yield due between calls returns after the next step.
-            backend.poll_halt()
         if self._interpolate and backend._z > target:
             self._ahead = (backend._z, self._engine.hold())
             backend._state = cast("Any", self._observe(target))
@@ -3338,9 +3278,6 @@ class _NativeAdamsMarch(AdamsMarch):
         every = backend._stepper.step_planes
         if every:
             steps.append(every - backend._natural_count % every)
-        if backend._halt_requested:
-            # A pending snapshot latch (solprop SEP 47): return after every step.
-            steps.append(1)
         monitor = backend._monitor
         checked = None
         read_at = None
@@ -3597,12 +3534,10 @@ class _NativeRungeKuttaMarch:
     @staticmethod
     def refusal(backend: NativeBackend) -> tuple[str | None, bool]:
         """Return why the native march does not step a run, and whether to warn."""
-        if _RK_MARCH == "host":
-            return "the test interface asked for it", False
         # A controller that overrides a decision never reaches here: the backend
         # refuses it where it is built (`_refuse_reference_only`).
         driver: Any = backend
-        if _RK_ROWS == "host" or not driver._staged_rows():
+        if not driver._staged_rows():
             return "a trial whose stage rows the host forms", True
         return None, False
 
@@ -3701,8 +3636,6 @@ class _NativeRungeKuttaMarch:
         while not reached(backend._z, target):
             if self._call(target):
                 return
-            # A bounded yield due between calls returns after the next step.
-            backend.poll_halt()
         if dense and not reached(target, backend._z):
             backend._observe_inside(target)
 
@@ -3735,8 +3668,6 @@ class _NativeRungeKuttaMarch:
         ):
             if self._call(target, slack):
                 return
-            # A bounded yield due between calls returns after the next step.
-            backend.poll_halt()
         if backend._z < target - slack:
             msg = (
                 f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
@@ -3756,9 +3687,6 @@ class _NativeRungeKuttaMarch:
         every = backend._stepper.step_planes
         if every:
             steps.append(every - backend._natural_count % every)
-        if backend._halt_requested:
-            # A pending snapshot latch (solprop SEP 47): return after every step.
-            steps.append(1)
         monitor = backend._monitor
         checked = None
         read_at = None

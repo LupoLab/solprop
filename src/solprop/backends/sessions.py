@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The run layer's one door to a backend's sessions (SEP 47 phases 2 to 4).
+"""The run layer's one door to a backend's sessions (SEP 47 phases 2 to 5).
 
 :func:`start_session` starts a run through the backend's own preparation shape (SEP
 47 section 5.2), ``backend.prepare(problem, request).start(start, ...)``, so a backend
@@ -11,11 +11,8 @@ execution opens its own session
 (:class:`solprop.backends.host.session.HostSession`, over
 :class:`solprop.backends.host.driver.HostDriver`); a native backend's
 (``solprop_native.session.NativePrepared``) opens the native execution session
-(``solprop_native.session.NativeSession``) whenever it admits the run, before the
-start is loaded, on a CPU or a device build alike (SEP 47 phase 4), and the
-transitional session over the inherited driver
-(:class:`solprop.backends.driver_session.DriverSession`) for what it refuses by name,
-the reason logged at debug level; any other driver's opens the transitional one.
+(``solprop_native.session.NativeSession``), on a CPU or a device build alike, which
+refuses by name, before the start is loaded, what it does not run.
 
 :func:`start_group` is the door for a group of compatible members (SEP 47 section
 6.7), through the same shape: the group's first member prepares the group,
@@ -23,13 +20,9 @@ the reason logged at debug level; any other driver's opens the transitional one.
 backend chooses its group and nothing here names one either. The native backend's
 (``solprop_native.group.NativePreparedGroup``) opens the native group session
 (``solprop_native.group.NativeGroupSession``, one native session per member), on a CPU
-or a device build, whenever it admits the group, and the transitional group over the
-lockstep runners (:class:`solprop.backends.driver_session.DriverGroupSession`) for
-what it refuses by name (``solprop_native.group.refusal``); the reference's opens its
-own group
-(:class:`solprop.backends.host.group_session.HostGroupSession`), and any other step
-driver's the transitional group
-(:class:`solprop.backends.driver_session.DriverPreparedGroup`).
+or a device build, which refuses by name what it does not run
+(``solprop_native.group.refusal``); the reference's opens its own group
+(:class:`solprop.backends.host.group_session.HostGroupSession`).
 """
 
 from __future__ import annotations
@@ -87,11 +80,9 @@ def start_session(  # noqa: PLR0913 - the session context
     -------
     solprop.backends.session.RunSession
         The session the backend's prepared execution opens: the native session
-        (``solprop_native.session.NativeSession``) for a native backend whenever
-        it admits the run; a :class:`~solprop.backends.host.session.HostSession` for
-        a reference backend; otherwise the transitional session over the legacy
-        driver, which serves what the native session does not run yet (SEP 47 Part
-        II).
+        (``solprop_native.session.NativeSession``) for a native backend, and a
+        :class:`~solprop.backends.host.session.HostSession` for a reference
+        backend.
     """
     prepared = backend.prepare(problem, request)
     return prepared.start(
@@ -128,8 +119,8 @@ def start_group(
     solprop.backends.session.GroupSession
         The group the backend's prepared group opens
         (:meth:`~solprop.backends.protocol.Backend.prepare_group`): the reference's
-        own group for reference members, the native group session for native members
-        it admits, and the transitional group otherwise.
+        own group for reference members, and the native group session for native
+        members.
 
     Raises
     ------

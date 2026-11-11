@@ -6,23 +6,16 @@
 
 ``start_session`` names no session: it starts ``backend.prepare(problem,
 request).start(start, ...)``. The reference prepares its own session, a native backend
-the native session where it admits the run and the transitional one, with the reason,
-where it does not, and any other driver the transitional one.
+the native session, which refuses by name what it does not run (SEP 47 phase 5 deleted
+the transitional session that served it).
 """
 
-from typing import Any, cast
+from typing import cast
 
 import pytest
 
-from scripted_driver import ScriptedDriver
+from scripted_driver import HostScriptedDriver
 from sessions.executors import fibre, soliton, window
-from solprop.backends.driver import StepDriver
-from solprop.backends.driver_session import (
-    DriverPrepared,
-    DriverPreparedGroup,
-    DriverSession,
-)
-from solprop.backends.events import Eligibility, Outcome, Terminal
 from solprop.backends.host.group_session import HostPreparedGroup
 from solprop.backends.host.session import HostPrepared, HostSession
 from solprop.backends.protocol import Backend
@@ -88,72 +81,8 @@ def test_the_reference_prepares_its_own_group():
         backend.close()
 
 
-def test_any_other_driver_prepares_the_transitional_session():
-    problem, request = soliton()
-    driver = ScriptedDriver(problem, request, grid=window())
-    prepared = driver.prepare(problem, request)
-    assert isinstance(prepared, DriverPrepared)
-    assert prepared.backend == driver.name
-    # The preparation's execution facts are its driver's.
-    assert prepared.metadata() == driver.metadata()
-    with prepared.start(Start.entrance(problem), owns=False) as session:
-        assert type(session) is DriverSession
-    prepared.close()
-    prepared.close()  # idempotent
-    assert driver.closed
-    with pytest.raises(SessionError, match="closed"):
-        prepared.start(Start.entrance(problem))
-
-
-def test_the_transitional_session_fails_a_plane_whose_statistics_fail(monkeypatch):
-    """The bridge session's own terminal paths, which the reference no longer takes.
-
-    A failure of the statistics at a plane ends the run there, eligible; a ticket
-    asked for while that terminal batch is pending is bound to it.
-    """
-    problem, request = soliton()
-    driver = ScriptedDriver(problem, request, grid=window())
-
-    def broken(spec):
-        msg = "manufactured statistics failure"
-        raise RuntimeError(msg)
-
-    monkeypatch.setattr(driver, "stats", broken)
-    with driver.prepare(problem, request).start(Start.entrance(problem)) as session:
-        batch = session.advance()
-        (terminal,) = batch.events
-        assert isinstance(terminal, Terminal)
-        assert terminal.outcome is Outcome.FAILED
-        assert isinstance(terminal.error, RuntimeError)
-        assert terminal.eligibility is Eligibility.ELIGIBLE
-        ticket = session.pending_ticket()
-        assert ticket is not None
-        assert ticket.receipt == batch.receipt
-
-
-def test_any_other_driver_prepares_the_transitional_group():
-    """SEP 47 section 6.7: a step driver's group is the transitional one.
-
-    Only the native backend runs a step driver in a group, and it prepares its own;
-    the base's preparation is asked here of a reference member, unbound.
-    """
-    problem, request = soliton()
-    backend = _select("numpy_ref", problem, request)
-    try:
-        prepared = StepDriver.prepare_group(backend, [backend], [problem], [request])  # pyright: ignore[reportArgumentType] - any driver
-        assert isinstance(prepared, DriverPreparedGroup)
-        assert isinstance(prepared, PreparedGroup)
-        assert prepared.backend == "numpy_ref"
-        # It starts over the runner the registry row names, which refuses an
-        # adaptive member by name.
-        with pytest.raises(BackendError, match="explicit fixed schedule"):
-            prepared.start([Start.entrance(problem)])
-    finally:
-        backend.close()
-
-
 @NATIVE
-def test_a_native_backend_prepares_the_native_session_where_it_admits_the_run():
+def test_a_native_backend_prepares_the_native_session():
     from solprop_native.session import (  # noqa: PLC0415 - optional  # pyright: ignore[reportMissingImports]
         NativePrepared,
         NativeSession,
@@ -166,7 +95,7 @@ def test_a_native_backend_prepares_the_native_session_where_it_admits_the_run():
         with prepared.start(Start.entrance(problem), owns=False) as session:
             assert isinstance(session, NativeSession)
         assert isinstance(prepared, NativePrepared)
-        assert cast("Any", prepared).refused is None
+        assert prepared.backend == "native"
         # Its execution facts and its retained buffers are the backend's.
         assert prepared.metadata() == backend.metadata()
         ledger = prepared.memory_ledger()
@@ -177,47 +106,46 @@ def test_a_native_backend_prepares_the_native_session_where_it_admits_the_run():
 
 
 @NATIVE
-def test_a_native_refusal_prepares_the_transitional_session_and_says_why(
-    monkeypatch,
-):
-    from solprop_native.session import (  # noqa: PLC0415 - optional  # pyright: ignore[reportMissingImports]
-        NativePrepared,
+def test_a_native_subclass_is_refused_by_name_where_it_is_prepared():
+    """The native session runs ``NativeBackend`` itself: a subclass's overrides are
+    hooks of the inherited march the session would not call, so its preparation is
+    refused by name, before any session or state of the run exists."""
+    from solprop_native.backend import (  # noqa: PLC0415 - optional  # pyright: ignore[reportMissingImports]
+        NativeBackend,
     )
 
+    class Recording(NativeBackend):
+        """A subclass, as a test would write one."""
+
     problem, request = soliton()
-    backend = _select("native", problem, request)
-    monkeypatch.setattr(
-        "solprop_native.session.session_refusal", lambda *_: "the test's reason"
-    )
+    backend = Recording(problem, request, grid=window(), modes=[fibre().mode])
     try:
-        prepared = backend.prepare(problem, request)
-        with start_session(
-            backend, problem, request, Start.entrance(problem), owns=False
-        ) as session:
-            assert type(session) is DriverSession
-        with prepared.start(Start.entrance(problem), owns=False):
-            pass
-        assert isinstance(prepared, NativePrepared)
-        assert cast("Any", prepared).refused == "the test's reason"
+        with pytest.raises(BackendError, match="not the subclass Recording"):
+            backend.prepare(problem, request)
+        with pytest.raises(BackendError, match="not the subclass Recording"):
+            start_session(backend, problem, request, Start.entrance(problem))
     finally:
         backend.close()
 
 
-def test_a_preparation_refuses_a_request_its_backend_was_not_built_for():
+@pytest.mark.parametrize("name", ["numpy_ref", pytest.param("native", marks=NATIVE)])
+def test_a_preparation_refuses_a_request_its_backend_was_not_built_for(name):
     """A backend lowered its method, error control and planes where it was built, so
     a run may change only what ``RunRequest.for_run`` changes."""
     problem, request = soliton()
-    driver = ScriptedDriver(problem, request, grid=window())
-    assert isinstance(
-        driver.prepare(problem, request.for_run(start_plane=1)), DriverPrepared
-    )
-    other = request.with_stepper(request.stepper)
-    with pytest.raises(SessionError, match="integration is not the backend's own"):
-        driver.prepare(problem, other)
-    # The script is the march alone (no memory ledger); the refusal comes first.
-    backend = cast("Backend", driver)
-    with pytest.raises(SessionError, match="integration is not the backend's own"):
-        start_session(backend, problem, other, Start.entrance(problem), owns=False)
+    backend = _select(name, problem, request)
+    try:
+        assert isinstance(
+            backend.prepare(problem, request.for_run(start_plane=1)),
+            PreparedExecution,
+        )
+        other = request.with_stepper(request.stepper)
+        with pytest.raises(SessionError, match="integration is not the backend's own"):
+            backend.prepare(problem, other)
+        with pytest.raises(SessionError, match="integration is not the backend's own"):
+            start_session(backend, problem, other, Start.entrance(problem), owns=False)
+    finally:
+        backend.close()
 
 
 @NATIVE
@@ -242,32 +170,28 @@ each at its first plane (SEP 47 section 6.3)."""
 
 
 def _executors():
-    """Each executor's preparation, by name: the reference, the native session, the
-    transitional session over the native backend, and a scripted driver."""
+    """Each executor's preparation, by name: the reference, the native session and a
+    scripted driver on the reference's own."""
     executors = ["numpy_ref", "scripted"]
     if "native" in available():
-        executors += ["native", "native-bridge"]
+        executors += ["native"]
     return executors
 
 
 @pytest.mark.parametrize("executor", _executors())
 @pytest.mark.parametrize(("names", "match"), UNAVAILABLE)
 def test_what_a_problem_does_not_carry_is_refused_on_every_executor(
-    monkeypatch, executor, names, match
+    executor, names, match
 ):
     """Refused where the run is prepared, before any session or workspace of the run
-    exists, and never left to the transitional session to refuse at the first plane."""
+    exists, and never left to a session to refuse at the first plane."""
     from solprop.stats import StatsSpec  # noqa: PLC0415
 
     problem, request = soliton()
-    if executor == "native-bridge":
-        monkeypatch.setattr(
-            "solprop_native.session.session_refusal", lambda *_: "the test's bridge"
-        )
     backend = (
-        ScriptedDriver(problem, request, grid=window())
+        cast("Backend", HostScriptedDriver(problem, request, grid=window()))
         if executor == "scripted"
-        else _select(executor.removesuffix("-bridge"), problem, request)
+        else _select(executor, problem, request)
     )
     run = request.for_run(stats=StatsSpec(names=names))
     try:

@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from driver.test_resume import LENGTH, N_SAVE, CrashError, run_until
+from driver.test_resume import LENGTH, N_SAVE, run_until
 from driver.test_resume_history import (
     AFRESH,
     RTOL,
@@ -304,19 +304,12 @@ def test_a_resumed_native_run_is_the_uninterrupted_one(
 def test_a_native_run_stopped_between_planes_continues_from_its_checkpoint(
     build_simulation, tmp_path, monkeypatch, caplog
 ):
-    # The resident engine evaluates its sources itself, so the failure is injected at
-    # its trial, which only the host march calls from Python: the run stops at its last
-    # accepted step, strictly between two planes past the first, and keeps the march's
-    # state beside the terminal checkpoint. The native march's failures are injected
-    # natively (tests/backends/test_native_march_lifecycle.py).
-    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        backend,
+    # The native march's failure is injected natively at a trial past the first
+    # plane (`adams_march_fault`): the run stops at its last accepted step, strictly
+    # between two planes, and keeps the march's state beside the terminal checkpoint.
+    from driver.test_native_march_lifecycle import (  # noqa: PLC0415 - needs native
+        with_fault,
     )
-    from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        _ResidentAdams,
-    )
-
-    monkeypatch.setattr(backend, "_ADAMS_MARCH", "host")
 
     build = soliton(build_simulation, "native")
     whole, part = tmp_path / "whole.h5", tmp_path / "part.h5"
@@ -326,20 +319,15 @@ def test_a_native_run_stopped_between_planes_continues_from_its_checkpoint(
         tmp_path / "tight.h5",
     )
     planes = [0.0, *build().settings.save_planes.tolist()]
-    original = _ResidentAdams.exponential_trial
-
-    def failing(self, z, *args, **keywords):
-        if z > planes[1] and not any(np.isclose(z, one) for one in planes):
-            raise CrashError("the source failed")
-        return original(self, z, *args, **keywords)
-
     with monkeypatch.context() as patch:
-        patch.setattr(_ResidentAdams, "exponential_trial", failing)
-        with pytest.raises(CrashError):
+        with_fault(patch, "trial", 120, "backend")
+        with pytest.raises(RuntimeError, match="an injected native failure"):
             build().run(part, progress="none")
     state = resume(part)
     assert state.checkpoint is not None
     assert state.march is not None and state.march.z == state.checkpoint.plane.z
+    stop = state.checkpoint.plane.z
+    assert stop > planes[1] and not any(np.isclose(stop, one) for one in planes)
     with caplog.at_level(logging.INFO, logger="solprop.driver"):
         build().run(part, resume=True, progress="none")
     assert AFRESH not in caplog.text

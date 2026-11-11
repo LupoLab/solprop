@@ -2,19 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The low-storage replay in the native session, against the driver's (SEP 47 6.3).
+"""The low-storage replay in the native session, against the reference's (SEP 47 6.3).
 
 The native session owns the low-storage loop: each step is one in-place native step
 whose stage scalars the native state forms from its tables, and the replay is the
-native Runge-Kutta march's. The transitional
-:class:`~solprop.backends.driver_session.DriverSession` over the native backend makes
-the same native passes from the scalars solprop forms on the host, one return to Python
-a step. Their traces and fields are bitwise the same on one thread
-(``test_native_session.py``'s ``low-storage`` case, and the lifecycle suite's
-``native-session-low-storage`` executor); this file checks what is the low-storage
-march's own: that no step returns to Python, and that a step left in flight -- by a
-native failure partway, or by a divergence -- poisons the session where the driver's
-is poisoned, and the service loop falls back to the latest running checkpoint.
+native Runge-Kutta march's. Its runs meet the NumPy reference's within the budgets of
+SEP 25 and repeat themselves bitwise on one thread (``test_native_session.py``'s
+``low-storage`` case, and the lifecycle suite's ``native-session-low-storage``
+executor); this file checks what is the low-storage march's own: that no step returns
+to Python, and that a step left in flight -- by a native failure partway, or by a
+divergence -- poisons the session where the reference's is poisoned, and the service
+loop falls back to the latest running checkpoint.
 """
 
 import dataclasses
@@ -31,15 +29,16 @@ from sessions.executors import (
     WAVELENGTH,
     Run,
     Started,
+    assert_close_trace,
     drive,
     entrance,
     fibre,
     trace,
     window,
 )
-from solprop.backends.driver import StepDriver
-from solprop.backends.driver_session import DriverSession
 from solprop.backends.events import Eligibility, Outcome
+from solprop.backends.host.driver import HostDriver
+from solprop.backends.host.session import HostSession
 from solprop.backends.registry import select
 from solprop.exceptions import ConvergenceError
 from solprop.pulses import SechPulse
@@ -165,16 +164,16 @@ def _native(
 
 
 class _AbandonedError(RuntimeError):
-    """What the driver's engine raises partway through a step."""
+    """What the reference's engine raises partway through a step."""
 
 
-def _driver(
+def _reference(
     problem: PropagationProblem,
     run_request: RunRequest,
     *,
     failing: int | None = None,
-) -> DriverSession:
-    """Start the driver session over the native backend, failing a step if asked.
+) -> HostSession:
+    """Start the reference's session, failing a step if asked.
 
     Parameters
     ----------
@@ -188,16 +187,18 @@ def _driver(
 
     Returns
     -------
-    solprop.backends.driver_session.DriverSession
+    solprop.backends.host.session.HostSession
         The session.
     """
-    driver = select("native", problem, run_request, grid=window(), modes=[fibre().mode])
+    driver = select(
+        "numpy_ref", problem, run_request, grid=window(), modes=[fibre().mode]
+    )
     if failing is not None:
-        march = cast("StepDriver[Any]", driver)._low_storage
+        march = cast("HostDriver[Any]", driver)._low_storage
         assert march is not None
         engine = march.engine
         engine.step = _FailingStep(engine.step, failing)
-    return DriverSession(driver, problem, run_request, entrance(problem))
+    return HostSession(driver, problem, run_request, entrance(problem))
 
 
 class _FailingStep:
@@ -242,17 +243,10 @@ def _closed(session: Any, **drive_options: Any) -> Run:
 def test_no_step_returns_to_python():
     """SEP 47 sections 6.3 and 7.3: the stage scalars and the loop are native.
 
-    The driver session returns to Python once a low-storage step, to form its scalars
-    and book it (the counters' ``low_storage_step``); the native session returns only
-    at its observations and its end, its rows taken natively.
+    The native session returns only at its observations and its end, its rows taken
+    natively.
     """
     problem, run_request = _replayed()
-    counters = _counters.enable()
-    try:
-        _closed(_driver(problem, run_request))
-    finally:
-        _counters.disable()
-    assert counters.record()["native_returns"] == {"low_storage_step": STEPS}
     session = _native(problem, run_request)
     counters = _counters.enable()
     try:
@@ -282,7 +276,7 @@ def test_a_failure_partway_through_a_step_poisons_the_session():
 
     The native failure strikes after the step's passes have overwritten the state:
     the terminal event is poisoned, with no ticket, at the last committed endpoint,
-    with the attempts before it, as the driver's in-flight failure is reported.
+    with the attempts before it, as the reference's in-flight failure is reported.
     """
     problem, run_request = _replayed()
     pending: list[Any] = []
@@ -298,13 +292,33 @@ def test_a_failure_partway_through_a_step_poisons_the_session():
     assert "injected native failure" in str(terminal.error)
     assert run.status.attempts == FAILING - 1
     assert terminal.z == run.accepted_ends()[-1]
-    baseline = _closed(_driver(problem, run_request, failing=FAILING))
+    baseline = _closed(_reference(problem, run_request, failing=FAILING))
     assert isinstance(baseline.terminal.error, _AbandonedError)
-    if _one_thread():
-        assert trace(run) == trace(baseline)
+    _assert_poisoned_alike(run, baseline, 1e-12)
 
 
-def test_a_diverged_step_poisons_the_session_where_the_driver_s_does():
+def _assert_poisoned_alike(run: Run, baseline: Run, rtol: float) -> None:
+    """Assert a poisoned native run ends where the reference's does.
+
+    The same steps (a replay's), observations and terminal outcome, eligibility and
+    position; the planes before it to `rtol`
+    (:func:`~sessions.executors.assert_close_trace`).
+
+    Parameters
+    ----------
+    run : sessions.executors.Run
+        The native run.
+    baseline : sessions.executors.Run
+        The reference's.
+    rtol : float
+        The planes' relative bound.
+    """
+    assert run.status.attempts == baseline.status.attempts
+    assert run.accepted_ends().tobytes() == baseline.accepted_ends().tobytes()
+    assert_close_trace(run, baseline, rtol=rtol)
+
+
+def test_a_diverged_step_poisons_the_session_where_the_reference_s_does():
     """A replay cannot reject a step: the divergence is found in the accepted state.
 
     The state was overwritten in place, so the terminal event is poisoned; the error
@@ -319,11 +333,12 @@ def test_a_diverged_step_poisons_the_session_where_the_driver_s_does():
     assert isinstance(terminal.error, ConvergenceError)
     assert "non-finite state" in str(terminal.error)
     assert 0 < run.status.attempts < STEPS
-    if not _one_thread():
-        return
-    baseline = _closed(_driver(problem, run_request))
-    assert trace(run) == trace(baseline)
-    assert str(terminal.error) == str(baseline.terminal.error)
+    baseline = _closed(_reference(problem, run_request))
+    # The growing instability amplifies each backend's rounding: measured 5.8e-9
+    # apart in the last plane's peak power.
+    _assert_poisoned_alike(run, baseline, 1e-6)
+    if _one_thread():
+        assert trace(_closed(_native(problem, run_request))) == trace(run)
 
 
 # A soliton in a tight window, without a collar: its edges are not what is tested here.
