@@ -272,7 +272,10 @@ def test_python_phase_runs_the_whole_adapter_directory(pinned_tree, monkeypatch)
                 "".join(
                     '<testcase classname="tests.sessions.test_conformance" '
                     f'name="{name}[julia-cpu]"/>'
-                    for name in check_julia._CONFORMANCE_REQUIRED
+                    for name in (
+                        check_julia._CONFORMANCE_REQUIRED
+                        + check_julia._CONFORMANCE_CLASSIFIED
+                    )
                 )
                 + "</testsuite>",
             ),
@@ -317,7 +320,9 @@ def test_conformance_evidence_refuses_an_unexpected_nonpass(result):
             '<testcase classname="tests.sessions.test_conformance" '
             f'name="{name}[julia-cpu]"/>'
         )
-        for name in check_julia._CONFORMANCE_REQUIRED
+        for name in (
+            check_julia._CONFORMANCE_REQUIRED + check_julia._CONFORMANCE_CLASSIFIED
+        )
     ]
     cases[-1].append(ElementTree.Element(result, message="unexpected missing runtime"))
     with pytest.raises(ValueError, match=r"did not pass|unexpected Julia"):
@@ -327,6 +332,37 @@ def test_conformance_evidence_refuses_an_unexpected_nonpass(result):
 def test_conformance_evidence_requires_the_core_contract_cases():
     with pytest.raises(ValueError, match="missing passed Julia conformance"):
         check_julia._verify_conformance_report([])
+
+
+def test_conformance_evidence_requires_classified_cases_to_be_present():
+    cases = [
+        ElementTree.fromstring(
+            '<testcase classname="tests.sessions.test_conformance" '
+            f'name="{name}[julia-cpu]"/>'
+        )
+        for name in check_julia._CONFORMANCE_REQUIRED
+    ]
+    with pytest.raises(ValueError, match="missing classified Julia conformance"):
+        check_julia._verify_conformance_report(cases)
+
+
+@pytest.mark.parametrize("outcome", ["error", "failure"])
+def test_conformance_evidence_never_hides_failure_behind_a_declared_skip(outcome):
+    case = ElementTree.Element(
+        "testcase",
+        classname="tests.sessions.test_conformance",
+        name="test_yields_change_nothing_beside_dense_planes[julia-cpu]",
+    )
+    case.append(
+        ElementTree.Element(
+            "skipped",
+            message="Skipped: the julia-cpu executor promises numerical error bounds, "
+            "not bitwise repetition",
+        )
+    )
+    case.append(ElementTree.Element(outcome, message="fixture teardown failed"))
+    with pytest.raises(ValueError, match="Julia conformance test did not pass"):
+        check_julia._verify_conformance_report([case])
 
 
 def test_conformance_evidence_accepts_only_declared_bitwise_skips():
@@ -344,7 +380,7 @@ def test_conformance_evidence_accepts_only_declared_bitwise_skips():
         case = ElementTree.Element(
             "testcase",
             classname="tests.sessions.test_conformance",
-            name="optional[julia-cpu]",
+            name="test_yields_change_nothing_beside_dense_planes[julia-cpu]",
         )
         case.append(ElementTree.Element("skipped", message="Skipped: " + message))
         cases.append(case)

@@ -50,11 +50,13 @@ Independent attachment review adds 178 actual PythonCall factory assertions and
 seven registry controls. The complete retained-owner matrix passes all 84 managed
 cases, with 27 accompanying pure tests, in 411.75 s. The broader integrated Julia
 Core run found stale positional/synthetic test fixtures after the precision change
-(#728). The two transverse fixtures now independently pass all 414 assertions.
-The precompile negative fixture also retains its current record fields. Its
-independent five-assertion regression passes, and the remaining inventory retry
-requires the documented no-startup-file runner flag. A fresh complete aggregate
-run is in progress; it is not yet claimed as passing.
+(#728). Their narrow corrections preserve the original negative/service behavior;
+independent checks pass 414 transverse assertions and five nullable-record assertions.
+The complete corrected aggregate now passes all 156,695 assertions in 484 testsets,
+with bounds checking enabled and two Julia threads. It includes the reviewed DF32
+flows and execution extension declarations. The inventory test requires the documented
+`--startup-file=no` runner flag; an earlier private tail invocation omitted it and
+is retained as a harness failure.
 
 Binary32 quadrature is independently approved at `b6091f7b`: both maxima and sums
 use state precision, with protected scaled reductions and a host physical ratio.
@@ -68,13 +70,15 @@ and original saved rates with conservative error provenance. Master review passe
 986 bounds-enabled Julia assertions, including 207 independent cubic-derivative,
 rate-radius and replay/history witnesses; 80 typed Python tests pass. Author
 Aqua/JET passes 16 package checks plus five concrete calls across 1,885 definitions.
-Completed starts validate storage without inventing a step (#723). Actual CPU DF32 RK/low-storage flows are now independently approved and integrated
+Completed starts validate storage without inventing a step (#723). Actual CPU DF32
+RK/low-storage flows are independently approved and integrated
 at `5b93ef4e` and `f23b32f0`: 674 independent bounds-enabled assertions, zero warmed
 allocations, and Aqua/JET across 2,026 definitions plus 13 concrete calls. The review
-corrects exact zero-phase signed-zero copies (#727). Module inclusion is integrated at `cadbad36`; the master passes 793 focused
+corrects exact zero-phase signed-zero copies (#727). Module inclusion is integrated
+at `cadbad36`; the master passes 793 focused
 assertions and Aqua/JET across all 2,067 definitions with zero cached. Factory
-integration, complete Adams factors, dense output and spatial assembly remain open; no public
-DF32 execution is claimed.
+integration, complete Adams factors, dense output and spatial assembly remain open;
+no public DF32 execution is claimed.
 
 Temporal split precision is independently approved through `dcc443bf`. Review found
 and corrected a tiny-collar regression (#720): binary32 must use the existing SEP33
@@ -109,7 +113,7 @@ matrix multiplication and FFT round trips pass in both precisions. This is
 artifact/primitive evidence, not device propagation qualification. No cloud resources
 have been rented; spend remains zero.
 
-CI for `984444ce` still has its macOS Julia lane running. Static checks, native quality, device compilation,
+CI for `984444ce` has completed. Static checks, native quality, device compilation,
 distribution wheels, Python platform and lowest-dependency tests, both slow lanes,
 documentation and the no-native lane have passed. All six coverage shards pass;
 their combined report identifies two unmeasured device-refusal statements (#725).
@@ -120,10 +124,13 @@ missing finalization-marker failure in the shutdown subprocess, then a post-summ
 segmentation fault. Both observations remain on #669; runtime investigation stays
 off the critical path under the maintainer's instruction. The failure remains a
 qualification blocker and no assertion is suppressed.
-The Windows GUI lane found
-an immediate-resume event-log sharing violation after 424 passing tests; unrelated
-issue #724 retains the evidence. A targeted rerun must wait for the current workflow
-to finish. Earlier stale fixtures and the Windows skip declaration
+macOS Julia Core and Aqua/JET pass, and its Python lane passes all 1,275 tests
+with 20 declared skips. The final evidence verifier incorrectly required a pass from
+a bitwise-repeat case which correctly takes the declared determinism skip (#731).
+Its correction retains mandatory evidence for that case, rejects any failure even
+when combined with a declared skip, and passes 67 focused verifier tests.
+The Windows GUI lane found an immediate-resume event-log sharing violation after
+424 passing tests; unrelated issue #724 retains the evidence. Earlier stale fixtures and the Windows skip declaration
 were corrected and independently reviewed; local targeted checks pass 57 Python tests
 and 105 Julia assertions. Required unfinished lanes remain visible.
 
