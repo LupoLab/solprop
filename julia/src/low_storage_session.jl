@@ -52,7 +52,7 @@ error norm is `0.0`, meaning "not estimated". This is the SEP 24 fixed RK4IP sch
 not an embedded tableau or a dense-output integrator.
 
 `source` and the prepared in-place `flow` are independently owned compositions using
-the admitted CPU execution budget. They return `nothing` or throw; the linear flow
+the prepared execution policy. They return `nothing` or throw; the linear flow
 supports identical input and output arrays. Each step invokes the source four times,
 even when its physical response is structurally absent. `counts` distinguishes these
 attempted calls from the four calls attributed to each committed step.
@@ -65,7 +65,11 @@ begins, the state is in flight through source/flow work, masks and candidate fin
 any failure there poisons it, including a failure in the first source invocation.
 Accepted-step services run after the field, position and attempt record commit.
 
-Throw `ArgumentError` before numerical advancement for non-CPU execution, an adaptive
+Device binary64 sessions keep all registers and pointwise work on the device;
+only compact per-column norm/finiteness summaries cross to persistent host mirrors.
+Device binary32 sessions refuse before allocation.
+
+Throw `ArgumentError` before numerical advancement for unsupported execution, an adaptive
 schedule, unsupported flow, invalid capacity or initial data. Throw `DimensionMismatch`
 for an incompatible linear-flow shape. Advancement failures become the common
 terminal failure event with their in-flight coordinate and recorded step length.
@@ -97,10 +101,10 @@ function LowStorageSession(
         plane_pending::Bool = true,
         arithmetic::SourceArithmetic = SourceArithmetic(Float64),
     ) where {T <: Union{Float32, Float64}}
+    oncpu(execution) || T === Float64 ||
+        throw(ArgumentError("device low-storage sessions currently require binary64"))
     _march_arithmetic(state, arithmetic, source, flow)
     _flow_start(flow, tableau, z, schedule)
-    oncpu(execution) ||
-        throw(ArgumentError("low-storage sessions currently require CPU"))
     isempty(schedule.replay_steps) &&
         throw(ArgumentError("low-storage RK4IP requires a fixed replay schedule"))
     _inplace_flow(flow) ||

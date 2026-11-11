@@ -29,34 +29,89 @@ No previous state, four-row slope table or error-estimate field is retained. All
 matrices have shape `(n_omega,n_columns)`. The owned unpacked `norm_mask` selects
 spectral rows, and per-column protected reduction scratch is only O(n_columns).
 Flow/source callables own and account for their separate prepared scratch.
+Device binary64 preparation additionally owns persistent host mirrors of the two
+per-column norm partials and finite flags. It downloads only `17*n_columns` bytes
+per norm; the three registers and evolving state stay in device storage. Device
+binary32 work refuses before allocation. CPU work retains its original arrays and
+uses no additional mirror.
 """
-struct LowStorageWork{A, M, R, F}
+struct LowStorageWork{A, M, R, F, H, V}
     accumulator::A
     stage::A
     source::A
     norm_mask::M
     norm_parts::R
     finite_columns::F
+    norm_readback::H
+    finite_readback::V
 end
+
+LowStorageWork(accumulator, stage, source, norm_mask, norm_parts, finite_columns) =
+    LowStorageWork(
+    accumulator, stage, source, norm_mask, norm_parts, finite_columns, nothing, nothing,
+)
 
 function LowStorageWork(
         execution::KernelExecution, state::AbstractMatrix{Complex{T}}, ::RK4IPTableau;
         norm_mask::AbstractVector{Bool} = fill(true, size(state, 1)),
     ) where {T <: Union{Float32, Float64}}
-    oncpu(execution) ||
-        throw(ArgumentError("low-storage preparation currently requires CPU"))
+    if !oncpu(execution)
+        T === Float64 ||
+            throw(ArgumentError("device low-storage work currently requires binary64"))
+        copy_device!(state, state, execution)
+    end
     isempty(state) && throw(ArgumentError("low-storage state must be nonempty"))
     length(norm_mask) == size(state, 1) ||
         throw(DimensionMismatch("low-storage norm mask must match the spectral rows"))
     rows, columns = size(state)
     T === Float32 && _float32_sum_count(Base.checked_mul(2, rows))
+    if !oncpu(execution)
+        norms = DeviceReadback(execution, Float64, 2, columns)
+        finite = DeviceReadback(execution, Bool, columns)
+        return LowStorageWork(
+            dzeros(execution, ComplexF64, rows, columns),
+            dzeros(execution, ComplexF64, rows, columns),
+            dzeros(execution, ComplexF64, rows, columns), upload(execution, norm_mask),
+            norms.device, finite.device, norms, finite,
+        )
+    end
     return LowStorageWork(
         dzeros(execution, Complex{T}, rows, columns),
         dzeros(execution, Complex{T}, rows, columns),
         dzeros(execution, Complex{T}, rows, columns), upload(execution, norm_mask),
         dzeros(execution, T, 2, columns),
-        upload(execution, fill(false, columns)),
+        upload(execution, fill(false, columns)), nothing, nothing,
     )
+end
+
+function _low_storage_execution(work::LowStorageWork, execution)
+    norm, finite = work.norm_readback, work.finite_readback
+    if norm === nothing || finite === nothing
+        oncpu(execution) && norm === nothing && finite === nothing ||
+            throw(ArgumentError("device low-storage work requires prepared readback"))
+    else
+        norm.execution === execution && finite.execution === execution ||
+            throw(ArgumentError("low-storage readback belongs to another execution"))
+    end
+    return nothing
+end
+
+function _low_storage_admit(work::LowStorageWork, state, execution)
+    _low_storage_execution(work, execution)
+    oncpu(execution) || eltype(state) === ComplexF64 ||
+        throw(ArgumentError("device low-storage trials currently require binary64"))
+    shape = size(state)
+    shape == size(work.accumulator) == size(work.stage) == size(work.source) &&
+        length(work.norm_mask) == shape[1] && size(work.norm_parts) == (2, shape[2]) &&
+        length(work.finite_columns) == shape[2] ||
+        throw(DimensionMismatch("low-storage state does not match its workspace"))
+    eltype(state) === eltype(work.accumulator) ||
+        throw(ArgumentError("low-storage state must match its workspace precision"))
+    _transfer_writable_destination(state)
+    _retained_alias(state, work) &&
+        throw(ArgumentError("low-storage state must be disjoint from its work storage"))
+    oncpu(execution) || copy_device!(state, state, execution)
+    return nothing
 end
 
 """
@@ -120,6 +175,7 @@ function _low_storage_final!(work, state, step, execution)
 end
 
 function _low_storage_norm!(work, state, execution)
+    _low_storage_execution(work, execution)
     parts, mask, finite_columns = work.norm_parts, work.norm_mask, work.finite_columns
     rows, columns = size(state)
     each_column!(execution, columns) do column
@@ -136,16 +192,25 @@ function _low_storage_norm!(work, state, execution)
         parts[1, column], parts[2, column] = column_scale, column_sum
         finite_columns[column] = column_finite
     end
+    host_parts = work.norm_readback === nothing ? parts :
+        readback!(work.norm_readback, execution)
+    host_finite = work.finite_readback === nothing ? finite_columns :
+        readback!(work.finite_readback, execution)
     scale, total = 0.0, 0.0
     finite = true
     for column in 1:columns
-        scale, total = _rk_merge_sumsq(scale, total, parts[1, column], parts[2, column])
-        finite &= finite_columns[column]
+        scale, total = _rk_merge_sumsq(
+            scale, total, host_parts[1, column], host_parts[2, column],
+        )
+        finite &= host_finite[column]
     end
     return Float64(scale * sqrt(total)), finite
 end
 
 function _low_storage_norm!(work, state::AbstractMatrix{ComplexF32}, execution)
+    _low_storage_execution(work, execution)
+    oncpu(execution) ||
+        throw(ArgumentError("device low-storage norms currently require binary64"))
     _float32_state_parts!(work.norm_parts, state, work.norm_mask, 1, execution)
     magnitude = _float32_norm_value(work.norm_parts, 1)
     return magnitude, isfinite(magnitude)
@@ -162,27 +227,21 @@ Both return `nothing` or throw; flow must support identical input/output buffers
 There are four source evaluations, at start/midpoint/midpoint/end, and four forward
 flow applications. No inverse flow, embedded estimate or source reuse is introduced.
 
-Return `LowStorageFacts` after one protected CPU norm reduction. Source callbacks
+Return `LowStorageFacts` after one protected norm reduction. Source callbacks
 record actual attempted invocations before work begins. A callback failure returns
 no facts and may leave the state overwritten by an intermediate interaction-picture
 value: the session must mark the step in flight before entry and poison on failure.
 The master owns schedules, source-absence shortcuts, flow-table caching, acceptance,
 mask/collar application, statistics and position commits. This leaf applies none of
-those policies. Preparation admits CPU binary32 and binary64. Nonzero binary32
+those policies. Preparation admits CPU binary32/binary64 and device binary64 with
+execution-owned compact norm readback. Nonzero binary32
 step multipliers must remain in the normal range; a range refusal precedes mutation.
 """
 function low_storage_trial!(
         work::LowStorageWork, state::AbstractMatrix{Complex{T}}, position::Float64,
         step::Float64, ::RK4IPTableau, source!::S, flow!::F, execution::KernelExecution,
     ) where {T <: Union{Float32, Float64}, S, F}
-    oncpu(execution) ||
-        throw(ArgumentError("low-storage device reduction is not admitted"))
-    size(state) == size(work.accumulator) ||
-        throw(DimensionMismatch("low-storage state does not match its workspace"))
-    if Base.mightalias(state, work.accumulator) || Base.mightalias(state, work.stage) ||
-            Base.mightalias(state, work.source)
-        throw(ArgumentError("low-storage state must be disjoint from its work registers"))
-    end
+    _low_storage_admit(work, state, execution)
     isfinite(position) && isfinite(step) && step > 0 && isfinite(position + step) &&
         position + step > position ||
         throw(ArgumentError("invalid low-storage trial interval"))
