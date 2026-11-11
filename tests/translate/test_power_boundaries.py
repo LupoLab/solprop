@@ -5,11 +5,11 @@
 """Exercise power-row refusals and the unit-index statistics boundary."""
 
 from dataclasses import dataclass, replace
-from typing import Any
 
 import numpy as np
 import pytest
 
+from _session_probe_rest import run_error, run_session
 from solprop.backends import available, select
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import (
@@ -23,6 +23,7 @@ from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.linear import Frame
 from solprop.modes import MarcatiliMode
 from solprop.modes.protocol import ParameterisedMode
+from solprop.modes.quadrature import mode_matrix, on_axis_rule
 from solprop.profiles import Linear, PressureGradient
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -286,30 +287,30 @@ def test_unit_index_intensity_retains_the_vacuum_limit(grid, launch, name, with_
         dz_max=grid.length,
         dz_init=grid.length,
     )
-    # A step driver that is also a closable backend: no one static type names both.
-    backend: Any = select(
+    spec = StatsSpec(names=("peak_intensity",))
+    # Unit weight is the exact monochromatic vacuum limit at every bin.
+    rule = on_axis_rule(mode.dimlimits(0.0)[0])
+    axis = mode_matrix((mode,), rule, 0.0, components=("x", "y")).synthesis
+    expected = _poynting_statistics(spec, grid, launch, np.ones(launch.shape), axis)
+    backend = select(
         name, problem, run_request, grid=grid, modes=(mode,) if with_modes else None
     )
-    spec = StatsSpec(names=("peak_intensity",))
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        if not with_modes:
-            with pytest.raises(BackendError, match="mode set"):
-                backend.stats(spec)
-        else:
-            # Unit weight is the exact monochromatic vacuum limit at every bin.
-            axis = backend._on_axis_synthesis((mode,))
-            expected = _poynting_statistics(
-                spec, grid, launch, np.ones(launch.shape), axis
-            )
-            np.testing.assert_allclose(
-                backend.stats(spec)["peak_intensity"],
-                expected["peak_intensity"],
-                rtol=64 * np.finfo(float).eps,
-                atol=0,
-            )
-    finally:
-        backend.close()
+    # The launch plane's statistics, through the backend's session (SEP 47 phase 5).
+    request = run_request.for_run(stats=spec)
+    if not with_modes:
+        error = run_error(backend, problem, request)
+        assert isinstance(error, BackendError)
+        assert "mode set" in str(error)
+        return
+    run = run_session(backend, problem, request, recipe=None)
+    launched = run.observations[0]
+    assert launched.plane_index == -1
+    np.testing.assert_allclose(
+        launched.stats["peak_intensity"],
+        expected["peak_intensity"],
+        rtol=64 * np.finfo(float).eps,
+        atol=0,
+    )
 
 
 def test_poynting_windows_and_missing_dependencies(grid, launch):
@@ -366,6 +367,7 @@ from solprop.grid import EnvelopeGrid
 from solprop.linear import Frame
 from solprop.modes import MarcatiliMode
 from solprop.modes.protocol import ParameterisedMode
+from solprop.modes.quadrature import mode_matrix, on_axis_rule
 from solprop.profiles import PressureGradient
 from solprop.translate import linop
 
