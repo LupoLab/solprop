@@ -1405,6 +1405,10 @@ struct SynthesisCapture {
         [](const char* name) { synthesis_regions.emplace_back(name); });
   }
   ~SynthesisCapture() { Kokkos::Tools::Experimental::set_callbacks(previous); }
+  SynthesisCapture(const SynthesisCapture&) = delete;
+  SynthesisCapture& operator=(const SynthesisCapture&) = delete;
+  SynthesisCapture(SynthesisCapture&&) = delete;
+  SynthesisCapture& operator=(SynthesisCapture&&) = delete;
 };
 
 // Five nodes and modes in chunks of three, the tail two. The square map takes the

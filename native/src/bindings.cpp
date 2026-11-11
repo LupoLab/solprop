@@ -1633,6 +1633,9 @@ public:
   }
   BoundState(const BoundState&) = delete;
   BoundState& operator=(const BoundState&) = delete;
+  // The runtime's list of live states holds this address.
+  BoundState(BoundState&&) = delete;
+  BoundState& operator=(BoundState&&) = delete;
 
   void set_initial(const std::span<const native::Complex> field,
                    const std::span<const native::Complex> noise) {
@@ -2390,6 +2393,8 @@ public:
   ~BoundSession() { close(); }
   BoundSession(const BoundSession&) = delete;
   BoundSession& operator=(const BoundSession&) = delete;
+  BoundSession(BoundSession&&) = delete;
+  BoundSession& operator=(BoundSession&&) = delete;
 
   // The advance runs without the interpreter lock; its batch becomes a record with it.
   BatchRecord advance(const std::size_t work_limit, const double deadline) {

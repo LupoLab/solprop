@@ -5444,6 +5444,8 @@ std::vector<Complex> GeneralWorkspace::adams_source(const std::vector<Complex>& 
   require_extent(input.size(), problem_.n_columns() * problem_.n_omega, "Adams input");
   // The flow is set aside for the evaluation and put back whatever happens.
   auto held_flow = std::exchange(flow_, nullptr);
+  // An aggregate, so it declares no copy or move; it is never copied or moved.
+  // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions): a local scope guard
   struct RestoreFlow {
     std::unique_ptr<CoupledFlowAction>& slot;
     std::unique_ptr<CoupledFlowAction>& held;

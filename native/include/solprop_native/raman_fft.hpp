@@ -30,6 +30,8 @@ public:
   ~AccelerateRamanPlan();
   AccelerateRamanPlan(const AccelerateRamanPlan&) = delete;
   AccelerateRamanPlan& operator=(const AccelerateRamanPlan&) = delete;
+  AccelerateRamanPlan(AccelerateRamanPlan&&) = delete;
+  AccelerateRamanPlan& operator=(AccelerateRamanPlan&&) = delete;
   void execute_task(std::size_t task) const;
   [[nodiscard]] int tasks() const noexcept;
 
