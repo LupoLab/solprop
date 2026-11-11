@@ -5,6 +5,24 @@
 public RungeKuttaObservationWork, retain_runge_kutta_observation!, observe_runge_kutta!
 public runge_kutta_observation_memory
 
+# Session construction uses these late-bound hooks after all numerical files load.
+# The default path retains its existing binary64-wide flow and storage checks.
+function _rk_dense_admit(flow, state)
+    flow isa LinearFlow ||
+        throw(ArgumentError("Runge-Kutta dense observation requires LinearFlow"))
+    size(flow.exponent) == size(state) ||
+        throw(DimensionMismatch("Runge-Kutta linear flow and state shapes disagree"))
+    return nothing
+end
+
+function _rk_dense_prepare(
+        execution, state, tableau, dense_weights, flow::LinearFlow; arithmetic,
+    )
+    return RungeKuttaObservationWork(
+        execution, state, tableau, dense_weights, flow.operator; arithmetic,
+    )
+end
+
 """
     RungeKuttaObservationWork(execution, state, tableau, dense_weights, operator;
                               arithmetic=SourceArithmetic(Float64))
@@ -193,8 +211,18 @@ function _rk_observation_phase_body(operator::SeparableSpatialOperator, z0, z1, 
         first(_spatial_element(tables, row, column)) * distance
 end
 
+_rk_observation_preflight(work, operator, origin, step, destination, execution) = nothing
+
 function _rk_observation_narrow_factors!(work, origin, destination, execution, retain)
-    operator, weights = work.operator, work.weights
+    return _rk_observation_narrow_factors!(
+        work, work.operator, origin, destination, execution, retain,
+    )
+end
+
+function _rk_observation_narrow_factors!(
+        work, operator, origin, destination, execution, retain,
+    )
+    weights = work.weights
     _rk_observation_wide_prepare(operator, origin, destination, weights, execution)
     factors, stiff, failures = work.factor, work.stiff, work.failures
     phase_at = _rk_observation_phase_body(operator, origin, destination, weights)
@@ -301,6 +329,7 @@ function retain_runge_kutta_observation!(
             _retained_alias(stages, work)
     ) && throw(ArgumentError("RK dense trial inputs must not alias retained storage"))
     _march_scalar(T, dz)
+    _rk_observation_preflight(work, work.operator, z, dz, destination, execution)
     work.ready = false
     _source_finite!(work.failures, initial, execution, :dense_initial)
     _source_finite!(work.failures, endpoint, execution, :dense_endpoint)

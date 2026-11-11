@@ -111,7 +111,8 @@ admission nor a device arithmetic model follows from this CPU implementation.
 
 Throw `ArgumentError` before state allocation for non-CPU execution, other precision,
 unsupported operator/method, tabulation or invalid immutable inputs. Shape mismatches
-raise `DimensionMismatch`. Dense and Adams attachment remain explicitly unsupported.
+raise `DimensionMismatch`. RK dense observation uses its separately certified retained
+workspace; Adams uses its separate complete-factor flow. No device admission follows.
 """
 struct DF32LinearFlow{E, O, B}
     execution::E
