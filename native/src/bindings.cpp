@@ -1777,7 +1777,7 @@ public:
     native::rk::Result result;
     {
       const nb::gil_scoped_release release;
-      result = native::rk::run(*rk_policy_, state, engine, bounds, rk_schedule_);
+      result = native::rk::run(rk_policy_.value(), state, engine, bounds, rk_schedule_);
     }
     return rk_result_to(result, state);
   }
@@ -2005,13 +2005,14 @@ public:
     auto state = march_state_from(state_values);
     const auto bounds = march_bounds_from(bounds_values);
     auto& general = open_state();
-    native::engines::ResidentEngine engine(general, *stage_tables_, stage_anchor_,
-                                           march_fused_, march_compensated_,
-                                           march_interpolate_, march_fault_);
+    native::engines::ResidentEngine engine(
+        general, stage_tables_.value(), stage_anchor_, march_fused_, march_compensated_,
+        march_interpolate_, march_fault_);
     march::Result result;
     {
       const nb::gil_scoped_release release;
-      result = march::run(*march_policy_, state, engine, bounds, march_schedule_);
+      result =
+          march::run(march_policy_.value(), state, engine, bounds, march_schedule_);
     }
     return march_result_to(result, state);
   }

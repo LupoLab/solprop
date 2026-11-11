@@ -70,7 +70,7 @@ bool Session::edge_launch(Batch& batch) {
   const transverse::Reading reading =
       edge_reading(true, !resumed, edge_->every_step() && resumed);
   // The input noise's readings, on a resumed launch too: the reads judge above them.
-  const auto& noise = plan_.monitor->edge_noise;
+  const auto& noise = plan_.monitor.value().edge_noise;
   return edge_judged(
       batch, edge_->launch(reading, position(), nullptr, noise ? &*noise : nullptr),
       Continuation::edge_launch);

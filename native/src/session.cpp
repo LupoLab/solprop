@@ -581,7 +581,7 @@ bool Session::attach(Batch& batch) {
   // `DriverSession._attach_monitor` after the launch plane's commit: restore a resumed
   // record, then record and judge the launch (`attach_monitor`).
   attached_ = true;
-  const auto& plan = *plan_.monitor;
+  const auto& plan = plan_.monitor.value();
   if (plan.resume) {
     // `BoundaryMonitor.resume` continues the edge's record first.
     if (edge_)
