@@ -2460,6 +2460,11 @@ public:
       return nb::none();
     return watch_record_to(*record);
   }
+  // The resident state's quadrature peak since the last read; takes the lock.
+  double quadrature_peak() {
+    const nb::gil_scoped_release release;
+    return session_->quadrature_peak();
+  }
   // The split collar's crossing cap the monitor holds, m, or None; takes the lock.
   nb::object monitor_cap() {
     std::optional<double> cap;
@@ -4391,6 +4396,7 @@ NB_MODULE(_core, module_) {
       .def_prop_ro("elements", &BoundSession::elements)
       .def("monitor_record", &BoundSession::monitor_record)
       .def("monitor_cap", &BoundSession::monitor_cap)
+      .def("quadrature_peak", &BoundSession::quadrature_peak)
       .def("continue_monitor", &BoundSession::continue_monitor, "record"_a, "plane"_a,
            "unwatched"_a, "edge_record"_a)
       .def("edge_record", &BoundSession::edge_record)

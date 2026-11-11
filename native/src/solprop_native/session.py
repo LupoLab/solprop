@@ -72,6 +72,7 @@ from __future__ import annotations
 
 import dataclasses
 import itertools
+import logging
 import math
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
@@ -94,6 +95,7 @@ from solprop.backends.events import (
 )
 from solprop.backends.export import destination_refusal
 from solprop.backends.multistep import CallLedger, budget_error
+from solprop.backends.numpy_ref import QUADRATURE_ALARM
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.session import (
@@ -154,6 +156,12 @@ from .backend import (
     _on_device,  # pyright: ignore[reportPrivateUsage]
     _raise_native,  # pyright: ignore[reportPrivateUsage]
 )
+
+_LOG = logging.getLogger(__name__)
+
+_QUADRATURE_LOG = logging.getLogger("solprop.backends.numpy_ref.backend")
+"""The reference's logger, on which the transverse quadrature alarm is given, so that a
+filter on the alarm reads both backends alike (``_check_quadrature``)."""
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -543,6 +551,8 @@ class NativeSession:
         self._backend: NativeBackend | None = backend
         self._axis_scans = 0
         self._axis_scans_closed = 0
+        # Whether this plane's quadrature alarm was given (`_check_quadrature`).
+        self._alarm_reported = False
         try:
             kind, state = self._prepare(backend, start)
             # The on-axis row scans this session's statistics make: the state's
@@ -1008,6 +1018,24 @@ class NativeSession:
         chunk, event = translated
         if (counters := _counters.active) is not None:
             self._tally(counters, batch, chunk, limit)
+        self._check_quadrature(event)
+        if _LOG.isEnabledFor(logging.DEBUG):
+            # Each attempt, as the native backend's adapter logged its march's.
+            for end, dz, norm, accepted in zip(
+                chunk.z.tolist(),
+                chunk.dz.tolist(),
+                chunk.error_norm.tolist(),
+                chunk.accepted.tolist(),
+                strict=True,
+            ):
+                _LOG.debug(
+                    "native %s attempt to z = %.9g m: dz = %.4g m, norm %.4g, %s",
+                    self._march_name,
+                    end,
+                    dz,
+                    norm,
+                    "accepted" if accepted else "rejected",
+                )
         if self._listener is not None:
             for end, dz, accepted in zip(
                 chunk.z.tolist(),
@@ -1018,6 +1046,38 @@ class NativeSession:
                 self._listener(end, dz, bool(accepted))
         self._held = None
         return EventBatch(receipt, (event,))
+
+    def _check_quadrature(self, event: Event) -> None:
+        """Warn once a plane if a step's transverse quadrature score passed the alarm.
+
+        The reference's warning (``NumpyRefBackend._update_alarm``), on its logger and
+        with its threshold: the native state keeps the largest accepted step's score
+        since the last read, which the session reads under its lock once an advance
+        (``Session::quadrature_peak``); the warning
+        is given once between two observations, as the reference gives it once a
+        plane.
+
+        Parameters
+        ----------
+        event : solprop.backends.events.Event
+            The advance's event; an observation starts the next plane's watch.
+        """
+        if self.closed:
+            return
+        peak = float(self._native.quadrature_peak())
+        if peak > QUADRATURE_ALARM and not self._alarm_reported:
+            self._alarm_reported = True
+            _QUADRATURE_LOG.warning(
+                "the transverse quadrature reproduces the nonlinear polarisation to "
+                "only %.2e at z = %.6g m, above the %.0e alarm; the integrand is not "
+                "resolved by this rule (a kinked ionisation rate, or too few nodes for "
+                "the mode set) and no step size can fix it",
+                peak,
+                float(self._native.status().z),
+                QUADRATURE_ALARM,
+            )
+        if isinstance(event, ObservationReady):
+            self._alarm_reported = False
 
     def _translate(
         self, batch: _core.SessionBatch, receipt: Receipt
