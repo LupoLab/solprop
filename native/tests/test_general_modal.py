@@ -29,7 +29,7 @@ from typing import Literal, cast
 import numpy as np
 import numpy.typing as npt
 import pytest
-from session_runs import alone, assert_same, grouped, one_thread
+from session_runs import alone, assert_same, finish, grouped, launch, one_thread
 from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.general_modal import (
@@ -243,9 +243,10 @@ def _run(
 ) -> tuple[ComplexArray, dict[str, int]]:
     backend = backend_class(case.problem, case.run_request, grid=case.simulation.grid)
     try:
-        backend.set_initial(case.state, None)
-        backend.propagate_to(Z_END)
-        return backend.observe().require_field(), backend.memory_ledger()
+        start = Start(field=case.state, z=0.0)
+        planes = finish(backend, case.problem, case.run_request, start, owns=False)
+        assert planes.planes[-1]["z"] == Z_END
+        return planes.planes[-1]["field"], backend.memory_ledger()
     finally:
         backend.close()
 
@@ -387,16 +388,14 @@ def test_the_run_repeats_to_rounding_and_the_ledger_is_the_routes(
 def test_the_general_statistics_are_the_references() -> None:
     case = CASES["circular_basis"]()
     spec = StatsSpec(names=("physical_energy", "analytic_flux", "spectral_flux"))
+    run_request = case.run_request.for_run(stats=spec)
     values: list[dict[str, npt.NDArray[np.float64]]] = []
     for backend_class in (NumpyRefBackend, NativeBackend):
         member: NumpyRefBackend | NativeBackend = backend_class(
-            case.problem, case.run_request, grid=case.simulation.grid
+            case.problem, run_request, grid=case.simulation.grid
         )
-        try:
-            member.set_initial(case.state, None)
-            values.append(member.stats(spec))
-        finally:
-            member.close()
+        start = Start(field=case.state, z=0.0)
+        values.append(launch(member, case.problem, run_request, start)["stats"])
     # The launch's statistics on both backends: each a reduction of squared moduli
     # over the channels and samples (``gamma`` of four operations a term, the terms
     # nonnegative) after at most one transform round trip each way, fixed beforehand.
@@ -407,9 +406,11 @@ def test_the_general_statistics_are_the_references() -> None:
         )
     backend = NativeBackend(case.problem, case.run_request, grid=case.simulation.grid)
     try:
-        backend.set_initial(case.state, None)
-        with pytest.raises(BackendError, match="energy"):
-            backend.stats(StatsSpec(names=("energy",)))
+        # Refused where the native session starts, before any step.
+        asked = case.run_request.for_run(stats=StatsSpec(names=("energy",)))
+        start = Start(field=case.state, z=0.0)
+        with pytest.raises(BackendError, match="energy is unavailable"):
+            backend.prepare(case.problem, asked).start(start, owns=False)
     finally:
         backend.close()
 
@@ -659,11 +660,10 @@ def _moving_run(
 ) -> tuple[ComplexArray, dict[str, int]]:
     backend = backend_class(problem, run_request, grid=simulation.grid)
     try:
-        backend.set_initial(problem.initial.field0 if field0 is None else field0, None)
-        backend.propagate_to(FIBRE)
-        return np.asarray(
-            backend.observe().require_field()
-        ).copy(), backend.memory_ledger()
+        start = Start(field=problem.initial.field0 if field0 is None else field0, z=0.0)
+        planes = finish(backend, problem, run_request, start, owns=False).planes
+        assert planes[-1]["z"] == pytest.approx(FIBRE)
+        return planes[-1]["field"], backend.memory_ledger()
     finally:
         backend.close()
 

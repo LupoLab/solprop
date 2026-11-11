@@ -19,7 +19,7 @@ import pytest
 from bounds import EPS, assert_within, step_bound
 from conftest import PhaseACase, RamanCase
 from legacy_geometry import LEGACY_GRID
-from session_runs import finish, steps
+from session_runs import finish, loaded_state, native_trial, steps
 from solprop.backends.driver import StepDriver
 from solprop.backends.events import ObservationReady
 from solprop.backends.low_storage import schedule_key
@@ -50,21 +50,6 @@ from solprop_native.backend import (
     _ResidentLowStorage,  # pyright: ignore[reportPrivateUsage]
 )
 from solprop_native.session import NativeSession
-
-
-def _loaded(backend: NativeBackend, problem: PropagationProblem) -> _core.State:
-    """Load the problem's launch into the backend's native state; return the state."""
-    state = backend._native_state  # pyright: ignore[reportPrivateUsage]
-    field = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
-    state.set_initial(field.reshape(-1), np.empty(0, dtype=np.complex128))
-    return state
-
-
-def _trial(backend: NativeBackend, state: _core.State, z: float, dz: float) -> None:
-    """Make one native Runge-Kutta trial from `z` on the backend's staged rows."""
-    backend._staged_rows()  # pyright: ignore[reportPrivateUsage]
-    nodes = [float(node) for node in backend.request.stepper.tableau.nodes]
-    state.rk_trial(z, dz, nodes, prepare_only=False)
 
 
 def test_check_build_accepts_the_compiled_contract() -> None:
@@ -210,10 +195,10 @@ def test_stage_observation_owns_its_host_copy_and_checks_lifetime(
     """
     problem, run_request, grid = phase_a_case
     backend = NativeBackend(problem, run_request, grid=grid)
-    state = _loaded(backend, problem)
+    state = loaded_state(backend, problem.initial.field0)
     with pytest.raises(RuntimeError, match="stage"):
         state.stage_to_host(0)
-    _trial(backend, state, 0.0, 1e-4)
+    native_trial(backend, state, 0.0, 1e-4)
     derivative = state.stage_to_host(0)
     assert derivative.shape == (1, grid.n_omega)
     assert derivative.dtype == np.complex128
@@ -395,7 +380,7 @@ def test_a_low_storage_table_never_built_is_refused(phase_a_case: PhaseACase) ->
     try:
         # The resident engine on the loaded state, with the key of the first step's
         # table, which no step built.
-        _loaded(backend, marched)
+        loaded_state(backend, marched.initial.field0)
         method = marched_request.stepper.integrator
         assert isinstance(method, LowStorageRungeKutta)
         engine = _ResidentLowStorage(backend, method)
@@ -1033,7 +1018,7 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = _loaded(backend, problem)
+        state = loaded_state(backend, problem.initial.field0)
         info = build_info()
         # The native rule: a HYBRID or KOKKOSBLAS_TPL build on a host execution
         # space, at this shape; the dev build is HYBRID without TPL BLAS and packs too.
@@ -1049,7 +1034,7 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
         else:
             assert not provider.endswith("-packed-real"), provider
             assert ledger.get("radial_blas_buffers", 0) == 0
-        _trial(backend, state, 0.0, 0.0)
+        native_trial(backend, state, 0.0, 0.0)
         actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
     finally:
         backend.close()
