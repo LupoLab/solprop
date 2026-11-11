@@ -16,8 +16,11 @@ additional numerical, range, shape and memory checks. Source and flow leaves ret
 zero warmed allocation. Full phase 2 qualification remains open.
 
 Phase 3 has reviewed source composition, march arithmetic and protected-reduction
-foundations. Adams leaf `d1a0c1f3` and RK/session/probe leaf `cf78b0b4` have passed
-author bounds/quality checks and are under independent integration review. Observation
+foundations. Adams leaf `d1a0c1f3` is independently approved: the master passes 3,617
+bounds-enabled assertions including 68 new MPFR/range witnesses. Review corrected
+the imaginary-transport guard (#714); the final author gate passes 5,820 affected
+assertions and Aqua/JET. RK/session/probe leaf `cf78b0b4` has passed author bounds
+and quality checks and is under independent integration review. Observation
 numerical leaf `077211b5` is under independent review; reconstruction is the next
 assigned slice. Master launch-scale records and source/launch bridge attachment pass
 51 Python checks, 235 bounds-enabled Julia assertions, 25 typed managed CPU/axis

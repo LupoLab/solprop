@@ -31,6 +31,7 @@ if group == "Core"
     include("wide_operators.jl")
     include("runge_kutta.jl")
     include("adams.jl")
+    include("adams_precision.jl")
     include("low_storage.jl")
     include("march_precision.jl")
     include("control.jl")
