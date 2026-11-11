@@ -3056,7 +3056,7 @@ public:
   // beside a block wider than `adams_max_channels` (solprop SEP 47 phase 4); empty
   // otherwise, when a host task holds them on its stack.
   ComplexView2 adams_channels_;
-  // A host's functions of the bins off the flow's eigenbasis route, `(n_active,
+  // Each build's functions of the bins off the flow's eigenbasis route, `(n_active,
   // augmented_blocks(slots), n_modes, n_modes)` by active bin: the augmented
   // exponential's first block row and its scratch for the trial's section (solprop
   // SEP 47 phase 4); empty without a bin off the route.

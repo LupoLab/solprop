@@ -399,6 +399,8 @@ def test_a_wide_or_off_route_coupled_flow_is_the_bridges_on_the_device(
     ``numpy_ref`` and solprop's host engine within the ten-step bounds is
     ``tests/driver/test_native_flow_session.py``'s."""
     problem, request, context = coupled_flow(kind)
+    if kind == "wide":
+        assert problem.shape[0] == 17
     assert native_session.refusal(problem, request) is None
     run = _door(problem, request, context, monkeypatch, bridge=False)
     baseline = _door(problem, request, context, monkeypatch, bridge=True)
