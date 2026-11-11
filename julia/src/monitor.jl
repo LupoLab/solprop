@@ -1275,7 +1275,8 @@ Allocate concrete transverse control state and owned previous/noise column vecto
 
 Face baselines and maxima are fixed tuples in declared order. All coordinates are in
 m and totals are launch-normalised energy shares. `last_columns` and `noise_columns`
-are the only retained arrays; no history or notices are stored inside the state.
+are the only retained arrays. Three scalar cursor fields retain an unfinished warning
+stage, its next face and coordinate; no reading, field, history or notice is stored.
 """
 mutable struct TransverseState{N, V}
     launch::Float64
@@ -1315,6 +1316,9 @@ mutable struct TransverseState{N, V}
     current_last::Float64
     current_baseline::Float64
     returned_peak::Float64
+    stage::UInt8
+    face::Int
+    held_z::Float64
 
     # Binding the face count through tables avoids @kwdef's unparameterized
     # constructor evaluating defaults with an unbound N (issue #645).
@@ -1358,6 +1362,7 @@ mutable struct TransverseState{N, V}
         state.current_last = 0.0
         state.current_baseline = 0.0
         state.returned_peak = 0.0
+        state.stage, state.face, state.held_z = 0, 0, NaN
         return state
     end
 end
@@ -1517,10 +1522,35 @@ column arrays and spacing, and does not judge again. All warnings/stops are fixe
 notices; stop notices return before the later launch operations, matching the oracle.
 """
 function transverse_launch!(
-        state::TransverseState{N}, policy, tables, reading, z, notices;
+        state::TransverseState, policy, tables, reading, z, notices;
         noise = nothing, clean_columns = nothing, fixed_step_max = nothing,
-        reads::Bool = true, declared::Bool = false
-    ) where {N}
+        reads::Bool = true, declared::Bool = false,
+    )
+    _transverse_begin_launch!(
+        state, policy, tables, reading, z, notices;
+        noise, clean_columns, fixed_step_max, reads, declared,
+    )
+    while state.stage != 0
+        _transverse_proceed!(
+            state, policy, tables, reading, notices; noise, fixed_step_max, reads,
+        )
+    end
+    return nothing
+end
+
+# The session owns the held reading and optional noise until this cursor drains.
+# Each action is shared with the eager API; no warning is passed without returning.
+function _transverse_begin_launch!(
+        state::TransverseState, policy, tables, reading, z, notices;
+        noise = nothing, clean_columns = nothing, fixed_step_max = nothing,
+        reads::Bool = true, declared::Bool = false,
+    )
+    state.stage == 0 ||
+        throw(ArgumentError("finish the pending transverse warning before a new launch"))
+    if fixed_step_max !== nothing
+        isfinite(fixed_step_max) && fixed_step_max > 0 ||
+            throw(ArgumentError("fixed maximum step must be finite positive"))
+    end
     isfinite(z) || throw(ArgumentError("transverse launch coordinate must be finite"))
     _transverse_check(state, tables, reading; full = !state.resumed)
     if noise !== nothing
@@ -1566,61 +1596,59 @@ function transverse_launch!(
         return nothing
     end
     columns = clean_columns === nothing ? reading.columns : clean_columns
-    length(columns) == length(tables.column_weights) &&
-        all(value -> isfinite(value) && value >= 0, columns) ||
-        throw(ArgumentError("clean launch columns must be finite nonnegative"))
+    state.held_z, state.face = z, 1
+    before = notices.count
     _transverse_ramp_band!(state, policy, tables, columns, declared, notices)
     monitor_stopped(notices) && return nothing
-    if !reads
-        state.status, state.reason = TransverseUnwatched, 1
-        _notice!(notices, TransverseUnwatchedWarning, z, 0.0)
-        return nothing
-    end
-    state.baseline = ntuple(index -> reading.faces[index] / state.launch, Val(N))
-    all(isfinite, state.baseline) ||
-        throw(ArgumentError("normalised launch faces overflowed"))
-    for index in 1:N
-        clipped = reading.clip[index] / state.launch
-        isfinite(clipped) || throw(ArgumentError("normalised launch clip overflowed"))
-        clipped > policy.warn &&
-            _notice!(notices, TransverseClipWarning, z, clipped; face = index)
-    end
-    if noise !== nothing
-        eta = noise.totals[1] / state.launch
-        state.allowance = policy.noise_factor * eta * tables.noise_face_share /
-            sqrt(tables.noise_modes)
-        isfinite(state.allowance) || throw(ArgumentError("edge noise allowance overflowed"))
-        _weighted_columns!(state.noise_columns, noise.columns, tables)
-        state.has_noise = true
-        if policy.has_design
-            total = 0.0
-            for index in eachindex(state.noise_columns)
-                tables.ramp_rates[index] > 0 && (total += state.noise_columns[index])
-            end
-            state.noise_share_in_ramp = total / state.launch
-            isfinite(state.noise_share_in_ramp) ||
-                throw(ArgumentError("normalised ramp noise overflowed"))
+    state.stage = 1
+    notices.count > before && return nothing
+    return _transverse_proceed!(
+        state, policy, tables, reading, notices; noise, fixed_step_max, reads,
+    )
+end
+
+function _transverse_launch_noise!(state, policy, tables, noise, z, notices)
+    noise === nothing && return nothing
+    eta = noise.totals[1] / state.launch
+    state.allowance = policy.noise_factor * eta * tables.noise_face_share /
+        sqrt(tables.noise_modes)
+    isfinite(state.allowance) || throw(ArgumentError("edge noise allowance overflowed"))
+    _weighted_columns!(state.noise_columns, noise.columns, tables)
+    state.has_noise = true
+    if policy.has_design
+        total = 0.0
+        for index in eachindex(state.noise_columns)
+            tables.ramp_rates[index] > 0 && (total += state.noise_columns[index])
         end
-        if state.allowance > policy.warn
-            state.status, state.reason = TransverseInsensitive, 2
-            _notice!(notices, TransverseInsensitiveWarning, z, state.allowance)
-        end
+        state.noise_share_in_ramp = total / state.launch
+        isfinite(state.noise_share_in_ramp) ||
+            throw(ArgumentError("normalised ramp noise overflowed"))
     end
+    if state.allowance > policy.warn
+        state.status, state.reason = TransverseInsensitive, 2
+        _notice!(notices, TransverseInsensitiveWarning, z, state.allowance)
+    end
+    return nothing
+end
+
+function _transverse_launch_spacing!(
+        state, policy, tables, reading, z, fixed_step_max, notices,
+    )
     _weighted_columns!(state.last_columns, reading.columns, tables)
     _transverse_respace!(state, policy, tables; launch = true)
     state.next = z + state.spacing_now
-    if fixed_step_max !== nothing
-        isfinite(fixed_step_max) && fixed_step_max > 0 ||
-            throw(ArgumentError("fixed maximum step must be finite positive"))
-        if fixed_step_max > state.spacing_now
-            state.status == TransverseClear && (state.status = TransverseCoarse)
-            state.largest_gap = fixed_step_max
-            _notice!(
-                notices, TransverseCoarseWarning, z, fixed_step_max;
-                auxiliary = state.spacing_now
-            )
-        end
+    if fixed_step_max !== nothing && fixed_step_max > state.spacing_now
+        state.status == TransverseClear && (state.status = TransverseCoarse)
+        state.largest_gap = fixed_step_max
+        _notice!(
+            notices, TransverseCoarseWarning, z, fixed_step_max;
+            auxiliary = state.spacing_now,
+        )
     end
+    return nothing
+end
+
+function _transverse_launch_rest!(state, policy, reading, noise, z)
     state.last_rate_z, state.last_rate = z, _transverse_rate(policy, reading, state.launch)
     if policy.has_collar
         state.strip_baseline = first(_strip_shares(reading, state.launch))
@@ -1632,6 +1660,57 @@ function transverse_launch!(
         isfinite(state.current_baseline) ||
             throw(ArgumentError("normalised outside-launch energy overflowed"))
         state.has_current_last, state.current = false, 0.0
+    end
+    return nothing
+end
+
+function _transverse_proceed!(
+        state::TransverseState{N}, policy, tables, reading, notices;
+        noise = nothing, fixed_step_max = nothing, reads::Bool = true,
+    ) where {N}
+    before = notices.count
+    z = state.held_z
+    while state.stage != 0
+        if state.stage == 1
+            if !reads
+                state.stage = 0
+                state.status, state.reason = TransverseUnwatched, 1
+                _notice!(notices, TransverseUnwatchedWarning, z, 0.0)
+                return nothing
+            end
+            state.stage = 2
+        elseif state.stage == 2
+            if state.face > N
+                state.stage = 3
+                continue
+            end
+            index = state.face
+            baseline, clipped = reading.faces[index] / state.launch,
+                reading.clip[index] / state.launch
+            all(isfinite, (baseline, clipped)) ||
+                throw(ArgumentError("normalised launch face or clip overflowed"))
+            state.baseline = Base.setindex(state.baseline, baseline, index)
+            state.face += 1
+            clipped > policy.warn &&
+                _notice!(notices, TransverseClipWarning, z, clipped; face = index)
+        elseif state.stage == 3
+            state.stage = 4
+            _transverse_launch_noise!(state, policy, tables, noise, z, notices)
+        elseif state.stage == 4
+            state.stage = 5
+            _transverse_launch_spacing!(
+                state, policy, tables, reading, z, fixed_step_max, notices,
+            )
+        elseif state.stage == 5
+            state.stage = 0
+            _transverse_launch_rest!(state, policy, reading, noise, z)
+        elseif state.stage == 6
+            state.stage = 0
+            _transverse_judge_ramp!(state, policy, notices)
+        else
+            throw(ArgumentError("invalid transverse warning continuation stage"))
+        end
+        notices.count > before && return nothing
     end
     return nothing
 end
@@ -1714,10 +1793,19 @@ Scalar thresholds use strict comparisons. Stop ties select the lexically last fa
 warning order follows declared faces and emits once. With a collar, outward edge
 shares are recorded while return-strip/current and safety-ramp removal are judged.
 """
-function transverse_read!(
-        state::TransverseState{N}, policy, tables, reading, z,
-        notices
+function transverse_read!(state::TransverseState, policy, tables, reading, z, notices)
+    _transverse_begin_read!(state, policy, tables, reading, z, notices)
+    while state.stage != 0
+        _transverse_proceed!(state, policy, tables, reading, notices)
+    end
+    return nothing
+end
+
+function _transverse_begin_read!(
+        state::TransverseState{N}, policy, tables, reading, z, notices,
     ) where {N}
+    state.stage == 0 ||
+        throw(ArgumentError("finish the pending transverse warning before a new read"))
     transverse_wants_read(state, z) || return nothing
     isfinite(z) || throw(ArgumentError("transverse read coordinate must be finite"))
     _transverse_check(state, tables, reading)
@@ -1750,12 +1838,22 @@ function transverse_read!(
     )
     all(isfinite, state.peak_raw) ||
         throw(ArgumentError("normalised transverse face overflowed"))
+    state.held_z = z
+    before = notices.count
     if policy.has_collar
         _transverse_judge_return!(state, policy, reading, z, notices)
-        monitor_stopped(notices) && return nothing
-        _transverse_judge_ramp!(state, policy, notices)
-        return nothing
+    else
+        _transverse_judge_faces!(state, policy, tables, reading, z, notices)
     end
+    monitor_stopped(notices) && return nothing
+    state.stage = 6
+    notices.count > before && return nothing
+    return _transverse_proceed!(state, policy, tables, reading, notices)
+end
+
+function _transverse_judge_faces!(
+        state::TransverseState{N}, policy, tables, reading, z, notices,
+    ) where {N}
     judged = ntuple(
         index -> reading.faces[index] / state.launch -
             state.baseline[index] - state.allowance, Val(N)
@@ -1785,7 +1883,6 @@ function transverse_read!(
             _notice!(notices, TransverseFaceWarning, z, judged[index]; face = index)
         end
     end
-    _transverse_judge_ramp!(state, policy, notices)
     return nothing
 end
 

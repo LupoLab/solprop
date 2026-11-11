@@ -373,6 +373,82 @@ function _transverse_strip_allocations(reading, lines, execution)
     return @allocated SolpropJulia.transverse_strip!(reading, lines, execution)
 end
 
+@testset "Transverse warning cursors preserve unperformed stages" begin
+    tables, policy = _transverse_tables(; ramp = true), _transverse_policy(; design = true)
+    reading = _transverse_reading(;
+        faces = (2.0, 3.0, 0.0, 0.0), columns = [98.0, 0.0, 0.0, 2.0], rate = 4.0,
+    )
+    reading.clip = (2.0, 3.0, 0.0, 0.0)
+    noise = _transverse_reading(; total = 4.0, columns = [0.0, 0.0, 0.0, 4.0])
+    state = SolpropJulia.TransverseState(tables)
+    eager = SolpropJulia.TransverseState(tables)
+    notices = SolpropJulia.MonitorNotices(1)
+    accumulated = SolpropJulia.MonitorNotices(8)
+    SolpropJulia.transverse_launch!(
+        eager, policy, tables, reading, 0.0, accumulated; noise, fixed_step_max = 0.5,
+    )
+    SolpropJulia._transverse_begin_launch!(
+        state, policy, tables, reading, 0.0, notices; noise, fixed_step_max = 0.5,
+    )
+    @test notices.count == 1
+    @test notices.records[1].code == SolpropJulia.TransverseLaunchWarning
+    @test state.baseline == (0.0, 0.0) && iszero(state.allowance)
+    @test isnan(state.last_rate_z) && all(iszero, state.last_columns)
+    @test_throws ArgumentError SolpropJulia._transverse_begin_read!(
+        state, policy, tables, reading, 0.2, notices,
+    )
+    @test_throws ArgumentError SolpropJulia._transverse_begin_launch!(
+        state, policy, tables, reading, 0.0, notices,
+    )
+    @test state.baseline == (0.0, 0.0) && state.reads == 0
+    for index in 2:accumulated.count
+        SolpropJulia.reset_notices!(notices)
+        SolpropJulia._transverse_proceed!(
+            state, policy, tables, reading, notices; noise, fixed_step_max = 0.5,
+        )
+        @test notices.count == 1
+        @test isequal(notices.records[1], accumulated.records[index])
+        if index == 2
+            @test state.baseline == (0.02, 0.0)
+            @test !state.has_noise && all(iszero, state.last_columns)
+        elseif index == 3
+            @test state.baseline == (0.02, 0.03)
+            @test !state.has_noise && all(iszero, state.last_columns)
+        elseif index == 4
+            @test state.has_noise && state.allowance == 0.02
+            @test all(iszero, state.last_columns) && isinf(state.next)
+        else
+            @test isfinite(state.next) && isnan(state.last_rate_z)
+        end
+    end
+    SolpropJulia.reset_notices!(notices)
+    SolpropJulia._transverse_proceed!(
+        state, policy, tables, reading, notices; noise, fixed_step_max = 0.5,
+    )
+    @test notices.count == 0 && state.stage == 0
+    for name in fieldnames(typeof(state))
+        @test isequal(getfield(state, name), getfield(eager, name))
+    end
+
+    # Face and removal warnings share an observation but have separate barriers:
+    # counters/removal are credited once, and ramp_warned changes only after resume.
+    plain = SolpropJulia.TransverseState(tables)
+    base = _transverse_reading(; columns = [98.0, 0.0, 0.0, 2.0])
+    SolpropJulia.transverse_launch!(plain, policy, tables, base, 0.0, accumulated)
+    base.faces = (3.0, 0.0, 0.0, 0.0)
+    SolpropJulia._transverse_begin_read!(plain, policy, tables, base, 10.0, notices)
+    @test notices.count == 1
+    @test notices.records[1].code == SolpropJulia.TransverseFaceWarning
+    @test plain.reads == 1 && !plain.ramp_warned
+    credited = plain.ramp_raw
+    SolpropJulia.reset_notices!(notices)
+    SolpropJulia._transverse_proceed!(plain, policy, tables, base, notices)
+    @test notices.count == 1
+    @test notices.records[1].code == SolpropJulia.TransverseRampWarning
+    @test plain.reads == 1 && plain.ramp_raw == credited && plain.ramp_warned
+    @test plain.stage == 0
+end
+
 @testset "Transverse numerical norms, regions and stale flags" begin
     for tasks in (1, 2)
         execution = SolpropJulia.KernelExecution(
