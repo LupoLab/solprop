@@ -690,3 +690,40 @@ end
     @test fixture.source.calls == 0 && fixture.flow.plans.generation == 0
     @test fixture.state == original
 end
+
+@testset "Certified zero phases preserve each signed-zero lane" begin
+    for tasks in unique((1, min(2, Threads.nthreads(:default))))
+        execution = DF.KernelExecution(DF.KernelAbstractions.CPU(), tasks, true)
+        state = reshape(
+            ComplexF32[
+                complex(0.0f0, -0.0f0), complex(-0.0f0, -0.0f0),
+                complex(1.0f0, -0.0f0), complex(-0.0f0, 0.0f0),
+                complex(0.0f0, 0.0f0), complex(-1.0f0, -0.0f0),
+                complex(1.0f0, 0.5f0), complex(-0.5f0, 0.25f0),
+            ], 4, 2
+        )
+        rates = zeros(ComplexF64, size(state))
+        rates[7], rates[8] = -0.25 + 0.5im, 0.125 - 0.25im
+        operator = DF.DiagonalOperator(execution, rates)
+        fixture = df32flow_fixture(; tasks, initial = state, operator)
+        token = DF.prepare_df32_trial!(fixture.flow, fixture.scheme, df32flow_site(fixture))
+        output = similar(state)
+        for (origin, destination, direction) in ((0.0, 1 / 64, 1), (1 / 64, 0.0, -1))
+            token(output, state, origin, destination)
+            for index in 1:6
+                @test reinterpret(UInt32, [real(output[index]), imag(output[index])]) ==
+                    reinterpret(UInt32, [real(state[index]), imag(state[index])])
+            end
+            for index in 7:8
+                phase = Complex{BigFloat}(rates[index]) * (direction * big(1) / 64)
+                expected = exp(phase) * Complex{BigFloat}(state[index])
+                bound = df32flow_product_bound(state[index], phase)
+                @test bound > 0 && abs(Complex{BigFloat}(output[index]) - expected) <= bound
+            end
+            inplace = copy(state)
+            token(inplace, inplace, origin, destination)
+            @test reinterpret(UInt32, vec(inplace)) == reinterpret(UInt32, vec(output))
+        end
+        @test df32flow_allocated(output, fixture) == 0
+    end
+end

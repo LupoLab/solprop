@@ -64,6 +64,8 @@ ComplexF32 factor by ComplexF32 state. It never casts an already-assembled binar
 phase or enters a binary64 transcendental. Only numerical DF32 arrays and isbits scalar
 bundles enter the launched body; host certificate/range records stay outside it.
 A structural zero interval copies the input exactly after admission and alias checks.
+Each exactly zero assembled-phase lane also copies its input bits, including signed
+zeros. This branch follows certification and never waives a range or error check.
 
 The existing certificate allows real/imaginary stored arguments up to 16 and 2^20,
 and real-plus-imaginary assembly error at most 2^-27. Under the documented gradual

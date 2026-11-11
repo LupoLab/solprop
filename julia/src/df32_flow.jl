@@ -427,8 +427,14 @@ function (trial::DF32TrialFlow)(output, input, origin::Float64, destination::Flo
             Val(:compute)
         )
         phase = _wide_result(rate, bundle, 0x00, rate)
-        pair = _df32_exp_pair(phase)
-        output[row, column] = pair[direction] * input[row, column]
+        if iszero(phase)
+            # Certification has already checked the complete expression. Preserve
+            # the existing exact no-op contract without multiplying complex one.
+            output[row, column] = input[row, column]
+        else
+            pair = _df32_exp_pair(phase)
+            output[row, column] = pair[direction] * input[row, column]
+        end
     end
     _source_finite!(flow.failures, output, flow.execution, :flow)
     return nothing
