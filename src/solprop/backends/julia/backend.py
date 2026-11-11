@@ -14,7 +14,11 @@ from solprop import _interrupts
 from solprop.backends.driver_session import foreign_request
 from solprop.backends.julia import _calls
 from solprop.backends.julia._blas import BlasHold, acquire_blas
-from solprop.backends.julia._descriptors import lower_modal, transfer_memory
+from solprop.backends.julia._descriptors import (
+    ModalTransfer,
+    lower_modal,
+    transfer_memory,
+)
 from solprop.backends.julia._fft_cache import FFTCache, refresh_fft_cache
 from solprop.backends.julia._fft_runtime import load_planning_cache
 from solprop.backends.julia._group import JuliaGroupSession
@@ -28,6 +32,11 @@ from solprop.backends.julia._runtime import JuliaRuntime, get_runtime
 from solprop.backends.julia._session import JuliaSession
 from solprop.backends.julia._spatial import lower_spatial
 from solprop.backends.julia._transverse import TransverseFormat, transverse_format
+from solprop.backends.julia._wide import (
+    DF32OperatorBinding,
+    admit_df32_flow,
+    bind_df32_start,
+)
 from solprop.backends.protocol import ExecutionBackend, TimingProbe
 from solprop.backends.session import (
     ExecutionOptions,
@@ -106,19 +115,32 @@ class JuliaBackend:
             raise BackendError(
                 "julia backend_options['setup_id'] must be a nonempty string"
             )
-        if wide != "binary64":
-            raise BackendError(
-                "this Julia binary64 composition requires wide='binary64'"
-            )
         self._problem = problem
         self._request = request
         self._spatial = isinstance(problem.route, SpatialRoute)
+        transfer = None
+        if wide == "df32":
+            if problem.precision.name != "single":
+                raise BackendError("DF32 flow requires binary32 scientific state")
+            if problem.flags.has_noise or problem.initial.noise_model != "none":
+                raise BackendError("julia refuses binary32 input noise")
+            transfer = lower_run(problem, request)
+            admit_df32_flow(transfer)
+            if self._spatial:
+                raise BackendError("DF32 spatial composition is not qualified yet")
         self._lowered = (
             lower_spatial(problem) if self._spatial else lower_modal(problem)
         )
+        if transfer is None:
+            transfer = lower_run(problem, request)
+        self._df32_operator = (
+            DF32OperatorBinding(self._lowered.operator)
+            if wide == "df32" and isinstance(self._lowered, ModalTransfer)
+            else None
+        )
         self._node_plan = plan_julia_nodes(problem, request, selected)
         self._node_chunk = self._node_plan.plan.chunk
-        self._tabulate_flow = lower_run(problem, request).tabulate_flow
+        self._tabulate_flow = transfer.tabulate_flow
         self._observation = (
             lower_observations(
                 problem,
@@ -217,6 +239,8 @@ class JuliaBackend:
 
             check_derived_problem(self._problem, problem, self._request, request)
         transfer = lower_run(problem, request)
+        if self._wide == "df32":
+            admit_df32_flow(transfer)
         node_plan = (
             self._node_plan
             if request is self._request
@@ -393,6 +417,8 @@ class JuliaBackend:
             Naming an invalid start or unsupported numerical capability.
         """
         self._check()
+        if self._wide == "df32":
+            raise BackendError("DF32 timing probes are not qualified yet")
         prepared = self.prepare(self._problem, self._request)
         probe = JuliaTimingProbe(prepared, start)
         self._probes.add(probe)
@@ -421,6 +447,10 @@ class JuliaBackend:
             f"transfer.{name}": size
             for name, size in transfer_memory(self._lowered).items()
         }
+        ledger.update(
+            (f"wide.transfer.{name}", size)
+            for name, size in transfer_memory(self._df32_operator).items()
+        )
         observation_transfers = (
             self._observation,
             *(prepared._observation for prepared in self._prepared),
@@ -672,11 +702,20 @@ class JuliaPrepared:
             If its execution owner is already closed.
         """
         self._owner._check()
+        if self._owner._df32_operator is not None:
+            JuliaSession._validate_start(start, self._shape)
+        wide = (
+            None
+            if self._owner._df32_operator is None
+            else bind_df32_start(
+                self._owner._df32_operator, self._transfer, float(start.z)
+            )
+        )
         noise = lower_input_noise(self._problem, noise=start.noise)
         session = JuliaSession(
             self._runtime,
             self._preparation,
-            self._transfer,
+            self._transfer if wide is None else wide.run,
             start,
             self._shape,
             record=self.metadata(),
@@ -688,6 +727,7 @@ class JuliaPrepared:
             monitor=self._monitor,
             transverse=self._transverse,
             noise=noise,
+            wide=wide,
             fft_cache=(
                 None
                 if self._owner._fft_cache is None

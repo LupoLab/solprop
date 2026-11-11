@@ -22,7 +22,7 @@ from solprop.backends.julia._descriptors import (
 )
 from solprop.backends.julia._lower import lower_run
 from solprop.backends.julia.backend import JuliaBackend
-from solprop.backends.session import ExecutionOptions
+from solprop.backends.session import ExecutionOptions, Start
 from solprop.exceptions import BackendError
 from solprop.stepper.multistep import ComparisonMultistep, Multistep, march_policy
 from solprop.stepper.tableau import DOPRI5, continuous_extension
@@ -270,6 +270,33 @@ def test_binary32_lowering_stays_lazy_and_preserves_wide_coefficients(monkeypatc
     owner.close()
 
 
+def test_df32_method_admission_is_lazy_and_retains_independent_operator_storage(
+    monkeypatch,
+):
+    case = cpu_case()
+
+    def no_runtime(**_):
+        pytest.fail("DF32 method admission must not initialize Julia")
+
+    monkeypatch.setattr(backend, "get_runtime", no_runtime)
+    problem = replace(case.problem, precision=SINGLE)
+    owner = JuliaBackend(
+        problem,
+        case.request,
+        options=ExecutionOptions(backend_options={"wide": "df32"}),
+    )
+    assert owner.metadata()["wide"] == "df32"
+    assert owner._df32_operator is not None
+    source = lower_modal(problem).operator.values
+    bound = owner._df32_operator.data.values
+    assert source is not None and bound is not None
+    assert not np.shares_memory(source, bound) and not bound.flags.writeable
+    assert owner.memory_ledger()["wide.transfer.data.values"] == bound.nbytes
+    with pytest.raises(BackendError, match="DF32 timing probes"):
+        owner.timing_probe(Start.entrance(problem))
+    owner.close()
+
+
 def test_binary32_input_noise_refuses_before_coefficient_lowering(monkeypatch):
     case = cpu_case()
     problem = replace(
@@ -299,7 +326,7 @@ def test_binary32_input_noise_refuses_before_coefficient_lowering(monkeypatch):
         ({"wide": "double"}, "wide"),
         ({"setup_id": 4}, "setup_id"),
         ({"setup_id": ""}, "setup_id"),
-        ({"wide": "df32"}, "binary64"),
+        ({"wide": "df32"}, "binary32"),
     ],
 )
 def test_execution_options_refuse_before_preparation(options, message):

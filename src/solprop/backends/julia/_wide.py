@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Bind DF32 operand analysis to owned inputs without admitting execution."""
+"""Bind owned DF32 inputs and validate landed CPU method admission."""
 
 from dataclasses import dataclass, replace
 from types import MappingProxyType
@@ -20,7 +20,41 @@ from solprop.backends.julia._phase_bounds import PhaseOperands, phase_operands
 from solprop.exceptions import BackendError
 from solprop.output.schema import MarchSnapshot
 
-__all__ = ["DF32OperatorBinding", "DF32StartBinding", "bind_df32_start"]
+__all__ = [
+    "DF32OperatorBinding",
+    "DF32StartBinding",
+    "admit_df32_flow",
+    "bind_df32_start",
+]
+
+
+def admit_df32_flow(run: RunTransfer) -> None:
+    """Require the currently qualified landed CPU DF32 method composition.
+
+    Parameters
+    ----------
+    run : RunTransfer
+        Resolved method, precision, observation and propagator policy.
+
+    Raises
+    ------
+    BackendError
+        Naming unqualified precision, Adams, dense output or tabulated flow.
+
+    Notes
+    -----
+    Route and device admission belong to the execution owner. Successful method
+    admission is not an exponent certificate: each actual trial is checked in Julia
+    before source calls or numerical writes. Public binary32 admission is separate.
+    """
+    if run.arithmetic.name != "single":
+        raise BackendError("DF32 flow requires binary32 scientific state")
+    if run.adams is not None:
+        raise BackendError("DF32 Adams complete factors are not qualified yet")
+    if run.dense_weights is not None:
+        raise BackendError("DF32 dense observations are not qualified yet")
+    if run.tabulate_flow:
+        raise BackendError("DF32 tabulated flow is not qualified; select recompute")
 
 
 def _table_copy(table: TableTransfer | None) -> TableTransfer | None:

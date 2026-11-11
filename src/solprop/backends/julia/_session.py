@@ -61,6 +61,7 @@ from solprop.backends.julia._runtime import JuliaRuntime
 from solprop.backends.julia._services import ObservationPayload, observations
 from solprop.backends.julia._stop import StopLease
 from solprop.backends.julia._transverse import TransverseFormat
+from solprop.backends.julia._wide import DF32StartBinding
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
@@ -159,6 +160,9 @@ class JuliaSession:
     fft_cache : FFTCache or None, optional
         Verified offers for a private per-start planning context. Publication follows
         successful construction, history/monitor restoration and start adoption.
+    wide : DF32StartBinding or None, optional
+        Owned actual-start operands for DF32 execution, absent for binary64-wide.
+        Julia copies its geometry and certifies every actual trial independently.
 
     Raises
     ------
@@ -186,6 +190,7 @@ class JuliaSession:
         transverse: TransverseFormat | None = None,
         noise: InputNoiseTransfer | None = None,
         fft_cache: FFTCache | None = None,
+        wide: DF32StartBinding | None = None,
     ) -> None:
         """Validate the start, construct its independent engine, then take the field."""
         runtime.check()
@@ -257,7 +262,7 @@ class JuliaSession:
         self._abandoned: tuple[float, float] | None = None
         self._group_chunk = 0
         self._lease = StopLease(runtime, self._token)
-        self._adopt_engine(transfer, start, restored, noise)
+        self._adopt_engine(transfer, start, restored, noise, wide)
 
     def _adopt_engine(
         self,
@@ -265,6 +270,7 @@ class JuliaSession:
         start: Start,
         restored: CallRestore | None,
         noise: InputNoiseTransfer | None,
+        wide: DF32StartBinding | None,
     ) -> None:
         """Clean numerical ownership if final host adoption fails.
 
@@ -278,9 +284,11 @@ class JuliaSession:
             Validated cumulative accounting.
         noise : InputNoiseTransfer or None
             Selected input draw.
+        wide : DF32StartBinding or None
+            Bound DF32 actual-start operands, copied only during construction.
         """
         runtime = self._runtime
-        self._engine = self._start_engine(transfer, start, restored, noise)
+        self._engine = self._start_engine(transfer, start, restored, noise, wide)
         try:
             self._finish_start(start)
         except BaseException:
@@ -337,6 +345,7 @@ class JuliaSession:
         start: Start,
         restored: CallRestore | None,
         noise: InputNoiseTransfer | None,
+        wide: DF32StartBinding | None,
     ) -> JuliaHandle:
         """Construct and restore a numerical owner before taking the start's field.
 
@@ -350,6 +359,8 @@ class JuliaSession:
             Validated cumulative ledger, installed before numerical history.
         noise : InputNoiseTransfer or None
             The selected input draw, copied before launch observation or history work.
+        wide : DF32StartBinding or None
+            Bound DF32 operands; binary64-wide calls retain their argument list.
 
         Returns
         -------
@@ -381,6 +392,7 @@ class JuliaSession:
                 if self._monitor is None or self._monitor.resume is None
                 else self._monitor.resume.transverse,
                 planning,
+                *((wide,) if wide is not None else ()),
                 owners=(self._lease,),
             )
             if restored is not None:

@@ -1711,6 +1711,56 @@ tracks an asynchronous stop/resume test assumption. One macOS shard passed all 7
 tests but failed artifact upload after a DNS error. The next CI push must re-establish
 all gates; neither these corrections nor the CPU smoke complete phase 2 measurements.
 
+### Binary32 composition and certified DF32 attachment — 2026-11-11
+
+The binary32 source, marching, observation, monitor, split-absorption and physical
+export paths compose internally. Precision/scales are shared immutable inputs;
+mutable state and transport buffers remain session-owned. The retained-owner matrix
+passes 84 managed cases plus 27 pure cases. Independent factory review adds 178 actual
+PythonCall checks and seven registry checks. The corrected integrated Core aggregate
+passes 156,695 assertions in 484 testsets, bounds enabled at two threads; Aqua/JET
+passes 16 checks across all 2,067 definitions with none cached. These counts identify
+the aggregate before the subsequent Python DF32 attachment.
+
+The short CPU32 qualification matrix has 59 distinct successful cases across targeted
+runs, with zero enabled skips. Review found that raw squared-amplitude bands were
+not physical spectral energy (734). The corrected 32-case subset uses the existing
+modal power weights and spatial flux functional, including the actual final position,
+and passes at unchanged tolerances. An independent point-spectrum witness adds 46
+exact-rational band, endpoint, position and partition assertions across ten route/grid
+combinations. The historical SEP 33 Part II raw metric is not reinterpreted here.
+The complete Adams-versus-RK admission comparison remains additional work.
+
+Certified DF32 landed RK and low-storage flows retain original coefficients, actual
+replay lengths and complete trial coordinates. Their two-bank publication precedes
+source calls or accepted-state mutation. The Python attachment lowers once, binds each
+actual start and preserves transfer identity through PythonCall; Julia owns all trials
+and certificates. It refuses unqualified Adams, dense, spatial and tabulated flow by
+name. Completed starts invent no step. The owner inventories its detached operator
+copy and every flow bank. Public binary32 selection remains closed.
+
+Independent attachment review passes 101 typed pure tests, ten managed propagation,
+range-refusal and restart cases, six additional actual factory ownership/refusal
+witnesses, and six group cases. Groups retain independent member fields and report
+actual member progress when a later member refuses a phase. Ordinary replay accuracy
+uses settled binary64 references and the fixed SEP 33 envelopes, while unchanged
+fields, delivered counts and ownership are checked structurally. No device or
+long-distance qualification is inferred.
+
+`julia/DF32_BOUNDS.md`, `WIDE_ASSEMBLY.md`, `DF32_INTEGRATION.md` and
+`DF32_EXECUTION.md` record the arithmetic graph, primary-source hypotheses and derived
+bounds. Complete arithmetic papers and relevant supplement definitions were inspected;
+the formal supplement was not recompiled. Finite-underflow and transcendental bounds
+are explicitly derived here rather than attributed to unlimited-exponent results.
+Complete Adams factors, DF32 dense/spatial assembly and vendor execution remain open.
+
+The binary64 CPU measurement matrix now contains 144 samples and 432 timed repetitions
+on an exclusive AMD EPYC 7763, at one and 64 physical cores. The benchmark ledger
+records every short window, paired ratio, preparation-inclusive wall and limitation.
+The original collection timeout is retained; a bounded continuation completed only
+three missing pairs with the same source and placement. No performance ratio is an
+acceptance threshold. Full phase 2/3 qualification and required CI remain unfinished.
+
 ## Part III — History
 
 - 2026-11-10: The maintainer accepted external hard-kill supervision for stalled Julia

@@ -138,3 +138,30 @@ subtraction, branch at real(q)=0, complex square root, frame cancellation and lo
 combination need their own bound. Host split-once preparation must retain an explicit
 assembly radius; casting the current binary64 rate or phase supplies no such proof.
 The current modal binding and function domains do not qualify that representation.
+
+
+## Internal Python session attachment
+
+The direct Julia execution owner accepts `wide="df32"` for noise-free binary32
+modal landed RK and low-storage sessions. Public registry admission remains closed
+until the complete phase 3 matrix qualifies. The owner copies the original operator
+once; each start owns its exact run transfer and actual coordinate geometry. The
+PythonCall factory receives that same transfer by identity, preserves original-launch
+scales on field restart, and constructs `DF32LinearFlow` from the preparation's
+original operator. Julia performs every actual-trial certificate before source work.
+There is no Python numerical trial loop or binary64 phase fallback. Timing probes,
+Adams, dense observations, spatial operators and tabulated flow still refuse by name.
+
+Managed CPU bridge tests cover eight replay steps for both methods, including RK
+steps larger than the adaptive `dz_max`, at work limits 1 and 256. Same-grid binary64
+16/32-step refinement must settle at least 100 times inside SEP 33's field and energy
+envelopes before comparison. Actual range failures preserve the accepted field and
+perform no source work; completed starts invent neither a phase nor a trial. Field
+restarts at the middle plane bind only the remaining replay and retain the original
+amplitude scales. Every retained operator copy and operation bank is inventoried.
+Two-member fixed-schedule group checks cover both wide types and both methods,
+including exact delivery and preservation of a member whose phase certificate refuses.
+Independent PythonCall witnesses also reject mismatched run identity and actual start
+coordinates before consuming caller storage, then reuse the same preparation.
+These checks establish the stated short internal CPU paths; full phase 3 admission,
+portable Adams history, dense output and vendor execution remain additional work.

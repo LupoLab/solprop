@@ -173,12 +173,19 @@ flux descriptor, including its own material representation. The on-axis spectrum
 the shared spectral-density normalization. Width comparisons require stable peak and
 threshold-crossing margins; a generic relative tolerance does not certify them.
 
-The binary32 work includes reviewed double-float exponential, phase-reduction and
-phi-function kernels. Their conservative function domain and underflow assumptions
-are derived separately from the bounds on a complete run's operands. They are not
-yet selectable for propagation: admission must account for the actual replay steps,
-every represented operator interval and restored Adams history, including arithmetic
-that forms the exponent before these functions receive it.
+Binary32 remains unavailable through public backend selection while qualification
+continues. Its internal CPU paths now include material responses, observations and
+monitors; short tests compare physical energy bands and other observables against
+refined binary64 references. Binary32 input noise remains refused.
+
+The reviewed double-float exponential, phase-reduction and phi-function kernels have
+conservative function domains and explicit underflow assumptions. Internal landed
+RK and low-storage sessions now bind the original operator and actual start, then
+certify each actual trial in Julia before source work. Short field-restart and group
+checks also pass. Complete DF32 Adams factors, dense and spatial execution still need
+qualification before public selection. Admission must include actual replay steps,
+every represented operator interval and restored history, including the arithmetic
+that forms each exponent before the functions receive it.
 
 The engine precompiles representative serial CPU sessions during explicit setup. This
 reduces first-use compilation for those paths; new shapes, responses and thread

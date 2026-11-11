@@ -19,7 +19,11 @@ from solprop.backends.julia._descriptors import (
 )
 from solprop.backends.julia._lower import RunTransfer
 from solprop.backends.julia._precision import ArithmeticTransfer
-from solprop.backends.julia._wide import DF32OperatorBinding, bind_df32_start
+from solprop.backends.julia._wide import (
+    DF32OperatorBinding,
+    admit_df32_flow,
+    bind_df32_start,
+)
 from solprop.exceptions import BackendError
 from solprop.output.schema import MarchSnapshot
 from solprop.stepper import PIController
@@ -257,3 +261,17 @@ def test_binding_refuses_foreign_precision_and_does_not_silently_discard_history
     with pytest.raises(BackendError, match="already-compatible"):
         bind_df32_start(_operator(), _run(order=2), 0.5, history=history)
     np.testing.assert_array_equal(history.positions, [0.0, 0.5])
+
+
+def test_df32_execution_admits_only_qualified_landed_method_policies():
+    run = _run(replay=True)
+    assert admit_df32_flow(run) is None
+    assert admit_df32_flow(replace(run, low_storage=True)) is None
+    for refused, name in (
+        (replace(run, arithmetic=ArithmeticTransfer()), "binary32"),
+        (_run(order=3), "Adams complete factors"),
+        (replace(run, dense_weights=np.ones(2)), "dense observations"),
+        (replace(run, tabulate_flow=True), "tabulated flow"),
+    ):
+        with pytest.raises(BackendError, match=name):
+            admit_df32_flow(refused)

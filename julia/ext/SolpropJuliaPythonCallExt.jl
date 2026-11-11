@@ -238,7 +238,9 @@ function _control(transfer)
     )
 end
 
-function _launch(preparation, transfer, field)
+include("wide.jl")
+
+function _launch(preparation, transfer, field; z = 0.0, tableau = nothing, wide = nothing)
     execution = preparation.execution
     host = copy_preparation(field)
     ndims(host) == 3 && size(host, 2) == 1 ||
@@ -267,11 +269,8 @@ function _launch(preparation, transfer, field)
         execution, preparation.data, preparation.node_chunk,
     )
     operator = preparation.operator
-    work = operator isa SolpropJulia.ExpansionOperator ?
-        zeros(size(operator.terms, 3)) : nothing
-    flow = SolpropJulia.LinearFlow(
-        execution, operator, state; work,
-        tabulate = pyconvert(Bool, transfer.tabulate_flow),
+    flow = _launch_flow(
+        execution, operator, state, schedule, transfer, z, tableau, wide,
     )
     return state, norm, schedule, source, flow
 end
@@ -292,7 +291,7 @@ function start_runge_kutta(
         transfer::Py, field,
         z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
         noise = nothing, resume::Bool = false, transverse_continuation = nothing,
-        planning = nothing,
+        planning = nothing, wide = nothing,
     )
     planning === nothing || (preparation = _planning_preparation(preparation, planning))
     noise = _launch_noise(SolpropJulia._problem_preparation(preparation), noise)
@@ -305,7 +304,9 @@ function start_runge_kutta(
         copy_preparation(transfer.solution), copy_preparation(transfer.error),
     )
     policy = _control(transfer)
-    state, norm, schedule, source, flow = _launch(preparation, transfer, field)
+    state, norm, schedule, source, flow = _launch(
+        preparation, transfer, field; z, tableau, wide,
+    )
     services = SolpropJulia._launch_observation_services(
         session_preparation, state, noise, norm.active, z, resume;
         transverse_continuation,
@@ -358,8 +359,10 @@ function start_adams(
         transfer::Py, field,
         z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
         noise = nothing, resume::Bool = false, transverse_continuation = nothing,
-        planning = nothing,
+        planning = nothing, wide = nothing,
     )
+    (wide === nothing || (wide isa Py && pyis(wide, nothing))) ||
+        throw(ArgumentError("DF32 Adams complete factors are not qualified yet"))
     planning === nothing || (preparation = _planning_preparation(preparation, planning))
     noise = _launch_noise(SolpropJulia._problem_preparation(preparation), noise)
     session_preparation = preparation
@@ -389,7 +392,7 @@ function start_low_storage(
         transfer::Py, field,
         z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
         noise = nothing, resume::Bool = false, transverse_continuation = nothing,
-        planning = nothing,
+        planning = nothing, wide = nothing,
     )
     planning === nothing || (preparation = _planning_preparation(preparation, planning))
     noise = _launch_noise(SolpropJulia._problem_preparation(preparation), noise)
@@ -397,7 +400,7 @@ function start_low_storage(
     transverse_continuation = _transverse_continuation(transverse_continuation)
     preparation = SolpropJulia._problem_preparation(preparation)
     execution = preparation.execution
-    state, norm, schedule, source, flow = _launch(preparation, transfer, field)
+    state, norm, schedule, source, flow = _launch(preparation, transfer, field; z, wide)
     services = SolpropJulia._launch_observation_services(
         session_preparation, state, noise, norm.active, z, resume;
         transverse_continuation,
