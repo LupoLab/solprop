@@ -17,7 +17,9 @@ import pytest
 
 from backends.julia import test_runtime_subprocess as runtime_tests
 
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="POSIX process supervision")
+pytestmark = pytest.mark.skipif(
+    os.name != "posix", reason="POSIX process signal delivery"
+)
 
 
 class Clock:
