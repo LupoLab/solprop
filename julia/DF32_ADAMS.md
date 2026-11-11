@@ -259,6 +259,40 @@ No physical rescaling or schema change occurs in this package. Dense retain on a
 DF32 workspace refuses, and dense/spatial/tabulate/device requests refuse during
 preparation. Those are explicit first-package limits, not completed Phase 3 work.
 
+## Python session and history attachment
+
+The internal Julia owner selects `DF32AdamsFlow` for binary32 landed Adams with
+`wide="df32"`. The PythonCall factory supplies the same resolved policy object to the
+flow and session, plus the original operator, launch scales and actual start. Python
+neither forms complete factors nor drives trials. Public binary32 selection stays
+closed pending the full qualification matrix.
+
+Before phase binding, Python detaches candidate portable arrays and Julia applies
+the same scalar, layout and numerical compatibility checks used by restoration.
+The shared validator preserves the existing restore order: layout, retained alias,
+then numerical values. An incompatible candidate produces the ordinary field-reset
+reason and contributes no coordinates or rates to the phase domain. An unexpected
+bridge failure raises; it cannot masquerade as a field reset.
+
+The binding owns another immutable snapshot of the selected data. The actual restore
+uses that selection, rather than rereading caller-owned arrays. A disagreement between
+preflight and restoration is an error. Stored zero-based slot indices, accepted/predicted
+sample identities and every raw rate row retain their original meaning. The portable
+schema carries no previous wide type, so the adapter records that provenance as unknown
+for every import; it never establishes zero prior error.
+
+The history coordinate enclosure includes accepted landing slack and actual raw
+predictor coordinates, even when one is slightly beyond the requested endpoint.
+A completed start validates and restores raw history without preparing an operator,
+rate certificates or factor banks. It performs no new numerical trial or source call.
+The active-start rate-provenance requirements remain unchanged.
+
+Managed witnesses in `test_cpu_df32_adams.py` cover landed orders 1, 3 and 6,
+adaptive runs, plain/compensated history, binary64-wide and NumPy binary32 continuation,
+lossless raw stores, completed starts and invalid-history resets. Ordinary replay and
+cross-wide comparisons use SEP 33 accuracy envelopes with independent binary64
+step-size refinement; transfer bytes and logical source charges remain structural.
+
 ## Qualification scope
 
 The focused tests use exact-rational Vandermonde bases and independent 256-bit

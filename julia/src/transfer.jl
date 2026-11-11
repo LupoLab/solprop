@@ -3,6 +3,21 @@
 
 public ModalPreparation, SpatialPreparation, prepare_modal, prepare_spatial
 public start_runge_kutta, start_adams
+public preflight_adams_history
+
+"""
+    preflight_adams_history(preparation, transfer, z, snapshot, buffers)
+
+Validate portable Adams input before binding its retained age to a DF32 launch.
+
+Use the same numerical layout, finite-data and coordinate checks as actual history
+restoration. `z` is the actual start in metres; `buffers` contains detached raw
+portable arrays. Return `nothing` for compatible input or its field-reset reason.
+This optional PythonCall entry performs no source evaluation, session allocation,
+field adoption or history mutation. Shared Python admission checks the method key
+and storage precision first. Unexpected programming failures propagate.
+"""
+function preflight_adams_history end
 public start_low_storage
 public advance_session, acknowledge_session, session_status, export_session!
 public session_attempts!, session_failure, session_memory, preparation_memory

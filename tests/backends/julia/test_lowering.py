@@ -270,10 +270,16 @@ def test_binary32_lowering_stays_lazy_and_preserves_wide_coefficients(monkeypatc
     owner.close()
 
 
+@pytest.mark.parametrize("factory", [cpu_case, adams_case, low_storage_case])
 def test_df32_method_admission_is_lazy_and_retains_independent_operator_storage(
     monkeypatch,
+    factory,
 ):
-    case = cpu_case()
+    case = factory()
+    request = replace(
+        case.request,
+        integration=replace(case.request.integration, propagator_mode="recompute"),
+    )
 
     def no_runtime(**_):
         pytest.fail("DF32 method admission must not initialize Julia")
@@ -282,7 +288,7 @@ def test_df32_method_admission_is_lazy_and_retains_independent_operator_storage(
     problem = replace(case.problem, precision=SINGLE)
     owner = JuliaBackend(
         problem,
-        case.request,
+        request,
         options=ExecutionOptions(backend_options={"wide": "df32"}),
     )
     assert owner.metadata()["wide"] == "df32"

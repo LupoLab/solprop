@@ -670,7 +670,9 @@ function DF32AdamsFlow(
         throw(ArgumentError("DF32 Adams policy and schedule topology disagree"))
     binding = prepare_wide_start(execution, operator, spec; history)
     compensated = _adams_varying_operator(operator) && !spec.source_absent
-    compensated && length(binding.rates) != length(binding.positions) &&
+    # A completed start restores raw history but has no operator/factor domain.
+    binding.operator !== nothing && compensated &&
+        length(binding.rates) != length(binding.positions) &&
         throw(ArgumentError("DF32 compensated Adams needs restored rate provenance"))
     capacity = policy.order + 2
     records = _DF32AdamsRate[]

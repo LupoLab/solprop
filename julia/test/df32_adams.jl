@@ -964,13 +964,22 @@ end
         arithmetic = f.spec.arithmetic, method = :adams, order_max = 6,
         source_absent = false, geometry = nothing,
     )
-    complete = DA.DF32AdamsFlow(f.execution, f.operator, f.state, complete_spec, f.policy)
-    @test complete.binding.operator === nothing && complete.plans.banks === nothing
-    @test isempty(complete.records)
-    @test_throws ArgumentError DA.prepare_df32_adams_trial!(
-        complete, f.session.history,
-        f.session.stencil, DA.DF32TrialSite(finish, 1 / 64, finish + 1 / 64, 9)
+    retained = DA.WideStartHistory(
+        [finish], UInt8[1], Int64[0];
+        rates = zeros(ComplexF64, size(f.state)..., f.policy.order + 2),
     )
+    for history in (nothing, retained)
+        complete = DA.DF32AdamsFlow(
+            f.execution, f.operator, f.state, complete_spec, f.policy; history
+        )
+        @test complete.binding.operator === nothing && complete.plans.banks === nothing
+        @test isempty(complete.records)
+        @test complete.binding.positions == (history === nothing ? Float64[] : [finish])
+        @test_throws ArgumentError DA.prepare_df32_adams_trial!(
+            complete, f.session.history,
+            f.session.stencil, DA.DF32TrialSite(finish, 1 / 64, finish + 1 / 64, 9)
+        )
+    end
 end
 
 @testset "DF32 Adams restarts and rejections preserve real work and seed coordinates" begin

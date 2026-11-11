@@ -182,8 +182,11 @@ The reviewed double-float exponential, phase-reduction and phi-function kernels 
 conservative function domains and explicit underflow assumptions. Internal landed
 RK and low-storage sessions now bind the original operator and actual start, then
 certify each actual trial in Julia before source work. Short field-restart and group
-checks also pass. Complete DF32 Adams factors, dense and spatial execution still need
-qualification before public selection. Admission must include actual replay steps,
+checks also pass. The internal landed Adams flow also forms certified complete factors
+and binds only compatible portable history, preserving explicit field-reset reasons.
+Completed restarts retain raw history without evaluating another source or factor.
+The complete restart matrix, dense and spatial execution still need qualification
+before public selection. Admission must include actual replay steps,
 every represented operator interval and restored history, including the arithmetic
 that forms each exponent before the functions receive it.
 

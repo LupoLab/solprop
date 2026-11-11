@@ -99,6 +99,7 @@ if group == "Core"
     include("input_noise_transfer.jl")
     include("low_storage_session.jl")
     include("df32_flow.jl")
+    include("df32_adams.jl")
     include("group_session.jl")
     include("transfer.jl")
     include("precompile_workload.jl")

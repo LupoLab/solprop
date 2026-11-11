@@ -81,9 +81,24 @@ function _adams_transfer_shape(value, ::Type{T}, shape::NTuple{N, Int}) where {T
         all(axis -> axes(value, axis) == Base.OneTo(shape[axis]), 1:N)
 end
 
-function _adams_transfer_layout(buffers, session, count)
-    shape = size(session.field)
-    stored = size(session.history.source)
+struct _AdamsHistoryLayout{T}
+    shape::Tuple{Int, Int}
+    capacity::Int
+    compensated::Bool
+end
+
+function _adams_history_layout(session)
+    return _AdamsHistoryLayout{eltype(session.field)}(
+        size(session.field), size(session.history.source, 3), session.history.compensated
+    )
+end
+
+_adams_transfer_layout(buffers, session, count) =
+    _adams_transfer_layout(buffers, _adams_history_layout(session), count)
+
+function _adams_transfer_layout(buffers, layout::_AdamsHistoryLayout{T}, count) where {T}
+    shape = layout.shape
+    stored = (shape..., layout.capacity)
     _adams_transfer_shape(buffers.state, ComplexF64, shape) ||
         return "the snapshot state needs matching strided binary64 complex storage"
     _adams_transfer_shape(buffers.positions, Float64, (count,)) ||
@@ -92,11 +107,10 @@ function _adams_transfer_layout(buffers, session, count)
         return "the snapshot identities need one UInt8 sample kind per retained entry"
     _adams_transfer_shape(buffers.slots, Int64, (count,)) ||
         return "the snapshot slots need one Int64 row index per retained entry"
-    storage = eltype(session.history.source)
-    _adams_transfer_shape(buffers.store, storage, stored) ||
+    _adams_transfer_shape(buffers.store, T, stored) ||
         return "the snapshot source store differs from the session precision or shape"
-    if session.history.compensated
-        _adams_transfer_shape(buffers.states, storage, stored) ||
+    if layout.compensated
+        _adams_transfer_shape(buffers.states, T, stored) ||
             return "the snapshot sampled states differ from the session precision or shape"
         _adams_transfer_shape(buffers.rates, ComplexF64, stored) ||
             return "the snapshot sampled rates do not fit compensated history"
@@ -257,29 +271,47 @@ end
 function _adams_transfer_refusal(session, metadata, buffers)
     _adams_transfer_fresh(session) ||
         return "Adams history can only be restored into a fresh unadvanced session"
-    isfinite(metadata.z) && metadata.z == session.state.z ||
+    layout = _adams_history_layout(session)
+    reason = _adams_input_layout_refusal(metadata, buffers, layout, session.state.z)
+    reason === nothing || return reason
+    _adams_transfer_retained_alias(buffers, session) &&
+        return "the snapshot inputs must not alias retained session storage"
+    return _adams_input_values_refusal(metadata, buffers, layout)
+end
+
+function _adams_input_refusal(metadata, buffers, layout, z)
+    reason = _adams_input_layout_refusal(metadata, buffers, layout, z)
+    reason === nothing || return reason
+    return _adams_input_values_refusal(metadata, buffers, layout)
+end
+
+function _adams_input_layout_refusal(metadata, buffers, layout, z)
+    isfinite(metadata.z) && metadata.z == z ||
         return "the snapshot position differs from the resumed session position"
     isfinite(metadata.proposal) && metadata.proposal > 0.0 ||
         return "the snapshot proposal must be finite and positive"
-    1 <= metadata.order <= session.policy.order ||
+    1 <= metadata.order <= layout.capacity - 2 ||
         return "the snapshot next order is outside the prepared Adams capacity"
     metadata.rejections >= 0 || return "the snapshot rejection count is negative"
     buffers.positions isa AbstractVector ||
         return "the snapshot positions must be a vector"
     count = length(buffers.positions)
-    1 <= count <= session.policy.order + 1 ||
+    1 <= count <= layout.capacity - 1 ||
         return "the snapshot retained count is outside the prepared Adams capacity"
-    reason = _adams_transfer_layout(buffers, session, count)
-    reason === nothing || return reason
-    _adams_transfer_retained_alias(buffers, session) &&
-        return "the snapshot inputs must not alias retained session storage"
+    return _adams_transfer_layout(buffers, layout, count)
+end
+
+function _adams_input_values_refusal(
+        metadata, buffers, layout::_AdamsHistoryLayout{T},
+    ) where {T}
+    count = length(buffers.positions)
     for index in 1:count
         position, slot = buffers.positions[index], buffers.slots[index]
         isfinite(position) || return "the snapshot sample coordinates are nonfinite"
         if index > 1 && !(buffers.positions[index - 1] < position)
             return "the snapshot sample coordinates must be strictly oldest first"
         end
-        0 <= slot < size(session.history.source, 3) ||
+        0 <= slot < layout.capacity ||
             return "the snapshot sample names no row of this engine"
         buffers.identities[index] in (0x00, 0x01) ||
             return "the snapshot sample kind is neither accepted nor predicted"
@@ -294,7 +326,7 @@ function _adams_transfer_refusal(session, metadata, buffers)
         return "the snapshot newest sample is not at its accepted position"
     _adams_transfer_finite(buffers) ||
         return "the snapshot raw state or full numerical store is nonfinite"
-    if eltype(session.field) === ComplexF32
+    if T === ComplexF32
         all(value -> isequal(ComplexF64(ComplexF32(value)), value), buffers.state) ||
             return "the snapshot raw state does not widen losslessly from binary32"
     end

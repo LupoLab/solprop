@@ -195,6 +195,15 @@ class JuliaSession:
         """Validate the start, construct its independent engine, then take the field."""
         runtime.check()
         self._validate_start(start, shape)
+        if (
+            wide is not None
+            and start.march is not None
+            and wide.history is None
+            and wide.history_refusal is None
+        ):
+            raise BackendError(
+                "DF32 start history was not selected before phase binding"
+            )
         self._runtime = runtime
         self._observation = observation
         self._fft_cache = fft_cache
@@ -399,10 +408,7 @@ class JuliaSession:
                 _calls.call_void(
                     runtime, "restore_session_counts!", engine, restored.counts
                 )
-            if start.march is not None:
-                self._march_refusal = restore_history(
-                    runtime, engine, start.march, transfer, self._shape
-                )
+            self._restore_march(engine, transfer, start, wide)
             self._restore_monitor(engine)
             if planning is not None:
                 self._planning_record = read_planning(runtime, planning)
@@ -424,6 +430,29 @@ class JuliaSession:
                         self._lease.close()
             raise
         return engine
+
+    def _restore_march(
+        self,
+        engine: JuliaHandle,
+        transfer: RunTransfer,
+        start: Start,
+        wide: DF32StartBinding | None,
+    ) -> None:
+        if wide is not None:
+            self._march_refusal = wide.history_refusal
+            if wide.history is None:
+                return
+            reason = restore_history(
+                self._runtime, engine, wide.history, transfer, self._shape
+            )
+            if reason is not None:
+                raise BackendError(
+                    f"the admitted DF32 history failed restoration: {reason}"
+                )
+        elif start.march is not None:
+            self._march_refusal = restore_history(
+                self._runtime, engine, start.march, transfer, self._shape
+            )
 
     def _restore_monitor(self, engine: JuliaHandle) -> None:
         """Restore the selected continuations before publishing initial monitor facts.

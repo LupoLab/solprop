@@ -5,21 +5,29 @@
 """Check portable history admission and compact cumulative restart ledgers."""
 
 from dataclasses import replace
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from backends.julia.cases import adams_case, cpu_case, low_storage_case
+from solprop.backends.julia._descriptors import lower_modal
 from solprop.backends.julia._history import (
     CALL_COUNTERS,
     HistoryBuffers,
     _lower_history,
     lower_call_restore,
+    preflight_history,
 )
 from solprop.backends.julia._lower import lower_run
+from solprop.backends.julia._runtime import JuliaRuntime
+from solprop.backends.julia._session import JuliaSession
+from solprop.backends.julia._wide import bind_df32_start
 from solprop.backends.multistep import CallLedger
+from solprop.backends.session import Start
 from solprop.exceptions import BackendError
 from solprop.output.schema import MarchSnapshot
+from solprop.translate.precision import SINGLE
 
 
 def _snapshot():
@@ -158,3 +166,108 @@ def test_foreign_store_names_refuse_before_any_partial_restore(name):
     rows = {**snapshot.rows, name: snapshot.rows["store"].copy()}
     reason = _lower_history(replace(snapshot, rows=rows), transfer, case.problem.shape)
     assert isinstance(reason, str) and name in reason
+
+
+@pytest.mark.parametrize(
+    "refusal", [None, "the snapshot newest sample is not at its accepted position"]
+)
+def test_history_preflight_owns_the_exact_rows_and_retains_reset_reason(
+    setup_record, refusal
+):
+    case, transfer, snapshot = _snapshot()
+    seen = []
+
+    def check(preparation, run, z, selected, buffers):
+        assert preparation == "prepared" and run is transfer and z == snapshot.z
+        assert selected is not snapshot and selected.state is buffers.state
+        assert selected.rows["store"] is buffers.store
+        assert selected.positions is buffers.positions
+        seen.append(selected)
+        return refusal
+
+    runtime = JuliaRuntime(
+        setup_record, 1, None, SimpleNamespace(preflight_adams_history=check)
+    )
+    preparation = runtime.owners.retain("prepared")
+    start = Start(field=snapshot.state.copy(), z=snapshot.z, march=snapshot)
+    try:
+        selected = preflight_history(
+            runtime, preparation, start, transfer, case.problem.shape
+        )
+        assert selected.refusal == refusal
+        assert len(seen) == 1 and start.field is not None
+        if refusal is None:
+            assert selected.snapshot is seen[0]
+            assert selected.snapshot.identities == snapshot.identities
+            expected = snapshot.rows["store"].copy()
+            snapshot.rows["store"].fill(9)
+            np.testing.assert_array_equal(selected.snapshot.rows["store"], expected)
+        else:
+            assert selected.snapshot is None
+    finally:
+        preparation.close()
+
+
+def test_history_preflight_skips_absent_or_structurally_incompatible_rows(setup_record):
+    case, transfer, snapshot = _snapshot()
+    runtime = JuliaRuntime(setup_record, 1, None, SimpleNamespace())
+    preparation = runtime.owners.retain("prepared")
+    start = Start.entrance(case.problem)
+    try:
+        selected = preflight_history(
+            runtime, preparation, start, transfer, case.problem.shape
+        )
+        assert selected.snapshot is None and selected.refusal is None
+        start.march = replace(snapshot, history_key="foreign")
+        selected = preflight_history(
+            runtime, preparation, start, transfer, case.problem.shape
+        )
+        assert selected.snapshot is None and "history" in str(selected.refusal)
+    finally:
+        preparation.close()
+
+
+def test_history_preflight_bridge_failure_cannot_become_a_field_reset(setup_record):
+    case, transfer, snapshot = _snapshot()
+
+    def fail(*_):
+        raise RuntimeError("controlled preflight failure")
+
+    runtime = JuliaRuntime(
+        setup_record, 1, None, SimpleNamespace(preflight_adams_history=fail)
+    )
+    preparation = runtime.owners.retain("prepared")
+    start = Start(field=snapshot.state.copy(), z=snapshot.z, march=snapshot)
+    try:
+        with pytest.raises(BackendError, match="controlled preflight failure"):
+            preflight_history(runtime, preparation, start, transfer, case.problem.shape)
+        assert start.field is not None
+    finally:
+        preparation.close()
+
+
+def test_df32_unselected_history_refuses_before_constructing_an_engine(setup_record):
+    case, _, snapshot = _snapshot()
+    problem = replace(case.problem, precision=SINGLE)
+    transfer = lower_run(problem, case.request)
+    wide = bind_df32_start(lower_modal(problem).operator, transfer, snapshot.z)
+    runtime = JuliaRuntime(setup_record, 1, None, SimpleNamespace())
+    preparation = runtime.owners.retain("prepared")
+    field = snapshot.state.copy()
+    start = Start(field=field, z=snapshot.z, march=snapshot)
+    try:
+        with pytest.raises(BackendError, match="history was not selected"):
+            JuliaSession(
+                runtime,
+                preparation,
+                wide.run,
+                start,
+                problem.shape,
+                record={},
+                released=lambda _: None,
+                wide=wide,
+            )
+        assert start.field is field
+        assert preparation.borrow() == "prepared"
+    finally:
+        preparation.close()

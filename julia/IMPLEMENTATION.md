@@ -10,8 +10,8 @@ ready for maintainer review, without merging it. Current pushed head: `c35e35bd`
 |---|---|---|
 | 1: package and runtime | Immutable setup, offline artifacts, bridge and ownership implemented | Deferred runtime failures stay visible; final installed-package and supervisor matrix |
 | 2: binary64 CPU | Complete scalar modal/spatial session, services, history, groups, providers and public CPU selection | Final conformance/CI and isolated startup/worker measurements |
-| 3: binary32 and DF32 | Binary32 numerical/service paths and certified DF32 landed RK/low-storage integrated; reviewed DF32 Adams leaf integrated | Adams bridge, physical qualification, DF32 dense/spatial, restart/admission matrix and x86 measurements |
-| 4: devices | Reviewed CUDA execution/FFT foundation integrated; 418 A40 checks pass | CUDA JET and complete sessions; ROCm and Metal, including Metal subnormal blocker 739 |
+| 3: binary32 and DF32 | Binary32 paths and certified DF32 landed RK/low-storage/Adams sessions integrated | Physical qualification, DF32 dense/spatial, remaining restart/admission matrix and x86 measurements |
+| 4: devices | Reviewed CUDA and Metal execution/FFT foundations integrated | Complete sessions, ROCm, vendor JET and Metal subnormal blocker 739 |
 | 5: documentation and Final | Manual/design records evolving with implementation | Complete measurements, final integration review, required green gates, archival/Final commit |
 
 No implementation phase is declared complete while its required evidence is missing.
@@ -33,12 +33,12 @@ Shared interfaces and integration remain master-owned.
 
 | Owner | Exclusive active scope |
 |---|---|
-| Master | Shared interfaces, integration, CI and records; DF32 Adams bridge/history and aggregate includes |
-| Independent reviewer | Metal foundation review; completed DF32 Adams author files handed back |
+| Master | Shared interfaces, integration, CI and records; final Adams milestone and next device interfaces |
+| Independent reviewer | Binary32 plasma numerical review, then ROCm foundation review |
 | CPU numerical agent | Binary32 envelope quadrature 738: `src/plasma.jl`, focused new cycle tests and note; table/interface changes require master coordination |
-| Device agent | Metal extension, execution/transform extension and test leaves, `METAL_FOUNDATION.md` |
+| Device agent | ROCm extension, execution/transform extension and test leaves, `ROCM_FOUNDATION.md` |
 
-The master DF32 bridge attachment is independently approved: ten original files covering
+The RK/low-storage DF32 bridge attachment is independently approved: ten files covering
 `backend.py`, `_session.py`, `_wide.py`, PythonCall launch/wide attachment, its focused
 tests and `DF32_EXECUTION.md`, plus retained independent boundary and group witnesses.
 It has no public admission change; shared integration remains master-owned.
@@ -55,7 +55,18 @@ passes 26,755 distinct assertions, including all-order factors, MPFR enclosures,
 failure preservation, actual FFT/Kerr, chunk invariance and emitted arithmetic.
 Warmed allocation assertions are zero; exact-final Aqua/JET passes 16 checks with
 2,211 definitions analyzed, none cached, plus 12 concrete calls. Bridge attachment,
-dense/spatial and device execution remain separate work.
+dense/spatial and device execution remained separate work at that leaf milestone.
+The bridge/history attachment is now independently approved. A 51-case managed run
+passes 23 new Adams cases and 28 existing history/RK/low-storage/group regressions;
+two additional Adams group cases and six independent factory-boundary cases pass.
+The groups include different plain/compensated members and refusal before a seed
+source call. Completed compensated history and accepted sample/landing slack are
+corrected (747, 748), without changing active numerical policy or portable bytes.
+Targeted Julia checks pass 998 assertions. Final CPU Aqua/JET passes 16 checks with
+all 2,217 definitions analyzed and none cached; pure boundary/CI checks pass 204 cases.
+Spelling, formatting, types, SEP consistency and the Sphinx build pass. The first
+source-identity and group-fixture failures remain in the record; their corrected
+checks do not relax numerical envelopes. Public admission remains closed.
 
 The six-case Adams-versus-RK campaign is committed at `e1d7b460`: argon field passes
 both tolerances; helium initially failed shared translation (737), and Julia binary32 argon
@@ -75,7 +86,12 @@ concrete-call analyses (741); no full-device qualification is inferred. First-en
 foreign-context coexistence (733) and released vendor handle-cache retention (736)
 remain explicit qualification work. Apple M5 Max probes find 20 subnormal failures
 in 136 arithmetic checks despite precise compiler settings (739). Base Metal execution
-and FFT work proceeds; DF32 Metal is not qualified.
+and FFT work is independently reviewed and integrated at `035ee5ac`: 308 actual device
+assertions pass, including 48 independent ownership, queue and transform checks.
+Metal Aqua passes 11 checks, while unfiltered JET and all six concrete analyses fail
+(745). Native graph-cache/workspace retention remains unmeasured (743). Independent
+probes confirm normal-input cancellation and FMA residuals can flush to zero through
+both owned kernel launch forms. DF32 Metal is not qualified.
 
 ## Latest validation
 
@@ -100,7 +116,9 @@ and FFT work proceeds; DF32 Metal is not qualified.
   `c35e35bd`. That run exposes stale internal/public admission test expectations (740),
   corrected and independently reviewed at `f1589c25`: 55 typed targeted tests pass,
   without changing production admission. Windows GUI fails its resume test again;
-  Julia jobs remain running. No failed gate is suppressed or claimed green.
+  the Linux Julia job passes Core and Aqua/JET, then reaches its two-hour job limit
+  during the still-progressing adapter suite (712). The next batch carries the longer
+  bound. No cancelled or failed gate is claimed green.
 
 Local checks are targeted; full gates, slow lanes and package coverage run in CI.
 Previous failed fixtures, timeouts and harness invocations remain in the evidence.
@@ -112,8 +130,8 @@ source identities, validation counts and ownership handoffs.
 1. Resolve the fixed-window Adams comparison's translation and envelope quadrature
    blockers (737, 738), retain unchanged candidate criteria, and independently refine
    the capped reference. Reviewed CPU32/DF32 and mandatory CI inventory are committed.
-2. Finish and independently review complete DF32 Adams factors; qualify dense/spatial
-   DF32 and the same-precision restart/admission matrix.
+2. Qualify DF32 dense/spatial execution and the remaining same-precision
+   restart/admission matrix.
 3. Complete actual CUDA foundation checks and vendor JET analysis, then attach complete
    device sessions. Rotate independent vendor work after shared interfaces stabilize.
 4. Finish CPU/GPU, startup, setup/depot and spawned-worker measurements on short windows.

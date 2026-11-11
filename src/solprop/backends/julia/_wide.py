@@ -39,7 +39,7 @@ def admit_df32_flow(run: RunTransfer) -> None:
     Raises
     ------
     BackendError
-        Naming unqualified precision, Adams, dense output or tabulated flow.
+        Naming unqualified precision, dense output or tabulated flow.
 
     Notes
     -----
@@ -49,9 +49,9 @@ def admit_df32_flow(run: RunTransfer) -> None:
     """
     if run.arithmetic.name != "single":
         raise BackendError("DF32 flow requires binary32 scientific state")
-    if run.adams is not None:
-        raise BackendError("DF32 Adams complete factors are not qualified yet")
-    if run.dense_weights is not None:
+    if run.dense_weights is not None or (
+        run.adams is not None and run.adams.interpolate
+    ):
         raise BackendError("DF32 dense observations are not qualified yet")
     if run.tabulate_flow:
         raise BackendError("DF32 tabulated flow is not qualified; select recompute")
@@ -133,6 +133,9 @@ class DF32StartBinding:
     origin_wide : {'binary64', 'df32'} or None
         Declared previous wide type. None means unknown for legacy history and
         absent for a fresh start. It never establishes a zero prior rate error.
+    history_refusal : str or None
+        Preflight reason selecting a field restart. Unselected history does not
+        enter the phase domain and must not be reread during session restoration.
     """
 
     operator: DF32OperatorBinding
@@ -140,6 +143,7 @@ class DF32StartBinding:
     history: MarchSnapshot | None
     operands: PhaseOperands
     origin_wide: Literal["binary64", "df32"] | None
+    history_refusal: str | None = None
 
 
 def _run_copy(run: RunTransfer) -> RunTransfer:

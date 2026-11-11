@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from functools import partial
 from weakref import WeakSet
 
@@ -22,6 +23,7 @@ from solprop.backends.julia._descriptors import (
 from solprop.backends.julia._fft_cache import FFTCache, refresh_fft_cache
 from solprop.backends.julia._fft_runtime import load_planning_cache
 from solprop.backends.julia._group import JuliaGroupSession
+from solprop.backends.julia._history import preflight_history
 from solprop.backends.julia._lower import RunTransfer, lower_run
 from solprop.backends.julia._node_plan import JuliaNodePlan, plan_julia_nodes
 from solprop.backends.julia._noise import lower_input_noise
@@ -704,13 +706,20 @@ class JuliaPrepared:
         self._owner._check()
         if self._owner._df32_operator is not None:
             JuliaSession._validate_start(start, self._shape)
-        wide = (
-            None
-            if self._owner._df32_operator is None
-            else bind_df32_start(
-                self._owner._df32_operator, self._transfer, float(start.z)
+            selected = preflight_history(
+                self._runtime, self._preparation, start, self._transfer, self._shape
             )
-        )
+            wide = replace(
+                bind_df32_start(
+                    self._owner._df32_operator,
+                    self._transfer,
+                    float(start.z),
+                    history=selected.snapshot,
+                ),
+                history_refusal=selected.refusal,
+            )
+        else:
+            wide = None
         noise = lower_input_noise(self._problem, noise=start.noise)
         session = JuliaSession(
             self._runtime,

@@ -12,6 +12,7 @@ import SolpropJulia: prepare_observations, copy_session_observations!
 import SolpropJulia: copy_session_monitor_rows!, restore_session_monitor!
 import SolpropJulia: export_session!, session_attempts!, session_orders!
 import SolpropJulia: export_adams_history!, restore_adams_history!, restore_session_counts!
+import SolpropJulia: preflight_adams_history
 
 """
     copy_preparation(values::Py)
@@ -240,7 +241,10 @@ end
 
 include("wide.jl")
 
-function _launch(preparation, transfer, field; z = 0.0, tableau = nothing, wide = nothing)
+function _launch(
+        preparation, transfer, field;
+        z = 0.0, tableau = nothing, wide = nothing, adams_policy = nothing,
+    )
     execution = preparation.execution
     host = copy_preparation(field)
     ndims(host) == 3 && size(host, 2) == 1 ||
@@ -270,7 +274,7 @@ function _launch(preparation, transfer, field; z = 0.0, tableau = nothing, wide 
     )
     operator = preparation.operator
     flow = _launch_flow(
-        execution, operator, state, schedule, transfer, z, tableau, wide,
+        execution, operator, state, schedule, transfer, z, tableau, wide; adams_policy,
     )
     return state, norm, schedule, source, flow
 end
@@ -361,8 +365,6 @@ function start_adams(
         noise = nothing, resume::Bool = false, transverse_continuation = nothing,
         planning = nothing, wide = nothing,
     )
-    (wide === nothing || (wide isa Py && pyis(wide, nothing))) ||
-        throw(ArgumentError("DF32 Adams complete factors are not qualified yet"))
     planning === nothing || (preparation = _planning_preparation(preparation, planning))
     noise = _launch_noise(SolpropJulia._problem_preparation(preparation), noise)
     session_preparation = preparation
@@ -370,7 +372,9 @@ function start_adams(
     preparation = SolpropJulia._problem_preparation(preparation)
     execution = preparation.execution
     policy = _adams_control(transfer.adams)
-    state, norm, schedule, source, flow = _launch(preparation, transfer, field)
+    state, norm, schedule, source, flow = _launch(
+        preparation, transfer, field; z, wide, adams_policy = policy
+    )
     services = SolpropJulia._launch_observation_services(
         session_preparation, state, noise, norm.active, z, resume;
         transverse_continuation,
@@ -570,14 +574,41 @@ function export_adams_history!(
     return nothing
 end
 
-function restore_adams_history!(
-        session::SolpropJulia.AdamsSession, snapshot::Py, buffers::Py,
-    )
-    metadata = SolpropJulia.AdamsHistoryMetadata(
+function _history_metadata(snapshot::Py)
+    return SolpropJulia.AdamsHistoryMetadata(
         pyconvert(Float64, snapshot.z), pyconvert(Float64, snapshot.proposal),
         pyconvert(Int, snapshot.order), pyconvert(Int, snapshot.rejections),
         pyconvert(Bool, snapshot.last_rejected), pyconvert(Bool, snapshot.collar_was_quiet),
     )
+end
+
+function preflight_adams_history(
+        preparation::Union{
+            SolpropJulia._ProblemPreparation, SolpropJulia.SessionPreparation,
+        }, transfer::Py, z::Float64, snapshot::Py, buffers::Py,
+    )
+    problem = SolpropJulia._problem_preparation(preparation)
+    arithmetic = SolpropJulia._prepared_arithmetic(problem.data)
+    T = Complex{SolpropJulia.source_type(arithmetic)}
+    policy = _adams_control(transfer.adams)
+    compensated = SolpropJulia._adams_varying_operator(problem.operator) &&
+        !pyconvert(Bool, transfer.source_absent)
+    layout = SolpropJulia._AdamsHistoryLayout{T}(
+        SolpropJulia._wide_start_shape(problem.operator), policy.order + 2, compensated
+    )
+    owners = _history_owners(buffers, T)
+    GC.@preserve buffers owners begin
+        borrowed = SolpropJulia.AdamsHistoryBuffers(map(_history_view, owners)...)
+        return SolpropJulia._adams_input_refusal(
+            _history_metadata(snapshot), borrowed, layout, z
+        )
+    end
+end
+
+function restore_adams_history!(
+        session::SolpropJulia.AdamsSession, snapshot::Py, buffers::Py,
+    )
+    metadata = _history_metadata(snapshot)
     owners = _history_owners(buffers, eltype(session.field))
     GC.@preserve buffers owners begin
         borrowed = SolpropJulia.AdamsHistoryBuffers(map(_history_view, owners)...)

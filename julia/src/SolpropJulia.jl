@@ -75,6 +75,7 @@ include("group_session.jl")
 include("trial_probe.jl")
 include("wide_binding.jl")
 include("df32_flow.jl")
+include("df32_adams.jl")
 
 """
     copy_preparation(values::AbstractArray)

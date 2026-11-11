@@ -1761,6 +1761,62 @@ The original collection timeout is retained; a bounded continuation completed on
 three missing pairs with the same source and placement. No performance ratio is an
 acceptance threshold. Full phase 2/3 qualification and required CI remain unfinished.
 
+### Certified landed DF32 Adams and portable history — 2026-11-11
+
+The reviewed complete-factor flow now attaches to the internal Python preparation
+and session boundary. It certifies nonuniform coefficients, phi absolute errors,
+transported sampled rates and complete source/compensation/defect factors before
+narrowing. Certification precedes startup source charges and accepted-state writes.
+Two fixed banks and all rate-provenance storage are inventoried; warmed leaf trials
+retain zero allocation in the reviewed CPU witnesses. The independent leaf review
+passes 26,755 distinct assertions, including MPFR and exact-rational checks, conditional
+FFT/source sensitivity bounds, retained-history ages and generated arithmetic.
+
+Python detaches and preflights a candidate portable history using the engine's actual
+compatibility checks before its age enters phase admission. Incompatible history
+selects a named field reset. The immutable binding and actual restore consume the
+same selected data; neither rereads discarded caller rows. The portable schema carries
+no previous wide type, so imported rate provenance is explicitly unknown and its
+error is reconstructed from the represented operator and actual saved values.
+No scientific hash, physical scaling, raw storage type or noise policy changes.
+
+Independent integration review found and corrected two boundary cases: a completed
+compensated restart needs no numerical rate certificates (747), and the history
+coordinate enclosure must include admitted predictor coordinates beyond the rounded
+landing endpoint (748). Completed starts retain raw history without inventing a phase,
+trial or source call. The established layout, alias and numerical-refusal ordering is
+preserved. A direct inconsistent factory call cannot silently discard supplied history.
+
+The managed regression run passes 51 cases, comprising 23 new Adams cases and 28
+existing history, RK, low-storage and group regressions. Six independent factory
+witnesses cover accepted sample slack, completed history and actual raw/canonical
+replay endpoints. Two further group cases pass for mixed plain/compensated members
+and a phase refusal before any seed source call. Targeted Julia checks pass 998
+assertions; unfiltered CPU Aqua/JET
+passes 16 checks with all 2,217 definitions analyzed and none cached. Pure boundary
+and CI-inventory checks pass 204 cases. Earlier constructor, fixture and source-identity
+failures remain recorded alongside the corrected results. Public binary32 admission,
+DF32 dense/spatial execution, physical admission comparisons and devices remain open.
+The numerical derivations and conditional hypotheses are in `julia/DF32_ADAMS.md`.
+
+### Vendor execution and transform foundations — 2026-11-11
+
+CUDA and Metal execution/FFT foundations have independent source and device review.
+They retain explicit task/context/queue ownership, protect caller and plan buffers,
+and preserve owners until error-path synchronization completes. CUDA's actual NVIDIA
+A40 suite passes 418 assertions under network isolation. Metal's Apple M5 Max suite
+and independent witnesses pass 308 assertions. These establish the tested execution
+and transform behavior. Complete propagation and numerical qualification remain open.
+
+Both vendor quality runs pass Aqua but fail unfiltered JET and concrete analyses
+(741, 745). CUDA foreign-context coexistence and released native-cache retention remain
+open (733, 736). Metal's native FFT graph-cache/workspace retention is unmeasured (743),
+and unsupported odd real lengths and high transform axes refuse before planning (744).
+Metal precise arithmetic probes exhibit subnormal loss, including a normal-input FMA
+correction, so the current DF32 gradual-underflow proof does not qualify that device
+(739). No floating-point policy or required gate is relaxed. ROCm foundation and all
+complete vendor sessions remain under implementation.
+
 ## Part III — History
 
 - 2026-11-10: The maintainer accepted external hard-kill supervision for stalled Julia

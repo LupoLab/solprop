@@ -267,9 +267,15 @@ def test_df32_execution_admits_only_qualified_landed_method_policies():
     run = _run(replay=True)
     assert admit_df32_flow(run) is None
     assert admit_df32_flow(replace(run, low_storage=True)) is None
+    adams = _run(order=3)
+    assert adams.adams is not None
+    assert admit_df32_flow(adams) is None
     for refused, name in (
         (replace(run, arithmetic=ArithmeticTransfer()), "binary32"),
-        (_run(order=3), "Adams complete factors"),
+        (
+            replace(adams, adams=replace(adams.adams, interpolate=True)),
+            "dense observations",
+        ),
         (replace(run, dense_weights=np.ones(2)), "dense observations"),
         (replace(run, tabulate_flow=True), "tabulated flow"),
     ):

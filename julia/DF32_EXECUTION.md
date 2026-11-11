@@ -126,12 +126,12 @@ implementation intentionally pays that certificate cost and makes no throughput 
 device qualification claim. A reusable uniform certificate or explicit device-safe
 strategy is still required before a device can use this boundary.
 
-Complete Adams factors require a separate numerical package. It must certify the
-actual nonuniform coefficient formation, phi absolute error, transported sampled-rate
-provenance, complete source/compensation/defect factors and dense integrals before
-narrowing. Existing binary64 exponent/moment callbacks cannot provide DF32 admission.
-Adams startup currently precedes trial landing, so its later transaction design must
-also place certificate checks before seed-source calls and history/ledger mutation.
+The separate [DF32 Adams flow](DF32_ADAMS.md) now certifies actual nonuniform
+coefficient formation, phi absolute error, transported sampled-rate provenance and
+complete landed source/compensation/defect factors before narrowing. Its transaction
+places certification before seed-source calls and history/ledger mutation. Dense
+integrals remain additional work; binary64 exponent/moment callbacks do not establish
+DF32 admission.
 
 Separable spatial operators also remain refused: the protected squared-wavevector
 subtraction, branch at real(q)=0, complex square root, frame cancellation and loss
@@ -143,14 +143,16 @@ The current modal binding and function domains do not qualify that representatio
 ## Internal Python session attachment
 
 The direct Julia execution owner accepts `wide="df32"` for noise-free binary32
-modal landed RK and low-storage sessions. Public registry admission remains closed
+modal landed RK, low-storage and Adams sessions. Public registry admission remains closed
 until the complete phase 3 matrix qualifies. The owner copies the original operator
 once; each start owns its exact run transfer and actual coordinate geometry. The
 PythonCall factory receives that same transfer by identity, preserves original-launch
 scales on field restart, and constructs `DF32LinearFlow` from the preparation's
 original operator. Julia performs every actual-trial certificate before source work.
-There is no Python numerical trial loop or binary64 phase fallback. Timing probes,
-Adams, dense observations, spatial operators and tabulated flow still refuse by name.
+There is no Python numerical trial loop or binary64 phase fallback. Adams uses its
+separate complete-factor flow and selected-history boundary described in
+[DF32_ADAMS.md](DF32_ADAMS.md). Timing probes, dense observations, spatial operators
+and tabulated flow still refuse by name.
 
 Managed CPU bridge tests cover eight replay steps for both methods, including RK
 steps larger than the adaptive `dz_max`, at work limits 1 and 256. Same-grid binary64
@@ -163,5 +165,6 @@ Two-member fixed-schedule group checks cover both wide types and both methods,
 including exact delivery and preservation of a member whose phase certificate refuses.
 Independent PythonCall witnesses also reject mismatched run identity and actual start
 coordinates before consuming caller storage, then reuse the same preparation.
-These checks establish the stated short internal CPU paths; full phase 3 admission,
-portable Adams history, dense output and vendor execution remain additional work.
+These RK/low-storage checks establish the stated short internal CPU paths; full phase 3
+admission, dense output and vendor execution remain additional work. Adams bridge
+and portable-history qualification have their own focused witnesses.

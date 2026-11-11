@@ -5,7 +5,7 @@
 """Transfer portable Adams history without exposing borrowed Julia storage."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 from jaxtyping import Complex, Float, Int, UInt8
@@ -14,6 +14,7 @@ from solprop.backends.julia._bridge import invoke
 from solprop.backends.julia._lower import RunTransfer
 from solprop.backends.julia._ownership import JuliaHandle
 from solprop.backends.julia._runtime import JuliaRuntime
+from solprop.backends.session import Start
 from solprop.exceptions import BackendError
 from solprop.output.schema import MarchSnapshot
 from solprop.translate.precision import PrecisionName
@@ -24,9 +25,11 @@ __all__ = [
     "HistoryBuffers",
     "HistoryIdentity",
     "HistoryInfo",
+    "HistorySelection",
     "export_history",
     "history_info",
     "lower_call_restore",
+    "preflight_history",
     "restore_history",
 ]
 
@@ -536,6 +539,96 @@ def _restore(
         handle.borrow(), snapshot, buffers
     )
     return None if reason is None else str(reason)
+
+
+@dataclass(frozen=True)
+class HistorySelection:
+    """Retain the exact portable history chosen before DF32 phase binding.
+
+    Attributes
+    ----------
+    snapshot : solprop.output.schema.MarchSnapshot or None
+        Detached compatible raw data, or no history for a field restart.
+    refusal : str or None
+        Exact compatibility reason retained for the shared reset record.
+    """
+
+    snapshot: MarchSnapshot | None
+    refusal: str | None
+
+
+def _preflight(
+    runtime: JuliaRuntime,
+    preparation: JuliaHandle,
+    transfer: RunTransfer,
+    start: Start,
+    buffers: HistoryBuffers,
+) -> str | None:
+    """Detach the engine's shared numerical-history compatibility result."""
+    reason = runtime.engine.preflight_adams_history(
+        preparation.borrow(), transfer, float(start.z), start.march, buffers
+    )
+    return None if reason is None else str(reason)
+
+
+def preflight_history(
+    runtime: JuliaRuntime,
+    preparation: JuliaHandle,
+    start: Start,
+    transfer: RunTransfer,
+    shape: tuple[int, int, int],
+) -> HistorySelection:
+    """Select detached raw history before its age affects a DF32 phase domain.
+
+    Parameters
+    ----------
+    runtime : JuliaRuntime
+        Initialized runtime, entered on its owning main thread.
+    preparation : JuliaHandle
+        Immutable modal preparation with the actual operator and source arithmetic.
+    start : solprop.backends.session.Start
+        Unconsumed start containing optional portable history.
+    transfer : RunTransfer
+        Exact resolved method, capacity and source-absence policy.
+    shape : tuple of int
+        Required host field shape ``(n_modes,n_pol,n_omega)``.
+
+    Returns
+    -------
+    HistorySelection
+        Owned selected snapshot, or an explicit field-reset reason. Restoration
+        must use this detached selection rather than rereading the caller's rows.
+
+    Raises
+    ------
+    BackendError
+        For an unexpected bridge failure, which cannot masquerade as a reset.
+    """
+    runtime.check()
+    if start.march is None:
+        return HistorySelection(None, None)
+    buffers = _lower_history(start.march, transfer, shape)
+    if isinstance(buffers, str):
+        return HistorySelection(None, buffers)
+    rows = {"store": buffers.store}
+    if buffers.states is not None and buffers.rates is not None:
+        rows.update(states=buffers.states, rates=buffers.rates)
+    snapshot = replace(
+        start.march,
+        state=buffers.state,
+        positions=buffers.positions,
+        identities=tuple(
+            "predicted" if kind else "accepted" for kind in buffers.identities
+        ),
+        slots=buffers.slots,
+        rows=rows,
+    )
+    detached_start = replace(start, march=snapshot)
+    refusal = invoke(
+        lambda: _preflight(runtime, preparation, transfer, detached_start, buffers),
+        "the julia Adams history preflight failed",
+    )
+    return HistorySelection(snapshot if refusal is None else None, refusal)
 
 
 def restore_history(
