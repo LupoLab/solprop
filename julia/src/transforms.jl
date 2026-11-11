@@ -22,6 +22,8 @@ The internal forward sign is negative; no physical units or Fourier conventions 
 CPU plans use one FFTW thread, staying inside every positive execution budget. The
 backward plan is unnormalized; `temporal_inverse!` applies `inverse_scale = 1/n_time`.
 Planning restores FFTW's previous planner thread setting.
+An explicit `execution.planning` context plans against both supplied arrays and
+retains isolated planning facts; `nothing` uses the standalone estimate-only path.
 
 # Throws
 - `ArgumentError`: For unsupported precision, storage, backend or aliased buffers.
@@ -52,13 +54,25 @@ function TemporalFFT(
         throw(DimensionMismatch("spectral buffer does not match the temporal layout"))
     Base.mightalias(time_buffer, spectrum_buffer) &&
         throw(ArgumentError("temporal transform buffers must be disjoint"))
-    flags = FFTW.ESTIMATE | FFTW.PRESERVE_INPUT
-    if real_signal
-        forward = FFTW.plan_rfft(time_buffer, 1; flags, num_threads = 1)
-        inverse = FFTW.plan_brfft(spectrum_buffer, n_time, 1; flags, num_threads = 1)
+    planning = execution.planning
+    if planning !== nothing
+        forward = plan_owned_fft!(
+            planning, time_buffer, spectrum_buffer, (1,),
+            real_signal ? :r2c : :c2c_forward; threads = 1,
+        )
+        inverse = plan_owned_fft!(
+            planning, spectrum_buffer, time_buffer, (1,),
+            real_signal ? :c2r : :c2c_backward; threads = 1,
+        )
     else
-        forward = FFTW.plan_fft(time_buffer, 1; flags, num_threads = 1)
-        inverse = FFTW.plan_bfft(spectrum_buffer, 1; flags, num_threads = 1)
+        flags = FFTW.ESTIMATE | FFTW.PRESERVE_INPUT
+        if real_signal
+            forward = FFTW.plan_rfft(time_buffer, 1; flags, num_threads = 1)
+            inverse = FFTW.plan_brfft(spectrum_buffer, n_time, 1; flags, num_threads = 1)
+        else
+            forward = FFTW.plan_fft(time_buffer, 1; flags, num_threads = 1)
+            inverse = FFTW.plan_bfft(spectrum_buffer, 1; flags, num_threads = 1)
+        end
     end
     return TemporalFFT(forward, inverse, inv(R(n_time)), n_time, n_frequency, n_columns)
 end
@@ -111,6 +125,8 @@ The forward transform is raw and negative-sign. The backward plan is unnormalize
 `spatial_inverse!` applies `1/prod(size(buffer, axis) for axis in axes)` explicitly.
 Single-thread FFTW plans stay within the execution budget and restore planner settings.
 Preparation preserves the supplied buffer; all transform cells are overwritten in use.
+An explicit `execution.planning` context isolates and records both actual-buffer
+plans; `nothing` retains standalone estimate-only planning.
 
 # Throws
 - `ArgumentError`: For unsupported storage/backend, empty dimensions or invalid axes.
@@ -122,9 +138,9 @@ struct SpatialFFT{F, I, T}
 end
 
 function SpatialFFT(
-        execution::KernelExecution, buffer::StridedArray{Complex{T}},
+        execution::KernelExecution, buffer::A,
         axes::Tuple{Vararg{Integer}},
-    ) where {T <: Union{Float32, Float64}}
+    ) where {T <: Union{Float32, Float64}, N, A <: StridedArray{Complex{T}, N}}
     oncpu(execution) || throw(ArgumentError("this backend has no qualified FFT planner"))
     isempty(buffer) && throw(ArgumentError("spatial FFT dimensions must be positive"))
     region = map(Int, axes)
@@ -135,8 +151,18 @@ function SpatialFFT(
     for axis in region
         count = Base.checked_mul(count, size(buffer, axis))
     end
-    forward = FFTW.plan_fft!(buffer, region; flags = FFTW.ESTIMATE, num_threads = 1)
-    inverse = FFTW.plan_bfft!(buffer, region; flags = FFTW.ESTIMATE, num_threads = 1)
+    planning = execution.planning
+    if planning === nothing
+        forward = FFTW.plan_fft!(buffer, region; flags = FFTW.ESTIMATE, num_threads = 1)
+        inverse = FFTW.plan_bfft!(buffer, region; flags = FFTW.ESTIMATE, num_threads = 1)
+    else
+        forward = plan_owned_fft!(
+            planning, buffer, buffer, region, :c2c_forward; threads = 1,
+        )
+        inverse = plan_owned_fft!(
+            planning, buffer, buffer, region, :c2c_backward; threads = 1,
+        )
+    end
     return SpatialFFT(forward, inverse, inv(T(count)))
 end
 

@@ -129,6 +129,15 @@ for (scalar, stem, library) in (
     end
 end
 
+function _fft_storage(
+        array::StridedArray{T, N},
+    ) where {T <: Union{Float32, Float64, ComplexF32, ComplexF64}, N}
+    width = sizeof(T)
+    bytes = map(stride -> Base.checked_mul(stride, width), strides(array))
+    _transfer_writable_strides(size(array), bytes, width)
+    return nothing
+end
+
 function _fft_validate(input, output, axes::Tuple, kind::Symbol, threads::Int)
     input isa StridedArray && output isa StridedArray ||
         throw(ArgumentError("FFT planning requires supported strided arrays"))
@@ -137,11 +146,10 @@ function _fft_validate(input, output, axes::Tuple, kind::Symbol, threads::Int)
     eltype(input) in (Float32, Float64, ComplexF32, ComplexF64) &&
         eltype(output) in (Float32, Float64, ComplexF32, ComplexF64) ||
         throw(ArgumentError("FFT planning requires binary32 or binary64 arrays"))
-    for array in (input, output)
-        width = sizeof(eltype(array))
-        bytes = map(stride -> Base.checked_mul(stride, width), strides(array))
-        _transfer_writable_strides(size(array), bytes, width)
-    end
+    # Keep each array's fixed scalar type through validation; real/complex pairs
+    # need not share an element type, while their byte layouts must both be valid.
+    _fft_storage(input)
+    _fft_storage(output)
     _fft_precision(eltype(input)) === _fft_precision(eltype(output)) ||
         throw(ArgumentError("FFT planning precisions differ"))
     ndims(input) == ndims(output) && all(>(0), size(input)) &&
@@ -230,7 +238,13 @@ function _fft_cached_plan(input, output, axes, kind, flags)
     end
 end
 
-function _fft_transaction!(context, input, output, axes, kind, threads, restrictions)
+function _fft_transaction!(
+        context::FFTPlanning, input::StridedArray{Ti, N}, output::StridedArray{To, N},
+        axes::Tuple, kind::Symbol, threads::Int, restrictions::UInt32,
+    ) where {
+        Ti <: Union{Float32, Float64, ComplexF32, ComplexF64},
+        To <: Union{Float32, Float64, ComplexF32, ComplexF64}, N,
+    }
     precision = _fft_precision(eltype(input))
     saved_input = copy(input)
     saved_output = input === output ? nothing : copy(output)

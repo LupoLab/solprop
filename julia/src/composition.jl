@@ -761,9 +761,14 @@ function _source_raman(execution, data, layout)
     components = map(data.raman) do component
         time_kernel = zeros(Float64, 2layout.n_time)
         spectrum = zeros(ComplexF64, layout.n_time + 1)
-        forward = FFTW.plan_rfft(
-            time_kernel; flags = FFTW.ESTIMATE | FFTW.PRESERVE_INPUT, num_threads = 1
-        )
+        planning = execution.planning
+        forward = if planning === nothing
+            FFTW.plan_rfft(
+                time_kernel; flags = FFTW.ESTIMATE | FFTW.PRESERVE_INPUT, num_threads = 1,
+            )
+        else
+            plan_owned_fft!(planning, time_kernel, spectrum, (1,), :r2c; threads = 1)
+        end
         convolution = RamanConvolution(
             layout.n_time, spectrum, transform.forward, transform.inverse;
             inverse_scale = transform.inverse_scale,

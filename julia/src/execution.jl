@@ -4,7 +4,7 @@
 public KernelExecution, each!, each_column!, oncpu, upload, dzeros
 
 """
-    KernelExecution(backend, tasks::Integer, check_body::Bool = false)
+    KernelExecution(backend, tasks::Integer, check_body::Bool = false; planning=nothing)
 
 Prepare synchronous numerical execution with a positive CPU worker budget.
 
@@ -13,6 +13,9 @@ Prepare synchronous numerical execution with a positive CPU worker budget.
 - `tasks`: The maximum number of participating CPU threads, including the caller.
   The available default Julia thread pool supplies an additional upper bound.
 - `check_body`: Whether to reject known device-incompatible captured types before launch.
+- `planning`: Optional preparation-owned `FFTPlanning` context for CPU transforms.
+  `nothing` retains the standalone estimate-only planner. Numerical loop bodies never
+  receive this context; it contains no execution buffers or filesystem policy.
 
 # Throws
 - `ArgumentError`: If `tasks` is not positive.
@@ -21,10 +24,14 @@ struct KernelExecution{B}
     backend::B
     tasks::Int
     check_body::Bool
+    planning::Union{Nothing, FFTPlanning}
 
-    function KernelExecution(backend::B, tasks::Integer, check_body::Bool = false) where {B}
+    function KernelExecution(
+            backend::B, tasks::Integer, check_body::Bool = false;
+            planning::Union{Nothing, FFTPlanning} = nothing,
+        ) where {B}
         tasks > 0 || throw(ArgumentError("the kernel task budget must be positive"))
-        return new{B}(backend, Int(tasks), check_body)
+        return new{B}(backend, Int(tasks), check_body, planning)
     end
 end
 

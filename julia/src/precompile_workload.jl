@@ -231,10 +231,18 @@ function _precompile_drain!(session)
 end
 
 function _precompile_cpu_workload()
-    execution = KernelExecution(KernelAbstractions.CPU(), 1)
+    # Compile the actual-buffer planner used by managed preparations, without
+    # measuring or publishing wisdom. All context and plan storage remains local.
+    planning = FFTPlanning(; effort = :estimate, keep = false)
+    execution = KernelExecution(KernelAbstractions.CPU(), 1; planning)
+    spatial = zeros(ComplexF64, 2, 4, 4)
+    spatial_plan = SpatialFFT(execution, spatial, (2, 3))
+    spatial_forward!(spatial, spatial_plan)
+    spatial_inverse!(spatial, spatial_plan, execution)
     _precompile_drain!(_precompile_session(execution, Val(:rk), Val(:field)))
     _precompile_drain!(_precompile_session(execution, Val(:adams), Val(:envelope)))
     _precompile_drain!(_precompile_session(execution, Val(:low_storage), Val(:envelope)))
+    isempty(planning.measured) || error("precompile planning must not retain measurements")
     return nothing
 end
 

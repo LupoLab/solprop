@@ -722,10 +722,11 @@ function observe!(
         )
     end
     if needs.windows
-        work.windows === nothing &&
+        windows = work.windows
+        windows === nothing &&
             throw(ArgumentError("window observation buffers are missing"))
         _observation_analytic!(
-            work.windows.pair, work.spectrum, work.weight, data.kind,
+            windows.pair, work.spectrum, work.weight, data.kind,
             data.grid.windows, true, execution
         )
     end
