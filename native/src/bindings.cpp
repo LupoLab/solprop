@@ -956,7 +956,7 @@ ComplexOutput complex_output(const std::vector<native::Complex>& values,
   nb::capsule owner(pointer, [](void* value) noexcept {
     const std::unique_ptr<ComplexStorage> held(static_cast<ComplexStorage*>(value));
   });
-  storage.release();
+  static_cast<void>(storage.release()); // the capsule owns it now
   return ComplexOutput(pointer->data(), shape.size(), shape.data(), owner);
 }
 
@@ -967,7 +967,7 @@ ComplexOutput owned_complex(std::unique_ptr<ComplexStorage> storage,
   nb::capsule owner(pointer, [](void* value) noexcept {
     const std::unique_ptr<ComplexStorage> held(static_cast<ComplexStorage*>(value));
   });
-  storage.release();
+  static_cast<void>(storage.release()); // the capsule owns it now
   return ComplexOutput(pointer->data(), shape.size(), shape.data(), owner);
 }
 
@@ -990,7 +990,7 @@ RealOutput real_output(std::vector<double> values, const std::size_t rows) {
   nb::capsule owner(pointer, [](void* value) noexcept {
     const std::unique_ptr<RealStorage> held(static_cast<RealStorage*>(value));
   });
-  storage.release();
+  static_cast<void>(storage.release()); // the capsule owns it now
   const std::array<std::size_t, 2> shape{rows, pointer->size() / rows};
   return RealOutput(pointer->data(), shape.size(), shape.data(), owner);
 }
@@ -2354,7 +2354,7 @@ moved_array(std::vector<T>&& values, const std::size_t rows,
   nb::capsule owner(pointer, [](void* value) noexcept {
     const std::unique_ptr<std::vector<T>> held(static_cast<std::vector<T>*>(value));
   });
-  storage.release();
+  static_cast<void>(storage.release()); // the capsule owns it now
   const std::array<std::size_t, 2> shape{rows, columns};
   return {pointer->data(), shape.size(), shape.data(), owner};
 }
@@ -3537,7 +3537,7 @@ NB_MODULE(_core, module_) {
               const std::unique_ptr<ComplexStorage> held(
                   static_cast<ComplexStorage*>(value));
             });
-            storage.release();
+            static_cast<void>(storage.release()); // the capsule owns it now
             const std::array<std::size_t, 3> shape{extents[0], extents[1], extents[2]};
             return ComplexOutput(pointer->data(), shape.size(), shape.data(), owner);
           },
