@@ -1790,6 +1790,14 @@ main before SEP 47, B = milestone 1 and C = this milestone. Geometric means, end
   measured `1.14e-13` on one CI platform and less on another. The recorded error is
   the measured one either way.
 - Device ports beyond the representative path are phase 4.
+- Coupled-flow groups are admitted by the native group session, which already ran them
+  before phase 5 removed the lockstep batch; §6.3's row keeping the coupled-batch
+  refusal is not applied to it. That refusal was the lockstep batch's, whose fused
+  accepted update applied no flow action; the native group fuses nothing, each member's
+  own session carrying its flow, so a member is bitwise its lone run on one thread
+  (`native/tests/test_coupled_flow.py`). On GPU builds a member is admitted as the
+  session admits it, not separately qualified. The reference's binary64 lockstep batch
+  still refuses a coupled member.
 
 ## Part III — History
 

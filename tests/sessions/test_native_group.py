@@ -16,7 +16,6 @@ each member ends at its own committed position. The protocol's conformance tests
 which the reference's group passes too, are in ``test_group.py``.
 """
 
-import copy
 import dataclasses
 import os
 import warnings
@@ -496,15 +495,6 @@ def test_the_native_group_refuses_by_name_what_it_does_not_run():
             [requests[0], finer._run_request()],
             starts,
         )
-    )
-    # A coupled flow is refused as the lockstep group refused it (SEP 47 section
-    # 6.3), decided from the problem alone: a stand-in flow, set past the operator's
-    # own validation, suffices to ask.
-    linear = copy.copy(problems[1].linear)
-    object.__setattr__(linear, "coupled_flow", object())
-    flowing = dataclasses.replace(problems[1], linear=linear)
-    assert "a coupled flow: coupled-flow groups remain refused" in (
-        group_module.refusal([problems[0], flowing], requests, starts) or ""
     )
     with ExitStack() as cleanup:
         owners = [constructed(one, cleanup) for one in simulations]

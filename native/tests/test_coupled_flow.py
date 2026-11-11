@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import dataclasses
 import math
-import re
 import warnings
 from collections.abc import Iterator
 from typing import cast
@@ -29,13 +28,13 @@ from typing import cast
 import numpy as np
 import numpy.typing as npt
 import pytest
+from session_runs import alone, assert_same, grouped, one_thread
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.backend import (
     _coupled_flow_maps,  # pyright: ignore[reportPrivateUsage]
     _flow_action,  # pyright: ignore[reportPrivateUsage]
 )
 from solprop.backends.session import Start
-from solprop.backends.sessions import start_group
 from solprop.boundaries import absorber
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError
@@ -271,29 +270,76 @@ def test_ten_steps_of_the_flow_are_the_reference_within_the_bound(name: str) -> 
     assert float(np.max(np.abs(actual - expected))) / scale <= bound
 
 
-def test_cf4_and_a_group_are_refused_by_name() -> None:
+def test_cf4_is_refused_by_name() -> None:
     case = simulation(radius=taper(), wall=CoherentWall(method="cf4"))
     with pytest.raises(BackendError, match=r"native does not execute a 'cf4' section"):
         NativeBackend(case.translate(), case._run_request(), grid=case.grid)  # pyright: ignore[reportPrivateUsage]
-    # A group of coupled flows stays refused (solprop SEP 47 section 6.3), by the
-    # native group, before any member session starts.
-    constant = CASES["scalar_wall"]()
-    problem = constant.translate()
-    run_request = constant._run_request()  # pyright: ignore[reportPrivateUsage]
-    starts = [Start.entrance(problem) for _ in range(2)]
-    refusal = r"a coupled flow: coupled-flow groups remain refused"
-    assert re.search(
-        refusal, group_refusal([problem] * 2, [run_request] * 2, starts) or ""
-    )
-    members = [
-        NativeBackend(problem, run_request, grid=constant.grid) for _ in range(2)
+
+
+@pytest.mark.parametrize("name", sorted(CASES))
+def test_a_coupled_flow_group_runs_each_member_as_its_lone_session(name: str) -> None:
+    """A native group admits coupled-flow members (solprop SEP 47 section 6.7).
+
+    Each member runs in its own native session, its flow action and explicit residual
+    its own, so nothing of a member's step is shared: on one thread, where the
+    reductions' order is fixed, each member is the same problem run alone through the
+    native session bit for bit. On any thread count each member's final field is
+    ``numpy_ref``'s within the ten-step bound :func:`_parity_bound`, fixed before the
+    native run from the reference's own runs (``numpy_ref``'s lockstep batch refuses a
+    coupled member, so the reference is each member run alone). The members differ in
+    their launch alone.
+    """
+    case = CASES[name]()
+    original = case.translate()
+    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
+    grid = cast(FieldGrid, case.grid)
+    problems = [
+        dataclasses.replace(
+            original,
+            initial=dataclasses.replace(
+                original.initial, field0=original.initial.field0 * scale
+            ),
+        )
+        for scale in (1.0, 0.75)
     ]
-    try:
-        with pytest.raises(BackendError, match=refusal):
-            start_group(members, [problem] * 2, [run_request] * 2, starts)
-    finally:
-        for member in members:
-            member.close()
+    starts = [Start.entrance(one) for one in problems]
+    requests = [run_request] * len(problems)
+    assert group_refusal(problems, requests, starts) is None
+    bounds: list[tuple[ComplexArray, float]] = []
+    for problem in problems:
+        expected = run(NumpyRefBackend, problem, run_request, grid)
+        small = np.asarray(problem.initial.field0 * 1e-3, dtype=np.complex128)
+        linear = 1e3 * run(NumpyRefBackend, problem, run_request, grid, small)
+        bounds.append((expected, _parity_bound(problem, run_request, expected, linear)))
+    # The session forms the run's statistics, the gas's density among them, from the
+    # case's profiles.
+    owned = {"grid": grid, "modes": case.modes, "profiles": case.profiles}
+    members = grouped(
+        [NativeBackend(one, run_request, **owned) for one in problems],
+        problems,
+        requests,
+        starts,
+    )
+    for problem, member, (expected, bound) in zip(
+        problems, members, bounds, strict=True
+    ):
+        assert member[-1]["z"] == LENGTH
+        np.testing.assert_array_equal(
+            member[-1]["attempts"]["dz"], np.full(STEPS, LENGTH / STEPS)
+        )
+        scale = float(np.max(np.abs(problem.initial.field0)))
+        actual = np.asarray(member[-1]["field"], dtype=np.complex128)
+        assert float(np.max(np.abs(actual - expected))) / scale <= bound
+        if one_thread():
+            single = alone(
+                NativeBackend(problem, run_request, **owned),
+                problem,
+                run_request,
+                Start.entrance(problem),
+            )
+            assert_same(member, single)
+    # The members differ: each is its own launch, not one copied.
+    assert not np.array_equal(members[0][-1]["field"], members[1][-1]["field"])
 
 
 def test_a_step_beyond_the_certificate_is_refused_by_name() -> None:

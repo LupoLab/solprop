@@ -47,6 +47,7 @@ from driver.test_coherent_capillary import (
 )
 from driver.test_split_block import build
 from flow_parity import UNIT, formation_bound, radial_family
+from march_bounds import assert_points_matched
 from modal_provider_cases import (
     GENERAL_CHI3,
     GENERAL_Z_END,
@@ -59,6 +60,8 @@ from modal_provider_cases import (
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
 from solprop.driver import Simulation
+from solprop.driver.executors import Batch, Local
+from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import (
     BackendError,
     DriverError,
@@ -454,28 +457,60 @@ def test_cf4_is_refused_by_name_at_the_backend_and_the_entry_point():
             varying(wall=CF4_WALL, backend=name).translate()
 
 
-def test_a_native_group_refuses_a_coupled_flow_by_name():
-    """Coupled-flow groups stay refused (SEP 47 section 6.3), before any session."""
+def test_a_native_group_admits_a_coupled_flow():
+    """A coupled flow runs in a native group (SEP 47 section 6.7): each member's flow
+    is its own session's, so nothing of its step is fused. The members' numerics are
+    held to their lone sessions in ``native/tests/test_coupled_flow.py``."""
+    from solprop_native.group import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        NativeGroupSession,
+        refusal,
+    )
+
     from solprop.backends.session import Start  # noqa: PLC0415
     from solprop.backends.sessions import start_group  # noqa: PLC0415
 
-    case = scalar_wall()
+    simulation = capillary(wall=CoherentWall(), energy=ENERGY, pressure=PRESSURE)
+    problem, request = simulation.translate(), simulation._run_request()
+    problems, requests = [problem] * 2, [request] * 2
+    starts = [Start.entrance(problem) for _ in range(2)]
+    assert refusal(problems, requests, starts) is None
     members = [
-        native_class()(case.problem, case.run_request, grid=case.grid) for _ in range(2)
+        native_class()(
+            problem,
+            request,
+            grid=simulation.grid,
+            modes=simulation.modes,
+            profiles=simulation.profiles,
+        )
+        for _ in range(2)
     ]
+    group = start_group(members, problems, requests, starts)
     try:
-        with pytest.raises(
-            BackendError, match=r"a coupled flow: coupled-flow groups remain refused"
-        ):
-            start_group(
-                members,
-                [case.problem] * 2,
-                [case.run_request] * 2,
-                [Start.entrance(case.problem) for _ in range(2)],
-            )
+        assert isinstance(group, NativeGroupSession)
     finally:
-        for member in members:
-            member.close()
+        group.close()
+
+
+def _scan_point(point):
+    """Return one point of a power scan of the scalar wall, natively."""
+    return capillary(
+        wall=CoherentWall(), backend="native", energy=1e-9 * point.values["power"]
+    )
+
+
+def test_a_batched_scan_of_coupled_flows_runs_as_the_local_loop(tmp_path):
+    """A batched scan groups coupled-flow points into one native group, and each
+    point is the local loop's to the matched-march bound (SEP 25)."""
+    scan = Scan("coupled", power=[1.0, 2.0])
+    options = {"progress": "none"}
+    local = run_scan(
+        scan, _scan_point, output=tmp_path / "local.h5", executor=Local(), **options
+    )
+    batched = run_scan(
+        scan, _scan_point, output=tmp_path / "batch.h5", executor=Batch(2), **options
+    )
+    assert local.status.tolist() == batched.status.tolist() == ["done"] * 2
+    assert_points_matched(batched, local, scan, _scan_point, what="batch member")
 
 
 def test_the_flow_s_ledger_rows_are_its_views_and_zero_elsewhere():
