@@ -28,6 +28,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from backends._session_probe_b2 import run_session
 from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
 from backends.test_radial_nonlinear import CHI3, LENGTH, QuadraticRate, derivative
@@ -218,17 +219,20 @@ def amplitude_bound(grid, space, family, steps, *, length=LENGTH):
     return bound
 
 
-def propagate(problem, run_request, grid, implementation, names=(), options=None):
-    """Run a problem to its end and return the field and requested statistics."""
-    backend = implementation(problem, run_request, grid=grid, options=options)
+def _landed(problem, run_request, grid, implementation, names=(), options=None):
+    """Run a problem to its end through the backend's session, with `names` observed."""
+    request = run_request.for_run(stats=StatsSpec(names=names))
+    backend = implementation(problem, request, grid=grid, options=options)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(LENGTH)
-        field = backend.observe().require_field().copy()
-        values = backend.stats(StatsSpec(names=names)) if names else {}
+        return run_session(backend, problem, request)
     finally:
         backend.close()
-    return field, values
+
+
+def propagate(problem, run_request, grid, implementation, names=(), options=None):
+    """Run a problem to its end and return the field and requested statistics."""
+    landed = _landed(problem, run_request, grid, implementation, names, options)
+    return landed.field, (landed.stats if names else {})
 
 
 def with_steps(run_request, steps):
@@ -302,20 +306,18 @@ def test_the_planar_statistics_match_the_reference(case, steps):
     bound = 2 * amplitude_bound(grid, space, family, steps)
     bound += gamma(128 * (space.n_columns + space.n_nodes) + 32 * grid.n_to)
     names = SPATIAL_NAMES + (PLASMA_NAMES if family.endswith("plasma") else ())
-    if steps:
-        run_request = with_steps(run_request, steps)
+    # Without steps the launch plane's statistics are compared; the session still
+    # runs to the end, so on one step.
+    run_request = with_steps(run_request, steps or 1)
     rows = []
     for implementation in (NumpyRefBackend, native_class()):
-        backend = implementation(
-            problem, run_request, grid=grid, options=chunked(space)
+        landed = _landed(
+            problem, run_request, grid, implementation, names, chunked(space)
         )
-        try:
-            backend.set_initial(problem.initial.field0, None)
-            if steps:
-                backend.propagate_to(LENGTH)
-            rows.append(backend.stats(StatsSpec(names=names)))
-        finally:
-            backend.close()
+        # The launch plane's statistics without a step, the last plane's after them.
+        plane = landed.run.observations[-1 if steps else 0]
+        assert plane.z == (LENGTH if steps else 0.0)
+        rows.append({name: np.asarray(plane.stats[name]) for name in names})
     reference, actual = rows
     for name in names:
         scale = float(np.max(np.abs(reference[name])))
