@@ -274,6 +274,29 @@ def test_replay_position_rounding_and_resumed_anchor_are_included():
     assert spans.landing_slack >= 10 * math.ulp(1.0)
 
 
+@pytest.mark.parametrize("node", [1048578.0, -1048578.0])
+@pytest.mark.parametrize("shift", [0.0, 734004.3])
+def test_replay_large_stage_rounding_is_kept_in_distance_bounds(node, shift):
+    # #675: the actual stage addition can have a larger ulp than replay edges.
+    # Compare exact rational differences of the binary64 coordinates, including
+    # a shifted origin that nearly cancels the negative stage product.
+    run = _run(steps=[0.3, 0.7], nodes=(0.0, node))
+    run = replace(
+        run,
+        planes=run.planes + shift,
+        breakpoints=run.breakpoints + shift,
+        edges=run.edges + shift,
+    )
+    origin = float(run.edges[1])
+    endpoint = origin + node * float(run.steps[1])
+    spans = phase_spans(run, origin)
+    difference = _q(endpoint) - _q(origin)
+    _encloses(spans.transport_span, difference)
+    constant = CoefficientTransfer(np.array([[1.0j]]), None, None)
+    result = phase_operands(constant, run, origin)
+    _encloses(result.step_argument.imag, difference)
+
+
 def test_full_chebyshev_interval_interior_extrema_and_endpoint_growth():
     # 1-T_2 vanishes at both endpoints but has a positive interior maximum. A sampled
     # endpoint-only admission would miss it; exact rational values probe the span.

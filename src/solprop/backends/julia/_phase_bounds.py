@@ -532,6 +532,14 @@ def _replay_geometry(
         for node in (*run.nodes, 1.0):
             lower, upper = _coordinate(origin, float(node), float(steps[index]))
             low, high = min(low, lower), max(high, upper)
+            exact = _rational(origin) + _rational(float(node)) * _rational(
+                float(steps[index])
+            )
+            # A large tableau node can make stage rounding much larger than the
+            # edge-based replay tolerance. Keep that error in distance envelopes
+            # too, rather than discarding it through min(c*h+2s, coordinate span).
+            arithmetic = max(exact - _rational(lower), _rational(upper) - exact)
+            slack = max(slack, _directed(arithmetic))
     return (
         float(np.max(selected)) if selected.size else 0.0,
         float(np.min(selected)) if selected.size else None,

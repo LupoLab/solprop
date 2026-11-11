@@ -64,6 +64,11 @@ using exact rational products and sums followed by directed rounding. Both the r
 `z+h` and the recorded destination are retained in the coordinate envelope. A resumed
 anchor within the shared allowance is used as supplied for its first step. A replay
 that does not cover the start/end or crosses the requested end refuses.
+The returned `landing_slack` is enlarged by the exact distance of each stage-coordinate
+enclosure from `z+c*h`, not merely the shared edge tolerance. This keeps large-node
+product/addition rounding in the `c*h+2s` distance bound as well as the coordinate span
+([#675](https://github.com/LupoLab/solprop/issues/675)). It does not enlarge the tolerance
+used to admit a replay anchor or itinerary.
 
 For adaptive execution, the shared landing rule caps even a stretched step by
 `dz_max`. A forced landing may be arbitrarily shorter than `dz_min`, so no positive
