@@ -379,7 +379,7 @@ that edits this document and adds a line to its history.
   work isn't divided across a stack, since every pull request and push runs CI's whole
   matrix (maintainer's decision).
 - 2026-11-09: John Travers approved a narrow exception for
-  [SEP 47](sep-0047-run-ownership.md#11-phases): its implementation may merge through
+  [SEP 47](archive/sep-0047-run-ownership.md#11-phases): its implementation may merge through
   a small number of coherent phase PRs, each leaving main usable with green required
   CI. Temporary internal adapters are removed by Final, and its Implementation field
   retains the successive milestone branches and PRs. The general one-branch/one-PR

@@ -45,7 +45,7 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | field | type | meaning |
 |---|---|---|
 | `grid_kind` | `"field" \| "envelope"` | selects r2c/c2r vs c2c transforms and the response formulas |
-| `shape` | `(n_modes, n_pol, n_omega)` | canonical state shape of the one trajectory the problem describes; a group of trajectories is a sequence of problems ([SEP 47](seps/sep-0047-run-ownership.md) §6.7) |
+| `shape` | `(n_modes, n_pol, n_omega)` | canonical state shape of the one trajectory the problem describes; a group of trajectories is a sequence of problems ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.7) |
 | `flags` | frozen dataclass of static flags and counts | `single_mode`, `scalar_pol`, `has_plasma`, `has_raman`, `has_spectral_responses`, `has_noise`, `has_temporal_absorber`, `constant_linop`, `mode_averaged`, `n_channels`, `n_raman` — kernels specialise on these at compile time. Derived from the content, never passed in |
 | `grids` | frozen dataclass | section 2 (`translate.masks.Grids`) |
 | `linear` | frozen dataclass | section 3 (`translate.linop.LinearOperator`) |
@@ -59,7 +59,7 @@ above: `transform`, the route's transform, and `device_ready`, true when Φ (§3
 of a fixed set of arrays, and false when either took the z table.
 
 The problem is the run's numerical meaning and nothing of how it is run
-([SEP 47](seps/sep-0047-run-ownership.md) §5.2). The stepper settings of §7 and the
+([SEP 47](seps/archive/sep-0047-run-ownership.md) §5.2). The stepper settings of §7 and the
 statistics request of §8 are run policy: they travel in the immutable
 `translate.run_request.RunRequest` that `translate.problem.assemble` returns beside the
 problem (`Translation(problem, request)`), and a backend receives both where it is built
@@ -74,7 +74,7 @@ it allocates.
 ### The route union
 
 `route` is one of three frozen variants from `translate.routes`, a closed union
-([SEP 47](seps/sep-0047-run-ownership.md) §6.2). The grid, operator, response and source
+([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.2). The grid, operator, response and source
 groups above are shared by every route; a variant carries exactly the fields its
 executor needs, and checks them on construction. `validate()` visits the variant with a
 `match` statement for what spans groups, and every backend admits a problem the same
@@ -678,7 +678,7 @@ sections and refuse a `"cf4"` section by name
 
 The transform carries **no node chunk**. How many nodes a response pass holds at once is
 an execution choice, not part of the scientific problem
-([SEP 47](seps/sep-0047-run-ownership.md) sections 4.3 and 6.5): each backend plans it when
+([SEP 47](seps/archive/sep-0047-run-ownership.md) sections 4.3 and 6.5): each backend plans it when
 it is prepared, from the problem and its `ExecutionOptions` -- an explicit `node_budget`,
 which is authoritative, or the automatic choice
 (`solprop.backends.node_chunk.plan_node_chunk`) -- records it in its execution metadata,
@@ -1142,7 +1142,7 @@ already holds, or one the translation built for it, is taken without a second co
 These settings, and the statistics request of §8, are run policy rather than the
 problem's numerical meaning, so they are not fields of `PropagationProblem`: they live in
 the immutable `translate.run_request.RunRequest`
-([SEP 47](seps/sep-0047-run-ownership.md) §§5.2, 6.3), resolved by translation —
+([SEP 47](seps/archive/sep-0047-run-ownership.md) §§5.2, 6.3), resolved by translation —
 `assemble` fills the route's defaults and holds `dz_max` and `dz_init` to the collars'
 limits — and handed to a backend where it is built. The request structures them as its
 integration, error-control, replay and observation specifications; `RunRequest.stepper`
@@ -1237,7 +1237,7 @@ the step history and over the same interval, and a row may not index past it.
 
 The descriptor is a typed contract, extended by changing its types and their tests in
 both distributions, never through an untyped optional field
-([SEP 47](seps/sep-0047-run-ownership.md) §6.2):
+([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.2):
 
 | Addition | Contract, admission and qualification |
 |---|---|
@@ -1270,7 +1270,7 @@ none), so the run layer names no backend. It qualifies on the conformance suite 
 ADR-060). The native backend executes it on its CPU build for `Multistep()` in either
 formulation, adaptive or replayed; every other configuration and backend runs the
 reference. The comparison methods (`ComparisonMultistep`) are the reference's alone:
-native refuses them by name ([SEP 47](seps/sep-0047-run-ownership.md) §6.3).*
+native refuses them by name ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.3).*
 
 The step loop of `Multistep()` is one algorithm with one reference implementation,
 solprop's `HostAdamsMarch` and the controller core it calls (`solprop.backends.adams_core`).
@@ -1389,7 +1389,7 @@ and the wheel stage's scan of the strict files' disassembly for a fused instruct
 (`native/src/rk_march.cpp`), adaptive or replayed, with `PIController`'s norm, weighted or
 not, on CPU and device builds; a controller that overrides one of `PIController`'s
 decisions is the reference's alone, and native refuses it by name
-([SEP 47](seps/sep-0047-run-ownership.md) §6.3).*
+([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.3).*
 
 The adaptive loop of `RungeKutta()` (`integrator is None`, §7) is one algorithm with one
 reference implementation, solprop's `HostDriver._march_to` and the controller core it

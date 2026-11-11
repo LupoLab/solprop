@@ -70,7 +70,7 @@ it is qualified, [backends.md](backends.md); for the current seam,
 
 ## ADR-003 — Kernel state layout `(n_batch, n_modes, n_pol, n_omega)`
 
-- **Status:** accepted; amended by [SEP 47](seps/sep-0047-run-ownership.md) §6.2, which
+- **Status:** accepted; amended by [SEP 47](seps/archive/sep-0047-run-ownership.md) §6.2, which
   removes the nominal `n_batch` from the single-trajectory seam: the state is
   `(n_modes, n_pol, n_omega)` and a group is a sequence of member problems
 - **Context:** Luna has different array shapes per geometry and special code paths for scalar

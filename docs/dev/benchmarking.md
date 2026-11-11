@@ -280,7 +280,7 @@ adoption verdict; the [rules](benchmarks.md#rules) say how a claim is judged.
 
 ## SEP 47's matrix and the structural counters
 
-[SEP 47](seps/sep-0047-run-ownership.md) section 7.2 compares builds on a predeclared
+[SEP 47](seps/archive/sep-0047-run-ownership.md) section 7.2 compares builds on a predeclared
 matrix of short windows, each holding the events it measures, with structural counters
 beside the timings (section 7.3). `--set sep47` selects the windows added for it; each
 finishes in seconds at its full declared length, so run it without `--length`:

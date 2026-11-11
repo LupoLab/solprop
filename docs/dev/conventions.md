@@ -334,7 +334,7 @@ Cartesian one).
 
 Kernel state and canonical storage: `(n_modes, n_pol, n_omega)` complex128, ω
 contiguous (C order): one trajectory. A group of trajectories is a sequence of member
-problems, not a leading axis ([SEP 47](seps/sep-0047-run-ownership.md) §6.7); a backend
+problems, not a leading axis ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.7); a backend
 may hold its state privately with a leading axis of one (the native build's four-axis
 layout), and a march snapshot's file keeps that axis. Under `precision="single"` (SEP 33, ADR-054) a backend holds the
 state as complex64 at the run's exact power-of-two scale `s`, `a / s`; what crosses the
