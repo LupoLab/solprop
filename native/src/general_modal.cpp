@@ -501,8 +501,9 @@ void GeneralModalSource::evaluate() {
       else
         graph::execute(*forward_plan_, node_polarisation_, node_source_,
                        KokkosFFT::Normalization::none);
-    } else if (!live)
+    } else if (!live) {
       graph::deep_copy(kernels_, node_source_, Complex{});
+    }
     // The products' spectra join the regional polarisation's, or are the chunk's.
     if (live)
       dispersive_->combine(!regional_);
@@ -744,12 +745,13 @@ void GeneralModalSource::respond(const std::size_t first, const std::size_t coun
       respond_components<2, true>(first, count);
     else
       respond_components<1, true>(first, count);
-  } else if (components_ == 3)
+  } else if (components_ == 3) {
     respond_components<3, false>(first, count);
-  else if (components_ == 2)
+  } else if (components_ == 2) {
     respond_components<2, false>(first, count);
-  else
+  } else {
     respond_components<1, false>(first, count);
+  }
 }
 
 template <std::size_t Components, bool RealSignal>
@@ -835,7 +837,7 @@ void GeneralModalSource::respond_components(const std::size_t first,
                 for (std::size_t i = 0; i < components; ++i)
                   polarisation(row + i, time) = epsilon0 * values[i];
               });
-        } else
+        } else {
           for (std::size_t i = 0; i < components; ++i) {
             Kokkos::parallel_for(
                 Kokkos::ThreadVectorRange(team, samples), [=](const int sample) {
@@ -861,6 +863,7 @@ void GeneralModalSource::respond_components(const std::size_t first,
                   polarisation(row + i, time) = (epsilon0 * value).real();
                 });
           }
+        }
         if (!delayed)
           return;
         // The delayed response's pair drive: the real field's `E_k E_l`, or the

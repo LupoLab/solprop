@@ -5805,9 +5805,9 @@ void GeneralWorkspace::low_storage_flows_formed(const bool rebuild_table) {
             for (std::size_t bin = 0; bin < bins; ++bin)
               flows(flow, column, first + bin) = Complex(real[bin], imag[bin]);
           };
-          if (count == 1)
+          if (count == 1) {
             form(0, 2 * n_phi);
-          else {
+          } else {
             form(0, 0);
             form(1, n_phi);
           }
@@ -10723,8 +10723,9 @@ void GeneralWorkspace::general_core(const std::size_t stage) {
     if (general_->dispersive() != nullptr)
       general_->dispersive()->begin(stage);
     general_->evaluate();
-  } else
+  } else {
     graph::deep_copy(execution_space_, general_->source(), Complex{});
+  }
 }
 
 // The transforms scaled by stage `stage`'s taper, whose value `taper` the host holds.
@@ -12611,7 +12612,7 @@ void GeneralWorkspace::team_band_statistics(const std::size_t first_node,
                 band_rates_block(magnitudes, &rates(slot, start), count, lower, upper,
                                  highest, within);
               });
-        } else
+        } else {
 #endif
           Kokkos::parallel_for(
               Kokkos::TeamThreadRange(team, samples), [&](const int sample) {
@@ -12632,6 +12633,7 @@ void GeneralWorkspace::team_band_statistics(const std::size_t first_node,
                                           d_log_field, field_min, field_max, rate_max,
                                           intervals);
               });
+        }
         team.team_barrier();
         team_band_filter<band_staging>(team, tile, rates, slot, filtered, slot, samples,
                                        taps, half);
@@ -12706,7 +12708,7 @@ void GeneralWorkspace::team_band_statistics(const std::size_t first_node,
                     exposed[k] = fraction[k];
                   }
                 });
-          } else
+          } else {
 #endif
             Kokkos::parallel_for(
                 Kokkos::TeamThreadRange(team, samples), [&](const int sample) {
@@ -12715,6 +12717,7 @@ void GeneralWorkspace::team_band_statistics(const std::size_t first_node,
                   filtered(slot, time) = rates(slot, time) * (1.0 - fraction);
                   exposures(slot, time) = fraction;
                 });
+          }
           team.team_barrier();
           double paid = 0.0;
           Kokkos::parallel_reduce(
@@ -13745,14 +13748,14 @@ void GeneralWorkspace::form_absorber() {
       "solprop_native.absorber.nonlinear_term",
       Range2(temporal_execution_space_, {0, 0}, {problem_.n_columns(), problem_.n_to}),
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t time) {
-        if (family == FieldFamily::envelope)
+        if (family == FieldFamily::envelope) {
           absorber_complex(column, time) =
               (spatial ? absorber_complex(column, time) : Complex{}) -
               0.5 * rate(time) * modal_complex(column, time);
-        else if (family == FieldFamily::field_real)
+        } else if (family == FieldFamily::field_real) {
           absorber_real(column, time) = (spatial ? absorber_real(column, time) : 0.0) -
                                         0.5 * rate(time) * modal_real(column, time);
-        else {
+        } else {
           double transverse = 0.0;
           if (spatial)
             for (std::size_t source = 0; source < modes; ++source)
