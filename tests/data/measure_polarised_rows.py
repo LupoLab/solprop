@@ -38,9 +38,9 @@ except ImportError:
     native = None
 
 import numpy as np
+from measure_power_identity import record_steps
 
 import solprop
-from solprop.backends.registry import select
 from solprop.grid import FieldGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.modes.collection import ModeCollection
@@ -94,23 +94,15 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args()
     problem, run_request, grid, modes = build()
-    owner = select(arguments.backend, problem, run_request, grid=grid, modes=modes)
-    assert run_request.stepper.schedule is not None
-    try:
-        owner.set_initial(problem.initial.field0, None)
-        history = [owner.observe().require_field().copy()]
-        for position in run_request.stepper.schedule.edges[1 : STEPS + 1]:
-            summary = owner.propagate_to(float(position))
-            assert summary.n_steps == 1 and summary.n_rejected == 0
-            history.append(owner.observe().require_field().copy())
-        np.savez(
-            arguments.output,
-            field=np.stack(history),
-            initial=problem.initial.field0,
-            synthesis=problem.transform.synthesis,
-        )
-    finally:
-        owner.close()
+    field = record_steps(
+        arguments.backend, problem, run_request, STEPS, grid=grid, modes=modes
+    )
+    np.savez(
+        arguments.output,
+        field=field,
+        initial=problem.initial.field0,
+        synthesis=problem.transform.synthesis,
+    )
     arguments.output.with_suffix(".json").write_text(
         json.dumps(
             {

@@ -16,6 +16,7 @@ for its doctests.
 """
 
 import argparse
+import dataclasses
 import json
 import warnings
 from pathlib import Path
@@ -33,8 +34,53 @@ import numpy as np
 
 import solprop
 from power_identity import constant_fill_m2
+from solprop.backends.events import ObservationReady
+from solprop.backends.export import ExportRecipe
 from solprop.backends.registry import select
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.exceptions import MaterialRangeWarning
+from solprop.stats import StatsSpec
+
+
+def record_steps(name, problem, run_request, steps, **context):
+    """Return the launch and the state after each of a fixed schedule's first steps.
+
+    The run goes through the backend's session (SEP 47 phase 5), with a save plane at
+    each of the schedule's first `steps` edges and no statistics: each plane is one
+    accepted step and no rejection after the previous one. The states are as the
+    session holds them, in the FFT convention, ``(steps + 1, n_modes, n_pol,
+    n_omega)``.
+    """
+    schedule = run_request.stepper.schedule
+    assert schedule is not None
+    edges = np.asarray(schedule.edges[1 : steps + 1], dtype=np.float64)
+    request = run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, save_planes=edges)
+    ).for_run(stats=StatsSpec())
+    owner = select(name, problem, request, **context)
+    session = start_session(owner, problem, request, Start.entrance(problem))
+    state = ExportRecipe(power=False, optics=False)
+    history, accepted, rejected = [], 0, 0
+    try:
+        while not session.finished:
+            batch = session.advance()
+            for event in batch.events:
+                attempts = getattr(event, "history", None)
+                if attempts is not None:
+                    accepted += int(np.count_nonzero(attempts.accepted))
+                    rejected += int(np.count_nonzero(~attempts.accepted))
+                if isinstance(event, ObservationReady):
+                    assert (accepted, rejected) == (int(event.plane_index >= 0), 0)
+                    accepted = 0
+                    history.append(np.array(session.export(event.ticket, state)))
+            if batch.terminal is not None and batch.terminal.error is not None:
+                raise batch.terminal.error
+            session.acknowledge(batch.receipt)
+    finally:
+        session.close()
+    assert len(history) == steps + 1
+    return np.stack(history)
 
 
 def main():
@@ -47,32 +93,23 @@ def main():
         simulation = constant_fill_m2()
         problem = simulation.translate()
         run_request = simulation._run_request()
-    owner = select(
+    assert problem.initial.noise0 is not None
+    assert problem.linear.phi_coefficients is not None
+    field = record_steps(
         arguments.backend,
         problem,
         run_request,
+        10,
         grid=simulation.grid,
         modes=simulation.modes,
     )
-    assert run_request.stepper.schedule is not None
-    assert problem.initial.noise0 is not None
-    assert problem.linear.phi_coefficients is not None
-    try:
-        owner.set_initial(problem.initial.field0, None)
-        history = [owner.observe().require_field().copy()]
-        for position in run_request.stepper.schedule.edges[1:11]:
-            summary = owner.propagate_to(float(position))
-            assert summary.n_steps == 1 and summary.n_rejected == 0
-            history.append(owner.observe().require_field().copy())
-        np.savez(
-            arguments.output,
-            field=np.stack(history),
-            initial=problem.initial.field0,
-            noise=problem.initial.noise0,
-            phi=problem.linear.phi_coefficients,
-        )
-    finally:
-        owner.close()
+    np.savez(
+        arguments.output,
+        field=field,
+        initial=problem.initial.field0,
+        noise=problem.initial.noise0,
+        phi=problem.linear.phi_coefficients,
+    )
     arguments.output.with_suffix(".json").write_text(
         json.dumps(
             {

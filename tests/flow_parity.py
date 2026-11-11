@@ -90,6 +90,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from _session_probe_rest import final_field
 from general_parity import (
     CONTRACTION,
     FFT_CONSTANT,
@@ -739,12 +740,10 @@ def departure(got, expected):
 
 def run(backend_class, problem, run_request, grid):
     """Return the final state of the fixed schedule on one backend."""
+    schedule = run_request.stepper.schedule
+    assert schedule is not None
+    end = float(run_request.stepper.z_end)
+    assert math.isclose(float(np.sum(schedule.steps)), end, rel_tol=1e-12)
+    # Through the backend's session, which closes it (SEP 47 phase 5).
     backend = backend_class(problem, run_request, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        schedule = run_request.stepper.schedule
-        assert schedule is not None
-        backend.propagate_to(float(np.sum(schedule.steps)))
-        return backend.observe().require_field().copy()
-    finally:
-        backend.close()
+    return final_field(backend, problem, run_request)
