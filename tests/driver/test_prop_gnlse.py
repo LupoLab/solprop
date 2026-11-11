@@ -15,11 +15,11 @@ import h5py
 import numpy as np
 import pytest
 
-from _session_probe_extra import run as session_run
 from bounds import departure
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_matched, simulation_bound
 from selected_backend import selected_backend
+from sessions.runs import run as session_run
 from solprop import fourier
 from solprop.backends.registry import select
 from solprop.constants import C
@@ -166,7 +166,7 @@ def interface_and_backend(simulation):
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
-    direct = session_run(backend, problem, run_request).final
+    direct = session_run(backend, problem, run_request, owns=True).final
     assert direct.z == float(run_request.stepper.save_planes[-1])
     return handler, handler.fields("fft")[-1], direct.field
 

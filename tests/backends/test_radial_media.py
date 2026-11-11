@@ -12,8 +12,8 @@ import numpy as np
 import pytest
 from scipy.integrate import quad_vec
 
-from _session_probe_extra import final_field, run
 from hankel_oracles import gamma
+from sessions.runs import final_field, run
 from solprop.backends.session import Start
 from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
@@ -146,7 +146,7 @@ def test_radial_medium_flows_match_an_independent_cumulative_oracle(
         )
     backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
-        actual = final_field(backend, problem, run_request, length, owns=False)
+        actual = final_field(backend, problem, run_request, z=length, owns=False)
         assert np.max(np.abs(actual - expected)) <= absolute_bound
         record_metric(
             request,
@@ -202,7 +202,7 @@ def test_radial_gradient_flow_conserves_axial_flux_and_resumes(spatial_backend_c
             backend,
             problem,
             run_request.for_run(start_plane=1),
-            length,
+            z=length,
             start=Start(
                 field=middle.field, z=length / 2, plane_index=1, plane_pending=False
             ),

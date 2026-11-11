@@ -29,10 +29,10 @@ import warnings
 import numpy as np
 import pytest
 
-from _session_probe_extra import run as session_run
 from bounds import assert_within, fft_bound
 from former_raman import FORMER_H2, FORMER_N2, former_response
 from legacy_geometry import LEGACY_GRID
+from sessions.runs import run as session_run
 from solprop import fourier
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.constants import AMAGAT, EPS0
@@ -486,7 +486,10 @@ def test_a_zero_weight_raman_response_is_the_exact_linear_flow(
     )
     assert problem.flags.has_raman
     plane = session_run(
-        backend_class(problem, run_request, grid=narrow_grid), problem, run_request
+        backend_class(problem, run_request, grid=narrow_grid),
+        problem,
+        run_request,
+        owns=True,
     ).final
     assert plane.z == length
     summary, final = plane.summary, plane.field
@@ -697,7 +700,10 @@ def test_a_short_propagation_grows_the_stokes_at_the_predicted_rate(backend_clas
     def run(responses):
         problem, run_request = setup.problem(responses, length=length, rtol=1e-10)
         plane = session_run(
-            backend_class(problem, run_request, grid=setup.grid), problem, run_request
+            backend_class(problem, run_request, grid=setup.grid),
+            problem,
+            run_request,
+            owns=True,
         ).final
         assert plane.z == length
         return plane.field[0, 0]

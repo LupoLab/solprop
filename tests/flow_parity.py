@@ -90,7 +90,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from _session_probe_rest import final_field
 from general_parity import (
     CONTRACTION,
     FFT_CONSTANT,
@@ -108,6 +107,7 @@ from modal_provider_cases import (
     make_provider,
     split_basis,
 )
+from sessions.runs import bare, final_field
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.backend import (
     _TAYLOR_ORDER,
@@ -746,4 +746,4 @@ def run(backend_class, problem, run_request, grid):
     assert math.isclose(float(np.sum(schedule.steps)), end, rel_tol=1e-12)
     # Through the backend's session, which closes it (SEP 47 phase 5).
     backend = backend_class(problem, run_request, grid=grid)
-    return final_field(backend, problem, run_request)
+    return final_field(backend, problem, bare(run_request), ended=True, owns=True)

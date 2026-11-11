@@ -28,10 +28,9 @@ from typing import Any
 
 import numpy as np
 
-from backends._session_probe_b1 import last_field
-from backends._session_probe_b1 import run as session_run
-from backends._session_probe_b1 import summary as run_summary
 from bounds import gamma
+from sessions.runs import run as session_run
+from sessions.runs import summary as run_summary
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
@@ -233,7 +232,7 @@ def run(
     """Run the session to the last save plane; return the field and the run's summary.
 
     The summary spans the run, every plane's attempts together
-    (:func:`backends._session_probe_b1.summary`).
+    (:func:`sessions.runs.summary`).
     """
     backend = backend_class(problem, run_request, grid=grid, **options)
     try:
@@ -242,7 +241,7 @@ def run(
         result = session_run(
             backend, problem, backend.request.for_run(stats=StatsSpec())
         )
-        return last_field(result), run_summary(result)
+        return result.fields[-1], run_summary(result)
     finally:
         backend.close()
 

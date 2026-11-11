@@ -28,13 +28,13 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from backends._session_probe_b2 import run_session
 from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
 from backends.test_radial_nonlinear import CHI3, LENGTH, QuadraticRate, derivative
 from bounds import gamma, ladder_bound
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from mixture_cases import AnalyticRate
+from sessions.runs import run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
 from solprop.backends.session import ExecutionOptions
@@ -224,7 +224,7 @@ def _landed(problem, run_request, grid, implementation, names=(), options=None):
     request = run_request.for_run(stats=StatsSpec(names=names))
     backend = implementation(problem, request, grid=grid, options=options)
     try:
-        return run_session(backend, problem, request)
+        return run(backend, problem, request)
     finally:
         backend.close()
 
@@ -232,7 +232,7 @@ def _landed(problem, run_request, grid, implementation, names=(), options=None):
 def propagate(problem, run_request, grid, implementation, names=(), options=None):
     """Run a problem to its end and return the field and requested statistics."""
     landed = _landed(problem, run_request, grid, implementation, names, options)
-    return landed.field, (landed.stats if names else {})
+    return landed.fields[-1], (landed.all_planes()[-1].stats if names else {})
 
 
 def with_steps(run_request, steps):
@@ -315,7 +315,7 @@ def test_the_planar_statistics_match_the_reference(case, steps):
             problem, run_request, grid, implementation, names, chunked(space)
         )
         # The launch plane's statistics without a step, the last plane's after them.
-        plane = landed.run.observations[-1 if steps else 0]
+        plane = landed.observations[-1 if steps else 0]
         assert plane.z == (LENGTH if steps else 0.0)
         rows.append({name: np.asarray(plane.stats[name]) for name in names})
     reference, actual = rows

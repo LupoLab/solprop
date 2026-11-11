@@ -10,9 +10,8 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from backends._session_probe_b1 import history, last_field
-from backends._session_probe_b1 import run as session_run
 from mixture_cases import mixture_translation
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import BackendError
 from solprop.modes import MarcatiliMode
@@ -44,8 +43,8 @@ def final(backend_class, problem, run_request, grid):
     backend = backend_class(problem, run_request, grid=grid)
     try:
         result = session_run(backend, problem)
-        assert history(result).n_steps == 16
-        return last_field(result)
+        assert result.joined[0].n_steps == 16
+        return result.fields[-1]
     finally:
         backend.close()
 

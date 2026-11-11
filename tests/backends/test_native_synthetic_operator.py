@@ -31,10 +31,11 @@ import os
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import run_session
 from backends.low_storage_cases import parity_bound
 from backends.test_low_storage import MARCH
 from bounds import assert_within, gamma, propagation_growth, step_evaluations
+from sessions.runs import load_native
+from sessions.runs import run as session_run
 from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
@@ -224,16 +225,16 @@ def run(implementation, problem, run_request, grid):
     """
     backend = implementation(problem, run_request, grid=grid)
     try:
-        landed = run_session(backend, problem, run_request)
+        landed = session_run(backend, problem, run_request)
     finally:
         backend.close()
-    error = landed.run.terminal.error
+    error = landed.terminal.error
     if error is not None:
         raise error
-    assert landed.run.observations[-1].z == pytest.approx(
+    assert landed.observations[-1].z == pytest.approx(
         float(run_request.stepper.save_planes[-1]), rel=1e-12
     )
-    return landed.field
+    return landed.fields[-1]
 
 
 def resident_step(problem, run_request, grid):
@@ -247,9 +248,7 @@ def resident_step(problem, run_request, grid):
     dz = float(edges[1] - edges[0])
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = backend._native_state
-        flat = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
-        state.set_initial(flat.reshape(-1), np.empty(0, dtype=np.complex128))
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
         engine = backend_module._ResidentLowStorage(backend, MARCH)
         squared = engine.step(float(edges[0]), dz)
         state.finish(dz)

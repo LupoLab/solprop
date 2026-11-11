@@ -160,7 +160,7 @@ def statistics(
 ) -> dict[str, np.ndarray]:
     """Return the launch's statistics."""
     backend = implementation(problem, run_request, grid=GRID)
-    return launch_plane(backend, problem, run_request)["stats"]
+    return launch_plane(backend, problem, run_request, owns=True).stats
 
 
 def node_fields_and_error(
@@ -311,7 +311,7 @@ def test_each_channel_s_fraction_is_the_reference_s() -> None:
 
     def launch_ionisation(implementation: type) -> np.ndarray:
         backend = implementation(problem, run_request, grid=grid)
-        stats = launch_plane(backend, problem, run_request)["stats"]
+        stats = launch_plane(backend, problem, run_request, owns=True).stats
         return np.asarray(stats["species_ionisation"])
 
     expected = launch_ionisation(NumpyRefBackend)

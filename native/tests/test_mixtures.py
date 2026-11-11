@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from session_runs import finish, loaded_state
+from session_runs import load_native, run
 from solprop.grid import FieldGrid
 from solprop.modes import MarcatiliMode
 from solprop.nonlinear import responses_for
@@ -64,7 +64,7 @@ def test_species_statistics_preserve_an_inert_component_and_close(
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
         # The launch plane's, as the session observes it.
-        values = finish(backend, problem, run_request, owns=False).planes[0]["stats"]
+        values = run(backend, problem, run_request).all_planes()[0].stats
         assert values["species_ionisation"].shape == (3, 1)
         # Exact: the inert component has no rate, so nothing ever ionises it.
         np.testing.assert_array_equal(values["species_ionisation"][2], 0.0)
@@ -127,7 +127,7 @@ def test_native_statistics_refuse_channel_preionisation_shape(
     problem, run_request, grid = mixture_case
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        loaded_state(backend, problem.initial.field0)
+        load_native(backend, problem.initial.field0, clear_fsal=False)
         with pytest.raises(ValueError, match="channel preionisation"):
             backend._native_state.statistics(  # pyright: ignore[reportPrivateUsage] - native refusal
                 1 << 11, np.empty(0), np.empty(0), 0.0, 1.0, 0.0, 1.0, np.zeros(1)

@@ -10,12 +10,13 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import native_trial, run_session
 from bounds import gamma, ladder_bound, record_backend
 from convergence_records import record
 from convergence_studies import BACKEND_EQUIVALENCE
 from legacy_geometry import LEGACY_GRID
 from rate_oracles import adk_oracle
+from sessions.executors import committed_steps
+from sessions.runs import native_trial, run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import CHARGE_MASS_RATIO
 from solprop.grid import EnvelopeGrid, FieldGrid
@@ -90,10 +91,10 @@ def _landed(backend_class, problem, run_request, grid, modes):
     """Run a problem to its last plane through the backend's own session."""
     backend = backend_class(problem, run_request, grid=grid, modes=modes)
     try:
-        landed = run_session(backend, problem, run_request)
+        landed = run(backend, problem, run_request)
     finally:
         backend.close()
-    assert landed.run.observations[-1].z == LENGTH
+    assert landed.observations[-1].z == LENGTH
     return landed
 
 
@@ -101,7 +102,7 @@ def run_route(backend_class, case, route, **options):
     """Return a route's last field, its statistics and the session's run."""
     problem, run_request, modes = route_problem(case, route, **options)
     landed = _landed(backend_class, problem, run_request, case[1], modes)
-    return landed.field.reshape(2, -1), landed.stats, landed
+    return landed.fields[-1].reshape(2, -1), landed.all_planes()[-1].stats, landed
 
 
 def relative_gap(values, reference):
@@ -158,9 +159,7 @@ def problem_derivative(backend_class, problem, run_request, grid, modes):
             # it without finite-differencing a propagated field or changing the stepper:
             # the native state's own trial (``rk_trial`` on the uploaded stage tables),
             # loaded with the launch.
-            native_trial(
-                backend, run_request, 0.0, LENGTH / 8, field=problem.initial.field0
-            )
+            native_trial(backend, 0.0, LENGTH / 8, field=problem.initial.field0)
             derivative = np.asarray(backend._native_state.stage_to_host(0))
         return derivative.reshape(2, -1)
     finally:
@@ -389,7 +388,7 @@ def test_circular_plasma_ionises_by_magnitude_through_the_backend(
         run_request = run_request.for_run(stats=specification)
         landed = _landed(backend_class, problem, run_request, grid, modes)
         # The launch plane's statistics, before any step.
-        launch = landed.run.observations[0]
+        launch = landed.observations[0]
         assert launch.z == 0.0
         actual = launch.stats
         assert relative_gap(actual["electron_density"], expected_density) < bound
@@ -399,7 +398,7 @@ def test_circular_plasma_ionises_by_magnitude_through_the_backend(
             relative_gap(actual["electron_density"], expected_density),
             relative_gap(actual["peak_ionisation_rate"], expected_rate),
         )
-        results.append(landed.field.reshape(2, -1))
+        results.append(landed.fields[-1].reshape(2, -1))
     propagation_bound = route_bound(backend_name, grid, 7 * 8)
     assert relative_gap(results[0], results[1]) < propagation_bound
     record_rung(
@@ -455,10 +454,11 @@ def test_polarisation_routes_propagate_the_same_field(
     )
     oracle, _, _ = run_route(NumpyRefBackend, polarised_case, "product", steps=steps)
     # The attempts, accepted and rejected, as the retired summary's ``n_steps``.
-    assert 7 * (summary.run.attempts + summary.n_rejected) <= evaluations
-    assert (summary.run.attempts, summary.n_rejected) == (
-        other.run.attempts,
-        other.n_rejected,
+    rejected = summary.attempts - committed_steps(summary)
+    assert 7 * (summary.attempts + rejected) <= evaluations
+    assert (summary.attempts, rejected) == (
+        other.attempts,
+        other.attempts - committed_steps(other),
     )
     measured = max(relative_gap(rows, product), relative_gap(product, oracle))
     assert measured < bound
@@ -516,7 +516,7 @@ def test_full_azimuthal_propagation_obeys_selection_rules(
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8),
         quadrature=rule,
     )
-    result = _landed(backend_class, problem, run_request, grid, modes).field
+    result = _landed(backend_class, problem, run_request, grid, modes).fields[-1]
     measured = float(np.max(np.abs(result[forbidden])) / np.max(np.abs(result)))
     assert measured < bound
     record_rung(
@@ -555,7 +555,7 @@ def test_transverse_family_linear_flow_matches_its_neff(
     bound = 32 * EPS * (1 + float(np.max(np.abs(exponent))))
     expected = problem.initial.field0 * np.exp(exponent)
     landed = _landed(backend_class, problem, run_request, grid, [mode])
-    measured = relative_gap(landed.field, expected)
+    measured = relative_gap(landed.fields[-1], expected)
     assert measured < bound
     record_rung(request, backend_name, f"linear {kind}", "8 steps", measured, bound)
 
@@ -588,7 +588,7 @@ def test_an_underresolved_angular_rule_creates_a_forbidden_harmonic(
             schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH),
             quadrature=rule,
         )
-        result = _landed(backend_class, problem, run_request, grid, modes).field
+        result = _landed(backend_class, problem, run_request, grid, modes).fields[-1]
         leakage.append(float(np.max(np.abs(result[1])) / np.max(np.abs(result))))
     assert leakage[0] < bound
     assert leakage[1] > bound

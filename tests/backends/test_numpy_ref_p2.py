@@ -44,7 +44,7 @@ import math
 import numpy as np
 import pytest
 
-from _session_probe_extra import run
+from sessions.runs import run
 from solprop import fourier
 from solprop.stepper import PIController
 from solprop.translate.linop import tabulate
@@ -217,7 +217,10 @@ def test_the_dissipative_solution_is_reproduced(
     """P2 and P2b: a smooth loss, and one that jumps at a declared hard kink."""
     problem, run_request, distance, loss_integral = dissipative(stepped=stepped)
     plane = run(
-        backend_class(problem, run_request, grid=soliton_grid), problem, run_request
+        backend_class(problem, run_request, grid=soliton_grid),
+        problem,
+        run_request,
+        owns=True,
     ).final
     assert plane.z == distance
     summary = plane.summary

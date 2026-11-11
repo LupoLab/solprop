@@ -19,8 +19,6 @@ from typing import cast
 import numpy as np
 import pytest
 
-from backends._session_probe_b1 import adams_ledger, history, last_field
-from backends._session_probe_b1 import run as session_run
 from bounds import (
     AccuracyEnvelope,
     assert_within,
@@ -29,6 +27,8 @@ from bounds import (
     fft_bound,
 )
 from capability_routes import ROUTES
+from sessions.runs import adams_ledger
+from sessions.runs import run as session_run
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stepper import PIController
@@ -133,7 +133,7 @@ def _march_with(backend_class, route, integrator, rtol=1e-8):
         record: dict[str, object] = {}
         result = session_run(backend, problem, record=record)
         calls = adams_ledger(backend, record).total
-        return last_field(result), calls, np.asarray(history(result).dz)
+        return result.fields[-1], calls, np.asarray(result.joined[0].dz)
     finally:
         backend.close()
 

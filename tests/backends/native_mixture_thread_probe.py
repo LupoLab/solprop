@@ -60,8 +60,8 @@ def _runtime_threads() -> np.ndarray:
 
 
 if __name__ == "__main__":
-    from backends._session_probe_b1 import history, last_field, rows, run
     from backends.forced_threads import record_sizing
+    from sessions.runs import run
 
     record_sizing(sys.argv[1])
     solprop_native = importlib.import_module("solprop_native")
@@ -70,11 +70,11 @@ if __name__ == "__main__":
     try:
         result = run(backend, problem)
         values = result.observations[-1].stats
-        taken = rows(result)
+        taken = result.joined[1]
         arrays: dict[str, Any] = {
-            "field": last_field(result),
+            "field": result.fields[-1],
             "threads": np.array(solprop_native.build_info().thread_count),
-            "steps": np.array(history(result).n_steps),
+            "steps": np.array(result.joined[0].n_steps),
             "rows": np.array(taken.n_rows),
         }
         for name in NAMES:

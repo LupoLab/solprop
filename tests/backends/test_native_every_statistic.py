@@ -19,11 +19,11 @@ pytest.importorskip("solprop_native")
 
 from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
 
-from backends._session_probe_b2 import launch_statistics, run_session
 from backends.matched import stash_bound
 from backends.test_band_plasma_parity import case as band_case
 from backends.test_band_plasma_parity import options_for
 from bounds import assert_within
+from sessions.runs import launch_statistics, run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
 from solprop.modes.capillary import MarcatiliMode
@@ -102,7 +102,7 @@ def test_every_statistic_matches_the_reference(field_grid):
         backend = backend_class(problem, request, grid=field_grid, modes=modes)
         try:
             start = Start(field=np.array(launch), z=float(problem.initial.z))
-            return run_session(backend, problem, request, start=start).stats
+            return run(backend, problem, request, start).all_planes()[-1].stats
         finally:
             backend.close()
 

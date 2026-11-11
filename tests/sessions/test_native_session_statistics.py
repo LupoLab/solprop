@@ -37,6 +37,7 @@ from sessions.executors import (
     skip_device_refused,
     window,
 )
+from sessions.runs import load_native
 from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
 from solprop.backends.protocol import stepping
@@ -589,9 +590,7 @@ def test_a_native_plan_refusal_is_the_reference_s_exception():
     assert lowering.plan is not None
     backend = select("native", problem, run_request, grid=grid, modes=modes)
     try:
-        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
-        launch = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
-        state.set_initial(launch.reshape(-1), np.empty(0, dtype=np.complex128))
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
         with pytest.raises(SolpropError) as caught:
             try:
                 state.planned_statistics(lowering.plan, far)
@@ -866,9 +865,7 @@ def _host_widths(problem, run_request, grid, record, monkeypatch):
     backend = select("native", problem, run_request, grid=grid)
     try:
         # The record's exported state, loaded into the native state itself.
-        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
-        field = np.ascontiguousarray(record.field, dtype=np.complex128)
-        state.set_initial(field.reshape(-1), np.empty(0, dtype=np.complex128))
+        state = load_native(backend, record.field, clear_fsal=False)
         packed = np.ravel(
             state.spatial_statistics(32 if plane else 16, 0.5 * EPS0 * C, record.z)
         )

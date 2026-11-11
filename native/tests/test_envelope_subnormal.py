@@ -31,7 +31,7 @@ import solprop_native
 import numpy as np
 import numpy.typing as npt
 import pytest
-from session_runs import launch, loaded_state, native_trial
+from session_runs import launch, load_native, native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid
@@ -111,14 +111,17 @@ def evaluate(
     native's zero-length trial on its state, or the reference's evaluation.
     """
     statistics = launch(
-        implementation(problem, run_request, grid=grid), problem, run_request
-    )["stats"]
+        implementation(problem, run_request, grid=grid),
+        problem,
+        run_request,
+        owns=True,
+    ).stats
     backend = implementation(problem, run_request, grid=grid)
     try:
         if isinstance(backend, NativeBackend):
             # A zero-length trial exposes the first stage, N(E, z = 0).
-            state = loaded_state(backend, problem.initial.field0)
-            native_trial(backend, state, 0.0, 0.0)
+            state = load_native(backend, problem.initial.field0, clear_fsal=False)
+            native_trial(backend, 0.0, 0.0)
             stage = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
         else:
             backend.set_initial(problem.initial.field0, None)

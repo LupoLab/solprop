@@ -18,8 +18,9 @@ import warnings
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import run_session
 from capability_routes import ROUTES
+from sessions.executors import committed_steps
+from sessions.runs import run
 from solprop.backends import available
 from solprop.backends.events import Outcome
 from solprop.exceptions import BackendError, HostMarchWarning
@@ -81,9 +82,9 @@ def test_the_default_loop_is_native_without_a_warning(route, dense):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             warnings.simplefilter("error", HostMarchWarning)
-            landed = run_session(backend, problem, run_request)
-        assert landed.run.terminal.outcome is Outcome.COMPLETED
-        assert landed.n_accepted > 0
+            landed = run(backend, problem, run_request)
+        assert landed.terminal.outcome is Outcome.COMPLETED
+        assert committed_steps(landed) > 0
         assert backend.metadata()["rk_march"] == "native"
     finally:
         backend.close()

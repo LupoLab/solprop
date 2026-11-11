@@ -437,7 +437,7 @@ def test_a_transverse_edge_is_read_in_the_committed_order(
             "the edge was launched before the launch plane was committed"
         )
     started.session.acknowledge(launch.receipt)
-    rest = drive(started)
+    rest = drive(started, raises=False)
     run = Run([launch, *rest.batches], [], rest.status)
     record = started.session.monitor_record()
     assert record is not None
@@ -780,7 +780,7 @@ def test_a_failed_trial_ends_failed_at_an_eligible_committed_state(start_scripte
     """
     started = start_scripted(soliton(), fail_at=FAIL_AT, reject_at=(FAIL_AT - 2,))
     held: dict[str, np.ndarray] = {}
-    run = drive(started, export=IDENTITY, between=_terminal_field(held))
+    run = drive(started, export=IDENTITY, between=_terminal_field(held), raises=False)
     terminal = run.terminal
     assert terminal.outcome is Outcome.FAILED
     assert isinstance(terminal.error, ScriptedError)
@@ -805,7 +805,7 @@ def test_an_in_flight_failure_poisons_the_state(start_scripted):
     the abandoned one are still accounted.
     """
     started = start_scripted(soliton(), fail_at=FAIL_AT, in_flight=True)
-    run = drive(started)
+    run = drive(started, raises=False)
     terminal = run.terminal
     assert terminal.outcome is Outcome.FAILED
     assert isinstance(terminal.error, ScriptedError)
@@ -829,6 +829,7 @@ def test_a_warning_raised_as_an_error_fails_at_its_committed_endpoint(start_scri
             start_scripted(soliton(), warn_at=warn_at),
             export=IDENTITY,
             between=_terminal_field(held),
+            raises=False,
         )
     terminal = run.terminal
     assert terminal.outcome is Outcome.FAILED
@@ -939,6 +940,7 @@ def test_a_stop_from_another_thread_ends_at_a_committed_endpoint(start, executor
         start(soliton(), stop=token, listener=listener),
         export=IDENTITY,
         between=_terminal_field(held),
+        raises=False,
     )
     terminal = run.terminal
     assert terminal.outcome is Outcome.STOPPED

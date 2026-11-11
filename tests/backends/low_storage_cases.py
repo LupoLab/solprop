@@ -16,10 +16,11 @@ import math
 
 import numpy as np
 
-from backends._session_probe_b2 import run_session
 from backends.test_low_storage import ARGUMENT_FACTOR, MARCH, populated
 from bounds import EPS, assert_within, departure, step_budget
+from sessions.runs import run
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import Start
 from solprop.driver import Simulation
 from solprop.stepper import FixedSchedule
 from solprop.translate.linop import delta_phi
@@ -95,7 +96,8 @@ def replay(
     """
     backend = backend_class(problem, run_request, grid=grid, modes=modes, **options)
     try:
-        field = run_session(backend, problem, run_request, noise=noise).field
+        start = Start.entrance(problem, noise=noise)
+        field = run(backend, problem, run_request, start).fields[-1]
         assert np.all(np.isfinite(field))
         return field
     finally:

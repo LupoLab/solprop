@@ -29,7 +29,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import launch_field, run_session
 from backends.forced_threads import assert_threaded
 from backends.low_storage_cases import (
     STEPS,
@@ -49,6 +48,7 @@ from backends.test_radial_nonlinear import make_problem as radial_problem
 from bounds import assert_within
 from general_parity import conditioning as general_conditioning
 from general_parity import nonlinear_scale, problem_for, scaled_case, source_bound
+from sessions.runs import launch, load_native, run
 from solprop.backends.memory import (
     low_storage_flows,
     low_storage_stage_register,
@@ -600,8 +600,16 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
     problem, run_request, grid, _ = cartesian_march(mode, collar=collar)
     field = 16 * math.prod(problem.shape)
     backend = NativeBackend(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
-    landed = run_session(backend, problem, run_request)
-    record, ledger = landed.record, landed.ledger
+    record: dict[str, object] = {}
+    held: list[dict[str, int]] = []
+
+    def at_end(_session, batch):
+        # The ledger while the session holds the backend, at its terminal batch.
+        if batch.terminal is not None:
+            held.append(backend.memory_ledger())
+
+    run(backend, problem, run_request, record=record, between=at_end)
+    [ledger] = held
     assert ledger is not None
     volumes = {row: ledger[row] for row in MARCH_ROWS}
     assert volumes == {
@@ -684,7 +692,7 @@ def test_a_loaded_state_is_not_held_after_the_load(monkeypatch, model):
     again = weakref.ref(loaded_again)
     start = Start(field=loaded_again, z=0.0, noise=noise, resume=True)
     del loaded_again
-    observed = launch_field(backend, problem, run_request, start=start)
+    observed = launch(backend, problem, run_request, start).field
     gc.collect()
     assert again() is None
     # Exact: the state crosses twice without arithmetic, and the mask keeps or zeroes.
@@ -753,9 +761,7 @@ def test_a_trial_step_on_a_low_storage_state_is_refused_by_name():
     problem, run_request, grid, _ = cartesian_march("tabulate")
     backend = NativeBackend(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
     try:
-        state = backend._native_state
-        field = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
-        state.set_initial(field.reshape(-1), np.empty(0, dtype=np.complex128))
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
         backend._staged_rows()
         nodes = [float(node) for node in run_request.stepper.tableau.nodes]
         with pytest.raises(RuntimeError, match=r"low-storage state .* no Runge-Kutta"):

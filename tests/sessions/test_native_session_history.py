@@ -423,8 +423,8 @@ def test_the_budget_stops_the_session_as_it_stops_the_reference_s_march():
         dz_max=LENGTH / 400,
     )
     request = run_request
-    baseline = drive(_reference_session(problem, request))
-    run = drive(Started(_native(problem, request, _entrance(problem))))
+    baseline = drive(_reference_session(problem, request), raises=False)
+    run = drive(Started(_native(problem, request, _entrance(problem))), raises=False)
     got, expected = run.terminal.error, baseline.terminal.error
     assert isinstance(got, ResponseBudgetError)
     assert isinstance(expected, ResponseBudgetError)
@@ -436,7 +436,9 @@ def test_the_budget_stops_the_session_as_it_stops_the_reference_s_march():
     scale = float(np.max(np.abs(reference)))
     np.testing.assert_allclose(field, reference, rtol=0, atol=PLANE_BOUND * scale)
     if _one_thread():
-        again = drive(Started(_native(problem, request, _entrance(problem))))
+        again = drive(
+            Started(_native(problem, request, _entrance(problem))), raises=False
+        )
         repeated = again.terminal.error
         assert isinstance(repeated, ResponseBudgetError)
         assert np.asarray(repeated.field).tobytes() == field.tobytes()

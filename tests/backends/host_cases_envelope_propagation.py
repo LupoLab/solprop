@@ -8,11 +8,10 @@ import warnings
 
 import numpy as np
 
-from backends._session_probe_b1 import last_field
-from backends._session_probe_b1 import run as session_run
-from backends._session_probe_b1 import summary as run_summary
 from backends.host_cases_envelope_qualification import InstantaneousPolynomial
 from envelope_oracle_angular import order_record
+from sessions.runs import run as session_run
+from sessions.runs import summary as run_summary
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.constants import EPS0, C
@@ -240,7 +239,7 @@ def mixture_propagation(oversampling, *, backend_class=NumpyRefBackend):
                 "n_to": grid.n_to,
                 "initial_energy": initial_energy,
                 "fundamental_blueshift_over_carrier": (
-                    fundamental_centroid(last_field(run), grid)
+                    fundamental_centroid(run.fields[-1], grid)
                     - fundamental_centroid(before, grid)
                 )
                 / grid.omega0,

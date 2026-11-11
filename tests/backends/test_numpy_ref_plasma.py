@@ -22,8 +22,6 @@ import warnings
 import numpy as np
 import pytest
 
-from _session_probe_extra import run
-from backends._session_probe_b2 import launched
 from bounds import fft_bound, scan_bound
 from plasma_cases import (
     CARRIER,
@@ -37,6 +35,7 @@ from plasma_cases import (
     zero_rate,
 )
 from rate_oracles import adk_oracle
+from sessions.runs import launched, run
 from solprop import fourier
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.session import Start
@@ -401,6 +400,7 @@ def test_a_plasma_run_steps_and_ionises(backend_class, ionising_capillary, field
         backend_class(problem, run_request, grid=field_grid),
         problem,
         run_request,
+        owns=True,
         until=0.1,
     ).final
     assert plane.z == 0.1
@@ -463,7 +463,7 @@ def ionised_backend(field_grid, ionising_capillary, backend_class):
     )
     run_request = run_request.for_run(stats=IONISED)
     backend = backend_class(problem, run_request, grid=field_grid, modes=[mode])
-    plane = run(backend, problem, run_request, until=0.1).final
+    plane = run(backend, problem, run_request, owns=True, until=0.1).final
     assert plane.z == 0.1
     return problem, plane, mode
 
@@ -575,7 +575,7 @@ def test_a_plasma_statistic_without_a_plasma_is_refused(backend_class, field_gri
     backend = backend_class(problem, run_request, grid=field_grid)
     try:
         with pytest.raises(BackendError, match="declares none"):
-            run(backend, problem, run_request, owns=False, until=0.0)
+            run(backend, problem, run_request, until=0.0)
     finally:
         backend.close()
 
@@ -650,7 +650,7 @@ def test_the_plasma_statistics_are_the_same_between_planes_as_at_one(
         125e-6, "Ar", PressureGradient.two_point(0.2, 2.0, 0.2), cladding=1.45
     )
     backend = backend_class(problem, run_request, grid=field_grid, modes=[mode])
-    observed = run(backend, problem, run_request, until=0.1).final
+    observed = run(backend, problem, run_request, owns=True, until=0.1).final
     assert observed.z == 0.1
     at_plane = observed.stats
     rows = observed.rows
@@ -713,7 +713,7 @@ def test_the_on_axis_matrix_is_built_once_and_rescaled(
                 lambda *args, **kwargs: builds.append(args) or real(*args, **kwargs),
             )
     backend = backend_class(problem, run_request, grid=field_grid, modes=[mode])
-    observed = run(backend, problem, run_request, until=0.1).final
+    observed = run(backend, problem, run_request, owns=True, until=0.1).final
     assert observed.z == 0.1
     at_plane = observed.stats
     rows = observed.rows
@@ -763,7 +763,7 @@ def test_the_on_axis_matrix_follows_a_taper(field_grid, backend_class):
     assert problem.transform.taper_scale is not None
     backend = backend_class(problem, run_request, grid=field_grid, modes=[mode])
     try:
-        observed = run(backend, problem, run_request, owns=False).final
+        observed = run(backend, problem, run_request).final
         if isinstance(backend, NumpyRefBackend):
             rescaled = backend._on_axis_synthesis([mode])
         else:

@@ -21,7 +21,7 @@ import solprop_native
 import numpy as np
 
 from solprop.exceptions import MaterialRangeWarning
-from session_runs import finish, joined, steps
+from session_runs import committed_steps, run
 from test_envelope_plasma import NAMES, ROUTES, envelope_case, envelope_options
 
 arrays: dict[str, np.ndarray] = {}
@@ -35,15 +35,16 @@ for route in ROUTES:
         problem, run_request, grid=grid, options=envelope_options(route)
     )
     try:
-        planes = finish(owner, problem, run_request, owns=False).planes
-        assert planes[-1]["z"] == grid.length
-        arrays[f"{route}_field"] = planes[-1]["field"]
+        result = run(owner, problem, run_request)
+        last = result.all_planes()[-1]
+        assert last.z == grid.length
+        arrays[f"{route}_field"] = result.fields[-1]
         for name in NAMES:
-            arrays[f"{route}_plane_{name}"] = planes[-1]["stats"][name]
-        _, rows = joined(planes)
+            arrays[f"{route}_plane_{name}"] = last.stats[name]
+        _, rows = result.joined
         for name in run_request.observation.stats.periodic:
-            arrays[f"{route}_rows_{name}"] = rows[name]
-        counts.append(steps(planes)[0])
+            arrays[f"{route}_rows_{name}"] = rows.values[name]
+        counts.append(committed_steps(result))
         sizings.append(owner.metadata()["execution_sizing"])
     finally:
         owner.close()

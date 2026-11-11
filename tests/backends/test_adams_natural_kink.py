@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from backends._session_probe_b1 import last_field, run
+from sessions.runs import run
 from solprop.backends import available
 from solprop.backends.events import ObservationReady
 from solprop.backends.host.session import HostSession
@@ -89,7 +89,7 @@ def test_natural_save_at_hard_kink_restarts_before_the_next_trial(
     exact = np.exp(delta_phi(problem.linear, 0.0, end))[0, 0, 0] * start
     # Four exact linear steps differ only by propagator multiplication roundoff.
     assert_allclose(
-        last_field(result)[0, 0],
+        result.fields[-1][0, 0],
         exact,
         rtol=0.0,
         atol=64 * np.finfo(float).eps * np.max(np.abs(start)),

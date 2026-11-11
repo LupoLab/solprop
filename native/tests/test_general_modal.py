@@ -29,7 +29,7 @@ from typing import Literal, cast
 import numpy as np
 import numpy.typing as npt
 import pytest
-from session_runs import alone, assert_same, finish, grouped, launch, one_thread
+from session_runs import alone, assert_same, grouped, launch, one_thread, run
 from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.general_modal import (
@@ -244,9 +244,9 @@ def _run(
     backend = backend_class(case.problem, case.run_request, grid=case.simulation.grid)
     try:
         start = Start(field=case.state, z=0.0)
-        planes = finish(backend, case.problem, case.run_request, start, owns=False)
-        assert planes.planes[-1]["z"] == Z_END
-        return planes.planes[-1]["field"], backend.memory_ledger()
+        result = run(backend, case.problem, case.run_request, start)
+        assert result.all_planes()[-1].z == Z_END
+        return result.fields[-1], backend.memory_ledger()
     finally:
         backend.close()
 
@@ -395,7 +395,7 @@ def test_the_general_statistics_are_the_references() -> None:
             case.problem, run_request, grid=case.simulation.grid
         )
         start = Start(field=case.state, z=0.0)
-        values.append(launch(member, case.problem, run_request, start)["stats"])
+        values.append(launch(member, case.problem, run_request, start, owns=True).stats)
     # The launch's statistics on both backends: each a reduction of squared moduli
     # over the channels and samples (``gamma`` of four operations a term, the terms
     # nonnegative) after at most one transform round trip each way, fixed beforehand.
@@ -661,9 +661,9 @@ def _moving_run(
     backend = backend_class(problem, run_request, grid=simulation.grid)
     try:
         start = Start(field=problem.initial.field0 if field0 is None else field0, z=0.0)
-        planes = finish(backend, problem, run_request, start, owns=False).planes
-        assert planes[-1]["z"] == pytest.approx(FIBRE)
-        return planes[-1]["field"], backend.memory_ledger()
+        result = run(backend, problem, run_request, start)
+        assert result.all_planes()[-1].z == pytest.approx(FIBRE)
+        return result.fields[-1], backend.memory_ledger()
     finally:
         backend.close()
 

@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 from scipy.integrate import solve_ivp
 
-from _session_probe_extra import run as session_run
+from sessions.runs import run as session_run
 from solprop import fourier
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.linear import Frame, dispersion_operator
@@ -40,7 +40,7 @@ def run(backend_class, problem, run_request, grid, planes):
     """Propagate through the request's save planes, `planes`, in the backend's own
     session; return each plane's summary and its observation."""
     observations = session_run(
-        backend_class(problem, run_request, grid=grid), problem, run_request
+        backend_class(problem, run_request, grid=grid), problem, run_request, owns=True
     ).planes
     assert [observation.z for observation in observations] == list(planes)
     return [observation.summary for observation in observations], observations

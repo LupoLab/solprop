@@ -32,7 +32,6 @@ from typing import Any
 import numpy as np
 import pytest
 
-from _session_probe_rest import bare, final_field, run_session, to_planes
 from driver.test_coherent_capillary import GRID, STEPS, WEAK_COLLAR
 from driver.test_native_coupled_flow import (
     ENERGY,
@@ -53,6 +52,8 @@ from flow_parity import (
     ten_step_bound,
 )
 from sessions.executors import IDENTITY, Started, drive, entrance
+from sessions.runs import bare, final_field, load_native, to_planes
+from sessions.runs import run as run_session
 from solprop.backends.events import ObservationReady, Outcome
 from solprop.backends.exponential import carrier_reference
 from solprop.backends.multistep import CoupledBlock, coupled_moments, trial_tables
@@ -463,9 +464,7 @@ def _resident(simulation: Simulation, problem: Any, request: Any) -> Any:
     engine = backend._resident
     assert type(engine).__name__ == "_ResidentAdams"
     field = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
-    backend._native_state.set_initial(
-        field.reshape(-1), np.empty(0, dtype=np.complex128)
-    )
+    load_native(backend, field, clear_fsal=False)
     engine.start(0.0, stored=True)
     rows = {
         name: np.broadcast_to(row[:1], row.shape).copy()
@@ -635,7 +634,7 @@ def test_a_carry_past_thirty_squarings_is_refused_and_keeps_the_state(
     session = prepared.start(entrance(problem))
     try:
         assert isinstance(session, native_session.NativeSession)
-        result = drive(Started(session), export=IDENTITY)
+        result = drive(Started(session), export=IDENTITY, raises=False)
         terminal = result.terminal
         assert terminal.outcome is Outcome.FAILED
         assert isinstance(terminal.error, BackendError)
@@ -800,7 +799,11 @@ def _round_trip(simulation, problem, middle, end):
         "profiles": simulation.profiles,
     }
     uninterrupted = final_field(
-        NativeBackend(problem, request, **context), problem, request
+        NativeBackend(problem, request, **context),
+        problem,
+        bare(request),
+        ended=True,
+        owns=True,
     )
     first = NativeBackend(problem, request, **context)
     assert type(first._resident).__name__ == "_ResidentAdams"
@@ -811,7 +814,7 @@ def _round_trip(simulation, problem, middle, end):
             if isinstance(event, ObservationReady) and event.plane_index == 0:
                 taken.append(session.march_snapshot(event.ticket))
 
-    run_session(first, problem, bare(request), between=take)
+    run_session(first, problem, bare(request), owns=True, between=take)
     [stored] = taken
     assert stored is not None and len(stored.identities) >= 2
     assert math.isclose(stored.z, middle, rel_tol=1e-12)

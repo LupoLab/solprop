@@ -15,7 +15,6 @@ import pytest
 pytest.importorskip("solprop_native")
 
 
-from backends._session_probe_b1 import native_source
 from backends.dispersive_cases import POLICIES, capillary, radial
 from backends.test_native_dispersive_kerr import (
     NativeBackend,
@@ -26,6 +25,7 @@ from backends.test_native_dispersive_kerr import (
     native_evaluation,
     reference_evaluation,
 )
+from sessions.runs import native_source
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore::solprop.exceptions.MaterialRangeWarning"

@@ -11,10 +11,9 @@ import numpy as np
 import pytest
 from scipy.special import erfc
 
-from _session_probe_extra import final_field
-from backends._session_probe_b2 import launch_field
 from backends.test_radial_diffraction import diffraction_reference
 from bounds import gamma
+from sessions.runs import final_field, launch
 from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.spatial import SpatialFlux, SpatialMedium, beam_radius
@@ -101,8 +100,8 @@ def propagate(spatial_backend_class, grid, space, start, distance):
     backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
         if distance:
-            return final_field(backend, problem, run_request, distance, owns=False)
-        return launch_field(backend, problem, run_request)
+            return final_field(backend, problem, run_request, z=distance)
+        return launch(backend, problem, run_request).field
     finally:
         backend.close()
 

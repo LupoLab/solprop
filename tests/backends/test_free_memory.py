@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from backends import test_free_ladders
-from backends._session_probe_b2 import launched
+from sessions.runs import launched
 from solprop.backends.session import ExecutionOptions
 from solprop.stats import StatsSpec
 from solprop.translate.free import free_transform

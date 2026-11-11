@@ -13,11 +13,11 @@ import pytest
 from numpy.testing import assert_allclose
 from scipy.special import j0
 
-from backends._session_probe_b2 import native_trial, run_session
 from backends.test_polarised_runs import QuadraticRate as EnergyRate
 from backends.test_polarised_runs import plasma_work_bound
 from bounds import gamma, ladder_bound
 from legacy_geometry import LEGACY_GRID
+from sessions.runs import native_trial, run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.constants import EPS0, C
@@ -121,12 +121,12 @@ def derivative(spatial_backend_class, problem, run_request, grid, options=None):
                 backend._stage_scalars(0.0, 0.0),
                 np.ones((1, *problem.shape), complex),
             )[0]
-        return _native_first_stage(backend, problem, run_request)
+        return _native_first_stage(backend, problem)
     finally:
         backend.close()
 
 
-def _native_first_stage(backend, problem, run_request):
+def _native_first_stage(backend, problem):
     """Return the native state's first stage of a zero-length trial at the launch.
 
     This probe requests N(E, z=0), not an advanced field. A zero-length trial exposes
@@ -134,7 +134,7 @@ def _native_first_stage(backend, problem, run_request):
     resolved Cartesian cutoff. The trial is the native state's own (``rk_trial`` on the
     uploaded stage tables), loaded with the launch, as the backend's march takes it.
     """
-    native_trial(backend, run_request, 0.0, 0.0, field=problem.initial.field0)
+    native_trial(backend, 0.0, 0.0, field=problem.initial.field0)
     return np.asarray(backend._native_state.stage_to_host(0)).reshape(problem.shape)
 
 
@@ -374,12 +374,12 @@ def test_radial_nonlinear_ladder_matches_reference(
     for implementation in (NumpyRefBackend, spatial_backend_class):
         backend = implementation(problem, observed, grid=grid)
         try:
-            landed = run_session(backend, problem, observed)
+            landed = run(backend, problem, observed)
         finally:
             backend.close()
-        assert landed.run.attempts == steps
-        values.append(landed.field)
-        statistics.append(landed.stats)
+        assert landed.attempts == steps
+        values.append(landed.fields[-1])
+        statistics.append(landed.all_planes()[-1].stats)
     assert_allclose(
         values[1], values[0], rtol=0, atol=bound * np.max(np.abs(values[0]))
     )
@@ -478,10 +478,10 @@ def test_radial_field_envelope_and_scalar_vector_parity(
         )
         backend = spatial_backend_class(problem, observed, grid=grid)
         try:
-            landed = run_session(backend, problem, observed)
+            landed = run(backend, problem, observed)
         finally:
             backend.close()
-        state = landed.field
+        state = landed.fields[-1]
         if n_pol == 2:
             np.testing.assert_array_equal(state[:, 1], np.zeros_like(state[:, 1]))
         indices = np.rint((grid.omega - carrier) / grid.d_omega).astype(int)
@@ -491,7 +491,7 @@ def test_radial_field_envelope_and_scalar_vector_parity(
         if grid.kind == "field":
             values *= 2 * carrier_phase
         rows.append((indices[active][ordering], values))
-        statistics.append(landed.stats)
+        statistics.append(landed.all_planes()[-1].stats)
     for label, (indices, values) in zip(
         ("envelope scalar", "field vector", "envelope vector"), rows[1:], strict=True
     ):

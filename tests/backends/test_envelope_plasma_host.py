@@ -10,9 +10,9 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from backends._session_probe_b1 import run as session_run
 from bounds import scan_bound
 from rate_oracles import adk_oracle
+from sessions.runs import run as session_run
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.envelope_plasma import (

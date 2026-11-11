@@ -31,6 +31,7 @@ from sessions.executors import (
     entrance,
     skip_device_refused,
 )
+from sessions.runs import load_native
 from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
 from solprop.backends.protocol import stepping
@@ -201,10 +202,8 @@ def _plan(grid, modes, problem, request, names, seen):
     )
     out = []
     with closing(select("native", problem, run, grid=grid, modes=modes)) as backend:
-        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
         for record in seen:
-            field = np.ascontiguousarray(record.field, dtype=np.complex128)
-            state.set_initial(field.reshape(-1), np.empty(0, dtype=np.complex128))
+            state = load_native(backend, record.field, clear_fsal=False)
             values = lowering.unpack(state.planned_statistics(lowering.plan, record.z))
             out.append({name: np.asarray(value) for name, value in values.items()})
     return out
@@ -425,9 +424,7 @@ def test_the_plan_s_axis_row_is_the_host_scan_s_and_the_reference_s(kind):
         values = stepping(backend).stats(spec)
     assert problem.initial.noise0 is None
     with closing(select("native", problem, run, grid=grid, modes=modes)) as backend:
-        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
-        launch = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
-        state.set_initial(launch.reshape(-1), np.empty(0, dtype=np.complex128))
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
         lowering = lower(problem, spec, names, grid=grid, modes=modes, z_end=0.02)
         got = lowering.unpack(state.planned_statistics(lowering.plan, 0.0))
     for name in names:

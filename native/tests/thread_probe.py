@@ -27,7 +27,7 @@ from solprop.pulses import SechPulse
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import assemble
 
-from session_runs import finish, steps
+from session_runs import committed_steps, run
 
 BETA2 = -11.83e-27
 GAMMA = 0.11
@@ -58,13 +58,14 @@ backend = select(
     sys.argv[2] if len(sys.argv) > 2 else "native", problem, run_request, grid=grid
 )
 try:
-    planes = finish(backend, problem, run_request, owns=False).planes
+    result = run(backend, problem, run_request)
     info = solprop_native.build_info()
     sizing = backend.metadata().get("execution_sizing", {})
 finally:
     backend.close()
-accepted, rejected = steps(planes)
-np.save(sys.argv[1], planes[-1]["field"])
+accepted = committed_steps(result)
+rejected = result.attempts - accepted
+np.save(sys.argv[1], result.fields[-1])
 print(
     json.dumps(
         {

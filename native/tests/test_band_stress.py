@@ -53,7 +53,7 @@ from solprop.translate.run_request import RunRequest
 from solprop_native import NativeBackend
 from legacy_geometry import LEGACY_GRID
 from bounds import UNIT_ROUNDOFF
-from session_runs import finish, launch, loaded_state, native_trial
+from session_runs import launch, load_native, native_trial, run
 from plasma_bounds import (
     assert_regression_guard,
     node_field_error,
@@ -229,9 +229,10 @@ def march(
 ) -> tuple[ComplexArray, dict[str, np.ndarray]]:
     """Return the field and the statistics after the problem's fixed steps."""
     backend = implementation(problem, run_request, grid=grid)
-    planes = finish(backend, problem, run_request).planes
-    assert planes[-1]["z"] == float(run_request.stepper.save_planes[-1])
-    return planes[-1]["field"], planes[-1]["stats"]
+    result = run(backend, problem, run_request, owns=True)
+    last = result.all_planes()[-1]
+    assert last.z == float(run_request.stepper.save_planes[-1])
+    return result.fields[-1], last.stats
 
 
 def launch_statistics(
@@ -242,7 +243,7 @@ def launch_statistics(
 ) -> dict[str, np.ndarray]:
     """Return the statistics of the launch field, before any step."""
     backend = implementation(problem, run_request, grid=grid)
-    return launch(backend, problem, run_request)["stats"]
+    return launch(backend, problem, run_request, owns=True).stats
 
 
 def assert_is_stressing(
@@ -280,9 +281,9 @@ def test_one_evaluation_matches_the_reference(kind: str) -> None:
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = loaded_state(backend, problem.initial.field0)
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
         # A zero-length trial exposes the first stage, N(E, z = 0).
-        native_trial(backend, state, 0.0, 0.0)
+        native_trial(backend, 0.0, 0.0)
         actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
     finally:
         backend.close()

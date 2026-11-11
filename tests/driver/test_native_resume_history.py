@@ -22,7 +22,6 @@ from typing import Any
 import numpy as np
 import pytest
 
-from _session_probe_rest import Snapshots, bare, run_session, to_planes
 from driver.test_resume import LENGTH, N_SAVE, run_until
 from driver.test_resume_history import (
     AFRESH,
@@ -37,6 +36,8 @@ from driver.test_specified_paths import GRID, PULSE, linear_walkoff
 from driver.test_specified_paths import LENGTH as MOVING_LENGTH
 from march_bounds import TIGHTER
 from sessions.executors import IDENTITY, Started, drive, one_thread
+from sessions.runs import Snapshots, bare, to_planes
+from sessions.runs import run as run_session
 from solprop.backends.events import ObservationReady
 from solprop.backends.registry import available, select
 from solprop.backends.session import Start
@@ -144,7 +145,7 @@ def quiet(test):
 def opened(simulation, backend, planes=None):
     """Return the translated problem, a request and `backend` built for it.
 
-    The request observes no statistics (:func:`_session_probe_rest.bare`); `planes`
+    The request observes no statistics (:func:`sessions.runs.bare`); `planes`
     replaces its save planes, a run that ends at the last of them.
     """
     problem = simulation.translate()
@@ -239,7 +240,7 @@ def test_the_resident_history_is_restored_exactly_and_continued(build_simulation
     # The engine's own layout keeps a leading axis of one after the row axis.
     shape = (engine.n_slots, 1, *problem.shape)
     whole = Snapshots()
-    baseline = run_session(first, problem, request, between=whole)
+    baseline = run_session(first, problem, request, owns=True, between=whole)
     stored = whole.at_plane(0)
     # Once the history has formed, the snapshot holds it.
     assert stored is not None
@@ -430,7 +431,7 @@ def snapshot_at_first_plane(simulation):
         simulation, simulation.settings.backend, planes=[first]
     )
     taken = Snapshots()
-    run_session(backend, problem, request, between=taken)
+    run_session(backend, problem, request, owns=True, between=taken)
     stored = taken.at_plane(0)
     assert stored is not None
     return stored

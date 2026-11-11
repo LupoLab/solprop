@@ -11,8 +11,8 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from backends._session_probe_b2 import launch_statistics
 from hankel_oracles import gamma
+from sessions.runs import launch_statistics
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.spatial import collect_spatial
 from solprop.exceptions import BackendError
@@ -132,7 +132,7 @@ def test_radial_statistics_match_the_host_without_field_observation(
         # The backend's own session observes the state as its launch plane; the
         # native lane transfers only its packed reductions, no field. All exposed
         # statistics are requested together, then singly.
-        actual = launch_statistics(backend, problem, run_request, state)
+        actual = launch_statistics(backend, problem, run_request, field=state)
         for name, expected in reference.items():
             assert actual[name].shape == expected.shape
             assert np.all(np.abs(actual[name] - expected) <= bounds[name]), name
@@ -167,7 +167,7 @@ def test_radial_statistics_match_the_host_without_field_observation(
                 backend,
                 problem,
                 run_request.for_run(stats=StatsSpec(names=(name,))),
-                state,
+                field=state,
             )
             assert_allclose(single[name], actual[name], rtol=0, atol=0, equal_nan=True)
         periodic = dataclasses.replace(
@@ -176,7 +176,7 @@ def test_radial_statistics_match_the_host_without_field_observation(
             periodic=("energy", "on_axis_intensity", "peak_intensity"),
         )
         values = launch_statistics(
-            backend, problem, run_request.for_run(stats=periodic), state
+            backend, problem, run_request.for_run(stats=periodic), field=state
         )
         for name in periodic.names:
             assert_allclose(values[name], actual[name], rtol=0, atol=0)

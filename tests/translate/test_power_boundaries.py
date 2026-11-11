@@ -9,7 +9,8 @@ from dataclasses import dataclass, replace
 import numpy as np
 import pytest
 
-from _session_probe_rest import run_error, run_session
+from sessions.runs import run as run_session
+from sessions.runs import run_error
 from solprop.backends import available, select
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import (
@@ -298,11 +299,11 @@ def test_unit_index_intensity_retains_the_vacuum_limit(grid, launch, name, with_
     # The launch plane's statistics, through the backend's session (SEP 47 phase 5).
     request = run_request.for_run(stats=spec)
     if not with_modes:
-        error = run_error(backend, problem, request)
+        error = run_error(backend, problem, request, owns=True)
         assert isinstance(error, BackendError)
         assert "mode set" in str(error)
         return
-    run = run_session(backend, problem, request, recipe=None)
+    run = run_session(backend, problem, request, export=None, owns=True)
     launched = run.observations[0]
     assert launched.plane_index == -1
     np.testing.assert_allclose(

@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from _session_probe_extra import run as session_run
 from mixture_cases import mixture_translation
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.exceptions import BackendError
 from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
@@ -167,7 +167,7 @@ def test_multiple_raman_components_propagate_with_one_cached_kernel(
         try:
             ran = session_run(backend, problem, run_request, owns=False)
             assert ran.final.z == grid.length
-            assert ran.n_steps == steps
+            assert ran.attempts == steps
             assert raman_refreshes(backend) == 1
         finally:
             backend.close()

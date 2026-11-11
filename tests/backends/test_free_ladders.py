@@ -12,8 +12,6 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from _session_probe_extra import final_field, run
-from backends._session_probe_b2 import launch_statistics, launched
 from backends.test_radial_nonlinear import (
     CHI3,
     LENGTH,
@@ -25,6 +23,7 @@ from backends.test_radial_nonlinear import (
 from bounds import gamma, ladder_bound
 from legacy_geometry import LEGACY_GRID
 from sessions.executors import IDENTITY
+from sessions.runs import final_field, launch_statistics, launched, run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.constants import C
@@ -136,7 +135,8 @@ def test_cartesian_nonlinear_ladder(free_case, spatial_backend_class, steps, req
                 implementation(problem, run_request, grid=grid, options=REMAINDER),
                 problem,
                 run_request,
-                LENGTH,
+                z=LENGTH,
+                owns=True,
             )
             for implementation in (NumpyRefBackend, spatial_backend_class)
         )
@@ -180,7 +180,7 @@ def test_cartesian_statistics_fresh_and_cached(
             # The statistics a session's plane reports with the state it reached (the
             # launch plane's at no steps), then those of that state loaded afresh.
             if steps:
-                plane = run(backend, problem, run_request, owns=False).final
+                plane = run(backend, problem, run_request).final
                 assert plane.z == LENGTH
                 state = plane.field
                 rows.append(plane.stats)
@@ -190,7 +190,7 @@ def test_cartesian_statistics_fresh_and_cached(
                     rows.append(
                         {name: np.array(value) for name, value in launch.stats.items()}
                     )
-            fresh = launch_statistics(backend, problem, run_request, state)
+            fresh = launch_statistics(backend, problem, run_request, field=state)
             for name in names:
                 assert_allclose(
                     fresh[name],
@@ -331,7 +331,10 @@ def test_cartesian_field_envelope_and_scalar_vector_parity(
             stats=StatsSpec(names=("energy", "on_axis_intensity", "peak_intensity"))
         )
         plane = run(
-            spatial_backend_class(problem, run_request, grid=grid), problem, run_request
+            spatial_backend_class(problem, run_request, grid=grid),
+            problem,
+            run_request,
+            owns=True,
         ).final
         assert plane.z == LENGTH
         state = plane.field

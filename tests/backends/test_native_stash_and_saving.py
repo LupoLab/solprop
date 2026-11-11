@@ -31,10 +31,12 @@ import warnings
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import run_session
 from backends.matched import stash_bound
 from backends.planar_cases import planar_case
 from bounds import assert_within
+from sessions.executors import committed_steps
+from sessions.runs import load_native
+from sessions.runs import run as session_run
 from solprop.backends.events import join_attempts
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
@@ -111,7 +113,7 @@ def stash_and_fresh(problem, run_request, grid, length):
     assert float(run_request.stepper.save_planes[-1]) == length
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        run = run_session(backend, problem, run_request).run
+        run = session_run(backend, problem, run_request)
     finally:
         backend.close()
     rows = join_attempts(run.chunks)[1]
@@ -129,9 +131,9 @@ def stash_and_fresh(problem, run_request, grid, length):
                 z=length,
                 plane_index=len(run_request.stepper.save_planes),
             )
-            observed = run_session(scanning, problem, run_request, start=at_end)
-            assert [event.z for event in observed.run.observations] == [length]
-            fresh[implementation.name] = observed.stats
+            observed = session_run(scanning, problem, run_request, at_end)
+            assert [event.z for event in observed.observations] == [length]
+            fresh[implementation.name] = observed.all_planes()[-1].stats
         finally:
             scanning.close()
     return stashed, fresh
@@ -183,10 +185,7 @@ def step_by_step(backend, problem, run_request, *, recycle):
     the state after the steps, and the steps taken.
     """
     backend._staged_rows()
-    state = backend._native_state
-    field = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
-    state.set_initial(field.reshape(-1), np.empty(0, dtype=np.complex128))
-    state.clear_fsal()
+    state = load_native(backend, problem.initial.field0)
     nodes = [float(node) for node in run_request.stepper.tableau.nodes]
     schedule = run_request.stepper.schedule
     assert schedule is not None
@@ -258,8 +257,8 @@ def test_the_saving_does_not_change_the_answer():
     # steps' state, with their evaluations.
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        session = run_session(backend, problem, run_request)
-        assert session.n_accepted == taken
+        session = session_run(backend, problem, run_request)
+        assert committed_steps(session) == taken
         assert backend._native_state.rk_source_evaluations == evaluated
     finally:
         backend.close()
@@ -268,5 +267,5 @@ def test_the_saving_does_not_change_the_answer():
         os.environ.get("SOLPROP_THREADS"),
     }:
         # One thread fixes every reduction's order: the same steps to the bit.
-        np.testing.assert_array_equal(session.field, with_it)
-    assert float(np.max(np.abs(session.field - with_it))) / peak < 1e-14
+        np.testing.assert_array_equal(session.fields[-1], with_it)
+    assert float(np.max(np.abs(session.fields[-1] - with_it))) / peak < 1e-14

@@ -17,10 +17,10 @@ import math
 import numpy as np
 import pytest
 
-from backends._session_probe_b1 import adams_ledger, history, last_field, native_source
-from backends._session_probe_b1 import run as session_run
 from backends.matched import fixed_order
 from bounds import EPS, assert_within, fft_bound
+from sessions.runs import adams_ledger, native_source
+from sessions.runs import run as session_run
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.passes import apply_hard_mask
@@ -57,7 +57,7 @@ def run(backend_class, problem, run_request, grid, start=None):
         ledger = adams_ledger(backend, record)
     finally:
         backend.close()
-    return last_field(result), ledger, np.asarray(history(result).dz)
+    return result.fields[-1], ledger, np.asarray(result.joined[0].dz)
 
 
 @pytest.mark.parametrize(
@@ -244,7 +244,7 @@ def assert_evaluates_the_reference(backend_class, route):
 
     The evaluation: the reference's untransported sample (``_adams_lab_source``)
     against the native state's own, a zero-length trial's first stage at the same
-    position (:func:`backends._session_probe_b1.native_source`), at the launch as the
+    position (:func:`sessions.runs.native_source`), at the launch as the
     native state loads it, hard-masked to the active band (a change of 4e-16 of it
     here). Untransported, the two are one transform round trip apart: measured 6.3e-16
     and 4.7e-16 normwise against the one-evaluation budget ``fft_bound(n_to)``, about
@@ -348,7 +348,7 @@ def assert_sources_the_reference(backend_class, route):
             profiles=simulation.profiles,
         )
         try:
-            found.append(last_field(session_run(backend, launched)))
+            found.append(session_run(backend, launched).fields[-1])
         finally:
             backend.close()
     reference, unsourced, field, unsourced_here = found

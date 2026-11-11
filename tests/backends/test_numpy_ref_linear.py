@@ -15,7 +15,7 @@ first order in ``h`` here and its error is invisible to the error estimate.
 import numpy as np
 import pytest
 
-from _session_probe_extra import run
+from sessions.runs import run
 from solprop.stepper import FixedSchedule
 from solprop.translate.linop import delta_phi
 
@@ -26,7 +26,7 @@ def propagate(backend_class, problem, run_request, grid, z):
     """Run a problem to its last plane, `z`, through the backend's own session; return
     the run's summary there and the final spectrum."""
     final = run(
-        backend_class(problem, run_request, grid=grid), problem, run_request
+        backend_class(problem, run_request, grid=grid), problem, run_request, owns=True
     ).final
     assert final.z == z
     return final.summary, final.field
@@ -129,7 +129,10 @@ def test_a_linear_run_meets_its_tolerance_and_records_every_step(
     """A zero embedded estimate is a met tolerance, and every step is still recorded."""
     problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
     plane = run(
-        backend_class(problem, run_request, grid=narrow_grid), problem, run_request
+        backend_class(problem, run_request, grid=narrow_grid),
+        problem,
+        run_request,
+        owns=True,
     ).final
     summary = plane.summary
     assert summary.met_tolerance

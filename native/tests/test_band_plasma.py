@@ -38,7 +38,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 from thread_sizing import assert_threaded
-from session_runs import finish, loaded_state, native_trial
+from session_runs import load_native, native_trial, run
 from solprop.backends.session import Start
 from solprop.backends.session import ExecutionOptions
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -271,13 +271,14 @@ def march(
     """
     backend = implementation(problem, run_request, grid=grid, options=options)
     try:
-        planes = finish(backend, problem, run_request, owns=False).planes
+        result = run(backend, problem, run_request)
         if record is not None:
             record.append(backend.metadata())
     finally:
         backend.close()
-    assert planes[-1]["z"] == float(run_request.stepper.save_planes[-1])
-    return planes[-1]["field"], planes[-1]["stats"]
+    last = result.all_planes()[-1]
+    assert last.z == float(run_request.stepper.save_planes[-1])
+    return result.fields[-1], last.stats
 
 
 def assert_statistics_agree(
@@ -337,8 +338,8 @@ def test_response_column_boundary_preserves_full_and_tail_windows(chunk: int) ->
             if columns < 40 and not full_team
             else INFO.thread_count
         )
-        planes = finish(backend, problem, run_request, owns=False).planes
-        actual, actual_stats = planes[-1]["field"], planes[-1]["stats"]
+        result = run(backend, problem, run_request)
+        actual, actual_stats = result.fields[-1], result.all_planes()[-1].stats
         scale = float(np.max(np.abs(expected)))
         assert scale > 0.0
         assert float(np.max(np.abs(actual - expected))) <= bound * scale
@@ -439,9 +440,9 @@ def test_one_evaluation_matches_the_reference() -> None:
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = loaded_state(backend, problem.initial.field0)
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
         # A zero-length trial exposes the first stage, N(E, z = 0).
-        native_trial(backend, state, 0.0, 0.0)
+        native_trial(backend, 0.0, 0.0)
         actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
     finally:
         backend.close()
@@ -488,11 +489,11 @@ def test_every_stage_of_a_trial_matches_the_reference(
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = loaded_state(backend, problem.initial.field0)
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
         if averaged and not DEVICE_BUILD:
             assert backend.metadata()["synthesis_provider"] == "folded"
             assert backend.metadata()["projection_provider"] == "folded"
-        native_trial(backend, state, 0.0, dz)
+        native_trial(backend, 0.0, dz)
         actual = [
             np.asarray(state.stage_to_host(stage)).reshape(problem.shape)
             for stage in range(len(expected))
@@ -569,43 +570,46 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
     bound = march_bound(problem, run_request, grid, STEPS)
     score_bound = 8 * bound
     assert bound > 0.0
-    reference = finish(
+    reference = run(
         NumpyRefBackend(problem, run_request, grid=grid, options=options),
         problem,
         run_request,
-    ).planes
+        owns=True,
+    )
     backend = NativeBackend(problem, run_request, grid=grid, options=options)
     state = backend._native_state  # pyright: ignore[reportPrivateUsage] - score lifetime
     try:
-        finished = finish(backend, problem, run_request, owns=False)
-        planes = finished.planes
-        assert [plane["z"] for plane in planes] == [0.0, dz, 2 * dz]
-        for plane, want in zip(planes[1:], reference[1:], strict=True):
+        record: dict[str, object] = {}
+        finished = run(backend, problem, run_request, record=record)
+        planes = finished.all_planes()
+        assert [plane.z for plane in planes] == [0.0, dz, 2 * dz]
+        for plane, wanted in zip(planes[1:], reference.all_planes()[1:], strict=True):
             np.testing.assert_allclose(
-                plane["stats"]["quadrature_error"],
-                want["stats"]["quadrature_error"],
+                plane.stats["quadrature_error"],
+                wanted.stats["quadrature_error"],
                 rtol=0.0,
                 atol=score_bound,
             )
-        accepted, got, want = planes[1]["field"], planes[-1]["field"], reference[-1]
+        accepted, got = finished.fields[1], finished.fields[-1]
+        want, want_field = reference.all_planes()[-1], reference.fields[-1]
         assert np.isfinite(got).all()
         np.testing.assert_allclose(
             got,
-            want["field"],
+            want_field,
             rtol=0.0,
-            atol=bound * float(np.max(np.abs(want["field"]))),
+            atol=bound * float(np.max(np.abs(want_field))),
         )
         score = state.quadrature_error
         assert math.isfinite(score)
         np.testing.assert_allclose(
-            score, want["stats"]["quadrature_error"], rtol=0.0, atol=score_bound
+            score, want.stats["quadrature_error"], rtol=0.0, atol=score_bound
         )
         # The largest accepted score since the load: the two steps' own, as their
         # planes report them. The session drained it for its quadrature alarm (as
         # the reference warns, once a plane) and records the largest it drained;
         # the state holds none after, and no step is accepted below.
-        steps = [plane["stats"]["quadrature_error"] for plane in planes[1:]]
-        native_record = finished.record["native_session"]
+        steps = [plane.stats["quadrature_error"] for plane in planes[1:]]
+        native_record = record["native_session"]
         assert isinstance(native_record, dict)
         assert native_record["quadrature_peak"] == max(steps)
         assert math.isnan(state.quadrature_peak())
@@ -613,7 +617,7 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
         # Leave an unaccepted trial in scratch: the stored score and the accepted
         # field stay. (Its positions are the first step's, inside the problem's
         # tables, which end at the second plane.)
-        native_trial(backend, state, dz, 0.5 * dz)
+        native_trial(backend, dz, 0.5 * dz)
         assert state.quadrature_error == score  # Stored accepted value, no arithmetic.
         assert math.isnan(state.quadrature_peak())
         np.testing.assert_array_equal(state.field_to_host().reshape(got.shape), got)
@@ -625,9 +629,9 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
         ).close()
         assert math.isnan(state.quadrature_error)
         assert math.isnan(state.quadrature_peak())
-        again = finish(backend, problem, run_request, owns=False).planes
+        again = run(backend, problem, run_request).fields
         np.testing.assert_allclose(
-            again[1]["field"],
+            again[1],
             accepted,
             rtol=0.0,
             atol=bound * float(np.max(np.abs(accepted))),

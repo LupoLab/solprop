@@ -22,11 +22,11 @@ from session_runs import (
     alone,
     assert_same,
     drain,
-    finish,
     grouped,
-    loaded_state,
+    load_native,
     native_trial,
     one_thread,
+    run,
 )
 from solprop.backends.events import Outcome
 from solprop.backends.node_chunk import plan_node_chunk
@@ -192,8 +192,8 @@ def test_envelope_current_streams_use_large_radial_projection() -> None:
             reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
             np.ones((1, *problem.shape), complex),
         )[0]
-        state = loaded_state(actual, problem.initial.field0)
-        native_trial(actual, state, 0.0, 0.0)
+        state = load_native(actual, problem.initial.field0, clear_fsal=False)
+        native_trial(actual, 0.0, 0.0)
         observed = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
         info = build_info()
         if info.device_backend == "none" and info.gemm_provider in {
@@ -327,14 +327,19 @@ def test_envelope_currents_steps_statistics_and_repeatability(
     repeat = NativeBackend(problem, run_request, grid=grid, options=options)
     try:
         wanted_run, got_run, repeat_run = (
-            finish(owner, problem, run_request, owns=False).planes
-            for owner in (reference, actual, repeat)
+            run(owner, problem, run_request) for owner in (reference, actual, repeat)
         )
         targets = [0.0, grid.length / 8, grid.length]
-        assert [plane["z"] for plane in got_run] == targets
-        assert [plane["z"] for plane in wanted_run] == targets
-        for want, have, again in zip(wanted_run, got_run, repeat_run, strict=True):
-            expected, got = want["field"], have["field"]
+        assert [plane.z for plane in got_run.all_planes()] == targets
+        assert [plane.z for plane in wanted_run.all_planes()] == targets
+        for want, have, expected, got, again in zip(
+            wanted_run.all_planes(),
+            got_run.all_planes(),
+            wanted_run.fields,
+            got_run.fields,
+            repeat_run.fields,
+            strict=True,
+        ):
             # The shared-vs-SVD cycle oracle allows 2e-10; eight seven-stage
             # steps also sum node projections and temporal/spatial transforms.
             bound = (
@@ -347,12 +352,12 @@ def test_envelope_currents_steps_statistics_and_repeatability(
             # A repeat is the same discrete computation: rounding only.
             repeat_bound = native_bound(problem, grid)
             np.testing.assert_allclose(
-                again["field"],
+                again,
                 got,
                 rtol=repeat_bound,
                 atol=repeat_bound * np.max(np.abs(got)),
             )
-            wanted, observed = want["stats"], have["stats"]
+            wanted, observed = want.stats, have.stats
             for name in NAMES:
                 np.testing.assert_allclose(
                     observed[name], wanted[name], rtol=bound, atol=1e-30
@@ -461,8 +466,8 @@ def test_envelope_angular_failure_is_a_solprop_convergence_error(
         # Reusing the same allocation must reset a failed device reduction to
         # its success identity when every new sample lies below threshold.
         quiet = Start(field=np.zeros_like(problem.initial.field0), z=0.0)
-        planes = finish(owner, problem, run_request, quiet, owns=False).planes
-        assert planes[-1]["z"] == grid.length
+        result = run(owner, problem, run_request, quiet)
+        assert result.all_planes()[-1].z == grid.length
     finally:
         owner.close()
 

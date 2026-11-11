@@ -20,9 +20,9 @@ import importlib.util
 import numpy as np
 import pytest
 
-from backends._session_probe_b1 import state_stats
 from backends.planar_cases import planar_case
 from bounds import assert_within, gamma
+from sessions.runs import launch_statistics
 from solprop.backends import select
 from solprop.backends.spatial import fluence_budget, signed_fluence_widths
 from solprop.driver import Simulation, SimulationSettings
@@ -154,8 +154,8 @@ def measured(request):
     for name in BACKENDS:
         backend = select(name, problem, run_request, grid=grid)
         try:
-            values[name] = state_stats(
-                backend, problem, field, run_request.observation.stats, z=z
+            values[name] = launch_statistics(
+                backend, problem, field=field, stats=run_request.observation.stats, z=z
             )
         finally:
             backend.close()
@@ -239,8 +239,11 @@ def test_the_native_closure_buffers_are_in_the_ledger():
     owner = select("native", problem, bare, grid=grid)
     try:
         assert owner.memory_ledger()["flux_closure_transverse"] == 0
-        state_stats(
-            owner, problem, problem.initial.field0, StatsSpec(names=("peak_intensity",))
+        launch_statistics(
+            owner,
+            problem,
+            field=problem.initial.field0,
+            stats=StatsSpec(names=("peak_intensity",)),
         )
         assert owner.memory_ledger()["flux_closure_transverse"] == closure
     finally:

@@ -11,7 +11,7 @@ from typing import cast
 import numpy as np
 import pytest
 from conftest import PhaseACase
-from session_runs import finish
+from session_runs import run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FreeGrid, LineGrid
@@ -278,9 +278,10 @@ def test_a_line_of_one_y_row_matches_the_reference(collar: float) -> None:
         if isinstance(backend, NativeBackend):
             ledger = backend.memory_ledger()
             assert ledger["transverse_scratch"] == 2 * 24 * grid.n_omega * 16
-        planes = finish(backend, problem, run_request).planes
-        assert planes[-1]["z"] == pytest.approx(length)
-        rows.append((planes[-1]["field"], planes[-1]["stats"]))
+        result = run(backend, problem, run_request, owns=True)
+        last = result.all_planes()[-1]
+        assert last.z == pytest.approx(length)
+        rows.append((result.fields[-1], last.stats))
     (reference, reference_stats), (actual, actual_stats) = rows
     # Solprop's Cartesian ladder bound for ten steps (tests/backends/test_free_ladders):
     # 70 evaluations of 32 eps per FFT level over log2(n_to) + log2(24) levels.
@@ -356,9 +357,10 @@ def test_the_hybrid_planar_kind_matches_the_reference(phase_a_case: PhaseACase) 
         backend = implementation(
             problem, run_request, grid=grid, options=_planar_options(space)
         )
-        planes = finish(backend, problem, run_request).planes
-        assert planes[-1]["z"] == pytest.approx(length)
-        rows.append((planes[-1]["field"], planes[-1]["stats"]))
+        result = run(backend, problem, run_request, owns=True)
+        last = result.all_planes()[-1]
+        assert last.z == pytest.approx(length)
+        rows.append((result.fields[-1], last.stats))
     (reference, reference_stats), (actual, actual_stats) = rows
     # 70 evaluations of 32 eps per FFT level and per term of the two x contractions,
     # and the operator's square root over the run (8 eps beta_max L).

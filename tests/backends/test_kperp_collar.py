@@ -18,11 +18,10 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from backends._session_probe_b1 import last_field
-from backends._session_probe_b1 import run as session_run
 from backends.test_free_ladders import amplitude_bound
 from bounds import EPS, gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import SpatialAbsorber
 from solprop.driver import Simulation, SimulationSettings
@@ -185,7 +184,7 @@ def test_the_backends_agree_on_a_run_carrying_the_rate(spatial_backend_class, re
     for implementation in (NumpyRefBackend, spatial_backend_class):
         backend = implementation(problem, run_request, grid=grid)
         try:
-            values.append(last_field(session_run(backend, problem)))
+            values.append(session_run(backend, problem).fields[-1])
         finally:
             backend.close()
     reference, actual = values

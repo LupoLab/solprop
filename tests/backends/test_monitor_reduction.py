@@ -27,12 +27,6 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from backends._session_probe_b1 import (
-    bind_native_monitor,
-    launched_state,
-    native_reading,
-)
-from backends._session_probe_b1 import run as session_run
 from bounds import device_backend, ladder_bound
 from capability_routes import LENGTH
 from legacy_geometry import bare_absorber
@@ -48,6 +42,8 @@ from monitor_cases import (
     watched,
     with_copy,
 )
+from sessions.runs import bind_native_monitor, load_native, native_reading
+from sessions.runs import run as session_run
 from solprop.backends.protocol import stepping
 from solprop.backends.registry import available, select
 from solprop.backends.session import ExecutionOptions, Start
@@ -88,7 +84,7 @@ def _checkreading(
     """Compare a backend's reading of the edge-reaching launch with the reference's.
 
     The compiled backend's is its native state's own reduction, as its session reads
-    it at a check (:func:`backends._session_probe_b1.native_reading`).
+    it at a check (:func:`sessions.runs.native_reading`).
     """
     simulation = probe(route, scheme)
     translated = None if problem is None else problem(simulation)
@@ -246,7 +242,7 @@ def test_a_reading_needs_a_monitor(backend: str) -> None:
                 driver._boundary_energies(driver._require_state())
         else:
             # The native state's own reduction, which its session reads at a check.
-            launched_state(made, problem.initial.field0)
+            load_native(made, problem.initial.field0)
             with pytest.raises(RuntimeError, match="no boundary monitor is bound"):
                 cast("Any", made)._native_state.monitor_reading()
     finally:

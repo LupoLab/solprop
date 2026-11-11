@@ -25,12 +25,12 @@ from typing import Any
 
 import numpy as np
 
-from backends._session_probe_b1 import last_field, native_source
-from backends._session_probe_b1 import run as session_run
-from backends._session_probe_b1 import summary as run_summary
 from bounds import gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from modal_provider_cases import GENERAL_Z_END, WAVELENGTH, general_grid
+from sessions.runs import native_source
+from sessions.runs import run as session_run
+from sessions.runs import summary as run_summary
 from solprop.backends.numpy_ref.passes import apply_hard_mask
 from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import absorber
@@ -197,7 +197,7 @@ def source(
     """Return one evaluation of the source at the masked launch, in the lab frame.
 
     The reference's lab-frame sample, and the native state's own evaluation of it
-    (:func:`backends._session_probe_b1.native_source`), both at the launch as the
+    (:func:`sessions.runs.native_source`), both at the launch as the
     native state loads it: hard-masked to the active band. The native state masks what
     it loads, and the reference's sample takes its field as given, so an unmasked
     launch would be two inputs. The hybrid planar launch has content outside the band,
@@ -225,7 +225,7 @@ def run(
     """Run the session to the last save plane; return the field and the run's summary.
 
     The summary spans the run, every plane's attempts together
-    (:func:`backends._session_probe_b1.summary`).
+    (:func:`sessions.runs.summary`).
     """
     backend = backend_class(problem, run_request, grid=grid, **options)
     try:
@@ -234,7 +234,7 @@ def run(
         result = session_run(
             backend, problem, backend.request.for_run(stats=StatsSpec())
         )
-        return last_field(result), run_summary(result)
+        return result.fields[-1], run_summary(result)
     finally:
         backend.close()
 

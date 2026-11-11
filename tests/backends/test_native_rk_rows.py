@@ -24,9 +24,9 @@ import warnings
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import load_native, native_trial, run_session
 from capability_routes import ROUTES
 from native_flow_guards import check_flow_conditioning, flow_squarings
+from sessions.runs import load_native, native_trial, run
 from solprop.backends import available
 from solprop.exceptions import BackendError
 from solprop.stepper.controller import PIController
@@ -149,9 +149,7 @@ def test_the_native_flow_guards_refuse_as_the_host_s(route, monkeypatch):
                 backend_module._MAX_FLOW_SQUARINGS,
                 allowance,
             )
-            assert (
-                _refusal(lambda: native_trial(backend, run_request, z, dz)) == expected
-            )
+            assert _refusal(lambda: native_trial(backend, z, dz)) == expected
         tiny = 1e-12
         # Both refuse at the first stage length past the scale, in the nodes' order.
         first = next(
@@ -166,7 +164,7 @@ def test_the_native_flow_guards_refuse_as_the_host_s(route, monkeypatch):
             backend_module._MAX_FLOW_SQUARINGS,
             allowance,
         )
-        assert _refusal(lambda: native_trial(backend, run_request, z, dz)) == expected
+        assert _refusal(lambda: native_trial(backend, z, dz)) == expected
     finally:
         backend.close()
 
@@ -205,13 +203,13 @@ def _first_attempt(route: str, controller: PIController):
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            landed = run_session(backend, problem, run_request)
-        history = next(one for one in landed.run.histories if one.n_steps)
+            landed = run(backend, problem, run_request)
+        history = next(one for one in landed.histories if one.n_steps)
         dz, norm = float(history.dz[0]), float(history.error_norm[0])
         start = float(problem.initial.z)
         assert float(history.z[0]) == start + dz
         load_native(backend, problem.initial.field0)
-        partials = native_trial(backend, run_request, start, dz)
+        partials = native_trial(backend, start, dz)
         weighted = None
         if controller.weights is not None:
             old = math.sqrt(float(partials[0].sum()))

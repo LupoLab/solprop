@@ -17,7 +17,7 @@ import sys
 import solprop_native
 
 import numpy as np
-from session_runs import finish
+from session_runs import run
 from solprop.backends.session import Start
 from test_general_modal import CASES, Z_END
 
@@ -30,9 +30,9 @@ for name in sys.argv[2:]:
     backend = NativeBackend(case.problem, case.run_request, grid=case.simulation.grid)
     try:
         start = Start(field=case.state, z=0.0)
-        run = finish(backend, case.problem, case.run_request, start, owns=False)
-        assert run.planes[-1]["z"] == Z_END
-        fields[name] = run.planes[-1]["field"]
+        result = run(backend, case.problem, case.run_request, start)
+        assert result.all_planes()[-1].z == Z_END
+        fields[name] = result.fields[-1]
         sizings.append(backend.metadata()["execution_sizing"])
     finally:
         backend.close()

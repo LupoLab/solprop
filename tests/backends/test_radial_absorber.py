@@ -20,8 +20,8 @@ from numpy.testing import assert_allclose
 from scipy.linalg import expm
 from scipy.special import gammainc, j0
 
-from backends._session_probe_b2 import native_trial, run_session
 from legacy_geometry import LEGACY_GRID
+from sessions.runs import native_trial, run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.spatial import collar_field_fraction
 from solprop.boundaries import Absorber, SpatialAbsorber
@@ -195,9 +195,7 @@ def test_spatial_absorber_derivative_matches_independent_bessel_operator(
         else:
             # The native state's own trial (``rk_trial`` on the uploaded stage
             # tables), loaded with the launch: its first stage is N(E, z=0).
-            native_trial(
-                backend, run_request, 0.0, LENGTH / 8, field=problem.initial.field0
-            )
+            native_trial(backend, 0.0, LENGTH / 8, field=problem.initial.field0)
             measured = np.asarray(backend._native_state.stage_to_host(0)).reshape(
                 start.shape
             )
@@ -233,9 +231,9 @@ def test_spatial_absorber_step_refinement_matches_matrix_exponential(
         problem, run_request = problem_for(absorber_case, count)
         backend = spatial_backend_class(problem, run_request, grid=grid)
         try:
-            landed = run_session(backend, problem, run_request)
-            assert landed.run.observations[-1].z == LENGTH
-            measured = landed.field[:, :, index]
+            landed = run(backend, problem, run_request)
+            assert landed.observations[-1].z == LENGTH
+            measured = landed.fields[-1][:, :, index]
             error = float(np.max(np.abs(measured - reference))) / scale
             measured_errors.append(error)
             assert error <= bound, (count, error, bound)

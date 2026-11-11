@@ -28,7 +28,8 @@ from typing import cast
 import numpy as np
 import numpy.typing as npt
 import pytest
-from session_runs import alone, assert_same, finish, grouped, one_thread
+from session_runs import alone, assert_same, grouped, one_thread
+from session_runs import run as run_session
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.backend import (
     _coupled_flow_maps,  # pyright: ignore[reportPrivateUsage]
@@ -136,9 +137,9 @@ def run(
     run_request = run_request.for_run(stats=StatsSpec())
     driver = backend(problem, run_request, grid=grid)
     start = Start(field=problem.initial.field0 if field0 is None else field0, z=0.0)
-    planes = finish(driver, problem, run_request, start).planes
-    assert planes[-1]["z"] == pytest.approx(LENGTH)
-    return np.asarray(planes[-1]["field"], dtype=np.complex128)
+    result = run_session(driver, problem, run_request, start, owns=True)
+    assert result.all_planes()[-1].z == pytest.approx(LENGTH)
+    return np.asarray(result.fields[-1], dtype=np.complex128)
 
 
 def _formation_bound(
@@ -376,7 +377,7 @@ def test_a_step_beyond_the_certificate_is_refused_by_name() -> None:
     ).for_run(stats=StatsSpec())
     backend = NativeBackend(spoiled, run_request, grid=case.grid)
     with pytest.raises(BackendError, match="native measured a coupled flow"):
-        finish(backend, spoiled, run_request)
+        run_session(backend, spoiled, run_request, owns=True)
 
 
 def test_the_flow_ledger_counts_its_views() -> None:

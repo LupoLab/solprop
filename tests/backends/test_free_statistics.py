@@ -11,9 +11,9 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from backends._session_probe_b2 import launch_statistics
 from backends.test_radial_nonlinear import make_problem
 from bounds import gamma
+from sessions.runs import launch_statistics
 from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.output.schema import SavedPlane

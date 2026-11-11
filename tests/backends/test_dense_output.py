@@ -17,9 +17,8 @@ import math
 import numpy as np
 import pytest
 
-from backends._session_probe_b1 import history, plane_fields
-from backends._session_probe_b1 import run as session_run
 from legacy_geometry import LEGACY_GRID
+from sessions.runs import run as session_run
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver.simulation import Simulation, _interpolated
@@ -119,7 +118,7 @@ def run(backend_class, problem, run_request, grid):
         result = session_run(backend, problem)
     finally:
         backend.close()
-    return np.array(plane_fields(result)), history(result).n_steps
+    return np.array([plane.field for plane in result.planes]), result.joined[0].n_steps
 
 
 def test_dense_planes_match_landed_ones_at_fewer_steps(narrow_grid, soliton_problem):

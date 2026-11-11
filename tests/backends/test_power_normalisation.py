@@ -10,11 +10,11 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import launch_statistics, run_session
 from backends.matched import fixed_order
 from bounds import EPS, assert_within, gamma, step_evaluations
 from power_identity import constant_fill_m2
 from sessions.executors import IDENTITY, entrance
+from sessions.runs import launch_statistics, run
 from solprop.backends.events import ObservationReady, Terminal, join_attempts
 from solprop.backends.sessions import start_session
 from solprop.constants import EPS0, C
@@ -203,8 +203,8 @@ def test_gnlse_route_is_unchanged(backend_class):
     for source in (problem, reference):
         backend = backend_class(source, run_request, grid=grid, modes=(gnlse.mode,))
         try:
-            landed = run_session(backend, source, run_request)
-            results.append((landed.field, landed.stats))
+            landed = run(backend, source, run_request)
+            results.append((landed.fields[-1], landed.all_planes()[-1].stats))
         finally:
             backend.close()
     bound = 10 * 16 * EPS
@@ -298,14 +298,15 @@ def test_true_energy_is_conserved_along_a_lossless_gradient(backend_class, grid_
     backend = backend_class(problem, run_request, grid=grid, modes=(mode,))
     try:
         # The backend's own session, from the launch plane to the last.
-        landed = run_session(backend, problem, run_request)
-        launch = landed.run.observations[0]
+        landed = run(backend, problem, run_request)
+        launch = landed.observations[0]
         assert launch.z == 0.0
         start = launch.stats["energy"]
-        final = landed.field
+        final = landed.fields[-1]
+        last = landed.all_planes()[-1].stats
         # The conservation bound, set before measurement.
         bound = 10 * grid.n_omega * np.finfo(float).eps
-        np.testing.assert_allclose(landed.stats["energy"], start, rtol=bound, atol=0)
+        np.testing.assert_allclose(last["energy"], start, rtol=bound, atol=0)
         ratio = (
             power_weight_at(problem, 0.0)[0, 0, frequency]
             / power_weight_at(problem, grid.length)[0, 0, frequency]

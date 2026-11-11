@@ -19,9 +19,9 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from backends._session_probe_b1 import last_field, launched_state, watched_run
-from backends._session_probe_b1 import run as session_run
 from bounds import fft_bound
+from sessions.runs import load_native, watched_run
+from sessions.runs import run as session_run
 from solprop import transverse_monitor
 from solprop.backends.memory import low_storage_stage_register
 from solprop.backends.node_chunk import plan_node_chunk
@@ -202,7 +202,7 @@ def _attached(simulation: Simulation, state: np.ndarray) -> tuple[Any, Any]:
             options=simulation.settings.execution_options(),
         ),
     )
-    launched_state(backend, state)
+    load_native(backend, state)
     monitor = simulation._boundary_monitor()
     assert monitor is not None
     assert monitor.transverse is not None
@@ -459,7 +459,7 @@ def test_a_collars_read_leaves_the_march_where_it_was(route: str, name: str) -> 
                 profiles=simulation.profiles,
             )
             try:
-                return last_field(session_run(made, problem)).tobytes(), {}
+                return session_run(made, problem).fields[-1].tobytes(), {}
             finally:
                 made.close()
 

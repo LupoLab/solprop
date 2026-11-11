@@ -31,6 +31,7 @@ import pytest
 from tests.driver.test_native_z_table import walk_off
 
 from capability_routes import ROUTES
+from sessions.runs import load_native, native_trial
 from solprop.backends import available
 from solprop.exceptions import BoundaryWarning, HostMarchWarning
 from solprop.monitor import BoundaryCheck
@@ -175,14 +176,12 @@ def test_a_z_table_s_staged_trial_is_the_host_packed_trial():
     try:
         backend._staged_rows()
         assert backend._rk_staged
-        state = backend._native_state
-        field = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
-        state.set_initial(field.reshape(-1), np.empty(0, dtype=np.complex128))
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
         nodes = [float(node) for node in run_request.stepper.tableau.nodes]
         end = float(run_request.stepper.z_end)
         for z in (0.0, 0.37 * end, 0.8 * end):
             dz = 0.01 * end
-            staged = np.asarray(state.rk_trial(z, dz, nodes, prepare_only=False))
+            staged = native_trial(backend, z, dz)
             stages = [np.array(state.stage_to_host(i)) for i in range(len(nodes))]
             held = anchor(problem, z, helpers=backend.helpers)
             *bundles, whole = scalars_at(

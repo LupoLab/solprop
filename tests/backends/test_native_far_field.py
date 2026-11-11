@@ -22,7 +22,6 @@ from typing import Literal
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import launched
 from backends.far_field_cases import (
     DISTANCE,
     FINE,
@@ -42,6 +41,7 @@ from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
 from bounds import assert_within, gamma
 from sessions.executors import IDENTITY
+from sessions.runs import launched, load_native
 from solprop.backends import select
 from solprop.backends.spatial import far_field_partials
 from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
@@ -117,7 +117,7 @@ def native_stats(problem, run_request, grid, field, names):
     )
     request = run_request.for_run(stats=spec)
     try:
-        with launched(owner, problem, request, field) as (session, observation):
+        with launched(owner, problem, request, field=field) as (session, observation):
             values = {
                 name: np.array(value) for name, value in observation.stats.items()
             }
@@ -611,7 +611,7 @@ def test_the_native_partials_are_held_to_the_byte():
         assert ledger["far_field_partials"] == partials
         # The axes, then the tables and packed output once a call has run.
         assert ledger["far_field_tables"] == 8 * (space.n_x + space.n_y)
-        with launched(owner, problem, run_request, problem.initial.field0):
+        with launched(owner, problem, run_request, field=problem.initial.field0):
             pass
         # Three apertures' rows and four boxes; twelve spectral rows (the beam, four
         # regions, three collected, three through the holes, the axis) and the five
@@ -642,7 +642,7 @@ def test_on_axis_intensity_reads_the_native_axis_slots():
         # Held from construction: no statistic allocates them.
         held = owner.memory_ledger()["far_field_partials"]
         assert held == 8 * n_bands * n_slots * grid.n_omega
-        with launched(owner, problem, run_request, problem.initial.field0) as (
+        with launched(owner, problem, run_request, field=problem.initial.field0) as (
             _,
             observation,
         ):
@@ -729,7 +729,7 @@ def test_a_native_request_beyond_the_held_partials_grows_them():
     request = bare_request.for_run(stats=spec)
     try:
         assert owner.memory_ledger()["far_field_partials"] == 0
-        with launched(owner, bare, request, field) as (session, observation):
+        with launched(owner, bare, request, field=field) as (session, observation):
             values = {
                 name: np.array(value) for name, value in observation.stats.items()
             }
@@ -833,9 +833,7 @@ def test_the_native_refusals_name_what_is_missing():
     problem, run_request = problem_of(grid, space, field, spec_of(holes("tanh")))
     owner = NativeBackend(problem, run_request, grid=grid)
     try:
-        native = owner._native_state
-        launch = np.ascontiguousarray(field, dtype=np.complex128).reshape(-1)
-        native.set_initial(launch, np.empty(0, dtype=np.complex128))
+        native = load_native(owner, field, clear_fsal=False)
         apertures = np.zeros((1, NATIVE_CONSTANTS + grid.n_omega))
         unknown = apertures.copy()
         unknown[0, 8] = 7.0  # a profile code past supergauss

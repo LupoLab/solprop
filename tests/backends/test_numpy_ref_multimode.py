@@ -19,10 +19,9 @@ import warnings
 import numpy as np
 import pytest
 
-from _session_probe_extra import run
-from backends._session_probe_b2 import launch_statistics, launched
 from convergence_records import Column, Study, record
 from sessions.executors import IDENTITY
+from sessions.runs import launch_statistics, launched, run
 from solprop import fourier
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
@@ -110,7 +109,7 @@ def propagate(backend_class, problem, run_request, grid, options=None, stats=())
     backend = backend_class(problem, run_request, grid=grid, options=options)
     if stats:
         run_request = run_request.for_run(stats=StatsSpec(names=stats))
-    plane = run(backend, problem, run_request, owns=False).final
+    plane = run(backend, problem, run_request).final
     assert plane.z == LENGTH
     return plane, backend
 

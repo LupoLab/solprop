@@ -11,8 +11,6 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
-from backends._session_probe_b1 import last_field, rows, state_stats
-from backends._session_probe_b1 import run as session_run
 from backends.forced_threads import assert_threaded
 from backends.host_cases_mixture_threads import NAMES, PERIODIC
 from backends.matched import native_thread_fields
@@ -24,8 +22,11 @@ from bounds import (
     device_backend,
 )
 from mixture_cases import mixture_case, mixture_translation
+from sessions.runs import launch_statistics
+from sessions.runs import run as session_run
 from solprop.backends.events import ObservationKind
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import Start
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
 
@@ -236,7 +237,7 @@ def test_periodic_channel_statistics_match_a_fresh_backend(backend_class):
     backend = backend_class(problem, run_request, grid=grid)
     try:
         result = session_run(backend, problem)
-        taken = rows(result)
+        taken = result.joined[1]
         assert taken.n_rows == 8
         assert result.observations[-1].z == grid.length
         cached = result.observations[-1].stats
@@ -248,13 +249,12 @@ def test_periodic_channel_statistics_match_a_fresh_backend(backend_class):
         try:
             # This fixture has constant densities and geometry. Starting from the
             # final field forces a fresh exposure scan with identical material data.
-            values = state_stats(
+            index = len(run_request.stepper.save_planes)
+            values = launch_statistics(
                 fresh,
                 problem,
-                last_field(result),
-                StatsSpec(names=NAMES),
-                z=grid.length,
-                plane_index=len(run_request.stepper.save_planes),
+                fresh.request.for_run(stats=StatsSpec(names=NAMES), start_plane=index),
+                Start(field=result.fields[-1], z=grid.length, plane_index=index),
             )
         finally:
             fresh.close()

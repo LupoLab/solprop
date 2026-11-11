@@ -54,7 +54,7 @@ from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend
 from legacy_geometry import LEGACY_GRID
-from session_runs import finish, launch, loaded_state, native_trial
+from session_runs import launch, load_native, native_trial, run
 from plasma_bounds import assert_regression_guard
 from test_band_plasma import (
     STATISTICS,
@@ -201,8 +201,8 @@ def source_of_native(
     """Return native's first stage on the launch, from a zero-length trial."""
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = loaded_state(backend, problem.initial.field0)
-        native_trial(backend, state, 0.0, 0.0)
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        native_trial(backend, 0.0, 0.0)
         return np.asarray(state.stage_to_host(0)).reshape(problem.shape)
     finally:
         backend.close()
@@ -216,7 +216,7 @@ def launch_statistics(
 ) -> dict[str, np.ndarray]:
     """Return the statistics of the launch, before any step."""
     backend = implementation(problem, run_request, grid=grid)
-    return launch(backend, problem, run_request)["stats"]
+    return launch(backend, problem, run_request, owns=True).stats
 
 
 def march(
@@ -227,9 +227,10 @@ def march(
 ) -> tuple[ComplexArray, dict[str, np.ndarray]]:
     """Return the field and the statistics after the problem's fixed steps."""
     backend = implementation(problem, run_request, grid=grid)
-    planes = finish(backend, problem, run_request).planes
-    assert planes[-1]["z"] == float(run_request.stepper.save_planes[-1])
-    return planes[-1]["field"], planes[-1]["stats"]
+    result = run(backend, problem, run_request, owns=True)
+    last = result.all_planes()[-1]
+    assert last.z == float(run_request.stepper.save_planes[-1])
+    return result.fields[-1], last.stats
 
 
 def lossless_unit_bound(preionisation: float) -> float:

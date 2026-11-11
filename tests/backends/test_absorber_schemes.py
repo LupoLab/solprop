@@ -48,7 +48,7 @@ import warnings
 import numpy as np
 import pytest
 
-from _session_probe_extra import final_field
+from sessions.runs import final_field
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.passes import apply_temporal_rate
 from solprop.boundaries import STABILITY_RADIUS, absorber, stable_step
@@ -308,7 +308,7 @@ def test_a_collar_with_no_response_is_still_absorbed(grid, backend_class):
     for scheme in SCHEMES:
         problem, run_request = collar_only(grid, scheme)
         backend = backend_class(problem, run_request, grid=grid)
-        field = final_field(backend, problem, run_request, LENGTH)
+        field = final_field(backend, problem, run_request, z=LENGTH, owns=True)
         energies[scheme] = energy_of(grid, field[0, 0])
         start = energy_of(grid, problem.initial.field0[0, 0])
         assert 0.05 < (start - energies[scheme]) / start < 0.5, scheme
@@ -374,7 +374,7 @@ def test_the_split_step_absorber_leaves_nothing_outside_the_active_band(
             grid, "split_step"
         )
     backend = backend_class(problem, run_request, grid=run_grid)
-    field = final_field(backend, problem, run_request, length)
+    field = final_field(backend, problem, run_request, z=length, owns=True)
     outside = ~problem.grids.active_mask
     assert outside.any()
     assert np.all(field[..., outside] == 0)
@@ -403,6 +403,6 @@ def test_the_split_step_absorber_agrees_with_the_reference(equivalence_backend_c
     for backend_class in (NumpyRefBackend, equivalence_backend_class):
         run_grid, problem, run_request, length = capillary_in_its_collar("split_step")
         backend = backend_class(problem, run_request, grid=run_grid)
-        fields.append(final_field(backend, problem, run_request, length))
+        fields.append(final_field(backend, problem, run_request, z=length, owns=True))
     reference, compiled = fields
     assert np.abs(compiled - reference).max() <= 1e-13 * np.abs(reference).max()

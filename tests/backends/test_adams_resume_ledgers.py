@@ -10,7 +10,8 @@ from typing import cast
 import numpy as np
 import pytest
 
-from _session_probe_extra import run as session_run
+from sessions.runs import Records
+from sessions.runs import run as session_run
 from solprop.backends.multistep import CallLedger
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -76,11 +77,15 @@ def test_restored_adams_ledger_charges_fresh_startup(backend_name, backend_class
     backend = backend_class(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
-    first = session_run(backend, problem, run_request, until=1e-6, records=True)
+    records = Records()
+    first = session_run(
+        backend, problem, run_request, owns=True, until=1e-6, between=records
+    )
     plane = first.final
     assert plane.z == 1e-6
-    assert plane.record is not None
-    saved = plane.record["response_calls"]
+    plane_record = records.taken[-1][1]
+    assert plane_record is not None
+    saved = plane_record["response_calls"]
     assert isinstance(saved, dict)
     before = CallLedger.from_record(saved)
     assert before.total == 2 and before.startup == 1
@@ -169,10 +174,12 @@ def refused_then_fresh(simulation, backend_class, ledgers, match):
         with pytest.raises(BackendError, match=match):
             session_run(backend, problem, run_request, start, owns=False)
         assert backend.metadata()["response_calls"] == CallLedger().to_record()
+        launch_records = Records()
         fresh = session_run(
-            backend, problem, run_request, owns=False, until=0.0, records=True
+            backend, problem, run_request, owns=False, until=0.0, between=launch_records
         )
     finally:
         backend.close()
-    assert fresh.launch is not None and fresh.launch.record is not None
-    assert fresh.launch.record["response_calls"] == CallLedger().to_record()
+    launch_record = launch_records.taken[0][1]
+    assert fresh.launch is not None and launch_record is not None
+    assert launch_record["response_calls"] == CallLedger().to_record()

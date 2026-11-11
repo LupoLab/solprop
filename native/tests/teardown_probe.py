@@ -26,7 +26,7 @@ from solprop.pulses import SechPulse
 from solprop.stepper import PIController
 from solprop.translate.problem import assemble
 
-from session_runs import finish
+from session_runs import run
 
 BETA2 = -11.83e-27
 GAMMA = 0.11
@@ -87,7 +87,7 @@ for name in names:
     # Each backend is kept to the end of the script, as a user's script keeps its
     # simulations, so what it holds is released by the interpreter's own finalisation.
     backend = select(name, problem, run_request, grid=grid)
-    finish(backend, problem, run_request, owns=False)
+    run(backend, problem, run_request)
     backends.append(backend)
 # A plan on the very FFTW this build links.
 library = solprop_native.build_info().fft_library

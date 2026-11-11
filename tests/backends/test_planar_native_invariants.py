@@ -15,10 +15,11 @@ import math
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import run_session
 from backends.planar_cases import planar_case
 from bounds import gamma, step_evaluations
+from sessions.runs import run
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import Start
 from solprop.noise import NoiseRealisation
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.problem import Initial
@@ -78,7 +79,8 @@ def propagate(backend_class, problem, run_request, grid, length, noise=None):
     assert float(run_request.stepper.save_planes[-1]) == length
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        return run_session(backend, problem, run_request, noise=noise).field
+        start = Start.entrance(problem, noise=noise)
+        return run(backend, problem, run_request, start).fields[-1]
     finally:
         backend.close()
 

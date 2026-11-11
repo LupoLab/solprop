@@ -29,9 +29,10 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from _session_probe_rest import run_error, run_session
 from legacy_geometry import LEGACY_GRID
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
+from sessions.runs import run as run_session
+from sessions.runs import run_error
 from solprop import stats
 from solprop.backends import select
 from solprop.driver import Simulation
@@ -754,7 +755,7 @@ def test_both_cpu_backends_refuse_a_general_name_on_an_ordinary_run(backend):
     assert isinstance(error, BackendError)
     assert "is unavailable for this modal run" in str(error)
     served = run_request.for_run(stats=StatsSpec(names=("energy",)))
-    run = run_session(built, problem, served, recipe=None)
+    run = run_session(built, problem, served, export=None, owns=True)
     assert run.observations[0].stats["energy"]
 
 

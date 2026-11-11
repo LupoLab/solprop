@@ -31,9 +31,9 @@ from scipy.integrate import quad
 from scipy.linalg import expm
 
 import flow_parity
-from backends._session_probe_b1 import adams_ledger, history, last_field, run
 from backends.conftest import EQUIVALENCE_BACKENDS
 from bounds import EPS, assert_within, carrier_increment_budget
+from sessions.runs import adams_ledger, run
 from solprop.backends.events import ObservationKind
 from solprop.backends.exponential import (
     CarrierReference,
@@ -290,7 +290,7 @@ def march(
                     float(np.max(np.abs((field - exact) * active)))
                     / float(np.max(np.abs(exact * active)))
                 )
-        attempts = history(result)
+        attempts = result.joined[0]
         march = getattr(backend, "_adams", None) if _on_host(backend) else None
         return SimpleNamespace(
             fields=fields,
@@ -1057,7 +1057,7 @@ def coupled_run(name, integrator, rtol, backend_class=NumpyRefBackend):
     )
     try:
         record: dict[str, object] = {}
-        field = last_field(run(backend, problem, run_request, record=record))
+        field = run(backend, problem, run_request, record=record).fields[-1]
         march = getattr(backend, "_adams", None) if _on_host(backend) else None
         return field, SimpleNamespace(march=march, ledger=_ledger(backend, record))
     finally:

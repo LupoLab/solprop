@@ -39,7 +39,6 @@ import pytest
 from scipy.linalg import expm
 
 import flow_parity
-from _session_probe_rest import final_field, to_planes
 from driver.test_coherent_capillary import (
     GRID,
     LENGTH,
@@ -62,6 +61,7 @@ from flow_parity import (
 from legacy_geometry import LEGACY_GRID
 from march_bounds import FIXED_ORDER
 from modal_provider_cases import GENERAL_Z_END
+from sessions.runs import bare, final_field, to_planes
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
@@ -190,7 +190,9 @@ def test_the_collar_is_carried_by_the_frozen_flow_alone(name):
     expected = _frozen_product(problem, run_request, index)[:, 0]
     # Through the backend's session, which closes it (SEP 47 phase 5).
     driver = backend(launched, run_request, grid=GRID)
-    got = final_field(driver, launched, run_request)[:, 0, index]
+    got = final_field(driver, launched, bare(run_request), ended=True, owns=True)[
+        :, 0, index
+    ]
     flow = problem.linear.coupled_flow
     assert flow is not None
     condition = float(np.max(flow.inverse_condition_bound))
@@ -290,7 +292,7 @@ def _seeded_growth(backend, problem, run_request, grid, collar, worst):
     request = to_planes(run_request, [TAPER_LENGTH])
     resumed = Start(field=launch, z=start, resume=True)
     driver = backend(problem, request, grid=grid)
-    final = final_field(driver, problem, request, resumed)
+    final = final_field(driver, problem, bare(request), resumed, ended=True, owns=True)
     return float(abs(final[3, 0, worst])) / seed
 
 

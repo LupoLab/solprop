@@ -13,8 +13,8 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from backends._session_probe_b2 import run_session
 from sessions.executors import IDENTITY, Started, drive
+from sessions.runs import run as session_run
 from solprop.backends import registry
 from solprop.backends.multistep import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -300,7 +300,7 @@ def test_shared_rk_driver_refuses_persisted_response_budgets(
     atomic = {"attempted": 1} if kind == "atomic" else {}
     backend = native.NativeBackend(problem, run_request, grid=narrow_grid)
     try:
-        plain = run_session(backend, problem, run_request)
+        plain = session_run(backend, problem, run_request)
         start = Start(
             field=problem.initial.field0,
             z=float(problem.initial.z),
@@ -316,8 +316,8 @@ def test_shared_rk_driver_refuses_persisted_response_budgets(
             finally:
                 session.close()
             # Nothing installed changes nothing: the plain start's run, bitwise.
-            assert run.fields[-1].tobytes() == plain.field.tobytes()
-            assert run.accepted_ends().tobytes() == plain.run.accepted_ends().tobytes()
+            assert run.fields[-1].tobytes() == plain.fields[-1].tobytes()
+            assert run.accepted_ends().tobytes() == plain.accepted_ends().tobytes()
         else:
             with pytest.raises(BackendError, match="does not restore atomic"):
                 session = start_session(

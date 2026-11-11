@@ -28,7 +28,6 @@ import dataclasses
 import numpy as np
 import pytest
 
-from _session_probe_extra import run as session_run
 from bounds import (
     AccuracyEnvelope,
     analytic_bound,
@@ -39,6 +38,7 @@ from bounds import (
 )
 from convergence_records import record
 from convergence_studies import BACKEND_EQUIVALENCE
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
 from solprop.stepper import FixedSchedule, PIController
@@ -99,7 +99,7 @@ def run(  # noqa: PLR0913 - the run and its context
     planes; return the fields and the summaries there."""
     backend = backend_class(problem, run_request, grid=grid, modes=modes, **options)
     start = Start.entrance(problem, noise=noise)
-    ran = session_run(backend, problem, run_request, start)
+    ran = session_run(backend, problem, run_request, start, owns=True)
     assert [one.z for one in ran.planes] == list(planes)
     return [one.field for one in ran.planes], [one.summary for one in ran.planes]
 
@@ -405,7 +405,7 @@ def test_a_resume_continues_where_the_run_stopped(
 
     backend = equivalence_backend_class(problem, run_request, grid=soliton_grid)
     start = Start(field=whole[0], z=0.01, plane_index=1, plane_pending=False)
-    resumed = session_run(backend, problem, run_request, start).final
+    resumed = session_run(backend, problem, run_request, start, owns=True).final
     assert resumed.z == 0.02
     resumed = resumed.field
     # A load clears a recycled stage, which a backend may keep across a plane, so the

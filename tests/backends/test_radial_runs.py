@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from _session_probe_extra import run
+from sessions.runs import run
 from solprop.constants import EPS0, C
 from solprop.fourier import energy_omega
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
@@ -143,7 +143,10 @@ def test_radial_linear_propagation_on_each_backend(
         schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / steps),
     )
     plane = run(
-        spatial_backend_class(problem, run_request, grid=grid), problem, run_request
+        spatial_backend_class(problem, run_request, grid=grid),
+        problem,
+        run_request,
+        owns=True,
     ).final
     assert plane.z == grid.length
     assert plane.summary.n_steps == steps

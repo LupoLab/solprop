@@ -12,9 +12,9 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from _session_probe_extra import run as session_run
 from gated_source import _gated_source
 from mixture_cases import AnalyticRate
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import EPS0, C
 from solprop.grid import FieldGrid
@@ -212,10 +212,10 @@ def check_luna_mixture_field_witness(tag, backend_class):
     bound = rounding + 2 * refinement / np.linalg.norm(reference)
     assert bound > 0.0
     ran = session_run(
-        backend_class(problem, run_request, grid=grid), problem, run_request
+        backend_class(problem, run_request, grid=grid), problem, run_request, owns=True
     )
     assert ran.final.z == grid.length
-    assert ran.n_steps == steps == int(LUNA[f"{tag}_RUN_64"][0])
+    assert ran.attempts == steps == int(LUNA[f"{tag}_RUN_64"][0])
     actual = ran.final.field.reshape(-1) * root
     discrepancy = np.linalg.norm(actual - reference) / np.linalg.norm(reference)
     assert discrepancy < bound

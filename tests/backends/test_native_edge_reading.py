@@ -15,11 +15,11 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from backends._session_probe_b1 import last_field, launched_state, watched_run
-from backends._session_probe_b1 import run as session_run
 from bounds import fft_bound, higham_gamma
 from capability_routes import LENGTH, SPATIAL_GRID
 from capability_routes import ROUTES as CASES
+from sessions.runs import load_native, watched_run
+from sessions.runs import run as session_run
 from solprop.backends.memory import low_storage_stage_register
 from solprop.backends.registry import available, select
 from solprop.driver import Simulation, SimulationSettings
@@ -86,7 +86,7 @@ def _attached(simulation: Simulation, state: np.ndarray) -> Any:
             profiles=simulation.profiles,
         ),
     )
-    launched_state(backend, state)
+    load_native(backend, state)
     monitor = simulation._boundary_monitor()
     assert monitor is not None
     assert monitor.transverse is not None
@@ -277,7 +277,7 @@ def test_a_read_at_every_step_leaves_the_march_where_it_was(
             profiles=simulation.profiles,
         )
         try:
-            return last_field(session_run(backend, problem)), 0
+            return session_run(backend, problem).fields[-1], 0
         finally:
             backend.close()
 
@@ -534,7 +534,7 @@ def test_the_edge_holds_memory_only_once_a_monitor_binds_it(route: str) -> None:
     )
     try:
         assert backend.memory_ledger()["transverse_edge"] == 0
-        launched_state(backend, problem.initial.field0)
+        load_native(backend, problem.initial.field0)
         assert backend.memory_ledger()["transverse_edge"] == 0
         monitor = simulation._boundary_monitor()
         assert monitor is not None

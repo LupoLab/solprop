@@ -117,8 +117,8 @@ def geometry_options(geometry):
 # was given are not array names: only a subprocess run saves the arrays.
 
 if __name__ == "__main__":
-    from backends._session_probe_b1 import last_field, run
     from backends.forced_threads import record_sizing
+    from sessions.runs import run
 
     record_sizing(sys.argv[1])
     solprop_native = importlib.import_module("solprop_native")
@@ -131,7 +131,7 @@ if __name__ == "__main__":
         # The run's one save plane is its end: its summary spans the run.
         summary = result.observations[-1].summary
         arrays: dict[str, Any] = {
-            "field": last_field(result),
+            "field": result.fields[-1],
             "steps": np.array(summary.n_steps),
             "met_tolerance": np.array(summary.met_tolerance),
         }

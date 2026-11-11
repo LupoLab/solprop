@@ -47,9 +47,9 @@ import numpy as np
 import pytest
 
 import solprop.translate.problem as problem_module
-from _session_probe_rest import final_field
 from driver.test_coherent_capillary import LENGTH, linear_launch, varying
 from driver.test_flow_collar import backend_class
+from sessions.runs import bare, final_field
 from solprop.exceptions import GrazingIncidenceWarning, MaterialRangeWarning
 from solprop.modes import CoherentWall, wall_operator
 from solprop.modes.capillary import WallImpedance
@@ -102,7 +102,7 @@ def transfer(radii, steps, name="numpy_ref"):
         _, launched = linear_launch(problem, grid, channel=channel)
         # Through the backend's session, which closes it (SEP 47 phase 5).
         driver = backend(launched, run_request, grid=grid)
-        final = final_field(driver, launched, run_request)
+        final = final_field(driver, launched, bare(run_request), ended=True, owns=True)
         columns.append(final[:, 0, index] / 1e-9)
     carrier = delta_phi(problem.linear, 0.0, LENGTH)[0, :, 0, index]
     assert np.all(carrier == carrier[0])

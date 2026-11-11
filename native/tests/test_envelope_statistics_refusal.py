@@ -16,7 +16,7 @@ from typing import cast
 import numpy as np
 import numpy.typing as npt
 import pytest
-from session_runs import drain, finish
+from session_runs import drain, run
 from solprop.backends.events import Outcome
 from solprop.backends.session import Start
 from solprop.exceptions import ConvergenceError
@@ -77,7 +77,7 @@ def test_the_statistics_refuse_and_a_quiet_field_recovers(
         assert terminal.z == 0.0
         # A quiet field below threshold: no refinement, and no failure left behind.
         quiet = Start(field=np.zeros_like(problem.initial.field0), z=0.0)
-        planes = finish(owner, problem, run_request, quiet, owns=False).planes
-        assert np.all(np.asarray(planes[0]["stats"]["peak_ionisation_rate"]) == 0.0)
+        launched = run(owner, problem, run_request, quiet).all_planes()[0]
+        assert np.all(np.asarray(launched.stats["peak_ionisation_rate"]) == 0.0)
     finally:
         owner.close()

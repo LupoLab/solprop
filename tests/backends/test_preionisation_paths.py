@@ -19,9 +19,9 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 
-from _session_probe_extra import run as session_run
 from bounds import assert_within
 from mixture_cases import AnalyticRate, mixture_case, mixture_translation
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.grid import EnvelopeGrid
 from solprop.modes import MarcatiliMode
@@ -80,7 +80,7 @@ def run(backend_class, problem, run_request, grid, stop, *, stats=NAMES):
         )
     run_request = run_request.for_run(stats=StatsSpec(names=stats))
     backend = backend_class(problem, run_request, grid=grid)
-    plane = session_run(backend, problem, run_request, until=stop).final
+    plane = session_run(backend, problem, run_request, owns=True, until=stop).final
     assert plane.z == stop
     return plane.field, plane.summary, plane.history, plane.stats
 

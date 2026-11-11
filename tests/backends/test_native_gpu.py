@@ -10,8 +10,9 @@ import numpy as np
 import pytest
 from benchmarks.device_split import STEP, _simulation
 
-from backends._session_probe_b2 import launch_field, run_session
 from bounds import assert_within, ladder_bound
+from sessions.executors import committed_steps
+from sessions.runs import launch, load_native, run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import select
 from solprop.stepper import FixedSchedule
@@ -43,8 +44,9 @@ def _field(backend_class, problem, run_request, grid):
     assert float(run_request.stepper.save_planes[-1]) == 1e-3
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        landed = run_session(backend, problem, run_request)
-        return landed.field, (landed.n_accepted, landed.n_rejected)
+        landed = run(backend, problem, run_request)
+        accepted = committed_steps(landed)
+        return landed.fields[-1], (accepted, landed.attempts - accepted)
     finally:
         backend.close()
 
@@ -124,14 +126,12 @@ def test_a_large_state_crosses_both_ways_through_the_ring_bit_for_bit(
         assert field.nbytes >= 2**28
         assert engine.memory_ledger()["host_crossing_ring"] == 0
         # The state's own crossings, each way.
-        engine._native_state.set_initial(
-            np.ascontiguousarray(field.reshape(-1)), np.empty(0, dtype=np.complex128)
-        )
+        load_native(engine, field, clear_fsal=False)
         assert engine.memory_ledger()["host_crossing_ring"] > 0
         back = engine._native_state.field_to_host().reshape(shape)
         assert back.tobytes() == field.tobytes()
         # A session's load and its launch plane's export.
-        observed = launch_field(engine, problem, run_request, field)
+        observed = launch(engine, problem, run_request, field=field).field
         assert observed.tobytes() == field.tobytes()
     finally:
         engine.close()
@@ -160,7 +160,7 @@ def test_the_plans_of_the_scratch_hold_one_work_area(accelerator_backend):
     try:
         state = int(np.prod(problem.shape)) * 16
         assert float(run_request.stepper.save_planes[-1]) == 2 * STEP
-        field = run_session(engine, problem, run_request).field
+        field = run(engine, problem, run_request).fields[-1]
         assert np.isfinite(field).all() and np.any(field != 0.0)
         assert engine.memory_ledger()["fft_plan_device_growth"] < 1.5 * state
     finally:
@@ -185,7 +185,7 @@ def test_a_small_state_holds_no_pinned_ring(accelerator_backend):
         ),
     )
     try:
-        launch_field(engine, problem, run_request)
+        launch(engine, problem, run_request)
         assert engine.memory_ledger()["host_crossing_ring"] == 0
     finally:
         engine.close()

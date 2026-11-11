@@ -19,7 +19,7 @@ import pytest
 from bounds import EPS, assert_within, step_bound
 from conftest import PhaseACase, RamanCase
 from legacy_geometry import LEGACY_GRID
-from session_runs import finish, loaded_state, native_trial, steps
+from session_runs import committed_steps, load_native, native_trial, run
 from solprop.backends.events import ObservationReady
 from solprop.backends.low_storage import schedule_key
 from solprop.backends.node_chunk import plan_node_chunk
@@ -86,7 +86,7 @@ def test_rk_source_dispatch_counter_resets_and_excludes_fsal_reuse(
         try:
             assert backend.metadata()["source_evaluations"] == 0
             for _ in range(2):
-                finish(backend, problem, configured_request, owns=False)
+                run(backend, problem, configured_request)
                 assert backend.metadata()["source_evaluations"] == expected
         finally:
             backend.close()
@@ -184,10 +184,10 @@ def test_stage_observation_owns_its_host_copy_and_checks_lifetime(
     """
     problem, run_request, grid = phase_a_case
     backend = NativeBackend(problem, run_request, grid=grid)
-    state = loaded_state(backend, problem.initial.field0)
+    state = load_native(backend, problem.initial.field0, clear_fsal=False)
     with pytest.raises(RuntimeError, match="stage"):
         state.stage_to_host(0)
-    native_trial(backend, state, 0.0, 1e-4)
+    native_trial(backend, 0.0, 1e-4)
     derivative = state.stage_to_host(0)
     assert derivative.shape == (1, grid.n_omega)
     assert derivative.dtype == np.complex128
@@ -270,18 +270,21 @@ def test_the_low_storage_march_steps_as_the_reference(
         propagator_mode=mode,
     )
     marched, marched_request = problem, run_request.with_stepper(stepper)
-    reference = finish(
-        NumpyRefBackend(marched, marched_request, grid=grid), marched, marched_request
-    ).planes[-1]["field"]
+    reference = run(
+        NumpyRefBackend(marched, marched_request, grid=grid),
+        marched,
+        marched_request,
+        owns=True,
+    ).fields[-1]
     backend = NativeBackend(marched, marched_request, grid=grid)
+    record: dict[str, object] = {}
     try:
-        run = finish(backend, marched, marched_request, owns=False)
+        field = run(backend, marched, marched_request, record=record).fields[-1]
         ledger = backend.memory_ledger()
     finally:
         backend.close()
     assert ledger["stages"] == ledger["advanced"] == 0
-    assert run.record["source_evaluations"] == 4 * steps
-    field = run.planes[-1]["field"]
+    assert record["source_evaluations"] == 4 * steps
     # Four transform round trips a step (no stage combination: one register read),
     # and the flows' exponents, formed from the table or the phase terms against the
     # reference's propagator: a few roundings of the largest phase a step sweeps.
@@ -369,7 +372,7 @@ def test_a_low_storage_table_never_built_is_refused(phase_a_case: PhaseACase) ->
     try:
         # The resident engine on the loaded state, with the key of the first step's
         # table, which no step built.
-        loaded_state(backend, marched.initial.field0)
+        load_native(backend, marched.initial.field0, clear_fsal=False)
         method = marched_request.stepper.integrator
         assert isinstance(method, LowStorageRungeKutta)
         engine = _ResidentLowStorage(backend, method)
@@ -395,8 +398,9 @@ def test_an_adams_integrator_steps_as_the_reference(phase_a_case: PhaseACase) ->
     found: list[tuple[npt.NDArray[np.complex128], tuple[int, int]]] = []
     for backend_class in (NumpyRefBackend, NativeBackend):
         backend = backend_class(adams, adams_request, grid=grid)
-        planes = finish(backend, adams, adams_request).planes
-        found.append((planes[-1]["field"], steps(planes)))
+        result = run(backend, adams, adams_request, owns=True)
+        accepted = committed_steps(result)
+        found.append((result.fields[-1], (accepted, result.attempts - accepted)))
     (reference, reference_steps), (field, native_steps) = found
     assert native_steps == reference_steps
     # solprop's own parity test measures 8e-16 to 1.8e-15 of the peak.
@@ -417,12 +421,12 @@ def test_an_adams_integrator_observes_densely_as_the_reference(
     found: list[npt.NDArray[np.complex128]] = []
     for backend_class in (NumpyRefBackend, NativeBackend):
         backend = backend_class(adams, adams_request, grid=grid)
-        planes = finish(backend, adams, adams_request).planes
+        result = run(backend, adams, adams_request, owns=True)
         # The save planes, after the launch.
-        assert [plane["z"] for plane in planes[1:]] == list(
+        assert [plane.z for plane in result.all_planes()[1:]] == list(
             adams_request.stepper.save_planes
         )
-        found.append(np.stack([plane["field"] for plane in planes[1:]]))
+        found.append(np.stack(result.fields[1:]))
     reference, field = found
     scale = float(np.max(np.abs(reference)))
     np.testing.assert_allclose(field, reference, rtol=0, atol=1e-12 * scale)
@@ -481,16 +485,17 @@ def test_runge_kutta_native_resume_keeps_no_logical_ledger(
         empty: tuple[dict[str, object], ...] = ({}, {"logical": {}, "atomic": {}})
         for ledgers in empty:
             start = _resumed(problem, ledgers)
-            finish(backend, problem, run_request, start, owns=False)
+            run(backend, problem, run_request, start)
         # A Runge-Kutta march keeps no logical ledger: the counts stay with the
         # earlier execution as provenance, not installed (SEP 42 section 5.6).
         start = _resumed(problem, {"logical": {"startup": 1}, "atomic": {}})
-        record = finish(backend, problem, run_request, start, owns=False).record
+        record: dict[str, object] = {}
+        run(backend, problem, run_request, start, record=record)
         assert "response_calls" not in record
         assert "response_calls" not in backend.metadata()
         start = _resumed(problem, {"logical": {}, "atomic": {"attempted": 1}})
         with pytest.raises(BackendError, match="does not restore"):
-            finish(backend, problem, run_request, start, owns=False)
+            run(backend, problem, run_request, start)
     finally:
         backend.close()
 
@@ -941,10 +946,10 @@ def test_temporal_statistics_are_refused_on_a_spatial_problem(
     finally:
         backend.close()
     run_request = run_request.for_run(stats=StatsSpec(names=("energy",)))
-    planes = finish(
-        NativeBackend(problem, run_request, grid=grid), problem, run_request
+    result = run(
+        NativeBackend(problem, run_request, grid=grid), problem, run_request, owns=True
     )
-    assert all(np.all(plane["stats"]["energy"] == 0) for plane in planes.planes)
+    assert all(np.all(plane.stats["energy"] == 0) for plane in result.all_planes())
 
 
 def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() -> None:
@@ -995,7 +1000,7 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = loaded_state(backend, problem.initial.field0)
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
         info = build_info()
         # The native rule: a HYBRID or KOKKOSBLAS_TPL build on a host execution
         # space, at this shape; the dev build is HYBRID without TPL BLAS and packs too.
@@ -1011,7 +1016,7 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
         else:
             assert not provider.endswith("-packed-real"), provider
             assert ledger.get("radial_blas_buffers", 0) == 0
-        native_trial(backend, state, 0.0, 0.0)
+        native_trial(backend, 0.0, 0.0)
         actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
     finally:
         backend.close()
@@ -1047,8 +1052,7 @@ def test_envelope_raman_ignores_field_beat_flag(raman_case: RamanCase) -> None:
     for candidate in (problem, changed):
         backend = NativeBackend(candidate, run_request, grid=grid)
         try:
-            planes = finish(backend, candidate, run_request, owns=False).planes
-            fields.append(planes[-1]["field"])
+            fields.append(run(backend, candidate, run_request).fields[-1])
             assert backend.metadata()["raman_drive"] == "cycle_averaged"
         finally:
             backend.close()

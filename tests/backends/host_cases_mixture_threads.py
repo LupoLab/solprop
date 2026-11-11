@@ -59,8 +59,8 @@ def fixed_schedule(run_request, grid, steps=8):
 # was given are not array names: only a subprocess run saves the arrays.
 
 if __name__ == "__main__":
-    from backends._session_probe_b1 import history, last_field, rows, run
     from backends.forced_threads import record_sizing
+    from sessions.runs import run
 
     record_sizing(sys.argv[1])
     solprop_native = importlib.import_module("solprop_native")
@@ -79,10 +79,10 @@ if __name__ == "__main__":
             ),
         )
         values = result.observations[-1].stats
-        taken = rows(result)
+        taken = result.joined[1]
         arrays: dict[str, Any] = {
-            "field": last_field(result),
-            "steps": np.array(history(result).n_steps),
+            "field": result.fields[-1],
+            "steps": np.array(result.joined[0].n_steps),
             "z": taken.z,
         }
         for name in NAMES:

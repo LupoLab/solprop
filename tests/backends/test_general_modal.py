@@ -28,8 +28,6 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from backends._session_probe_b1 import last_field, state_stats
-from backends._session_probe_b1 import run as session_run
 from bounds import assert_within, fft_bound, higham_gamma
 from legacy_geometry import LEGACY_GRID
 from modal_provider_cases import (
@@ -39,6 +37,8 @@ from modal_provider_cases import (
     GENERAL_Z_END as Z_END,
 )
 from modal_provider_cases import general_case as strand_case
+from sessions.runs import launch_statistics
+from sessions.runs import run as session_run
 from solprop import fourier
 from solprop import stats as stats_module
 from solprop.backends import select
@@ -845,9 +845,13 @@ def test_both_backends_check_the_whitelist_before_the_spatial_branch(name):
             with pytest.raises(
                 BackendError, match=f"{asked} is unavailable for this spatial run"
             ):
-                state_stats(built, problem, launch, StatsSpec(names=(asked,)))
+                launch_statistics(
+                    built, problem, field=launch, stats=StatsSpec(names=(asked,))
+                )
         # And the spatial run's own statistics still come back.
-        assert state_stats(built, problem, launch, StatsSpec(names=("fwhm_r",)))
+        assert launch_statistics(
+            built, problem, field=launch, stats=StatsSpec(names=("fwhm_r",))
+        )
     finally:
         built.close()
 
@@ -886,8 +890,11 @@ def test_a_general_statistic_under_a_weight_that_is_not_one_is_refused(strand, n
             with pytest.raises(
                 BackendError, match=f"{asked} is unavailable for this run"
             ):
-                state_stats(
-                    built, problem, problem.initial.field0, StatsSpec(names=names)
+                launch_statistics(
+                    built,
+                    problem,
+                    field=problem.initial.field0,
+                    stats=StatsSpec(names=names),
                 )
     finally:
         built.close()
@@ -2060,7 +2067,7 @@ def test_native_runs_ten_steps_of_the_route_as_numpy_ref_does(
     def run(implementation, one):
         backend = implementation(one, run_request, grid=grid)
         try:
-            return last_field(session_run(backend, one))
+            return session_run(backend, one).fields[-1]
         finally:
             backend.close()
 

@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import dataclasses
 import math
-from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 import pytest
 from bounds import assert_within, assert_work_within, departure
 from conftest import PhaseACase, RamanCase
-from session_runs import finish, steps
+from session_runs import Run, committed_steps, run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
 from solprop.grid import EnvelopeGrid
@@ -69,10 +68,10 @@ def _run(
     run_request: RunRequest,
     grid: EnvelopeGrid,
     start: Start | None = None,
-) -> list[dict[str, Any]]:
-    """Run the problem through the backend's session; return its observations."""
+) -> Run:
+    """Run the problem through the backend's session, which closes the backend."""
     backend = backend_class(problem, run_request, grid=grid)
-    return finish(backend, problem, run_request, start).planes
+    return run(backend, problem, run_request, start, owns=True)
 
 
 def _one_step(run_request: RunRequest, dz: float) -> RunRequest:
@@ -93,7 +92,7 @@ def test_one_trial_matches_numpy_within_sixteen_epsilon(
     problem, run_request, grid = phase_a_case
     stepped = _one_step(run_request, 1e-4)
     expected, actual = (
-        _run(backend_class, problem, stepped, grid)[-1]["field"]
+        _run(backend_class, problem, stepped, grid).fields[-1]
         for backend_class in (NumpyRefBackend, NativeBackend)
     )
     bound = _phase_factor(16, problem.grids.n_to, 7) * float(np.max(np.abs(expected)))
@@ -113,9 +112,9 @@ def test_eight_fixed_steps_match_within_128_epsilon(
     )
     fields: list[ComplexArray] = []
     for backend_class in (NumpyRefBackend, NativeBackend):
-        planes = _run(backend_class, fixed, fixed_request, grid)
-        assert planes[-1]["z"] == pytest.approx(1e-3)
-        fields.append(planes[-1]["field"])
+        result = _run(backend_class, fixed, fixed_request, grid)
+        assert result.all_planes()[-1].z == pytest.approx(1e-3)
+        fields.append(result.fields[-1])
     bound = _phase_factor(128, problem.grids.n_to, 8 * 7) * float(
         np.max(np.abs(fields[0]))
     )
@@ -142,9 +141,9 @@ def _tight_reference(
             )
         ),
     )
-    planes = _run(NumpyRefBackend, tight, tight_request, grid)
-    assert planes[-1]["z"] == 1e-3
-    return planes[-1]["field"]
+    result = _run(NumpyRefBackend, tight, tight_request, grid)
+    assert result.all_planes()[-1].z == 1e-3
+    return result.fields[-1]
 
 
 def _run_adaptively(
@@ -154,9 +153,9 @@ def _run_adaptively(
     grid: EnvelopeGrid,
 ) -> tuple[int, ComplexArray]:
     """Return an adaptive run's accepted steps to 1 mm and its field there."""
-    planes = _run(backend_class, problem, run_request, grid)
-    assert planes[-1]["z"] == 1e-3
-    return steps(planes)[0], planes[-1]["field"]
+    result = _run(backend_class, problem, run_request, grid)
+    assert result.all_planes()[-1].z == 1e-3
+    return committed_steps(result), result.fields[-1]
 
 
 ENVELOPE_FACTOR = 4.0
@@ -245,16 +244,16 @@ def test_resume_matches_an_uninterrupted_replay(phase_a_case: PhaseACase) -> Non
         ),
     )
     whole = _run(NativeBackend, fixed, fixed_request, grid)
-    assert [plane["z"] for plane in whole] == [0.0, 5e-4, 1e-3]
-    expected = whole[-1]["field"]
+    assert [plane.z for plane in whole.all_planes()] == [0.0, 5e-4, 1e-3]
+    expected = whole.fields[-1]
     # A resume from the saved plane halfway.
-    halfway = whole[1]["field"]
+    halfway = whole.fields[1]
     start = Start(
         field=halfway, z=5e-4, plane_index=1, plane_pending=False, resume=True
     )
     resumed = _run(NativeBackend, fixed, fixed_request, grid, start)
-    assert [plane["z"] for plane in resumed] == [1e-3]
-    actual = resumed[-1]["field"]
+    assert [plane.z for plane in resumed.all_planes()] == [1e-3]
+    actual = resumed.fields[-1]
     bound = 32 * EPS * float(np.max(np.abs(expected)))
     np.testing.assert_allclose(actual, expected, rtol=0.0, atol=bound)
 
@@ -269,7 +268,7 @@ def test_fsal_is_promoted_after_acceptance_and_cleared_at_a_load(
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
         assert backend.metadata()["fsal_ready"] is False
-        finish(backend, problem, run_request, owns=False)
+        run(backend, problem, run_request)
         assert backend.metadata()["fsal_ready"] is True
         # A second run's start loads the launch again, which drops the stage.
         session = backend.prepare(problem, run_request).start(
@@ -290,7 +289,7 @@ def test_one_complete_raman_response_matches_the_reference(
     problem, run_request, grid = raman_case
     stepped = _one_step(run_request, 1e-6)
     expected, actual = (
-        _run(backend_class, problem, stepped, grid)[-1]["field"]
+        _run(backend_class, problem, stepped, grid).fields[-1]
         for backend_class in (NumpyRefBackend, NativeBackend)
     )
     established = 512 * EPS * np.log2(2 * problem.grids.n_to)

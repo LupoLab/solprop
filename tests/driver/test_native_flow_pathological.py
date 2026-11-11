@@ -32,6 +32,7 @@ import pytest
 import flow_parity
 from flow_parity import QUIET, STEPS, UNIT, build, reference_formation_bound
 from native_flow_guards import check_flow_conditioning as check_native
+from sessions.runs import load_native, native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref import passes as reference_passes
 from solprop.backends.numpy_ref.backend import (
@@ -206,11 +207,8 @@ def _native_partials(problem, run_request, grid, field, dz):
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend._staged_rows()
-        state = backend._native_state
-        launch = np.ascontiguousarray(field, dtype=np.complex128)
-        state.set_initial(launch.reshape(-1), np.empty(0, dtype=np.complex128))
-        nodes = [float(node) for node in run_request.stepper.tableau.nodes]
-        return np.asarray(state.rk_trial(0.0, dz, nodes, prepare_only=False))
+        load_native(backend, field, clear_fsal=False)
+        return native_trial(backend, 0.0, dz)
     finally:
         backend.close()
 

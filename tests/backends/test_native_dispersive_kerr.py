@@ -33,8 +33,6 @@ from typing import Any
 import numpy as np
 import pytest
 
-from backends._session_probe_b1 import launched_state, native_source
-from backends._session_probe_b1 import run as session_run
 from backends.dispersive_cases import (
     GRID_CASES,
     LENGTH,
@@ -52,6 +50,8 @@ from backends.dispersive_cases import evaluation_bound as cpu_evaluation_bound
 from backends.forced_threads import assert_threaded
 from backends.matched import fixed_order, native_thread_fields
 from bounds import assert_within, dispersive_device_bound, step_evaluations
+from sessions.runs import load_native, native_source
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
@@ -337,7 +337,7 @@ def test_a_state_with_zero_frequency_content_matches_the_reference(thg, evaluato
     start[..., 0] = 1e-3 * np.abs(start).max()
     backend = NativeBackend(problem, run_request, grid=simulation.grid)
     try:
-        held = launched_state(backend, start).field_to_host().reshape(problem.shape)
+        held = load_native(backend, start).field_to_host().reshape(problem.shape)
     finally:
         backend.close()
     np.testing.assert_array_equal(held[..., 0], 0.0)

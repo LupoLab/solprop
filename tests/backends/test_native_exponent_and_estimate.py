@@ -18,10 +18,10 @@ pytest.importorskip("solprop_native")
 
 from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
 
-from backends._session_probe_b2 import run_session
 from backends.forced_thread_cases import route_adams_problem
 from backends.low_storage_cases import varying_capillary, with_mode
 from bounds import EPS, assert_within
+from sessions.runs import run
 from solprop.backends.memory import (
     reference_base_memory,
 )
@@ -68,11 +68,11 @@ def test_a_separable_exponent_is_the_host_volume():
     try:
         # The backend's session: its launch plane is the loaded state, masked to the
         # band, and its last the state after the one step.
-        landed = run_session(backend, problem, run_request)
+        landed = run(backend, problem, run_request)
     finally:
         backend.close()
-    assert [event.z for event in landed.run.observations] == [0.0, end]
-    loaded, got = landed.run.fields[0], landed.field
+    assert [event.z for event in landed.observations] == [0.0, end]
+    loaded, got = landed.fields[0], landed.fields[-1]
     # The exponent keeps the operator tables' leading axis of one.
     exponent = delta_phi(problem.linear, 0.0, end)[0]
     assert_within(

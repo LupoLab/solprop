@@ -10,11 +10,11 @@ from functools import partial
 import numpy as np
 import pytest
 
-from _session_probe_extra import final_field
-from _session_probe_extra import run as session_run
 from backends.test_radial_nonlinear import derivative, make_problem
 from bounds import gamma
 from cartesian_oracles import longitudinal_square
+from sessions.runs import final_field
+from sessions.runs import run as session_run
 from solprop import fourier
 from solprop.backends.session import ExecutionOptions
 from solprop.constants import EPS0, C
@@ -179,11 +179,11 @@ def test_resolved_grazing_allows_backend_construction_and_a_zero_field_trial(
         [KerrResponse(1e-22)],
     )
     backend = spatial_backend_class(problem, run_request, grid=grid)
-    ran = session_run(backend, problem, run_request)
+    ran = session_run(backend, problem, run_request, owns=True)
     # All terms are homogeneous in E. Cutoff correction cannot create a field: every
     # step of the backend's own session scores zero and leaves the zero field.
-    assert ran.n_steps > 0
-    np.testing.assert_array_equal(ran.history.error_norm, 0.0)
+    assert ran.attempts > 0
+    np.testing.assert_array_equal(ran.joined[0].error_norm, 0.0)
     np.testing.assert_array_equal(ran.final.field, problem.initial.field0)
 
 
@@ -223,5 +223,5 @@ def test_cartesian_linear_flow_resolves_both_sides_and_exact_cutoff(
     # operations on O(1) amplitudes; the represented square root is exact here.
     bound = 64 * np.finfo(float).eps
     backend = spatial_backend_class(problem, run_request, grid=grid)
-    actual = final_field(backend, problem, run_request, grid.length)
+    actual = final_field(backend, problem, run_request, z=grid.length, owns=True)
     np.testing.assert_allclose(actual, expected, rtol=0, atol=bound)

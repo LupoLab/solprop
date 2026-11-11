@@ -283,6 +283,7 @@ def test_a_failure_partway_through_a_step_poisons_the_session():
     run = _closed(
         _native(problem, run_request, after=FAILING - 1),
         between=lambda session, batch: pending.append(session.pending_ticket()),
+        raises=False,
     )
     terminal = run.terminal
     assert terminal.outcome is Outcome.FAILED
@@ -292,7 +293,7 @@ def test_a_failure_partway_through_a_step_poisons_the_session():
     assert "injected native failure" in str(terminal.error)
     assert run.status.attempts == FAILING - 1
     assert terminal.z == run.accepted_ends()[-1]
-    baseline = _closed(_reference(problem, run_request, failing=FAILING))
+    baseline = _closed(_reference(problem, run_request, failing=FAILING), raises=False)
     assert isinstance(baseline.terminal.error, _AbandonedError)
     _assert_poisoned_alike(run, baseline, 1e-12)
 
@@ -325,7 +326,7 @@ def test_a_diverged_step_poisons_the_session_where_the_reference_s_does():
     is the low-storage march's own.
     """
     problem, run_request = _replayed(1e3)
-    run = _closed(_native(problem, run_request))
+    run = _closed(_native(problem, run_request), raises=False)
     terminal = run.terminal
     assert terminal.outcome is Outcome.FAILED
     assert terminal.eligibility is Eligibility.POISONED
@@ -333,12 +334,12 @@ def test_a_diverged_step_poisons_the_session_where_the_reference_s_does():
     assert isinstance(terminal.error, ConvergenceError)
     assert "non-finite state" in str(terminal.error)
     assert 0 < run.status.attempts < STEPS
-    baseline = _closed(_reference(problem, run_request))
+    baseline = _closed(_reference(problem, run_request), raises=False)
     # The growing instability amplifies each backend's rounding: measured 5.8e-9
     # apart in the last plane's peak power.
     _assert_poisoned_alike(run, baseline, 1e-6)
     if _one_thread():
-        assert trace(_closed(_native(problem, run_request))) == trace(run)
+        assert trace(_closed(_native(problem, run_request), raises=False)) == trace(run)
 
 
 # A soliton in a tight window, without a collar: its edges are not what is tested here.

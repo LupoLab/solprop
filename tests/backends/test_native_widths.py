@@ -22,9 +22,9 @@ import numpy as np
 import pytest
 
 import solprop.backends.spatial as host_spatial
-from backends._session_probe_b2 import launch_statistics, launched
 from backends.planar_cases import planar_case
 from bounds import assert_within, device_backend, gamma
+from sessions.runs import launch_statistics, launched, load_native
 from solprop.backends import select
 from solprop.backends.events import Terminal
 from solprop.backends.session import Start
@@ -139,17 +139,9 @@ def _measure(name, grid, problem, run_request, field, spec):
     request = run_request.for_run(stats=spec)
     backend = select(name, problem, request, grid=grid)
     try:
-        return launch_statistics(backend, problem, request, field)
+        return launch_statistics(backend, problem, request, field=field)
     finally:
         backend.close()
-
-
-def _load(backend, field):
-    """Load `field` into the native state directly, for its kernels' own calls."""
-    flat = np.ascontiguousarray(field, dtype=np.complex128).reshape(-1)
-    state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
-    state.set_initial(flat, np.empty(0, dtype=np.complex128))
-    return state
 
 
 def _width_budget(grid, problem):
@@ -296,7 +288,7 @@ def _check_fluence(monkeypatch, route, kind):
     monkeypatch.undo()
     backend = select("native", problem, run_request, grid=grid)
     try:
-        state = _load(backend, field)
+        state = load_native(backend, field, clear_fsal=False)
         packed = np.ravel(state.spatial_statistics(16, 0.5 * EPS0 * C, 0.0))
     finally:
         backend.close()
@@ -350,7 +342,7 @@ def test_a_plane_s_moments_bound_the_refusal_as_its_fluence_does(route, kind):
     field = _field_for(route, grid, problem)
     backend = select("native", problem, run_request, grid=grid)
     try:
-        state = _load(backend, field)
+        state = load_native(backend, field, clear_fsal=False)
         fluence = np.ravel(state.spatial_statistics(16, 0.5 * EPS0 * C, 0.0))
         moments = np.ravel(state.spatial_statistics(32, 0.5 * EPS0 * C, 0.0))
     finally:
@@ -520,7 +512,7 @@ def test_the_native_trace_needs_a_held_plane_and_real_rings():
     no_rings = np.empty(0)
     factor = 0.5 * EPS0 * C
     try:
-        state = _load(backend, problem.initial.field0)
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
         with pytest.raises(RuntimeError, match="follows the call that holds it"):
             state.plane_fluence_trace(
                 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0, no_rings, no_rings
@@ -546,7 +538,7 @@ def test_a_line_has_no_plane_moments():
     grid, problem, run_request = _route("line")
     backend = select("native", problem, run_request, grid=grid)
     try:
-        state = _load(backend, problem.initial.field0)
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
         with pytest.raises(ValueError, match="need a Cartesian plane"):
             state.spatial_statistics(32, 0.5 * EPS0 * C, 0.0)
     finally:

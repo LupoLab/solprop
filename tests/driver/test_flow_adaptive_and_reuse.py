@@ -32,7 +32,6 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from _session_probe_rest import bare, final_field, run_error, run_session
 from driver.test_moving_guide import GRIN_PULSE, grin_taper, kinked_radius
 from driver.test_wall_beside_gas_responses import (
     entry_point,
@@ -42,6 +41,8 @@ from driver.test_wall_beside_gas_responses import (
 from flow_parity import LENGTH, QUIET, STEPS, build, departure, run
 from march_bounds import FIXED_ORDER, assert_matched
 from modal_provider_cases import grin_grid
+from sessions.runs import bare, final_field, run_error
+from sessions.runs import run as session_run
 from solprop.backends.events import Outcome
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
@@ -281,8 +282,8 @@ def test_a_flow_refused_mid_run_leaves_nothing_that_breaks_the_next_backend(back
     refused, refused_request = mid_run_refusal(problem, run_request)
     # Through the backend's session, which ends failed and closes it (SEP 47 phase 5).
     failing = cls(refused, refused_request, grid=grid)
-    terminal = run_session(
-        failing, refused, bare(refused_request), recipe=None, raises=False
+    terminal = session_run(
+        failing, refused, bare(refused_request), export=None, owns=True, raises=False
     ).terminal
     assert terminal.outcome is Outcome.FAILED
     assert isinstance(terminal.error, BackendError)
@@ -337,7 +338,13 @@ def test_a_moving_guide_that_fails_to_converge_leaves_the_next_backend_intact(
 
     def final(one, one_request):
         # Through the backend's session, which closes it (SEP 47 phase 5).
-        return final_field(cls(one, one_request, grid=grid), one, one_request)
+        return final_field(
+            cls(one, one_request, grid=grid),
+            one,
+            bare(one_request),
+            ended=True,
+            owns=True,
+        )
 
     before = final(problem, run_request)
     stuck = run_request.with_stepper(
@@ -348,6 +355,6 @@ def test_a_moving_guide_that_fails_to_converge_leaves_the_next_backend_intact(
             dz_min=run_request.stepper.dz_init,
         )
     )
-    failure = run_error(cls(problem, stuck, grid=grid), problem, bare(stuck))
+    failure = run_error(cls(problem, stuck, grid=grid), problem, bare(stuck), owns=True)
     assert isinstance(failure, ConvergenceError), failure
     assert_matched(final(problem, run_request), before, record_bound(built, before))

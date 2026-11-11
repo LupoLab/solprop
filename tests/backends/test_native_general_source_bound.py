@@ -17,7 +17,6 @@ import warnings
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import native_trial, run_session
 from general_parity import (
     CASES,
     LENGTH,
@@ -29,6 +28,8 @@ from general_parity import (
     source_bound,
     ten_step_bound,
 )
+from sessions.runs import native_trial
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.backend import _general_maps
 from solprop.exceptions import GeneralModalBasisWarning
@@ -70,11 +71,11 @@ def run(backend_class, problem, run_request, grid):
     """Return the final state of ten fixed steps on one backend, in its session."""
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        landed = run_session(backend, problem, run_request)
+        landed = session_run(backend, problem, run_request)
     finally:
         backend.close()
-    assert landed.run.observations[-1].z == pytest.approx(LENGTH, rel=1e-12)
-    return landed.field
+    assert landed.observations[-1].z == pytest.approx(LENGTH, rel=1e-12)
+    return landed.fields[-1]
 
 
 def departure(got, expected):
@@ -95,7 +96,7 @@ def test_one_stage_of_the_source_is_the_reference_within_the_bound(
     expected = reference_source(maps, state, grid) * grid.crop_scale
     backend = native.NativeBackend(problem, run_request, grid=grid)
     try:
-        native_trial(backend, run_request, 0.0, 0.0, field=problem.initial.field0)
+        native_trial(backend, 0.0, 0.0, field=problem.initial.field0)
         got = np.asarray(backend._native_state.stage_to_host(0)).reshape(expected.shape)
     finally:
         backend.close()

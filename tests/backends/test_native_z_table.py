@@ -23,9 +23,9 @@ import warnings
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import run_session
 from bounds import EPS
 from march_bounds import FIXED_ORDER, assert_matched, march_bound
+from sessions.runs import run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.exceptions import BackendError, MaterialRangeWarning
@@ -186,7 +186,7 @@ def replay(backend_class, problem, run_request, grid):
     assert float(run_request.stepper.save_planes[-1]) == LENGTH
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        field = run_session(backend, problem, run_request).field
+        field = run(backend, problem, run_request).fields[-1]
     finally:
         backend.close()
     assert np.all(np.isfinite(field))

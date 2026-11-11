@@ -15,7 +15,6 @@ import math
 
 import numpy as np
 
-from _session_probe_rest import run_session, saved
 from former_raman import (
     FORMER_CH4,
     FORMER_D2,
@@ -25,6 +24,8 @@ from former_raman import (
     FORMER_SF6,
     former_response,
 )
+from sessions.runs import load_native, native_trial, saved
+from sessions.runs import run as run_session
 from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
@@ -143,11 +144,8 @@ def result(backend_class, problem, run_request, grid, modes, options=CHUNK):
             assert backend.name == "native"
             assert problem.initial.noise0 is None
             backend._staged_rows()
-            state = backend._native_state
-            launch = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
-            state.set_initial(launch.reshape(-1), np.empty(0, dtype=np.complex128))
-            nodes = [float(node) for node in run_request.stepper.tableau.nodes]
-            state.rk_trial(0.0, LENGTH / 8, nodes, prepare_only=False)
+            state = load_native(backend, problem.initial.field0, clear_fsal=False)
+            native_trial(backend, 0.0, LENGTH / 8)
             rhs = np.array(state.stage_to_host(0))
         run = run_session(backend, problem, run_request, owns=False)
         (final, state), *_ = reversed(saved(run))

@@ -22,10 +22,10 @@ from typing import cast
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import launched, run_session
 from bounds import assert_within, device_backend, fft_bound, gamma, rate_log_sensitivity
 from rate_oracles import adk_oracle
 from sessions.executors import IDENTITY
+from sessions.runs import launched, load_native, run
 from solprop.backends import select
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -240,20 +240,24 @@ def test_consecutive_planes_scan_their_own_field(grid, table, name):
         select(name, problem, run_request, grid=grid, modes=[mode])
     ) as backend:
         # The backend's own session observes the launch and the plane at 4 mm.
-        landed = run_session(backend, problem, run_request)
+        landed = run(backend, problem, run_request)
         if name == "numpy_ref":
             # select() returns the seam's protocol; the counter is the driver's.
             assert cast("HostDriver", backend).axis_scans == 2
         first, second = (
             float(observation.stats["on_axis_electron_density"])
-            for observation in landed.run.observations
+            for observation in landed.observations
         )
         # The plane's value is a fresh scan of the plane's own field: the launch
         # statistics of that field, loaded alone, are the same to the bit.
-        with launched(backend, problem, run_request, landed.field) as (_, fresh):
+        at_plane = landed.all_planes()[-1]
+        with launched(backend, problem, run_request, field=at_plane.field) as (
+            _,
+            fresh,
+        ):
             for statistic in AXIS.names:
                 np.testing.assert_array_equal(
-                    fresh.stats[statistic], landed.stats[statistic], statistic
+                    fresh.stats[statistic], at_plane.stats[statistic], statistic
                 )
     assert first != second
 
@@ -536,8 +540,7 @@ def test_the_native_row_refuses_a_matrix_that_is_not_one_or_two_rows(grid, table
         state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
         with pytest.raises(RuntimeError, match="no initial field"):
             state.axis_spectrum(np.ones((1, 1)))
-        launch = np.ascontiguousarray(problem.initial.field0).reshape(-1)
-        state.set_initial(launch, np.empty(0, dtype=np.complex128))
+        load_native(backend, problem.initial.field0, clear_fsal=False)
         with pytest.raises(ValueError, match="at most two rows"):
             state.axis_spectrum(np.ones((3, 1)))
         with pytest.raises(ValueError, match="two-dimensional"):

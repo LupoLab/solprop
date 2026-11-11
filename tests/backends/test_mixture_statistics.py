@@ -12,9 +12,9 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
-from _session_probe_extra import run as session_run
 from bounds import assert_within, gamma
 from mixture_cases import mixture_translation
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.populations import population_statistics
 from solprop.exceptions import BackendError, OutputError
@@ -157,7 +157,7 @@ def test_inactive_components_keep_the_species_axis(backend_class, channels):
         stats=StatsSpec(names=names + (totals_names if channels else ()))
     )
     backend = backend_class(problem, run_request, grid=grid)
-    launch = session_run(backend, problem, run_request, until=0.0).launch
+    launch = session_run(backend, problem, run_request, owns=True, until=0.0).launch
     assert launch is not None
     values = launch.stats
     assert values["species_ionisation"].shape == (2, 1)

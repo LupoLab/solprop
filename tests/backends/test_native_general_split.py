@@ -22,7 +22,6 @@ import warnings
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import run_session
 from driver.test_native_moving_guide import grin_kinked, moving_parity_bound, propagate
 from general_parity import (
     LENGTH,
@@ -35,6 +34,7 @@ from general_parity import (
     ten_step_bound,
 )
 from modal_provider_cases import general_grid, split_guide
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.backend import _general_maps
 from solprop.boundaries import absorber
@@ -79,11 +79,11 @@ def run(backend_class, problem, run_request, grid, length=LENGTH):
     """
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        landed = run_session(backend, problem, run_request)
+        landed = session_run(backend, problem, run_request)
     finally:
         backend.close()
-    assert landed.run.observations[-1].z == pytest.approx(length, rel=1e-12)
-    return landed.field
+    assert landed.observations[-1].z == pytest.approx(length, rel=1e-12)
+    return landed.fields[-1]
 
 
 def departure(got, expected):

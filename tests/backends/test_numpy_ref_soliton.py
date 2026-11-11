@@ -19,8 +19,8 @@ import math
 import numpy as np
 import pytest
 
-from _session_probe_extra import run
 from convergence_records import Column, Study, record
+from sessions.runs import run
 from solprop.driver.scaffold import propagate_fixed_rk4
 from solprop.stepper import FixedSchedule, PIController, observed_order
 
@@ -32,7 +32,7 @@ def propagate(backend_class, problem, run_request, grid, distance):
     """Run a problem to its last plane, `distance`, through the backend's own session;
     return the summary there, the masked input and the final state."""
     plane = run(
-        backend_class(problem, run_request, grid=grid), problem, run_request
+        backend_class(problem, run_request, grid=grid), problem, run_request, owns=True
     ).final
     assert plane.z == distance
     summary, final = plane.summary, plane.field[0, 0]

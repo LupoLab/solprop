@@ -25,8 +25,8 @@ from scipy.integrate import quad_vec
 from scipy.linalg import expm
 
 import flow_parity
-from backends._session_probe_b1 import adams_ledger, last_field
-from backends._session_probe_b1 import run as session_run
+from sessions.runs import adams_ledger
+from sessions.runs import run as session_run
 from solprop.backends import available
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.multistep import (
@@ -198,7 +198,7 @@ def run(name, integrator, rtol, backend_class=NumpyRefBackend, **overrides):
     )
     try:
         record: dict[str, object] = {}
-        field = last_field(session_run(backend, problem, record=record))
+        field = session_run(backend, problem, record=record).fields[-1]
         adams = isinstance(integrator, Multistep)
         return field, SimpleNamespace(
             march=backend._adams if backend.name == "numpy_ref" else None,

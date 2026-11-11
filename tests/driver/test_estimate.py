@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from capability_routes import ROUTES
+from sessions.runs import load_native, native_trial
 from solprop.backends.protocol import stepping as host_stepping
 from solprop.backends.registry import available, select
 from solprop.backends.session import SessionError, Start
@@ -206,7 +207,7 @@ def _backend(simulation):
     )
 
 
-def _native_committed_nothing(problem, request, probed, fresh, dz):
+def _native_committed_nothing(problem, probed, fresh, dz):
     """Assert a native probe left its loaded state; return the native state's trial.
 
     The probed backend's native state holds the launch exactly, as a fresh native state
@@ -216,15 +217,12 @@ def _native_committed_nothing(problem, request, probed, fresh, dz):
     observes outside its session).
     """
     assert problem.initial.noise0 is None
-    launch = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
     fresh._staged_rows()
-    state = fresh._native_state
-    state.set_initial(launch.reshape(-1), np.empty(0, dtype=np.complex128))
+    state = load_native(fresh, problem.initial.field0, clear_fsal=False)
     loaded = state.field_to_host()
     held = probed._native_state.field_to_host()
     assert held.tobytes() == loaded.tobytes()
-    nodes = [float(node) for node in request.stepper.tableau.nodes]
-    state.rk_trial(float(problem.initial.z), dz, nodes, prepare_only=False)
+    native_trial(fresh, float(problem.initial.z), dz)
     state.finish(dz)
     return np.asarray(state.field_to_host()).reshape(problem.shape)
 
@@ -256,8 +254,7 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
         with pytest.raises(BackendError, match="take a trial"):
             probe.field()
         if backend == "native":
-            request = simulation._run_request()
-            trial = _native_committed_nothing(problem, request, probed, fresh, dz)
+            trial = _native_committed_nothing(problem, probed, fresh, dz)
         else:
             # Nothing was committed: no attempt, the launch position, the loaded state.
             host_stepping(fresh).set_initial(

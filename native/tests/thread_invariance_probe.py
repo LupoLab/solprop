@@ -28,7 +28,7 @@ from solprop.exceptions import MaterialRangeWarning
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, RungeKutta
 
-from session_runs import finish, joined, steps
+from session_runs import committed_steps, run
 
 LENGTH = 0.01
 STEPS = 40
@@ -82,23 +82,25 @@ backend = select(
     profiles=simulation.profiles,
 )
 try:
-    planes = finish(backend, problem, run_request, owns=False).planes
+    result = run(backend, problem, run_request)
     metadata = backend.metadata()
 finally:
     backend.close()
 
-history, rows = joined(planes)
-accepted, rejected = steps(planes)
+history, rows = result.joined
+accepted = committed_steps(result)
+rejected = result.attempts - accepted
+last = result.all_planes()[-1]
 np.savez(
     sys.argv[1],
     allow_pickle=False,
-    field=planes[-1]["field"],
-    z=history["z"],
-    dz=history["dz"],
-    error_norm=history["error_norm"],
-    accepted=history["accepted"],
-    **{f"rows_{name}": rows[name] for name in NAMES},
-    **{f"plane_{name}": planes[-1]["stats"][name] for name in NAMES},
+    field=result.fields[-1],
+    z=history.z,
+    dz=history.dz,
+    error_norm=history.error_norm,
+    accepted=history.accepted,
+    **{f"rows_{name}": rows.values[name] for name in NAMES},
+    **{f"plane_{name}": last.stats[name] for name in NAMES},
 )
 
 print(
@@ -107,7 +109,7 @@ print(
             "samples": simulation.grid.n_to,
             "steps": accepted,
             "rejected": rejected,
-            "rows": rows["z"].size,
+            "rows": rows.z.size,
             "threads": solprop_native.build_info().thread_count,
             "synthesis_provider": metadata["synthesis_provider"],
             "projection_provider": metadata["projection_provider"],

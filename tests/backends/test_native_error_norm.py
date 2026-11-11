@@ -31,8 +31,8 @@ import math
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import load_native, native_trial, run_session
 from bounds import EPS, gamma, higham_gamma
+from sessions.runs import load_native, native_trial, run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stepper import PIController
 
@@ -77,7 +77,7 @@ def _native_trial(problem, run_request, grid, dz):
     """Open native on a problem, take one trial, and return what it scored."""
     backend = native.NativeBackend(problem, run_request, grid=grid)
     load_native(backend, problem.initial.field0)
-    score = _score(backend, run_request, native_trial(backend, run_request, 0.0, dz))
+    score = _score(backend, run_request, native_trial(backend, 0.0, dz))
     return backend, score
 
 
@@ -174,7 +174,7 @@ def test_each_norm_is_read_from_its_own_state(capillary_problem, field_grid):
     backend = native.NativeBackend(problem, run_request, grid=field_grid)
     try:
         load_native(backend, problem.initial.field0)
-        partials = native_trial(backend, run_request, 0.0, dz)
+        partials = native_trial(backend, 0.0, dz)
         old, new = float(partials[0].sum()), float(partials[1].sum())
         backend._native_state.finish(dz)
         after = _field(backend, problem)
@@ -286,23 +286,23 @@ def test_the_recycled_stage_is_the_one_it_replaces(
     )
     backend = native.NativeBackend(problem, run_request, grid=field_grid)
     try:
-        landed = run_session(backend, problem, run_request)
+        landed = run(backend, problem, run_request)
         state = backend._native_state
         assert state.fsal_ready
-        z = float(landed.run.observations[-1].z)
+        z = float(landed.observations[-1].z)
         assert z == 0.02
-        history = [one for one in landed.run.histories if one.n_steps][-1]
+        history = [one for one in landed.histories if one.n_steps][-1]
         assert history.accepted[-1]
         dz = float(history.dz[-1])
         before = state.rk_source_evaluations
-        native_trial(backend, run_request, z, dz)
+        native_trial(backend, z, dz)
         # Six evaluations: the first stage was not evaluated, it was recycled.
         assert state.rk_source_evaluations == before + 6
         recycled = np.asarray(state.stage_to_host(0)).copy()
         # The same stage from scratch, at the same state and step.
         state.clear_fsal()
         before = state.rk_source_evaluations
-        native_trial(backend, run_request, z, dz)
+        native_trial(backend, z, dz)
         assert state.rk_source_evaluations == before + 7
         fresh = np.asarray(state.stage_to_host(0)).copy()
         gap = float(np.linalg.norm(recycled - fresh) / np.linalg.norm(fresh))
@@ -314,10 +314,8 @@ def test_the_recycled_stage_is_the_one_it_replaces(
         delta = 1e-11
         field = _field(backend, problem).copy()
         field *= 1.0 + delta * np.exp(2j * np.pi * rng.random(field.shape))
-        backend._native_state.set_initial(
-            np.ascontiguousarray(field.reshape(-1)), np.empty(0, dtype=np.complex128)
-        )
-        native_trial(backend, run_request, z, dz)
+        load_native(backend, field, clear_fsal=False)
+        native_trial(backend, z, dz)
         moved = np.asarray(state.stage_to_host(0))
         sensitivity = float(np.linalg.norm(moved - fresh) / np.linalg.norm(fresh))
         sensitivity /= delta

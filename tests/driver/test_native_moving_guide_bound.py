@@ -31,6 +31,7 @@ from driver.test_moving_guide import (
 )
 from general_parity import conditioning, moving_count, source_bound
 from modal_provider_cases import GENERAL_CHI3, grin_grid, make_provider
+from sessions.runs import load_native
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.backend import _general_maps
 from solprop.driver import Simulation
@@ -149,12 +150,11 @@ def source_at(implementation, problem, run_request, grid, positions):
     stepper = dataclasses.replace(run_request.stepper, integrator=Multistep())
     backend = implementation(problem, run_request.with_stepper(stepper), grid=grid)
     try:
-        engine, native = backend._resident, backend._native_state
+        engine = backend._resident
         assert type(engine).__name__ == "_ResidentAdams"
-        launch = np.ascontiguousarray(state, dtype=np.complex128).reshape(-1)
         sources = []
         for z in positions:
-            native.set_initial(launch, np.empty(0, dtype=np.complex128))
+            load_native(backend, state, clear_fsal=False)
             engine.start(float(z), stored=True)
             sources.append(np.array(engine.snapshot_rows()["store"][0]))
         return sources

@@ -48,6 +48,7 @@ import numpy as np
 from scripted_driver import SCALE, HostScriptedDriver
 from solprop.backends.events import (
     EventBatch,
+    ObservationKind,
     ObservationReady,
     ServiceKind,
     ServiceRequired,
@@ -57,7 +58,7 @@ from solprop.backends.events import (
 )
 from solprop.backends.export import ExportRecipe
 from solprop.backends.host.session import HostSession
-from solprop.backends.protocol import BackendHistory, StepStats
+from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.registry import select
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
@@ -115,6 +116,9 @@ CONSUMER = ExportRecipe(power=True, optics=False)
 """The field a saved plane, a plane observer and a checkpoint share (service loop)."""
 STORED = ExportRecipe(power=True, optics=True)
 """The field a plane store writes."""
+_NO_FIELD = np.empty(0, dtype=np.complex128)
+"""A plane's field in a run driven without an export recipe."""
+
 RECIPES = (IDENTITY, CONSUMER, ExportRecipe(power=False, optics=True), STORED)
 
 
@@ -823,6 +827,84 @@ EXECUTORS: dict[str, Executor] = {
 """Every executor of the suite, by name."""
 
 
+@dataclass(frozen=True, eq=False)
+class Plane:
+    """One observation of a run, with what it delivered since the previous one.
+
+    Attributes
+    ----------
+    event : solprop.backends.events.ObservationReady
+        The observation.
+    field : numpy.ndarray
+        Its field as the run exported it; empty for a run driven without an export
+        recipe.
+    history : solprop.backends.protocol.BackendHistory
+        Every attempt since the previous observation (:meth:`Run.assembled`).
+    rows : solprop.backends.protocol.StepStats
+        The periodic rows since the previous observation.
+    """
+
+    event: ObservationReady
+    field: np.ndarray
+    history: BackendHistory
+    rows: StepStats
+
+    @property
+    def z(self) -> float:
+        """Return the observation's position, m.
+
+        Returns
+        -------
+        float
+            The position.
+        """
+        return float(self.event.z)
+
+    @property
+    def kind(self) -> ObservationKind:
+        """Return why the plane was observed.
+
+        Returns
+        -------
+        solprop.backends.events.ObservationKind
+            The kind.
+        """
+        return self.event.kind
+
+    @property
+    def plane_index(self) -> int:
+        """Return the save plane the observation answers, ``-1`` for the launch.
+
+        Returns
+        -------
+        int
+            The index.
+        """
+        return self.event.plane_index
+
+    @property
+    def stats(self) -> dict[str, np.ndarray]:
+        """Return the observation's statistics by catalogue name.
+
+        Returns
+        -------
+        dict
+            The statistics.
+        """
+        return {name: np.asarray(value) for name, value in self.event.stats.items()}
+
+    @property
+    def summary(self) -> StepSummary:
+        """Return the cost and tolerance of the propagation that reached the plane.
+
+        Returns
+        -------
+        solprop.backends.protocol.StepSummary
+            The summary.
+        """
+        return self.event.summary
+
+
 @dataclass
 class Run:
     """What driving a session to its end produced.
@@ -944,6 +1026,86 @@ class Run:
         """
         return sum(history.n_steps for history in self.histories)
 
+    @property
+    def joined(self) -> tuple[BackendHistory, StepStats]:
+        """Return every attempt and every periodic row of the run, joined in order.
+
+        Returns
+        -------
+        tuple
+            The attempts and the rows, without a batch axis.
+        """
+        return join_attempts(self.chunks)
+
+    def all_planes(self) -> list[Plane]:
+        """Return every observation, the launch plane's included, in order.
+
+        Returns
+        -------
+        list of Plane
+            The observations, each with its exported field (when the run exported
+            one) and the attempts and rows assembled since the previous observation.
+        """
+        fields = (
+            list(self.fields) if self.fields else [_NO_FIELD] * len(self.observations)
+        )
+        found: list[Plane] = []
+        for event, history, rows in self.assembled():
+            if isinstance(event, ObservationReady):
+                found.append(Plane(event, fields[len(found)], history, rows))
+        return found
+
+    @property
+    def planes(self) -> list[Plane]:
+        """Return every observation after the launch plane, in order.
+
+        Returns
+        -------
+        list of Plane
+            The observations of save, step and dense planes.
+        """
+        return [
+            plane
+            for plane in self.all_planes()
+            if plane.kind is not ObservationKind.LAUNCH
+        ]
+
+    @property
+    def launch(self) -> Plane | None:
+        """Return the launch plane's observation, when the start owed it.
+
+        Returns
+        -------
+        Plane or None
+            The launch plane.
+        """
+        for plane in self.all_planes():
+            if plane.kind is ObservationKind.LAUNCH:
+                return plane
+        return None
+
+    @property
+    def final(self) -> Plane:
+        """Return the last observation after the launch plane.
+
+        Returns
+        -------
+        Plane
+            The observation.
+        """
+        return self.planes[-1]
+
+    @property
+    def met_tolerance(self) -> bool:
+        """Return whether every propagation between observations met its tolerance.
+
+        Returns
+        -------
+        bool
+            True when every plane after the launch reports it met.
+        """
+        return all(plane.summary.met_tolerance for plane in self.planes)
+
     def accepted_ends(self) -> np.ndarray:
         """Return the end of every accepted attempt, in order, m.
 
@@ -959,13 +1121,16 @@ class Run:
         )
 
 
-def drive(
+def drive(  # noqa: PLR0913 - the advance bounds and the drive's stopping rules
     started: Started,
     *,
     export: ExportRecipe | None = None,
     work_limit: int = DEFAULT_WORK_LIMIT,
     deadline: float = DEFAULT_DEADLINE,
     between: Callable[[RunSession, EventBatch], None] | None = None,
+    observations: int | None = None,
+    until: float | None = None,
+    raises: bool = True,
 ) -> Run:
     """Advance a session to its end, acknowledging each batch.
 
@@ -982,15 +1147,25 @@ def drive(
     between : callable or None, optional
         Called with the session and each batch, after any export and before the
         acknowledgment.
+    observations : int or None, optional
+        Stop once this many observations were reported, the launch plane's included,
+        instead of driving the session to its end.
+    until : float or None, optional
+        Stop after the batch of the first observation at this position, m.
+    raises : bool, optional
+        Raise a failed run's terminal error, as a service loop does; ``False`` returns
+        the run with its terminal failure.
 
     Returns
     -------
     Run
-        What the session reported.
+        What the session reported; the caller closes the session.
     """
     session = started.session
     batches: list[EventBatch] = []
     fields: list[np.ndarray] = []
+    seen = 0
+    reached = False
     while not session.finished:
         batch = session.advance(work_limit=work_limit, deadline=deadline)
         batches.append(batch)
@@ -998,6 +1173,9 @@ def drive(
             if isinstance(event, ServiceRequired) and event.kind is ServiceKind.WARNING:
                 # A warning barrier: emitted as a service loop emits it (SEP 47 5.5).
                 emit_warning(event)
+            if isinstance(event, ObservationReady):
+                seen += 1
+                reached = reached or (until is not None and event.z == until)
         if export is not None:
             fields.extend(
                 np.array(session.export(event.ticket, export))
@@ -1007,7 +1185,14 @@ def drive(
         if between is not None:
             between(session, batch)
         session.acknowledge(batch.receipt)
-    return Run(batches, fields, session.status())
+        if reached or (observations is not None and seen >= observations):
+            break
+    run = Run(batches, fields, session.status())
+    if raises and batches and batches[-1].terminal is not None:
+        error = run.terminal.error
+        if error is not None:
+            raise error
+    return run
 
 
 def _history(history: BackendHistory | None) -> tuple[object, ...]:

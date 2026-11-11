@@ -24,9 +24,9 @@ from typing import cast
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import run_session
 from capability_routes import ROUTES
 from sessions.executors import entrance
+from sessions.runs import run as session_run
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.sessions import start_session
@@ -132,8 +132,8 @@ def test_a_divisor_formed_on_the_host_takes_the_same_steps():
             profiles=simulation.profiles,
         )
         try:
-            landed = run_session(backend, problem, run_request)
-            run, record = landed.run, landed.record
+            record: dict[str, object] = {}
+            run = session_run(backend, problem, run_request, record=record)
             if implementation is NativeBackend:
                 assert type(backend._resident).__name__ == "_ResidentAdams"
             calls = cast("dict[str, int]", record["response_calls"])

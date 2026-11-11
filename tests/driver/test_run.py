@@ -11,7 +11,6 @@ import h5py
 import numpy as np
 import pytest
 
-from _session_probe_rest import final_field
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import (
     FIXED_ORDER,
@@ -20,6 +19,8 @@ from march_bounds import (
     assert_stored_matched,
     simulation_bound,
 )
+from sessions.runs import bare as bare_request
+from sessions.runs import final_field
 from solprop import fourier
 from solprop.backends.protocol import (
     Backend,
@@ -340,7 +341,14 @@ def test_the_stored_field_is_the_optics_spectrum_of_the_observation(build_simula
         modes=simulation.modes,
     )
     # Its last plane's state through the backend's own session, in the FFT convention.
-    last = final_field(backend, problem, run_request, Start.entrance(problem))
+    last = final_field(
+        backend,
+        problem,
+        bare_request(run_request),
+        Start.entrance(problem),
+        ended=True,
+        owns=True,
+    )
     expected = fourier.spectrum_to_optics(last, kind="envelope")
     # The same problem stepped the same way, a matched march; the storage boundary
     # is a conjugation and a sign flip, both exact in floating point (ADR-017).

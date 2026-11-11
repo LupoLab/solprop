@@ -24,11 +24,10 @@ import dataclasses
 import numpy as np
 import pytest
 
-from backends._session_probe_b1 import last_field
-from backends._session_probe_b1 import run as session_run
 from capability_routes import LENGTH, STEP, capillary_gradient
 from driver.test_specified_paths import GRID, PULSE, linear_walkoff
 from driver.test_specified_paths import LENGTH as MOVING_LENGTH
+from sessions.runs import run as session_run
 from solprop import _helpers
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
@@ -122,7 +121,7 @@ def propagate(backend_class, prepared):
         # The march alone, as the step driver's was: no plane statistic, whose
         # profiles are evaluated on the host.
         result = session_run(backend, problem, run_request.for_run(stats=StatsSpec()))
-        assert np.all(np.isfinite(last_field(result)))
+        assert np.all(np.isfinite(result.fields[-1]))
     finally:
         backend.close()
 

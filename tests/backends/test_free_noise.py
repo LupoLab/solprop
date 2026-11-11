@@ -9,8 +9,8 @@ from functools import partial
 import numpy as np
 import pytest
 
-from backends._session_probe_b1 import launched_state, rk_trial
 from bounds import gamma
+from sessions.runs import load_native, native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
@@ -83,10 +83,10 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
         # each backend's real stage-input/noise path at nonzero absolute z.
         if backend.name == "native":
             # The native state's own trial, the modified draw loaded beside it.
-            state = launched_state(
+            state = load_native(
                 backend, problem.initial.field0, noise_spectrum(noise, problem.shape)
             )
-            rk_trial(backend, position, 0.0)
+            native_trial(backend, position, 0.0)
             actual = state.stage_to_host(0).reshape(expected.shape)
         else:
             captured = []

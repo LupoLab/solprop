@@ -36,7 +36,6 @@ import numpy as np
 import pytest
 from scipy.integrate import solve_ivp
 
-from _session_probe_extra import final_field
 from modal_provider_cases import (
     GENERAL_CHI3,
     GRIN_AXIS_INDEX,
@@ -44,6 +43,7 @@ from modal_provider_cases import (
     GRIN_RADIUS,
     make_provider,
 )
+from sessions.runs import final_field
 from solprop.backends import select
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import EPS0
@@ -208,7 +208,7 @@ def run_fixed(case, state, steps, backend="numpy_ref"):
         schedule=equal_steps(FWM_LENGTH, steps),
     )
     owner = select(backend, problem, run_request, grid=case.grid)
-    return final_field(owner, problem, run_request, FWM_LENGTH)[:, 0, :]
+    return final_field(owner, problem, run_request, z=FWM_LENGTH, owns=True)[:, 0, :]
 
 
 def rounding_bound(case, state):

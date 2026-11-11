@@ -15,11 +15,11 @@ import numpy as np
 import pytest
 from scipy.linalg import expm
 
-from backends._session_probe_b1 import history, last_field, launched_state, rk_trial
-from backends._session_probe_b1 import run as session_run
 from backends.test_radial_absorber import LENGTH, assembled, rk_bound
 from backends.test_radial_nonlinear import derivative
 from bounds import gamma
+from sessions.runs import load_native, native_trial
+from sessions.runs import run as session_run
 from solprop.backends.session import ExecutionOptions
 from solprop.backends.spatial import collar_field_fraction
 from solprop.boundaries import Absorber, SpatialAbsorber
@@ -145,12 +145,12 @@ def test_cartesian_absorber_has_no_per_step_window_loss(
     try:
         result = session_run(backend, problem)
         assert result.observations[-1].z == LENGTH
-        actual = last_field(result)
+        actual = result.fields[-1]
         defect = np.linalg.norm(actual[:, :, index] - expected) / np.linalg.norm(
             start[:, :, index]
         )
         assert defect < bound, (defect, bound)
-        assert history(result).n_steps == steps
+        assert result.joined[0].n_steps == steps
         record_metric(
             request,
             "Cartesian spatial absorber matrix exponential (relative)",
@@ -236,8 +236,8 @@ def test_cartesian_split_step_temporal_absorber_reconstructs_physical_field(
         if backend.name == "native":
             # A zero-length trial loads the unmodified field into advanced;
             # finish then exercises precisely the once-per-step absorber.
-            state = launched_state(backend, problem.initial.field0)
-            rk_trial(backend, 0.0, 0.0)
+            state = load_native(backend, problem.initial.field0)
+            native_trial(backend, 0.0, 0.0)
             state.finish(dz)
             actual = state.field_to_host().reshape(start.shape)
         else:

@@ -14,7 +14,7 @@ from typing import cast
 import numpy as np
 import pytest
 from conftest import ComplexArray
-from session_runs import finish
+from session_runs import run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FieldGrid
@@ -70,9 +70,9 @@ def _final(
 
     The backend stays open, for its metadata, its ledger or another run.
     """
-    planes = finish(backend, problem, run_request, owns=False).planes
-    assert planes[-1]["z"] == pytest.approx(grid.length)
-    return planes[-1]["field"]
+    result = run(backend, problem, run_request)
+    assert result.all_planes()[-1].z == pytest.approx(grid.length)
+    return result.fields[-1]
 
 
 @pytest.mark.gpu

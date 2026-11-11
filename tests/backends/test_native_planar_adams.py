@@ -38,9 +38,10 @@ import math
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import run_session
 from backends.planar_cases import CASES, planar_case
 from bounds import gamma, step_evaluations
+from sessions.executors import committed_steps
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
@@ -119,8 +120,8 @@ def run(backend_class, problem, run_request, grid, length):
     assert float(run_request.stepper.save_planes[-1]) == length
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        landed = run_session(backend, problem, run_request)
-        return landed.field, landed.n_accepted
+        landed = session_run(backend, problem, run_request)
+        return landed.fields[-1], committed_steps(landed)
     finally:
         backend.close()
 

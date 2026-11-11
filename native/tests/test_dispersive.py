@@ -24,7 +24,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 from bounds import gamma
-from session_runs import loaded_state, native_trial
+from session_runs import load_native, native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.exceptions import MaterialRangeWarning
@@ -271,7 +271,7 @@ def test_a_trial_without_the_densities_is_refused() -> None:
     problem, run_request, grid = averaged("symmetric", thg=True)
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        loaded_state(backend, problem.initial.field0)
+        load_native(backend, problem.initial.field0, clear_fsal=False)
         stages = run_request.stepper.tableau.n_stages
         terms = backend._terms.phi  # pyright: ignore[reportPrivateUsage]
         assert terms is not None
@@ -309,8 +309,8 @@ def test_one_evaluation_matches_the_reference(evaluator: str, thg: bool) -> None
         backend = backend_class(problem, run_request, grid=grid)
         try:
             if isinstance(backend, NativeBackend):
-                state = loaded_state(backend, problem.initial.field0)
-                native_trial(backend, state, 0.0, 0.0)
+                state = load_native(backend, problem.initial.field0, clear_fsal=False)
+                native_trial(backend, 0.0, 0.0)
                 spectra.append(state.projected_to_host(False))
             else:
                 backend.set_initial(problem.initial.field0, None)

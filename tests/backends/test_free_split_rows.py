@@ -17,11 +17,11 @@ from typing import Any
 import numpy as np
 import pytest
 
-from backends._session_probe_b1 import watched_run
 from backends.low_storage_cases import parity_bound
 from bounds import assert_within, device_backend, ladder_bound
 from capability_routes import LENGTH, STEP
 from monitor_cases import MARCHES, STEPS, with_copy
+from sessions.runs import watched_run
 from solprop.backends.registry import select
 from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation, SimulationSettings

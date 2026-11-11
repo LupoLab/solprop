@@ -30,7 +30,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from _session_probe_rest import final_field
 from backends.forced_threads import (
     assert_threaded,
     saved_sizing,
@@ -58,6 +57,7 @@ from modal_provider_cases import (
     split_basis,
     split_guide,
 )
+from sessions.runs import bare, final_field
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
 from solprop.backends.session import Start
@@ -242,11 +242,13 @@ def propagate(case: Case, backend, field0=None) -> np.ndarray:
     return final_field(
         backend(problem, case.run_request, grid=case.grid),
         problem,
-        case.run_request,
+        bare(case.run_request),
         Start(
             field=problem.initial.field0 if field0 is None else field0,
             z=float(problem.initial.z),
         ),
+        ended=True,
+        owns=True,
     )
 
 
@@ -431,7 +433,7 @@ def test_a_step_longer_than_the_certificate_is_refused_by_name_on_native():
     )
     backend = native_class()(problem, run_request, grid=case.grid)
     with pytest.raises(BackendError, match="native measured a coupled flow"):
-        final_field(backend, problem, run_request)
+        final_field(backend, problem, bare(run_request), ended=True, owns=True)
 
 
 def test_cf4_is_refused_by_name_at_the_backend_and_the_entry_point():

@@ -18,8 +18,6 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from _session_probe_extra import final_field
-from _session_probe_extra import run as session_run
 from backends.test_free_ladders import amplitude_bound
 from backends.test_radial_nonlinear import (
     CHI3,
@@ -29,6 +27,8 @@ from backends.test_radial_nonlinear import (
     make_problem,
 )
 from bounds import gamma
+from sessions.runs import final_field
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions, Start
 from solprop.grid import EnvelopeGrid, FieldGrid, LineGrid
@@ -148,7 +148,9 @@ def test_line_nonlinear_ladder(line_case, spatial_backend_class, steps):
         values = []
         for implementation in (NumpyRefBackend, spatial_backend_class):
             backend = implementation(problem, run_request, grid=grid, options=REMAINDER)
-            values.append(final_field(backend, problem, run_request, LENGTH))
+            values.append(
+                final_field(backend, problem, run_request, z=LENGTH, owns=True)
+            )
         reference, actual = values
     scale = np.max(np.abs(reference))
     assert scale > 0

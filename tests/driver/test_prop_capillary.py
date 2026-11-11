@@ -44,7 +44,6 @@ from scipy.interpolate import CubicSpline
 from scipy.optimize import minimize_scalar
 from scipy.special import jn_zeros, jv
 
-from _session_probe_rest import run_session, to_planes
 from bounds import assert_within, record_backend
 from convergence_records import Column, Study, record
 from convergence_studies import BACKEND_EQUIVALENCE
@@ -59,6 +58,8 @@ from march_bounds import (
 )
 from rate_oracles import HISTORICAL_ATOMS, AdkOracle, PptOracle, adk_oracle, ppt_oracle
 from selected_backend import selected_backend
+from sessions.runs import run as run_session
+from sessions.runs import to_planes
 from solprop import tools
 from solprop.backends.events import ObservationReady, join_attempts
 from solprop.backends.numpy_ref import QUADRATURE_ALARM, NumpyRefBackend, passes
@@ -3762,7 +3763,7 @@ def test_a_periodic_row_at_a_plane_is_the_plane_s_own_statistic_on_the_m2_case(
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
-    run = run_session(backend, problem, request, recipe=None)
+    run = run_session(backend, problem, request, export=None, owns=True)
     [(observed, history, rows)] = [
         (event, history, rows)
         for event, history, rows in run.assembled()

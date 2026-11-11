@@ -10,12 +10,12 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from _session_probe_extra import run as session_run
 from backends import test_envelope_plasma_geometries as plasma_cases
 from backends.test_batch_responses import compare
 from backends.test_envelope_plasma_geometries import geometry_case, geometry_options
 from backends.test_radial_nonlinear import derivative
 from former_raman import FORMER_H2, FORMER_N2, former_response
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.exceptions import TranslationError
@@ -37,7 +37,7 @@ def run(backend_class, problem, run_request, grid, options=None):
     through the backend's own session."""
     rhs = derivative(backend_class, problem, run_request, grid, options)
     owner = backend_class(problem, run_request, grid=grid, options=options)
-    ran = session_run(owner, problem, run_request)
+    ran = session_run(owner, problem, run_request, owns=True)
     assert ran.final.z == grid.length
     assert ran.met_tolerance
     return rhs, ran.final.field

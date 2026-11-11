@@ -10,8 +10,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from backends._session_probe_b1 import last_field, rows
-from backends._session_probe_b1 import run as session_run
 from backends.forced_threads import assert_threaded
 from backends.host_cases_envelope_plasma import (
     build_envelope_mixture,
@@ -20,6 +18,7 @@ from backends.host_cases_envelope_plasma import (
 )
 from backends.matched import native_thread_fields
 from bounds import assert_within, device_backend
+from sessions.runs import run as session_run
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.numpy_ref.envelope_plasma import envelope_populations
@@ -46,7 +45,7 @@ def run(backend_class, problem, run_request, grid, options=None):
         # The run's one save plane is its end: its summary spans the run.
         summary = result.observations[-1].summary
         assert summary.met_tolerance and summary.n_steps == 2
-        return last_field(result), backend.memory_ledger()
+        return result.fields[-1], backend.memory_ledger()
     finally:
         backend.close()
 
@@ -227,7 +226,7 @@ def test_envelope_statistics_use_cycle_rates_on_all_host_geometries(
             # The launch plane's statistics and the end's, the run's one save plane.
             initial = result.observations[0].stats
             final = result.observations[-1].stats
-            taken = rows(result)
+            taken = result.joined[1]
             for name in periodic:
                 # The final periodic row and saved-plane scan see the same field, so
                 # they are one evaluation repeated: within the statistics' budget.

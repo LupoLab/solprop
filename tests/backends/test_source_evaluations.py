@@ -10,7 +10,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from _session_probe_extra import run as session_run
+from sessions.runs import Records
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stepper import FixedSchedule
 
@@ -26,24 +27,18 @@ def test_rk_counts_reuse_and_reset(backend_class, linear_problem, narrow_grid):
     # The record at each plane of the backend's own session, then of a second session
     # on the same backend: the count restarts with the run.
     with closing(backend_class(problem, run_request, grid=narrow_grid)) as engine:
-        first = session_run(engine, problem, run_request, owns=False, records=True)
-        counts = [
-            plane.record["source_evaluations"]
-            for plane in (first.launch, *first.planes)
-            if plane is not None and plane.record is not None
-        ]
+        first = Records()
+        session_run(engine, problem, run_request, owns=False, between=first)
+        counts = [record["source_evaluations"] for _, record in first.taken]
         # NumPy intentionally evaluates every stage. Compiled DOPRI5 reuses
         # its FSAL stage; integer work metadata is an exact structural contract.
         expected = 14 if engine.name == "numpy_ref" else 13
         assert counts == [0, 7, expected]
-        second = session_run(
-            engine, problem, run_request, owns=False, records=True, until=0.001
+        second = Records()
+        session_run(
+            engine, problem, run_request, owns=False, between=second, until=0.001
         )
-        counts = [
-            plane.record["source_evaluations"]
-            for plane in (second.launch, *second.planes)
-            if plane is not None and plane.record is not None
-        ]
+        counts = [record["source_evaluations"] for _, record in second.taken]
         assert counts == [0, 7]
 
 

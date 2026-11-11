@@ -50,9 +50,10 @@ from typing import Any
 
 import numpy as np
 
-from _session_probe_rest import run_session, saved, to_planes
 from bounds import rate_log_sensitivity
 from optmat_parity_cases import Case, build_case
+from sessions.runs import load_native, native_trial, saved, to_planes
+from sessions.runs import run as run_session
 from solprop import stats
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
@@ -163,11 +164,8 @@ def derivative(backend_class, case: Case) -> np.ndarray:
         assert backend.name == "native"
         assert problem.initial.noise0 is None, "the ladder's cases launch no noise"
         backend._staged_rows()
-        state = backend._native_state
-        launch = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
-        state.set_initial(launch.reshape(-1), np.empty(0, dtype=np.complex128))
-        nodes = [float(node) for node in case.run_request.stepper.tableau.nodes]
-        state.rk_trial(0.0, 0.0, nodes, prepare_only=False)
+        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        native_trial(backend, 0.0, 0.0)
         return np.asarray(state.stage_to_host(0)).reshape(problem.shape)
     finally:
         backend.close()
@@ -183,6 +181,7 @@ def _march(backend_class, case: Case, field, edges):
         case.problem,
         request,
         Start(field=field, z=float(case.problem.initial.z)),
+        owns=True,
     )
     planes = saved(run)
     assert [event.z for event, _ in planes] == [float(edge) for edge in edges]
@@ -206,7 +205,7 @@ def _complete_run(backend_name: str, case: Case):
             backend_name, problem, run_request, grid=case.grid, modes=case.modes
         )
         # Through the backend's session, which closes it (SEP 47 phase 5).
-        run = run_session(backend, problem, run_request)
+        run = run_session(backend, problem, run_request, owns=True)
         planes, statistics = [], {}
         for event, state in saved(run):
             planes.append(state)

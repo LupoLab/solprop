@@ -26,7 +26,8 @@ import numpy as np
 import pytest
 from bounds import assert_within, step_bound
 from conftest import ComplexArray, PhaseACase
-from session_runs import IDENTITY, finish, launch, loaded_state, native_trial
+from session_runs import IDENTITY, Plane, launch, load_native, native_trial
+from session_runs import run as run_session
 from solprop.backends.events import ObservationReady
 from solprop.backends.session import Start
 from solprop.exceptions import BackendError
@@ -656,10 +657,12 @@ def test_initial_array_contract(
     """
     problem, run_request, grid = phase_a_case
 
-    def started(field: ComplexArray) -> dict[str, object]:
+    def started(field: ComplexArray) -> Plane:
         backend = native.NativeBackend(problem, run_request, grid=grid)
         try:
-            return launch(backend, problem, run_request, Start(field=field, z=0.0))
+            return launch(
+                backend, problem, run_request, Start(field=field, z=0.0), owns=True
+            )
         finally:
             backend.close()
 
@@ -669,8 +672,8 @@ def test_initial_array_contract(
         started(writable_initial.reshape(-1))
     # Any strides load as their contiguous copy, bit for bit: the load copies.
     strided = writable_initial[..., ::-1]
-    loaded = cast(ComplexArray, started(strided)["field"])
-    contiguous = cast(ComplexArray, started(np.ascontiguousarray(strided))["field"])
+    loaded = cast(ComplexArray, started(strided).field)
+    contiguous = cast(ComplexArray, started(np.ascontiguousarray(strided)).field)
     np.testing.assert_array_equal(loaded, contiguous)
     read_only = writable_initial.copy()
     read_only.setflags(write=False)
@@ -733,9 +736,9 @@ def test_repeated_and_concurrent_instances_are_independent(
     def run() -> ComplexArray:
         backend = native.NativeBackend(problem, run_request, grid=grid)
         start = Start(field=writable_initial, z=0.0)
-        planes = finish(backend, problem, run_request, start).planes
-        assert planes[-1]["z"] == 1e-3
-        return cast(ComplexArray, planes[-1]["field"])
+        result = run_session(backend, problem, run_request, start, owns=True)
+        assert result.all_planes()[-1].z == 1e-3
+        return cast(ComplexArray, result.fields[-1])
 
     expected = run()
 
@@ -772,7 +775,7 @@ def test_substantial_native_trial_releases_the_gil(
     """
     problem, run_request, grid = phase_a_case
     backend = native.NativeBackend(problem, run_request, grid=grid)
-    state = loaded_state(backend, problem.initial.field0)
+    load_native(backend, problem.initial.field0, clear_fsal=False)
     active = threading.Event()
     finished = threading.Event()
     stamps: list[float] = []
@@ -791,7 +794,7 @@ def test_substantial_native_trial_releases_the_gil(
         for _ in range(200):
             start = time.perf_counter()
             # The native state's own trial: one call into the native layer.
-            native_trial(backend, state, 0.0, 1e-4)
+            native_trial(backend, 0.0, 1e-4)
             end = time.perf_counter()
             # The observer only appends, in clock order, so the stamps so far are read
             # once each.

@@ -27,7 +27,7 @@ import solprop_native
 import numpy as np
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
-from session_runs import finish
+from session_runs import run
 
 from test_general_modal import (
     CASES,
@@ -53,12 +53,10 @@ def _timed(
         try:
             start = Start(field=case.state, z=0.0)
             started = time.perf_counter()
-            planes = finish(
-                backend, case.problem, case.run_request, start, owns=False
-            ).planes
+            result = run(backend, case.problem, case.run_request, start)
             seconds.append(time.perf_counter() - started)
-            assert planes[-1]["z"] == Z_END
-            field = planes[-1]["field"]
+            assert result.all_planes()[-1].z == Z_END
+            field = result.fields[-1]
             ledger = sum(
                 value
                 for name, value in backend.memory_ledger().items()

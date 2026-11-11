@@ -13,10 +13,10 @@ import h5py
 import numpy as np
 import pytest
 
-from _session_probe_rest import bare
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_in_envelope, assert_matched, march_bound
 from sessions.executors import IDENTITY
+from sessions.runs import bare
 from solprop.backends.events import ObservationReady
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.protocol import stepping

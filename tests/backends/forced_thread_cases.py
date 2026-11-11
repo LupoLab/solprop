@@ -18,18 +18,11 @@ from typing import Any, cast
 import numpy as np
 
 import flow_parity
-from _session_probe_rest import bare
-from backends._session_probe_b1 import (
-    history,
-    last_field,
-    launched_state,
-    rk_trial,
-    run,
-)
 from backends.dispersive_cases import capillary as dispersive_capillary
 from backends.matched import fixed_order
 from backends.planar_cases import planar_case
 from capability_routes import ROUTES
+from sessions.runs import bare, load_native, native_trial, run
 from solprop.backends.events import ObservationReady
 from solprop.backends.multistep import CallLedger
 from solprop.backends.session import Start
@@ -108,7 +101,7 @@ def adams_matched(option: str):
     try:
         # No statistics, as the direct march evaluated none (SEP 47 phase 5).
         result = run(backend, problem, bare(run_request))
-        return {"field": last_field(result)}, _sizing(backend)
+        return {"field": result.fields[-1]}, _sizing(backend)
     finally:
         backend.close()
 
@@ -132,9 +125,9 @@ def adams_route(option: str):
             cast("dict[str, object]", record["response_calls"])
         )
         return {
-            "field": last_field(result),
+            "field": result.fields[-1],
             "calls": np.array(calls.total),
-            "dz": np.asarray(history(result).dz).copy(),
+            "dz": np.asarray(result.joined[0].dz).copy(),
         }, _sizing(backend)
     finally:
         backend.close()
@@ -229,7 +222,7 @@ def dispersive(option: str):
             profiles=simulation.profiles,
         )
         try:
-            fields.append(last_field(run(backend, problem)))
+            fields.append(run(backend, problem).fields[-1])
             sizing = _sizing(backend)
         finally:
             backend.close()
@@ -255,7 +248,7 @@ def planar(march: str):
     for _ in range(2):
         backend = _native()(problem, run_request, grid=grid)
         try:
-            fields.append(last_field(run(backend, problem)))
+            fields.append(run(backend, problem).fields[-1])
             sizing = _sizing(backend)
         finally:
             backend.close()
@@ -315,7 +308,7 @@ def noisy(march: str):
         backend = _native()(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
         try:
             start = Start.entrance(problem, noise=noise)
-            fields[name] = last_field(run(backend, problem, start=start))
+            fields[name] = run(backend, problem, start=start).fields[-1]
             if draw:
                 sizing = _sizing(backend)
         finally:
@@ -369,7 +362,7 @@ def wide_transverse(march: str = "march"):
     try:
         # No statistics, as the direct march evaluated none (SEP 47 phase 5).
         result = run(backend, problem, bare(run_request))
-        return {"field": last_field(result)}, _sizing(backend)
+        return {"field": result.fields[-1]}, _sizing(backend)
     finally:
         backend.close()
 
@@ -414,9 +407,9 @@ def accept():
     simulation, problem, run_request = accept_problem()
     backend = _native()(problem, run_request, grid=simulation.grid)
     try:
-        state = launched_state(backend, problem.initial.field0)
+        state = load_native(backend, problem.initial.field0)
         launch = state.field_to_host().copy()
-        partials = rk_trial(backend, 0.0, ACCEPT_STEP)
+        partials = native_trial(backend, 0.0, ACCEPT_STEP)
         state.finish(ACCEPT_STEP)
         return {
             "launch": launch,
@@ -467,7 +460,7 @@ def folds(mode: str):
     edges = np.asarray(run_request.stepper.schedule.edges)  # pyright: ignore[reportOptionalMemberAccess]
     backend = _native()(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
     try:
-        state = launched_state(backend, problem.initial.field0)
+        state = load_native(backend, problem.initial.field0)
         engine = _ResidentLowStorage(backend, MARCH)
         norms = []
         for z, end in itertools.pairwise(edges):
@@ -514,8 +507,8 @@ def flow(name: str):
     problem, run_request, grid, dz = linear_flow_problem(name)
     backend = _native()(problem, run_request, grid=grid)
     try:
-        state = launched_state(backend, problem.initial.field0)
-        partials = rk_trial(backend, 0.0, dz)
+        state = load_native(backend, problem.initial.field0)
+        partials = native_trial(backend, 0.0, dz)
         state.finish(dz)
         return {
             "partials": partials,
@@ -527,7 +520,6 @@ def flow(name: str):
 
 def flow_kerr(name: str):
     """Ten steps of a ``test_native_coupled_flow.py`` case, with its source."""
-    from _session_probe_rest import run_session  # noqa: PLC0415
     from driver.test_native_coupled_flow import CASES as FLOWS  # noqa: PLC0415
 
     case = FLOWS[name]()
@@ -536,7 +528,7 @@ def flow_kerr(name: str):
     # native session runs NativeBackend itself, never a subclass).
     backend = _native()(problem, case.run_request, grid=case.grid)
     try:
-        run = run_session(
+        result = run(
             backend,
             problem,
             bare(case.run_request),
@@ -546,7 +538,7 @@ def flow_kerr(name: str):
         sizing = _sizing(backend)
     finally:
         backend.close()
-    return {"field": run.fields[-1].copy()}, sizing
+    return {"field": result.fields[-1].copy()}, sizing
 
 
 CASES: dict[str, Any] = {

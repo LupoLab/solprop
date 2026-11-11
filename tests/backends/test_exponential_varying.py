@@ -15,12 +15,13 @@ the compiled backends' parity.
 
 import dataclasses
 import math
+from typing import Any
 
 import numpy as np
 import pytest
 
-from _session_probe_extra import run as session_run
 from backends.conftest import EQUIVALENCE_BACKENDS
+from sessions.runs import run as session_run
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.multistep import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -112,10 +113,11 @@ def session_march(simulation, backend_class):
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
-    ran = session_run(owner, problem, run_request)
+    record: dict[str, Any] = {}
+    ran = session_run(owner, problem, run_request, owns=True, record=record)
     assert ran.final.z == float(run_request.stepper.save_planes[-1])
-    calls = CallLedger.from_record(ran.record["response_calls"])
-    return ran.final.field, calls, np.asarray(ran.history.dz)
+    calls = CallLedger.from_record(record["response_calls"])
+    return ran.final.field, calls, np.asarray(ran.joined[0].dz)
 
 
 def test_the_rate_is_the_derivative_of_the_flow():
@@ -322,7 +324,7 @@ def test_a_compiled_backend_steps_a_z_table_as_the_reference(backend_name):
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
-    actual = session_run(owner, tabulated, run_request).final.field
+    actual = session_run(owner, tabulated, run_request, owns=True).final.field
     # A compiled backend evaluates the table through its own evaluator: the reference's
     # trajectory to rounding.
     peak = np.max(np.abs(reference))
