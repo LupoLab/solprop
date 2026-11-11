@@ -36,6 +36,7 @@ import numpy as np
 import pytest
 from scipy.integrate import solve_ivp
 
+from _session_probe_extra import final_field
 from modal_provider_cases import (
     GENERAL_CHI3,
     GRIN_AXIS_INDEX,
@@ -207,12 +208,7 @@ def run_fixed(case, state, steps, backend="numpy_ref"):
         schedule=equal_steps(FWM_LENGTH, steps),
     )
     owner = select(backend, problem, run_request, grid=case.grid)
-    try:
-        owner.set_initial(problem.initial.field0, None)
-        owner.propagate_to(FWM_LENGTH)
-        return np.array(owner.observe().require_field()[:, 0, :])
-    finally:
-        owner.close()
+    return final_field(owner, problem, run_request, FWM_LENGTH)[:, 0, :]
 
 
 def rounding_bound(case, state):

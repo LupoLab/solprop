@@ -9,6 +9,7 @@ import pytest
 from numpy.testing import assert_allclose
 from scipy.linalg import expm
 
+from _session_probe_extra import final_field
 from envelope_oracle_angular import order_record
 from solprop.backends.registry import select
 from solprop.constants import EPS0, C
@@ -246,12 +247,7 @@ def gain_experiment(state, backend_name="numpy_ref", *, steps=8, ffac=16):
     generator += np.diag([1j * pump_phase] * 2 + [-1j * pump_phase] * 2)
     expected = expm(length * generator) @ np.concatenate([seed * stokes, np.zeros(2)])
     owner = select(backend_name, problem, run_request, grid=grid)
-    try:
-        owner.set_initial(problem.initial.field0, None)
-        owner.propagate_to(length)
-        final = np.fft.ifft(owner.observe().require_field()[0], axis=-1)
-    finally:
-        owner.close()
+    final = np.fft.ifft(final_field(owner, problem, run_request, length)[0], axis=-1)
     # Observe well inside the flat collar, >100 dephasing times after turn-on.
     centre = abs(grid.t) < 1e-12
     design = np.column_stack(

@@ -9,21 +9,27 @@ of its pulse near the window's edge, so that every region the monitor weighs hol
 light, under an absorber scheme and, with a march, on a fixed schedule. The reference's
 reading of it is the oracle the compiled backends are held to in
 ``tests/backends/test_monitor_reduction.py``.
+
+A reading of a loaded state (:func:`watched`, :func:`reading`) is the reference
+driver's alone: since SEP 47 phase 5 the native backend has no direct driver API, and
+its monitor is read through its session (:func:`record_after_march`).
 """
 
 from __future__ import annotations
 
 import dataclasses
+import math
 from typing import Any, cast
 
 import numpy as np
 
 from capability_routes import LENGTH, ROUTES
-from solprop.backends.driver import StepDriver
+from solprop.backends.events import Terminal
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import select
-from solprop.backends.session import ExecutionOptions
+from solprop.backends.session import ExecutionOptions, Start
+from solprop.backends.sessions import start_session
 from solprop.driver import Simulation
 from solprop.monitor import BoundaryCheck, BoundaryEnergies
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -101,14 +107,24 @@ def with_copy(field: np.ndarray, n_t: int) -> np.ndarray:
     return field * (1.0 + COPY_SHARE * phase)
 
 
-def as_driver(backend: Backend) -> StepDriver[Any] | HostDriver[Any]:
-    """Return a backend as the step driver every registered backend is.
+def as_driver(backend: Backend) -> HostDriver[Any]:
+    """Return the reference backend as its step driver.
 
-    The reference's own (:class:`~solprop.backends.host.driver.HostDriver`) or the
-    native bridge's inherited one (SEP 47 phase 2).
+    Raises
+    ------
+    TypeError
+        For any other backend: since SEP 47 phase 5 the native backend has no direct
+        driver API, and its monitor is read through its session
+        (:func:`record_after_march`, or a session's ``monitor_record``).
     """
-    assert isinstance(backend, (StepDriver, HostDriver))
-    return cast("StepDriver[Any] | HostDriver[Any]", backend)
+    if not isinstance(backend, HostDriver):
+        msg = (
+            f"{type(backend).__name__} has no step driver to load and read directly; "
+            "read its boundary monitor through its session "
+            "(monitor_cases.record_after_march or RunSession.monitor_record)"
+        )
+        raise TypeError(msg)
+    return cast("HostDriver[Any]", backend)
 
 
 def watched(
@@ -118,10 +134,15 @@ def watched(
     options: ExecutionOptions | None = None,
     run_request: RunRequest | None = None,
 ) -> Backend:
-    """Return a backend loaded with the edge-reaching launch and watched.
+    """Return the reference backend loaded with the edge-reaching launch and watched.
 
     `options` default to the simulation's own execution options; `problem` and
     `run_request` to its own translation.
+
+    Raises
+    ------
+    TypeError
+        For a backend other than the reference (:func:`as_driver`).
     """
     problem = simulation.translate() if problem is None else problem
     run_request = simulation._run_request() if run_request is None else run_request
@@ -134,7 +155,11 @@ def watched(
         profiles=simulation.profiles,
         options=simulation.settings.execution_options() if options is None else options,
     )
-    driver = as_driver(backend)
+    try:
+        driver = as_driver(backend)
+    except TypeError:
+        backend.close()
+        raise
     driver.set_initial(with_copy(problem.initial.field0, simulation.grid.n_t), None)
     monitor = simulation._boundary_monitor()
     assert monitor is not None
@@ -143,7 +168,13 @@ def watched(
 
 
 def reading(backend: Backend) -> BoundaryEnergies:
-    """Return a backend's reading of its current state."""
+    """Return the reference backend's reading of its current state.
+
+    Raises
+    ------
+    TypeError
+        For a backend other than the reference (:func:`as_driver`).
+    """
     driver = as_driver(backend)
     return driver._boundary_energies(driver._require_state())
 
@@ -155,12 +186,44 @@ def record_after_march(
     run_request: RunRequest | None = None,
 ) -> dict[str, Any]:
     """Return a backend's monitor record after the probe's fixed steps, with the split
-    collar's crossing cap the last check read (``step_cap``)."""
-    backend = watched(simulation, name, problem, run_request=run_request)
+    collar's crossing cap the last check read (``step_cap``).
+
+    The edge-reaching launch runs through the backend's own session, watched by the
+    simulation's boundary monitor. The reference's session updates that monitor, whose
+    record and cap are read from it; the native session keeps its monitor natively
+    (SEP 47 section 6.4) and reports the record through the session
+    (``monitor_record``). It does not expose the crossing cap its watch holds, so the
+    cap is NaN on any backend but the reference.
+    """
+    problem = simulation.translate() if problem is None else problem
+    run_request = simulation._run_request() if run_request is None else run_request
+    monitor = simulation._boundary_monitor()
+    assert monitor is not None
+    request = run_request.for_run(monitor=monitor)
+    backend = select(
+        name,
+        problem,
+        request,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
+        options=simulation.settings.execution_options(),
+    )
+    start = Start(
+        field=with_copy(problem.initial.field0, simulation.grid.n_t),
+        z=float(problem.initial.z),
+    )
+    session = start_session(backend, problem, request, start)
     try:
-        backend.propagate_to(LENGTH)
-        monitor = as_driver(backend)._monitor
-        assert monitor is not None
-        return {**monitor.summary(), "step_cap": monitor.step_cap}
+        while not session.finished:
+            batch = session.advance()
+            session.acknowledge(batch.receipt)
+            terminal = batch.terminal
+            if isinstance(terminal, Terminal) and terminal.error is not None:
+                raise terminal.error
+        record = session.monitor_record()
+        assert record is not None
+        cap = float(monitor.step_cap) if isinstance(backend, HostDriver) else math.nan
     finally:
-        backend.close()
+        session.close()
+    return {**record, "step_cap": cap}

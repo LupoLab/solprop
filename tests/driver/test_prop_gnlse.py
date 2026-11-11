@@ -15,6 +15,7 @@ import h5py
 import numpy as np
 import pytest
 
+from _session_probe_extra import run as session_run
 from bounds import departure
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_matched, simulation_bound
@@ -165,13 +166,9 @@ def interface_and_backend(simulation):
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-        direct = backend.observe().require_field().copy()
-    finally:
-        backend.close()
-    return handler, handler.fields("fft")[-1], direct
+    direct = session_run(backend, problem, run_request).final
+    assert direct.z == float(run_request.stepper.save_planes[-1])
+    return handler, handler.fields("fft")[-1], direct.field
 
 
 @pytest.mark.medium
