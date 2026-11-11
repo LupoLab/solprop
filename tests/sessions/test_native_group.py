@@ -167,7 +167,9 @@ def _lone(simulation: Any) -> list[dict[str, Any]]:
         Per plane: the field, the plane statistics, the attempts, the periodic rows and
         the noise phase.
     """
-    from solprop_native.session import NativeSession  # noqa: PLC0415
+    from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        NativeSession,
+    )
 
     problem = simulation.translate()
     session = NativeSession(
