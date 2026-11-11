@@ -117,3 +117,32 @@ end
         @test status.host[1, :] == [1, 1]
     end
 end
+
+@testset "CUDA export refuses foreign power-weight headers over staging storage" begin
+    gpu = SP.device_execution(Val(:cuda), 0, 1; check_body = true)
+    initial = fill(3.0 + 5.0im, 2, 2)
+    weight = SP.ObservationWeight(gpu, fill(4.0, 2, 2))
+    session = _cuda_export_session(gpu, initial, weight)
+    staged = session.exports.transfer.field.device
+    for offset in (1, 2)
+        SP.copy_upload!(staged, fill(4.0 + 4.0im, 2, 2), gpu)
+        output = fill(7.0 + 8.0im, 2, 2)
+        CUDA.context!(gpu.backend.context) do
+            GC.@preserve staged begin
+                pointer_value = reinterpret(CUDA.CuPtr{Float64}, pointer(staged)) +
+                    (offset - 1) * sizeof(Float64)
+                foreign = unsafe_wrap(CUDA.CuArray, pointer_value, (2, 2); own = false)
+                @test_throws r"disjoint from export scratch" SP.export_session!(
+                    output, session, 1, foreign, true, false,
+                )
+            end
+        end
+        retained = similar(initial)
+        SP.copy_host!(retained, staged, gpu)
+        @test retained == fill(4.0 + 4.0im, 2, 2)
+        @test output == fill(7.0 + 8.0im, 2, 2)
+        @test session.state.pending && session.state.generation == 1
+        SP.export_session!(output, session, 1, weight.data, true, false)
+        @test output == fill(6.0 + 10.0im, 2, 2)
+    end
+end

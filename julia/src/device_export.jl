@@ -47,6 +47,8 @@ function _device_export!(output, session, field, weight, power, optics)
     if power
         weight isa AbstractMatrix{Float64} ||
             throw(ArgumentError("device export power weights require binary64 values"))
+        _retained_alias(weight, work) &&
+            throw(ArgumentError("power weights must be disjoint from export scratch"))
         copy_device!(weight, weight, execution)
     end
     # Unit weights skip the product globally, preserving the existing signed-zero

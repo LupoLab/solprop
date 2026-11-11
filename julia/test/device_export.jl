@@ -200,6 +200,38 @@ end
     end
 end
 
+@testset "Explicit power weights cannot alias the staged export destination" begin
+    for offset in (1, 2)
+        execution = _export_readback_execution()
+        field = fill(3.0 + 5.0im, 2, 2)
+        session = _export_session_fixture(execution, field)
+        staged = session.exports.transfer.field.device
+        fill!(staged, 4.0 + 4.0im)
+        fill!(session.exports.transfer.status.device, 17)
+        before = copy(staged)
+        output = fill(7.0 + 8.0im, 2, 2)
+        GC.@preserve staged begin
+            # Independent headers deliberately hide the common complex owner;
+            # offset two also crosses cell boundaries in the staged output.
+            weights = unsafe_wrap(
+                Array, pointer(reinterpret(Float64, staged), offset), (2, 2); own = false,
+            )
+            retained = copy(weights)
+            @test_throws r"disjoint from export scratch" SP.export_session!(
+                output, session, 1, weights, true, false,
+            )
+            @test output == fill(7.0 + 8.0im, 2, 2)
+            @test weights == retained && staged == before
+            @test all(==(17), session.exports.transfer.status.device)
+            @test execution.backend.downloads == 0
+            @test session.state.pending && session.state.generation == 1
+        end
+        SP.export_session!(output, session, 1, fill(4.0, 2, 2), true, false)
+        @test output == fill(6.0 + 10.0im, 2, 2)
+        @test session.field == field && session.state.pending
+    end
+end
+
 @testset "Device power-weight tables stay owned and read back compact facts" begin
     cpu = SP.KernelExecution(SP.KernelAbstractions.CPU(), 1)
     execution = _export_readback_execution()

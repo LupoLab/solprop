@@ -30,10 +30,15 @@ storage, generation failures, compact transfer sizes, partial-copy failures and 
 indexing disabled on actual CUDA. Host-model results do not establish CUDA support;
 this internal leaf does not change public device admission.
 
-The author host run passes 153 new orchestration assertions plus 61 existing
+The author host run passes 169 new orchestration assertions plus 61 existing
 power-weight assertions. The affected CPU session, transfer and precision consumers
 pass 2,469 assertions across 67 testsets, including their warmed zero-allocation
 checks. CPU Aqua/JET passes 16 checks with all 2,253 definitions analyzed and none
 cached. These checks use bounds-enabled Julia 1.13.3 with two threads. An initial
 constructor-dispatch collision was corrected before this final run by explicitly
 typing the execution-aware table overload. Actual CUDA execution remains pending.
+Independent review additionally exposed an explicit-weight header overlapping the
+staging field. Such weights now refuse before any summary or staging write; genuine
+foreign offset-header tests verify unchanged output, scratch, weights and generation,
+followed by successful retry with detached weights. The CUDA witness includes the
+same retained-address boundary and awaits hardware execution.
