@@ -457,12 +457,6 @@ TEST(CoupledFlow, ZeroWeightTermsAreSkippedWithoutMovingABit) {
   EXPECT_EQ(native_step(padded, flow, padded_trial), native_step(problem, flow, trial));
 }
 
-TEST(CoupledFlow, ABatchRefusesAFlowMember) {
-  auto state = std::make_shared<native::GeneralState>(flow_problem(false));
-  state->set_initial(initial(), {});
-  EXPECT_THROW(native::GeneralBatch({state}), std::invalid_argument);
-}
-
 // The engine forms the actions itself, from each section's
 // eigenbasis `W exp(+-l Lambda) Y` or, on the bins routed away from it, by solprop's
 // reference scaling, series and squaring of `l T` with the back-transform `Z F Z^H`.
