@@ -223,8 +223,9 @@ def _worker(
             attempts = marched.accepted + marched.rejected
             accepted = marched.accepted
             rejected = marched.rejected
-            # As the step driver's summary counted them: its attempts plus rejections.
-            trials = attempts + rejected
+            # Every trial is an attempt, accepted or rejected. (The step driver's
+            # summary path added the rejections twice: `n_steps` already held them.)
+            trials = attempts
             field_out = marched.field
         load_end = os.getloadavg()[0]
         if not np.all(np.isfinite(field_out)):
