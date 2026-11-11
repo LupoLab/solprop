@@ -68,6 +68,7 @@ from solprop.grid import FieldGrid
 from solprop.nonlinear.ionisation import RunningIntegral
 from solprop.translate.ionisation import RateTable
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.run_request import RunRequest
 from solprop.translate.spatial import separable_values
 
 type Real = npt.NDArray[np.float64]
@@ -399,14 +400,14 @@ def stage_error(
 
 
 def plasma_stage_bound(
-    problem: PropagationProblem, grid: FieldGrid, threads: int
+    problem: PropagationProblem, run_request: RunRequest, grid: FieldGrid, threads: int
 ) -> float:
     """Return the column's bound on one stage, relative to the stage's largest value.
 
     At the launch field and ``z = 0``: one evaluation, or each stage of a short march
     whose field and plasma stay close to the launch's (module docstring).
     """
-    reference = NumpyRefBackend(problem, grid=grid)
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe

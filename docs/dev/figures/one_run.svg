@@ -89,8 +89,8 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <path d="M312.0,205.5 L308.4,196.5 L315.6,196.5 Z" class="head" />
 <rect x="32" y="211.5" width="560.0" height="66.0" rx="7" ry="7" class="fill-d" />
 <text x="42.0" y="233.5" font-size="15" class="bold ink-d">Simulation(...)</text>
-<text x="42.0" y="249.0" font-size="12" class="dim">translate.assemble(...)  →  PropagationProblem</text>
-<text x="42.0" y="264.5" font-size="12" class="dim">backends.select(name, problem, grid=, modes=, profiles=)</text>
+<text x="42.0" y="249.0" font-size="12" class="dim">translate.assemble(...)  →  PropagationProblem, RunRequest</text>
+<text x="42.0" y="264.5" font-size="12" class="dim">backends.select(name, problem, request, grid=, modes=)</text>
 <rect x="782.0" y="211.5" width="386.0" height="50.5" rx="7" ry="7" class="fill-t" />
 <text x="792.0" y="233.5" font-size="15" class="bold ink-t">PropagationProblem</text>
 <text x="792.0" y="249.0" font-size="12" class="dim">plain arrays, frozen, validated</text>

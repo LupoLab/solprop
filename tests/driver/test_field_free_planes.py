@@ -385,17 +385,17 @@ def test_planes_beside_step_planes_are_refused_and_retention_is_validated():
         dataclasses.replace(settings, step_planes=2, fields="planes", field_planes=(0,))
     with pytest.raises(DriverError, match="required exactly when"):
         dataclasses.replace(settings, fields="planes")
-    problem = simulation.translate()
-    stepped = dataclasses.replace(
-        problem, stepper=dataclasses.replace(problem.stepper, step_planes=2)
+    run_request = simulation._run_request()
+    stepped = run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, step_planes=2)
     )
     with pytest.raises(DriverError, match="step_planes"):
         field_retention(stepped, "planes", (0,))
     assert field_retention(stepped, "none", ()).fields == "none"
     with pytest.raises(DriverError, match="required exactly when"):
-        field_retention(problem, "none", (0,))
+        field_retention(run_request, "none", (0,))
     with pytest.raises(DriverError, match="outside a run of 5"):
-        field_retention(problem, "planes", (7,))
+        field_retention(run_request, "planes", (7,))
     # An execution setting: it may change after translation.
     keeping(simulation, "none")
     assert simulation.settings.fields == "none"
@@ -407,7 +407,8 @@ def test_an_output_that_cannot_store_field_free_planes_is_refused():
 
     simulation = cartesian("numpy_ref")
     problem = simulation.translate()
-    backend = select("numpy_ref", problem, grid=simulation.grid)
+    run_request = simulation._run_request()
+    backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     try:
         with pytest.raises(DriverError, match="cannot store field-free planes"):
             run_problem(
@@ -440,9 +441,10 @@ def test_an_output_that_cannot_store_field_free_planes_is_refused():
 def test_a_field_free_observation_crosses_no_field(backend, monkeypatch):
     simulation = cartesian(backend, noise=True)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     observations = []
     for field in (True, False):
-        owner = select(backend, problem, grid=simulation.grid)
+        owner = select(backend, problem, run_request, grid=simulation.grid)
         copies = []
         original = cast("type[StepDriver | HostDriver]", type(owner))._observed_field
 
@@ -503,9 +505,10 @@ def test_no_saved_plane_logs_the_retired_collar_diagnostic(caplog):
 def test_a_field_free_observation_relies_on_the_step_loop_for_finiteness():
     simulation = cartesian("numpy_ref")
     problem = simulation.translate()
+    run_request = simulation._run_request()
     poisoned = problem.initial.field0.copy()
     poisoned[0, 0, np.flatnonzero(problem.grids.active_mask)[0]] = np.nan
-    backend = NumpyRefBackend(problem, grid=simulation.grid)
+    backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
         backend.set_initial(poisoned, None)
         # Nothing scans a field that is not observed...

@@ -42,7 +42,7 @@ from solprop.physdata import Gas, Mixture, as_gas
 from solprop.physdata.glasses import GlassIndex
 from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.translate.linop import DEFAULT_MARGIN, LinearOperator, tabulate
-from solprop.translate.modal import DEFAULT_SPATIAL_NODE_BUDGET, Transform
+from solprop.translate.modal import Transform
 from solprop.translate.spatial import SeparableOperator, SpatialGeometry
 
 __all__ = ["planar_kappa", "planar_operators", "planar_transform", "square_residuals"]
@@ -83,14 +83,13 @@ def _validate_span(n_pol: int, z_max: float, margin: float) -> float:
     return span
 
 
-def planar_transform(  # noqa: PLR0913 - geometry and shared translation controls
+def planar_transform(
     space: PlanarGrid,
     time: TimeGrid,
     *,
     n_pol: int,
     z_max: float,
     collar_rate: Float[np.ndarray, " n_nodes"] | None = None,
-    node_budget: int = DEFAULT_SPATIAL_NODE_BUDGET,
     margin: float = DEFAULT_MARGIN,
 ) -> Transform:
     """Freeze the slab synthesis and projection in x and the y FFT layout.
@@ -100,8 +99,7 @@ def planar_transform(  # noqa: PLR0913 - geometry and shared translation control
     space : solprop.modes.slab.PlanarGrid
         Slab modes and rule in x, periodic y axis and its collar.
     time : solprop.grid.TimeGrid
-        Temporal grid: the pad scale folded into the synthesis, and the
-        physical-node buffer size.
+        Temporal grid: the pad scale folded into the synthesis.
     n_pol : int
         State polarisation count; must be 1.
     z_max : float
@@ -110,22 +108,19 @@ def planar_transform(  # noqa: PLR0913 - geometry and shared translation control
         The real-space collar's power rate on the nodes, 1/m, from the run's
         :class:`solprop.spatial_absorber.SpatialAbsorberDesign`; ``None`` for no
         collar.
-    node_budget : int, optional
-        Shared node-buffer budget in bytes, positive.
     margin : float, optional
         Relative extension of diagnostic tables beyond z_max, nonnegative.
 
     Returns
     -------
     solprop.translate.modal.Transform
-        The slab matrices in x, with the pad scale folded into the synthesis, the
-        ``"slab"`` geometry and a bounded physical-node chunk.
+        The slab matrices in x, with the pad scale folded into the synthesis, and
+        the ``"slab"`` geometry.
 
     Raises
     ------
     TranslationError
-        If the state has two components, the span is invalid or one temporal
-        column does not fit the budget.
+        If the state has two components or the span is invalid.
 
     Examples
     --------
@@ -139,12 +134,6 @@ def planar_transform(  # noqa: PLR0913 - geometry and shared translation control
     ('slab', 16, 528)
     """
     span = _validate_span(n_pol, z_max, margin)
-    # The same per-column accounting as the Cartesian transform: every physical
-    # node owns one complete temporal history in the response pass.
-    column_bytes = 20 * 16 * n_pol * time.n_to
-    if node_budget < column_bytes:
-        msg = "planar node_budget cannot hold one complete temporal column"
-        raise TranslationError(msg)
     n_x = int(space.x.size)
     window = np.repeat(space.window_y, n_x)
     spatial_weights = np.tile(space.x_weights, space.n_y) * space.dy
@@ -172,7 +161,6 @@ def planar_transform(  # noqa: PLR0913 - geometry and shared translation control
         projection=space.projection,
         projection_coarse=space.projection_coarse,
         taper_scale=None,
-        node_chunk=min(space.n_nodes, node_budget // column_bytes),
         aeff=tabulate(
             lambda z: np.full_like(z, np.sum(spatial_weights)),
             0.0,

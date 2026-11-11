@@ -34,24 +34,23 @@ import numpy as np
 from backends.forced_threads import saved_sizing, thread_environment
 from bounds import assert_within, fft_bound, rate_log_sensitivity, scan_bound
 from solprop.stepper.multistep import Multistep
-from solprop.translate.problem import PropagationProblem
+from solprop.translate.run_request import RunRequest
 
 
-def fixed_order(problem: PropagationProblem) -> PropagationProblem:
-    """Return `problem` with its Adams method held at its top order, if it has one.
+def fixed_order(run_request: RunRequest) -> RunRequest:
+    """Return `run_request` with its Adams method held at its top order, if it has one.
 
     The Runge-Kutta march (``integrator=None``) has no order to choose and is returned
     unchanged.
     """
-    method = problem.stepper.integrator
+    method = run_request.stepper.integrator
     if not isinstance(method, Multistep) or not method.variable_order:
-        return problem
-    return dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(
-            problem.stepper,
+        return run_request
+    return run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
             integrator=dataclasses.replace(method, variable_order=False),
-        ),
+        )
     )
 
 

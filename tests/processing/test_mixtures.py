@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from scipy.special import j0, j1
 
-from mixture_cases import mixture_case
+from mixture_cases import mixture_case, mixture_translation
 from solprop import fourier, processing
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation, SimulationSettings
@@ -45,7 +45,7 @@ def admittance(medium, grid, transverse):
 
 @pytest.fixture(params=["modal", "radial", "free"])
 def case(request):
-    material, grid, mode, _, problem = mixture_case()
+    material, grid, mode, _, (_, run_request) = mixture_translation()
     material = Mixture.of(
         *(
             replace(
@@ -62,7 +62,7 @@ def case(request):
         )
     )
     settings = SimulationSettings(
-        controller=problem.stepper.controller,
+        controller=run_request.stepper.controller,
         save_planes=[grid.length],
         dz_init=1e-5,
         dz_max=1e-4,
@@ -239,14 +239,14 @@ def test_legacy_record_remains_readable_without_mixture_accessors():
 
 
 def test_callable_total_loss_is_retained_but_species_attribution_is_refused():
-    mixture, grid, mode, _, original = mixture_case()
+    mixture, grid, mode, _, (original, run_request) = mixture_translation()
     simulation = Simulation(
         grid,
         replace(mode, mixture=mixture, loss=np.ones_like),
         (),
         original.initial.field0,
         settings=SimulationSettings(
-            controller=original.stepper.controller,
+            controller=run_request.stepper.controller,
             save_planes=[grid.length],
             dz_init=1e-5,
             dz_max=1e-4,
@@ -307,7 +307,7 @@ def test_a_spatial_record_without_its_plane_measure_is_refused(case):
 
 
 def test_coarse_radial_fluence_matches_direct_bessel_synthesis():
-    material, grid, _, _, original = mixture_case()
+    material, grid, _, _, (_, run_request) = mixture_translation()
     space = RadialGrid(6e-4, 8, collar_fraction=0.0)
     simulation = Simulation.from_radial(
         grid,
@@ -316,7 +316,7 @@ def test_coarse_radial_fluence_matches_direct_bessel_synthesis():
         (),
         SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-9), 80e-6),
         settings=SimulationSettings(
-            controller=original.stepper.controller,
+            controller=run_request.stepper.controller,
             save_planes=[grid.length],
             dz_init=1e-5,
             dz_max=1e-4,
@@ -483,6 +483,7 @@ def test_the_recorded_power_weight_is_factored_and_survives_the_file(tmp_path):
             noise=None,
         )
     problem = simulation.translate()
+    run_request = simulation._run_request()
     record = simulation.metadata().configuration["mixture_processing"]
     assert isinstance(record, dict)
     terms, basis = record["power_weight_terms"], record["power_weight_basis"]
@@ -491,7 +492,7 @@ def test_the_recorded_power_weight_is_factored_and_survives_the_file(tmp_path):
     path = tmp_path / "run.h5"
     with HDF5Output(path) as output:
         output.open(simulation.metadata())
-        for z in (0.0, *problem.stepper.save_planes[:2]):
+        for z in (0.0, *run_request.stepper.save_planes[:2]):
             output.save(SavedPlane(z=float(z), field=problem.initial.field0))
     with open_file(path) as reloaded:
         weights = processing.get_power_weight(reloaded)

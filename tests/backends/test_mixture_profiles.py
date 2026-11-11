@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from mixture_cases import mixture_case
+from mixture_cases import mixture_translation
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import BackendError
 from solprop.modes import MarcatiliMode
@@ -22,24 +22,24 @@ from solprop.translate.problem import assemble
 from solprop.translate.stage import require_device_ready
 
 
-def construct(mixture, responses, grid, original):
+def construct(mixture, responses, grid, original, original_request):
     mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         mode,
         responses,
         original.initial.field0,
-        controller=original.stepper.controller,
+        controller=original_request.stepper.controller,
         save_planes=[grid.length],
-        dz_max=original.stepper.dz_max,
-        dz_init=original.stepper.dz_init,
+        dz_max=original_request.stepper.dz_max,
+        dz_init=original_request.stepper.dz_init,
         schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / 16),
     )
-    return mode, problem
+    return mode, problem, run_request
 
 
-def final(backend_class, problem, grid):
-    backend = backend_class(problem, grid=grid)
+def final(backend_class, problem, run_request, grid):
+    backend = backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         summary = backend.propagate_to(grid.length)
@@ -50,7 +50,7 @@ def final(backend_class, problem, grid):
 
 
 def test_three_independent_profiles_run_on_every_cpu_backend(backend_class):
-    mixture, grid, _, responses, original = mixture_case()
+    mixture, grid, _, responses, (original, original_request) = mixture_translation()
     components = tuple(
         dataclasses.replace(
             component,
@@ -64,7 +64,9 @@ def test_three_independent_profiles_run_on_every_cpu_backend(backend_class):
         "inert",
     )
     mixture = Mixture.of(*components, third)
-    mode, problem = construct(mixture, responses, grid, original)
+    mode, problem, run_request = construct(
+        mixture, responses, grid, original, original_request
+    )
     assert problem.linear.phi_representation == "table"
     assert problem.responses.prefactor_representation == "table"
     # The contract refusal is testable even when the optional backend is absent.
@@ -102,13 +104,13 @@ def test_three_independent_profiles_run_on_every_cpu_backend(backend_class):
     )
     bound = (16 * (degree + 1) ** 2 + 64 * grid.n_to * 2) * 7 * 16 * np.finfo(float).eps
     assert bound > 0.0
-    expected = final(NumpyRefBackend, problem, grid)
-    actual = final(backend_class, problem, grid)
+    expected = final(NumpyRefBackend, problem, run_request, grid)
+    actual = final(backend_class, problem, run_request, grid)
     assert np.linalg.norm(actual - expected) / np.linalg.norm(expected) < bound
 
 
 def test_splitting_a_population_preserves_propagation(backend_class):
-    mixture, grid, _, responses, original = mixture_case()
+    mixture, grid, _, responses, (original, original_request) = mixture_translation()
     material = mixture.components[0].species
     rate = next(
         response.rate for response in responses if isinstance(response, PlasmaResponse)
@@ -134,6 +136,8 @@ def test_splitting_a_population_preserves_propagation(backend_class):
                 PlasmaResponse(material, rate, species=component.label),
             )
         )
-        _, problem = construct(populations, declared, grid, original)
-        fields.append(final(backend_class, problem, grid))
+        _, problem, run_request = construct(
+            populations, declared, grid, original, original_request
+        )
+        fields.append(final(backend_class, problem, run_request, grid))
     assert np.linalg.norm(fields[1] - fields[0]) / np.linalg.norm(fields[0]) < bound

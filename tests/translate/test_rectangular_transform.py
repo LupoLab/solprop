@@ -17,7 +17,7 @@ from solprop.modes.quadrature import mode_matrix, taper_scale, transverse_quadra
 from solprop.profiles import Linear, PressureGradient
 from solprop.translate.linop import _operator_sampler, build_phi, delta_phi
 from solprop.translate.modal import _radius_kinks, multimode_transform
-from solprop.translate.problem import DEFAULT_NODE_BUDGET, _transform
+from solprop.translate.problem import _transform
 
 
 def test_rectangular_shared_taper_rescales_matrices_and_tracks_kinks():
@@ -81,7 +81,6 @@ def test_a_non_degenerate_partner_is_refused_by_its_trait_not_its_class():
             z_max=0.1,
             n_pol=2,
             components=None,
-            node_budget=DEFAULT_NODE_BUDGET,
             margin=0.05,
             tol=1e-10,
         )

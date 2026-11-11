@@ -36,7 +36,7 @@ from solprop.translate.coupled import (
     metric_at,
 )
 from solprop.translate.modal_tables import ModalTransformTables
-from solprop.translate.problem import _walk_arrays, assemble
+from solprop.translate.problem import _RunPolicy, _walk_arrays, assemble, validate_run
 from solprop.translate.responses import RegionalResponseTables
 from solprop.translate.routes import GeneralRoute
 
@@ -744,7 +744,7 @@ def strand_grid():
 
 
 @pytest.fixture(scope="module")
-def strand(strand_grid):
+def strand_translation(strand_grid):
     """A one-channel field problem over a millimetre, to hang the leaves on.
 
     A **field** problem, because a general-modal leaf is tabulated on the canonical
@@ -768,7 +768,25 @@ def strand(strand_grid):
         )
 
 
-def modal_tables_on(problem, grid, n_nodes=4, n_modes=1, **overrides):
+@pytest.fixture(scope="module")
+def strand(strand_translation):
+    """The strand's problem."""
+    return strand_translation.problem
+
+
+@pytest.fixture(scope="module")
+def strand_request(strand_translation):
+    """The strand's run request."""
+    return strand_translation.request
+
+
+@pytest.fixture(scope="module")
+def strand_run(strand_request):
+    """The strand's run policy, as the request-aware checks read it."""
+    return _RunPolicy(strand_request.stepper, strand_request.observation.stats)
+
+
+def modal_tables_on(problem, run_request, grid, n_nodes=4, n_modes=1, **overrides):
     """A one-channel E/H reference tabulated on a problem's own canonical grids.
 
     Hand-built rather than sampled from a provider: the canonical coarse grid runs from
@@ -782,7 +800,7 @@ def modal_tables_on(problem, grid, n_nodes=4, n_modes=1, **overrides):
     omega = overrides.pop("omega", problem.grids.omega)
     fine = overrides.pop("omega_fine", grid.omega_fine)
     z_edges = np.asarray(
-        overrides.pop("z_edges", [0.0, problem.stepper.z_end]), dtype=float
+        overrides.pop("z_edges", [0.0, run_request.stepper.z_end]), dtype=float
     )
     positions = len(z_edges)
     field = np.zeros((positions, n_nodes, 3, n_modes, len(omega)), dtype=complex)
@@ -817,20 +835,20 @@ def modal_tables_on(problem, grid, n_nodes=4, n_modes=1, **overrides):
     return ModalTransformTables(**fields)
 
 
-def metric_on(problem, omega=None, **overrides):
+def metric_on(problem, run_request, omega=None, **overrides):
     """An orthonormal metric on a problem's canonical grid, covering its run."""
     axis = problem.grids.omega if omega is None else omega
     return identity_metric(
-        omega=axis, z_edges=[0.0, problem.stepper.z_end], **overrides
+        omega=axis, z_edges=[0.0, run_request.stepper.z_end], **overrides
     )
 
 
-def flow_on(problem, n_modes=1, omega=None, z_max=None, **overrides):
+def flow_on(problem, run_request, n_modes=1, omega=None, z_max=None, **overrides):
     """A dense flow on a problem's canonical grid, covering its run."""
     return dense_flow(
         n_modes=n_modes,
         omega=problem.grids.omega if omega is None else omega,
-        z_max=problem.stepper.z_end if z_max is None else z_max,
+        z_max=run_request.stepper.z_end if z_max is None else z_max,
         **overrides,
     )
 
@@ -864,18 +882,20 @@ def with_leaves(problem, **leaves):
 
 
 @pytest.fixture(scope="module")
-def furnished(strand, strand_grid):
+def furnished(strand, strand_grid, strand_request):
     """The problem with all four leaves, each on the canonical grids."""
     return with_leaves(
         strand,
-        modal_tables=modal_tables_on(strand, strand_grid),
-        modal_metric=metric_on(strand),
-        coupled_flow=flow_on(strand),
+        modal_tables=modal_tables_on(strand, strand_request, strand_grid),
+        modal_metric=metric_on(strand, strand_request),
+        coupled_flow=flow_on(strand, strand_request),
         regional_responses=kerr_regions(n_to=strand.grids.n_to),
     )
 
 
-def test_four_leaves_on_the_canonical_grids_validate(furnished, strand, strand_grid):
+def test_four_leaves_on_the_canonical_grids_validate(
+    furnished, strand, strand_grid, strand_request
+):
     """Every axis of every leaf is the state's own, so the whole problem validates."""
     tables = furnished.transform.modal_tables
     metric = furnished.linear.modal_metric
@@ -884,8 +904,8 @@ def test_four_leaves_on_the_canonical_grids_validate(furnished, strand, strand_g
     assert np.array_equal(tables.omega_fine, strand_grid.omega_fine)
     assert np.array_equal(metric.omega, strand.grids.omega)
     assert np.array_equal(flow.omega, strand.grids.omega)
-    assert float(tables.z_edges[-1]) == strand.stepper.z_end
-    assert furnished.validate() is None
+    assert float(tables.z_edges[-1]) == strand_request.stepper.z_end
+    assert validate_run(furnished, strand_request) is None
 
 
 def test_the_declared_index_leaves_cross_the_seam_as_int32(furnished):
@@ -902,128 +922,151 @@ def test_the_declared_index_leaves_cross_the_seam_as_int32(furnished):
     }
 
 
-def test_an_int32_array_at_an_undeclared_leaf_is_refused(furnished):
+def test_an_int32_array_at_an_undeclared_leaf_is_refused(furnished, strand_request):
     """The dtype rule reaches every leaf, so `int32` is admitted by name only."""
-    stepper = replace(furnished.stepper)
+    stepper = replace(strand_request.stepper)
     planes = np.array([1], dtype=np.int32)
     planes.setflags(write=False)
     object.__setattr__(stepper, "save_planes", planes)
-    spoiled = replace(furnished, stepper=stepper)
+    spoiled = _RunPolicy(stepper, strand_request.observation.stats)
     with pytest.raises(TranslationError, match=r"stepper\.save_planes has dtype int32"):
-        spoiled._check_arrays()
+        furnished._check_arrays(spoiled)
 
 
-def test_a_modal_reference_beside_spatial_geometry_is_refused(strand, strand_grid):
+def test_a_modal_reference_beside_spatial_geometry_is_refused(
+    strand, strand_grid, strand_run, strand_request
+):
     problem = with_leaves(
-        strand, modal_tables=modal_tables_on(strand, strand_grid), geometry=object()
+        strand,
+        modal_tables=modal_tables_on(strand, strand_request, strand_grid),
+        geometry=object(),
     )
     with pytest.raises(TranslationError, match="one or the other"):
-        problem._check_modal_leaves()
+        problem._check_modal_leaves(strand_run)
 
 
-def test_a_modal_reference_needs_a_single_polarisation(furnished):
+def test_a_modal_reference_needs_a_single_polarisation(furnished, strand_run):
     problem = replace(furnished)
     object.__setattr__(problem, "shape", (1, 2, furnished.shape[-1]))
     with pytest.raises(TranslationError, match="keeps n_pol = 1"):
-        problem._check_modal_leaves()
+        problem._check_modal_leaves(strand_run)
 
 
-def test_a_modal_reference_counts_the_states_channels(furnished):
+def test_a_modal_reference_counts_the_states_channels(furnished, strand_run):
     problem = replace(furnished)
     object.__setattr__(problem, "shape", (3, 1, furnished.shape[-1]))
     with pytest.raises(TranslationError, match="describes 1 channel"):
-        problem._check_modal_leaves()
+        problem._check_modal_leaves(strand_run)
 
 
-def test_a_metric_counts_the_states_channels(strand):
+def test_a_metric_counts_the_states_channels(strand, strand_run):
     problem = with_leaves(
         strand,
         modal_metric=diagonal_metric(n_modes=3, omega=strand.grids.omega, n_edges=2),
     )
     with pytest.raises(TranslationError, match="modal_metric describes 3"):
-        problem._check_modal_leaves()
+        problem._check_modal_leaves(strand_run)
 
 
-def test_a_coupled_flow_counts_the_states_channels(strand):
-    problem = with_leaves(strand, coupled_flow=flow_on(strand, n_modes=2))
+def test_a_coupled_flow_counts_the_states_channels(strand, strand_run, strand_request):
+    problem = with_leaves(
+        strand, coupled_flow=flow_on(strand, strand_request, n_modes=2)
+    )
     with pytest.raises(TranslationError, match="couples 2 channel"):
-        problem._check_modal_leaves()
+        problem._check_modal_leaves(strand_run)
 
 
-def test_regional_responses_need_the_node_regions_they_index(strand, strand_grid):
+def test_regional_responses_need_the_node_regions_they_index(
+    strand, strand_grid, strand_run, strand_request
+):
     problem = with_leaves(strand, regional_responses=kerr_regions())
     with pytest.raises(TranslationError, match="which is absent"):
-        problem._check_modal_leaves()
+        problem._check_modal_leaves(strand_run)
     far = with_leaves(
         strand,
-        modal_tables=modal_tables_on(strand, strand_grid),
+        modal_tables=modal_tables_on(strand, strand_request, strand_grid),
         regional_responses=kerr_regions(response_region=np.array([5], dtype=np.int32)),
     )
     with pytest.raises(TranslationError, match="names region 5"):
-        far._check_modal_leaves()
+        far._check_modal_leaves(strand_run)
 
 
-def test_regional_responses_count_the_references_components(strand, strand_grid):
+def test_regional_responses_count_the_references_components(
+    strand, strand_grid, strand_run, strand_request
+):
     """MAX_N_COMPONENTS is the ceiling; the reference's own count is the rule."""
     problem = with_leaves(
         strand,
-        modal_tables=modal_tables_on(strand, strand_grid),
+        modal_tables=modal_tables_on(strand, strand_request, strand_grid),
         regional_responses=kerr_regions(components=2),
     )
     with pytest.raises(TranslationError, match="2 Cartesian component"):
-        problem._check_modal_leaves()
+        problem._check_modal_leaves(strand_run)
 
 
 @pytest.mark.parametrize("leaf", ["modal_tables", "modal_metric", "coupled_flow"])
-def test_a_leaf_on_another_frequency_grid_is_refused(strand, strand_grid, leaf):
+def test_a_leaf_on_another_frequency_grid_is_refused(
+    strand, strand_grid, leaf, strand_run, strand_request
+):
     """One bin short of the canonical coarse grid is not the canonical coarse grid."""
     short = strand.grids.omega[:-1]
     builders = {
-        "modal_tables": lambda: modal_tables_on(strand, strand_grid, omega=short),
-        "modal_metric": lambda: metric_on(strand, omega=short),
-        "coupled_flow": lambda: flow_on(strand, omega=short),
+        "modal_tables": lambda: modal_tables_on(
+            strand, strand_request, strand_grid, omega=short
+        ),
+        "modal_metric": lambda: metric_on(strand, strand_request, omega=short),
+        "coupled_flow": lambda: flow_on(strand, strand_request, omega=short),
     }
     problem = with_leaves(strand, **{leaf: builders[leaf]()})
     with pytest.raises(TranslationError, match=r"is not grids\.omega"):
-        problem._check_modal_leaves()
+        problem._check_modal_leaves(strand_run)
 
 
 @pytest.mark.parametrize("leaf", ["modal_tables", "modal_metric", "coupled_flow"])
 def test_a_leaf_that_stops_before_the_end_of_the_run_is_refused(
-    strand, strand_grid, leaf
+    strand, strand_grid, leaf, strand_run, strand_request
 ):
     """A z table that ends inside the run is refused, as every other one is."""
-    half = [0.0, 0.5 * strand.stepper.z_end]
+    half = [0.0, 0.5 * strand_request.stepper.z_end]
     builders = {
-        "modal_tables": lambda: modal_tables_on(strand, strand_grid, z_edges=half),
+        "modal_tables": lambda: modal_tables_on(
+            strand, strand_request, strand_grid, z_edges=half
+        ),
         "modal_metric": lambda: identity_metric(omega=strand.grids.omega, z_edges=half),
-        "coupled_flow": lambda: flow_on(strand, z_max=half[1]),
+        "coupled_flow": lambda: flow_on(strand, strand_request, z_max=half[1]),
     }
     problem = with_leaves(strand, **{leaf: builders[leaf]()})
     with pytest.raises(TranslationError, match="does not contain the run"):
-        problem._check_modal_leaves()
+        problem._check_modal_leaves(strand_run)
 
 
-def test_a_reference_on_another_fine_grid_is_refused(strand, strand_grid):
+def test_a_reference_on_another_fine_grid_is_refused(
+    strand, strand_grid, strand_run, strand_request
+):
     """S lives on the fine spectrum, which the coarse bins index through crop_index."""
     problem = with_leaves(
         strand,
         modal_tables=modal_tables_on(
-            strand, strand_grid, omega_fine=strand_grid.omega_fine[:-1]
+            strand, strand_request, strand_grid, omega_fine=strand_grid.omega_fine[:-1]
         ),
     )
     with pytest.raises(TranslationError, match="fine spectrum"):
-        problem._check_modal_leaves()
+        problem._check_modal_leaves(strand_run)
 
 
-def test_a_reference_whose_coarse_bins_sit_elsewhere_is_refused(strand, strand_grid):
+def test_a_reference_whose_coarse_bins_sit_elsewhere_is_refused(
+    strand, strand_grid, strand_run, strand_request
+):
     """The right length is not enough: the coarse bins must sit where they belong."""
     moved = strand_grid.omega_fine + 1.0
     problem = with_leaves(
-        strand, modal_tables=modal_tables_on(strand, strand_grid, omega_fine=moved)
+        strand,
+        modal_tables=modal_tables_on(
+            strand, strand_request, strand_grid, omega_fine=moved
+        ),
     )
     with pytest.raises(TranslationError, match="fine spectrum"):
-        problem._check_modal_leaves()
+        problem._check_modal_leaves(strand_run)
 
 
 # ----------------------------------------------------- the dense metric builder

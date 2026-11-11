@@ -443,7 +443,7 @@ def section_formation_bounds(vectors, triangular, lengths, certificate, route=No
     return np.array(bounds)
 
 
-def formation_bound(problem: PropagationProblem, dz: float) -> float:
+def formation_bound(problem: PropagationProblem, run_request, dz: float) -> float:
     """Return ``eps_form`` of a flow at steps up to ``dz``, the largest over everything.
 
     Every section, active bin, distinct stage fraction and direction
@@ -452,7 +452,7 @@ def formation_bound(problem: PropagationProblem, dz: float) -> float:
     held = _coupled_flow_maps(problem)
     assert held is not None
     certificate = float(np.max(held.condition_bound))
-    fractions = {float(node) for node in problem.stepper.tableau.nodes} | {1.0}
+    fractions = {float(node) for node in run_request.stepper.tableau.nodes} | {1.0}
     lengths = [fraction * dz for fraction in sorted(fractions) if fraction]
     return max(
         float(
@@ -504,7 +504,9 @@ def ten_step_bound(scales: FlowScales) -> float:
     )
 
 
-def flow_scales(problem: PropagationProblem, grid, reference) -> FlowScales:
+def flow_scales(
+    problem: PropagationProblem, run_request, grid, reference
+) -> FlowScales:
     """Read the bound's scales off a problem and its reference run's final state."""
     flow = problem.linear.coupled_flow
     assert flow is not None and flow.generator is not None
@@ -515,7 +517,7 @@ def flow_scales(problem: PropagationProblem, grid, reference) -> FlowScales:
     generator = 0.0
     if flow.section_methods != ("constant_schur",):
         generator = flow.n_deg * float(np.max(norms)) + float(np.max(norms[:, 0]))
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         # The backend's private state keeps its leading axis of one.
         state = problem.initial.field0[np.newaxis]
@@ -523,7 +525,7 @@ def flow_scales(problem: PropagationProblem, grid, reference) -> FlowScales:
         source = backend._nonlinear(state, bundle, np.ones_like(state))
     finally:
         backend.close()
-    schedule = problem.stepper.schedule
+    schedule = run_request.stepper.schedule
     assert schedule is not None
     length = float(np.sum(schedule.steps))
     phi = length * float(np.linalg.norm(source) / np.linalg.norm(state))
@@ -538,7 +540,9 @@ def flow_scales(problem: PropagationProblem, grid, reference) -> FlowScales:
             conditioning(
                 maps.at(bundle.transform_weights), problem.initial.field0, grid
             ),
-            moving_count(maps, stage_weights(problem)) if maps.moving else 0.0,
+            moving_count(maps, stage_weights(problem, run_request))
+            if maps.moving
+            else 0.0,
         )
     else:
         per_stage = (
@@ -562,19 +566,19 @@ def flow_scales(problem: PropagationProblem, grid, reference) -> FlowScales:
         dz=float(np.max(schedule.steps)),
         source=per_stage,
         attenuation=float(np.linalg.norm(state) / np.linalg.norm(reference)),
-        formation=formation_bound(problem, float(np.max(schedule.steps))),
+        formation=formation_bound(problem, run_request, float(np.max(schedule.steps))),
     )
 
 
-def stage_weights(problem: PropagationProblem):
+def stage_weights(problem: PropagationProblem, run_request):
     """Return the ``transform_weights`` of every stage of a fixed schedule's run."""
-    schedule = problem.stepper.schedule
+    schedule = run_request.stepper.schedule
     assert schedule is not None
     anchors = np.concatenate(([0.0], np.cumsum(schedule.steps)[:-1]))
     return [
         scalars(problem, float(anchor), float(anchor + node * step)).transform_weights
         for anchor, step in zip(anchors, schedule.steps, strict=True)
-        for node in problem.stepper.tableau.nodes
+        for node in run_request.stepper.tableau.nodes
     ]
 
 
@@ -583,12 +587,12 @@ def departure(got, expected):
     return float(np.linalg.norm(got - expected) / np.linalg.norm(expected))
 
 
-def run(backend_class, problem, grid):
+def run(backend_class, problem, run_request, grid):
     """Return the final state of the fixed schedule on one backend."""
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        schedule = problem.stepper.schedule
+        schedule = run_request.stepper.schedule
         assert schedule is not None
         backend.propagate_to(float(np.sum(schedule.steps)))
         return backend.observe().require_field().copy()

@@ -98,6 +98,7 @@ __all__ = [
     "CoupledExponentialKernels",
     "ExponentialKernels",
     "HostHistory",
+    "budget_error",
     "compensation_tables",
     "coupled_moments",
     "exponential_tables",
@@ -259,6 +260,44 @@ class CallLedger:
 
 _LEDGER_FIELDS = tuple(one.name for one in fields(CallLedger))
 """The counters and the orders a ledger's record holds, in field order."""
+
+
+def budget_error(
+    max_calls: int | None,
+    spent: int,
+    z: float,
+    cost: int,
+    field: Complex[np.ndarray, "n_modes n_pol n_omega"],
+) -> ResponseBudgetError:
+    """Return the error of an Adams trial the source-call budget cannot pay for.
+
+    One message for every march that keeps the budget: solprop's and the native
+    session's, which charge the same calls (SEP 39 section 4.9).
+
+    Parameters
+    ----------
+    max_calls : int or None
+        The method's budget.
+    spent : int
+        The calls charged so far (:attr:`CallLedger.total`).
+    z : float
+        The last accepted position, m.
+    cost : int
+        The calls the refused trial needs.
+    field : numpy.ndarray
+        The accepted state there, ``(n_modes, n_pol, n_omega)``, owned by the error.
+
+    Returns
+    -------
+    solprop.exceptions.ResponseBudgetError
+        Carrying the last accepted position and state and the calls spent.
+    """
+    msg = (
+        f"the source-call budget of {max_calls} is spent ({spent} "
+        f"charged) at z = {z:.6g} m: the next trial needs {cost}; "
+        "the run stops at its last accepted step, unfinished"
+    )
+    return ResponseBudgetError(msg, z=z, field=field, calls=spent)
 
 
 def _decoded_orders(runs: object, steps: int) -> list[int]:
@@ -2979,7 +3018,7 @@ class AdamsMarch:
         self._backend = backend
         self._method = method
         # Whether the run interpolates its planes, and with what (ADR-036, ADR-039).
-        self._interpolate = backend._problem.stepper.interpolate_planes
+        self._interpolate = backend._stepper.interpolate_planes
         self._interpolant = getattr(method, "interpolant", "adams")
         self._kernels = (
             AdamsKernels(helpers=backend.helpers) if kernels is None else kernels
@@ -3037,7 +3076,7 @@ class AdamsMarch:
         )
         # Every number the controller and the landings read, from one record (SEP 39
         # section 4.2); the decisions are `adams_core`'s functions of it.
-        settings = backend._problem.stepper
+        settings = backend._stepper
         linear = backend._problem.linear
         carrier = self._engine.carrier
         self._policy: MarchPolicy = march_policy(
@@ -3245,7 +3284,7 @@ class AdamsMarch:
         from solprop.backends.driver import reached  # noqa: PLC0415 - import cycle
 
         backend = self._backend
-        settings = backend._problem.stepper
+        settings = backend._stepper
         dense = self._interpolate
         if self._ahead is not None:
             # The march is ahead of the last observation; resume it there.
@@ -3444,14 +3483,12 @@ class AdamsMarch:
             Carrying the last accepted position and state and the calls spent.
         """
         backend = self._backend
-        spent = self.ledger.total
-        msg = (
-            f"the source-call budget of {self._policy.max_calls} is spent ({spent} "
-            f"charged) at z = {backend._z:.6g} m: the next trial needs {cost}; "
-            "the run stops at its last accepted step, unfinished"
-        )
-        return ResponseBudgetError(
-            msg, z=backend._z, field=backend._adams_state()[0].copy(), calls=spent
+        return budget_error(
+            self._policy.max_calls,
+            self.ledger.total,
+            backend._z,
+            cost,
+            backend._adams_state()[0].copy(),
         )
 
     def _start(self) -> None:

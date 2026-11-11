@@ -47,9 +47,10 @@ routes' default, pass 7 also adds the temporal absorber's own term, `−α(t) E(
 transformed to the modes, beside the normalised polarisation (§6).
 
 **Passes 3 to 5 are a loop over node chunks.** The transforms of passes 2 and 6 run once
-over all `n_modes n_pol` columns; the space-domain work runs over `transform.node_chunk`
-nodes at a time and the projections accumulate, so the buffers `E` and `P` are sized by the
-chunk and not by the rule ([architecture.md §13](architecture.md)). Mode-averaged
+over all `n_modes n_pol` columns; the space-domain work runs over the backend's node chunk
+(`solprop.backends.node_chunk.plan_node_chunk`) at a time and the projections accumulate,
+so the buffers `E` and `P` are sized by the chunk and not by the rule
+([architecture.md §13](architecture.md)). Mode-averaged
 propagation is the one-node, one-column case of exactly this code and not a second path
 (ADR-010): the "quadrature" is then the mode itself, the synthesis is
 `1/sqrt(ε₀ c A_eff / 2)` and the projection is one. A one-mode multimode run reproduces the
@@ -291,7 +292,14 @@ position) and one fold:
 `HostLowStorageMarch` replays a schedule and nothing else, mirroring `HostAdamsMarch`'s
 replay: each step calls the host engine (`HostLowStorage.step`), applies `_finish` and
 moves the position in one commit; the native bridge's `LowStorageMarch` does the same
-with the backend's resident engine from `_low_storage_engine`, one native call per step. There is no estimate: the history's norm is 0.0, "not estimated". The step
+with the backend's resident engine from `_low_storage_engine`, one native call per step.
+The native execution session ([SEP 47](seps/sep-0047-run-ownership.md) section 6.3,
+`solprop_native.session`) owns the loop itself: the native Runge-Kutta march replays the
+schedule, and each step is one in-place native step whose stage scalars, the table keys
+of `table_steps` and the flows' increments, the native state forms from its stage
+tables (`native/src/low_storage.cpp`), with no return to Python; a failure partway
+through a step leaves no consistent state, so the session's terminal event is poisoned
+and claims no checkpoint. There is no estimate: the history's norm is 0.0, "not estimated". The step
 is **in flight** from its start to its commit (`HostDriver._in_flight`), and every entry
 that reads or advances the state refuses it until `set_initial`; divergence is detected
 on the accepted state's squared norm, which pass 4 reduces over the norm mask. The
@@ -424,7 +432,9 @@ path (PECE and the comparison variants) keeps host arrays.
 its staged trial and native norm, a call of attempts at a time, returning only at a host
 event and taking the boundary checks itself; the kernel contract's section 12 is the
 interface. It covers interpolated planes (the step across a plane returns to solprop, which
-holds its extension), a replayed schedule, a coupled flow (its guards transcribed), a z table
+holds its extension; in SEP 47's native session the march holds it through its engine,
+`rk::Engine::extend`, finishes the step itself and the session observes the plane where the
+state lives, `native/src/dense.cpp`), a replayed schedule, a coupled flow (its guards transcribed), a z table
 the transverse edge (read on the host, as the Adams march reads it) and a weighted norm
 (reduced natively in both loops), on CPU and device builds alike; a controller with its own
 methods still steps the driver's loop, with a `HostMarchWarning` naming the reason.
@@ -453,7 +463,9 @@ reading through the monitor at its own step. The Python march is the reference -
 configuration the native march does not cover (the comparison
 methods' general path, a coupled flow on the host engine (off the eigenbasis route or
 wider than 16 channels), a norm scale other than `PIController`'s, and a z table's
-carrier frame), with a `HostMarchWarning` naming the reason. Lockstep batches replay on the host (`replay_step`).
+carrier frame), with a `HostMarchWarning` naming the reason. The transitional lockstep
+batches replay on the host (`replay_step`); a native CPU group the native group session
+admits replays each member in its own native session instead (`solprop_native.group`).
 
 **Resume** (ADR-046): an engine that can export its rows (`snapshot_rows`, and
 `load_rows` to install them) lets `HostAdamsMarch.snapshot` (and `AdamsMarch.snapshot`
@@ -561,7 +573,19 @@ the measurements behind them.
   `interpolate_planes=True` asks for DOPRI5's continuous extension (ADR-039): then the save planes leave the landing targets, the accepted step that
   crosses a plane is contracted into its five extension coefficients (driver hook
   `_dense_stages`), and the plane is evaluated and carried there by the exact flow while
-  the march's own state is held ahead.
+  the march's own state is held ahead. A session keeps the two positions apart: a
+  snapshot latched while a plane's field is held waits for the next accepted endpoint,
+  every plane its step crossed observed first -- the end of that step itself when the
+  next plane lies beyond it, since with planes closer than the steps every later step
+  crosses another plane -- so a checkpoint never needs the extension to reconstruct a
+  plane ([SEP 47](seps/sep-0047-run-ownership.md) section 5.5). After an observation
+  the next step evaluates its first stage afresh rather than recycle the crossing step's
+  last (FSAL), in the native session as in the bridge, which reloads the committed
+  state from its host copy: a recycled stage parted the two by up to 9e-8 in a norm,
+  and by 2e-10 in the positions after it, under some FFT plans and not others, and
+  measured planning makes the plans differ from process to process. Their trajectories
+  are now the same to the bit; their planes differ only in the flow's exponential (the
+  bridge's NumPy one, the session's native one), by 5.5e-16 of the peak.
 - **Floor**: a proposal below `dz_min` raises `ConvergenceError` at once (algorithms.md §3,
   traps). The default is `default_dz_min`, 1e-9 of the run length: a run that wants steps
   that small needs over a billion of them and would never finish, and the finest legitimate

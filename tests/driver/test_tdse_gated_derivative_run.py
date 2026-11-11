@@ -222,9 +222,12 @@ def test_the_fake_drift_keeps_its_rise_and_reports_its_edge_ratio(bindings):
 def test_the_edge_entry_is_the_last_evaluation_and_keeps_no_history(bindings):
     simulation = _sae(TDSEAtomicWindow(40e-15, 5e-15))
     problem = simulation.translate()
+    run_request = simulation._run_request()
     assert tdse_descriptor(problem.route) is not None
     binding = ManufacturedBinding(tdse_descriptor(problem.route), 1000, _drift)
-    backend = NumpyRefBackend(problem, grid=simulation.grid, tdse_binding=binding)
+    backend = NumpyRefBackend(
+        problem, run_request, grid=simulation.grid, tdse_binding=binding
+    )
     try:
         backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
         backend.propagate_to(2 * _STEP)

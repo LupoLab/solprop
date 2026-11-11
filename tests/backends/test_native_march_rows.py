@@ -32,16 +32,18 @@ def rows(march: str):
     simulation.settings = dataclasses.replace(
         simulation.settings, integrator=Multistep()
     )
-    problem = dataclasses.replace(
-        simulation.translate(),
-        stats_spec=StatsSpec(names=("energy",), periodic=("energy",), period=3),
+    problem = simulation.translate()
+    run_request = simulation._run_request().for_run(
+        stats=StatsSpec(names=("energy",), periodic=("energy",), period=3)
     )
-    backend = NativeBackend(problem, grid=simulation.grid, adams_march=march)
+    backend = NativeBackend(
+        problem, run_request, grid=simulation.grid, adams_march=march
+    )
     try:
         assert backend._adams.native == (march == "native")
         backend.set_initial(problem.initial.field0, None)
         found = []
-        for plane in problem.stepper.save_planes:
+        for plane in run_request.stepper.save_planes:
             backend.propagate_to(float(plane))
             found.append(backend.observe().step_stats)
         return found

@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 from conftest import ComplexArray
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.nonlinear.raman import response_for
@@ -78,7 +79,7 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
     )
     # optmat's H2 index holds from 112 nm to the static limit, past this grid's
     # collar, and 2 bar is above H2's Dicke cutoff: SEP 3 qualifies no warning here.
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         [mode],
         [KerrResponse(chi3=1e-51, thg=thg), raman],
@@ -89,22 +90,19 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
         dz_init=grid.length / 8,
         dz_max=grid.length / 8,
     )
-    problem = dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(
-            problem.stepper,
+    run_request = run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
             schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / 8),
-        ),
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
-        ),
+        )
     )
     if chunk > 1:
         assert problem.transform.n_nodes % chunk != 0
     fields: list[ComplexArray] = []
     for backend_class in (NumpyRefBackend, NativeBackend):
-        backend = backend_class(problem, grid=grid)
+        backend = backend_class(
+            problem, run_request, grid=grid, options=ExecutionOptions(node_chunk=chunk)
+        )
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(grid.length)
@@ -159,16 +157,12 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
                 # Planning another full/tail shape must leave the first state's
                 # live plans usable, even when both consume shared FFTW wisdom.
                 for peer_chunk in (1, 4):
-                    peer_problem = dataclasses.replace(
+                    peer = NativeBackend(
                         problem,
-                        route=dataclasses.replace(
-                            problem.route,
-                            transform=dataclasses.replace(
-                                problem.transform, node_chunk=peer_chunk
-                            ),
-                        ),
+                        run_request,
+                        grid=grid,
+                        options=ExecutionOptions(node_chunk=peer_chunk),
                     )
-                    peer = NativeBackend(peer_problem, grid=grid)
                     try:
                         peer.set_initial(problem.initial.field0, None)
                         peer.propagate_to(grid.length / 8)
@@ -221,7 +215,7 @@ def test_raman_modal_products_match_reference(
         np.repeat(initial, n_modes, axis=0)
         * np.linspace(1.0, 0.4, n_modes)[:, None, None]
     )
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         modes,
         [KerrResponse(chi3=1e-51, thg=thg), raman],
@@ -232,17 +226,16 @@ def test_raman_modal_products_match_reference(
         dz_init=grid.length / 8,
         dz_max=grid.length / 8,
     )
-    problem = dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(
-            problem.stepper,
+    run_request = run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
             schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / 8),
-        ),
+        )
     )
     assert problem.transform.n_nodes == n_r
     fields: list[ComplexArray] = []
     for backend_class in (NumpyRefBackend, NativeBackend):
-        backend = backend_class(problem, grid=grid)
+        backend = backend_class(problem, run_request, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(grid.length)

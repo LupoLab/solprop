@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from former_raman import FORMER_SILICA_LINES
-from mixture_cases import mixture_case
+from mixture_cases import mixture_translation
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import DriverError
@@ -33,7 +33,7 @@ from solprop.translate.responses import prefactor_at
 
 @pytest.fixture
 def source():
-    mixture, grid, mode, responses, problem = mixture_case()
+    mixture, grid, mode, responses, (problem, run_request) = mixture_translation()
     mixture = mixture.with_densities(
         {
             label: Linear((i + 1) * 1e24, (i + 2) * 1e24, grid.length)
@@ -51,7 +51,7 @@ def source():
         [*responses, raman],
         problem.initial.field0,
         settings=SimulationSettings(
-            controller=problem.stepper.controller,
+            controller=run_request.stepper.controller,
             save_planes=[grid.length],
             dz_max=1e-4,
             dz_init=1e-5,

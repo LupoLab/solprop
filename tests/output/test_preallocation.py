@@ -360,28 +360,29 @@ def problem():
         n_save=5,
         noise=None,
     )
-    return simulation.translate()
+    return simulation.translate(), simulation._run_request()
 
 
 def test_a_plane_is_charged_what_the_memory_store_holds_for_it(problem):
+    problem, run_request = problem
     # One plane of the problem's shape, with every statistic it records.
     entries = int(np.prod(problem.shape))
     expected = 16 * entries + 8 * 3
     if problem.initial.noise_model != "none":
         expected += 8 * entries
-    for name in problem.stats_spec.names:
+    for name in run_request.observation.stats.names:
         expected += 8 * _catalogued_entries(
             CATALOGUE[name].shape,
             {
                 "n_modes": problem.shape[0],
                 "n_pol": problem.shape[1],
                 "n_omega": problem.shape[2],
-                "n_windows": problem.stats_spec.n_windows,
+                "n_windows": run_request.observation.stats.n_windows,
                 "n_species": 0,
                 "n_nodes": 0,
             },
         )
-    assert plane_bytes(problem) == expected
+    assert plane_bytes(problem, run_request.observation.stats) == expected
 
 
 def test_every_catalogued_statistic_shape_has_known_axes():

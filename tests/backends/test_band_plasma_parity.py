@@ -26,6 +26,7 @@ from bounds import gamma, ladder_bound
 from driver.test_prop_capillary import SHORT, build
 from optmat_parity import INTEGRATION_AGREEMENT
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.grid import FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.nonlinear.responses import PlasmaResponse
 from solprop.profiles import Constant
@@ -74,7 +75,7 @@ def banded(problem, grid):
 
 
 def spatial(kind):
-    """Return ``(grid, problem)``: argon on a spatial route, two components."""
+    """Return ``(grid, problem, run_request)``: argon on a spatial route."""
     # SEP 27's steady-current certificate requires resolved temporal tapers.
     # The former 150 fs window had only 30 taper samples and residual 9.8e-9.
     grid = FieldGrid.from_limits(LENGTH, 800e-9, (600e-9, 1.2e-6), 200e-15)
@@ -90,7 +91,7 @@ def spatial(kind):
         jones=(1, 0.5j),
     )
     responses = [PlasmaResponse("Ar", build_rate_table(QuadraticRate(), (1e3, 1e10)))]
-    problem = make_problem(
+    problem, run_request = make_problem(
         grid,
         space,
         pulse.build(grid, space, medium=SpatialMedium()),
@@ -98,20 +99,11 @@ def spatial(kind):
         steps=STEPS,
         density=1e22,
     )
-    if kind != "radial":
-        # A remainder chunk, so the band column meets a partial block.
-        problem = dataclasses.replace(
-            problem,
-            route=dataclasses.replace(
-                problem.route,
-                transform=dataclasses.replace(problem.transform, node_chunk=7),
-            ),
-        )
-    return grid, problem
+    return grid, problem, run_request
 
 
 def modal(kind):
-    """Return ``(grid, problem)``: a capillary, two fixed steps, the band rule."""
+    """Return ``(grid, problem, run_request)``: a capillary, two fixed steps."""
     # `build` forwards any fill, a mapping of components among them.
     gas = cast("str", {"He": 0.5, "Ar": 0.5}) if kind == "mixture" else "He"
     simulation = build(
@@ -125,14 +117,13 @@ def modal(kind):
         absorber_scheme="split_step",
         n_save=2,
     )
-    problem = simulation.translate()
-    return simulation.grid, problem
+    return simulation.grid, simulation.translate(), simulation._run_request()
 
 
 def planar():
-    """Return ``(grid, problem)``: the hybrid planar field-plasma case."""
-    grid, _, problem = planar_case("field-plasma", steps=STEPS, node_chunk=5)
-    return grid, problem
+    """Return ``(grid, problem, run_request)``: the hybrid planar field-plasma case."""
+    grid, _, problem, run_request = planar_case("field-plasma", steps=STEPS)
+    return grid, problem, run_request
 
 
 CASES = (
@@ -147,27 +138,37 @@ CASES = (
 )
 
 
+CHUNKS = {"free": 7, "line": 7, "planar": 5}
+"""Exact node chunks that leave a remainder: the band column meets a partial block."""
+
+
+def options_for(name):
+    """Return the execution options a case runs with: its remainder chunk, if any."""
+    chunk = CHUNKS.get(name)
+    return None if chunk is None else ExecutionOptions(node_chunk=chunk)
+
+
 def case(name):
-    """Return the banded ``(grid, problem)`` of one case."""
+    """Return the banded ``(grid, problem, run_request)`` of one case."""
     if name in {"mode_averaged", "analytic", "multimode", "mixture"}:
-        grid, problem = modal(name)
+        grid, problem, run_request = modal(name)
     elif name == "planar":
-        grid, problem = planar()
+        grid, problem, run_request = planar()
     else:
-        grid, problem = spatial(name)
+        grid, problem, run_request = spatial(name)
     problem = banded(problem, grid)
-    return grid, dataclasses.replace(problem, stats_spec=StatsSpec(names=STATISTICS))
+    return grid, problem, run_request.for_run(stats=StatsSpec(names=STATISTICS))
 
 
-def march(implementation, problem, grid, *, steps):
+def march(implementation, problem, run_request, grid, *, steps, options=None):
     """Return the field and the statistics after the problem's fixed steps."""
-    backend = implementation(problem, grid=grid)
+    backend = implementation(problem, run_request, grid=grid, options=options)
     try:
         backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(float(problem.stepper.save_planes[-1]))
+        summary = backend.propagate_to(float(run_request.stepper.save_planes[-1]))
         assert summary.n_steps == steps
         return backend.observe().require_field().copy(), backend.stats(
-            problem.stats_spec
+            run_request.observation.stats
         )
     finally:
         backend.close()
@@ -191,8 +192,8 @@ def test_current_rules_match_the_reference_on_every_route(
     name, rule, steps, preionisation, spatial_equivalence_backend_class
 ):
     implementation = spatial_equivalence_backend_class
-    grid, problem = case(name)
-    original_end = float(problem.stepper.save_planes[-1])
+    grid, problem, run_request = case(name)
+    original_end = float(run_request.stepper.save_planes[-1])
     # The original 0.1 m planar fixture needs 80 Adams steps. This parity ladder
     # keeps 1/8/10 steps over the approved 1e-7 m window: the fully ionised
     # cold-plasma phase rate is at most 2.765e5 /m, giving <0.028 rad in total.
@@ -213,18 +214,26 @@ def test_current_rules_match_the_reference_on_every_route(
                 for channel in problem.responses.plasma_channels
             ),
         ),
-        stepper=dataclasses.replace(
-            problem.stepper,
-            save_planes=np.asarray(problem.stepper.save_planes) * (end / original_end),
+    )
+    run_request = run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
+            save_planes=np.asarray(run_request.stepper.save_planes)
+            * (end / original_end),
             schedule=FixedSchedule.uniform(0.0, end, end / steps),
-        ),
+        )
     )
     # The existing ladder counts the selected rule's tap width and seven source
     # evaluations per step; the same bound covers these requested march lengths.
     limit = bound(problem, grid, implementation.name, steps)
     assert limit > 0
-    expected, expected_stats = march(NumpyRefBackend, problem, grid, steps=steps)
-    actual, actual_stats = march(implementation, problem, grid, steps=steps)
+    options = options_for(name)
+    expected, expected_stats = march(
+        NumpyRefBackend, problem, run_request, grid, steps=steps, options=options
+    )
+    actual, actual_stats = march(
+        implementation, problem, run_request, grid, steps=steps, options=options
+    )
     if preionisation:
         assert np.max(expected_stats["electron_density"]) > 0
     scale = float(np.max(np.abs(expected)))

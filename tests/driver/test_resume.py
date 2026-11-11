@@ -5,6 +5,8 @@
 """Resume: continuing a file the same run wrote, and refusing one it did not."""
 
 import dataclasses
+import importlib
+import importlib.util
 from typing import Any
 
 import h5py
@@ -126,7 +128,7 @@ def budget(simulation):
     The launch's nonlinear phase over the sixteenth of a period is ``L / L_NL = 0.88``
     for the third-order soliton, below the module's default declared ``Phi = 1``.
     """
-    return march_bound(simulation.translate())
+    return march_bound(simulation.translate(), simulation._run_request())
 
 
 def assert_column(key, got, expected, bound, rtol):
@@ -338,11 +340,13 @@ def test_the_input_draw_is_added_at_a_launch_and_not_to_a_resumed_state(
         pytest.importorskip("solprop_native")
     simulation = scheduled(build_simulation, noise="input", seed=17, backend=backend)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     draw = problem.initial.noise0
     assert draw is not None
     engine = select(
         backend,
         problem,
+        run_request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
@@ -476,10 +480,28 @@ def test_a_run_interrupted_before_its_first_plane_resumes_without_a_second_entra
         raise CrashError("interrupted before the first step")
 
     # Fail the actual march so its terminal checkpoint and regular observations
-    # agree; truncating an advanced file leaves its later checkpoint in place.
+    # agree; truncating an advanced file leaves its later checkpoint in place. The
+    # native session marches in its advance: it fails its first advance past the
+    # launch plane, before the native call, as the drivers' first propagation does.
+    native = (
+        None
+        if importlib.util.find_spec("solprop_native") is None
+        else importlib.import_module("solprop_native.session")
+    )
+    advances: list[int] = []
+
+    def fail_first_march(self, **bounds):
+        if advances:
+            raise CrashError("interrupted before the first step")
+        advances.append(1)
+        return advance(self, **bounds)
+
     with monkeypatch.context() as patch:
         for driver in (StepDriver, HostDriver):
             patch.setattr(driver, "propagate_to", fail_before_first_step)
+        if native is not None:
+            advance = native.NativeSession.advance
+            patch.setattr(native.NativeSession, "advance", fail_first_march)
         with pytest.raises(CrashError, match="before the first step"):
             scheduled(build_simulation).run(path, progress="none")
     stopped = resume(path)
@@ -536,7 +558,8 @@ def test_resuming_with_no_file_starts_from_the_beginning(build_simulation, tmp_p
 def test_set_initial_refuses_a_position_outside_the_table(build_simulation):
     simulation = build_simulation(length=LENGTH, n_save=2)
     problem = simulation.translate()
-    backend = select("numpy_ref", problem, grid=simulation.grid)
+    run_request = simulation._run_request()
+    backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     with pytest.raises(BackendError, match="operator table"):
         backend.set_initial(problem.initial.field0, None, z=2 * LENGTH)
     with pytest.raises(BackendError, match="operator table"):
@@ -547,7 +570,8 @@ def test_set_initial_refuses_a_position_outside_the_table(build_simulation):
 def test_set_initial_refuses_a_position_off_a_replayed_schedule(build_simulation):
     simulation = scheduled(build_simulation)
     problem = simulation.translate()
-    backend = select("numpy_ref", problem, grid=simulation.grid)
+    run_request = simulation._run_request()
+    backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     # Half a step past an edge: a replay could not continue in step from there.
     with pytest.raises(BackendError, match="one of its edges"):
         backend.set_initial(problem.initial.field0, None, z=LENGTH / 80)
@@ -558,7 +582,8 @@ def test_a_state_loaded_at_a_plane_starts_the_run_there(build_simulation):
     """The position and the schedule index come from `z`, and nothing else moves."""
     simulation = scheduled(build_simulation)
     problem = simulation.translate()
-    backend = select("numpy_ref", problem, grid=simulation.grid)
+    run_request = simulation._run_request()
+    backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     backend.set_initial(problem.initial.field0, None, z=LENGTH / 2)
     assert backend.observe().z == LENGTH / 2
     summary = backend.propagate_to(LENGTH)

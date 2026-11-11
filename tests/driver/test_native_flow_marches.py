@@ -14,6 +14,7 @@ the per-bin bound, which the C++ test holds only to ``norm(lT) <= 2`` at a fixed
 eps.
 """
 
+import weakref
 from dataclasses import replace
 from functools import partial
 
@@ -69,11 +70,11 @@ def cases():
     return get
 
 
-def on_march(problem, march):
-    """Return the problem on the default integrator or on the Runge-Kutta march."""
+def on_march(run_request, march):
+    """Return the request on the default integrator or on the Runge-Kutta march."""
     if march == "default":
-        return problem
-    return replace(problem, stepper=replace(problem.stepper, integrator=None))
+        return run_request
+    return run_request.with_stepper(replace(run_request.stepper, integrator=None))
 
 
 @pytest.mark.medium
@@ -92,18 +93,21 @@ def test_ten_steps_are_the_reference_within_the_bound(
     thousand bounds.
     """
     simulation, problem = cases(name)
-    problem = on_march(problem, march)
+    run_request = on_march(simulation._run_request(), march)
     grid = simulation.grid
-    reference = run(NumpyRefBackend, problem, grid)
-    actual = run(native.NativeBackend, problem, grid)
-    bound = ten_step_bound(flow_scales(problem, grid, reference))
+    reference = run(NumpyRefBackend, problem, run_request, grid)
+    actual = run(native.NativeBackend, problem, run_request, grid)
+    bound = ten_step_bound(flow_scales(problem, run_request, grid, reference))
     measured = departure(actual, reference)
     record_property("bound", bound)
     record_property("measured", measured)
     assert bound > 0.0
     assert measured <= bound
     bare = replace(problem, linear=replace(problem.linear, coupled_flow=None))
-    assert departure(run(native.NativeBackend, bare, grid), reference) > 1e3 * bound
+    assert (
+        departure(run(native.NativeBackend, bare, run_request, grid), reference)
+        > 1e3 * bound
+    )
 
 
 def _spectral(stack):
@@ -126,21 +130,27 @@ def test_the_flow_s_actions_are_the_reference_s_within_the_formation_bound(
     eigenbasis limit to zero, so every bin is formed by native's scaling and squaring.
     """
     simulation, problem = cases(name)
+    run_request = simulation._run_request()
     if route == "scaling_and_squaring":
         monkeypatch.setattr(
             "solprop.translate.coupled.eigenbasis_limit", lambda n_modes: 0.0
+        )
+        # Each problem's decomposition is kept while it lives, routed by the limit
+        # in force when it was formed: this route forms its own.
+        monkeypatch.setattr(
+            "solprop_native.backend._HOST_FLOWS", weakref.WeakKeyDictionary()
         )
     held = backend_module._host_flow(problem)
     assert held is not None
     assert np.all(held.route) if route == "eigenbasis" else not np.any(held.route)
     reference = _coupled_flow_maps(problem)
     assert reference is not None
-    nodes = problem.stepper.tableau.nodes
+    nodes = run_request.stepper.tableau.nodes
     fractions = np.array([*(float(node) for node in nodes), 1.0])
-    dz = float(np.max(problem.stepper.schedule.steps))
-    bound = formation_bound(problem, dz)
+    dz = float(np.max(run_request.stepper.schedule.steps))
+    bound = formation_bound(problem, run_request, dz)
     assert 0.0 < bound < 1e-12
-    backend = native.NativeBackend(problem, grid=simulation.grid)
+    backend = native.NativeBackend(problem, run_request, grid=simulation.grid)
     worst = 0.0
     try:
         state = backend._native_state
@@ -211,6 +221,7 @@ def test_the_formed_actions_are_the_reference_s_on_either_route(
     is the production one with the original's operands.
     """
     simulation, problem = cases("scalar")
+    run_request = simulation._run_request()
     rng = np.random.default_rng(6)
     n_active = 5
     n_modes = problem.shape[0]
@@ -227,7 +238,7 @@ def test_the_formed_actions_are_the_reference_s_on_either_route(
     active[: 2 * n_active : 2] = True
     # The engine takes the tableau's stage count and the whole step; the first three
     # are the original's fractions, and the rest repeat them.
-    count = problem.stepper.tableau.n_stages + 1
+    count = run_request.stepper.tableau.n_stages + 1
     fractions = np.resize([0.0, 0.5, 1.0], count)
     adjoint = np.conj(np.swapaxes(vectors, -1, -2))
     own = schur_eigenbasis(vectors, triangular)[3]
@@ -235,7 +246,7 @@ def test_the_formed_actions_are_the_reference_s_on_either_route(
     for taken in (None, np.zeros_like(own)):
         flow, _ = _random_flow(active, vectors, triangular, route=taken)
         monkeypatch.setattr(backend_module, "_host_flow", partial(_held, flow))
-        backend = native.NativeBackend(problem, grid=simulation.grid)
+        backend = native.NativeBackend(problem, run_request, grid=simulation.grid)
         try:
             state = backend._native_state
             state.form_flow_actions(0, length, fractions)

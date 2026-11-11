@@ -71,9 +71,9 @@ def native_class():
     return NativeBackend
 
 
-def run(backend_class, problem, grid, length=LENGTH):
+def run(backend_class, problem, run_request, grid, length=LENGTH):
     """Return the final state of the problem's fixed steps on one backend."""
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(length)
@@ -103,7 +103,7 @@ def test_the_split_collar_on_a_constant_guide_is_the_reference_on_every_bin(marc
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", GeneralModalBasisWarning)
         grid, guide, route, state = scaled_case("pair")
-    problem = problem_for(
+    problem, run_request = problem_for(
         grid,
         guide,
         route,
@@ -121,8 +121,8 @@ def test_the_split_collar_on_a_constant_guide_is_the_reference_on_every_bin(marc
     active = np.asarray(problem.grids.active_mask)
     assert np.count_nonzero(~active) > 0
     loud = with_content_out_of_band(problem, active)
-    expected = run(NumpyRefBackend, loud, grid)
-    got = run(native_class(), loud, grid)
+    expected = run(NumpyRefBackend, loud, run_request, grid)
+    got = run(native_class(), loud, run_request, grid)
     assert np.all(expected[..., ~active] == 0.0)
     assert np.all(got[..., ~active] == 0.0)
     assert departure(got, expected) <= bound
@@ -139,9 +139,14 @@ def test_the_split_collar_on_a_moving_guide_is_the_reference_on_every_bin(march)
     case = grin_kinked()
     problem = dataclasses.replace(
         case.problem,
-        stepper=dataclasses.replace(case.problem.stepper, integrator=MARCHES[march]),
         responses=dataclasses.replace(
             case.problem.responses, absorber_scheme="split_step"
+        ),
+    )
+    case = dataclasses.replace(
+        case,
+        run_request=case.run_request.with_stepper(
+            dataclasses.replace(case.run_request.stepper, integrator=MARCHES[march])
         ),
     )
     active = np.asarray(problem.grids.active_mask)
@@ -242,9 +247,9 @@ def test_a_linear_guide_skips_the_source_and_steps_as_the_reference():
     route = general_modal_route(
         guide, grid, z_max=LENGTH, omega_reference=float(grid.omega0)
     )
-    problem = problem_for(
+    problem, run_request = problem_for(
         grid, guide, route, launch(grid, 2), absorber=None, integrator=None
     )
-    got = run(native_class(), problem, grid)
-    expected = run(NumpyRefBackend, problem, grid)
+    got = run(native_class(), problem, run_request, grid)
+    expected = run(NumpyRefBackend, problem, run_request, grid)
     assert departure(got, expected) <= ten_step_bound(0.0, 0.0)

@@ -302,11 +302,13 @@ def test_a_snapshot_s_size_is_known_without_it(build_simulation, backend, integr
         pytest.skip(f"{backend} is not installed")
     simulation = soliton(build_simulation, backend, integrator=integrator)()
     problem = simulation.translate()
+    run_request = simulation._run_request()
     engine = cast(
         "Any",
         select(
             backend,
             problem,
+            run_request,
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -346,10 +348,11 @@ def test_a_snapshot_from_another_run_is_not_continued(build_simulation):
         length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=Multistep()
     )
     problem = simulation.translate()
-    backend = NumpyRefBackend(problem, grid=simulation.grid)
+    run_request = simulation._run_request()
+    backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(problem.stepper.save_planes[0]))
+        backend.propagate_to(float(run_request.stepper.save_planes[0]))
         snapshot = backend.march_snapshot()
         assert snapshot is not None
         backend.set_initial(problem.initial.field0, None)
@@ -370,8 +373,8 @@ def test_a_snapshot_from_another_run_is_not_continued(build_simulation):
     runge_kutta = build_simulation(
         length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=RungeKutta()
     )
-    problem = runge_kutta.translate()
-    backend = NumpyRefBackend(problem, grid=runge_kutta.grid)
+    problem, run_request = runge_kutta.translate(), runge_kutta._run_request()
+    backend = NumpyRefBackend(problem, run_request, grid=runge_kutta.grid)
     try:
         assert backend.march_snapshot() is None
         assert "Runge-Kutta" in str(backend.restore_march(snapshot))
@@ -576,10 +579,11 @@ def test_rows_another_history_keeps_are_refused_by_name(build_simulation):
         length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=Multistep()
     )
     problem = simulation.translate()
-    backend = NumpyRefBackend(problem, grid=simulation.grid)
+    run_request = simulation._run_request()
+    backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(problem.stepper.save_planes[0]))
+        backend.propagate_to(float(run_request.stepper.save_planes[0]))
         snapshot = backend.march_snapshot()
         assert snapshot is not None
         rows = {**snapshot.rows, "states": snapshot.rows["store"]}
@@ -601,6 +605,7 @@ def test_the_general_path_refuses_a_snapshot_it_cannot_install(build_simulation)
         length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=Multistep()
     )
     problem = simulation.translate()
+    run_request = simulation._run_request()
     general = build_simulation(
         length=LENGTH,
         n_save=N_SAVE,
@@ -608,12 +613,12 @@ def test_the_general_path_refuses_a_snapshot_it_cannot_install(build_simulation)
         integrator=ComparisonMultistep(order=3),
     )
     backends = [
-        NumpyRefBackend(problem, grid=simulation.grid),
-        NumpyRefBackend(general.translate(), grid=general.grid),
+        NumpyRefBackend(problem, run_request, grid=simulation.grid),
+        NumpyRefBackend(general.translate(), general._run_request(), grid=general.grid),
     ]
     try:
         backends[0].set_initial(problem.initial.field0, None)
-        backends[0].propagate_to(float(problem.stepper.save_planes[0]))
+        backends[0].propagate_to(float(run_request.stepper.save_planes[0]))
         snapshot = backends[0].march_snapshot()
         assert snapshot is not None
         backends[1].set_initial(problem.initial.field0, None, z=snapshot.z)

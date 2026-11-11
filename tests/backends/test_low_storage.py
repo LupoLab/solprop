@@ -47,6 +47,7 @@ from solprop.backends.host.driver import HostDriver
 from solprop.backends.low_storage import HostLowStorage, schedule_key, table_steps
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import resolve_name
+from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import absorber
 from solprop.constants import C
 from solprop.driver.scaffold import gnlse_source
@@ -73,7 +74,13 @@ from solprop.stepper import (
 )
 from solprop.stepper.schedule import LANDING_ULPS
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import PropagatorMode, StepperSettings, assemble
+from solprop.translate.problem import (
+    PropagatorMode,
+    StepperSettings,
+    Translation,
+    assemble,
+    validate_run,
+)
 from solprop.translate.routes import TDSESource
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
@@ -92,25 +99,29 @@ MARCH = LowStorageRungeKutta()
 ARGUMENT_FACTOR = 16
 
 
-def marched(problem, schedule, *, mode="auto", **stepper):
-    """Return a problem stepped by the low-storage march over `schedule`."""
+def marched(problem, run_request, schedule, *, mode="auto", **stepper):
+    """Return a problem and its request stepped by the low-storage march."""
     settings = dataclasses.replace(
-        problem.stepper,
+        run_request.stepper,
         integrator=MARCH,
         schedule=schedule,
         propagator_mode=mode,
-        dz_max=max(schedule.max_step, problem.stepper.dz_max),
-        dz_init=min(problem.stepper.dz_init, schedule.max_step),
+        dz_max=max(schedule.max_step, run_request.stepper.dz_max),
+        dz_init=min(run_request.stepper.dz_init, schedule.max_step),
         **stepper,
     )
-    return dataclasses.replace(problem, stepper=settings)
+    return Translation(problem, run_request.with_stepper(settings))
 
 
-def run(problem, grid, *, planes=None, backend=None):
+def run(problem, run_request, grid, *, planes=None, backend=None, options=None):
     """Replay a problem through its save planes; return the final state and backend."""
-    made = NumpyRefBackend(problem, grid=grid) if backend is None else backend
+    made = (
+        NumpyRefBackend(problem, run_request, grid=grid, options=options)
+        if backend is None
+        else backend
+    )
     made.set_initial(problem.initial.field0, None)
-    for plane in problem.stepper.save_planes if planes is None else planes:
+    for plane in run_request.stepper.save_planes if planes is None else planes:
         made.propagate_to(float(plane))
     return made.observe().require_field().copy(), made
 
@@ -165,11 +176,11 @@ def test_the_linear_limit_is_the_exact_constant_flow(
     """
     length = 0.6
     schedule = FixedSchedule.uniform(0.0, length, length / 200)
-    base = linear_problem(
+    base, run_request = linear_problem(
         narrow_grid, save_planes=[length], responses=() if silent else [zero_kerr]
     )
-    problem = marched(base, schedule, mode=mode)
-    final, backend = run(problem, narrow_grid)
+    problem, run_request = marched(base, run_request, schedule, mode=mode)
+    final, backend = run(problem, run_request, narrow_grid)
     assert backend.metadata()["propagator_mode"] == mode
     backend.close()
     assert_linear_limit(problem, final, schedule)
@@ -187,7 +198,7 @@ def test_the_linear_limit_holds_on_a_varying_operator(
     """
     length = 1.27
     schedule = FixedSchedule.uniform(0.0, length, length / 60)
-    base = linear_problem(soliton_grid, save_planes=[length])
+    base, run_request = linear_problem(soliton_grid, save_planes=[length])
     detuning = base.grids.omega - base.grids.omega0
     active = base.grids.active_mask
     terms = [0.5j * BETA2_UNIT * Z0 * detuning**2 * active, -0.5 * active]
@@ -200,8 +211,8 @@ def test_the_linear_limit_holds_on_a_varying_operator(
 
     varying = substitute(base, linear=synthetic_expansion(base, terms, weights_of))
     assert not varying.flags.constant_linop
-    problem = marched(varying, schedule, mode=mode)
-    final, backend = run(problem, soliton_grid)
+    problem, run_request = marched(varying, run_request, schedule, mode=mode)
+    final, backend = run(problem, run_request, soliton_grid)
     # A varying operator's "auto" recomputes its flows (section 4.3).
     assert backend.metadata()["propagator_mode"] == mode
     backend.close()
@@ -224,7 +235,7 @@ def test_the_cartesian_diffraction_reproduces_its_width_and_gouy_phase(fraction)
     start = np.zeros((space.n_columns, 1, grid.n_omega), complex)
     start[:, 0, index] = spectrum
     schedule = FixedSchedule.uniform(0.0, distance, distance / 8)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [],
@@ -238,7 +249,7 @@ def test_the_cartesian_diffraction_reproduces_its_width_and_gouy_phase(fraction)
         schedule=schedule,
         integrator=MARCH,
     )
-    state, backend = run(problem, grid)
+    state, backend = run(problem, run_request, grid)
     # The free kinds admit the table under this march, and "auto" takes it.
     assert backend.metadata()["propagator_mode"] == "tabulate"
     backend.close()
@@ -333,7 +344,7 @@ def test_the_third_order_soliton_converges_at_order_four(
         key = (schedule.n_steps, integrator, mode)
         if key in found:
             return found[key]
-        problem = soliton_problem(
+        problem, run_request = soliton_problem(
             soliton_grid,
             3,
             save_planes=[period],
@@ -343,7 +354,7 @@ def test_the_third_order_soliton_converges_at_order_four(
             integrator=integrator,
             propagator_mode=mode,
         )
-        final, backend = run(problem, soliton_grid)
+        final, backend = run(problem, run_request, soliton_grid)
         backend.close()
         start = problem.initial.field0 * problem.grids.active_mask
         exact = np.exp(1j * scales.recurrence_phase) * start
@@ -352,7 +363,7 @@ def test_the_third_order_soliton_converges_at_order_four(
 
     base = FixedSchedule.uniform(0.0, period, period / 200)
     planes = [period * k / 8 for k in range(1, 9)]
-    probe = soliton_problem(
+    probe, probe_request = soliton_problem(
         soliton_grid,
         3,
         save_planes=planes,
@@ -360,7 +371,7 @@ def test_the_third_order_soliton_converges_at_order_four(
         schedule=FixedSchedule.uniform(0.0, period, period / 400, save_planes=planes),
         integrator=MARCH,
     )
-    backend = NumpyRefBackend(probe, grid=soliton_grid)
+    backend = NumpyRefBackend(probe, probe_request, grid=soliton_grid)
     backend.set_initial(probe.initial.field0, None)
     spectra = [probe.initial.field0]
     for plane in planes:
@@ -384,22 +395,20 @@ def test_the_dissipative_varying_problem_converges_at_order_four(request, solito
     40 steps (asserted below one).
     """
     build = request.getfixturevalue("dissipative")
-    problem, distance, loss_integral = build(stepped=False)
+    problem, run_request, distance, loss_integral = build(stepped=False)
     exact = exact_spectrum(soliton_grid, distance, loss_integral)
     exact = exact * problem.grids.active_mask
 
     def evaluate(schedule, integrator, mode="auto"):
         stepper = dataclasses.replace(
-            problem.stepper,
+            run_request.stepper,
             integrator=integrator,
             schedule=schedule,
             dz_max=schedule.max_step,
-            dz_init=min(problem.stepper.dz_init, schedule.max_step),
+            dz_init=min(run_request.stepper.dz_init, schedule.max_step),
             propagator_mode=mode,
         )
-        final, backend = run(
-            dataclasses.replace(problem, stepper=stepper), soliton_grid
-        )
+        final, backend = run(problem, run_request.with_stepper(stepper), soliton_grid)
         backend.close()
         return float(np.linalg.norm(final[0, 0] - exact) / np.linalg.norm(exact))
 
@@ -445,7 +454,7 @@ def test_a_cartesian_kerr_beam_converges_at_order_four():
     start = pulse.build(grid, space, medium=SpatialMedium())
 
     def evaluate(schedule, integrator, mode="auto"):
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             None,
             [KerrResponse(1e-22, thg=False)],
@@ -462,14 +471,14 @@ def test_a_cartesian_kerr_beam_converges_at_order_four():
                 "PropagatorMode", mode if integrator is MARCH else "auto"
             ),
         )
-        final, backend = run(problem, grid)
+        final, backend = run(problem, run_request, grid)
         backend.close()
         initial = problem.initial.field0
         overlap = np.vdot(initial, final) / np.vdot(initial, initial).real
         return float(np.real(np.exp(0.25j * np.pi) * overlap))
 
     base = FixedSchedule.uniform(0.0, length, length / 10)
-    probe = assemble(
+    probe, probe_request = assemble(
         grid,
         None,
         [KerrResponse(1e-22, thg=False)],
@@ -483,7 +492,7 @@ def test_a_cartesian_kerr_beam_converges_at_order_four():
         schedule=base.refined(4),
         integrator=MARCH,
     )
-    final, backend = run(probe, grid)
+    final, backend = run(probe, probe_request, grid)
     backend.close()
     bins = populated([probe.initial.field0, final], 1e-3)
     assert driven_phase(probe, base.max_step, bins) < 1.0
@@ -495,12 +504,12 @@ def test_a_cartesian_kerr_beam_converges_at_order_four():
 # --- the independent RK4IP (section 7.1) -----------------------------------------
 
 
-def evaluation_difference(problem, grid, gnlse):
+def evaluation_difference(problem, run_request, grid, gnlse):
     """Return one source evaluation's departure from the scaffold's, relative.
 
     Returns the departure and the masked input it was taken at.
     """
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     state = backend._require_state()
     march = backend._adams_lab_source(state, 0.0)[0, 0, 0]
@@ -519,10 +528,12 @@ def test_one_evaluation_agrees_with_the_scaffold_s(
     not; with the window all ones (the default) the two compose the same response, so
     they agree within an FFT round trip's rounding (``fft_bound`` of the fine grid).
     """
-    problem = soliton_problem(soliton_grid, 3, save_planes=[0.1])
+    problem, run_request = soliton_problem(soliton_grid, 3, save_planes=[0.1])
     assert np.all(problem.grids.omega_window == 1.0)
-    problem = marched(problem, FixedSchedule.uniform(0, 0.1, 0.01))
-    difference, _ = evaluation_difference(problem, soliton_grid, gnlse)
+    problem, run_request = marched(
+        problem, run_request, FixedSchedule.uniform(0, 0.1, 0.01)
+    )
+    difference, _ = evaluation_difference(problem, run_request, soliton_grid, gnlse)
     assert difference <= fft_bound(soliton_grid.n_to)
 
 
@@ -544,7 +555,7 @@ def test_whole_runs_agree_with_the_scaffold_far_below_the_truncation_error(
     steps = 400
     period = scales.period
     schedule = FixedSchedule.uniform(0.0, period, period / steps)
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         soliton_grid,
         3,
         save_planes=[period],
@@ -553,8 +564,8 @@ def test_whole_runs_agree_with_the_scaffold_far_below_the_truncation_error(
         schedule=schedule,
         integrator=MARCH,
     )
-    difference, start = evaluation_difference(problem, soliton_grid, gnlse)
-    final, backend = run(problem, soliton_grid)
+    difference, start = evaluation_difference(problem, run_request, soliton_grid, gnlse)
+    final, backend = run(problem, run_request, soliton_grid)
     backend.close()
     start = start[0, 0, 0]
     scaffold = propagate_fixed_rk4(gnlse, soliton_grid, start, period, steps)[1][-1]
@@ -579,7 +590,7 @@ LIFECYCLE_STEPS = 40
 
 @pytest.fixture
 def lifecycle(soliton_problem, narrow_grid, scales):
-    """Return ``(**stepper) -> (problem, length)``: the march on an N = 1 soliton."""
+    """Return ``(**stepper) -> (problem, run_request, length)``: the N = 1 march."""
     length = 2 * scales.dispersion_length
     planes = [length / 2, length]
     schedule = FixedSchedule.uniform(
@@ -587,7 +598,7 @@ def lifecycle(soliton_problem, narrow_grid, scales):
     )
 
     def build(**stepper):
-        problem = soliton_problem(
+        problem, run_request = soliton_problem(
             narrow_grid,
             1,
             save_planes=planes,
@@ -597,10 +608,10 @@ def lifecycle(soliton_problem, narrow_grid, scales):
             integrator=MARCH,
         )
         if stepper:
-            problem = dataclasses.replace(
-                problem, stepper=dataclasses.replace(problem.stepper, **stepper)
+            run_request = run_request.with_stepper(
+                dataclasses.replace(run_request.stepper, **stepper)
             )
-        return problem, length
+        return problem, run_request, length
 
     return build
 
@@ -623,11 +634,11 @@ def test_planes_at_natural_steps_match_the_uninterrupted_run(
     lifecycle, narrow_grid, scales
 ):
     """``step_planes`` stops on the schedule's own edges and changes nothing else."""
-    problem, length = lifecycle()
-    uninterrupted, backend = run(problem, narrow_grid)
+    problem, run_request, length = lifecycle()
+    uninterrupted, backend = run(problem, run_request, narrow_grid)
     backend.close()
-    natural, _ = lifecycle(step_planes=7)
-    backend = NumpyRefBackend(natural, grid=narrow_grid)
+    natural, natural_request, _ = lifecycle(step_planes=7)
+    backend = NumpyRefBackend(natural, natural_request, grid=narrow_grid)
     backend.set_initial(natural.initial.field0, None)
     stops = []
     while backend._z < length:
@@ -635,10 +646,10 @@ def test_planes_at_natural_steps_match_the_uninterrupted_run(
         stops.append(summary.z)
     final = backend.observe().require_field()
     backend.close()
-    edges = problem.stepper.schedule.edges
+    edges = run_request.stepper.schedule.edges
     # On the same edges, exactly: the 7th, 14th, ... edge, and the end.
     assert stops == [float(edges[k]) for k in (7, 14, 21, 28, 35)] + [length]
-    bound = rounding_bound(problem, problem.stepper.schedule, scales)
+    bound = rounding_bound(problem, run_request.stepper.schedule, scales)
     assert np.linalg.norm(final - uninterrupted) <= bound * np.linalg.norm(
         uninterrupted
     )
@@ -654,7 +665,7 @@ def test_a_lockstep_batch_matches_its_members_run_alone(
     """
     from solprop.backends.registry import select_batch  # noqa: PLC0415
 
-    problem, length = lifecycle()
+    problem, run_request, length = lifecycle()
     members, alone = [], []
     for factor in (1.0, 1.1):
         member = dataclasses.replace(
@@ -663,22 +674,22 @@ def test_a_lockstep_batch_matches_its_members_run_alone(
                 problem.initial, field0=problem.initial.field0 * factor
             ),
         )
-        final, backend = run(member, narrow_grid)
+        final, backend = run(member, run_request, narrow_grid)
         backend.close()
         alone.append(final)
-        loaded = NumpyRefBackend(member, grid=narrow_grid)
+        loaded = NumpyRefBackend(member, run_request, grid=narrow_grid)
         loaded.set_initial(member.initial.field0, None)
         members.append(loaded)
     runner = select_batch(members)
     try:
         with caplog.at_level(logging.DEBUG, logger=type(runner).__module__):
-            for plane in problem.stepper.save_planes:
+            for plane in run_request.stepper.save_planes:
                 runner.propagate_to(float(plane))
         observed = runner.observe_members()
         metadata = runner.member_metadata()
     finally:
         runner.close()
-    bound = rounding_bound(problem, problem.stepper.schedule, scales)
+    bound = rounding_bound(problem, run_request.stepper.schedule, scales)
     for observation, expected, record in zip(observed, alone, metadata, strict=True):
         assert observation.z == length
         assert observation.step_history.n_steps == LIFECYCLE_STEPS
@@ -693,7 +704,7 @@ def test_a_lockstep_batch_matches_its_members_run_alone(
         if record.name == type(runner).__module__
         and "tolerance ratio" in record.getMessage()
     ]
-    assert len(ratios) == len(problem.stepper.save_planes)
+    assert len(ratios) == len(run_request.stepper.save_planes)
     assert all(line.endswith("not estimated (replayed schedule)") for line in ratios)
 
 
@@ -705,21 +716,23 @@ def test_a_resume_at_an_edge_agrees_to_rounding(lifecycle, narrow_grid, scales, 
     built from a different step of the segment than the uninterrupted run's: the two
     agree within section 4.5's bound, not bit for bit.
     """
-    problem, length = lifecycle()
-    uninterrupted, backend = run(problem, narrow_grid)
+    problem, run_request, length = lifecycle()
+    uninterrupted, backend = run(problem, run_request, narrow_grid)
     backend.close()
-    resumable, _ = lifecycle(step_planes=7 if edge == "mid-segment" else 0)
-    backend = NumpyRefBackend(resumable, grid=narrow_grid)
+    resumable, resumable_request, _ = lifecycle(
+        step_planes=7 if edge == "mid-segment" else 0
+    )
+    backend = NumpyRefBackend(resumable, resumable_request, grid=narrow_grid)
     backend.set_initial(resumable.initial.field0, None)
     summary = backend.propagate_to(length / 2)
     stopped = backend.observe()
     backend.close()
-    edges = problem.stepper.schedule.edges
+    edges = run_request.stepper.schedule.edges
     expected_stop = float(edges[7]) if edge == "mid-segment" else length / 2
     assert summary.z == stopped.z == expected_stop
-    resumed = NumpyRefBackend(problem, grid=narrow_grid)
+    resumed = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     resumed.set_initial(stopped.require_field(), None, z=stopped.z)
-    for plane in problem.stepper.save_planes:
+    for plane in run_request.stepper.save_planes:
         if plane > stopped.z:
             resumed.propagate_to(float(plane))
     final = resumed.observe().require_field()
@@ -742,7 +755,7 @@ def test_a_resume_at_an_edge_agrees_to_rounding(lifecycle, narrow_grid, scales, 
         resumed.restore_march(snapshot)
     )
     resumed.close()
-    bound = rounding_bound(problem, problem.stepper.schedule, scales)
+    bound = rounding_bound(problem, run_request.stepper.schedule, scales)
     assert np.linalg.norm(final - uninterrupted) <= bound * np.linalg.norm(
         uninterrupted
     )
@@ -810,7 +823,7 @@ def test_the_tdse_response_is_refused_by_name(soliton_problem, narrow_grid):
     route's own tests').
     """
     length = 0.1
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         1,
         save_planes=[length],
@@ -822,7 +835,7 @@ def test_the_tdse_response_is_refused_by_name(soliton_problem, narrow_grid):
     object.__setattr__(route, "tdse", object.__new__(TDSESource))
     object.__setattr__(spoiled, "route", route)
     with pytest.raises(TranslationError, match="does not step the TDSE response"):
-        spoiled.validate()
+        validate_run(spoiled, run_request)
 
 
 def test_a_step_past_rk4_s_stability_interval_is_refused(narrow_grid, gnlse):
@@ -853,7 +866,7 @@ def test_a_step_past_rk4_s_stability_interval_is_refused(narrow_grid, gnlse):
                 start,
                 integrator=MARCH,
                 **arguments,
-            )
+            ).problem
         except TranslationError as error:
             assert "below 2.785" in str(error)
             continue
@@ -896,7 +909,7 @@ def spatial_collar_problem(steps, integrator):
     )
     schedule = FixedSchedule.uniform(0.0, length, length / steps)
     arguments = {} if integrator is None else {"integrator": integrator}
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [KerrResponse(1e-22, thg=False)],
@@ -916,7 +929,7 @@ def spatial_collar_problem(steps, integrator):
     # the stability check of an in-stage spatial rate, so the rate the old collar had,
     # 12.6 (1 - W) / (L / 20), is put on directly and the problem validated again.
     problem = with_collar_rate(problem, 12.6 / (length / 20))
-    problem.validate()
+    validate_run(problem, run_request)
     return problem, schedule
 
 
@@ -974,10 +987,10 @@ def test_an_abandoned_step_leaves_every_reader_refusing(lifecycle, narrow_grid, 
     the step; ``set_initial`` alone clears it, and a resume from the last plane agrees
     with the uninterrupted run to rounding.
     """
-    problem, length = lifecycle()
-    uninterrupted, backend = run(problem, narrow_grid)
+    problem, run_request, length = lifecycle()
+    uninterrupted, backend = run(problem, run_request, narrow_grid)
     backend.close()
-    backend = NumpyRefBackend(problem, grid=narrow_grid)
+    backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(length / 2)
     plane = backend.observe()
@@ -987,7 +1000,7 @@ def test_an_abandoned_step_leaves_every_reader_refusing(lifecycle, narrow_grid, 
     with pytest.raises(AbandonedError):
         backend.propagate_to(length)
     restore()
-    step = problem.stepper.schedule.steps[LIFECYCLE_STEPS // 2 + 2]
+    step = run_request.stepper.schedule.steps[LIFECYCLE_STEPS // 2 + 2]
     message = rf"step of {step:.6g} m from z = .* abandoned in flight"
     for reader in (
         backend.observe,
@@ -1003,7 +1016,7 @@ def test_an_abandoned_step_leaves_every_reader_refusing(lifecycle, narrow_grid, 
     backend.propagate_to(length)
     final = backend.observe().require_field()
     backend.close()
-    bound = rounding_bound(problem, problem.stepper.schedule, scales)
+    bound = rounding_bound(problem, run_request.stepper.schedule, scales)
     assert np.linalg.norm(final - uninterrupted) <= bound * np.linalg.norm(
         uninterrupted
     )
@@ -1012,10 +1025,10 @@ def test_an_abandoned_step_leaves_every_reader_refusing(lifecycle, narrow_grid, 
 def test_a_lockstep_member_left_in_flight_refuses_the_next_step(lifecycle, narrow_grid):
     from solprop.backends.registry import select_batch  # noqa: PLC0415
 
-    problem, length = lifecycle()
+    problem, run_request, length = lifecycle()
     members = []
     for _ in range(2):
-        member = NumpyRefBackend(problem, grid=narrow_grid)
+        member = NumpyRefBackend(problem, run_request, grid=narrow_grid)
         member.set_initial(problem.initial.field0, None)
         members.append(member)
     runner = select_batch(members)
@@ -1039,8 +1052,8 @@ def test_a_lockstep_member_left_in_flight_refuses_the_next_step(lifecycle, narro
 
 def test_a_diverged_state_stops_the_replay_in_flight(lifecycle, narrow_grid):
     """No estimate to watch: the accepted state's norm is the divergence check."""
-    problem, length = lifecycle()
-    backend = NumpyRefBackend(problem, grid=narrow_grid)
+    problem, run_request, length = lifecycle()
+    backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     original = backend._adams_lab_source
 
@@ -1074,12 +1087,12 @@ def test_an_atomic_engine_commits_its_step_whole(lifecycle, narrow_grid, atomic)
     """
     from solprop._interrupts import handled  # noqa: PLC0415
 
-    problem, length = lifecycle()
+    problem, run_request, length = lifecycle()
     if atomic:
         native = pytest.importorskip("solprop_native")
-        backend = native.NativeBackend(problem, grid=narrow_grid)
+        backend = native.NativeBackend(problem, run_request, grid=narrow_grid)
     else:
-        backend = NumpyRefBackend(problem, grid=narrow_grid)
+        backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     assert backend._low_storage is not None
     engine = backend._low_storage.engine
@@ -1096,7 +1109,7 @@ def test_an_atomic_engine_commits_its_step_whole(lifecycle, narrow_grid, atomic)
     engine.step = interrupted
     with handled(), pytest.raises(KeyboardInterrupt):
         backend.propagate_to(length)
-    schedule = problem.stepper.schedule
+    schedule = run_request.stepper.schedule
     assert schedule is not None
     if atomic:
         assert backend._in_flight is None
@@ -1204,8 +1217,14 @@ FIELD_ROWS = (
 )
 
 
+CARTESIAN_CHUNK = ExecutionOptions(node_chunk=7)
+"""The node chunk :func:`cartesian_march`'s problem runs with: 7 of 108 columns."""
+
+
 def cartesian_march(mode, *, noise=None, collar=False):
-    """Return a Cartesian Kerr problem under the march, node chunk 7 of 108.
+    """Return a Cartesian Kerr problem under the march, run in chunks of 7 of 108.
+
+    Its backends take :data:`CARTESIAN_CHUNK`.
 
     With the collars, the spatial and the temporal one in-stage, it takes the 100
     steps their stability limits ask for; otherwise 4.
@@ -1224,7 +1243,7 @@ def cartesian_march(mode, *, noise=None, collar=False):
         else np.zeros_like(noise.spectrum)
     )
     schedule = FixedSchedule.uniform(0.0, length, length / (100 if collar else 4))
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [KerrResponse(1e-22, thg=False)],
@@ -1242,18 +1261,11 @@ def cartesian_march(mode, *, noise=None, collar=False):
         absorber=absorber(grid) if collar else None,
         absorber_scheme="nonlinear",
     )
-    problem = dataclasses.replace(
-        problem,
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(problem.transform, node_chunk=7),
-        ),
-    )
     if collar:
         # A collar cannot be designed on this coarse box (SEP 40's floor); the subject
         # is the march's ledger beside an in-stage term, so its rate is put on directly.
         problem = with_collar_rate(problem, 12.6 / (length / 20))
-    return problem, grid, space
+    return problem, run_request, grid, space
 
 
 def held_volumes(backend, field):
@@ -1290,15 +1302,15 @@ def test_the_ledger_holds_three_registers_the_scratch_and_the_table(mode, collar
     two registers and the table, and nothing else of a state's size; the transverse
     scratch ``S`` is a per-call allocation on this backend, counted at its peak.
     """
-    problem, grid, _ = cartesian_march(mode, collar=collar)
+    problem, run_request, grid, _ = cartesian_march(mode, collar=collar)
     if collar:
         assert problem.transform.geometry is not None
         assert np.any(problem.transform.geometry.absorber_rate)
         assert problem.responses.temporal_absorber_fine is not None
     field = 16 * math.prod(problem.shape)
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
     backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(float(problem.stepper.save_planes[-1]))
+    backend.propagate_to(float(run_request.stepper.save_planes[-1]))
     assert np.all(np.isfinite(backend.observe().require_field()))
     ledger = backend.memory_ledger()
     assert backend._low_storage is not None
@@ -1346,7 +1358,7 @@ def test_the_noise_draw_never_enters_the_propagating_field():
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
     schedule = FixedSchedule.uniform(0.0, length, length / 8)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [],
@@ -1361,7 +1373,7 @@ def test_the_noise_draw_never_enters_the_propagating_field():
         schedule=schedule,
         integrator=MARCH,
     )
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, noise)
     backend.propagate_to(length)
     final = backend.observe().require_field()
@@ -1389,7 +1401,7 @@ def test_each_pass_carries_the_draw_at_its_own_position(monkeypatch):
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
     schedule = FixedSchedule.uniform(0.0, length, length / 2)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [KerrResponse(1e-22, thg=False)],
@@ -1404,7 +1416,7 @@ def test_each_pass_carries_the_draw_at_its_own_position(monkeypatch):
         schedule=schedule,
         integrator=MARCH,
     )
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, noise)
     inputs, carried = [], []
     source, nonlinear = backend._adams_lab_source, backend._nonlinear
@@ -1499,18 +1511,22 @@ def test_the_two_flow_treatments_agree_to_rounding(
 ):
     """The table and the per-finish flow agree within a rounding bound (section 4.3)."""
     if problem_kind == "soliton":
-        problem, _ = lifecycle()
+        problem, run_request, _ = lifecycle()
         grid = narrow_grid
-        bound = rounding_bound(problem, problem.stepper.schedule, scales)
+        options = None
+        bound = rounding_bound(problem, run_request.stepper.schedule, scales)
     else:
-        problem, grid, _ = cartesian_march("tabulate")
+        problem, run_request, grid, _ = cartesian_march("tabulate")
+        options = CARTESIAN_CHUNK
         # Four steps of a weakly nonlinear beam: section 4.5's bound without growth.
         bins = populated([problem.initial.field0], 1e-3)
-        bound = float(np.max(linear_bound(problem, problem.stepper.schedule)[bins]))
+        bound = float(np.max(linear_bound(problem, run_request.stepper.schedule)[bins]))
     fields = {}
     for mode in ("tabulate", "recompute"):
-        stepper = dataclasses.replace(problem.stepper, propagator_mode=mode)
-        fields[mode], backend = run(dataclasses.replace(problem, stepper=stepper), grid)
+        stepper = dataclasses.replace(run_request.stepper, propagator_mode=mode)
+        fields[mode], backend = run(
+            problem, run_request.with_stepper(stepper), grid, options=options
+        )
         backend.close()
     reference = fields["recompute"]
     assert np.linalg.norm(fields["tabulate"] - reference) <= bound * np.linalg.norm(
@@ -1528,8 +1544,8 @@ def test_the_table_is_keyed_on_its_run_and_rebuilt_where_the_run_changes(
     the run's mean step (``table_steps``) the table is built once per run, where a key
     on each step's own value within ulps of the step was rebuilt at most steps.
     """
-    problem, length = lifecycle()
-    schedule = problem.stepper.schedule
+    problem, run_request, length = lifecycle()
+    schedule = run_request.stepper.schedule
     assert schedule is not None
     keys = table_steps(schedule)
     # The segments cut at the planes have the same nominal step: one run, one key, and
@@ -1537,7 +1553,7 @@ def test_the_table_is_keyed_on_its_run_and_rebuilt_where_the_run_changes(
     assert len(set(keys.tolist())) == 1
     assert len(set(schedule.steps.tolist())) > 1
     assert abs(float(keys[0]) - length / LIFECYCLE_STEPS) <= 4 * EPS * length
-    backend = NumpyRefBackend(problem, grid=narrow_grid)
+    backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     assert backend._low_storage is not None
     engine = backend._low_storage.engine
     assert isinstance(engine, HostLowStorage)
@@ -1559,11 +1575,13 @@ def test_the_table_is_keyed_on_its_run_and_rebuilt_where_the_run_changes(
     steps = np.geomspace(1.0, 2.0, 12)
     varied_schedule = FixedSchedule(steps / steps.sum() * length)
     assert np.array_equal(table_steps(varied_schedule), varied_schedule.steps)
-    varied = marched(problem, varied_schedule, step_planes=0)
-    varied = dataclasses.replace(
-        varied, stepper=dataclasses.replace(varied.stepper, save_planes=[length])
+    varied, varied_request = marched(
+        problem, run_request, varied_schedule, step_planes=0
     )
-    backend = NumpyRefBackend(varied, grid=narrow_grid)
+    varied_request = varied_request.with_stepper(
+        dataclasses.replace(varied_request.stepper, save_planes=[length])
+    )
+    backend = NumpyRefBackend(varied, varied_request, grid=narrow_grid)
     backend.set_initial(varied.initial.field0, None)
     built.clear()
     propagator = backend._adams_propagator
@@ -1606,8 +1624,8 @@ class LinearSource(HostDriver):
         self.rate = rate
         self._state = state
         self._low_storage = None
+        self._stepper = SimpleNamespace(propagator_mode="recompute")
         self._problem = SimpleNamespace(
-            stepper=SimpleNamespace(propagator_mode="recompute"),
             flags=SimpleNamespace(constant_linop=True),
             grids=SimpleNamespace(norm_mask=np.ones(state.shape[-1], dtype=bool)),
         )
@@ -1665,8 +1683,8 @@ def test_the_march_warns_once_when_a_step_passes_the_interval(
     lifecycle, narrow_grid, caplog
 ):
     """A stiffness past 2.785 is logged once per replay, never in the norm column."""
-    problem, length = lifecycle()
-    backend = NumpyRefBackend(problem, grid=narrow_grid)
+    problem, run_request, length = lifecycle()
+    backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     assert backend._low_storage is not None
     engine = backend._low_storage.engine
@@ -1696,13 +1714,13 @@ def test_the_march_warns_once_when_a_step_passes_the_interval(
 @pytest.mark.parametrize("name", ["numpy_ref", "native"])
 def test_a_replay_that_runs_out_says_so(lifecycle, narrow_grid, name):
     # The reference's march, and the bridge's around the native resident engine.
-    problem, length = lifecycle()
+    problem, run_request, length = lifecycle()
     if name == "native":
         backend = pytest.importorskip("solprop_native").NativeBackend(
-            problem, grid=narrow_grid
+            problem, run_request, grid=narrow_grid
         )
     else:
-        backend = NumpyRefBackend(problem, grid=narrow_grid)
+        backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     with pytest.raises(BackendError, match="cannot reach"):
         backend.propagate_to(length * 1.02)

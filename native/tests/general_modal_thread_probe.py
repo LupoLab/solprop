@@ -25,7 +25,7 @@ fields: dict[str, np.ndarray] = {}
 sizings: list[object] = []
 for name in sys.argv[2:]:
     case = CASES[name]()
-    backend = NativeBackend(case.problem, grid=case.simulation.grid)
+    backend = NativeBackend(case.problem, case.run_request, grid=case.simulation.grid)
     try:
         backend.set_initial(case.state, None)
         backend.propagate_to(Z_END)

@@ -420,11 +420,16 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
   };
   if (bounds.replay && schedule.edges.size() != n_steps + 1)
     throw std::invalid_argument("a replayed schedule has one more edge than steps");
-  if (bounds.watch)
+  if (bounds.watch && bounds.owner == nullptr)
     watch::validate(bounds.watch_policy);
   // The boundary check of the step just committed (SEP 45 section 4.8): `due`, then the
-  // reading, buffered for solprop's monitor, and the prediction of what it will do.
+  // reading, buffered for solprop's monitor, and the prediction of what it will do; or,
+  // under a session's owning monitor (SEP 47 section 6.4), the monitor's own check.
   const auto take_check = [&]() -> watch::Verdict {
+    if (bounds.owner != nullptr)
+      return watch::owned_check(
+          *bounds.owner, [&engine]() { return engine.reading(); }, state.z,
+          bounds.replay, schedule.steps, state.cursor);
     const auto& rules = bounds.watch_policy;
     if (!watch::due(rules, state.watch, state.z)) {
       watch::skip(state.watch);
@@ -438,20 +443,20 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
     result.readings.insert(result.readings.end(), reading.begin(), reading.end());
     result.reading_rows.push_back(result.rows.size() / row_columns - 1);
     watch::Verdict verdict = watch::check(rules, state.watch, reading.data(), state.z);
-    if (verdict == watch::Verdict::none && bounds.replay && rules.crossing &&
-        state.cursor < n_steps) {
-      // `_refuse_scheduled_crossing`: the longest scheduled step before the next check
-      // against the cap this check read.
-      const std::size_t ahead = static_cast<std::size_t>(std::min<std::uint64_t>(
-          watch::steps_to_check(rules, state.watch), n_steps - state.cursor));
-      double longest = schedule.steps[state.cursor];
-      for (std::size_t index = 1; index < ahead; ++index)
-        longest = std::max(longest, schedule.steps[state.cursor + index]);
-      if (longest > state.watch.cap)
-        verdict = watch::Verdict::refuse;
-    }
+    // `_refuse_scheduled_crossing`: the longest scheduled step before the next check
+    // against the cap this check read.
+    if (verdict == watch::Verdict::none &&
+        watch::refused_crossing(rules.crossing, bounds.replay, schedule.steps,
+                                state.cursor, watch::steps_to_check(rules, state.watch),
+                                state.watch.cap) > 0.0)
+      verdict = watch::Verdict::refuse;
     return verdict;
   };
+  // A stop already requested ends the call before its first attempt (SEP 47 5.5).
+  if (running() && stop_requested(bounds)) {
+    result.reason = Reason::stopped;
+    return result;
+  }
   while (running()) {
     // The budget, before any call is made (`_afford`).
     const std::uint64_t cost = (state.history.empty() ? 1 : 0) + 1;
@@ -489,7 +494,7 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
       proposed = quiet_capped(policy, proposed, bounds.quiet);
       proposed = read_capped(bounds, proposed);
       // Under the march's own checks the split collar's cap is the last check's.
-      proposed = py_min(proposed, bounds.watch ? state.watch.cap : bounds.step_cap);
+      proposed = py_min(proposed, split_cap(bounds, state.watch));
       proposed = collar_reentry(policy, proposed, state.order, state.collar_was_quiet,
                                 bounds.quiet);
       state.collar_was_quiet = bounds.quiet;
@@ -626,6 +631,16 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         result.reason = Reason::monitor;
         return result;
       }
+      // A halt, at this accepted endpoint (SEP 47 section 5.5).
+      if (halt_requested(bounds)) {
+        result.reason = Reason::halted;
+        return result;
+      }
+    }
+    // A stop, after the attempt's commit and accounting (SEP 47 section 5.5).
+    if (stop_requested(bounds)) {
+      result.reason = Reason::stopped;
+      return result;
     }
     if (result.rows.size() / row_columns >= bounds.max_attempts ||
         elapsed() >= bounds.max_seconds) {

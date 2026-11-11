@@ -60,7 +60,9 @@ from backends.forced_threads import assert_threaded
 from backends.matched import fixed_order, native_thread_fields
 from bounds import assert_within, dispersive_device_bound, step_evaluations
 from modal_provider_cases import GENERAL_Z_END
+from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.driver import prop_capillary
 from solprop.modes import CoherentWall
 from solprop.nonlinear.responses import DispersiveKerrResponse
@@ -69,6 +71,7 @@ from solprop.physdata import MaterialSelection, Mixture
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.run_request import RunRequest
 
 solprop_native = pytest.importorskip("solprop_native")
 NativeBackend = solprop_native.NativeBackend
@@ -106,65 +109,75 @@ DISPERSIVE_ROWS = (
 # --- the measurements ------------------------------------------------------------
 
 
-def assert_one_evaluation(problem: PropagationProblem, grid: Any) -> float:
+def assert_one_evaluation(
+    problem: PropagationProblem,
+    run_request,
+    grid: Any,
+    options: ExecutionOptions | None = None,
+) -> float:
     """One evaluation against the reference; return the departure."""
-    ours = source(NativeBackend, problem, grid)
+    ours = source(NativeBackend, problem, run_request, grid, options)
     bound = evaluation_bound(problem)
     assert bound > 0
-    departure = disagreement(ours, source(NumpyRefBackend, problem, grid))
+    theirs = source(NumpyRefBackend, problem, run_request, grid, options)
+    departure = disagreement(ours, theirs)
     assert departure < bound
     return departure
 
 
-def assert_steps(problem: PropagationProblem, grid: Any) -> float:
+def assert_steps(problem: PropagationProblem, run_request, grid: Any) -> float:
     """A replayed window of fixed steps against the reference; return the departure."""
-    ours, summary = run(NativeBackend, problem, grid)
-    bound = summary.n_steps * step_evaluations(problem) * evaluation_bound(problem)
+    ours, summary = run(NativeBackend, problem, run_request, grid)
+    bound = summary.n_steps * step_evaluations(run_request) * evaluation_bound(problem)
     assert bound > 0
-    theirs, reference = run(NumpyRefBackend, problem, grid)
+    theirs, reference = run(NumpyRefBackend, problem, run_request, grid)
     assert summary.n_steps == reference.n_steps
     departure = disagreement(ours, theirs)
     assert departure < bound
     return departure
 
 
-def path_of(problem: PropagationProblem, grid: Any) -> dict[str, bool] | None:
+def path_of(
+    problem: PropagationProblem, run_request, grid: Any
+) -> dict[str, bool] | None:
     """Return how the native response runs: alone, in place, borrowed."""
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         return backend.metadata()["dispersive_path"]
     finally:
         backend.close()
 
 
-def one_step(problem: PropagationProblem, length: float) -> PropagationProblem:
-    """Return the problem cut to one Runge-Kutta step of a tenth of `length`."""
-    return dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(
-            problem.stepper,
+def one_step(run_request: RunRequest, length: float) -> RunRequest:
+    """Return the request cut to one Runge-Kutta step of a tenth of `length`."""
+    return run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
             schedule=FixedSchedule.uniform(0.0, length / STEPS, length / STEPS),
             save_planes=(length / STEPS,),
-        ),
+        )
     )
 
 
-def assert_one_step(problem: PropagationProblem, grid: Any) -> None:
+def assert_one_step(problem: PropagationProblem, run_request, grid: Any) -> None:
     """Seven evaluations through the whole stage, against the reference."""
-    ours, summary = run(NativeBackend, problem, grid)
+    ours, summary = run(NativeBackend, problem, run_request, grid)
     assert summary.n_steps == 1
-    bound = step_evaluations(problem) * evaluation_bound(problem)
+    bound = step_evaluations(run_request) * evaluation_bound(problem)
     assert bound > 0
-    theirs, _ = run(NumpyRefBackend, problem, grid)
+    theirs, _ = run(NumpyRefBackend, problem, run_request, grid)
     assert disagreement(ours, theirs) < bound
 
 
-def route_case(route: str, evaluator: str) -> tuple[PropagationProblem, Any]:
+def route_case(
+    route: str, evaluator: str
+) -> tuple[PropagationProblem, RunRequest, Any]:
     """Return the ten-step case of a route the repeatability tests run."""
     response = DispersiveKerrResponse(ARGON, evaluator)
     if route == "free":
         grid = free_grid("field", True)
-        return free_problem([response], grid), grid
+        problem, run_request = free_problem([response], grid)
+        return problem, run_request, grid
     if route == "planar":
         return planar_problem([response])
     return general_problem(strand(ARGON_FILL, core=CORE_CHI3), evaluator, "analytic")
@@ -183,15 +196,15 @@ def test_one_free_space_evaluation_matches_the_reference(line, case, evaluator):
     """
     grid = free_grid(**FREE_CASES[case])
     response = DispersiveKerrResponse(ARGON, evaluator, thg=FREE_CASES[case]["thg"])
-    problem = free_problem([response], grid, line=line)
+    problem, run_request = free_problem([response], grid, line=line)
     lone = evaluator == "symmetric"
     analytic = case == "field conserving"
-    assert path_of(problem, grid) == {
+    assert path_of(problem, run_request, grid) == {
         "alone": True,
         "in_place": lone,
         "borrowed": lone and not analytic,
     }
-    assert_one_evaluation(problem, grid)
+    assert_one_evaluation(problem, run_request, grid)
 
 
 @pytest.mark.parametrize("evaluator", EVALUATORS)
@@ -204,24 +217,24 @@ def test_one_free_space_evaluation_beside_raman_matches_the_reference(case, eval
     thg = FREE_CASES[case]["thg"]
     grid = free_grid(**FREE_CASES[case])
     response = DispersiveKerrResponse(ARGON, evaluator, thg=thg)
-    problem = free_problem([response, raman(thg)], grid)
+    problem, run_request = free_problem([response, raman(thg)], grid)
     assert problem.flags.has_raman
-    assert path_of(problem, grid) == {
+    assert path_of(problem, run_request, grid) == {
         "alone": False,
         "in_place": False,
         "borrowed": False,
     }
-    assert_one_evaluation(problem, grid)
+    assert_one_evaluation(problem, run_request, grid)
 
 
 @pytest.mark.parametrize("evaluator", EVALUATORS)
 def test_one_free_space_runge_kutta_step_matches_the_reference(evaluator):
     """Seven evaluations through the whole Cartesian stage."""
     grid = free_grid("field", True)
-    problem = free_problem(
+    problem, run_request = free_problem(
         [DispersiveKerrResponse(ARGON, evaluator)], grid, adams=False
     )
-    assert_one_step(one_step(problem, FREE_LENGTH), grid)
+    assert_one_step(problem, one_step(run_request, FREE_LENGTH), grid)
 
 
 @pytest.mark.medium
@@ -232,7 +245,7 @@ def test_ten_free_space_steps_match_the_reference(line, case, evaluator):
     """The default integrator over ten replayed steps."""
     grid = free_grid(**FREE_CASES[case])
     response = DispersiveKerrResponse(ARGON, evaluator, thg=FREE_CASES[case]["thg"])
-    assert_steps(free_problem([response], grid, line=line), grid)
+    assert_steps(*free_problem([response], grid, line=line), grid)
 
 
 @pytest.mark.medium
@@ -241,7 +254,7 @@ def test_ten_free_space_steps_match_the_reference(line, case, evaluator):
 def test_ten_free_space_steps_beside_raman_match_the_reference(thg, evaluator):
     grid = free_grid("field", thg)
     response = DispersiveKerrResponse(ARGON, evaluator, thg=thg)
-    assert_steps(free_problem([response, raman(thg)], grid), grid)
+    assert_steps(*free_problem([response, raman(thg)], grid), grid)
 
 
 @pytest.mark.medium
@@ -258,27 +271,22 @@ def test_a_free_space_mixture_matches_the_reference(evaluator):
         DispersiveKerrResponse(HELIUM, evaluator, species="He"),
         DispersiveKerrResponse(ARGON, evaluator, species="Ar"),
     ]
-    problem = free_problem(responses, grid, medium=medium)
+    problem, run_request = free_problem(responses, grid, medium=medium)
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None and leaf.n_channels == 2
-    assert_one_evaluation(problem, grid)
-    assert_steps(problem, grid)
+    assert_one_evaluation(problem, run_request, grid)
+    assert_steps(problem, run_request, grid)
 
 
 @pytest.mark.parametrize("evaluator", EVALUATORS)
 def test_free_space_chunks_accumulate_as_one(evaluator):
     """Chunks of 20 columns, the last a partial one: each lands where it belongs."""
     grid = free_grid("field", True)
-    problem = free_problem([DispersiveKerrResponse(ARGON, evaluator)], grid)
-    problem = dataclasses.replace(
-        problem,
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(problem.transform, node_chunk=20),
-        ),
+    problem, run_request = free_problem(
+        [DispersiveKerrResponse(ARGON, evaluator)], grid
     )
     assert problem.transform.n_nodes % 20
-    assert_one_evaluation(problem, grid)
+    assert_one_evaluation(problem, run_request, grid, ExecutionOptions(node_chunk=20))
 
 
 # --- the planar route ----------------------------------------------------------------
@@ -291,17 +299,19 @@ def test_one_planar_evaluation_matches_the_reference(thg, evaluator):
 
     Measured 3.4-5.8 eps against the reference, under 1800-3500 eps.
     """
-    problem, grid = planar_problem([DispersiveKerrResponse(ARGON, evaluator, thg=thg)])
-    assert_one_evaluation(problem, grid)
+    problem, run_request, grid = planar_problem(
+        [DispersiveKerrResponse(ARGON, evaluator, thg=thg)]
+    )
+    assert_one_evaluation(problem, run_request, grid)
 
 
 @pytest.mark.parametrize("evaluator", EVALUATORS)
 @pytest.mark.parametrize("thg", [True, False])
 def test_one_planar_evaluation_beside_raman_matches_the_reference(thg, evaluator):
-    problem, grid = planar_problem(
+    problem, run_request, grid = planar_problem(
         [DispersiveKerrResponse(ARGON, evaluator, thg=thg), raman(thg)]
     )
-    assert_one_evaluation(problem, grid)
+    assert_one_evaluation(problem, run_request, grid)
 
 
 @pytest.mark.parametrize("evaluator", EVALUATORS)
@@ -311,40 +321,39 @@ def test_a_planar_collar_leaves_the_lone_response_in_place(evaluator):
     So a lone symmetric response filters in place beside it, and agrees with the
     reference all the same.
     """
-    problem, grid = planar_problem(
+    problem, run_request, grid = planar_problem(
         [DispersiveKerrResponse(ARGON, evaluator)], absorbed=True
     )
     assert problem.responses.absorber_scheme == "nonlinear"
-    path = path_of(problem, grid)
+    path = path_of(problem, run_request, grid)
     assert path is not None
     assert path["in_place"] == (evaluator == "symmetric")
-    assert_one_evaluation(problem, grid)
-    assert_steps(problem, grid)
+    assert_one_evaluation(problem, run_request, grid)
+    assert_steps(problem, run_request, grid)
 
 
 @pytest.mark.parametrize("evaluator", EVALUATORS)
 def test_planar_blocks_accumulate_as_one(evaluator):
     """Blocks of three y rows of four, the last a partial one."""
-    problem, grid = planar_problem([DispersiveKerrResponse(ARGON, evaluator)])
+    problem, run_request, grid = planar_problem(
+        [DispersiveKerrResponse(ARGON, evaluator)]
+    )
     geometry = problem.transform.geometry
     assert geometry is not None
     n_x = geometry.shape[0]
-    problem = dataclasses.replace(
-        problem,
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(problem.transform, node_chunk=3 * n_x),
-        ),
+    assert_one_evaluation(
+        problem, run_request, grid, ExecutionOptions(node_chunk=3 * n_x)
     )
-    assert_one_evaluation(problem, grid)
 
 
 @pytest.mark.medium
 @pytest.mark.parametrize("evaluator", EVALUATORS)
 @pytest.mark.parametrize("thg", [True, False])
 def test_ten_planar_steps_match_the_reference(thg, evaluator):
-    problem, grid = planar_problem([DispersiveKerrResponse(ARGON, evaluator, thg=thg)])
-    assert_steps(problem, grid)
+    problem, run_request, grid = planar_problem(
+        [DispersiveKerrResponse(ARGON, evaluator, thg=thg)]
+    )
+    assert_steps(problem, run_request, grid)
 
 
 @pytest.mark.medium
@@ -352,14 +361,14 @@ def test_ten_planar_steps_match_the_reference(thg, evaluator):
 def test_one_planar_runge_kutta_step_matches_the_reference(evaluator):
     from solprop.stepper import RungeKutta  # noqa: PLC0415
 
-    problem, grid = planar_problem(
+    problem, run_request, grid = planar_problem(
         [DispersiveKerrResponse(ARGON, evaluator)], integrator=RungeKutta(), steps=1
     )
-    ours, summary = run(NativeBackend, problem, grid)
+    ours, summary = run(NativeBackend, problem, run_request, grid)
     assert summary.n_steps == 1
-    bound = step_evaluations(problem) * evaluation_bound(problem)
+    bound = step_evaluations(run_request) * evaluation_bound(problem)
     assert bound > 0
-    theirs, _ = run(NumpyRefBackend, problem, grid)
+    theirs, _ = run(NumpyRefBackend, problem, run_request, grid)
     assert disagreement(ours, theirs) < bound
 
 
@@ -377,15 +386,17 @@ def test_one_general_evaluation_matches_the_reference(strand_case, form, evaluat
     eps against the reference, under 560-1090 eps.
     """
     gas, core = STRANDS[strand_case]
-    problem, grid = general_problem(strand(gas, core=core), evaluator, form)
+    problem, run_request, grid = general_problem(
+        strand(gas, core=core), evaluator, form
+    )
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None and leaf.regions is not None
-    assert path_of(problem, grid) == {
+    assert path_of(problem, run_request, grid) == {
         "alone": core is None,
         "in_place": False,
         "borrowed": False,
     }
-    assert_one_evaluation(problem, grid)
+    assert_one_evaluation(problem, run_request, grid)
 
 
 @pytest.mark.medium
@@ -394,29 +405,31 @@ def test_one_general_evaluation_matches_the_reference(strand_case, form, evaluat
 @pytest.mark.parametrize("strand_case", list(STRANDS))
 def test_ten_general_steps_match_the_reference(strand_case, form, evaluator):
     gas, core = STRANDS[strand_case]
-    problem, grid = general_problem(strand(gas, core=core), evaluator, form)
-    assert_steps(problem, grid)
+    problem, run_request, grid = general_problem(
+        strand(gas, core=core), evaluator, form
+    )
+    assert_steps(problem, run_request, grid)
 
 
 @pytest.mark.parametrize("evaluator", EVALUATORS)
 def test_one_general_runge_kutta_step_matches_the_reference(evaluator):
-    problem, grid = general_problem(
+    problem, run_request, grid = general_problem(
         strand(ARGON_FILL, core=CORE_CHI3), evaluator, "real", adams=False
     )
-    assert_one_step(one_step(problem, GENERAL_Z_END), grid)
+    assert_one_step(problem, one_step(run_request, GENERAL_Z_END), grid)
 
 
 def test_a_general_polynomial_region_groups_its_species_and_forms_one_cube():
     """Krypton and xenon in one region share a leg bound: one group, one cube."""
-    problem, grid = general_problem(
+    problem, run_request, grid = general_problem(
         strand(Mixture.fill({"Kr": 0.5, "Xe": 0.5}, 1.0)), "polynomial", "real"
     )
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None and leaf.groups() == ((0, 1),)
-    ledger = ledger_of(problem, grid)
+    ledger = ledger_of(problem, run_request, grid)
     # Two complex filtered fields and three real products over the chunk's rows.
     assert 4 * ledger["dispersive_products"] == 3 * ledger["dispersive_filtered_time"]
-    assert_one_evaluation(problem, grid)
+    assert_one_evaluation(problem, run_request, grid)
 
 
 # --- a coupled flow on the fused path ------------------------------------------------
@@ -471,7 +484,9 @@ def test_a_coherent_wall_flow_beside_the_response_matches_the_reference(policy):
         simulation = flow_parity.build("scalar")
         problem = simulation.translate()
     bound = flow_parity.ten_step_bound(
-        flow_parity.flow_scales(problem, simulation.grid, fields["numpy_ref"])
+        flow_parity.flow_scales(
+            problem, simulation._run_request(), simulation.grid, fields["numpy_ref"]
+        )
     )
     assert bound > 0
     assert flow_parity.departure(fields["native"], fields["numpy_ref"]) <= bound
@@ -480,9 +495,9 @@ def test_a_coherent_wall_flow_beside_the_response_matches_the_reference(policy):
 # --- what is this backend's alone ----------------------------------------------------
 
 
-def window_bound(problem: PropagationProblem) -> float:
+def window_bound(problem: PropagationProblem, run_request) -> float:
     """Bound two runs of a route's ten-step case: every evaluation's rounding, added."""
-    return STEPS * step_evaluations(problem) * evaluation_bound(problem)
+    return STEPS * step_evaluations(run_request) * evaluation_bound(problem)
 
 
 @pytest.mark.medium
@@ -495,11 +510,11 @@ def test_two_runs_of_one_build_agree(route, evaluator):
     (:func:`window_bound`) rather than its bits: a threaded reduction may order its
     sums differently from one run to the next.
     """
-    problem, grid = route_case(route, evaluator)
-    problem = fixed_order(problem)
-    first, _ = run(NativeBackend, problem, grid)
-    second, _ = run(NativeBackend, problem, grid)
-    assert_within(second, first, window_bound(problem), what="repeat run")
+    problem, run_request, grid = route_case(route, evaluator)
+    run_request = fixed_order(run_request)
+    first, _ = run(NativeBackend, problem, run_request, grid)
+    second, _ = run(NativeBackend, problem, run_request, grid)
+    assert_within(second, first, window_bound(problem, run_request), what="repeat run")
 
 
 @pytest.mark.medium
@@ -520,17 +535,17 @@ def test_one_thread_and_four_agree(tmp_path):
     four = native_thread_fields(PROBE, 4, names, tmp_path)
     assert_threaded(four["sizing"], 4, "kernels.stage", "kernels.response", "fft.fft")
     for name in names:
-        problem, _ = route_case(*name.split(":"))
-        bound = window_bound(fixed_order(problem))
+        problem, run_request, _ = route_case(*name.split(":"))
+        bound = window_bound(problem, fixed_order(run_request))
         assert_within(four[name], one[name], bound, what=name)
 
 
 # --- the memory ledger -------------------------------------------------------------
 
 
-def ledger_of(problem: PropagationProblem, grid: Any) -> dict[str, int]:
+def ledger_of(problem: PropagationProblem, run_request, grid: Any) -> dict[str, int]:
     """Return the backend's ledger, every row of the response named."""
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         ledger = backend.memory_ledger()
     finally:
@@ -539,19 +554,19 @@ def ledger_of(problem: PropagationProblem, grid: Any) -> dict[str, int]:
     return ledger
 
 
-def ledger_cases() -> dict[str, tuple[PropagationProblem, Any]]:
+def ledger_cases() -> dict[str, tuple[PropagationProblem, RunRequest, Any]]:
     """Return one problem of each route and response layout the ledger is held to."""
-    cases: dict[str, tuple[PropagationProblem, Any]] = {}
+    cases: dict[str, tuple[PropagationProblem, RunRequest, Any]] = {}
     for evaluator in EVALUATORS:
         for thg in (True, False):
             grid = free_grid("field", thg)
             response = DispersiveKerrResponse(ARGON, evaluator, thg=thg)
-            cases[f"free {evaluator} thg={thg}"] = (
-                free_problem([response], grid),
-                grid,
-            )
+            problem, run_request = free_problem([response], grid)
+            cases[f"free {evaluator} thg={thg}"] = (problem, run_request, grid)
+            problem, run_request = free_problem([response, raman(thg)], grid)
             cases[f"free {evaluator} thg={thg} beside Raman"] = (
-                free_problem([response, raman(thg)], grid),
+                problem,
+                run_request,
                 grid,
             )
             cases[f"planar {evaluator} thg={thg}"] = planar_problem([response])
@@ -559,12 +574,10 @@ def ledger_cases() -> dict[str, tuple[PropagationProblem, Any]]:
                 [response, raman(thg)]
             )
         envelope = free_grid("envelope", False)
-        cases[f"free envelope {evaluator}"] = (
-            free_problem(
-                [DispersiveKerrResponse(ARGON, evaluator, thg=False)], envelope
-            ),
-            envelope,
+        problem, run_request = free_problem(
+            [DispersiveKerrResponse(ARGON, evaluator, thg=False)], envelope
         )
+        cases[f"free envelope {evaluator}"] = (problem, run_request, envelope)
         for form in ("real", "analytic"):
             for name, (gas, core) in STRANDS.items():
                 cases[f"general {evaluator} {form} {name}"] = general_problem(
@@ -579,8 +592,10 @@ LEDGER_CASES = ledger_cases()
 def test_a_lone_symmetric_free_response_holds_no_field():
     """Filtered in place, its product is the chunk's own polarisation."""
     grid = free_grid("field", True)
-    problem = free_problem([DispersiveKerrResponse(ARGON, "symmetric")], grid)
-    ledger = ledger_of(problem, grid)
+    problem, run_request = free_problem(
+        [DispersiveKerrResponse(ARGON, "symmetric")], grid
+    )
+    ledger = ledger_of(problem, run_request, grid)
     for row in DISPERSIVE_ROWS[:-1]:
         assert ledger[row] == 0, row
     assert ledger["dispersive_multipliers"] > 0
@@ -589,11 +604,11 @@ def test_a_lone_symmetric_free_response_holds_no_field():
 def test_a_free_polynomial_writes_its_filtered_fields_into_its_product_blocks():
     """Three products of a chunk in time and frequency; no filtered field besides."""
     grid = free_grid("field", False)
-    problem = free_problem(
+    problem, run_request = free_problem(
         [DispersiveKerrResponse(ARGON, "polynomial", thg=False)], grid
     )
-    ledger = ledger_of(problem, grid)
-    rows = min(problem.transform.node_chunk, problem.transform.n_nodes)
+    ledger = ledger_of(problem, run_request, grid)
+    rows = plan_node_chunk(problem).chunk
     field = rows * grid.n_to * 16  # the analytic family: complex products
     assert ledger["dispersive_products"] == 3 * field
     assert ledger["dispersive_product_spectra"] == 3 * field
@@ -602,8 +617,10 @@ def test_a_free_polynomial_writes_its_filtered_fields_into_its_product_blocks():
 
 
 def test_a_planar_polynomial_holds_two_node_slots():
-    problem, grid = planar_problem([DispersiveKerrResponse(ARGON, "polynomial")])
-    ledger = ledger_of(problem, grid)
+    problem, run_request, grid = planar_problem(
+        [DispersiveKerrResponse(ARGON, "polynomial")]
+    )
+    ledger = ledger_of(problem, run_request, grid)
     assert ledger["dispersive_node_fields"] == 2 * ledger["node_field"]
     assert ledger["dispersive_filtered_time"] > 0
     assert ledger["dispersive_products"] > 0

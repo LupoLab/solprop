@@ -78,10 +78,12 @@ The listing is abbreviated; `solprop/backends/protocol.py` holds the exact signa
 docstrings, in the order of [architecture.md §9](architecture.md#9-backends-in-one-page).
 
 Rules: a backend is constructed from a validated `PropagationProblem`
-([kernel-contract.md](kernel-contract.md)) and host arrays and returns host arrays; its
+([kernel-contract.md](kernel-contract.md)), the `RunRequest` that carries the run's
+policy ([SEP 47](seps/sep-0047-run-ownership.md) §5.2; it checks the two with
+`validate_run` before it allocates) and host arrays, and returns host arrays; its
 buffers, layout and plans are private; the state is never a parameter of `propagate_to` or
 `observe`; the numbers are the contract — a backend is correct when it reproduces the
-reference to the stated bound. Selection is by name (`backends.select(name, problem)`);
+reference to the stated bound. Selection is by name (`backends.select(name, problem, request)`);
 availability is detected with `importlib.util.find_spec` (importing an accelerator package
 can initialise a device runtime), never cached; an unknown name raises `ValueError` listing
 what is usable, a known name whose dependencies are missing raises `ImportError` saying
@@ -288,6 +290,41 @@ reads the state's energy per walk-off bucket at each check, in the same reductio
 histogram per thread and no atomics, which is why its bucket count has a compiled limit. The
 input-noise floor is read on the host, once, at the launch.
 
+**Export into a destination** ([SEP 47](seps/sep-0047-run-ownership.md) §5.4) is how a
+session's field reaches the output. A session's `export(ticket, recipe, out=None)` fills a
+host destination with the pending observation's field converted by an `ExportRecipe`
+(`backends/export.py`): the true-power weight's square root on a modal route (a spatial
+route's field measure is already the stored quantity), then `(-1)^k conj(.)` into the optics
+convention. The output layer owns that definition (ADR-017); the sessions only evaluate it,
+the reference by `apply_recipe` and `NativeSession` in one fused native pass whose complex
+products keep NumPy's zero terms, so every route's stored bits are those of the two-step
+`power_amplitude` then `spectrum_to_optics` path, signed zeros included. `apply_recipe`
+writes each step straight into the destination (no copy first) and converts a large field's
+rows in threads, as `stored_spectrum` does. A destination is validated by one rule,
+`destination_refusal`, which names what is wrong: the shape, the dtype, the layout (one whose
+elements overlap one another is not contiguous) or a read-only array.
+
+The service loop (`driver/service.py`, `_Exports`) asks for one export per pending ticket
+and shares it among the plane's consumers. A plane store that `takes_exports` gives the
+export its own room with `field_destination`: `MemoryOutput` the block row the plane will
+occupy, allocated with the reserved planes, so a kept field is written once, where it is
+kept; `HDF5Output` none, so the session allocates a new array, which h5py writes into the
+plane's chunk as it is. `save_exported` then stores the plane, which carries no field of
+its own (its noise phase rides beside the field in a `StoredField`). A plane observer reads
+the stored field with no fetch, and a terminal checkpoint at the same plane takes the
+internal convention from it by the exact inverse (`spectrum_to_internal`, the store's own
+reader), with no second export or amplitude conversion. An output that is not a plane
+store, or a store subclass that overrides `save`, is handed the consumer field
+(`ExportRecipe(power=True, optics=False)`) on the plane, as before. A field-free plane
+exports nothing. The room is never recycled: no other plane is given it and nothing writes
+to it once the plane is stored, and an array a consumer retains is never written again.
+
+A device session fills the same host destination: the recipe runs where the state is, into
+the device's scratch, and one copy crosses into `out`; whether the conversion runs before or
+after the crossing is the device's to measure. The CPU-only session prototype refuses device
+builds, so this is phase 4's; the interface needs no change for it, and no device array
+crosses it.
+
 ## 2. `numpy_ref`: the oracle
 
 Plain NumPy and `scipy.fft`, one function per pass, no fusion, no in-place tricks, no
@@ -473,9 +510,23 @@ cases, and a single-precision history resumes in binary32 (`HostHistory.load_row
 problem by name.
 
 **Selection.** `backends/registry.py`: `available()` detects with
-`importlib.util.find_spec` and never caches; `select(name, problem, *, grid, modes,
-profiles)` builds one. The three keyword arguments are what `stats()` needs and the kernel
-contract does not carry.
+`importlib.util.find_spec` and never caches; `select(name, problem, request, *, grid,
+modes, profiles)` builds one, for the problem and the request it is run with: the
+request's method, error control, itinerary and planes are lowered once, here (the native
+session lowers its statistics as it starts, from profile tables cached per problem), and
+a run's session serves that request adapted to one run (`RunRequest.for_run`); a
+preparation refuses any other request by name (`driver_session.foreign_request`). A run
+starts through the backend's own preparation shape (SEP 47 §5.2):
+`backend.prepare(problem, request)` returns a `PreparedExecution` whose
+`start(start, *, listener, started, stop, owns)` opens the backend's session, and
+`backends.sessions.start_session` does nothing else, so a backend chooses its session
+without the run layer naming it. The reference's opens `HostSession`; the native
+backend's (`solprop_native.session.NativePrepared`) opens `NativeSession` where it admits
+the run and the transitional `DriverSession` otherwise, logging the reason at debug level
+(`session_refusal`, which a test replaces to force the bridge); any other driver's
+(`backends.driver_session.DriverPrepared`) opens `DriverSession`. Groups start through
+`start_group`. The
+three keyword arguments are what `stats()` needs and the kernel contract does not carry.
 
 **Spatial statistics measure the medium's flux** ([SEP 34](seps/archive/sep-0034-medium-flux.md)).
 The shared spatial statistics, `backends.spatial.collect_spatial`, read the plane's
@@ -498,8 +549,8 @@ the edge's `_EdgeTables`, four regions' weights on the nodes, so it holds no fac
 field-free run crosses no state (`tests/backends/test_native_edge_reading.py`). A requested collar's lines are described
 once, as `_edge_lines`, for both reductions (`tests/backends/test_native_edge_collar.py`): native takes each strip's padded
 transform in batches of planes under `_STRIP_BATCH_BYTES`, on buffers listed in the `transverse_edge` ledger row, and the
-current from the onset's three nodes, rectified per row, all on one load of the transverse scratch. The current is still
-accumulated in Python. Everything else, the weights, the spacing, the ledgers and the judgement, is one
+current from the onset's three nodes, rectified per row, all on one load of the transverse scratch. Under the driver
+the current is still accumulated in Python (under the native session, below, nothing is). Everything else, the weights, the spacing, the ledgers and the judgement, is one
 code on every backend. The read spacing is a ceiling on the step, and
 a step is not made to land on a read: the edge is read at the last committed position
 from which the next step, a replay's scheduled one or else the controller's proposal, would
@@ -514,6 +565,28 @@ position from which the next step would pass the read, so the host reads the sta
 there. With a collar the host step is one, so the march returns at every committed step.
 A saved plane reads the edge unless the step that reached it already did (`TransverseEdge.wants_read`), as a second read at one position records nothing.
 A backend that does not set it reports `unwatched` and refuses a requested collar by name.
+
+**Under the native execution session the judgement is native too** ([SEP 47](seps/sep-0047-run-ownership.md) §6.4).
+`NativeSession` hands no reading to a Python edge: `transverse::Edge`
+(`native/include/solprop_native/transverse.hpp`, a strict translation unit) owns the edge's every decision and record
+-- the launch's judgements, the spacing and its ceiling, each read's ledgers and verdict, a collar's current and return,
+the resume and the record -- and the session reads the resident state for it (`Resident::edge_reading`, the same
+reduction as `_edge_reading`). The march's `read_at`/`read_spacing` bounds return it to the session, not to Python, where
+a read falls due, and with a collar at every committed step, so a collar's current costs no return to Python. The edge
+follows the temporal monitor at each point of SEP 47 §5.3: launched after the temporal launch, read after a committed
+step's check and before its statistics row, and at a plane before its row. A point's several warnings (a launch can
+raise five) are each a `ServiceRequired` barrier, the edge holding its place between them (`Edge::proceed`), so a
+warning the caller raises leaves the rest of that point undone, as solprop's inline warning does. The scalar decisions
+are solprop's exactly on the same readings, the worst face's ties broken on its name as `max` breaks a tuple's and the
+reach's tail summed in order over the columns as solprop sorted them; the launch's share in the ramp's band and the
+ramp's removal per interval are the native reading, summed in order with the C library's `expm1` where NumPy sums
+pairwise with its own, within `(n - 1 + ceil(log2 n))u` of it, plus the two `expm1`s' error for the removal
+(`tests/backends/test_transverse_owner.py`). The removal's error accumulates across reads, at most that bound of each
+read's term plus a rounding per read. So the two decisions taken on these readings -- the ramp's band at the launch
+and the ramp's removal at each read, warning or stop -- may differ from solprop's where a share lies within that bound
+of a threshold: a native share a rounding below the stop warns where solprop stops (SEP 47 §4.3, the maintainer's
+decision 4). Every other decision is solprop's on the same readings. `solprop_native._transverse` formats the
+record and the verdicts with the edge's own texts, which `solprop.transverse_monitor` keeps as module functions.
 
 ## 3. Compiled execution: the design `native` runs
 
@@ -1068,9 +1141,9 @@ Everywhere the multipliers move off the nodes, to wherever the route already hol
 - **The embedded rule's products** are projected at every stage and windowed, transformed and
   combined only when a step is accepted, from the last stage's buffers, before the alarm uses the
   embedded spectrum (`finish_coarse`) -- as the envelope currents are.
-- **Node budget.** The translation's node chunk counts the response's buffers: one node buffer for
+- **Node budget.** The backend's node chunk counts the response's buffers: one node buffer for
   a symmetric response beside others, none alone, two for the polynomial; a Cartesian or planar
-  column adds its products and their spectra (`translate/problem.py`, `_dispersive_chunk`). The
+  column adds its products and their spectra (`backends/node_chunk.py`, `_dispersive_chunk`). The
   general modal route's chunk counts two buffers per node and component for each filtered field and
   each product of its workspace (`numpy_ref.general_modal.general_dispersive_buffers`,
   `general_node_chunk`).

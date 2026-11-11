@@ -110,12 +110,12 @@ def test_only_dopri5_has_an_extension_here():
         extension_coefficients(TSIT5, np.zeros(1), [np.zeros(1)] * 7, 0.1)
 
 
-def run(backend_class, problem, grid):
+def run(backend_class, problem, run_request, grid):
     """Propagate through every plane; return the fields and the attempts."""
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     fields, attempts = [], 0
-    for plane in problem.stepper.save_planes:
+    for plane in run_request.stepper.save_planes:
         backend.propagate_to(float(plane))
         observed = backend.observe()
         fields.append(np.array(observed.field))
@@ -131,12 +131,14 @@ def test_dense_planes_match_landed_ones_at_fewer_steps(narrow_grid, soliton_prob
         "dz_max": SOLITON_PERIOD,
     }
     landed, landed_attempts = run(
-        NumpyRefBackend, soliton_problem(narrow_grid, 2, **common), narrow_grid
+        NumpyRefBackend,
+        *soliton_problem(narrow_grid, 2, **common),
+        grid=narrow_grid,
     )
     dense, dense_attempts = run(
         NumpyRefBackend,
-        soliton_problem(narrow_grid, 2, interpolate_planes=True, **common),
-        narrow_grid,
+        *soliton_problem(narrow_grid, 2, interpolate_planes=True, **common),
+        grid=narrow_grid,
     )
     assert dense_attempts < landed_attempts
     # The end is landed on in both, so it is the same march's to the tolerance; the
@@ -158,7 +160,7 @@ def test_a_compiled_backend_interpolates_as_the_reference(
     # fields by 4e-14 of the peak and none of its attempts, so no decision here is near
     # a rounding fork.
     grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12)
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         grid,
         2,
         save_planes=PLANES,
@@ -166,8 +168,8 @@ def test_a_compiled_backend_interpolates_as_the_reference(
         dz_max=SOLITON_PERIOD,
         interpolate_planes=True,
     )
-    reference, reference_attempts = run(NumpyRefBackend, problem, grid)
-    fields, attempts = run(backend_class, problem, grid)
+    reference, reference_attempts = run(NumpyRefBackend, problem, run_request, grid)
+    fields, attempts = run(backend_class, problem, run_request, grid)
     assert attempts == reference_attempts
     scale = np.max(np.abs(reference))
     np.testing.assert_allclose(fields, reference, rtol=0, atol=1e-12 * scale)
@@ -222,8 +224,8 @@ def test_statistics_at_interpolated_planes_match_the_reference(backend):
 def test_the_stepper_settings_refuse_what_cannot_interpolate(
     narrow_grid, soliton_problem
 ):
-    problem = soliton_problem(narrow_grid, 1, save_planes=[0.1])
-    stepper = problem.stepper
+    _, run_request = soliton_problem(narrow_grid, 1, save_planes=[0.1])
+    stepper = run_request.stepper
     with pytest.raises(TranslationError, match="no continuous extension"):
         dataclasses.replace(stepper, tableau=TSIT5, interpolate_planes=True)
     # An Adams integrator interpolates with its own polynomial, whatever the tableau.
@@ -265,14 +267,14 @@ def test_the_admission_matrix_refuses_noise_outside_the_interpolant(
 def test_the_admission_matrix_refuses_a_coupled_flow(narrow_grid, soliton_problem):
     from solprop.translate.problem import _admit_dense  # noqa: PLC0415 - private
 
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid, 1, save_planes=[0.1], interpolate_planes=True
     )
     flow = constant_schur_flow(
         np.sort(problem.grids.omega),
         problem.linear.phi_breakpoints[[0, -1]],
         np.zeros((1, 1, problem.grids.omega.size), dtype=complex),
-        dz_max=problem.stepper.dz_max,
+        dz_max=run_request.stepper.dz_max,
         condition_limit=1e6,
         gauge_id="test",
         certificate_id="constant-schur",
@@ -281,7 +283,7 @@ def test_the_admission_matrix_refuses_a_coupled_flow(narrow_grid, soliton_proble
         problem, linear=dataclasses.replace(problem.linear, coupled_flow=flow)
     )
     with pytest.raises(TranslationError, match="a coupled linear flow"):
-        _admit_dense(coupled)
+        _admit_dense(coupled, run_request.stepper)
 
 
 def capillary(**extra):

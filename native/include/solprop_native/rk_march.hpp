@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <stdexcept>
 #include <vector>
 
 #include "solprop_native/adams_march.hpp"
@@ -102,6 +103,14 @@ public:
   virtual void accept(double dz) = 0;
   /** The committed state's boundary reading, for a check the march takes itself. */
   virtual std::vector<double> reading() = 0;
+  /** Hold the accepted trial from `z` over `dz` as a dense extension, before it is
+      adopted (`march::Bounds::extend`, SEP 47 section 5.3). */
+  virtual void extend(double /*z*/, double /*dz*/) {
+    throw std::logic_error("this engine holds no dense extension");
+  }
+  /** Whether a step that overwrites the state in place was left partway: the committed
+      state is then lost (the low-storage march, solprop SEP 47 section 5.5). */
+  [[nodiscard]] virtual bool in_flight() const noexcept { return false; }
 };
 
 /** Where the floor stopped a march (SEP 45 section 4.3). */

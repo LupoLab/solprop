@@ -180,10 +180,13 @@ def run(name, integrator, rtol, backend_class=NumpyRefBackend, **overrides):
             simulation.settings, integrator=integrator
         )
         problem = simulation.translate()
-    backend = backend_class(problem, grid=simulation.grid, modes=simulation.modes)
+        run_request = simulation._run_request()
+    backend = backend_class(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         backend.set_initial(problem.initial.field0, None)
-        for plane in problem.stepper.save_planes:
+        for plane in run_request.stepper.save_planes:
             backend.propagate_to(float(plane))
         return backend.observe().require_field(), backend._adams
     finally:
@@ -238,7 +241,10 @@ def test_the_untransported_witness_is_for_diagonal_operators_only():
             simulation.settings, integrator=EXPONENTIAL
         )
         problem = simulation.translate()
-    backend = NumpyRefBackend(problem, grid=simulation.grid, modes=simulation.modes)
+        run_request = simulation._run_request()
+    backend = NumpyRefBackend(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         with pytest.raises(BackendError, match="diagonal operators"):
             HostAdamsMarch(backend, EXPONENTIAL, compensation="untransported")

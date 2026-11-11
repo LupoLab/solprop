@@ -14,7 +14,7 @@ from solprop.exceptions import GrazingIncidenceWarning, TranslationError
 from solprop.grid import FreeGrid, TimeGrid
 from solprop.spatial import SpatialDispersion
 from solprop.translate.linop import DEFAULT_MARGIN, LinearOperator, tabulate
-from solprop.translate.modal import DEFAULT_SPATIAL_NODE_BUDGET, Transform
+from solprop.translate.modal import Transform
 from solprop.translate.spatial import SeparableOperator, SpatialGeometry
 
 __all__ = ["free_operators", "free_transform"]
@@ -100,24 +100,23 @@ def _warn_grazing(space: FreeGrid, grid: TimeGrid, data: SeparableOperator) -> N
         return
 
 
-def free_transform(  # noqa: PLR0913 - geometry and shared translation controls
+def free_transform(
     space: FreeGrid,
-    time: TimeGrid,
     *,
     n_pol: int,
     z_max: float,
     collar_rate: Float[np.ndarray, " n_nodes"] | None = None,
-    node_budget: int = DEFAULT_SPATIAL_NODE_BUDGET,
     margin: float = DEFAULT_MARGIN,
 ) -> Transform:
-    """Freeze the Cartesian FFT layout and bounded physical-column chunk.
+    """Freeze the Cartesian FFT layout.
+
+    The node chunk is the backend's execution choice, planned when it is prepared
+    (:func:`solprop.backends.node_chunk.plan_node_chunk`), not part of the transform.
 
     Parameters
     ----------
     space : solprop.grid.FreeGrid
         Validated Cartesian axes, raw-DFT measures and spatial collar.
-    time : solprop.grid.TimeGrid
-        Temporal grid defining the physical-column buffer size.
     n_pol : int
         State polarisation count, 1 or 2.
     z_max : float
@@ -126,27 +125,16 @@ def free_transform(  # noqa: PLR0913 - geometry and shared translation controls
         The real-space collar's power rate on the nodes, 1/m, from the run's
         :class:`solprop.spatial_absorber.SpatialAbsorberDesign`; ``None`` for no
         collar.
-    node_budget : int, optional
-        Shared node-buffer budget in bytes, positive.
     margin : float, optional
         Relative extension of diagnostic tables beyond z_max, nonnegative.
 
     Returns
     -------
     solprop.translate.modal.Transform
-        Empty dense matrices, explicit FFT geometry and chunk size.
+        Empty dense matrices and the explicit FFT geometry.
     """
     space.validate()
     span = _validate_span(n_pol, z_max, margin)
-    # Count complex-equivalent columns before allocation: eight response/FFT
-    # buffers, three doubled Raman buffers, 3.5 device plasma buffers, two
-    # split-step buffers and 2.5 statistic buffers. Their sum is 19; the extra
-    # column covers real-FFT endpoint bins. The transverse scratch and opaque
-    # FFT plan allocations are separately named in the memory ledger.
-    column_bytes = 20 * 16 * n_pol * time.n_to
-    if node_budget < column_bytes:
-        msg = "Cartesian node_budget cannot hold one complete temporal column"
-        raise TranslationError(msg)
     geometry = SpatialGeometry(
         kind="free",
         shape=(space.n_x, space.n_y),
@@ -168,7 +156,6 @@ def free_transform(  # noqa: PLR0913 - geometry and shared translation controls
         projection=np.empty((0, 0)),
         projection_coarse=np.empty((0, 0)),
         taper_scale=None,
-        node_chunk=min(space.n_columns, node_budget // column_bytes),
         aeff=tabulate(
             lambda z: np.full_like(z, np.sum(space.spatial_weights)),
             0.0,

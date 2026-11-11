@@ -210,7 +210,7 @@ def test_the_opt_out_is_the_adiabatic_route_without_a_warning():
         components=simulation.settings.components,
         stats_spec=simulation.settings.stats,
         taper_coupling=False,
-    )
+    ).problem
     assert direct.linear.coupled_flow is None
     mine, theirs = (
         [

@@ -46,14 +46,16 @@ def _run(output: Output, progress: object = "none") -> None:
     progress : object, optional
         The reporter.
     """
-    problem = soliton()
-    backend = select("numpy_ref", problem, grid=window(), modes=[fibre().mode])
+    problem, run_request = soliton()
+    backend = select(
+        "numpy_ref", problem, run_request, grid=window(), modes=[fibre().mode]
+    )
     try:
         run_problem(
             problem,
             backend,
             output,
-            metadata=metadata_for(problem, window(), modes=[fibre().mode]),
+            metadata=metadata_for(problem, run_request, window(), modes=[fibre().mode]),
             progress=progress,  # pyright: ignore[reportArgumentType]
             start=entrance(problem),
         )
@@ -193,23 +195,28 @@ def test_assembled_planes_and_checkpoints_do_not_depend_on_chunking(
     """SEP 47 sections 5.3 and 5.5: the service loop assembles each plane's and the
     terminal checkpoint's attempts from chunks, whatever the yields deliver them in.
 
-    A stop is set at the seventh attempt, between planes. Each stored plane holds the
-    attempts since the previous one and the checkpoint those since the last stored
-    plane, each heard attempt exactly once, whether each advance runs to a barrier or
-    yields after every attempt.
+    The reporter hears each attempt as its chunk is delivered, and sets a stop at the
+    seventh, which falls between planes. Each stored plane holds the attempts since
+    the previous one and the checkpoint those since the last stored plane, each heard
+    attempt exactly once, whether each advance runs to a barrier or yields after every
+    attempt. Yielding after every attempt, the run stops just after the seventh, with
+    attempts since the last plane; running to its barriers, it hears the seventh only
+    with the next plane, and stops there, the checkpoint holding none.
     """
     if yields:
         _yield_every_attempt(monkeypatch)
     reporter = _StoppingReporter(at=7)
     output = _FailingStore(fails=False)
-    problem = soliton()
-    backend = select("numpy_ref", problem, grid=window(), modes=[fibre().mode])
+    problem, run_request = soliton()
+    backend = select(
+        "numpy_ref", problem, run_request, grid=window(), modes=[fibre().mode]
+    )
     try:
         run_problem(
             problem,
             backend,
             output,
-            metadata=metadata_for(problem, window(), modes=[fibre().mode]),
+            metadata=metadata_for(problem, run_request, window(), modes=[fibre().mode]),
             progress=reporter,
             start=entrance(problem),
             stop=reporter.token,
@@ -233,5 +240,7 @@ def test_assembled_planes_and_checkpoints_do_not_depend_on_chunking(
         np.concatenate([record.accepted for record in records]),
         [accepted for _, _, accepted in reporter.heard],
     )
-    assert checkpoint.plane.step_history.n_steps > 0
+    assert (checkpoint.plane.step_history.n_steps > 0) is yields
     assert checkpoint.plane.z == reporter.heard[-1][0]
+    if not yields:
+        assert checkpoint.plane.z == output.offered[-1].z

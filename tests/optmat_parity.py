@@ -133,7 +133,7 @@ def _backend(backend_class, case: Case, problem=None):
         options["modes"] = case.modes
     if case.simulation is not None and case.simulation.profiles:
         options["profiles"] = case.simulation.profiles
-    return backend_class(problem, **options)
+    return backend_class(problem, case.run_request, **options)
 
 
 def derivative(backend_class, case: Case) -> np.ndarray:
@@ -174,7 +174,7 @@ def _march(backend_class, case: Case, field, edges):
         for edge in edges:
             backend.propagate_to(float(edge))
             states.append(backend.observe().require_field().copy())
-        statistics = backend.stats(case.problem.stats_spec)
+        statistics = backend.stats(case.run_request.observation.stats)
         return states, {name: np.asarray(v) for name, v in statistics.items()}
     finally:
         backend.close()
@@ -189,15 +189,17 @@ def _complete_run(backend_name: str, case: Case):
     if case.simulation is None:
         from solprop.backends.registry import select  # noqa: PLC0415
 
-        problem = case.problem
-        backend = select(backend_name, problem, grid=case.grid, modes=case.modes)
+        problem, run_request = case.problem, case.run_request
+        backend = select(
+            backend_name, problem, run_request, grid=case.grid, modes=case.modes
+        )
         try:
             backend.set_initial(problem.initial.field0, None)
             planes, statistics, steps = [], {}, 0
-            for plane in problem.stepper.save_planes:
+            for plane in run_request.stepper.save_planes:
                 steps += backend.propagate_to(float(plane)).n_steps
                 planes.append(backend.observe().require_field().copy())
-                for name, value in backend.stats(problem.stats_spec).items():
+                for name, value in backend.stats(run_request.observation.stats).items():
                     statistics.setdefault(name, []).append(np.asarray(value))
             return (
                 np.array(planes),
@@ -224,8 +226,8 @@ def _complete_run(backend_name: str, case: Case):
 
 def ladder(backend_class, case: Case) -> Ladder:
     """Run every rung of the ladder on one backend."""
-    problem = case.problem
-    schedule = problem.stepper.schedule
+    problem, run_request = case.problem, case.run_request
+    schedule = run_request.stepper.schedule
     assert schedule is not None
     edges = schedule.edges
     (linear,), _ = _march(
@@ -306,7 +308,7 @@ def rate_sensitivity(case: Case, peak_rate: float) -> float:
 
 def bounds(case: Case, reference: Ladder) -> dict[str, float]:
     """Return every rung's field bound, from the case and the reference's launch."""
-    schedule = case.problem.stepper.schedule
+    schedule = case.run_request.stepper.schedule
     assert schedule is not None
     edges = schedule.edges
     stage = stage_bound(case)

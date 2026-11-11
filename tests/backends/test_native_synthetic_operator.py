@@ -142,25 +142,23 @@ def free_problem(*, responses, n_pol=1, mode="auto"):
         0.8,
         jones=(1,) if n_pol == 1 else (1, 0.35j),
     )
-    return (
-        assemble(
-            grid,
-            None,
-            responses,
-            pulse.build(grid, space, medium=SpatialMedium()),
-            spatial_grid=space,
-            medium=SpatialMedium(),
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[STEP],
-            dz_max=STEP,
-            dz_init=STEP,
-            schedule=FixedSchedule.uniform(0.0, STEP, STEP * 1.0000001),
-            integrator=MARCH,
-            propagator_mode=mode,  # pyright: ignore[reportArgumentType]
-            absorber_scheme="nonlinear",
-        ),
+    problem, run_request = assemble(
         grid,
+        None,
+        responses,
+        pulse.build(grid, space, medium=SpatialMedium()),
+        spatial_grid=space,
+        medium=SpatialMedium(),
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[STEP],
+        dz_max=STEP,
+        dz_init=STEP,
+        schedule=FixedSchedule.uniform(0.0, STEP, STEP * 1.0000001),
+        integrator=MARCH,
+        propagator_mode=mode,  # pyright: ignore[reportArgumentType]
+        absorber_scheme="nonlinear",
     )
+    return problem, run_request, grid
 
 
 def slab_problem(*, responses, mode="auto", collar=False, integrator=MARCH):
@@ -175,26 +173,24 @@ def slab_problem(*, responses, mode="auto", collar=False, integrator=MARCH):
         offset_x=10e-6,
     )
     field = pulse.build(grid, space, medium=SpatialMedium())
-    return (
-        assemble(
-            grid,
-            None,
-            responses,
-            field,
-            spatial_grid=space,
-            medium=SpatialMedium(),
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[STEP],
-            dz_max=STEP,
-            dz_init=STEP,
-            schedule=FixedSchedule.uniform(0.0, STEP, STEP * 1.0000001),
-            integrator=integrator,
-            propagator_mode=mode,  # pyright: ignore[reportArgumentType]
-            absorber=absorber(grid, boundary_length=1.0) if collar else None,
-            absorber_scheme="nonlinear",
-        ),
+    problem, run_request = assemble(
         grid,
+        None,
+        responses,
+        field,
+        spatial_grid=space,
+        medium=SpatialMedium(),
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[STEP],
+        dz_max=STEP,
+        dz_init=STEP,
+        schedule=FixedSchedule.uniform(0.0, STEP, STEP * 1.0000001),
+        integrator=integrator,
+        propagator_mode=mode,  # pyright: ignore[reportArgumentType]
+        absorber=absorber(grid, boundary_length=1.0) if collar else None,
+        absorber_scheme="nonlinear",
     )
+    return problem, run_request, grid
 
 
 def on_leaf(problem, leaf, *, seed=3):
@@ -215,20 +211,20 @@ def on_leaf(problem, leaf, *, seed=3):
     )
 
 
-def run(implementation, problem, grid):
+def run(implementation, problem, run_request, grid):
     """Replay the schedule to its end, and return the final state."""
-    backend = implementation(problem, grid=grid)
+    backend = implementation(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(problem.stepper.save_planes[-1]))
+        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
         return backend.observe().require_field().copy()
     finally:
         backend.close()
 
 
-def nonlinear_rate(problem, grid):
+def nonlinear_rate(problem, run_request, grid):
     """Return ``3 |N| / |a|`` on the launch, the Kerr term's Lipschitz bound, 1/m."""
-    reference = NumpyRefBackend(problem, grid=grid)
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)
@@ -243,17 +239,18 @@ def nonlinear_rate(problem, grid):
         reference.close()
 
 
-def step_limit(problem, grid, leaf):
+def step_limit(problem, run_request, grid, leaf):
     """Return the one step's relative bound, fixed before native runs."""
     gain = max(0.0, float(np.max(np.real(separable_values(leaf)[0]))))
-    rate = gain + nonlinear_rate(problem, grid)
+    rate = gain + nonlinear_rate(problem, run_request, grid)
     limit = parity_bound(
         problem,
+        run_request,
         growth=propagation_growth(rate, STEP),
         transverse=int(np.prod(problem.transform.geometry.shape)),
     )
     # parity_bound counts the march's four evaluations; a step takes this many.
-    return limit * step_evaluations(problem) / 4.0
+    return limit * step_evaluations(run_request) / 4.0
 
 
 def assert_the_leaf_is_pathological(leaf):
@@ -279,11 +276,11 @@ def assert_the_leaf_is_pathological(leaf):
     assert np.any(leaf.kperp_rate != 0.0)
 
 
-def assert_step_agrees(problem, grid, leaf):
+def assert_step_agrees(problem, run_request, grid, leaf):
     """One step on native within the bound of ``numpy_ref``, and the mask exact."""
-    limit = step_limit(problem, grid, leaf)
-    expected = run(NumpyRefBackend, problem, grid)
-    actual = run(NativeBackend, problem, grid)
+    limit = step_limit(problem, run_request, grid, leaf)
+    expected = run(NumpyRefBackend, problem, run_request, grid)
+    actual = run(NativeBackend, problem, run_request, grid)
     assert_within(actual, expected, limit, what="against numpy_ref")
     # Class P: the inactive bin's state is a hard zero on both, whatever went in.
     inactive = ~np.asarray(leaf.active)
@@ -295,10 +292,10 @@ def assert_step_agrees(problem, grid, leaf):
 @pytest.mark.parametrize("n_pol", [1, 2])
 def test_the_cartesian_march_on_the_original_leaf_is_the_reference_s(n_pol, mode):
     """Inventory 31 (a): loss, gain, Re q = 0, evanescent rows and an inactive bin."""
-    problem, grid = free_problem(responses=[KERR], n_pol=n_pol, mode=mode)
+    problem, run_request, grid = free_problem(responses=[KERR], n_pol=n_pol, mode=mode)
     leaf = free_leaf(problem.linear.separable)
     assert_the_leaf_is_pathological(leaf)
-    assert_step_agrees(on_leaf(problem, leaf), grid, leaf)
+    assert_step_agrees(on_leaf(problem, leaf), run_request, grid, leaf)
 
 
 @pytest.mark.parametrize("mode", ["tabulate", "recompute"])
@@ -308,10 +305,10 @@ def test_the_planar_march_on_the_original_leaf_is_the_reference_s(mode):
     One scalar channel per column: translation refuses ``n_pol = 2`` on the slab, so
     the original's second polarisation has nothing to reach.
     """
-    problem, grid = slab_problem(responses=[KERR], mode=mode)
+    problem, run_request, grid = slab_problem(responses=[KERR], mode=mode)
     leaf = slab_leaf(problem.linear.separable)
     assert_the_leaf_is_pathological(leaf)
-    assert_step_agrees(on_leaf(problem, leaf), grid, leaf)
+    assert_step_agrees(on_leaf(problem, leaf), run_request, grid, leaf)
 
 
 @pytest.mark.parametrize(
@@ -324,7 +321,7 @@ def test_the_planar_stage_on_the_original_leaf_is_the_reference_s(material, abso
     The original's ``finish_stage`` with each term present or absent: a response and an
     in-stage absorber here. The channels are distinct: the same ``k_y`` is another rate.
     """
-    problem, grid = slab_problem(
+    problem, run_request, grid = slab_problem(
         responses=[KERR] if material else [],
         collar=absorbed,
         integrator=None,  # pyright: ignore[reportArgumentType]
@@ -333,7 +330,7 @@ def test_the_planar_stage_on_the_original_leaf_is_the_reference_s(material, abso
     assert_the_leaf_is_pathological(leaf)
     operator = separable_values(leaf)[0][0]
     assert not np.allclose(operator[0], operator[1])
-    assert_step_agrees(on_leaf(problem, leaf), grid, leaf)
+    assert_step_agrees(on_leaf(problem, leaf), run_request, grid, leaf)
 
 
 def with_masked_bin(problem, leaf):
@@ -357,7 +354,7 @@ def test_the_march_s_norm_reads_a_mask_with_a_hard_zero(monkeypatch):
     ``_accept``, on each backend, against the sum over the mask of the state that step
     leaves, within one sum's rounding.
     """
-    problem, grid = free_problem(responses=[KERR])
+    problem, run_request, grid = free_problem(responses=[KERR])
     leaf = free_leaf(problem.linear.separable)
     problem, mask = with_masked_bin(on_leaf(problem, leaf), leaf)
     seen = []
@@ -371,7 +368,7 @@ def test_the_march_s_norm_reads_a_mask_with_a_hard_zero(monkeypatch):
         monkeypatch.setattr(march, "_accept", capture)
     for implementation in (NumpyRefBackend, NativeBackend):
         seen.clear()
-        state = run(implementation, problem, grid)
+        state = run(implementation, problem, run_request, grid)
         assert len(seen) == 1
         masked = float(np.sum(np.abs(state[..., mask]) ** 2))
         whole = float(np.sum(np.abs(state) ** 2))
@@ -392,7 +389,7 @@ def test_a_diverged_march_is_refused_by_name(implementation):
     ``e^650`` over the step, which translation admits (it refuses a propagator that
     itself overflows), and whose squared norm overflows on the first step.
     """
-    problem, grid = free_problem(responses=[KERR])
+    problem, run_request, grid = free_problem(responses=[KERR])
     leaf = free_leaf(problem.linear.separable)
     leaf = dataclasses.replace(
         leaf, k_squared=np.where(leaf.active, 1.0 - 9.4e6j, leaf.k_squared)
@@ -400,7 +397,7 @@ def test_a_diverged_march_is_refused_by_name(implementation):
     problem = on_leaf(problem, leaf)
     backend = {"numpy_ref": NumpyRefBackend, "native": NativeBackend}[implementation]
     with pytest.raises(ConvergenceError, match="diverged"):
-        run(backend, problem, grid)
+        run(backend, problem, run_request, grid)
 
 
 def _flux(problem):

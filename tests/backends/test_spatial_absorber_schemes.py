@@ -31,7 +31,7 @@ def assert_spatial_rate(case, spatial_backend_class, temporal_policy, problem_fo
         np.abs(absorption) @ np.abs(start[:, :, index])
     )
     expected = absorption @ start[:, :, index]
-    problem = problem_for(case, 8)
+    problem, run_request = problem_for(case, 8)
     rate = None
     # The case's collar has zero temporal rates, which translate to no temporal
     # absorber; the split policy is given a fine rate beside zeros on the coarse axis.
@@ -49,7 +49,7 @@ def assert_spatial_rate(case, spatial_backend_class, temporal_policy, problem_fo
             absorber_scheme="split_step" if rate is not None else "nonlinear",
         ),
     )
-    measured = derivative(spatial_backend_class, problem, grid)
+    measured = derivative(spatial_backend_class, problem, run_request, grid)
     assert_allclose(measured[:, :, index], expected, rtol=0, atol=bound)
 
 

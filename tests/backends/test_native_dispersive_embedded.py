@@ -52,19 +52,20 @@ def test_plasma_beside_the_response_reads_the_bare_field_on_both_rules(
     assert (problem.responses.envelope_plasma is not None) == envelope
     assert embedded(problem)
     baseline = capillary("carrier-kerr", **kind)
-    carrier = baseline.translate()
+    carrier, carrier_request = baseline.translate(), baseline._run_request()
     ours, theirs = (
-        native_evaluation(carrier, baseline.grid),
-        reference_evaluation(carrier, baseline.grid),
+        native_evaluation(carrier, carrier_request, baseline.grid),
+        reference_evaluation(carrier, carrier_request, baseline.grid),
     )
     assert ours.coarse is not None and theirs.coarse is not None
     floor = max(
         disagreement(ours.projected, theirs.projected),
         disagreement(ours.coarse, theirs.coarse),
     )
+    run_request = simulation._run_request()
     assert_close(
-        native_evaluation(problem, simulation.grid),
-        reference_evaluation(problem, simulation.grid),
+        native_evaluation(problem, run_request, simulation.grid),
+        reference_evaluation(problem, run_request, simulation.grid),
         evaluation_bound(problem) + floor,
     )
 
@@ -79,8 +80,9 @@ def test_the_embedded_rule_is_finished_once_and_only_where_it_exists(evaluator):
     """
     simulation = capillary(evaluator)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     assert embedded(problem)
-    backend = NativeBackend(problem, grid=simulation.grid)
+    backend = NativeBackend(problem, run_request, grid=simulation.grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend._adams_lab_source(problem.initial.field0[None], 0.0)
@@ -92,9 +94,9 @@ def test_the_embedded_rule_is_finished_once_and_only_where_it_exists(evaluator):
         np.testing.assert_array_equal(native.projected_to_host(False), fine)
     finally:
         backend.close()
-    radial_problem, grid = radial(evaluator, envelope=False, thg=True)
+    radial_problem, radial_request, grid = radial(evaluator, envelope=False, thg=True)
     assert not embedded(radial_problem)
-    backend = NativeBackend(radial_problem, grid=grid)
+    backend = NativeBackend(radial_problem, radial_request, grid=grid)
     try:
         backend.set_initial(radial_problem.initial.field0, None)
         backend._adams_lab_source(radial_problem.initial.field0[None], 0.0)

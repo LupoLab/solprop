@@ -37,7 +37,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass, replace
 from decimal import ROUND_FLOOR, Decimal
 from types import MappingProxyType
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Num
@@ -138,9 +138,6 @@ from solprop.translate.masks import (
     noise_spectrum,
 )
 from solprop.translate.modal import (
-    BUFFERS_PER_NODE,
-    DEFAULT_NODE_BUDGET,
-    DEFAULT_SPATIAL_NODE_BUDGET,
     Transform,
     general_modal_transform,
     mode_averaged_transform,
@@ -156,7 +153,6 @@ from solprop.translate.radial import (
 )
 from solprop.translate.responses import (
     CompiledResponses,
-    ResponseStage,
     compile_responses,
     declares_harmonic_carrier,
     dispersive_regions,
@@ -189,6 +185,10 @@ from solprop.translate.tdse_source import (
 )
 from solprop.translate.transverse import checked_design, resolve_transverse
 
+if TYPE_CHECKING:
+    # The request module builds on this one: it imports the stepper section.
+    from solprop.translate.run_request import RunRequest
+
 __all__ = [
     "DEFAULT_COMPONENTS",
     "DEFAULT_FLOW_CONDITION_LIMIT",
@@ -207,11 +207,12 @@ __all__ = [
     "PropagationProblem",
     "PropagatorMode",
     "StepperSettings",
+    "Translation",
     "TranslationReuse",
     "assemble",
     "debug_summary",
-    "dispersive_node_buffers",
     "validate_coupled_flow",
+    "validate_run",
 ]
 
 logger = logging.getLogger(__name__)
@@ -421,7 +422,7 @@ class Flags:
         ...                      gamma=0.11, shock=False)
         >>> start = SechPulse(wavelength=835e-9, width=1e-13,
         ...                   peak_power=1.0).build(grid)
-        >>> problem = assemble(
+        >>> problem, request = assemble(
         ...     grid, gnlse.mode, [gnlse.kerr], start,
         ...     controller=PIController(rtol=1e-8, atol=1e-14),
         ...     save_planes=[1.0], dz_max=0.1, dz_init=1e-3,
@@ -770,6 +771,21 @@ class StepperSettings:
         return float(np.max(self.save_planes))
 
 
+class _RunPolicy(NamedTuple):
+    """The run's policy the request-aware checks read (:func:`validate_run`).
+
+    Attributes
+    ----------
+    stepper : StepperSettings
+        The method, step limits, schedule and planes.
+    stats : solprop.stats.StatsSpec
+        The statistics.
+    """
+
+    stepper: StepperSettings
+    stats: StatsSpec
+
+
 def _readonly(values: np.ndarray) -> np.ndarray:
     """Return a C-contiguous, read-only view or copy of an array.
 
@@ -907,9 +923,13 @@ def _held_state(field0: Num[np.ndarray, "*shape"]) -> Complex[np.ndarray, "*shap
 class PropagationProblem:
     """Everything a backend needs, and nothing it does not.
 
-    The seam of ``docs/dev/architecture.md`` section 3. Construct it with
-    :func:`assemble` rather than by hand; call :meth:`validate` before handing it to a
-    backend, which :func:`assemble` already does.
+    The seam of ``docs/dev/architecture.md`` section 3: the numerical meaning of a
+    run and nothing of how it is run. The tableau, controller, step limits, schedule,
+    planes and statistics are the run's policy, which a
+    :class:`~solprop.translate.run_request.RunRequest` carries beside it (SEP 47
+    section 5.2; kernel contract sections 7 and 8). Construct both with
+    :func:`assemble` rather than by hand; a backend checks the pair with
+    :func:`validate_run` before it allocates, which :func:`assemble` already does.
 
     Attributes
     ----------
@@ -927,10 +947,6 @@ class PropagationProblem:
         The compiled nonlinear term (section 5).
     initial : Initial
         Initial state and noise (section 6).
-    stepper : StepperSettings
-        Tableau, controller, caps and schedule (section 7).
-    stats_spec : solprop.stats.StatsSpec
-        Which statistics to collect (section 8).
     route : solprop.translate.routes.ModalRoute, GeneralRoute or SpatialRoute
         What differs between routes, in exactly one variant of a closed union, each
         with the fields its executor needs (SEP 47 section 6.2): the transform
@@ -955,7 +971,7 @@ class PropagationProblem:
     >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0, gamma=0.11,
     ...                      shock=False)
     >>> start = SechPulse(wavelength=835e-9, width=1e-13, peak_power=1.0).build(grid)
-    >>> problem = assemble(
+    >>> problem, request = assemble(
     ...     grid, gnlse.mode, [gnlse.kerr], start,
     ...     controller=PIController(rtol=1e-8, atol=1e-14), save_planes=[1.0],
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
@@ -971,8 +987,6 @@ class PropagationProblem:
     linear: LinearOperator
     responses: CompiledResponses
     initial: Initial
-    stepper: StepperSettings
-    stats_spec: StatsSpec
     route: Route
     precision: Precision = DOUBLE
     split_crossing: SplitCrossing | None = None
@@ -1022,7 +1036,7 @@ class PropagationProblem:
         >>> assemble(grid, gnlse.mode, [gnlse.kerr], start,
         ...          controller=PIController(rtol=1e-8, atol=1e-14),
         ...          save_planes=[1.0], dz_max=0.1, dz_init=1e-3, shock=False,
-        ...          prefactor_index=1.0, density=1.0).device_ready
+        ...          prefactor_index=1.0, density=1.0).problem.device_ready
         True
         """
         return (
@@ -1031,20 +1045,21 @@ class PropagationProblem:
         )
 
     def validate(self) -> None:
-        """Check every promise the contract makes, raising on the first that fails.
+        """Check every promise the problem makes alone, raising on the first that fails.
 
-        A backend calls this and refuses anything inconsistent
-        (``docs/dev/architecture.md`` section 7). What is checked: every array finite,
-        read-only, of the stated dtype and shape, and C-contiguous but for the initial
-        state, which may be a broadcast view (:class:`Initial`);
-        the masks Boolean; the breakpoints strictly increasing and covering the run
-        including its margin; the hard kinks interval edges; every table along z
-        spanning the same range and, for the prefactor, carrying the state's value
-        shape; a constant prefactor, when present, standing in for a table that is one
-        interval of degree zero and agreeing with it; the Raman rows agreeing with the
-        fine grid and with each other; the save planes and, when one is replayed, the
-        schedule's edges containing every plane and kink; and a replayed schedule
-        or a step floor inside the stability limit of an in-stage collar.
+        The part of :func:`validate_run` that needs no run request: every array
+        finite, read-only, of the stated dtype and shape, and C-contiguous but for the
+        initial state, which may be a broadcast view (:class:`Initial`); the masks
+        Boolean; the breakpoints strictly increasing and every table along z spanning
+        the same range and, for the prefactor, carrying the state's value shape; a
+        constant prefactor, when present, standing in for a table that is one interval
+        of degree zero and agreeing with it; the hard kinks interval edges; the Raman
+        rows agreeing with the fine grid and with each other. What depends on the
+        method, the step limits, the schedule, the planes or the statistics -- the
+        tables covering the run, the schedule landing on its targets, the collar's
+        stability, the exponent budget, the split collar's crossing and the method's
+        admission -- is checked by :func:`validate_run`, which a backend calls before
+        it allocates.
 
         Quadrature weights are checked where they exist, in
         :mod:`solprop.modes.quadrature`: by the time the transform is built only their
@@ -1068,7 +1083,7 @@ class PropagationProblem:
         ...                      gamma=0.11, shock=False)
         >>> start = SechPulse(wavelength=835e-9, width=1e-13,
         ...                   peak_power=1.0).build(grid)
-        >>> problem = assemble(
+        >>> problem, request = assemble(
         ...     grid, gnlse.mode, [gnlse.kerr], start,
         ...     controller=PIController(rtol=1e-8, atol=1e-14), save_planes=[1.0],
         ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0,
@@ -1077,30 +1092,52 @@ class PropagationProblem:
         >>> problem.validate() is None
         True
         """
-        self._check_integrator()
-        self._check_precision()
-        self._check_route()
-        if not self.initial.z < self.stepper.save_planes[0]:
+        self._validate(None)
+
+    def _validate(self, run: _RunPolicy | None) -> None:
+        """Run the checks in their one order, those of the run only with a request.
+
+        Parameters
+        ----------
+        run : _RunPolicy or None
+            The run's stepper section and statistics, or ``None`` for the checks the
+            problem makes alone.
+
+        Raises
+        ------
+        TranslationError
+            Naming the field that failed.
+        """
+        if run is not None:
+            self._check_integrator(run.stepper)
+        self._check_precision(run)
+        self._check_route(run)
+        if run is not None and not self.initial.z < run.stepper.save_planes[0]:
             raise TranslationError("save planes must follow the initial position")
-        self._check_arrays()
+        self._check_arrays(run)
         self._check_shapes()
         self._check_power_weight()
-        self._check_spatial()
+        self._check_spatial(run)
         self._check_carrier()
         self._check_species()
         self._check_plasma()
         self._check_envelope_factors()
         self._check_raman()
         self._check_dispersive()
-        self._check_modal_leaves()
-        self._check_tables()
+        self._check_modal_leaves(run)
+        self._check_tables(run)
 
-    def validate_launch(self) -> None:
+    def validate_launch(self, request: "RunRequest") -> None:  # noqa: UP037
         """Check the launch against the save planes, and a schedule against them.
 
-        The part of :meth:`validate` a replaced input with a new launch position
+        The part of :func:`validate_run` a replaced input with a new launch position
         needs again (:meth:`solprop.driver.simulation.Simulation.with_input`): every
         other leaf is shared, unchanged, with a problem that was validated whole.
+
+        Parameters
+        ----------
+        request : solprop.translate.run_request.RunRequest
+            The run's request, with the planes left beyond the new launch.
 
         Raises
         ------
@@ -1116,19 +1153,26 @@ class PropagationProblem:
         ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
         ...     width=100e-15, peak_power=9.8, shape="sech",
         ... )
-        >>> simulation.translate().validate_launch() is None
+        >>> problem = simulation.translate()
+        >>> problem.validate_launch(simulation._run_request()) is None
         True
         """
-        if not self.initial.z < self.stepper.save_planes[0]:
+        stepper = request.stepper
+        if not self.initial.z < stepper.save_planes[0]:
             raise TranslationError("save planes must follow the initial position")
-        if self.stepper.schedule is not None:
-            self._check_schedule()
+        if stepper.schedule is not None:
+            self._check_schedule(stepper)
 
-    def _check_route(self) -> None:
+    def _check_route(self, run: _RunPolicy | None) -> None:
         """Visit the route variant and check what it shares with the other groups.
 
         Each variant checks its own fields (``validate``, also run on construction);
         what spans groups is checked here, one variant at a time (SEP 47 section 6.2).
+
+        Parameters
+        ----------
+        run : _RunPolicy or None
+            The run's stepper section and statistics, or ``None``.
 
         Raises
         ------
@@ -1140,9 +1184,13 @@ class PropagationProblem:
         self.route.validate()
         match self.route:
             case ModalRoute(tdse=TDSESource() as source):
-                self._check_tdse(source)
-                unavailable = TDSE_UNAVAILABLE_STATISTICS.intersection(
-                    (*self.stats_spec.names, *self.stats_spec.periodic)
+                self._check_tdse(source, None if run is None else run.stepper)
+                unavailable = (
+                    set()
+                    if run is None
+                    else TDSE_UNAVAILABLE_STATISTICS.intersection(
+                        (*run.stats.names, *run.stats.periodic)
+                    )
                 )
                 if unavailable:
                     msg = (
@@ -1161,19 +1209,24 @@ class PropagationProblem:
                 msg = f"a problem carries a route of type {type(self.route).__name__}"
                 raise TranslationError(msg)
 
-    def _check_integrator(self) -> None:
+    def _check_integrator(self, stepper: StepperSettings) -> None:
         """Refuse what the low-storage march does not step, by name (SEP 24 section 5).
 
         Its half-step flows are exact exponentials of commuting diagonal values, so a
         coupled flow, whose flows are not, would leave an error outside the
         Runge-Kutta order; the TDSE response is the Adams route's alone.
 
+        Parameters
+        ----------
+        stepper : StepperSettings
+            The run's stepper section.
+
         Raises
         ------
         TranslationError
             Naming the configuration and the integrator that steps it.
         """
-        method = self.stepper.integrator
+        method = stepper.integrator
         if not isinstance(method, LowStorageRungeKutta):
             return
         if self.linear.coupled_flow is not None:
@@ -1191,13 +1244,19 @@ class PropagationProblem:
             )
             raise TranslationError(msg)
 
-    def _check_precision(self) -> None:
+    def _check_precision(self, run: _RunPolicy | None) -> None:
         """Refuse, by name, what no backend runs in single precision (SEP 33 5.1).
 
         The general modal route (a moving guide among it), the hybrid planar kind,
         coupled flows (``"cf4"`` sections among them), TDSE responses, the dispersive
         electronic response, the far-field statistics and noise models are outside
         SEP 33's scope, so every backend refuses them under ``precision="single"``.
+
+        Parameters
+        ----------
+        run : _RunPolicy or None
+            The run's stepper section and statistics; ``None`` leaves the statistics
+            and the step's exponent to :func:`validate_run`.
 
         Raises
         ------
@@ -1224,9 +1283,10 @@ class PropagationProblem:
                 "the dispersive electronic response",
             ),
             (
-                bool(
+                run is not None
+                and bool(
                     set(FAR_FIELD_STATISTICS).intersection(
-                        (*self.stats_spec.names, *self.stats_spec.periodic)
+                        (*run.stats.names, *run.stats.periodic)
                     )
                 ),
                 "the far-field statistics",
@@ -1243,9 +1303,10 @@ class PropagationProblem:
                     "binary32 (SEP 33 section 5.1); use precision='double'"
                 )
                 raise TranslationError(msg)
-        self._check_single_exponent()
+        if run is not None:
+            self._check_single_exponent(run.stepper)
 
-    def _check_single_exponent(self) -> None:
+    def _check_single_exponent(self, stepper: StepperSettings) -> None:
         """Refuse a step whose propagator or its inverse overflows binary32.
 
         The Runge-Kutta interaction picture multiplies each stage by ``exp(-dPhi)`` and
@@ -1263,6 +1324,11 @@ class PropagationProblem:
         step at the start and the end of the run, which for a varying operator samples
         its range.
 
+        Parameters
+        ----------
+        stepper : StepperSettings
+            The run's stepper section.
+
         Raises
         ------
         TranslationError
@@ -1273,17 +1339,17 @@ class PropagationProblem:
         solprop.exceptions.ExponentBudgetWarning
             Between nine tenths of the limit and the limit.
         """
-        schedule = self.stepper.schedule
+        schedule = stepper.schedule
         step, source = (
             (float(np.max(schedule.steps)), "replayed step")
             if schedule is not None
-            else (self.stepper.dz_min, "step floor dz_min")
+            else (stepper.dz_min, "step floor dz_min")
         )
         start = float(self.initial.z)
-        end = float(self.stepper.save_planes[-1])
+        end = float(stepper.save_planes[-1])
         step = min(step, end - start)
-        integrator = self.stepper.integrator
-        forward = not self.stepper.interpolate_planes and (
+        integrator = stepper.integrator
+        forward = not stepper.interpolate_planes and (
             isinstance(integrator, LowStorageRungeKutta)
             or (
                 isinstance(integrator, Multistep)
@@ -1337,16 +1403,19 @@ class PropagationProblem:
             f"{message}, within a tenth of binary32's range exp({LOG_FLT_MAX:.2f}): "
             f"the run completes only while the field stays small; {remedy}",
             ExponentBudgetWarning,
-            stacklevel=4,
+            stacklevel=5,
         )
 
-    def _check_tdse(self, source: TDSESource) -> None:
+    def _check_tdse(self, source: TDSESource, stepper: StepperSettings | None) -> None:
         """Refuse a manually constructed atomic seam outside the admitted route.
 
         Parameters
         ----------
         source : solprop.translate.routes.TDSESource
             The modal route's TDSE extension.
+        stepper : StepperSettings or None
+            The run's stepper section; ``None`` leaves the method to
+            :func:`validate_run`.
 
         Raises
         ------
@@ -1354,7 +1423,6 @@ class PropagationProblem:
             Naming what departs from the scalar resolved modal Adams route.
         """
         descriptor = source.descriptor
-        method = self.stepper.integrator
         if (
             self.grid_kind != "field"
             or self.shape[:2] != (1, 1)
@@ -1365,9 +1433,14 @@ class PropagationProblem:
             or self.initial.noise_model == "modified"
             or self.flags.has_plasma
             or self.flags.has_raman
-            or not isinstance(method, Multistep)
-            or self.stepper.interpolate_planes
-            or self.stepper.schedule is not None
+            or (
+                stepper is not None
+                and (
+                    not isinstance(stepper.integrator, Multistep)
+                    or stepper.interpolate_planes
+                    or stepper.schedule is not None
+                )
+            )
             or self.linear.coupled_flow is not None
             or self.responses.absorber_scheme != "nonlinear"
         ):
@@ -1429,17 +1502,24 @@ class PropagationProblem:
                 "dispersive Kerr response beside it"
             )
 
-    def _check_arrays(self) -> None:
+    def _check_arrays(self, run: _RunPolicy | None) -> None:
         """Check every stored array is finite, contiguous, read-only and typed.
 
         The initial state alone may be strided (:data:`_STRIDED_LEAVES`).
+
+        Parameters
+        ----------
+        run : _RunPolicy or None
+            The run's stepper section and statistics, whose arrays are held to the
+            same rules under their names ``stepper`` and ``stats_spec``; ``None``
+            checks the problem's alone.
 
         Raises
         ------
         TranslationError
             Naming the field that failed.
         """
-        for name, values in _walk_arrays(self):
+        for name, values in _walk_arrays(self, run):
             if not values.flags.c_contiguous and name not in _STRIDED_LEAVES:
                 msg = f"{name} is not C-contiguous; a kernel indexes it directly"
                 raise TranslationError(msg)
@@ -1569,8 +1649,15 @@ class PropagationProblem:
             msg = "power_weight_constant must match its degree-zero table"
             raise TranslationError(msg)
 
-    def _check_spatial(self) -> None:
-        """Check spatial geometry and the shared separable representation agree."""
+    def _check_spatial(self, run: _RunPolicy | None) -> None:
+        """Check spatial geometry and the shared separable representation agree.
+
+        Parameters
+        ----------
+        run : _RunPolicy or None
+            The run's stepper section and statistics; ``None`` leaves the propagator
+            mode to :func:`validate_run`.
+        """
         geometry = self.transform.geometry
         separable = self.linear.separable
         if self.responses.separable is not separable:
@@ -1607,8 +1694,10 @@ class PropagationProblem:
             # The low-storage march tabulates one volume, exp(h D / 2), which every
             # step of a fixed schedule reuses (SEP 24 section 4.3); the Runge-Kutta
             # march's six fractions would need twelve.
-            if self.stepper.propagator_mode == "tabulate" and not isinstance(
-                self.stepper.integrator, LowStorageRungeKutta
+            if (
+                run is not None
+                and run.stepper.propagator_mode == "tabulate"
+                and not isinstance(run.stepper.integrator, LowStorageRungeKutta)
             ):
                 msg = (
                     f"{geometry.kind} propagation refuses propagator_mode='tabulate' "
@@ -1696,7 +1785,7 @@ class PropagationProblem:
             )
             raise TranslationError(msg)
 
-    def _check_collar_stability(self) -> None:
+    def _check_collar_stability(self, stepper: StepperSettings) -> None:
         """Refuse a step the run cannot avoid that is too long for an in-stage collar.
 
         The ``"nonlinear"`` absorber scheme makes the collar's largest rate an
@@ -1710,6 +1799,11 @@ class PropagationProblem:
         collar amplifies the field it should absorb, and the run diverges, so they are
         refused rather than run.
 
+        Parameters
+        ----------
+        stepper : StepperSettings
+            The run's stepper section.
+
         Raises
         ------
         TranslationError
@@ -1717,19 +1811,19 @@ class PropagationProblem:
         """
         geometry = self.transform.geometry
         if geometry is not None and np.any(geometry.absorber_rate):
-            self._check_spatial_collar_stability()
-            self._check_collar_crossing()
+            self._check_spatial_collar_stability(stepper)
+            self._check_collar_crossing(stepper)
             return
         rate = self.responses.temporal_absorber
         if rate is None or self.responses.absorber_scheme != "nonlinear":
             return
-        radius = self._stability_radius()
+        radius = self._stability_radius(stepper)
         limit = stable_step(rate) * radius / STABILITY_RADIUS
-        schedule = self.stepper.schedule
+        schedule = stepper.schedule
         longest, source = (
             (float(np.max(schedule.steps)), "the replayed schedule's longest step")
             if schedule is not None
-            else (self.stepper.dz_min, "the step floor dz_min")
+            else (stepper.dz_min, "the step floor dz_min")
         )
         if longest <= limit:
             return
@@ -1745,14 +1839,14 @@ class PropagationProblem:
             f"{float(np.max(rate)):.3e} 1/m, and an explicit method needs "
             f"h alpha / 2 below {radius}, so the run would diverge. "
             "Take shorter steps, weaken the collar with a larger boundary_length, "
-            f"{self._runge_kutta_advice()}or "
+            f"{self._runge_kutta_advice(stepper)}or "
             'ask for absorber_scheme="split_step", which integrates the rate exactly '
             "and is unconditionally stable at the cost of first-order convergence."
             f"{advice}"
         )
         raise TranslationError(msg)
 
-    def _check_exponent_budget(self) -> None:
+    def _check_exponent_budget(self, stepper: StepperSettings) -> None:
         """Refuse a step the run cannot shrink whose propagator factor overflows.
 
         SEP 22 section 4.5, on the separable operator: a replayed schedule's longest
@@ -1769,6 +1863,11 @@ class PropagationProblem:
         forms the same inverse factor from it, so it is bounded by
         :func:`solprop.translate.radial.radial_rate_bounds` instead (SEP 22, Q16);
         the modal kinds are not checked.
+
+        Parameters
+        ----------
+        stepper : StepperSettings
+            The run's stepper section.
 
         Raises
         ------
@@ -1791,13 +1890,13 @@ class PropagationProblem:
             attenuation = "the radial operator's attenuation"
         else:
             return
-        schedule = self.stepper.schedule
+        schedule = stepper.schedule
         step, source = (
             (float(np.max(schedule.steps)), "replayed step")
             if schedule is not None
-            else (self.stepper.dz_min, "step floor dz_min")
+            else (stepper.dz_min, "step floor dz_min")
         )
-        method = self.stepper.integrator
+        method = stepper.integrator
         span = method.order + 1 if isinstance(method, Multistep) else 1
         rate = max(bounds.loss, span * bounds.gain)
         exponent = step * rate
@@ -1818,42 +1917,59 @@ class PropagationProblem:
                 step, bounds, span, EXPONENT_BUDGET * LOG_DBL_MAX, attenuation
             ),
             ExponentBudgetWarning,
-            stacklevel=4,
+            stacklevel=5,
         )
 
-    def _runge_kutta_advice(self) -> str:
+    @staticmethod
+    def _runge_kutta_advice(stepper: StepperSettings) -> str:
         """Name the Runge-Kutta march where an Adams method's interval is the limit.
+
+        Parameters
+        ----------
+        stepper : StepperSettings
+            The run's stepper section.
 
         Returns
         -------
         str
             A clause ending in ", " for an Adams run, otherwise empty.
         """
-        if not isinstance(self.stepper.integrator, Multistep):
+        if not isinstance(stepper.integrator, Multistep):
             return ""
         return (
             f"step with integrator=RungeKutta(), whose interval is {STABILITY_RADIUS}, "
         )
 
-    def _stability_radius(self) -> float:
+    @staticmethod
+    def _stability_radius(stepper: StepperSettings) -> float:
         """Return the stepper's negative-real stability interval for a damping term.
 
         DOPRI5's :data:`solprop.boundaries.STABILITY_RADIUS`, the Adams method's far
         smaller one at its highest order (SEP 16 admits Adams schedules), or RK4's
         2.785 under the low-storage march (SEP 24 section 4.6).
 
+        Parameters
+        ----------
+        stepper : StepperSettings
+            The run's stepper section.
+
         Returns
         -------
         float
             The largest ``h |lambda|`` an explicitly integrated damping rate allows.
         """
-        method = self.stepper.integrator
+        method = stepper.integrator
         if method is None:
             return STABILITY_RADIUS
         return min(STABILITY_RADIUS, method.real_stability_interval)
 
-    def _check_spatial_collar_stability(self) -> None:
+    def _check_spatial_collar_stability(self, stepper: StepperSettings) -> None:
         """Refuse a step past the spatial collar's limit in the energy-weighted basis.
+
+        Parameters
+        ----------
+        stepper : StepperSettings
+            The run's stepper section.
 
         Raises
         ------
@@ -1885,11 +2001,9 @@ class PropagationProblem:
         temporal = self.responses.temporal_absorber_fine
         if temporal is not None and self.responses.absorber_scheme == "nonlinear":
             largest += float(np.max(temporal))
-        limit = 2 * self._stability_radius() / largest
-        schedule = self.stepper.schedule
-        longest = (
-            self.stepper.dz_min if schedule is None else float(np.max(schedule.steps))
-        )
+        limit = 2 * self._stability_radius(stepper) / largest
+        schedule = stepper.schedule
+        longest = stepper.dz_min if schedule is None else float(np.max(schedule.steps))
         if longest > limit:
             printed = _printed_down(limit)
             advice = (
@@ -1901,13 +2015,13 @@ class PropagationProblem:
                 f"the fixed step or step floor {longest:.3e} m exceeds the spatial "
                 f"collar stability limit {printed} m (effective power rate at most "
                 f"{largest:.3e} 1/m). Take shorter steps, "
-                f"{self._runge_kutta_advice()}or widen the collar (a larger "
+                f"{self._runge_kutta_advice(stepper)}or widen the collar (a larger "
                 "collar_fraction designs a weaker one); the spatial absorber is "
                 f"always in-stage and cannot use split_step.{advice}"
             )
             raise TranslationError(msg)
 
-    def _check_collar_crossing(self) -> None:
+    def _check_collar_crossing(self, stepper: StepperSettings) -> None:
         """Refuse a fixed schedule a requested collar cannot be accurate under.
 
         SEP 40 section 4.7: a fixed in-stage schedule is checked at the crossing
@@ -1916,6 +2030,11 @@ class PropagationProblem:
         (:data:`solprop.spatial_absorber.DAMPING_BOUND`). An adaptive run is held to
         the crossing limit through ``dz_max`` instead (:func:`assemble`).
 
+        Parameters
+        ----------
+        stepper : StepperSettings
+            The run's stepper section.
+
         Raises
         ------
         TranslationError
@@ -1923,7 +2042,7 @@ class PropagationProblem:
         """
         route = self.route
         design = route.transverse if isinstance(route, SpatialRoute) else None
-        schedule = self.stepper.schedule
+        schedule = stepper.schedule
         if design is None or not design.has_collar or schedule is None:
             return
         longest = float(np.max(schedule.steps))
@@ -2140,7 +2259,7 @@ class PropagationProblem:
         ):
             raise TranslationError("Kerr coefficients need their own density table")
 
-    def _check_modal_leaves(self) -> None:
+    def _check_modal_leaves(self, run: _RunPolicy | None) -> None:
         """Check the four schema-12 general-guide leaves against the state.
 
         The contract's tree walk *does* recurse into these records: every array they
@@ -2150,6 +2269,12 @@ class PropagationProblem:
         count, the frequency axes and the positions along z.
         Every leaf is ``None`` on every route that exists today, and the whole
         method is then a single test of four references.
+
+        Parameters
+        ----------
+        run : _RunPolicy or None
+            The run's stepper section and statistics; ``None`` leaves the run's
+            extent along z to :func:`validate_run`.
 
         Raises
         ------
@@ -2219,9 +2344,9 @@ class PropagationProblem:
                     f"transform.modal_tables resolves {components}"
                 )
                 raise TranslationError(msg)
-        self._check_modal_grids()
+        self._check_modal_grids(run)
 
-    def _check_modal_grids(self) -> None:
+    def _check_modal_grids(self, run: _RunPolicy | None) -> None:
         """Check each general-guide leaf is tabulated on the canonical grids.
 
         The canonical state lives on the coarse grid, so a leaf's
@@ -2235,13 +2360,19 @@ class PropagationProblem:
         Every leaf tabulated along z must also cover the run, as
         :meth:`_check_tables` requires of every other z table.
 
+        Parameters
+        ----------
+        run : _RunPolicy or None
+            The run's stepper section and statistics, whose last plane the leaves must
+            reach; ``None`` checks the axes alone.
+
         Raises
         ------
         TranslationError
             Naming the leaf whose axis is not the state's.
         """
         omega = self.grids.omega
-        z_end = self.stepper.z_end
+        z_end = None if run is None else run.stepper.z_end
         for name, leaf in (
             ("transform.modal_tables", self.transform.modal_tables),
             ("linear.modal_metric", self.linear.modal_metric),
@@ -2260,7 +2391,7 @@ class PropagationProblem:
                 )
                 raise TranslationError(msg)
             low, high = float(leaf.z_edges[0]), float(leaf.z_edges[-1])
-            if low > 0.0 or high < z_end:
+            if z_end is not None and (low > 0.0 or high < z_end):
                 msg = (
                     f"{name}.z_edges covers [{low}, {high}] m, which does not "
                     f"contain the run [0, {z_end}] m"
@@ -2281,8 +2412,15 @@ class PropagationProblem:
             )
             raise TranslationError(msg)
 
-    def _check_tables(self) -> None:
+    def _check_tables(self, run: _RunPolicy | None) -> None:
         """Check the z tables cover the run, and the schedule contains its targets.
+
+        Parameters
+        ----------
+        run : _RunPolicy or None
+            The run's stepper section and statistics; ``None`` checks the tables
+            against each other alone, and leaves the run's extent, its schedule, the
+            collar's stability and the exponent budget to :func:`validate_run`.
 
         Raises
         ------
@@ -2294,8 +2432,8 @@ class PropagationProblem:
             msg = f"linear.phi_breakpoints must be strictly increasing, got {edges}"
             raise TranslationError(msg)
         low, high = self.linear.z_span
-        z_end = self.stepper.z_end
-        if low > 0.0 or high < z_end:
+        z_end = None if run is None else run.stepper.z_end
+        if z_end is not None and (low > 0.0 or high < z_end):
             msg = (
                 f"the Phi table covers [{low}, {high}] m, which does not contain the "
                 f"run [0, {z_end}] m"
@@ -2321,12 +2459,14 @@ class PropagationProblem:
                     f"{(low, high)} m; every table along z must span the same range"
                 )
                 raise TranslationError(msg)
-        if self.stepper.schedule is not None:
-            self._check_schedule()
-        self._check_collar_stability()
-        self._check_exponent_budget()
+        if run is None:
+            return
+        if run.stepper.schedule is not None:
+            self._check_schedule(run.stepper)
+        self._check_collar_stability(run.stepper)
+        self._check_exponent_budget(run.stepper)
 
-    def _check_schedule(self) -> None:
+    def _check_schedule(self, stepper: StepperSettings) -> None:
         """Check a replayed schedule lands on every save plane and hard kink.
 
         A coupled flow makes the hard kinks stricter. Its sections are placed on
@@ -2341,20 +2481,25 @@ class PropagationProblem:
         stepping needs no such rule, because the driver lands on every hard kink
         itself.
 
+        Parameters
+        ----------
+        stepper : StepperSettings
+            The run's stepper section, which replays a schedule.
+
         Raises
         ------
         TranslationError
             If a target is not an edge of the schedule, or if a coupled flow's kink
             is straddled rather than landed on.
         """
-        schedule = self.stepper.schedule
+        schedule = stepper.schedule
         assert schedule is not None
         edges = schedule.edges
         scale = max(schedule.total_length, 1.0)
         flow = self.linear.coupled_flow
         flow_slack = None if flow is None else flow_edge_slack(flow)
         for name, targets in (
-            ("save plane", self.stepper.save_planes),
+            ("save plane", stepper.save_planes),
             ("hard kink", self.linear.hard_kinks),
         ):
             for target in targets:
@@ -2381,6 +2526,68 @@ class PropagationProblem:
                         "exactly, which FixedSchedule.uniform guarantees"
                     )
                     raise TranslationError(msg)
+
+
+class Translation(NamedTuple):
+    """What translation returns: the numerical problem and its run's request.
+
+    Attributes
+    ----------
+    problem : PropagationProblem
+        The numerical meaning (SEP 47 section 5.2).
+    request : solprop.translate.run_request.RunRequest
+        Every policy of a fresh run of it, its step limits resolved against the
+        problem; :meth:`~solprop.translate.run_request.RunRequest.for_run` adapts it
+        to one run.
+    """
+
+    problem: PropagationProblem
+    request: "RunRequest"  # noqa: UP037 - the request module imports this one
+
+
+def validate_run(problem: PropagationProblem, request: "RunRequest") -> None:  # noqa: UP037
+    """Check a problem and the request it is run with, before anything is allocated.
+
+    Everything :meth:`PropagationProblem.validate` checks, in the same order, and
+    with it what depends on the run's policy: the method's admission on the route,
+    the save planes following the launch, the statistics the route and the
+    precision admit, the request's own arrays, the propagator mode on a separable
+    route, the tables and a general guide's leaves covering the run, a replayed
+    schedule landing on every save plane and hard kink, the in-stage collar's
+    stability, the split collar's crossing and the exponent budget. A backend calls
+    this where it is built (SEP 47 section 5.2), so an unsupported combination is
+    refused by name before any workspace exists.
+
+    Parameters
+    ----------
+    problem : PropagationProblem
+        The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's request.
+
+    Raises
+    ------
+    TranslationError
+        Naming the field or setting that failed.
+
+    Warns
+    -----
+    solprop.exceptions.ExponentBudgetWarning
+        When a step the run cannot shrink comes within a tenth of the exponent limit.
+
+    Examples
+    --------
+    >>> from solprop.driver import Simulation
+    >>> from solprop.translate.problem import validate_run
+    >>> simulation = Simulation.from_gnlse(
+    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
+    ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
+    ...     width=100e-15, peak_power=9.8, shape="sech",
+    ... )
+    >>> validate_run(simulation.translate(), simulation._run_request()) is None
+    True
+    """
+    problem._validate(_RunPolicy(request.stepper, request.observation.stats))
 
 
 _EDGE_SLACK = 1e-9
@@ -2565,7 +2772,6 @@ class _Assembly:
     loss: LossPolicy
     margin: float
     tol: float
-    node_budget: int
     has_noise: bool
     dz_max: float
     reuse: "TranslationReuse | None"  # noqa: UP037 - bound after this class body
@@ -2720,7 +2926,6 @@ def _spatial_assembly(
                 z_max=build.z_max,
                 n_pol=build.n_pol,
                 collar_rate=collar_rate,
-                node_budget=build.node_budget,
                 margin=build.margin,
             )
         )
@@ -2746,11 +2951,9 @@ def _spatial_assembly(
             if reuse is not None
             else free_transform(
                 spatial_grid,
-                grid,
                 z_max=build.z_max,
                 n_pol=build.n_pol,
                 collar_rate=collar_rate,
-                node_budget=build.node_budget,
                 margin=build.margin,
             )
         )
@@ -2795,9 +2998,7 @@ def _spatial_assembly(
             spatial_grid,
             grid,
             z_max=build.z_max,
-            n_pol=build.n_pol,
             collar_rate=collar_rate,
-            node_budget=build.node_budget,
             margin=build.margin,
         )
     )
@@ -4739,23 +4940,19 @@ def _check_wall_total_varying(
             raise TranslationError(msg)
 
 
-def _validated(problem: "PropagationProblem") -> "PropagationProblem":  # noqa: UP037
+def _validated(problem: "PropagationProblem", request: "RunRequest") -> None:  # noqa: UP037
     """Validate an assembled problem and run every diagnostic that only warns.
 
     Parameters
     ----------
     problem : PropagationProblem
         The assembled contract.
-
-    Returns
-    -------
-    PropagationProblem
-        The same problem.
+    request : solprop.translate.run_request.RunRequest
+        The request of a fresh run of it.
     """
-    problem.validate()
-    validate_coupled_flow(problem)
-    _admit_dense(problem)
-    return problem
+    validate_run(problem, request)
+    validate_coupled_flow(problem, request.stepper)
+    _admit_dense(problem, request.stepper)
 
 
 def _normalisation_rate(
@@ -4801,7 +4998,10 @@ def _normalisation_rate(
     return rate
 
 
-def validate_coupled_flow(problem: "PropagationProblem") -> None:  # noqa: UP037
+def validate_coupled_flow(
+    problem: "PropagationProblem",  # noqa: UP037
+    stepper: StepperSettings,
+) -> None:
     """Warn when a run's declared steps exceed its coupled flow's advisory limit.
 
     A ``validate`` diagnostic in the manner of the in-stage absorber's
@@ -4830,6 +5030,8 @@ def validate_coupled_flow(problem: "PropagationProblem") -> None:  # noqa: UP037
         The assembled contract. A problem carrying no coupled flow, or one whose
         residual is identically zero, has nothing to warn about and is returned from
         in silence.
+    stepper : StepperSettings
+        The run's stepper section, whose declared steps are checked.
 
     Warns
     -----
@@ -4848,9 +5050,9 @@ def validate_coupled_flow(problem: "PropagationProblem") -> None:  # noqa: UP037
     if flow is None:
         return
     # Over the bins the explicit residual is applied on: the requested band.
-    _warn_advisory_step(flow, problem.stepper, problem.grids.inband_mask)
+    _warn_advisory_step(flow, stepper, problem.grids.inband_mask)
     if "cf4" in flow.section_methods:
-        _warn_cf4_defect(flow, problem.stepper, problem.linear.hard_kinks)
+        _warn_cf4_defect(flow, stepper, problem.linear.hard_kinks)
 
 
 def _declared_steps(settings: StepperSettings) -> dict[str, float]:
@@ -5291,13 +5493,18 @@ def _check_scalar_domain(
             raise TranslationError(f"{name} must lie in [0, {upper}]")
 
 
-def _walk_arrays(problem: PropagationProblem) -> list[tuple[str, np.ndarray]]:
+def _walk_arrays(
+    problem: PropagationProblem, run: _RunPolicy | None = None
+) -> list[tuple[str, np.ndarray]]:
     """Collect every NumPy array in the problem tree, with its dotted name.
 
     Parameters
     ----------
     problem : PropagationProblem
         The problem to walk.
+    run : _RunPolicy or None, optional
+        The run's stepper section and statistics, walked after the initial state
+        under the names ``stepper`` and ``stats_spec`` they have always had.
 
     Returns
     -------
@@ -5330,6 +5537,9 @@ def _walk_arrays(problem: PropagationProblem) -> list[tuple[str, np.ndarray]]:
         elif is_dataclass(node) and not isinstance(node, type):
             for entry in fields(node):
                 if node is problem and entry.name == "route":
+                    if run is not None:
+                        visit("stepper", run.stepper)
+                        visit("stats_spec", run.stats)
                     # The route's leaves keep the names they have always had:
                     # ``transform.synthesis``, ``flux.base.kperp_sq``.
                     visit(prefix, getattr(node, entry.name))
@@ -5412,389 +5622,6 @@ def _walk_tables(problem: PropagationProblem) -> list[tuple[str, PiecewiseChebys
             for j, table in enumerate(term.decay_rates)
         )
     return [(name, table) for name, table in candidates if table is not None]
-
-
-def _even_chunk(count: int, limit: int) -> int:
-    """Return the smallest chunk that covers `count` items in as few passes as `limit`.
-
-    Parameters
-    ----------
-    count : int
-        Items to cover (positive).
-    limit : int
-        Largest admitted chunk (positive).
-
-    Returns
-    -------
-    int
-        ``ceil(count / ceil(count / limit))``, at most `limit` and `count`.
-
-    Examples
-    --------
-    >>> _even_chunk(33, 32), _even_chunk(33, 33), _even_chunk(100, 30)
-    (17, 33, 25)
-    """
-    passes = -(-count // limit)
-    return -(-count // passes)
-
-
-def _balanced_chunk(transform: Transform) -> Transform:
-    """Spread the nodes evenly over the passes the admitted chunk already needs.
-
-    The budget admissions each take ``budget // per_node``, which can leave a
-    last pass of a node or two: 33 RDW nodes under a limit of 32 ran a whole
-    32-node pass and then a one-node tail on one thread, about 1.6 times the cost
-    of one 33-node pass. The same number of passes of near-equal size (17 and 16)
-    never exceeds the admitted chunk, so every budget still holds. A planar chunk
-    of whole transverse rows stays whole rows; one shorter than a row is kept.
-
-    Parameters
-    ----------
-    transform : Transform
-        Transform with its admitted chunk.
-
-    Returns
-    -------
-    Transform
-        The transform, with the smallest chunk that needs no more passes.
-    """
-    row_nodes = (
-        transform.geometry.shape[0]
-        if transform.geometry is not None and transform.geometry.kind == "slab"
-        else 1
-    )
-    rows = transform.n_nodes // row_nodes
-    rows_per_chunk, partial = divmod(transform.node_chunk, row_nodes)
-    if partial or rows_per_chunk >= rows:
-        return transform
-    chunk = _even_chunk(rows, rows_per_chunk) * row_nodes
-    return (
-        transform
-        if chunk == transform.node_chunk
-        else replace(transform, node_chunk=chunk)
-    )
-
-
-def _envelope_chunk(
-    transform: Transform, n_pol: int, n_to: int, budget: int, *, enabled: bool
-) -> Transform:
-    """Include current streams and histories in envelope plasma chunk admission.
-
-    Parameters
-    ----------
-    transform : Transform
-        Existing transform and baseline chunk size.
-    n_pol : int
-        State polarisation components.
-    n_to : int
-        Fine temporal samples per node.
-    budget : int
-        Node workspace budget in bytes.
-    enabled : bool
-        Whether the compiled problem carries envelope plasma sources.
-
-    Returns
-    -------
-    Transform
-        Transform with a bounded chunk. Modal projected arrays are accounted
-        separately by backend ledgers because they do not scale with chunk nodes.
-
-    Raises
-    ------
-    TranslationError
-        If one complete node history and its sources do not fit.
-    """
-    if not enabled:
-        return transform
-    components = transform.n_pol * n_pol
-    free = transform.geometry is not None and transform.geometry.kind in (
-        "free",
-        "slab",
-    )
-    baseline = (20 if free else 3) * 16 * components
-    # Bound both host and device storage: two complex sources, up to six float
-    # histories, per-sample angular status, and fixed256 scan totals/carries.
-    # Cartesian chunks also own projected spectra and projection scratch.
-    extra = 32 * components + 56 + (80 * components if free else 0)
-    per_node = n_to * (baseline + extra) + 16 * ((n_to + 255) // 256) + 8
-    if budget < per_node:
-        raise TranslationError(
-            "node_budget cannot hold one envelope plasma source history"
-        )
-    return replace(transform, node_chunk=min(transform.node_chunk, budget // per_node))
-
-
-def _held_current_chunk(
-    transform: Transform,
-    responses: CompiledResponses,
-    n_pol: int,
-    n_to: int,
-    budget: int,
-) -> Transform:
-    """Admit complete held-current histories and their nodal transforms.
-
-    Modal projected streams do not scale with the node chunk and belong to
-    total-memory admission. The allowance here includes the largest nodal
-    transform layout (radial), the band scan, Raman and dispersive buffers
-    together, so a mixed response cannot consume the same budget twice.
-
-    Parameters
-    ----------
-    transform : Transform
-        Existing spatial or modal transform and its current chunk limit.
-    responses : CompiledResponses
-        Compiled sources; unchanged when no field plasma is present.
-    n_pol : int
-        State components.
-    n_to : int
-        Fine temporal samples.
-    budget : int
-        Node workspace budget, bytes.
-
-    Returns
-    -------
-    Transform
-        Transform with all node-dependent source buffers admitted.
-
-    Raises
-    ------
-    TranslationError
-        If one complete node, or planar transverse row, does not fit.
-    """
-    if not responses.plasma_channels:
-        return transform
-    spatial = transform.geometry is not None
-    free = transform.geometry is not None and transform.geometry.kind in (
-        "free",
-        "slab",
-    )
-    components = transform.n_pol * n_pol
-    baseline = _FREE_COLUMN_BUFFERS if free else BUFFERS_PER_NODE
-    planar = transform.geometry is not None and transform.geometry.kind == "slab"
-    # J and its two products; three real FFT inputs and spectra; cropped nodal
-    # output. Each complex FFT row is bounded by n_to complex values, including
-    # the DC/Nyquist pair. The device band's three scalar and three component
-    # histories bound the host layouts too; tiled prefixes need one total per
-    # component per minimum-size tile. Channels reuse those histories.
-    source_bytes = (
-        components * n_to * (3 * 8 + (3 * 8 + 4 * 16 if spatial and not planar else 0))
-    )
-    histories = (
-        (3 + 3 * components) * n_to * 8
-        + components * math.ceil(n_to / 256) * 8
-        + len(responses.plasma_channels) * 4 * 8
-    )
-    radial_projection = (
-        transform.n_modes * transform.n_pol * 8 if spatial and not free else 0
-    )
-    raman = (3 * (48 * n_to + 16)) if responses.raman_terms else 0
-    dispersive = dispersive_node_buffers(responses, spatial=free)
-    per_node = (
-        (baseline + dispersive) * components * n_to * 16
-        + source_bytes
-        + histories
-        + radial_projection
-        + raman
-    )
-    row_nodes = (
-        transform.geometry.shape[0]
-        if transform.geometry is not None and transform.geometry.kind == "slab"
-        else 1
-    )
-    # A planar row contracts n_x physical nodes to n_p modal columns before its
-    # temporal FFT. Charge the two projected sources and spectra, plus a shared
-    # projection scratch, per modal column rather than per physical node.
-    # This matters when a full row is the smallest possible chunk.
-    projected_row = (
-        transform.synthesis.shape[1]
-        * components
-        * (3 * n_to * 8 + 2 * (n_to // 2 + 1) * 16)
-        if planar
-        else 0
-    )
-    per_row = per_node * row_nodes + projected_row
-    if budget < per_row:
-        raise TranslationError(
-            "node_budget cannot hold one held plasma current history"
-            " (one full transverse row for a planar grid)"
-        )
-    # Planar projection contracts complete x rows. Admit the rounded row here,
-    # before a backend would otherwise have to increase a sub-row allocation.
-    chunk = (
-        min(max(1, transform.node_chunk // row_nodes), budget // per_row) * row_nodes
-    )
-    return (
-        transform
-        if chunk == transform.node_chunk
-        else replace(transform, node_chunk=chunk)
-    )
-
-
-def _raman_chunk(
-    transform: Transform,
-    responses: CompiledResponses,
-    n_pol: int,
-    n_to: int,
-    budget: int,
-) -> Transform:
-    """Admit complete Raman histories, including combined envelope plasma storage.
-
-    Parameters
-    ----------
-    transform : Transform
-        Existing transform and baseline chunk limit.
-    responses : CompiledResponses
-        Declared convolution channels and optional plasma streams.
-    n_pol : int
-        State polarisation components, one or two.
-    n_to : int
-        Fine temporal samples per physical node.
-    budget : int
-        Node workspace budget in bytes.
-
-    Returns
-    -------
-    Transform
-        Transform with a complete-node chunk within the workspace budget.
-    """
-    if not responses.raman_terms:
-        return transform
-    components = transform.n_pol * n_pol
-    drives = (
-        3
-        if components == 2
-        and any(np.any(term.tensor_weights[:, 1]) for term in responses.raman_terms)
-        else 1
-    )
-    free = transform.geometry is not None and transform.geometry.kind in (
-        "free",
-        "slab",
-    )
-    # Cartesian admission already reserves three complex-equivalent Raman rows
-    # per component. Replace that allowance by the selected real drive layout.
-    baseline = (17 if free else 3) * 16 * components * n_to
-    extra = (48 * n_to + 16) * drives
-    if responses.envelope_plasma is not None:
-        extra += n_to * (32 * components + 56 + (80 * components if free else 0))
-        extra += 16 * ((n_to + 255) // 256) + 8
-    per_node = baseline + extra
-    if budget < per_node:
-        raise TranslationError(
-            "node_budget cannot hold one complete Raman node history"
-        )
-    # Full and actual-width tail plans share these arrays. Opaque provider plan
-    # storage and node-independent kernels appear separately in backend ledgers.
-    chunk = min(transform.node_chunk, budget // per_node)
-    return (
-        transform
-        if chunk == transform.node_chunk
-        else replace(transform, node_chunk=chunk)
-    )
-
-
-_FREE_COLUMN_BUFFERS = 20
-"""Complex-equivalent buffers per component a Cartesian or planar column holds.
-
-The count ``free_transform`` and ``planar_transform`` admit a column by
-(``translate/free.py``); the dispersive admission adds its own to it.
-"""
-
-
-def dispersive_node_buffers(responses: CompiledResponses, *, spatial: bool) -> int:
-    """Return the buffers per node and component SEP 6's dispersive response adds.
-
-    On the fused node path a backend forms the response's products at the nodes:
-    one node buffer beside other responses for the symmetric evaluator, which a lone
-    one shares with the bare field, and two for the polynomial, whose cube and
-    derivative products take them in turn. A Cartesian or planar column also holds
-    its filtered fields and products in time and their spectra: two buffers per
-    product, the symmetric evaluator's one (a mixture's under its mixture filter) and
-    the polynomial's ``1 + 2 G`` for ``G`` groups of equal leg bound
-    (:meth:`~solprop.translate.responses.DispersiveKerrTerms.groups`), and the planar
-    nodes' one or two besides.
-
-    Parameters
-    ----------
-    responses : CompiledResponses
-        The compiled responses, with or without the dispersive leaf.
-    spatial : bool
-        Whether the route's nodes are Cartesian or planar columns.
-
-    Returns
-    -------
-    int
-        Complex-equivalent buffers per node and component; zero without the leaf.
-    """
-    leaf = responses.dispersive_kerr
-    if leaf is None:
-        return 0
-    symmetric = leaf.evaluator == "symmetric"
-    alone = (
-        set(responses.response_order) - {ResponseStage.ACCUMULATE}
-        == {ResponseStage.DISPERSIVE_KERR}
-        and responses.envelope_plasma is None
-    )
-    groups = len(leaf.groups())
-    nodes = (0 if alone and groups == 1 else 1) if symmetric else 2
-    if not spatial:
-        return nodes
-    products = groups if symmetric else 1 + 2 * groups
-    return nodes + 2 * products
-
-
-def _dispersive_chunk(
-    transform: Transform,
-    responses: CompiledResponses,
-    n_pol: int,
-    n_to: int,
-    budget: int,
-) -> Transform:
-    """Admit the dispersive response's node buffers into the chunk's budget.
-
-    Parameters
-    ----------
-    transform : Transform
-        Existing transform and baseline chunk limit.
-    responses : CompiledResponses
-        The compiled responses; nothing changes without the dispersive leaf.
-    n_pol : int
-        State polarisation components, one or two.
-    n_to : int
-        Fine temporal samples per node.
-    budget : int
-        Node workspace budget in bytes.
-
-    Returns
-    -------
-    Transform
-        Transform with a chunk whose every buffer fits the budget. A general modal
-        guide sizes its own chunk from its maps and is returned unchanged.
-
-    Raises
-    ------
-    TranslationError
-        If one node and the response's buffers do not fit.
-    """
-    if responses.dispersive_kerr is None or transform.modal_tables is not None:
-        return transform
-    spatial = transform.geometry is not None and transform.geometry.kind in (
-        "free",
-        "slab",
-    )
-    components = transform.n_pol * n_pol
-    baseline = _FREE_COLUMN_BUFFERS if spatial else BUFFERS_PER_NODE
-    extra = dispersive_node_buffers(responses, spatial=spatial)
-    per_node = (baseline + extra) * components * n_to * 16
-    if budget < per_node:
-        raise TranslationError(
-            "node_budget cannot hold one node of the dispersive electronic response"
-        )
-    chunk = min(transform.node_chunk, budget // per_node)
-    return (
-        transform
-        if chunk == transform.node_chunk
-        else replace(transform, node_chunk=chunk)
-    )
 
 
 def _state(
@@ -5956,7 +5783,7 @@ def _check_tdse_assembly_route(
         )
 
 
-def _admit_dense(problem: "PropagationProblem") -> None:  # noqa: UP037 - defined below
+def _admit_dense(problem: "PropagationProblem", stepper: StepperSettings) -> None:  # noqa: UP037 - defined below
     """Refuse dense observation where its interpolant is not the run's field.
 
     SEP 14 section 5's admission matrix, for the Runge-Kutta extension and for SEP 13's
@@ -5968,13 +5795,15 @@ def _admit_dense(problem: "PropagationProblem") -> None:  # noqa: UP037 - define
     ----------
     problem : PropagationProblem
         The assembled problem.
+    stepper : StepperSettings
+        The run's stepper section.
 
     Raises
     ------
     TranslationError
         Naming the combination refused.
     """
-    if not problem.stepper.interpolate_planes:
+    if not stepper.interpolate_planes:
         return
     responses = problem.responses
     reasons = []
@@ -6204,7 +6033,6 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     shock: bool = True,
     prefactor_index: float | None = None,
     ionisation_field_range: tuple[float, float] | None = None,
-    node_budget: int | None = None,
     spatial_grid: RadialGrid | FreeGrid | PlanarGrid | None = None,
     medium: SpatialMedium | None = None,
     margin: float = DEFAULT_MARGIN,
@@ -6219,7 +6047,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     spatial_absorber: SpatialAbsorber | None = None,
     adiabatic_accuracy: AdiabaticAccuracy | None = None,
     precision: Precision = DOUBLE,
-) -> PropagationProblem:
+) -> Translation:
     """Turn the physics objects of a run into a validated kernel problem.
 
     This is the whole of the translation layer's public entry point: it builds the
@@ -6318,7 +6146,8 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     propagator_mode : {'auto', 'tabulate', 'recompute'}, optional
         Whether the backend tabulates the stage propagators.
     stats_spec : solprop.stats.StatsSpec or None, optional
-        Which statistics to collect. ``None`` collects none.
+        Which statistics the run collects, carried by the returned request.
+        ``None`` collects none.
     shock : bool, optional
         Keep the ``omega`` dependence of the prefactor's numerator, which is the optical
         shock term. Default ``True``.
@@ -6327,11 +6156,6 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         The GNLSE passes 1.0, leaving its power normalisation and Phi unchanged.
     ionisation_field_range : tuple of float or None, optional
         Field amplitudes in V/m a plasma response's rate table must cover.
-    node_budget : int or None, optional
-        Bytes of node-chunk buffers a multimode response pass may hold. ``None``
-        takes :data:`~solprop.translate.modal.DEFAULT_SPATIAL_NODE_BUDGET` on a
-        free-space, line or planar grid and
-        :data:`~solprop.translate.modal.DEFAULT_NODE_BUDGET` otherwise.
     spatial_grid : RadialGrid, FreeGrid, PlanarGrid or None, optional
         Radial or Cartesian geometry, or the hybrid planar grid
         (:class:`solprop.modes.slab.PlanarGrid`); requires ``modes=None`` and a bulk
@@ -6408,15 +6232,17 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
 
     Returns
     -------
-    PropagationProblem
-        Validated, versioned and ready for a backend.
+    Translation
+        The problem and the request of a fresh run of it, with the step limits the
+        route resolved and clamped, validated together (:func:`validate_run`) and
+        ready for a backend.
 
     Raises
     ------
     TranslationError
         If a response cannot be compiled, an argument is out of range, a frame that
         removes ``beta_0`` is given beside a third-harmonic term on an envelope grid,
-        or the assembled problem fails :meth:`PropagationProblem.validate`.
+        or the assembled problem and its request fail :func:`validate_run`.
 
     Examples
     --------
@@ -6429,20 +6255,16 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0, gamma=0.11,
     ...                      shock=False)
     >>> start = SechPulse(wavelength=835e-9, width=1e-13, peak_power=1.0).build(grid)
-    >>> problem = assemble(
+    >>> problem, request = assemble(
     ...     grid, gnlse.mode, [gnlse.kerr], start,
     ...     controller=PIController(rtol=1e-8, atol=1e-14), save_planes=[0.5, 1.0],
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.flags.single_mode, problem.linear.n_intervals
     (True, 1)
+    >>> request.observation.save_planes.tolist()
+    [0.5, 1.0]
     """
-    if node_budget is None:
-        node_budget = (
-            DEFAULT_SPATIAL_NODE_BUDGET
-            if isinstance(spatial_grid, FreeGrid | PlanarGrid)
-            else DEFAULT_NODE_BUDGET
-        )
     _refuse_a_wall_off_the_capillary_route(
         wall,
         general=general is not None,
@@ -6532,7 +6354,6 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         loss=loss,
         margin=margin,
         tol=tol,
-        node_budget=node_budget,
         has_noise=noise is not None,
         noise_model="none" if noise is None else noise.model,
         dz_max=dz_max,
@@ -6572,7 +6393,6 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
                     z_max=z_max,
                     n_pol=n_pol,
                     components=components,
-                    node_budget=node_budget,
                     margin=margin,
                     tol=tol,
                 )
@@ -6618,23 +6438,6 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     # SEP 6, section 4.10: classified once, at translation, on the whole active band;
     # a field reaching beyond a gas's support is logged here and never refused.
     dispersive_regions(responses, grid, vector=transform.n_pol * n_pol > 1)
-    transform = _envelope_chunk(
-        transform,
-        n_pol,
-        grid.n_to,
-        node_budget,
-        enabled=compiled.envelope_plasma is not None,
-    )
-    transform = _dispersive_chunk(
-        _raman_chunk(transform, compiled, n_pol, grid.n_to, node_budget),
-        compiled,
-        n_pol,
-        grid.n_to,
-        node_budget,
-    )
-    transform = _balanced_chunk(
-        _held_current_chunk(transform, compiled, n_pol, grid.n_to, node_budget)
-    )
     initial = _power_initial(
         Initial(
             field0=state,
@@ -6692,8 +6495,6 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         linear=linear,
         responses=compiled,
         initial=initial,
-        stepper=settings,
-        stats_spec=StatsSpec() if stats_spec is None else stats_spec,
         route=_route(
             transform,
             tdse=None
@@ -6705,7 +6506,12 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         precision=precision,
         split_crossing=crossing,
     )
-    _validated(problem)
+    # The run module builds on this one, for the stepper section.
+    from solprop.translate.run_request import describe_run  # noqa: PLC0415
+
+    statistics = StatsSpec() if stats_spec is None else stats_spec
+    request = describe_run(settings, stats=statistics)
+    _validated(problem, request)
     # After validation: a schedule the stability or transverse checks refuse names them.
     _refuse_split_crossing(crossing, schedule)
     logger.debug(
@@ -6720,8 +6526,8 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         problem.flags,
     )
     if logger.isEnabledFor(logging.DEBUG):
-        logger.debug("%s", debug_summary(problem))
-    return problem
+        logger.debug("%s", debug_summary(problem, statistics))
+    return Translation(problem, request)
 
 
 def _route(
@@ -6781,7 +6587,7 @@ def _route(
     return ModalRoute(transform=transform, tdse=tdse)
 
 
-def debug_summary(problem: PropagationProblem) -> str:
+def debug_summary(problem: PropagationProblem, stats: StatsSpec | None = None) -> str:
     """Return a short array-free description of an assembled problem, for a log.
 
     The translation summary ``AGENTS.md`` asks the translation layer to log: what
@@ -6799,6 +6605,9 @@ def debug_summary(problem: PropagationProblem) -> str:
     ----------
     problem : PropagationProblem
         A problem, assembled and validated.
+    stats : solprop.stats.StatsSpec or None, optional
+        The statistics its run collects, listed when given; they are the run's
+        policy, not the problem's.
 
     Returns
     -------
@@ -6828,8 +6637,9 @@ def debug_summary(problem: PropagationProblem) -> str:
         "  responses:     order "
         f"{[str(one.value) for one in problem.responses.response_order]}",
         f"  noise:         {problem.initial.noise_model}",
-        f"  statistics:    {', '.join(problem.stats_spec.names) or 'none'}",
     ]
+    if stats is not None:
+        rows.append(f"  statistics:    {', '.join(stats.names) or 'none'}")
     if metric is not None:
         rows.append(
             f"  modal metric:  {metric.kind}, defect "
@@ -7013,7 +6823,6 @@ def _transform(  # noqa: PLR0913 - one call site, and each argument is a distinc
     z_max: float,
     n_pol: int,
     components: Sequence[str] | None,
-    node_budget: int,
     margin: float,
     tol: float,
 ) -> Transform:
@@ -7034,8 +6843,6 @@ def _transform(  # noqa: PLR0913 - one call site, and each argument is a distinc
     components : sequence of str or None
         The transverse components the rule resolves, or ``None`` for the union of
         the modes' nonzero components at the entrance (:func:`_components`).
-    node_budget : int
-        Bytes of node-chunk buffers a multimode response pass may hold.
     margin : float
         Fraction of `z_max` the tables extend beyond the end.
     tol : float
@@ -7091,7 +6898,6 @@ def _transform(  # noqa: PLR0913 - one call site, and each argument is a distinc
             grid,
             z_max=z_max,
             components=resolved,
-            node_budget=node_budget,
             margin=margin,
             tol=tol,
         )

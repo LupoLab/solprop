@@ -11,11 +11,17 @@ import numpy as np
 import pytest
 
 from backends.forced_threads import assert_threaded
-from backends.host_cases_envelope_plasma import build_envelope_mixture, geometry_case
+from backends.host_cases_envelope_plasma import (
+    build_envelope_mixture,
+    geometry_case,
+    geometry_options,
+)
 from backends.matched import native_thread_fields
 from bounds import assert_within, device_backend
+from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.numpy_ref.envelope_plasma import envelope_populations
+from solprop.backends.session import ExecutionOptions
 from solprop.modes import MarcatiliMode, ModeCollection, transverse_quadrature
 from solprop.nonlinear import EnvelopePlasmaResponse
 from solprop.profiles import Linear
@@ -31,8 +37,8 @@ def envelope_mixture():
     return build_envelope_mixture()
 
 
-def run(backend_class, problem, grid):
-    backend = backend_class(problem, grid=grid)
+def run(backend_class, problem, run_request, grid, options=None):
+    backend = backend_class(problem, run_request, grid=grid, options=options)
     try:
         backend.set_initial(problem.initial.field0, None)
         summary = backend.propagate_to(grid.length)
@@ -48,14 +54,15 @@ def run(backend_class, problem, grid):
 def test_two_population_host_geometries_and_partial_chunks(
     thread_budget_lifted, envelope_mixture, geometry, n_pol, equivalence_backend_class
 ):
-    problem, grid = geometry_case(envelope_mixture, geometry, n_pol)
-    reference, ledger = run(NumpyRefBackend, problem, grid)
-    actual, _ = run(equivalence_backend_class, problem, grid)
+    problem, run_request, grid = geometry_case(envelope_mixture, geometry, n_pol)
+    options = geometry_options(geometry)
+    reference, ledger = run(NumpyRefBackend, problem, run_request, grid, options)
+    actual, _ = run(equivalence_backend_class, problem, run_request, grid, options)
     assert problem.flags.n_channels == 2
     assert np.all(np.isfinite(actual))
-    assert ledger["envelope_source_streams"] == (
-        2 * problem.transform.node_chunk * n_pol * grid.n_to * 16
-    )
+    chunk = plan_node_chunk(problem, options).chunk
+    assert chunk == (problem.transform.n_nodes if options is None else 3)
+    assert ledger["envelope_source_streams"] == 2 * chunk * n_pol * grid.n_to * 16
     # The polynomial rate's integrals converge to rounding; FFTs, two-channel
     # scans and projections contribute < 128 eps per sample per RK stage.
     bound = 128 * grid.n_to * 7 * 2 * np.finfo(float).eps
@@ -76,7 +83,7 @@ def test_host_sources_are_repeatable_and_thread_invariant(tmp_path, envelope_mix
     pytest.importorskip("solprop_native")
     if device_backend("native") != "none":
         pytest.skip("a device build's host space is serial")
-    _, grid = geometry_case(envelope_mixture, "free", 2)
+    _, _, grid = geometry_case(envelope_mixture, "free", 2)
     names = ["field", "steps", "met_tolerance"]
     original, *others = [
         native_thread_fields(PROBE, threads, names, tmp_path) for threads in (1, 1, 4)
@@ -98,7 +105,7 @@ def test_vector_mode_rows_match_state_polarisation(
     thread_budget_lifted, envelope_mixture, backend_class
 ):
     mixture, responses = envelope_mixture
-    original, grid = geometry_case(envelope_mixture, "modal", 2)
+    original, original_request, grid = geometry_case(envelope_mixture, "modal", 2)
     mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
     results = []
     for layout in ("state", "rows"):
@@ -108,25 +115,21 @@ def test_vector_mode_rows_match_state_polarisation(
             modes = ModeCollection.with_polarisations([mode])
             initial = initial.transpose(1, 0, 2).copy()
         rule = transverse_quadrature(modes, n_r=4, radial_rule="gauss_kronrod")
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             modes,
             responses,
             initial,
             quadrature=rule,
-            controller=original.stepper.controller,
+            controller=original_request.stepper.controller,
             save_planes=[grid.length],
             dz_init=grid.length / 2,
             dz_max=grid.length / 2,
-            schedule=original.stepper.schedule,
+            schedule=original_request.stepper.schedule,
         )
-        problem = replace(
-            problem,
-            route=replace(
-                problem.route, transform=replace(problem.transform, node_chunk=3)
-            ),
+        result, _ = run(
+            backend_class, problem, run_request, grid, ExecutionOptions(node_chunk=3)
         )
-        result, _ = run(backend_class, problem, grid)
         results.append(result.reshape(2, -1))
     # The two representations sum identical Cartesian sources with different
     # matrix strides; the bound covers all temporal and quadrature reductions.
@@ -141,7 +144,7 @@ def test_taper_and_density_paths_reach_each_envelope_population(
     thread_budget_lifted, envelope_mixture, equivalence_backend_class
 ):
     mixture, responses = envelope_mixture
-    original, grid = geometry_case(envelope_mixture, "modal", 2)
+    original, original_request, grid = geometry_case(envelope_mixture, "modal", 2)
     mixture = replace(
         mixture,
         components=tuple(
@@ -160,24 +163,24 @@ def test_taper_and_density_paths_reach_each_envelope_population(
         cladding=1.45,
         loss=False,
     )
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         mode,
         responses,
         original.initial.field0,
-        controller=original.stepper.controller,
+        controller=original_request.stepper.controller,
         save_planes=[grid.length],
         dz_max=grid.length / 2,
         dz_init=grid.length / 2,
-        schedule=original.stepper.schedule,
+        schedule=original_request.stepper.schedule,
     )
     start = scalars(problem, 0.0, 0.0)
     end = scalars(problem, grid.length, grid.length)
     assert start.taper_scale != end.taper_scale
     assert all(density > 0 for density in start.plasma_densities)
     np.testing.assert_array_equal(end.plasma_densities, 0)
-    reference, _ = run(NumpyRefBackend, problem, grid)
-    actual, _ = run(equivalence_backend_class, problem, grid)
+    reference, _ = run(NumpyRefBackend, problem, run_request, grid)
+    actual, _ = run(equivalence_backend_class, problem, run_request, grid)
     # Two stages of profile-table interpolation add to the same 128-eps/sample
     # source and Fourier budget used by the other geometry witnesses.
     bound = 128 * grid.n_to * 7 * 2 * np.finfo(float).eps
@@ -192,7 +195,7 @@ def test_taper_and_density_paths_reach_each_envelope_population(
 def test_envelope_statistics_use_cycle_rates_on_all_host_geometries(
     envelope_mixture, geometry, n_pol, equivalence_backend_class
 ):
-    problem, grid = geometry_case(envelope_mixture, geometry, n_pol)
+    problem, run_request, grid = geometry_case(envelope_mixture, geometry, n_pol)
     names = (
         "electron_density",
         "peak_ionisation_rate",
@@ -207,10 +210,15 @@ def test_envelope_statistics_use_cycle_rates_on_all_host_geometries(
     # Roundoff in SVD/Gram axes, FFTs and the two-stage RK sums is below this bound;
     # interpolation and angular budgets are shared by both.
     bound = 128 * grid.n_to * 7 * 2 * np.finfo(float).eps
-    problem = replace(problem, stats_spec=spec)
+    run_request = run_request.for_run(stats=spec)
     results = []
     for cls in (NumpyRefBackend, equivalence_backend_class):
-        backend = cls(problem, grid=grid)
+        backend = cls(
+            problem,
+            run_request,
+            grid=grid,
+            options=geometry_options(geometry),
+        )
         try:
             backend.set_initial(problem.initial.field0, None)
             initial = backend.stats(spec)
@@ -241,7 +249,7 @@ def test_envelope_statistics_use_cycle_rates_on_all_host_geometries(
 
 
 def test_envelope_population_scan_matches_independent_response(envelope_mixture):
-    problem, grid = geometry_case(envelope_mixture, "modal", 2)
+    problem, _, grid = geometry_case(envelope_mixture, "modal", 2)
     assembly = problem.responses.envelope_plasma
     assert assembly is not None
     modal = passes.to_time(

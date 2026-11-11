@@ -18,6 +18,7 @@ import math
 import numpy as np
 
 from backends.test_planar_hybrid import FAMILIES, HALF_GAP, LENGTH, ORDERS
+from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
 from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.driver import Simulation
 from solprop.grid import EnvelopeGrid
@@ -60,8 +61,8 @@ in-stage term as the whole derivative.
 """
 
 
-def planar_case(name, *, steps=None, node_chunk=None):
-    """Return ``(grid, space, problem)`` for one case, on a replayed schedule.
+def planar_case(name, *, steps=None):
+    """Return ``(grid, space, problem, run_request)`` for one case, replayed.
 
     Parameters
     ----------
@@ -70,8 +71,6 @@ def planar_case(name, *, steps=None, node_chunk=None):
     steps : int, optional
         Fixed steps over :data:`LENGTH`; the family's own count by default. Zero is a
         one-step schedule for a problem that is only evaluated, never stepped.
-    node_chunk : int, optional
-        Override for the transform's node chunk, to force a partial last block.
     """
     family, n_y, collar_fraction, boundary, respond = CASES[name]
     grid, gas, energy, fwhm, plasma, raman, n_r, _, count, scheme = FAMILIES[family]
@@ -115,6 +114,9 @@ def planar_case(name, *, steps=None, node_chunk=None):
         quadrature=None,
         components=None,
         stats=None,
+        # The modal route's budget, which `from_waveguide` once passed on explicitly:
+        # the planar runs keep the chunks their records were measured at.
+        node_budget=DEFAULT_NODE_BUDGET,
     )
     if respond != "family":
         # The family's plasma range has no rate to tabulate over without it.
@@ -128,24 +130,17 @@ def planar_case(name, *, steps=None, node_chunk=None):
     # A collar case is translated on a zero launch, whose design check is pending,
     # and then given its launch, which translation keeps as it is: the parity cases
     # compare the backends' arithmetic on the collar, not the design's return.
-    problem = Simulation.from_planar(
+    planar = Simulation.from_planar(
         grid,
         space,
         responses,
         np.zeros_like(field0) if collar else field0,
         settings=settings,
         spatial_absorber=COLLAR if collar else None,
-    ).translate()
+    )
+    problem = planar.translate()
     if collar:
         problem = dataclasses.replace(
             problem, initial=dataclasses.replace(problem.initial, field0=field0)
         )
-    if node_chunk is not None:
-        problem = dataclasses.replace(
-            problem,
-            route=dataclasses.replace(
-                problem.route,
-                transform=dataclasses.replace(problem.transform, node_chunk=node_chunk),
-            ),
-        )
-    return grid, space, problem
+    return grid, space, problem, planar._run_request()

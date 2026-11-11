@@ -42,25 +42,25 @@ propagator's product and its own ``exp``."""
 
 
 def _problem(capillary_problem, controller=None):
-    problem = capillary_problem()
+    problem, run_request = capillary_problem()
     if controller is None:
-        return problem
-    return dataclasses.replace(
-        problem, stepper=dataclasses.replace(problem.stepper, controller=controller)
+        return problem, run_request
+    return problem, run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, controller=controller)
     )
 
 
-def _native_trial(problem, grid, dz):
+def _native_trial(problem, run_request, grid, dz):
     """Open native on a problem, take one trial, and return what it scored."""
-    backend = native.NativeBackend(problem, grid=grid)
+    backend = native.NativeBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     score, _ = backend._trial_step(0.0, dz)
     return backend, score
 
 
-def _operands(backend, reference, problem, dz):
+def _operands(backend, reference, problem, run_request, dz):
     """Return native's stages and state, and the reference's propagator, 4-D."""
-    tableau = problem.stepper.tableau
+    tableau = run_request.stepper.tableau
     state = backend._native_state
     shape = (1, *problem.shape)
     stages = [
@@ -90,20 +90,20 @@ def test_the_rk_norm_is_the_reference_norm_of_native_s_operands(
     capillary_problem, field_grid, dz, record_property
 ):
     """The masked norm against ``passes.error_norm``, the bound fixed from operands."""
-    problem = _problem(capillary_problem)
+    problem, run_request = _problem(capillary_problem)
     assert not np.all(problem.grids.norm_mask), "the mask has to act"
-    reference = NumpyRefBackend(problem, grid=field_grid)
-    backend, score = _native_trial(problem, field_grid, dz)
+    reference = NumpyRefBackend(problem, run_request, grid=field_grid)
+    backend, score = _native_trial(problem, run_request, field_grid, dz)
     try:
-        stages, propagator = _operands(backend, reference, problem, dz)
+        stages, propagator = _operands(backend, reference, problem, run_request, dz)
         carried, rounding = _difference(
-            stages, problem.stepper.tableau.error_weights, propagator, dz
+            stages, run_request.stepper.tableau.error_weights, propagator, dz
         )
         before = problem.initial.field0
         backend._finish(backend._native_state, dz)
         after = backend.observe().require_field()
         wanted = reference._error_norm(carried, before[None], after[None])
-        controller = problem.stepper.controller
+        controller = run_request.stepper.controller
         mask = problem.grids.norm_mask
         scale = float(
             controller.scale(
@@ -128,16 +128,16 @@ def test_a_whole_trial_scores_as_the_reference_s_trial_does(
     capillary_problem, field_grid, dz, record_property
 ):
     """Each backend's own stages: the state's one-step rung over the scale."""
-    problem = _problem(capillary_problem)
-    reference = NumpyRefBackend(problem, grid=field_grid)
-    backend, score = _native_trial(problem, field_grid, dz)
+    problem, run_request = _problem(capillary_problem)
+    reference = NumpyRefBackend(problem, run_request, grid=field_grid)
+    backend, score = _native_trial(problem, run_request, field_grid, dz)
     try:
         reference.set_initial(problem.initial.field0, None)
         wanted, _ = reference._trial_step(0.0, dz)
     finally:
         backend.close()
         reference.close()
-    rtol = problem.stepper.controller.rtol
+    rtol = run_request.stepper.controller.rtol
     assert wanted > 0.0
     record_property("measured", abs(score - wanted))
     record_property("bound", STEP_RELATIVE / rtol)
@@ -146,9 +146,9 @@ def test_a_whole_trial_scores_as_the_reference_s_trial_does(
 
 def test_each_norm_is_read_from_its_own_state(capillary_problem, field_grid):
     """The accept's sums: the state before the step, and the state after it."""
-    problem = _problem(capillary_problem)
+    problem, run_request = _problem(capillary_problem)
     dz = 1e-2
-    backend = native.NativeBackend(problem, grid=field_grid)
+    backend = native.NativeBackend(problem, run_request, grid=field_grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         partials = np.asarray(backend._prepare_trial(0.0, dz))
@@ -185,16 +185,16 @@ def test_the_weighted_residual_divides_each_bin_before_the_norm(
     """
     n_omega = field_grid.n_omega
     weights = _weights(n_omega)
-    problem = _problem(
+    problem, run_request = _problem(
         capillary_problem, PIController(rtol=1e-8, atol=1e-14, weights=weights)
     )
-    reference = NumpyRefBackend(problem, grid=field_grid)
+    reference = NumpyRefBackend(problem, run_request, grid=field_grid)
     dz = 1e-2
-    backend, _ = _native_trial(problem, field_grid, dz)
+    backend, _ = _native_trial(problem, run_request, field_grid, dz)
     try:
-        stages, propagator = _operands(backend, reference, problem, dz)
+        stages, propagator = _operands(backend, reference, problem, run_request, dz)
         carried, rounding = _difference(
-            stages, problem.stepper.tableau.error_weights, propagator, dz
+            stages, run_request.stepper.tableau.error_weights, propagator, dz
         )
         partials = backend._native_state.weighted_error(weights)
         got = math.sqrt(float(np.sum(partials)))
@@ -221,12 +221,12 @@ def test_a_weighted_controller_scores_as_the_reference_s_does(
 ):
     """Through the controller's own per-bin scale, at the whole trial's level."""
     weights = _weights(field_grid.n_omega)
-    problem = _problem(
+    problem, run_request = _problem(
         capillary_problem, PIController(rtol=1e-8, atol=1e-14, weights=weights)
     )
     dz = 1e-2
-    reference = NumpyRefBackend(problem, grid=field_grid)
-    backend, score = _native_trial(problem, field_grid, dz)
+    reference = NumpyRefBackend(problem, run_request, grid=field_grid)
+    backend, score = _native_trial(problem, run_request, field_grid, dz)
     try:
         reference.set_initial(problem.initial.field0, None)
         wanted, _ = reference._trial_step(0.0, dz)
@@ -255,8 +255,8 @@ def test_the_recycled_stage_is_the_one_it_replaces(
     equation is solved on, the accept pass's hard mask removes it, and the identity
     failed at 7.4e-7 there.
     """
-    problem = capillary_problem()
-    backend = native.NativeBackend(problem, grid=field_grid)
+    problem, run_request = capillary_problem()
+    backend = native.NativeBackend(problem, run_request, grid=field_grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(0.02)

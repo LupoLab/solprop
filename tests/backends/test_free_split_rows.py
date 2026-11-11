@@ -12,7 +12,6 @@ a rounding budget fixed before the comparison.
 
 from __future__ import annotations
 
-import dataclasses
 from typing import Any
 
 import numpy as np
@@ -22,6 +21,7 @@ from backends.low_storage_cases import parity_bound
 from bounds import assert_within, device_backend, ladder_bound
 from capability_routes import LENGTH, STEP
 from monitor_cases import MARCHES, STEPS, as_driver, watched
+from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, TimeGrid
 from solprop.monitor import BoundaryCheck
@@ -86,38 +86,30 @@ ENVELOPE = EnvelopeGrid.from_limits(
 )
 
 
-def _blocked(simulation: Simulation, chunk: int | None) -> PropagationProblem:
-    """Return the simulation's problem at a node chunk, or at its own.
+def _blocked(chunk: int | None) -> ExecutionOptions:
+    """Return the execution options of a node chunk, or of the backend's own.
 
     Parameters
     ----------
-    simulation : solprop.driver.Simulation
-        The run.
     chunk : int or None
-        The node chunk, or ``None`` for the problem's own.
+        The node chunk, or ``None`` for the backend's own.
 
     Returns
     -------
-    solprop.translate.problem.PropagationProblem
-        The problem.
+    solprop.backends.session.ExecutionOptions
+        The options.
     """
-    problem = simulation.translate()
-    if chunk is None:
-        return problem
-    return dataclasses.replace(
-        problem,
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
-        ),
-    )
+    return ExecutionOptions(node_chunk=chunk)
 
 
 def _marched(
-    simulation: Simulation, name: str, problem: PropagationProblem
+    simulation: Simulation,
+    name: str,
+    problem: PropagationProblem,
+    options: ExecutionOptions | None = None,
 ) -> tuple[np.ndarray, dict[str, Any], dict[str, int]]:
     """Return the state, the monitor's record and the ledger after the fixed march."""
-    backend = watched(simulation, name, problem)
+    backend = watched(simulation, name, problem, options)
     try:
         backend.propagate_to(LENGTH)
         driver = as_driver(backend)
@@ -144,16 +136,21 @@ def _check_block(
     """Compare the native march at a node chunk with the reference's."""
     march, expected, theirs = reference
     simulation = _beam(ENVELOPE, MARCHES[march])
-    got, ours, ledger = _marched(simulation, "native", _blocked(simulation, chunk))
+    got, ours, ledger = _marched(
+        simulation, "native", simulation.translate(), _blocked(chunk)
+    )
     # The low-storage bound of four evaluations a step, scaled to the seven of the
     # longest tableau; the split's pair and product are less than one evaluation's, and
     # its factor's size is inside the bound's margin. A device build adds its
     # transforms' declared envelope, eight round trips a step at most. A reading sums
     # squares of the same samples, at twice the state's relative rounding.
-    problem = simulation.translate()
+    problem, run_request = simulation.translate(), simulation._run_request()
+    low_storage = parity_bound(
+        problem, run_request, transverse=problem.transform.n_nodes
+    )
     bound = ladder_bound(
         "native",
-        7 / 4 * parity_bound(problem, transverse=problem.transform.n_nodes),
+        7 / 4 * low_storage,
         simulation.grid.n_t,
         8 * STEPS,
     )

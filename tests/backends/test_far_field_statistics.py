@@ -118,10 +118,11 @@ def free_simulation(grid, space, launch, *, medium=None, spec=None, **settings):
 def entrance(simulation, backend="numpy_ref", spec=None):
     """The statistics of the launch on a backend, and the problem they belong to."""
     problem = simulation.translate()
-    owner = select(backend, problem, grid=simulation.grid)
+    run_request = simulation._run_request()
+    owner = select(backend, problem, run_request, grid=simulation.grid)
     try:
         owner.set_initial(problem.initial.field0, None)
-        values = owner.stats(problem.stats_spec if spec is None else spec)
+        values = owner.stats(run_request.observation.stats if spec is None else spec)
     finally:
         owner.close()
     return values, problem
@@ -225,8 +226,9 @@ def test_a_radial_problem_takes_no_partials(grid):
             backend="numpy_ref",
         ),
         noise=None,
-    ).translate()
-    assert far_field_partials(radial) == (0, 0)
+    )
+    spec = radial._run_request().observation.stats
+    assert far_field_partials(radial.translate(), spec) == (0, 0)
 
 
 # -------------------------------------------------------------- item 8: axial flux
@@ -680,13 +682,13 @@ def test_radial_and_planar_geometry_are_refused_before_any_step(grid):
         noise=None,
     )
     with pytest.raises(OutputError, match="radial grid"):
-        select("numpy_ref", radial.translate(), grid=grid)
-    planar_grid, _, problem = planar_case("kerr", steps=0)
-    problem = dataclasses.replace(problem, stats_spec=spec)
+        select("numpy_ref", radial.translate(), radial._run_request(), grid=grid)
+    planar_grid, _, problem, run_request = planar_case("kerr", steps=0)
+    run_request = run_request.for_run(stats=spec)
     native = importlib.util.find_spec("solprop_native") is not None
     for name in ("numpy_ref", "native") if native else ("numpy_ref",):
         with pytest.raises(OutputError, match="hybrid planar"):
-            select(name, problem, grid=planar_grid)
+            select(name, problem, run_request, grid=planar_grid)
 
 
 def test_an_older_native_build_is_refused_the_far_field_statistics_by_name(
@@ -695,11 +697,12 @@ def test_an_older_native_build_is_refused_the_far_field_statistics_by_name(
     space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
     simulation = free_simulation(grid, space, gaussian(60e-6))
     problem = simulation.translate()
+    run_request = simulation._run_request()
     # A build that declares none of them, as every build before SEP 23's third phase:
     # the refusal precedes the native build and names the backends that form them.
     monkeypatch.setattr(registry, "_plugin_far_field", lambda name: frozenset())
     with pytest.raises(BackendError, match="or run them on numpy_ref"):
-        select("native", problem, grid=grid)
+        select("native", problem, run_request, grid=grid)
     assert statistics_refusal("native", ["energy"]) is None
     assert statistics_refusal("numpy_ref", list(ALL_SIX)) is None
     # A build that declares some of them is refused the others, by name.
@@ -716,7 +719,7 @@ def test_an_older_native_build_is_refused_the_far_field_statistics_by_name(
         grid, space, gaussian(60e-6), spec=StatsSpec(names=("energy",))
     )
     problem = plain.translate()
-    owner = select("numpy_ref", problem, grid=grid)
+    owner = select("numpy_ref", problem, run_request, grid=grid)
     try:
         monkeypatch.setattr(owner, "name", "native")
         # The run loop's door, for a spec handed to it rather than the problem's own.
@@ -759,6 +762,7 @@ def test_the_host_pass_refuses_what_it_was_not_given(grid):
     space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
     simulation = free_simulation(grid, space, gaussian(60e-6))
     problem = simulation.translate()
+    run_request = simulation._run_request()
     field = problem.initial.field0
     with pytest.raises(BackendError, match="tables"):
         collect_spatial(
@@ -769,7 +773,7 @@ def test_the_host_pass_refuses_what_it_was_not_given(grid):
             z=0.0,
             flux=flux_of(problem.route),
         )
-    tables = FarFieldTables(problem).for_spec(far_spec())
+    tables = FarFieldTables(problem, run_request.observation.stats).for_spec(far_spec())
     # The saved-field names need no operator.
     beam = collect_spatial(
         far_spec(("beam_spectrum",)),
@@ -796,13 +800,16 @@ def test_the_host_pass_refuses_what_it_was_not_given(grid):
 def test_the_tables_are_formed_once_and_reused(grid):
     space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
     problem = free_simulation(grid, space, gaussian(60e-6)).translate()
-    held = FarFieldTables(problem)
-    own = held.for_spec(problem.stats_spec)
+    run_request = free_simulation(grid, space, gaussian(60e-6))._run_request()
+    held = FarFieldTables(problem, run_request.observation.stats)
+    own = held.for_spec(run_request.observation.stats)
     assert own is not None
     # The periodic channel and the reference backend's filtered specs carry the
     # problem's own tables (a structural identity, not a recomputation).
     assert (
-        held.for_spec(dataclasses.replace(problem.stats_spec, names=("beam_spectrum",)))
+        held.for_spec(
+            dataclasses.replace(run_request.observation.stats, names=("beam_spectrum",))
+        )
         is own
     )
     other = StatsSpec(
@@ -813,9 +820,11 @@ def test_the_tables_are_formed_once_and_reused(grid):
     assert fresh is not None and fresh is not own
     assert np.array_equal(fresh.distances, [0.5])
     assert held.for_spec(StatsSpec(names=("energy",))) is None
-    modal = lockstep.simulation(0, "numpy_ref").translate()
+    modal = lockstep.simulation(0, "numpy_ref")
     with pytest.raises(OutputError, match="without spatial geometry"):
-        FarFieldTables(modal).for_spec(StatsSpec(names=("beam_spectrum",)))
+        FarFieldTables(
+            modal.translate(), modal._run_request().observation.stats
+        ).for_spec(StatsSpec(names=("beam_spectrum",)))
 
 
 @pytest.mark.parametrize("table", ["apertures", "regions"])
@@ -825,15 +834,13 @@ def test_lockstep_members_must_carry_equal_tables(table):
             lockstep.loaded(lockstep.simulation(index, "numpy_ref"), cleanup)
             for index in range(2)
         ]
-        problem = second._problem
         change = (
             {"apertures": HOLES}
             if table == "apertures"
             else {"spectral_regions": QUADRANTS}
         )
-        second._problem = dataclasses.replace(
-            problem, stats_spec=dataclasses.replace(problem.stats_spec, **change)
-        )
+        stats = dataclasses.replace(second._request.observation.stats, **change)
+        second._request = second._request.for_run(stats=stats)
         with pytest.raises(BackendError, match="same statistics request"):
             HostGroup([first, second])
 

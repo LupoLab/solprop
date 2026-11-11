@@ -131,11 +131,13 @@ class _Session:
             )
             backend = NativeBackend(
                 problem,
+                simulation._run_request(),
                 grid=simulation.grid,
                 modes=simulation.modes,
                 profiles=simulation.profiles,
                 cpu_execution=execution,
                 fft_planning=planning,
+                options=simulation.settings.execution_options(),
             )
             step = backend.timing_probe(Start.entrance(problem)).trial
             step()
@@ -305,6 +307,7 @@ class _Session:
                     break
             backend = NativeBackend(
                 problem,
+                simulation._run_request(),
                 grid=simulation.grid,
                 modes=simulation.modes,
                 profiles=simulation.profiles,
@@ -316,6 +319,7 @@ class _Session:
                     "capture_effort": effort,
                     "time_limit": each,
                 },
+                options=simulation.settings.execution_options(),
             )
             try:
                 found = backend._native_state.fft_planning  # pyright: ignore[reportPrivateUsage]

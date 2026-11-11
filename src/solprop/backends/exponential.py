@@ -59,7 +59,7 @@ from solprop.stepper.multistep import (
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.expansion import ParameterExpansion
 from solprop.translate.linop import LinearOperator
-from solprop.translate.problem import PropagationProblem
+from solprop.translate.problem import PropagationProblem, StepperSettings
 
 __all__ = [
     "COUPLED_SECTIONS",
@@ -296,7 +296,9 @@ def exponential_weights(
     return np.tensordot(coefficients, moments, axes=(1, 0))
 
 
-def refuse_formulation(problem: PropagationProblem, backend: str) -> None:
+def refuse_formulation(
+    problem: PropagationProblem, stepper: StepperSettings, backend: str
+) -> None:
     """Refuse the exponential formulation where it is not yet delivered (SEP 16).
 
     The exponential formulation steps constant, separable and varying diagonal
@@ -308,6 +310,8 @@ def refuse_formulation(problem: PropagationProblem, backend: str) -> None:
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
+    stepper : solprop.translate.problem.StepperSettings
+        The run's stepper section, whose method is checked.
     backend : str
         The backend's name, for the message.
 
@@ -316,7 +320,7 @@ def refuse_formulation(problem: PropagationProblem, backend: str) -> None:
     BackendError
         Naming what is unsupported.
     """
-    method = problem.stepper.integrator
+    method = stepper.integrator
     if not isinstance(method, Multistep) or method.formulation != "exponential":
         return
     # Every representation (EXPONENTIAL_REPRESENTATIONS) is stepped since phase 4.
@@ -679,6 +683,7 @@ def _carrier_refusal(
 
 def refuse_carrier_frame(
     problem: PropagationProblem,
+    stepper: StepperSettings,
     backend: str,
     *,
     delivered: frozenset[str] = frozenset(),
@@ -689,6 +694,8 @@ def refuse_carrier_frame(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
+    stepper : solprop.translate.problem.StepperSettings
+        The run's stepper section, whose method is checked.
     backend : str
         The backend's name, for the message.
     delivered : frozenset of str, optional
@@ -699,7 +706,7 @@ def refuse_carrier_frame(
     BackendError
         Naming the policy and what does not deliver it.
     """
-    method = problem.stepper.integrator
+    method = stepper.integrator
     if not isinstance(method, Multistep):
         return
     geometry = problem.transform.geometry

@@ -21,6 +21,7 @@ from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports
 
 from backends.matched import stash_bound
 from backends.test_band_plasma_parity import case as band_case
+from backends.test_band_plasma_parity import options_for
 from bounds import assert_within
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.modes.capillary import MarcatiliMode
@@ -53,7 +54,7 @@ def ionising_capillary(field_grid):
     start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=200e-6).build(
         field_grid
     )
-    problem = assemble(
+    problem, run_request = assemble(
         field_grid,
         mode,
         [
@@ -67,7 +68,7 @@ def ionising_capillary(field_grid):
         dz_max=0.01,
         dz_init=1e-4,
     )
-    return problem, [mode]
+    return problem, run_request, [mode]
 
 
 @pytest.mark.medium
@@ -83,7 +84,7 @@ def test_every_statistic_matches_the_reference(field_grid):
     factor of four for sampling and the retired test's floor of ``4 x 5.4e-13``. The
     response is the reference's own, so it does not see native at all.
     """
-    problem, modes = ionising_capillary(field_grid)
+    problem, run_request, modes = ionising_capillary(field_grid)
     names = (
         "energy",
         "peak_power",
@@ -94,7 +95,7 @@ def test_every_statistic_matches_the_reference(field_grid):
     spec = StatsSpec(names=(*names, "quadrature_error"))
 
     def statistics(backend_class, launch):
-        backend = backend_class(problem, grid=field_grid, modes=modes)
+        backend = backend_class(problem, run_request, grid=field_grid, modes=modes)
         try:
             backend.set_initial(launch, None)
             backend.propagate_to(2e-3)
@@ -136,7 +137,7 @@ def test_the_trapezoid_statistics_are_the_reference_scan(field_grid):
     the one state and are held to :func:`matched.stash_bound`, which was derived for
     that.
     """
-    problem, modes = ionising_capillary(field_grid)
+    problem, run_request, modes = ionising_capillary(field_grid)
     problem = dataclasses.replace(
         problem,
         responses=dataclasses.replace(
@@ -146,7 +147,7 @@ def test_the_trapezoid_statistics_are_the_reference_scan(field_grid):
     spec = StatsSpec(names=("electron_density", "peak_ionisation_rate"))
     values = {}
     for backend_class in (NumpyRefBackend, NativeBackend):
-        backend = backend_class(problem, grid=field_grid, modes=modes)
+        backend = backend_class(problem, run_request, grid=field_grid, modes=modes)
         try:
             backend.set_initial(problem.initial.field0, None)
             values[backend_class] = backend.stats(spec)
@@ -172,7 +173,7 @@ def test_a_band_rule_of_one_tap_is_the_reference(name):
     """
     from backends.test_radial_nonlinear import derivative  # noqa: PLC0415
 
-    grid, problem = band_case(name)
+    grid, problem, run_request = band_case(name)
     flat = RunningIntegral(
         "band", np.ones(1), dt=grid.dt_fine, band_edge=grid.omega_max_window
     )
@@ -181,8 +182,9 @@ def test_a_band_rule_of_one_tap_is_the_reference(name):
         responses=dataclasses.replace(problem.responses, plasma_integral=flat),
     )
     bound = 64 * grid.n_to * np.finfo(float).eps
-    expected = derivative(NumpyRefBackend, problem, grid)
-    actual = derivative(NativeBackend, problem, grid)
+    options = options_for(name)
+    expected = derivative(NumpyRefBackend, problem, run_request, grid, options)
+    actual = derivative(NativeBackend, problem, run_request, grid, options)
     scale = float(np.max(np.abs(expected)))
     assert scale > 0
     assert float(np.max(np.abs(actual - expected))) <= bound * scale
@@ -216,12 +218,14 @@ def test_the_envelope_harmonic_column_is_the_reference(thg_problem, thg_grid):
             problem, initial=dataclasses.replace(problem.initial, field0=launch)
         )
 
-    problem = noisy(thg_problem(thg=True))
-    expected = derivative(NumpyRefBackend, problem, thg_grid)
-    actual = derivative(NativeBackend, problem, thg_grid)
+    harmonic, run_request = thg_problem(thg=True)
+    problem = noisy(harmonic)
+    expected = derivative(NumpyRefBackend, problem, run_request, thg_grid)
+    actual = derivative(NativeBackend, problem, run_request, thg_grid)
     scale = float(np.max(np.abs(expected)))
     assert scale > 0
     bound = 32 * np.finfo(float).eps * math.ceil(math.log2(thg_grid.n_to))
     assert float(np.max(np.abs(actual - expected))) <= bound * scale
-    without = derivative(NumpyRefBackend, noisy(thg_problem(thg=False)), thg_grid)
+    plain, plain_request = thg_problem(thg=False)
+    without = derivative(NumpyRefBackend, noisy(plain), plain_request, thg_grid)
     assert float(np.max(np.abs(without - expected))) > bound * scale

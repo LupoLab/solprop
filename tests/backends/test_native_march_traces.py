@@ -133,7 +133,7 @@ class _NativeHarness(_Harness):
         self._natural_count = 0
         self._halt_requested = False
         self._halt_check = None
-        self._problem.stepper.step_planes = 0  # pyright: ignore[reportAttributeAccessIssue]
+        self._stepper.step_planes = 0  # pyright: ignore[reportAttributeAccessIssue]
         if scenario.quiet_interval is not None:
             self._monitor = _Monitor(scenario.quiet_interval)  # pyright: ignore[reportAttributeAccessIssue]
 

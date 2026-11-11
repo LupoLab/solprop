@@ -116,14 +116,25 @@ def selection_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def calibration_option(parser: argparse.ArgumentParser) -> None:
-    """Declare ``--calibrate``: how each build is calibrated before the series."""
+def calibration_option(
+    parser: argparse.ArgumentParser, default: str = "thorough"
+) -> None:
+    """Declare ``--calibrate``: how each build is calibrated before the series.
+
+    Parameters
+    ----------
+    parser : argparse.ArgumentParser
+        The command's parser.
+    default : str, optional
+        The level when none is given: ``thorough`` for a tracked series, which is
+        the release record; a development A/B passes ``standard``.
+    """
     parser.add_argument(
         "--calibrate",
         choices=CALIBRATION_LEVELS,
-        default="thorough",
+        default=default,
         help="calibrate each build at this level first, as a user would (SEP 46); "
-        "none keeps the profiles there are (default: thorough)",
+        f"none keeps the profiles there are (default: {default})",
     )
 
 

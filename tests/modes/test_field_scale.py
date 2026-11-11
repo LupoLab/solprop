@@ -287,7 +287,7 @@ def run(grid, modes, responses, energy, **options):
     start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=energy).build(grid)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             modes,
             responses,
@@ -301,7 +301,7 @@ def run(grid, modes, responses, energy, **options):
             ),
             **options,
         )
-    with closing(NumpyRefBackend(problem, grid=grid)) as backend:
+    with closing(NumpyRefBackend(problem, run_request, grid=grid)) as backend:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(LENGTH)
         return backend.observe().require_field(), problem

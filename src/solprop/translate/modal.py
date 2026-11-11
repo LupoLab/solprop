@@ -47,9 +47,6 @@ from solprop.translate.modal_tables import ModalTransformTables
 from solprop.translate.spatial import SpatialGeometry
 
 __all__ = [
-    "BUFFERS_PER_NODE",
-    "DEFAULT_NODE_BUDGET",
-    "DEFAULT_SPATIAL_NODE_BUDGET",
     "Transform",
     "TransformKind",
     "general_modal_transform",
@@ -59,30 +56,6 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_NODE_BUDGET = 64 * 2**20
-"""Bytes of node-chunk buffers a problem may hold, before the chunk size is reduced.
-
-Architecture section 13 chooses the whole node set when it fits a per-problem budget and
-the largest chunk that fits otherwise. Sixty-four mebibytes reproduces the chunk of
-about sixteen nodes that section 8 tabulates for the comb-to-continuum target (32768
-time samples, six modes, Raman) while leaving a small problem un-chunked. It is an
-estimate until the benchmark suite measures the crossover.
-
-The free-space, line and planar grids default to :data:`DEFAULT_SPATIAL_NODE_BUDGET`.
-"""
-
-DEFAULT_SPATIAL_NODE_BUDGET = 2**30
-"""Node-chunk bytes a free-space, line or planar problem may hold by default (SEP 28).
-
-A spatial evaluation pays a fixed cost per node chunk: its launches, its temporal
-transforms' thread wake-ups, and its gather and scatter. A field volume is gigabytes, so
-a larger group is cheap in memory. With the per-chunk copies and clears removed, one
-gibibyte was the fastest of 64, 256 and 1024 MiB for the 384- and 768-square Kerr beams
-on Zen 5 and on Apple silicon, 2.3 to 2.4 times faster than 64 MiB on the native
-backend's march;
-on an H200, IP-DOPRI5 was 1.3 times faster at one gibibyte than at 64 MiB.
-"""
-
 TransformKind = Literal["mode_averaged", "modal", "radial", "free", "slab"]
 """What a transform represents (kernel schema 26, SEP 19).
 
@@ -91,9 +64,6 @@ only kind whose response prefactor folds in an area conversion. ``"modal"`` is e
 resolved modal transform -- a quadrature of any node count, including one, and the
 general modal tables. The spatial kinds match their geometry.
 """
-
-BUFFERS_PER_NODE = 3
-"""Node-chunk buffers the fused pass holds: ``E``, ``P`` and the Raman drive."""
 
 
 @dataclass(frozen=True, eq=False)
@@ -122,8 +92,6 @@ class Transform:
     taper_scale : solprop.translate.chebyshev.PiecewiseChebyshev or None
         The scalar rescaling ``a(0) / a(z)`` as a table along z, or ``None`` when the
         cross-section does not change.
-    node_chunk : int
-        Nodes the response pass handles at a time, at least 1 and at most ``n_nodes``.
     aeff : solprop.translate.chebyshev.PiecewiseChebyshev
         Effective area in m^2 as a table along z. It is the normalisation itself when
         ``kind == 'mode_averaged'`` and a diagnostic otherwise.
@@ -143,11 +111,11 @@ class Transform:
         When it is present the general route reads these tables instead, and the
         static matrices are **declared placeholders**: they must be the single
         zero column ``(1, n_modes)`` and its two ``(n_modes, 1)`` transposes, with
-        ``node_chunk = 1``, no taper and no node weights. They are mandatory
+        no taper and no node weights. They are mandatory
         fields of the contract that this route does not use, and a placeholder
         that is checked cannot be mistaken for a second, silently wrong transform.
         The route's own chunking is the ledger of
-        :mod:`solprop.backends.numpy_ref.general_modal`, not ``node_chunk``.
+        :mod:`solprop.backends.numpy_ref.general_modal`.
     kind : {'mode_averaged', 'modal', 'radial', 'free', 'slab'}
         Kernel schema 26: what the transform represents, stored rather than inferred
         from the node count, so that a one-node quadrature is an ordinary modal
@@ -157,7 +125,7 @@ class Transform:
     Raises
     ------
     TranslationError
-        If the matrix shapes disagree, or ``node_chunk`` is out of range.
+        If the matrix shapes disagree.
 
     Examples
     --------
@@ -169,8 +137,8 @@ class Transform:
     ...     [0.0], omega_ref=grid.omega0, aeff=1e-10
     ... )
     >>> transform = mode_averaged_transform(mode, grid, z_max=1.0)
-    >>> transform.n_nodes, transform.node_chunk, transform.taper_scale is None
-    (1, 1, True)
+    >>> transform.n_nodes, transform.taper_scale is None
+    (1, True)
     >>> transform.kind
     'mode_averaged'
     """
@@ -179,7 +147,6 @@ class Transform:
     projection: Float[np.ndarray, "n_modes_p n_columns"]
     projection_coarse: Float[np.ndarray, "n_modes_c n_columns_c"]
     taper_scale: PiecewiseChebyshev | None
-    node_chunk: int
     aeff: PiecewiseChebyshev
     geometry: SpatialGeometry | None = None
     node_weights: Float[np.ndarray, " n_weights"] | None = None
@@ -238,13 +205,6 @@ class Transform:
             if self.synthesis.shape != expected:
                 msg = f"{self.geometry.kind} synthesis must have shape {expected}"
                 raise TranslationError(msg)
-        limit = self.n_nodes if self.geometry is not None else rows
-        if not 1 <= self.node_chunk <= limit:
-            msg = (
-                f"node_chunk must lie between 1 and the number of columns ({limit}), "
-                f"got {self.node_chunk!r}"
-            )
-            raise TranslationError(msg)
         if self.modal_tables is not None:
             self._check_placeholders()
         self._check_kind()
@@ -308,16 +268,15 @@ class Transform:
             )
             raise TranslationError(msg)
         if (
-            self.node_chunk != 1
-            or self.taper_scale is not None
+            self.taper_scale is not None
             or self.node_weights is not None
             or self.geometry is not None
             or self._n_pol != 1
         ):
             msg = (
-                "a general modal transform carries its node rule, its chunking and "
-                "its z dependence in transform.modal_tables: node_chunk is 1 and "
-                "the taper, the node weights and the geometry are absent"
+                "a general modal transform carries its node rule and its z "
+                "dependence in transform.modal_tables: the taper, the node weights "
+                "and the geometry are absent"
             )
             raise TranslationError(msg)
 
@@ -354,7 +313,7 @@ class Transform:
         -------
         int
             ``synthesis.shape[0] // n_pol``; the rows carry node and polarisation
-            together, so this uses the stored chunk arithmetic rather than a guess.
+            together, so this divides the stored rows rather than guessing.
 
         Examples
         --------
@@ -421,37 +380,6 @@ class Transform:
         return self.kind == "mode_averaged"
 
     _n_pol: int = 1
-
-
-def _node_chunk(n_nodes: int, n_pol: int, n_to: int, budget: int) -> int:
-    """Return the nodes a response pass may hold at once within a memory budget.
-
-    Parameters
-    ----------
-    n_nodes : int
-        Quadrature nodes.
-    n_pol : int
-        Polarisation components.
-    n_to : int
-        Fine time samples.
-    budget : int
-        Bytes the node-chunk buffers may occupy in total.
-
-    Returns
-    -------
-    int
-        The chunk size, between 1 and `n_nodes`.
-
-    Raises
-    ------
-    TranslationError
-        If `budget` is not positive.
-    """
-    if budget <= 0:
-        msg = f"node_budget must be a positive number of bytes, got {budget!r}"
-        raise TranslationError(msg)
-    per_node = BUFFERS_PER_NODE * n_pol * n_to * np.dtype(np.complex128).itemsize
-    return int(min(n_nodes, max(1, budget // per_node)))
 
 
 _DECLARED_PATHS = (*GEOMETRY_PATH_NAMES, "dispersion_path")
@@ -645,7 +573,6 @@ def mode_averaged_transform(
         projection=identity,
         projection_coarse=identity,
         taper_scale=taper,
-        node_chunk=1,
         aeff=aeff,
         _n_pol=1,
         kind="mode_averaged",
@@ -659,7 +586,6 @@ def multimode_transform(  # noqa: PLR0913 - the documented signature takes every
     *,
     z_max: float,
     components: Sequence[str] = ("x", "y"),
-    node_budget: int = DEFAULT_NODE_BUDGET,
     margin: float = 0.05,
     tol: float = DEFAULT_TOL,
 ) -> Transform:
@@ -681,15 +607,12 @@ def multimode_transform(  # noqa: PLR0913 - the documented signature takes every
     quadrature : solprop.modes.quadrature.TransverseQuadrature
         The fixed rule, with the Kronrod extension when an error estimate is wanted.
     grid : solprop.grid.TimeGrid
-        The grid; supplies the pad scale and the fine time length the chunk is sized
-        from.
+        The grid; supplies the pad scale.
     z_max : float
         Length the run covers, m, positive and finite.
     components : sequence of str, optional
         Transverse components carried: ``("x", "y")`` for a vector run, one of them for
         a scalar run.
-    node_budget : int, optional
-        Bytes the node-chunk buffers may occupy. Default :data:`DEFAULT_NODE_BUDGET`.
     margin : float, optional
         Fraction of `z_max` the tables extend beyond the end.
     tol : float, optional
@@ -703,8 +626,8 @@ def multimode_transform(  # noqa: PLR0913 - the documented signature takes every
     Raises
     ------
     TranslationError
-        If `z_max`, `margin` or `node_budget` is invalid, or the set varies along z in a
-        way the rescaling cannot express.
+        If `z_max` or `margin` is invalid, or the set varies along z in a way the
+        rescaling cannot express.
 
     Examples
     --------
@@ -752,14 +675,11 @@ def multimode_transform(  # noqa: PLR0913 - the documented signature takes every
         kinks=kinks,
         tol=tol,
     )
-    chunk = _node_chunk(matrices.n_nodes, matrices.n_pol, grid.n_to, node_budget)
     logger.debug(
-        "multimode transform: %d modes on %d nodes x %d polarisations, chunk %d, "
-        "taper %s",
+        "multimode transform: %d modes on %d nodes x %d polarisations, taper %s",
         len(modes),
         matrices.n_nodes,
         matrices.n_pol,
-        chunk,
         "tabulated" if taper is not None else "absent",
     )
     return Transform(
@@ -767,7 +687,6 @@ def multimode_transform(  # noqa: PLR0913 - the documented signature takes every
         projection=matrices.projection,
         projection_coarse=matrices.projection_coarse,
         taper_scale=taper,
-        node_chunk=chunk,
         aeff=aeff,
         _n_pol=matrices.n_pol,
         node_weights=quadrature.weights(reference.dimlimits(0.0)),
@@ -845,7 +764,6 @@ def general_modal_transform(
         projection=np.zeros((n_modes, 1)),
         projection_coarse=np.zeros((n_modes, 1)),
         taper_scale=None,
-        node_chunk=1,
         aeff=aeff,
         modal_tables=tables,
         kind="modal",

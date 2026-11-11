@@ -34,6 +34,7 @@ from solprop.output.schema import Output, RunMetadata
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import tdse_descriptor, transverse_of
+from solprop.translate.run_request import RunRequest
 from solprop.transverse_monitor import READS
 
 __all__ = [
@@ -109,6 +110,7 @@ class RunSummary(Displayed):
 
 def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
     problem: PropagationProblem,
+    request: RunRequest,
     metadata: RunMetadata,
     *,
     backend: str,
@@ -124,6 +126,8 @@ def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's request: its method, step control and planes.
     metadata : solprop.output.schema.RunMetadata
         The run's record; its ``configuration`` supplies what the problem holds only as
         compiled tables (the medium and the response models).
@@ -162,16 +166,16 @@ def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
     >>> gnlse = problem_from([0.0, 0.0, -1.183e-26], omega_ref=grid.omega0,
     ...                      gamma=0.11, shock=False)
     >>> start = SechPulse(wavelength=835e-9, width=100e-15, peak_power=9.8).build(grid)
-    >>> problem = assemble(grid, gnlse.mode, [gnlse.kerr], start,
+    >>> problem, request = assemble(grid, gnlse.mode, [gnlse.kerr], start,
     ...                    controller=PIController(rtol=1e-6, atol=1e-16),
     ...                    save_planes=[0.005, 0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0)
-    >>> summary = run_summary(problem, metadata_for(problem, grid), backend="numpy_ref",
-    ...                       execution={}, output=MemoryOutput())
+    >>> summary = run_summary(problem, request, metadata_for(problem, request, grid),
+    ...                       backend="numpy_ref", execution={}, output=MemoryOutput())
     >>> dict(summary.rows)["shot noise"]
     'off'
     """
-    planes = np.asarray(problem.stepper.save_planes, dtype=np.float64)
+    planes = np.asarray(request.observation.save_planes, dtype=np.float64)
     z_end = float(planes[-1])
     title = (
         f"Starting propagation from z = {engineering(z_start, 'm')} "
@@ -194,16 +198,21 @@ def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
         ),
         ("responses", _responses(problem, configuration)),
         ("shot noise", _noise(metadata)),
-        ("integrator", _defaulted(_integrator(problem), metadata, "integrator")),
+        ("integrator", _defaulted(_integrator(request), metadata, "integrator")),
         ("propagator", str(execution.get("propagator_mode", "not reported"))),
-        ("tolerances", _tolerances(problem, metadata)),
+        ("tolerances", _tolerances(request, metadata)),
         ("absorber", _absorber(problem, boundary_check)),
         *(
-            [("transverse edge", _transverse(problem, boundary_check, backend))]
+            [
+                (
+                    "transverse edge",
+                    _transverse(problem, request, boundary_check, backend),
+                )
+            ]
             if problem.transform.geometry is not None
             else []
         ),
-        ("save planes", _planes(problem, planes)),
+        ("save planes", _planes(request, planes)),
         ("output", _output(output)),
         ("start", _start(start_plane, planes.size, z_start)),
     )
@@ -701,20 +710,20 @@ def _noise(metadata: RunMetadata) -> str:
     return f"{noise.model} model{marker}, seed {seed}"
 
 
-def _integrator(problem: PropagationProblem) -> str:
+def _integrator(request: RunRequest) -> str:
     """Describe the march and its formulation.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's request.
 
     Returns
     -------
     str
         For example ``"Multistep, variable order up to 5, exponential"``.
     """
-    stepper = problem.stepper
+    stepper = request.stepper
     integrator = stepper.integrator
     if integrator is None:
         return f"RungeKutta ({stepper.tableau.name})"
@@ -757,13 +766,13 @@ def _defaulted(text: str, metadata: RunMetadata, choice: str) -> str:
     return f"{text} ({defaults.route} default)"
 
 
-def _tolerances(problem: PropagationProblem, metadata: RunMetadata) -> str:
+def _tolerances(request: RunRequest, metadata: RunMetadata) -> str:
     """Describe the step control: tolerances and step bound, or a replayed schedule.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's request.
     metadata : solprop.output.schema.RunMetadata
         The run's record, which says whether the tolerance is the route's default.
 
@@ -772,7 +781,7 @@ def _tolerances(problem: PropagationProblem, metadata: RunMetadata) -> str:
     str
         For example ``"rtol 1e-06, atol 1e-10 (capillary default), dz_max 50 mm"``.
     """
-    stepper = problem.stepper
+    stepper = request.stepper
     controller = stepper.controller
     tolerances = _defaulted(
         f"rtol {controller.rtol:.3g}, atol {controller.atol:.3g}", metadata, "rtol"
@@ -812,7 +821,10 @@ def _absorber(problem: PropagationProblem, check: BoundaryCheck | None) -> str:
 
 
 def _transverse(
-    problem: PropagationProblem, check: BoundaryCheck | None, backend: str
+    problem: PropagationProblem,
+    request: RunRequest,
+    check: BoundaryCheck | None,
+    backend: str,
 ) -> str:
     """Describe a free-space run's transverse boundary and what its edge can report.
 
@@ -823,6 +835,8 @@ def _transverse(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's request: its schedule and planes.
     check : solprop.monitor.BoundaryCheck or None
         The edge thresholds, or ``None`` when nothing is watched.
     backend : str
@@ -847,24 +861,24 @@ def _transverse(
         return f"{boundary}; off (boundary_check=None)"
     if backend != "numpy_ref":
         return f"{boundary}; unwatched on {backend} (numpy_ref reads it)"
-    schedule = problem.stepper.schedule
+    schedule = request.stepper.schedule
     if (
         schedule is not None
         and float(np.max(schedule.steps))
-        > (float(np.max(problem.stepper.save_planes)) - float(problem.initial.z))
+        > (float(np.max(request.observation.save_planes)) - float(problem.initial.z))
         / READS
     ):
         return f"{boundary}; coarse: the fixed schedule is sparser than its reads"
     return f"{boundary}; watched (budget {check.edge_budget:.0e})"
 
 
-def _planes(problem: PropagationProblem, planes: np.ndarray) -> str:
+def _planes(request: RunRequest, planes: np.ndarray) -> str:
     """Describe the save planes.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's request.
     planes : numpy.ndarray
         The save planes, m.
 
@@ -877,9 +891,10 @@ def _planes(problem: PropagationProblem, planes: np.ndarray) -> str:
         f"{planes.size} after the entrance, {engineering(float(planes[0]), 'm')} to "
         f"{engineering(float(planes[-1]), 'm')}"
     )
-    if problem.stepper.step_planes:
-        text += f", and every {problem.stepper.step_planes} accepted steps"
-    if problem.stepper.interpolate_planes:
+    observation = request.observation
+    if observation.step_planes:
+        text += f", and every {observation.step_planes} accepted steps"
+    if observation.dense:
         text += ", interpolated"
     return text
 

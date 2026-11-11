@@ -89,9 +89,11 @@ def problem_on(grid, table, modes, rule, start=None):
         )
 
 
-def entrance_stats(grid, problem, modes, spec):
+def entrance_stats(grid, problem, run_request, modes, spec):
     """The statistics of the launch field, and the backend's on-axis scan count."""
-    with closing(NumpyRefBackend(problem, grid=grid, modes=modes)) as backend:
+    with closing(
+        NumpyRefBackend(problem, run_request, grid=grid, modes=modes)
+    ) as backend:
         backend.set_initial(problem.initial.field0, None)
         values = backend.stats(spec)
         # select() returns the seam's protocol; the counter is the shared driver's.
@@ -116,8 +118,8 @@ def test_the_axis_value_is_the_same_on_every_rule(grid, table):
     values = []
     for radial_rule, n_r in RULES:
         rule = transverse_quadrature([mode], n_r=n_r, radial_rule=radial_rule)
-        problem = problem_on(grid, table, [mode], rule)
-        values.append(entrance_stats(grid, problem, [mode], AXIS)[0])
+        problem, run_request = problem_on(grid, table, [mode], rule)
+        values.append(entrance_stats(grid, problem, run_request, [mode], AXIS)[0])
     reference = values[0]
     assert float(reference["on_axis_electron_density"]) > 0.0
     for other in values[1:]:
@@ -131,9 +133,9 @@ def test_the_default_rule_s_node_maximum_is_the_axis_value(grid, table):
     """Its innermost node is at eta = 1 - 1e-6: measured 2.1e-5 apart (about K 2e-6)."""
     mode = argon()
     rule = transverse_quadrature([mode], n_r=32, radial_rule="gauss_kronrod")
-    problem = problem_on(grid, table, [mode], rule)
+    problem, run_request = problem_on(grid, table, [mode], rule)
     spec = StatsSpec(names=("electron_density", "on_axis_electron_density"))
-    values, _ = entrance_stats(grid, problem, [mode], spec)
+    values, _ = entrance_stats(grid, problem, run_request, [mode], spec)
     node = float(values["electron_density"])
     axis = float(values["on_axis_electron_density"])
     assert abs(node / axis - 1.0) < 1e-4
@@ -145,9 +147,9 @@ def test_five_gauss_nodes_miss_the_axial_peak_that_the_axis_statistic_reads(
     """The innermost of five Gauss field-scale nodes sees 92% of the axial intensity."""
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
-    problem = problem_on(grid, table, [mode], rule)
+    problem, run_request = problem_on(grid, table, [mode], rule)
     spec = StatsSpec(names=("electron_density", "on_axis_electron_density"))
-    values, scans = entrance_stats(grid, problem, [mode], spec)
+    values, scans = entrance_stats(grid, problem, run_request, [mode], spec)
     node = float(values["electron_density"])
     axis = float(values["on_axis_electron_density"])
     # Measured 0.44 of the axial value: a rate of order eight or so at 92%.
@@ -169,9 +171,45 @@ def test_a_radau_axis_node_supplies_the_row_when_the_nodes_were_scanned(
     """Reuse within one observation only; otherwise at most one extra row."""
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule=radial_rule)
-    problem = problem_on(grid, table, [mode], rule)
-    _, counted = entrance_stats(grid, problem, [mode], StatsSpec(names=names))
+    problem, run_request = problem_on(grid, table, [mode], rule)
+    _, counted = entrance_stats(
+        grid, problem, run_request, [mode], StatsSpec(names=names)
+    )
     assert counted == scans
+
+
+@pytest.mark.parametrize("radial_rule", ["field_scale", "field_scale_radau"])
+def test_an_axis_statistic_leaves_the_node_statistics_the_plan_s(
+    grid, table, radial_rule
+):
+    """SEP 47 section 6.4: one native implementation of each statistic, on a plane.
+
+    Asking for an on-axis plasma statistic beside the node statistics moves only the
+    axis statistic to the host: every other value is the native plan's, bit for bit
+    the same with or without it, and a Radau rule's axis node still reuses the scan.
+    """
+    pytest.importorskip("solprop_native")
+    mode = argon()
+    rule = transverse_quadrature([mode], n_r=5, radial_rule=radial_rule)
+    problem, run_request = problem_on(grid, table, [mode], rule)
+    nodes = (
+        "energy",
+        "peak_intensity",
+        "electron_density",
+        "peak_ionisation_rate",
+        "species_ionisation",
+        "species_electron_density",
+        "species_ionisation_energy",
+    )
+    alone, _ = backend_stats(
+        "native", grid, problem, run_request, [mode], StatsSpec(names=nodes)
+    )
+    spec = StatsSpec(names=(*nodes, *ON_AXIS_PLASMA_STATISTICS))
+    both, counted = backend_stats("native", grid, problem, run_request, [mode], spec)
+    assert counted == (0 if radial_rule == "field_scale_radau" else 1)
+    assert set(both) == set(spec.names)
+    for name in nodes:
+        np.testing.assert_array_equal(both[name], alone[name], name)
 
 
 @pytest.mark.parametrize("name", ["numpy_ref", "native"])
@@ -181,8 +219,10 @@ def test_consecutive_planes_scan_their_own_field(grid, table, name):
         pytest.importorskip("solprop_native")
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
-    problem = problem_on(grid, table, [mode], rule)
-    with closing(select(name, problem, grid=grid, modes=[mode])) as backend:
+    problem, run_request = problem_on(grid, table, [mode], rule)
+    with closing(
+        select(name, problem, run_request, grid=grid, modes=[mode])
+    ) as backend:
         backend.set_initial(problem.initial.field0, None)
         first = float(backend.stats(AXIS)["on_axis_electron_density"])
         backend.propagate_to(0.004)
@@ -199,9 +239,9 @@ def test_a_multimode_off_axis_maximum_stays_in_the_legacy_statistic(grid, table)
     axis = mode_matrix(modes, on_axis_rule("polar"), components=("x",)).synthesis[0]
     built = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=ENERGY).build(grid)
     start = np.concatenate([built, -axis[0] / axis[1] * built], axis=0)
-    problem = problem_on(grid, table, modes, rule, start=start)
+    problem, run_request = problem_on(grid, table, modes, rule, start=start)
     spec = StatsSpec(names=("electron_density", "on_axis_electron_density"))
-    values, _ = entrance_stats(grid, problem, modes, spec)
+    values, _ = entrance_stats(grid, problem, run_request, modes, spec)
     assert float(values["on_axis_electron_density"]) < 1e-6 * float(
         values["electron_density"]
     )
@@ -210,8 +250,8 @@ def test_a_multimode_off_axis_maximum_stays_in_the_legacy_statistic(grid, table)
 def test_the_species_forms_sum_to_the_total(grid, table):
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
-    problem = problem_on(grid, table, [mode], rule)
-    values, _ = entrance_stats(grid, problem, [mode], AXIS)
+    problem, run_request = problem_on(grid, table, [mode], rule)
+    values, _ = entrance_stats(grid, problem, run_request, [mode], AXIS)
     species = values["on_axis_species_electron_density"]
     assert species.shape == (problem.responses.n_species,)
     assert float(np.sum(species)) == float(values["on_axis_electron_density"])
@@ -225,9 +265,9 @@ def test_the_species_forms_sum_to_the_total(grid, table):
 
 @pytest.mark.parametrize("name", ["numpy_ref", "native"])
 def test_the_mode_averaged_route_refuses_them_by_name(grid, table, name):
-    problem = problem_on(grid, table, argon(), None)
+    problem, run_request = problem_on(grid, table, argon(), None)
     with pytest.raises(BackendError, match="the mode-averaged route is not qualified"):
-        backend_stats(name, grid, problem, [argon()], AXIS)
+        backend_stats(name, grid, problem, run_request, [argon()], AXIS)
     # An effective-area node is not the physical axis, even if its synthesis row
     # were supplied as the candidate: this route must never reuse it as the axis.
     candidate = np.repeat(problem.transform.synthesis[:1], 2, axis=0)
@@ -260,7 +300,7 @@ def test_a_problem_without_plasma_refuses_them(grid):
     start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=ENERGY).build(grid)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             [mode],
             [KerrResponse(chi3=2.2e-52, thg=True)],
@@ -272,7 +312,9 @@ def test_a_problem_without_plasma_refuses_them(grid):
             quadrature=rule,
         )
     with (
-        closing(NumpyRefBackend(problem, grid=grid, modes=[mode])) as backend,
+        closing(
+            NumpyRefBackend(problem, run_request, grid=grid, modes=[mode])
+        ) as backend,
         pytest.raises(BackendError, match="need a compiled plasma response"),
     ):
         backend.set_initial(problem.initial.field0, None)
@@ -282,11 +324,11 @@ def test_a_problem_without_plasma_refuses_them(grid):
 BACKENDS = ["native"]
 
 
-def backend_stats(name, grid, problem, modes, spec):
+def backend_stats(name, grid, problem, run_request, modes, spec):
     """The statistics of the launch field on a named backend, and its scan count."""
     if name == "native":
         pytest.importorskip("solprop_native")
-    with closing(select(name, problem, grid=grid, modes=modes)) as backend:
+    with closing(select(name, problem, run_request, grid=grid, modes=modes)) as backend:
         backend.set_initial(problem.initial.field0, None)
         values = backend.stats(spec)
         # select() returns the seam's protocol; the counter is the driver's.
@@ -312,10 +354,10 @@ def test_the_compiled_backends_match_the_reference(
     """
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule=radial_rule)
-    problem = problem_on(grid, table, [mode], rule)
+    problem, run_request = problem_on(grid, table, [mode], rule)
     spec = StatsSpec(names=names)
-    want, _ = entrance_stats(grid, problem, [mode], spec)
-    got, counted = backend_stats(name, grid, problem, [mode], spec)
+    want, _ = entrance_stats(grid, problem, run_request, [mode], spec)
+    got, counted = backend_stats(name, grid, problem, run_request, [mode], spec)
     assert counted == scans
     for statistic in ON_AXIS_PLASMA_STATISTICS:
         # The node scans' parity tolerance: a compiled plasma column against the
@@ -375,9 +417,9 @@ AXIS_STATES = (
 def _check_axis_row(grid, table, name):
     modes, start, kappa = _axis_state(grid, name)
     rule = transverse_quadrature(modes, n_r=32, radial_rule="gauss_kronrod")
-    problem = problem_on(grid, table, modes, rule, start=start)
-    want, _ = entrance_stats(grid, problem, modes, AXIS)
-    got, counted = backend_stats("native", grid, problem, modes, AXIS)
+    problem, run_request = problem_on(grid, table, modes, rule, start=start)
+    want, _ = entrance_stats(grid, problem, run_request, modes, AXIS)
+    got, counted = backend_stats("native", grid, problem, run_request, modes, AXIS)
     assert counted == 1
     rate = float(np.max(want["on_axis_peak_ionisation_rate"]))
     assert rate > 0
@@ -430,8 +472,10 @@ def test_the_native_axis_row_leaves_the_state_on_the_device(grid, table, radial_
     pytest.importorskip("solprop_native")
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule=radial_rule)
-    problem = problem_on(grid, table, [mode], rule)
-    with closing(select("native", problem, grid=grid, modes=[mode])) as backend:
+    problem, run_request = problem_on(grid, table, [mode], rule)
+    with closing(
+        select("native", problem, run_request, grid=grid, modes=[mode])
+    ) as backend:
         backend.set_initial(problem.initial.field0, None)
         held = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
         backend._native_state = _StateRefused(held)  # pyright: ignore[reportAttributeAccessIssue]
@@ -446,8 +490,10 @@ def test_the_native_row_refuses_a_matrix_that_is_not_one_or_two_rows(grid, table
     pytest.importorskip("solprop_native")
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
-    problem = problem_on(grid, table, [mode], rule)
-    with closing(select("native", problem, grid=grid, modes=[mode])) as backend:
+    problem, run_request = problem_on(grid, table, [mode], rule)
+    with closing(
+        select("native", problem, run_request, grid=grid, modes=[mode])
+    ) as backend:
         state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
         with pytest.raises(RuntimeError, match="no initial field"):
             state.axis_spectrum(np.ones((1, 1)))
@@ -461,8 +507,10 @@ def test_the_native_row_refuses_a_matrix_that_is_not_one_or_two_rows(grid, table
 def test_a_host_backend_s_axis_scan_needs_the_field(grid, table):
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
-    problem = problem_on(grid, table, [mode], rule)
-    with closing(NumpyRefBackend(problem, grid=grid, modes=[mode])) as backend:
+    problem, run_request = problem_on(grid, table, [mode], rule)
+    with closing(
+        NumpyRefBackend(problem, run_request, grid=grid, modes=[mode])
+    ) as backend:
         backend.set_initial(problem.initial.field0, None)
         with pytest.raises(BackendError, match="needs the field"):
             backend._axis_row_populations(  # pyright: ignore[reportPrivateUsage]
@@ -577,7 +625,7 @@ def test_the_axis_reduction_checks_its_channel_data(grid, table):
 
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
-    problem = problem_on(grid, table, [mode], rule)
+    problem = problem_on(grid, table, [mode], rule).problem
     with pytest.raises(BackendError, match="channel arrays of shape"):
         axis_statistics(problem, 0.0, np.zeros(2), np.zeros(2))
     with pytest.raises(BackendError, match=r"fractions in \[0, 1\]"):
@@ -596,11 +644,11 @@ def test_a_state_that_carries_its_components_reads_the_same_axis(grid, table):
     values = []
     for radial_rule in ("field_scale", "field_scale_radau"):
         rule = transverse_quadrature([mode], n_r=5, radial_rule=radial_rule)
-        problem = problem_on(grid, table, [mode], rule, start=start)
+        problem, run_request = problem_on(grid, table, [mode], rule, start=start)
         assert problem.shape[1] == 2
         assert problem.transform.n_pol == 1
         spec = StatsSpec(names=("species_ionisation", *ON_AXIS_PLASMA_STATISTICS))
-        values.append(entrance_stats(grid, problem, [mode], spec))
+        values.append(entrance_stats(grid, problem, run_request, [mode], spec))
     (gauss, fresh), (radau, reused) = values
     assert (fresh, reused) == (1, 0)
     np.testing.assert_allclose(
@@ -614,9 +662,9 @@ def test_a_backend_without_its_modes_cannot_synthesise_the_axis(grid, table, nam
         pytest.importorskip("solprop_native")
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
-    problem = problem_on(grid, table, [mode], rule)
+    problem, run_request = problem_on(grid, table, [mode], rule)
     with (
-        closing(select(name, problem, grid=grid)) as backend,
+        closing(select(name, problem, run_request, grid=grid)) as backend,
         pytest.raises(BackendError, match="need the mode set"),
     ):
         backend.set_initial(problem.initial.field0, None)

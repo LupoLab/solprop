@@ -73,8 +73,10 @@ def launched(simulation, controller: PIController | None = None):
             settings = dataclasses.replace(settings, controller=controller)
         simulation.settings = settings
         problem = simulation.translate()
+        run_request = simulation._run_request()
     backend = native.NativeBackend(
         problem,
+        run_request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
@@ -83,9 +85,9 @@ def launched(simulation, controller: PIController | None = None):
     return backend, problem
 
 
-def steps(problem) -> list[tuple[float, float]]:
+def steps(problem, run_request) -> list[tuple[float, float]]:
     """Return a few anchors and steps across the run, a breakpoint among them."""
-    start, end = float(problem.initial.z), float(problem.stepper.z_end)
+    start, end = float(problem.initial.z), float(run_request.stepper.z_end)
     span = end - start
     edges = [float(edge) for edge in problem.linear.phi_breakpoints[1:-1]]
     anchors = [start, start + 0.37 * span, *(edge - 1e-3 * span for edge in edges[:2])]
@@ -97,7 +99,7 @@ def test_a_staged_trial_is_the_host_packed_trial(route, monkeypatch):
     backend, problem = runge_kutta(route)
     try:
         assert backend._staged_rows()
-        for z, dz in steps(problem):
+        for z, dz in steps(problem, backend.request):
             staged = np.asarray(backend._prepare_trial(z, dz))
             with monkeypatch.context() as patch:
                 patch.setattr(backend_module, "_RK_ROWS", "host")
@@ -125,7 +127,7 @@ def test_the_native_flow_guards_refuse_as_the_host_s(route, monkeypatch):
         assert backend._staged_rows()
         flow = backend._flow
         state = backend._native_state
-        z, dz = steps(problem)[0]
+        z, dz = steps(problem, backend.request)[0]
         nodes = backend._rk_nodes
         modes = int(flow.vectors.shape[-1])
         allowance = backend_module._flow_allowance(modes)
@@ -215,7 +217,7 @@ def test_only_solprop_s_weak_scale_is_reduced_natively(controller, monkeypatch):
 
     try:
         monkeypatch.setattr(core, "rk_score", counted)
-        z, dz = steps(problem)[0]
+        z, dz = steps(problem, backend.request)[0]
         partials = backend._prepare_trial(z, dz)
         norm = backend._score_trial(partials)
         expected = _host_norm(np.asarray(partials), 1e-6, 0.0)
@@ -238,7 +240,7 @@ def test_a_weighted_norm_is_the_host_s_to_rounding():
     backend.close()
     backend, problem = runge_kutta("gnlse", controller)
     try:
-        z, dz = steps(problem)[0]
+        z, dz = steps(problem, backend.request)[0]
         partials = np.asarray(backend._prepare_trial(z, dz))
         found = backend._score_trial(partials)
         old = math.sqrt(float(partials[0].sum()))

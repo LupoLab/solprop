@@ -42,7 +42,11 @@ from solprop.backends.numpy_ref.tdse import (
 )
 from solprop.exceptions import BackendError, TranslationError
 from solprop.grid import planck_taper, planck_taper_derivative
+from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.nonlinear.tdse import TDSEAtomicWindow
+from solprop.stepper import PIController
+from solprop.stepper.multistep import Multistep
+from solprop.translate.problem import assemble
 from solprop.translate.tdse import TDSEResult
 from solprop.translate.tdse_source import (
     STEADY_CURRENT_CERTIFICATE_LIMIT,
@@ -467,6 +471,29 @@ def test_t7_a_long_window_with_little_inband_gate_spectrum_is_admitted():
     case.problem.validate()
 
 
+def _run_request(case):
+    """Return the run request of :func:`make_case`'s assembly for `case`.
+
+    The case keeps the problem alone, so the request is assembled again from the
+    same run settings on the case's grid.
+    """
+    mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
+    return assemble(
+        case.grid,
+        mode,
+        (),
+        np.zeros((1, 1, case.grid.n_omega), dtype=np.complex128),
+        controller=PIController(rtol=1e-2, atol=1e-14),
+        save_planes=[0.001],
+        dz_init=1e-5,
+        dz_max=1e-4,
+        density=1.0,
+        quadrature=transverse_quadrature([mode], n_r=4),
+        components=("x",),
+        integrator=Multistep(formulation="interaction"),
+    ).request
+
+
 def test_t7_a_resolved_taper_is_certified_in_the_metadata():
     probe = make_case(window=WINDOW)
     spacing = probe.grid.dt_fine
@@ -475,6 +502,7 @@ def test_t7_a_resolved_taper_is_certified_in_the_metadata():
     assert window is not None and window.taper == 128 * spacing
     backend = NumpyRefBackend(
         case.problem,
+        _run_request(case),
         grid=case.grid,
         tdse_binding=ManufacturedBinding(case.descriptor, 1),
     )

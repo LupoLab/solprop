@@ -119,14 +119,15 @@ def test_a_z_table_s_staged_trial_is_the_host_packed_trial(monkeypatch):
     """The z table's positions load into other slots, holding the same values."""
     simulation = walk_off("native", RungeKutta())
     problem = simulation.translate()
+    run_request = simulation._run_request()
     assert problem.linear.phi_representation == "table"
     backend = backend_module.NativeBackend(
-        problem, grid=simulation.grid, modes=simulation.modes
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
         backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
         assert backend._staged_rows()
-        end = float(problem.stepper.z_end)
+        end = float(run_request.stepper.z_end)
         for z in (0.0, 0.37 * end, 0.8 * end):
             dz = 0.01 * end
             staged = np.asarray(backend._prepare_trial(z, dz))
@@ -140,7 +141,17 @@ def test_a_z_table_s_staged_trial_is_the_host_packed_trial(monkeypatch):
 
 @pytest.mark.parametrize("dense", [False, True], ids=["landed", "interpolated"])
 def test_a_z_table_s_march_is_the_host_loop_s(dense, monkeypatch):
-    """The moving-dispersion fibre, whose operator is a z table."""
+    """The moving-dispersion fibre, whose operator is a z table.
+
+    Interpolated, it is held on the backend's own march (the bridge, which still
+    serves what the native session refuses): the native session forms a z table's
+    dense plane where the state lives, which agrees with the host loop's NumPy
+    extension to rounding, not bitwise (``tests/sessions`` holds it to the driver).
+    """
+    if dense:
+        monkeypatch.setattr(
+            "solprop_native.session.session_refusal", lambda *_: "the test's bridge"
+        )
     build = lambda: walk_off(  # noqa: E731
         "native", RungeKutta(), n_save=7, interpolate_planes=dense
     )
@@ -149,7 +160,7 @@ def test_a_z_table_s_march_is_the_host_loop_s(dense, monkeypatch):
 
 def _replayed(route: str, steps: int) -> Any:
     simulation = _route(route)
-    stepper = simulation.translate().stepper
+    stepper = simulation._run_request().stepper
     end = float(stepper.z_end)
     schedule = FixedSchedule.uniform(
         0.0, end, end / steps, save_planes=np.asarray(stepper.save_planes).tolist()

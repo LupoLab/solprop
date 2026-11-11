@@ -485,8 +485,13 @@ def run_one(path, media_path, backend_name, rtol, destination, prefactor_index=N
                     for key in ("n_t", "n_to", "n_omega")
                 }
                 problem = simulation.translate()
+                run_request = simulation._run_request()
                 backend = select(
-                    backend_name, problem, grid=simulation.grid, modes=simulation.modes
+                    backend_name,
+                    problem,
+                    run_request,
+                    grid=simulation.grid,
+                    modes=simulation.modes,
                 )
                 result["memory_ledger"] = backend.memory_ledger()
                 backend.set_initial(problem.initial.field0, None)

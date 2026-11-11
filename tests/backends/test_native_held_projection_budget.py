@@ -5,10 +5,10 @@
 """Native's embedded-rule current projection, accumulated over partial chunks.
 
 SEP 27 section 4.6. The two coarse projections of the held current, ``g J`` and
-``g' J``, accumulate over the node chunks: ``node_chunk = 3``, the original's, on this
-case's nine nodes, and four, which leaves a partial last chunk. The allowance is the
-column's, applied to ``J`` before either collar multiplies it and then projected with
-absolute weights, so a tiny trailing-edge residual is not judged against the large
+``g' J``, accumulate over the node chunks: an exact chunk of three, the original's, on
+this case's nine nodes, and four, which leaves a partial last chunk. The allowance is
+the column's, applied to ``J`` before either collar multiplies it and then projected
+with absolute weights, so a tiny trailing-edge residual is not judged against the large
 oscillating current whose cancellation produced it.
 
 **Weaker than the original.** Native exposes neither ``J`` nor the two coarse streams
@@ -31,6 +31,7 @@ from backends.test_band_plasma_parity import bound, case
 from backends.test_radial_nonlinear import QuadraticRate
 from bounds import UNIT_ROUNDOFF, fft_bound, gamma
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.session import ExecutionOptions
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
 from solprop.translate.responses import ResponseStage
@@ -46,7 +47,7 @@ pytestmark = [
 ]
 
 
-def current_only(problem, grid, rule, chunk):
+def current_only(problem, grid, rule):
     """Return multimode plasma on its own, both streams populated.
 
     The small He fixture has exactly zero tabulated ionisation; the analytic rate
@@ -75,10 +76,6 @@ def current_only(problem, grid, rule, chunk):
                 if stage is not ResponseStage.KERR
             ),
         ),
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
-        ),
     )
 
 
@@ -87,12 +84,13 @@ def current_only(problem, grid, rule, chunk):
 def test_embedded_current_projection_accumulates_partial_chunks(
     rule, chunk, record_property
 ):
-    grid, problem = case("multimode")
+    grid, problem, run_request = case("multimode")
     assert problem.transform.projection_coarse is not None
-    problem = current_only(problem, grid, rule, chunk)
+    problem = current_only(problem, grid, rule)
+    options = ExecutionOptions(node_chunk=chunk)
     relative = bound(problem, grid, "native", 0)
     assert relative > 0
-    reference = NumpyRefBackend(problem, grid=grid)
+    reference = NumpyRefBackend(problem, run_request, grid=grid, options=options)
     try:
         reference._hoist(0.0)
         state = problem.initial.field0
@@ -149,7 +147,7 @@ def test_embedded_current_projection_accumulates_partial_chunks(
         for limit, mag, operations in zip(limits, magnitudes, (8, 12), strict=True)
     ]
     allowed = per_bin[0][..., None] * abs(inverse) + per_bin[1][..., None] * inverse**2
-    backend = native.NativeBackend(problem, grid=grid)
+    backend = native.NativeBackend(problem, run_request, grid=grid, options=options)
     try:
         backend.set_initial(state, None)
         backend._trial_step(0.0, 0.0)

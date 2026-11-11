@@ -432,7 +432,7 @@ def _norm_function(
         ``defect -> norm`` for a defect carried to the end of the step.
     """
     problem = backend._problem
-    mask, controller = problem.grids.norm_mask, problem.stepper.controller
+    mask, controller = problem.grids.norm_mask, backend._stepper.controller
     # The scale is the state's, the same for every defect of the step, so it is
     # reduced once: :func:`passes.error_norm`'s arithmetic, with the two state norms
     # it would take per call hoisted out.

@@ -207,10 +207,10 @@ def test_every_march_delivers_its_planes_and_keeps_none_alive(
     alive: list[bool] = []
     built = service_module._plane
 
-    def watched(event, exports, attempts, *, keep) -> SavedPlane:
+    def watched(event, attempts, field, phase) -> SavedPlane:
         alive.extend(reference() is not None for reference in earlier)
         earlier.clear()
-        return built(event, exports, attempts, keep=keep)
+        return built(event, attempts, field, phase)
 
     monkeypatch.setattr(service_module, "_plane", watched)
 

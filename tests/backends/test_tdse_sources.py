@@ -63,7 +63,7 @@ def source_case():
         components=("x",),
         integrator=Multistep(formulation="interaction"),
         stats_spec=StatsSpec(names=("energy",)),
-    )
+    ).problem
     basis = TDSEBasis(
         "manufactured", (0.0, 1e-9), (8,), 3, 1e-16, source="source algebra fixture"
     )

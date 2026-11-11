@@ -23,6 +23,7 @@ from backends.test_radial_nonlinear import (
 from bounds import gamma, ladder_bound
 from legacy_geometry import LEGACY_GRID
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
@@ -32,6 +33,9 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.translate.ionisation import build_rate_table
 from spatial_records import record_equivalence, record_metric
+
+REMAINDER = ExecutionOptions(node_chunk=7)
+"""Seven-column node chunks, which leave a remainder chunk on the 9 x 12 grid."""
 
 
 @pytest.fixture(
@@ -68,7 +72,7 @@ def free_case(request):
         ]
     else:
         responses = [KerrResponse(CHI3, thg=False)]
-    problem = make_problem(
+    problem, run_request = make_problem(
         grid,
         space,
         pulse.build(grid, space, medium=SpatialMedium()),
@@ -80,15 +84,10 @@ def free_case(request):
         if family.endswith("plasma")
         else ()
     )
-    problem = dataclasses.replace(
-        problem,
-        stats_spec=StatsSpec(names=plasma_names, periodic=plasma_names),
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(problem.transform, node_chunk=7),
-        ),
+    run_request = run_request.for_run(
+        stats=StatsSpec(names=plasma_names, periodic=plasma_names)
     )
-    return family, grid, space, problem
+    return family, grid, space, problem, run_request
 
 
 def amplitude_bound(family, grid, space, backend, steps):
@@ -112,25 +111,26 @@ def recorded_family(family):
 
 @pytest.mark.parametrize("steps", [0, 1, 8])
 def test_cartesian_nonlinear_ladder(free_case, spatial_backend_class, steps, request):
-    family, grid, space, problem = free_case
+    family, grid, space, problem, run_request = free_case
     bound = amplitude_bound(family, grid, space, spatial_backend_class.name, steps)
     assert bound > 0
     if steps == 0:
-        reference = derivative(NumpyRefBackend, problem, grid)
-        actual = derivative(spatial_backend_class, problem, grid)
+        reference = derivative(NumpyRefBackend, problem, run_request, grid, REMAINDER)
+        actual = derivative(
+            spatial_backend_class, problem, run_request, grid, REMAINDER
+        )
     else:
-        schedule = problem.stepper.schedule
+        schedule = run_request.stepper.schedule
         assert schedule is not None
-        problem = dataclasses.replace(
-            problem,
-            stepper=dataclasses.replace(
-                problem.stepper,
+        run_request = run_request.with_stepper(
+            dataclasses.replace(
+                run_request.stepper,
                 schedule=type(schedule).uniform(0, LENGTH, LENGTH / steps),
-            ),
+            )
         )
         values = []
         for implementation in (NumpyRefBackend, spatial_backend_class):
-            backend = implementation(problem, grid=grid)
+            backend = implementation(problem, run_request, grid=grid, options=REMAINDER)
             try:
                 backend.set_initial(problem.initial.field0, None)
                 backend.propagate_to(LENGTH)
@@ -162,7 +162,7 @@ def test_cartesian_nonlinear_ladder(free_case, spatial_backend_class, steps, req
 def test_cartesian_statistics_fresh_and_cached(
     free_case, spatial_backend_class, steps, request
 ):
-    family, grid, space, problem = free_case
+    family, grid, space, problem, run_request = free_case
     # Fresh statistics use the same initial state on both backends. Propagated
     # statistics add twice the amplitude ladder envelope for squared fields.
     bound = 2 * amplitude_bound(family, grid, space, spatial_backend_class.name, steps)
@@ -173,7 +173,7 @@ def test_cartesian_statistics_fresh_and_cached(
     spec = StatsSpec(names=names)
     rows = []
     for implementation in (NumpyRefBackend, spatial_backend_class):
-        backend = implementation(problem, grid=grid)
+        backend = implementation(problem, run_request, grid=grid, options=REMAINDER)
         try:
             backend.set_initial(problem.initial.field0, None)
             if steps:
@@ -231,7 +231,7 @@ def test_cartesian_analytic_family_plasma_statistics_scan_the_whole_field(
         KerrResponse(CHI3, thg=False),
         PlasmaResponse("Ar", build_rate_table(QuadraticRate(), (1e3, 1e10))),
     ]
-    problem = make_problem(
+    problem, run_request = make_problem(
         grid,
         space,
         pulse.build(grid, space, medium=SpatialMedium()),
@@ -243,17 +243,10 @@ def test_cartesian_analytic_family_plasma_statistics_scan_the_whole_field(
     kerr = problem.responses.kerr_coefficients
     assert kerr is not None and kerr.analytic_signal
     names = ("electron_density", "peak_ionisation_rate", "species_electron_density")
-    problem = dataclasses.replace(
-        problem,
-        stats_spec=StatsSpec(names=names),
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(problem.transform, node_chunk=7),
-        ),
-    )
+    run_request = run_request.for_run(stats=StatsSpec(names=names))
     rows = {}
     for implementation in (NumpyRefBackend, spatial_backend_class):
-        backend = implementation(problem, grid=grid)
+        backend = implementation(problem, run_request, grid=grid, options=REMAINDER)
         try:
             backend.set_initial(problem.initial.field0, None)
             rows[implementation.name] = backend.stats(StatsSpec(names=names))
@@ -323,10 +316,10 @@ def test_cartesian_field_envelope_and_scalar_vector_parity(
             spectrum = np.fft.fft(temporal)[grid.crop_index] * grid.crop_scale
         start = np.zeros((space.n_columns, n_pol, grid.n_omega), complex)
         start[:, 0] = spatial[:, None] * spectrum
-        problem = make_problem(
+        problem, run_request = make_problem(
             grid, space, start, [KerrResponse(CHI3, thg=False)], steps=steps
         )
-        backend = spatial_backend_class(problem, grid=grid)
+        backend = spatial_backend_class(problem, run_request, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)

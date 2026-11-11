@@ -63,8 +63,9 @@ stay as what was measured.
   short run, not by regenerating the propagation.
 - **An event's cost is timed on a window that holds it.** The `sep47` set's windows
   each contain the rows, snapshots, planes, members or flows they measure, and
-  `--counters` reports the native backend's returns to Python by cause beside the
-  timings, so that both builds can be checked to do the same work
+  `--counters` reports the native run's returns to Python by cause, its crossings and
+  its bytes beside the timings, counted the same way whether the native session or the
+  transitional bridge serves it, so that both builds can be checked to do the same work
   ([SEP 47's matrix](benchmarking.md#sep-47s-matrix-and-the-structural-counters)). An observation-free window cannot
   qualify an observation change.
 - **Compare two source trees with alternating pairs** (A/B/A/B…), and report the A/A
@@ -2305,6 +2306,67 @@ Xeon Gold 6240. The change is this fix together with
 
 `numpy_ref`, whose stages allocate per pass, went from 14.50 to 12.50 volumes by
 `tracemalloc`, the hand loop's figure. Not measured at full size, and not extrapolated to it.
+
+### A kept plane exported into its store
+
+SEP 47 phase 3's destination export ([#346](https://github.com/LupoLab/solprop/issues/346),
+[backends.md §1](backends.md#1-the-seam), "Export into a destination"): a kept field is
+exported once, in the stored form, into `MemoryOutput`'s own block row, or into one new
+array that `HDF5Output` writes as it is. Before: the integration branch at `1037ea88`;
+after: this change. An Intel Xeon Gold 6240, pinned to 18 logical CPUs, `SOLPROP_THREADS=4`, on a
+shared machine (load averages between 6 and 210 during the runs), so times are indicative
+and the structural counts are the result.
+
+**What a kept plane makes.** Field-sized host arrays made per kept plane, and the passes
+that write them, by session and store (the driver session's observation is the native
+backend's host copy, which every kept plane makes):
+
+| session, store | before | after |
+|---|---|---|
+| native session, memory | a new consumer array (live until the batch is acknowledged), then the optics conversion into the row | one native pass into the row; no array |
+| native session, file | the consumer array and a new stored array | one new stored array |
+| driver session, memory | the observation; the conversion into the row | the same |
+| driver session, file | the observation and a new stored array | the observation, converted where it is |
+
+**Through the service loop.** Each `sep47` saved case run to its end through
+`solprop.driver.service.serve` (a warm-up, three timed runs, one under `tracemalloc`),
+timing each kept plane from its export to the end of its store, and tracing the bytes
+allocated in that window above its start (NumPy's allocations; the native observation is
+outside the tracer's sight). The median over planes 2 to 5; the first allocates the
+store. Milliseconds, then MiB:
+
+| case | session | plane, before (median / min) | after | transient, before | after |
+|---|---|---:|---:|---:|---:|
+| radial, memory | driver | 2.7 / 2.0 | 1.6 / 1.3 | 0.14 | 0.13 |
+| radial, memory | native | 3.1 / 1.7 | 0.9 / 0.5 | 2.67 | 0.00 |
+| radial, file | driver | 6.7 / 6.1 | 5.6 / 4.9 | 2.67 | 0.13 |
+| radial, file | native | 7.7 / 6.2 | 5.7 / 4.4 | 5.21 | 2.54 |
+| Cartesian, memory | driver | 72.2 / 33.2 | 16.3 / 14.8 | 0.29 | 0.42 |
+| Cartesian, memory | native | 393.7 / 92.2 | 33.8 / 32.6 | 108.47 | 0.00 |
+| Cartesian, file | driver | 212.9 / 158.8 | 138.5 / 134.4 | 108.54 | 0.55 |
+| Cartesian, file | native | 398.8 / 213.9 | 158.5 / 153.2 | 216.92 | 108.25 |
+
+The radial field is 2.5 MiB a plane, the Cartesian 108 MiB. The native session's file
+case still holds one field for h5py; its memory case holds none. Each kept plane is one
+native export (`status().exports`) in both builds. The machine's load fell from 100 to
+210 during the baseline to 6 to 65 after, so part of the times' fall is the load's; the
+transient bytes do not depend on it. The run's peak traced memory with the native
+session fell from 650 to 542 MiB in memory (one field fewer) and stayed
+217 MiB into a file, where a peak outside the planes sets it.
+
+**The conversion alone.** At the launch plane, each variant into a fresh zeroed row
+(first touch included, as in a run), 15 interleaved repeats, milliseconds median / min:
+
+| case | native, two steps | native, one export | host, two steps | host, one pass |
+|---|---:|---:|---:|---:|
+| radial (2.5 MiB) | 0.76 / 0.68 | 0.28 / 0.24 | 0.47 / 0.44 | 0.47 / 0.44 |
+| Cartesian (108 MiB) | 76.49 / 50.18 | 64.65 / 36.34 | 35.33 / 14.68 | 29.64 / 14.46 |
+
+The native fused pass took an integer division per element for `(-1)^k` until this
+change; row by row it is 6.5 times faster on the radial plane and beats the two steps on
+both. It is single-threaded: on the 108 MiB plane the host's threaded pass (36 ms
+against 14.5 ms at the minimum) is faster, so threading the native pass is the next
+step there. On the host the one pass and the two steps cost the same.
 
 ### Single-precision collar and batches
 

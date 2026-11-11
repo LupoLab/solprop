@@ -36,6 +36,7 @@ from legacy_geometry import LEGACY_GRID, bare_absorber
 from mixture_cases import AnalyticRate
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
+from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.constants import C
 from solprop.driver import SimulationSettings, prop_planar
@@ -161,7 +162,7 @@ def planar_case(family):
     responses, density = responses_for(
         "field_analytic_kerr" if family == "collar_split_step" else family
     )
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         responses,
@@ -180,16 +181,12 @@ def planar_case(family):
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8),
         density=density,
     )
-    problem = dataclasses.replace(
-        problem,
-        route=dataclasses.replace(
-            problem.route,
-            transform=dataclasses.replace(
-                problem.transform, node_chunk=ROWS_PER_CHUNK * space.x.size
-            ),
-        ),
-    )
-    return grid, space, problem
+    return grid, space, problem, run_request
+
+
+def chunked(space):
+    """Return the options of a case's backends: :data:`ROWS_PER_CHUNK` rows a chunk."""
+    return ExecutionOptions(node_chunk=ROWS_PER_CHUNK * space.x.size)
 
 
 def amplitude_bound(grid, space, family, steps, *, length=LENGTH):
@@ -221,9 +218,9 @@ def amplitude_bound(grid, space, family, steps, *, length=LENGTH):
     return bound
 
 
-def propagate(problem, grid, implementation, names=()):
+def propagate(problem, run_request, grid, implementation, names=(), options=None):
     """Run a problem to its end and return the field and requested statistics."""
-    backend = implementation(problem, grid=grid)
+    backend = implementation(problem, run_request, grid=grid, options=options)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(LENGTH)
@@ -234,16 +231,15 @@ def propagate(problem, grid, implementation, names=()):
     return field, values
 
 
-def with_steps(problem, steps):
-    """Replace a problem's fixed schedule with ``steps`` uniform steps."""
-    schedule = problem.stepper.schedule
+def with_steps(run_request, steps):
+    """Replace a request's fixed schedule with ``steps`` uniform steps."""
+    schedule = run_request.stepper.schedule
     assert schedule is not None
-    return dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(
-            problem.stepper,
+    return run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
             schedule=type(schedule).uniform(0, LENGTH, LENGTH / steps),
-        ),
+        )
     )
 
 
@@ -254,7 +250,7 @@ def case(request):
 
 def test_the_cases_exercise_the_slab_route(case):
     """The problems are the ``"slab"`` kind, with a partial final chunk."""
-    family, _, space, problem = case
+    family, _, space, problem, _ = case
     geometry = problem.transform.geometry
     assert geometry is not None
     assert geometry.kind == "slab"
@@ -274,16 +270,21 @@ def test_the_cases_exercise_the_slab_route(case):
 @pytest.mark.medium
 @pytest.mark.parametrize("steps", STEPS)
 def test_the_planar_kind_matches_the_reference(case, steps):
-    family, grid, space, problem = case
+    family, grid, space, problem, run_request = case
     bound = amplitude_bound(grid, space, family, steps)
     assert bound > 0
+    options = chunked(space)
     if steps == 0:
-        reference = derivative(NumpyRefBackend, problem, grid)
-        actual = derivative(native_class(), problem, grid)
+        reference = derivative(NumpyRefBackend, problem, run_request, grid, options)
+        actual = derivative(native_class(), problem, run_request, grid, options)
     else:
-        problem = with_steps(problem, steps)
-        reference, _ = propagate(problem, grid, NumpyRefBackend)
-        actual, _ = propagate(problem, grid, native_class())
+        run_request = with_steps(run_request, steps)
+        reference, _ = propagate(
+            problem, run_request, grid, NumpyRefBackend, options=options
+        )
+        actual, _ = propagate(
+            problem, run_request, grid, native_class(), options=options
+        )
     scale = float(np.max(np.abs(reference)))
     assert scale > 0
     assert_allclose(actual, reference, rtol=0, atol=bound * scale)
@@ -297,15 +298,17 @@ def test_the_planar_statistics_match_the_reference(case, steps):
     Twice the amplitude bound for squared fields, plus the column and temporal
     reductions (the Cartesian statistics' bound), and the node reductions.
     """
-    family, grid, space, problem = case
+    family, grid, space, problem, run_request = case
     bound = 2 * amplitude_bound(grid, space, family, steps)
     bound += gamma(128 * (space.n_columns + space.n_nodes) + 32 * grid.n_to)
     names = SPATIAL_NAMES + (PLASMA_NAMES if family.endswith("plasma") else ())
     if steps:
-        problem = with_steps(problem, steps)
+        run_request = with_steps(run_request, steps)
     rows = []
     for implementation in (NumpyRefBackend, native_class()):
-        backend = implementation(problem, grid=grid)
+        backend = implementation(
+            problem, run_request, grid=grid, options=chunked(space)
+        )
         try:
             backend.set_initial(problem.initial.field0, None)
             if steps:
@@ -322,8 +325,8 @@ def test_the_planar_statistics_match_the_reference(case, steps):
 
 def test_the_ledger_counts_the_planar_buffers():
     """The y scratch, the slab rule and the wall terms, at their real byte cost."""
-    grid, space, problem = planar_case("envelope_kerr")
-    backend = native_class()(problem, grid=grid)
+    grid, space, problem, run_request = planar_case("envelope_kerr")
+    backend = native_class()(problem, run_request, grid=grid, options=chunked(space))
     try:
         ledger = backend.memory_ledger()
     finally:
@@ -362,8 +365,8 @@ def test_the_planar_kind_agrees_across_thread_counts(tmp_path):
     four = native_thread_fields(PROBE, 4, names, tmp_path)
     assert_threaded(four["sizing"], 4, "kernels.stage", "kernels.response", "fft.fft")
     for name in names:
-        grid, space, problem = planar_case(name)
-        assert problem.stepper.integrator is None
+        grid, space, _, run_request = planar_case(name)
+        assert run_request.stepper.integrator is None
         bound = amplitude_bound(grid, space, name, 10)
         scale = float(np.max(np.abs(one[name])))
         assert scale > 0

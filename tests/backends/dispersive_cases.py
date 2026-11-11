@@ -30,6 +30,7 @@ import numpy as np
 
 from bounds import gamma
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
@@ -41,6 +42,7 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, Multistep, PIController
 from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.run_request import RunRequest
 
 EPS = np.finfo(float).eps
 LENGTH = 2e-3
@@ -109,7 +111,7 @@ def grid_for(envelope: bool) -> FieldGrid | EnvelopeGrid:
 
 def averaged(
     evaluator: str, *, envelope: bool, thg: bool, vector: bool = False
-) -> tuple[PropagationProblem, FieldGrid | EnvelopeGrid]:
+) -> tuple[PropagationProblem, RunRequest, FieldGrid | EnvelopeGrid]:
     """Return a mode-averaged argon problem, one node, or a two-component quadrature.
 
     The two-component field is the polarised route of ``test_polarised_runs.py``: one
@@ -127,7 +129,7 @@ def averaged(
             axis=1,
         )
         quadrature = transverse_quadrature([mode], n_r=24)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         [mode] if vector else mode,
         [DispersiveKerrResponse(ARGON, evaluator, thg=thg)],
@@ -142,12 +144,12 @@ def averaged(
         integrator=Multistep(),
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / STEPS),
     )
-    return problem, grid
+    return problem, run_request, grid
 
 
 def radial(
     evaluator: str, *, envelope: bool, thg: bool
-) -> tuple[PropagationProblem, FieldGrid | EnvelopeGrid]:
+) -> tuple[PropagationProblem, RunRequest, FieldGrid | EnvelopeGrid]:
     """Return a radial free-space problem: sixteen Hankel nodes, no embedded rule.
 
     On an envelope grid this is the backend's real radial GEMM.
@@ -161,7 +163,7 @@ def radial(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 1e-4
     )
     start = pulse.build(grid, space, medium=SpatialMedium()) * grid.active_mask
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [DispersiveKerrResponse(ARGON, evaluator, thg=thg)],
@@ -177,7 +179,7 @@ def radial(
         schedule=FixedSchedule.uniform(0.0, 1e-4, 1e-5),
         density=DENSITY,
     )
-    return problem, grid
+    return problem, run_request, grid
 
 
 # --- the measurements ------------------------------------------------------------
@@ -191,14 +193,19 @@ class Evaluation:
     coarse: np.ndarray | None
 
 
-def reference_evaluation(problem: PropagationProblem, grid: Any) -> Evaluation:
+def reference_evaluation(
+    problem: PropagationProblem,
+    run_request,
+    grid: Any,
+    options: ExecutionOptions | None = None,
+) -> Evaluation:
     """Evaluate the reference's source once at the launch: its projected spectra.
 
     The reference keeps both rules' projections of its last evaluation in time; their
     unnormalised transforms are what a compiled backend's stage holds in frequency,
     where the response joins every other's.
     """
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid, options=options)
     forward = np.fft.rfft if problem.grid_kind == "field" else np.fft.fft
     try:
         backend.set_initial(problem.initial.field0, None)
@@ -213,13 +220,17 @@ def reference_evaluation(problem: PropagationProblem, grid: Any) -> Evaluation:
 
 
 def run(
-    backend_class: type, problem: PropagationProblem, grid: Any, **options: object
+    backend_class: type,
+    problem: PropagationProblem,
+    run_request,
+    grid: Any,
+    **options: object,
 ) -> tuple[np.ndarray, Any]:
     """Propagate to the last save plane and return the field and the summary."""
-    backend = backend_class(problem, grid=grid, **options)
+    backend = backend_class(problem, run_request, grid=grid, **options)
     try:
         backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(float(problem.stepper.save_planes[-1]))
+        summary = backend.propagate_to(float(run_request.stepper.save_planes[-1]))
         return backend.observe().require_field().copy(), summary
     finally:
         backend.close()

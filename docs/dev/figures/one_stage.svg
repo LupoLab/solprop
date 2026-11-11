@@ -154,7 +154,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="612.0" y="813.5" font-size="12" class="dim">separate streams</text>
 <path d="M466.0,391.0 L494.0,391.0" class="arrow" />
 <path d="M494.0,391.0 L485.0,394.6 L485.0,387.4 Z" class="head" />
-<text x="498.0" y="840.5" font-size="12" class="dim">over a chunk of transform.node_chunk nodes, so the buffers are</text>
+<text x="498.0" y="840.5" font-size="12" class="dim">over the backend's node chunk at a time, so the buffers are</text>
 <text x="498.0" y="854.5" font-size="12" class="dim">sized by the chunk and not by the quadrature rule</text>
 <rect x="498.0" y="860.5" width="356.0" height="81.5" rx="7" ry="7" class="fill-b" />
 <text x="508.0" y="882.5" font-size="15" class="bold ink-b">the two accumulators</text>

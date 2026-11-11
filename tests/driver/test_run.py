@@ -20,6 +20,7 @@ from march_bounds import (
     simulation_bound,
 )
 from solprop import fourier
+from solprop.backends.driver_session import DriverPrepared
 from solprop.backends.protocol import Backend, BackendHistory, Observation, StepSummary
 from solprop.backends.registry import select
 from solprop.backends.session import Start
@@ -34,6 +35,7 @@ from solprop.pulses import SechPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import assemble
+from solprop.translate.run_request import RunRequest
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
 # hold more than a millionth of the energy in their guards or collar: the boundary
@@ -132,9 +134,28 @@ class NullBackend:
     in_flight = None
     closed = False
 
-    def __init__(self, failure=None, *, shape=(1, 1, 8)):
+    def __init__(
+        self, failure=None, *, shape=(1, 1, 8), request: RunRequest | None = None
+    ):
         self.failure = failure
         self.shape = shape
+        self._request = request
+
+    @property
+    def request(self) -> RunRequest:
+        """Return the run's request, which ``run_problem`` reads first (SEP 47 5.2).
+
+        Returns
+        -------
+        solprop.translate.run_request.RunRequest
+            The request the double was built with; one built without is a test error.
+        """
+        assert self._request is not None, "this null backend was built without one"
+        return self._request
+
+    def prepare(self, problem, request):
+        # The transitional session over this driver, as any driver prepares one.
+        return DriverPrepared(self, problem, request)
 
     def set_initial(self, field, noise, *, z=0.0, resume=False):
         pass
@@ -274,12 +295,14 @@ def test_the_stored_field_is_the_optics_spectrum_of_the_observation(build_simula
     simulation = matched(build_simulation, n_save=2)
     handler = simulation.run()
     problem = simulation.translate()
+    run_request = simulation._run_request()
     # The backend the run itself used: the claim is that storing a plane is a
     # conjugation and a sign flip and nothing else, both exact, so the stored plane is
     # the observation's within the rounding of running the march a second time.
     backend = select(
         simulation.settings.backend,
         problem,
+        run_request,
         grid=simulation.grid,
         modes=simulation.modes,
     )
@@ -412,14 +435,15 @@ def test_a_statistics_spec_that_disagrees_about_the_channel_is_refused(
     written rather than left to disagree.
     """
     spec = StatsSpec(names=("energy",), periodic=("energy",), period=10)
-    problem = build_simulation(n_save=2, stats=spec).translate()
+    simulation = build_simulation(n_save=2, stats=spec)
+    problem, run_request = simulation.translate(), simulation._run_request()
     with pytest.raises(DriverError, match="the between-planes channel is armed"):
         run_problem(
             problem,
-            NullBackend(),
+            NullBackend(request=run_request),
             MemoryOutput(),
             start=Start.entrance(problem),
-            metadata=metadata_for(problem, narrow_grid),
+            metadata=metadata_for(problem, run_request, narrow_grid),
             stats_spec=StatsSpec(names=("energy",)),
         )
 
@@ -430,7 +454,7 @@ def test_a_start_plane_outside_the_run_is_refused(build_simulation, narrow_grid)
     with pytest.raises(DriverError, match="between 0 and 2"):
         run_problem(
             problem,
-            NullBackend(),
+            NullBackend(request=simulation._run_request()),
             MemoryOutput(),
             start=Start(
                 field=problem.initial.field0, z=problem.initial.z, plane_index=3
@@ -446,7 +470,11 @@ def test_the_output_is_closed_when_the_run_fails(build_simulation, tmp_path):
     with pytest.raises(RuntimeError, match="the card caught fire"):
         run_problem(
             problem,
-            NullBackend(RuntimeError("the card caught fire"), shape=problem.shape),
+            NullBackend(
+                RuntimeError("the card caught fire"),
+                shape=problem.shape,
+                request=simulation._run_request(),
+            ),
             handler,
             start=Start.entrance(problem),
             metadata=simulation.metadata(),
@@ -492,7 +520,7 @@ def test_the_loop_runs_without_a_simulation(narrow_grid, soliton):
         width=soliton.tau0,
         peak_power=soliton.peak_power(1),
     ).build(narrow_grid)
-    problem = assemble(
+    problem, run_request = assemble(
         narrow_grid,
         gnlse.mode,
         [gnlse.kerr],
@@ -505,14 +533,16 @@ def test_the_loop_runs_without_a_simulation(narrow_grid, soliton):
         shock=False,
         prefactor_index=1.0,
     )
-    backend = select("numpy_ref", problem, grid=narrow_grid, modes=[gnlse.mode])
+    backend = select(
+        "numpy_ref", problem, run_request, grid=narrow_grid, modes=[gnlse.mode]
+    )
     handler = MemoryOutput()
     run_problem(
         problem,
         backend,
         handler,
         start=Start.entrance(problem),
-        metadata=metadata_for(problem, narrow_grid, modes=[gnlse.mode]),
+        metadata=metadata_for(problem, run_request, narrow_grid, modes=[gnlse.mode]),
     )
     backend.close()
     assert handler["z"].tolist() == [0.0, 0.005, 0.01]
@@ -630,7 +660,11 @@ def test_a_run_that_raises_tells_the_reporter_it_was_interrupted(build_simulatio
     with pytest.raises(RuntimeError, match="the card caught fire"):
         run_problem(
             problem,
-            NullBackend(RuntimeError("the card caught fire"), shape=problem.shape),
+            NullBackend(
+                RuntimeError("the card caught fire"),
+                shape=problem.shape,
+                request=simulation._run_request(),
+            ),
             MemoryOutput(),
             start=Start.entrance(problem),
             metadata=simulation.metadata(),
@@ -662,7 +696,11 @@ def test_a_reporter_without_interrupted_is_still_accepted(build_simulation):
     with pytest.raises(RuntimeError, match="the card caught fire"):
         run_problem(
             problem,
-            NullBackend(RuntimeError("the card caught fire"), shape=problem.shape),
+            NullBackend(
+                RuntimeError("the card caught fire"),
+                shape=problem.shape,
+                request=simulation._run_request(),
+            ),
             MemoryOutput(),
             start=Start.entrance(problem),
             metadata=simulation.metadata(),

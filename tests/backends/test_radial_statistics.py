@@ -102,7 +102,7 @@ def test_radial_statistics_match_the_host_without_field_observation(
     start = pulse.build(grid, space, medium=SpatialMedium())
     flux = SpatialFlux.resolve(grid, space, SpatialMedium())
     spec = default_spec("radial")
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [],
@@ -119,8 +119,8 @@ def test_radial_statistics_match_the_host_without_field_observation(
     # The stats test uses exactly the state at the measured plane; propagation
     # already has an independent rationalized dispersion oracle in radial_runs.
 
-    oracle = NumpyRefBackend(problem, grid=grid)
-    backend = spatial_backend_class(problem, grid=grid)
+    oracle = NumpyRefBackend(problem, run_request, grid=grid)
+    backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
         oracle.set_initial(problem.initial.field0, None)
         if steps:
@@ -184,7 +184,7 @@ def test_radial_statistics_match_the_host_without_field_observation(
 def test_empty_spatial_widths_and_intensities(case, spatial_backend_class):
     grid, space = case
     spec = default_spec("radial")
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [],
@@ -196,7 +196,7 @@ def test_empty_spatial_widths_and_intensities(case, spatial_backend_class):
         dz_max=grid.length,
         dz_init=grid.length,
     )
-    backend = spatial_backend_class(problem, grid=grid)
+    backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         values = backend.stats(spec)
@@ -215,7 +215,7 @@ def test_empty_spatial_widths_and_intensities(case, spatial_backend_class):
 
 def test_spatial_statistics_require_geometry_and_named_dependencies(case):
     grid, space = case
-    transform = radial_transform(space, grid, n_pol=1, z_max=grid.length)
+    transform = radial_transform(space, grid, z_max=grid.length)
     state = np.zeros((space.n_r, 1, grid.n_omega), dtype=np.complex128)
     spec = StatsSpec(names=("density",))
     with pytest.raises(BackendError, match="spatial geometry"):

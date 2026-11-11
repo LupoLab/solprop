@@ -65,7 +65,7 @@ def test_settings_assigned_before_the_first_translation_take_effect(build_simula
     simulation = build_simulation(n_save=2)
     simulation.settings = dataclasses.replace(simulation.settings, dz_max=1e-4)
     assert simulation.settings.dz_max == 1e-4
-    assert simulation.translate().stepper.dz_max == 1e-4
+    assert simulation._run_request().stepper.dz_max == 1e-4
 
 
 @pytest.mark.parametrize("first", ["translate", "run"])
