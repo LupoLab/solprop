@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 from jaxtyping import Float
@@ -20,6 +20,14 @@ from solprop.backends.driver import (
 from solprop.backends.julia._bridge import invoke
 from solprop.backends.julia._ownership import JuliaHandle
 from solprop.backends.julia._runtime import JuliaRuntime
+from solprop.backends.julia._transverse import TransverseFormat
+from solprop.backends.julia._transverse_record import (
+    TransverseContinuation,
+    TransversePayload,
+    parse_transverse_resume,
+    transverse_error,
+    transverse_warning,
+)
 from solprop.exceptions import BackendError, BoundaryError
 from solprop.monitor import (
     BoundaryCheck,
@@ -117,6 +125,8 @@ class MonitorResume:
         Earlier resumption coordinates, in metres.
     unwatched : tuple of tuple of float
         Earlier unmonitored stretches and new positive-length stretches, in metres.
+    transverse : TransverseContinuation or None
+        Independently parsed spatial totals, absent without a usable edge record.
     """
 
     numerical: MonitorContinuation | None
@@ -124,6 +134,7 @@ class MonitorResume:
     planes: Float[np.ndarray, "n_rows 5"]
     resumed_at: tuple[float, ...]
     unwatched: tuple[tuple[float, ...], ...]
+    transverse: TransverseContinuation | None = None
 
 
 def _plane_history(record: Mapping[str, object]) -> Float[np.ndarray, "n_rows 5"]:
@@ -160,7 +171,9 @@ def _plane_history(record: Mapping[str, object]) -> Float[np.ndarray, "n_rows 5"
     return result
 
 
-def parse_resume(continuation: Mapping[str, object]) -> MonitorResume:
+def parse_resume(
+    continuation: Mapping[str, object], *, faces: int = 0
+) -> MonitorResume:
     """Parse the shared monitor's legacy continuation before entering Julia.
 
     Parameters
@@ -168,6 +181,8 @@ def parse_resume(continuation: Mapping[str, object]) -> MonitorResume:
     continuation : mapping
         ``Start.monitor`` or its later fallback, with ``record``, ``plane`` and
         ``unwatched`` entries. Missing totals do not imply a fresh launch.
+    faces : int, optional
+        Spatial face count, zero when no transverse monitor is prepared.
 
     Returns
     -------
@@ -238,13 +253,18 @@ def parse_resume(continuation: Mapping[str, object]) -> MonitorResume:
             has_quiet,
         )
     return MonitorResume(
-        numerical, bool(continuation.get("plane", False)), planes, resumed_at, unwatched
+        numerical,
+        bool(continuation.get("plane", False)),
+        planes,
+        resumed_at,
+        unwatched,
+        parse_transverse_resume(record.get("transverse"), faces) if faces else None,
     )
 
 
 @dataclass(frozen=True)
 class MonitorNotice:
-    """Detach a Julia-decided temporal warning or boundary refusal.
+    """Detach a Julia-decided warning or boundary refusal.
 
     Attributes
     ----------
@@ -254,11 +274,17 @@ class MonitorNotice:
         Coordinate in metres; NaN identifies the launch or closing removal notice.
     value : float
         Already computed guard amplitude, or removed energy share for code three.
+    face : int
+        One-based spatial face index, zero for a notice without a face.
+    auxiliary : float
+        Additional decided scalar, such as read spacing or first-warning coordinate.
     """
 
     code: int
     z: float
     value: float
+    face: int = 0
+    auxiliary: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -281,6 +307,8 @@ class MonitorPayload:
         An already decided temporal notice, absent when none is pending.
     crossing : tuple of float or None
         Fixed-itinerary refusal's position, cap and step in metres.
+    transverse : TransversePayload or None
+        Independently detached spatial edge totals and verdict.
     """
 
     generation: int
@@ -292,6 +320,7 @@ class MonitorPayload:
     committed: float
     notice: MonitorNotice | None
     crossing: tuple[float, float, float] | None
+    transverse: TransversePayload | None = None
 
 
 @dataclass(frozen=True)
@@ -314,6 +343,8 @@ class MonitorLog:
         Committed resumption coordinates, in metres.
     resumed : bool
         Whether Julia has consumed this execution's continuation.
+    transverse : TransverseFormat or None
+        Host-only names and geometry for formatting spatial records and messages.
     """
 
     check: BoundaryCheck
@@ -323,6 +354,7 @@ class MonitorLog:
     chunks: tuple[Float[np.ndarray, "_ 5"], ...] = ()
     resumed_at: tuple[float, ...] = ()
     resumed: bool = False
+    transverse: TransverseFormat | None = None
 
     def continued(self, resume: MonitorResume) -> MonitorLog:
         """Retain the first continuation and invalidate its prior scalar publication.
@@ -383,7 +415,7 @@ class MonitorLog:
         if self.payload is None:
             return None
         record: dict[str, object] = {**asdict(self.check), **self.payload.record}
-        for name in _UNMEASURED:
+        for name in _UNMEASURED.intersection(record):
             value = cast("float", record[name])
             record[name] = value if math.isfinite(value) else None
         record["resumed_at"] = list(self.resumed_at)
@@ -397,7 +429,51 @@ class MonitorLog:
             ]
             for i, name in enumerate(_COLUMNS)
         }
+        if self.payload.transverse is not None and self.transverse is not None:
+            record["transverse"] = self.payload.transverse.summary(self.transverse)
         return record
+
+
+def _read_transverse(runtime: JuliaRuntime, raw: Any) -> TransversePayload | None:
+    # Dynamic PythonCall wrappers are confined to this guarded copy helper.
+    if raw is None:
+        return None
+    state = raw.continuation
+    continuation = TransverseContinuation(
+        float(state.launch),
+        tuple(float(value) for value in state.baseline),
+        tuple(float(value) for value in state.peak),
+        tuple(float(value) for value in state.peak_raw),
+        float(state.allowance),
+        float(state.ramp_raw),
+        float(state.ramp_noise),
+        float(state.noise_share_in_ramp),
+        float(state.declared_share),
+        float(state.spatial_removed),
+        float(state.current),
+        float(state.current_baseline),
+        float(state.strip_baseline),
+        float(state.strip_floor),
+        float(state.strip_peak),
+        float(state.returned_peak),
+        int(state.reads),
+        float(state.largest_gap),
+        float(state.warned_at),
+        int(runtime.engine.Int(state.status)),
+    )
+    finish = raw.finish
+    return TransversePayload(
+        continuation,
+        int(raw.reason),
+        float(raw.removed_signed),
+        bool(raw.resumed),
+        (
+            int(runtime.engine.Int(finish.status)),
+            float(finish.largest),
+            float(finish.ramp_removed),
+            int(finish.reads),
+        ),
+    )
 
 
 def _read_monitor(
@@ -423,41 +499,48 @@ def _read_monitor(
     result = runtime.engine.session_monitor_payload(session, generation)
     if result is None:
         return None
-    state, continuation = result.record, result.record.continuation
+    state = result.record
     count = int(result.row_count)
     if count not in (0, 1, 2):
         raise BackendError("Julia temporal monitor exceeded its bounded row capacity")
     rows = np.empty((count, 5), dtype=np.float64)
     getattr(runtime.engine, "copy_session_monitor_rows!")(rows, session, generation)
     rows.setflags(write=False)
-    record = {
-        "launch_energy": float(continuation.launch),
-        "launch_guard_low": float(continuation.launch_occupancy[0]),
-        "launch_guard_high": float(continuation.launch_occupancy[1]),
-        "launch_collar": float(continuation.launch_occupancy[2]),
-        "guard_low_max": float(continuation.guard_max[0]),
-        "guard_high_max": float(continuation.guard_max[1]),
-        "guard_low_at": float(continuation.guard_at[0]),
-        "guard_high_at": float(continuation.guard_at[1]),
-        "collar_max": float(continuation.collar_max),
-        "removed_signed": float(state.removed_signed),
-        "removed_fraction": float(state.removed_fraction),
-        "floor_removed_fraction": float(continuation.floor_removed),
-        "quiet_checks": int(continuation.quiet_run),
-        "collar_quiet": bool(continuation.quiet),
-        "steps": int(continuation.steps),
-        "skipped": int(continuation.skipped),
-        "noise_floor": float(state.noise_floor),
-        "raw_guard_max": float(continuation.raw_guard_max),
-        "raw_removed_fraction": float(continuation.raw_removed),
-        "collar_left_out_checks": int(continuation.left_out_checks),
-    }
+    record: dict[str, object] = {}
+    if state is not None:
+        continuation = state.continuation
+        record = {
+            "launch_energy": float(continuation.launch),
+            "launch_guard_low": float(continuation.launch_occupancy[0]),
+            "launch_guard_high": float(continuation.launch_occupancy[1]),
+            "launch_collar": float(continuation.launch_occupancy[2]),
+            "guard_low_max": float(continuation.guard_max[0]),
+            "guard_high_max": float(continuation.guard_max[1]),
+            "guard_low_at": float(continuation.guard_at[0]),
+            "guard_high_at": float(continuation.guard_at[1]),
+            "collar_max": float(continuation.collar_max),
+            "removed_signed": float(state.removed_signed),
+            "removed_fraction": float(state.removed_fraction),
+            "floor_removed_fraction": float(continuation.floor_removed),
+            "quiet_checks": int(continuation.quiet_run),
+            "collar_quiet": bool(continuation.quiet),
+            "steps": int(continuation.steps),
+            "skipped": int(continuation.skipped),
+            "noise_floor": float(state.noise_floor),
+            "raw_guard_max": float(continuation.raw_guard_max),
+            "raw_removed_fraction": float(continuation.raw_removed),
+            "collar_left_out_checks": int(continuation.left_out_checks),
+        }
     notice = result.notice
     detached_notice = (
         None
         if notice is None
         else MonitorNotice(
-            int(runtime.engine.Int(notice.code)), float(notice.z), float(notice.value)
+            int(runtime.engine.Int(notice.code)),
+            float(notice.z),
+            float(notice.value),
+            int(notice.face),
+            float(notice.auxiliary),
         )
     )
     crossing = result.crossing
@@ -467,12 +550,13 @@ def _read_monitor(
         rows,
         bool(result.attached),
         bool(result.finished),
-        bool(state.resuming),
-        float(state.committed),
+        bool(result.resuming),
+        float(result.committed),
         detached_notice,
         None
         if crossing is None
         else (float(crossing.z), float(crossing.cap), float(crossing.step)),
+        _read_transverse(runtime, result.transverse),
     )
 
 
@@ -502,7 +586,11 @@ def read_monitor(
     )
 
 
-def monitor_warning(check: BoundaryCheck, notice: MonitorNotice) -> Warning:
+def monitor_warning(
+    check: BoundaryCheck,
+    notice: MonitorNotice,
+    transverse: TransverseFormat | None = None,
+) -> Warning:
     """Format an already decided Julia warning with the shared monitor's message.
 
     Parameters
@@ -511,6 +599,8 @@ def monitor_warning(check: BoundaryCheck, notice: MonitorNotice) -> Warning:
         Immutable public formatting policy.
     notice : MonitorNotice
         Julia's guard or removal warning.
+    transverse : TransverseFormat or None, optional
+        Spatial message context, required for an edge warning.
 
     Returns
     -------
@@ -527,6 +617,12 @@ def monitor_warning(check: BoundaryCheck, notice: MonitorNotice) -> Warning:
         message = _guard_message(check, notice.value, z, stop=False)
     elif notice.code == 3:
         message = _removal_message(check, notice.value)
+    elif transverse is not None:
+        return transverse_warning(
+            transverse,
+            notice.code,
+            (notice.z, notice.value, notice.face, notice.auxiliary),
+        )
     else:
         raise BackendError(f"Julia temporal warning has unsupported code {notice.code}")
     return _boundary_warning(message)
@@ -541,14 +637,21 @@ def monitor_finished(payload: MonitorPayload) -> None:
         The first publication whose numerical services are finished.
     """
     record = payload.record
-    _log_finish(
-        cast("float", record["removed_fraction"]),
-        cast("float", record["guard_low_max"]),
-        cast("float", record["guard_high_max"]),
-    )
+    if record:
+        _log_finish(
+            cast("float", record["removed_fraction"]),
+            cast("float", record["guard_low_max"]),
+            cast("float", record["guard_high_max"]),
+        )
+    if payload.transverse is not None:
+        payload.transverse.log_finish()
 
 
-def monitor_error(check: BoundaryCheck, payload: MonitorPayload) -> BoundaryError:
+def monitor_error(
+    check: BoundaryCheck,
+    payload: MonitorPayload,
+    transverse: TransverseFormat | None = None,
+) -> BoundaryError:
     """Format a Julia-decided temporal guard or fixed-crossing refusal.
 
     Parameters
@@ -557,6 +660,8 @@ def monitor_error(check: BoundaryCheck, payload: MonitorPayload) -> BoundaryErro
         Immutable public formatting policy.
     payload : MonitorPayload
         Closed numerical barrier with its notice or crossing facts.
+    transverse : TransverseFormat or None, optional
+        Spatial message context, required for an edge stop.
 
     Returns
     -------
@@ -571,6 +676,17 @@ def monitor_error(check: BoundaryCheck, payload: MonitorPayload) -> BoundaryErro
     if payload.crossing is not None:
         return BoundaryError(_split_crossing_message(*payload.crossing))
     notice = payload.notice
+    if notice is not None and notice.code != 2 and transverse is not None:
+        auxiliary = notice.auxiliary
+        if notice.code == 5:
+            if payload.transverse is None:
+                raise BackendError("Julia face stop has no transverse record")
+            auxiliary = payload.transverse.continuation.warned_at
+        return transverse_error(
+            transverse,
+            notice.code,
+            (notice.z, notice.value, notice.face, auxiliary),
+        )
     if notice is None or notice.code != 2:
         raise BackendError("Julia boundary stop has no temporal refusal notice")
     z = None if math.isnan(notice.z) else notice.z

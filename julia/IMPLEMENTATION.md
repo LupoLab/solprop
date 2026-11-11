@@ -11,7 +11,7 @@ The completed implementation is left ready for maintainer review, not auto-merge
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
 | 1: package and runtime | Setup/package integrated; remaining runtime qualification deferred | Maintainer directs core implementation to proceed; failures remain tracked |
-| 2: CPU binary64 session | Scalar modal and spatial stepping/statistics attached; temporal monitoring, fixed groups, RK/Adams dense output, split absorption and input noise pass their recorded selections | Transverse attachment, remaining preparation controls and measurements remain pending |
+| 2: CPU binary64 session | Scalar modal and spatial stepping/statistics, temporal/transverse monitoring, groups, dense output, absorption, noise, FFT persistence and timing probes are integrated and independently reviewed | CPU provider selection, budgeted preparation, complete material/service qualification and measurements remain pending |
 | 3: CPU binary32 | DF32 primitives, conservative function leaf and operand analysis reviewed; full execution pending | Whole-expression and device admission remain unqualified |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
@@ -54,16 +54,29 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Numerical transform/Adams agent | New `transverse_observations.jl` and focused tests; transverse decision stages in `monitor.jl`; subsequent Julia service/transport hooks in `observation_session.jl`, `monitor_transfer.jl`, narrow launch hooks in `transfer.jl`, and new `ext/transverse.jl` | Spatial attachment is committed at `09fb770a`; transverse leaf and attachment remain separate reviewable commits |
-| Numerical services agent | New `fft_plans.jl`, Python `_fft_cache.py` and their focused tests | Precompile and source layout fixes #688/#689 reviewed and integrated; FFT planning/cache leaf in progress |
+| Numerical transform/Adams agent | New `transverse_observations.jl` and focused tests; transverse decision stages in `monitor.jl`; subsequent Julia service/transport hooks in `observation_session.jl`, `monitor_transfer.jl`, narrow launch hooks in `transfer.jl`, and new `ext/transverse.jl` | Reviewed attachment integrated at `ea4b8731`, first-selection correction at `70fa4d8e`; files return to master |
+| Numerical services agent | New `trial_probe.jl`, `ext/trial_probe.jl` and focused tests | Reviewed leaf integrated at `d71d29cf`; Python adapter independently reviewed; files return to master |
+| FFT attachment agent (rotated from review) | `execution.jl`, `transforms.jl`, the Raman planning block in `composition.jl`, focused new tests and the small explicit-planning precompile workload; one local `windows` narrowing in `observations.jl`; a typed scalar/rank barrier in `fft_plans.jl` | Reviewed attachment integrated at `2b2ef88c`; runtime/cache integration independently reviewed; files return to master |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
 | Independent reviewer | Production code read-only; independent transaction tests returned to master | Group, dense scheduler/adapter and corrected input-noise leaf approved; independent integration review continues |
+| Wide arithmetic agent | New `wide_operators.jl`, its focused tests and `WIDE_ASSEMBLY.md` | Phase 3 whole-expression assembly and range/error certificate; shared interfaces require master agreement before dependent work |
+| CPU provider agent | New `cpu_blas.jl`, `_accelerate.py` and focused tests | Verify Accelerate forwarding and a main-thread single/automatic-mode lease; master owns runtime/shared-lease attachment and dependency regeneration |
+| Preparation agent | New `_node_plan.py`, focused Python/Julia tests and `NODE_MEMORY.md` | Derive Julia-specific chunk storage bounds and authoritative budget admission; master owns shared adapter integration |
 
 The precompile workload uses only owned, small CPU arrays and existing numerical
 constructors. It covers serial CPU session/source/observation dispatch without loading
 Python or devices, retaining no global mutable workspace and publishing no calibration
 files. Parallel specialization and cold-cache evidence are qualified separately; the
 workload never changes the process's thread policy. Module inclusion remains master-owned.
+
+Phase 3's wide-operator slice will use paired Clenshaw differences on a single
+represented interval. This evaluates the same cumulative polynomial difference while
+retaining its correlation across endpoints, so a forced small step does not divide
+two unrelated cumulative-error bounds by the step length. Actual rounded endpoint
+distance remains distinct from the prescribed step. Cross-knot jumps and restored
+sampled-rate provenance remain explicit certificate inputs. The first certificate
+implementation is a conservative CPU operation check, not public DF32 or device
+qualification; its per-cell cost and range limits require separate evidence.
 
 Spatial observations reuse the existing statistics and temporal-monitor reductions.
 Their separate flux descriptor retains the actual represented material and protected
@@ -175,8 +188,9 @@ and integrated as `ea847fcd` and `773bd539`. Updated main is merged at `e2df6c7c
 Issue [#610](https://github.com/LupoLab/solprop/issues/610)
 tracks the accepted signal-handler limitation and intermittent SIGTERM-during-GC
 shutdown hang. The maintainer accepted an external hard-kill deadline and then deferred
-further runtime investigation until after core implementation. Existing failing results
-remain preserved; the old first-SIGTERM-exit tests have not been changed or passed.
+further runtime investigation until after core implementation. Earlier failures remain
+preserved. The supervisor tests now exercise the accepted TERM-then-KILL deadline;
+successful forced termination is recorded separately from voluntary Julia shutdown.
 
 ## Decisions
 
@@ -777,3 +791,51 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   the existing operator/source checks. Independent original probes pass 28 assertions
   at task budgets one and two, including offset foreign headers, negative strides,
   exact in-place operation, failure preservation and zero warmed allocations.
+- Transverse service attachment and explicit continuation selection are independently
+  approved at `ea4b8731` and `70fa4d8e`. The latter fixes #693: an explicitly missing
+  record is a selection, while constructor-only resumption may still receive its first
+  later fallback. The independent core/bridge review passed 1,180 distinct assertions;
+  the final 447-assertion selection and 16 Aqua/JET checks passed, with 1,477 definitions
+  analyzed and none cached. Master Python record lowering passed 42 independent typed
+  tests, including the #692 face-stop first-warning coordinate correction. Subsequent
+  factory/session review passed 118 typed Python checks and 139 actual PythonCall
+  assertions across three methods and geometries. Managed integration remains separate.
+- The timing-probe leaf `d71d29cf` is independently approved: 472 bounds-enabled
+  assertions, including additional counter-capacity/failure cases and zero warmed
+  allocations. Author witnesses also include 94 NumPy comparisons. The master adapter
+  retains preparation through its probe owner, consumes a start only after construction,
+  returns owning read-once fields and closes live probes with the execution owner.
+  Its separate review identified #696, where a cleanup exception replaced an initiating
+  error; cleanup now preserves the original exception with a diagnostic note.
+- FFT call-site attachment `2b2ef88c` is independently approved. The exact final author
+  selections passed 686 assertions at one thread and 866 at two, all warmed allocation
+  checks zero. Aqua/JET passed 16 checks plus two complete-workload checks, with 1,455
+  definitions analyzed and none cached. Independent testing added odd-length transforms,
+  both precisions and nondefault global planner settings: 396 assertions passed.
+  Master bridge integration refreshes offers per start (#694), makes optional cache-write
+  failure nonfatal while cleaning unexpected adoption failures (#695), and releases all
+  preparation-only wisdom maps after detaching facts. Calibration clearing also removes
+  compatible Julia files and forgets process offers without importing either runtime.
+- The `09fb770a` CI run passed all Python/native default, slow, documentation, wheel,
+  device-compile and combined coverage jobs inspected so far. Static checking exposed
+  test-only optional-type narrowing and an ambiguous bounds import, corrected locally.
+  Linux Julia passed 911 Python checks with 22 declared skips, but three SIGTERM cases
+  stalled in GC. The diagnostic still expects SIGTERM alone; it is being aligned with
+  the already accepted external SIGKILL deadline, retaining observed escalation facts
+  and failure for unverified startup or unsuccessful supervision. No runtime fix is
+  claimed, and #610 remains open.
+- Combined managed integration passes 34 new cases: 21 transverse sessions, 11 timing
+  probes and two real cache publication/reuse transactions. The numerical Core selection
+  passes 119,300 assertions in 323 sets; the final inventory module passes 34 assertions
+  in seven sets separately with its required startup flags and imports. Earlier command
+  omissions are retained as failed harness attempts, not hidden or patched in production.
+  Integrated Aqua/JET passes 16 checks over 1,544 definitions, zero cached. The affected
+  Python/SEP selection passes 455 tests with three declared process-SEP skips. Sphinx
+  builds successfully. Whole-package Python checking has zero errors and three existing
+  local native-stub warnings; scoped changed-module checking is clean.
+- The SIGTERM supervisor correction is integrated at `eb4835ff` and `ef0687e4` after
+  independent review and 36 focused tests. A controlled real child proves forced-kill
+  escalation; three actual managed-runtime smoke probes exited on TERM in roughly
+  42–47 ms, so those probes did not reproduce the intermittent stall. The supervisor
+  records which signal completed shutdown and still fails unverified startup or an
+  unsuccessful hard deadline. This implements the accepted policy, not a runtime fix.

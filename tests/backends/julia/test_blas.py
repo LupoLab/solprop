@@ -22,6 +22,12 @@ from solprop.exceptions import BackendError
 from test_construction_blas import Controller, Library
 
 
+@pytest.fixture(autouse=True)
+def _isolated_fft_preparation(monkeypatch):
+    """Keep foreign BLAS lifetime witnesses independent of FFT artifact fixtures."""
+    monkeypatch.setattr(backend, "load_planning_cache", lambda _: None)
+
+
 @pytest.fixture
 def libraries(monkeypatch):
     loaded = [Library("/numpy/libblas", 12)]

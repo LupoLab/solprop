@@ -33,6 +33,8 @@ from solprop.backends.events import (
 from solprop.backends.export import ExportRecipe, destination_refusal
 from solprop.backends.julia import _calls
 from solprop.backends.julia._descriptors import transfer_memory
+from solprop.backends.julia._fft_cache import FFTCache, publish_fft_cache
+from solprop.backends.julia._fft_runtime import FFTPlanRecord, read_planning
 from solprop.backends.julia._history import (
     CALL_COUNTERS,
     CallRestore,
@@ -58,6 +60,7 @@ from solprop.backends.julia._ownership import JuliaHandle, require_main_thread
 from solprop.backends.julia._runtime import JuliaRuntime
 from solprop.backends.julia._services import ObservationPayload, observations
 from solprop.backends.julia._stop import StopLease
+from solprop.backends.julia._transverse import TransverseFormat
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
@@ -148,9 +151,14 @@ class JuliaSession:
         Immutable shapes and offsets for Julia-owned observation services.
     monitor : solprop.monitor.BoundaryCheck or None, optional
         Immutable policy for formatting Julia-decided monitor records and notices.
+    transverse : TransverseFormat or None, optional
+        Host-only spatial message context, without a live edge monitor.
     noise : InputNoiseTransfer or None, optional
         Owned per-start draw, copied into Julia during construction and not retained
         by Python. Its active model was checked by the prepared execution.
+    fft_cache : FFTCache or None, optional
+        Verified offers for a private per-start planning context. Publication follows
+        successful construction, history/monitor restoration and start adoption.
 
     Raises
     ------
@@ -175,16 +183,30 @@ class JuliaSession:
         started: Callable[[float, float, int], None] | None = None,
         observation: ObservationTransfer | None = None,
         monitor: BoundaryCheck | None = None,
+        transverse: TransverseFormat | None = None,
         noise: InputNoiseTransfer | None = None,
+        fft_cache: FFTCache | None = None,
     ) -> None:
         """Validate the start, construct its independent engine, then take the field."""
         runtime.check()
         self._validate_start(start, shape)
         self._runtime = runtime
         self._observation = observation
-        self._monitor = None if monitor is None else MonitorLog(monitor, start.z)
+        self._fft_cache = fft_cache
+        self._planning_record: FFTPlanRecord | None = None
+        self._monitor = (
+            None
+            if monitor is None
+            else MonitorLog(monitor, start.z, transverse=transverse)
+        )
+        self._declared_logged = False
         if self._monitor is not None and start.monitor is not None:
-            self._monitor = self._monitor.continued(parse_resume(start.monitor))
+            self._monitor = self._monitor.continued(
+                parse_resume(
+                    start.monitor,
+                    faces=0 if transverse is None else len(transverse.faces),
+                )
+            )
         self._payload: ObservationPayload | None = None
         self._preparation = preparation
         self._shape = shape
@@ -218,12 +240,7 @@ class JuliaSession:
         self._n_planes = len(transfer.planes)
         self._stop = stop
         self._token = stop if isinstance(stop, StopToken) else StopToken()
-        self._lease = StopLease(runtime, self._token)
-        self._engine = self._start_engine(transfer, start, restored, noise)
-        start.take_field()
-        self._busy = False
-        self._servicing = False
-        self._held = False
+        self._busy = self._servicing = self._held = False
         self._report: _calls.EngineReport | None = None
         self._last_status = SessionStatus(
             start.z, start.plane_index, 0, 0, SessionState.READY
@@ -237,6 +254,80 @@ class JuliaSession:
         self._field_exports = 0
         self._abandoned: tuple[float, float] | None = None
         self._group_chunk = 0
+        self._lease = StopLease(runtime, self._token)
+        self._adopt_engine(transfer, start, restored, noise)
+
+    def _adopt_engine(
+        self,
+        transfer: RunTransfer,
+        start: Start,
+        restored: CallRestore | None,
+        noise: InputNoiseTransfer | None,
+    ) -> None:
+        """Clean numerical ownership if final host adoption fails.
+
+        Parameters
+        ----------
+        transfer : RunTransfer
+            Resolved numerical and control policy.
+        start : Start
+            Unconsumed input and optional continuation.
+        restored : CallRestore or None
+            Validated cumulative accounting.
+        noise : InputNoiseTransfer or None
+            Selected input draw.
+        """
+        runtime = self._runtime
+        self._engine = self._start_engine(transfer, start, restored, noise)
+        try:
+            self._finish_start(start)
+        except BaseException:
+            try:
+                _calls.call_void(runtime, "close_session!", self._engine)
+            finally:
+                try:
+                    self._engine.close()
+                finally:
+                    self._lease.close()
+            raise
+
+    def _finish_start(self, start: Start) -> None:
+        """Adopt a fully constructed start before publishing its planning facts.
+
+        Parameters
+        ----------
+        start : Start
+            Validated unconsumed input whose numerical construction has succeeded.
+        """
+        fft_cache = self._fft_cache
+        planning = self._planning_record
+        if fft_cache is not None and planning is not None:
+            self._accounting.record.update(
+                {
+                    "fft_plan_fingerprint": fft_cache.fingerprint.digest,
+                    "fft_plan_effort": fft_cache.effort,
+                    "fft_cache_supplied": fft_cache.file_supplied,
+                    "fft_plans_applied": len(planning.applied),
+                    "fft_plans_measured": len(planning.measured),
+                    "fft_plans_reused": len(planning.reused),
+                    "fft_plan_rejections": dict(planning.rejected),
+                }
+            )
+        field = start.take_field()
+        try:
+            if fft_cache is not None and planning is not None:
+                self._accounting.record["fft_cache_written"] = publish_fft_cache(
+                    fft_cache, dict(planning.measured)
+                )
+        except BaseException:
+            # Unexpected publication failures cannot orphan numerical ownership
+            # or consume a start whose factory call never returned.
+            start.field = field
+            raise
+        # Numerical plans retain their context. Host wisdom copies are preparation
+        # facts, not session buffers or a growing propagation cache.
+        self._planning_record = None
+        self._fft_cache = None
 
     def _start_engine(
         self,
@@ -265,7 +356,10 @@ class JuliaSession:
         """
         runtime = self._runtime
         engine: JuliaHandle | None = None
+        planning: JuliaHandle | None = None
         try:
+            if self._fft_cache is not None:
+                planning = runtime.own_call("prepare_fft_planning", self._fft_cache)
             engine = runtime.own_call(
                 "start_low_storage"
                 if transfer.low_storage
@@ -281,6 +375,10 @@ class JuliaSession:
                 self._lease.flag,
                 noise,
                 bool(start.resume),
+                None
+                if self._monitor is None or self._monitor.resume is None
+                else self._monitor.resume.transverse,
+                planning,
                 owners=(self._lease,),
             )
             if restored is not None:
@@ -291,20 +389,11 @@ class JuliaSession:
                 self._march_refusal = restore_history(
                     runtime, engine, start.march, transfer, self._shape
                 )
-            if self._monitor is not None:
-                resume = self._monitor.resume
-                if resume is not None:
-                    _calls.call_void(
-                        runtime,
-                        "restore_session_monitor!",
-                        engine,
-                        resume.numerical,
-                        resume.plane,
-                    )
-                payload = read_monitor(runtime, engine, 0)
-                if payload is None:
-                    raise BackendError("Julia temporal monitor preparation is missing")
-                self._monitor = self._monitor.captured(payload)
+            self._restore_monitor(engine)
+            if planning is not None:
+                self._planning_record = read_planning(runtime, planning)
+                planning.close()
+                planning = None
         except BaseException:
             try:
                 if engine is not None:
@@ -314,9 +403,38 @@ class JuliaSession:
                     if engine is not None:
                         engine.close()
                 finally:
-                    self._lease.close()
+                    try:
+                        if planning is not None:
+                            planning.close()
+                    finally:
+                        self._lease.close()
             raise
         return engine
+
+    def _restore_monitor(self, engine: JuliaHandle) -> None:
+        """Restore the selected continuations before publishing initial monitor facts.
+
+        Parameters
+        ----------
+        engine : JuliaHandle
+            Newly constructed numerical owner, not yet adopted by the caller.
+        """
+        if self._monitor is None:
+            return
+        resume = self._monitor.resume
+        if resume is not None:
+            _calls.call_void(
+                self._runtime,
+                "restore_session_monitor!",
+                engine,
+                resume.numerical,
+                resume.plane,
+                resume.transverse,
+            )
+        payload = read_monitor(self._runtime, engine, 0)
+        if payload is None:
+            raise BackendError("Julia monitor preparation is missing")
+        self._monitor = self._monitor.captured(payload)
 
     @staticmethod
     def _validate_start(start: Start, shape: tuple[int, int, int]) -> None:
@@ -687,7 +805,9 @@ class JuliaSession:
         if report.kind == 8:
             if self._monitor is None or monitored is None or monitored.notice is None:
                 raise BackendError("Julia warning barrier has no temporal notice")
-            warning = monitor_warning(self._monitor.check, monitored.notice)
+            warning = monitor_warning(
+                self._monitor.check, monitored.notice, self._monitor.transverse
+            )
             return ServiceRequired(
                 ServiceKind.WARNING,
                 report.z,
@@ -705,7 +825,9 @@ class JuliaSession:
         elif report.kind == 9:
             if self._monitor is None or monitored is None:
                 raise BackendError("Julia boundary stop has no temporal monitor")
-            error = monitor_error(self._monitor.check, monitored)
+            error = monitor_error(
+                self._monitor.check, monitored, self._monitor.transverse
+            )
         elif outcome is Outcome.FAILED:
             code, message, _, _, _ = _calls.failure(self._runtime, self._engine)
             if code == "AdamsBudgetError":
@@ -768,6 +890,15 @@ class JuliaSession:
         if payload is None:
             raise BackendError("Julia temporal monitor preparation is missing")
         self._monitor = current.captured(payload)
+        transverse = None if self._observation is None else self._observation.transverse
+        if (
+            not self._declared_logged
+            and payload.transverse is not None
+            and transverse is not None
+            and transverse.declared
+            and transverse.policy.has_design
+        ):
+            self._declared_logged = payload.transverse.log_declared()
         if payload.finished and (previous is None or not previous.finished):
             monitor_finished(payload)
         return payload
@@ -1120,7 +1251,12 @@ class JuliaSession:
             )
         resume = current.resume
         if resume is None:
-            resume = parse_resume(continuation)
+            resume = parse_resume(
+                continuation,
+                faces=0
+                if current.transverse is None
+                else len(current.transverse.faces),
+            )
         published = current.continued(resume)
         pending = self._ledger.pending is not None
         if not pending and self._report is not None:
@@ -1135,6 +1271,7 @@ class JuliaSession:
                 self._engine,
                 resume.numerical,
                 resume.plane,
+                resume.transverse,
             )
             self._monitor = published
             if pending or self._report is None:

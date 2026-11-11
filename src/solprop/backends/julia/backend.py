@@ -15,14 +15,18 @@ from solprop.backends.driver_session import foreign_request
 from solprop.backends.julia import _calls
 from solprop.backends.julia._blas import BlasHold, acquire_blas
 from solprop.backends.julia._descriptors import lower_modal, transfer_memory
+from solprop.backends.julia._fft_cache import FFTCache, refresh_fft_cache
+from solprop.backends.julia._fft_runtime import load_planning_cache
 from solprop.backends.julia._group import JuliaGroupSession
 from solprop.backends.julia._lower import RunTransfer, lower_run
 from solprop.backends.julia._noise import lower_input_noise
 from solprop.backends.julia._observations import ObservationTransfer, lower_observations
 from solprop.backends.julia._ownership import JuliaHandle, require_main_thread
+from solprop.backends.julia._probe import JuliaTimingProbe
 from solprop.backends.julia._runtime import JuliaRuntime, get_runtime
 from solprop.backends.julia._session import JuliaSession
 from solprop.backends.julia._spatial import lower_spatial
+from solprop.backends.julia._transverse import TransverseFormat, transverse_format
 from solprop.backends.protocol import ExecutionBackend, TimingProbe
 from solprop.backends.session import (
     ExecutionOptions,
@@ -124,7 +128,12 @@ class JuliaBackend:
         lower_run(problem, request)
         self._observation = (
             lower_observations(
-                problem, request, grid=grid, modes=modes, profiles=profiles
+                problem,
+                request,
+                grid=grid,
+                modes=modes,
+                profiles=profiles,
+                trace_chunk=self._node_chunk,
             )
             if request.observation.stats.names
             or request.boundary.monitor is not None
@@ -140,7 +149,9 @@ class JuliaBackend:
         self._runtime: JuliaRuntime | None = None
         self._preparation: JuliaHandle | None = None
         self._blas: BlasHold | None = None
+        self._fft_cache: FFTCache | None = None
         self._sessions: WeakSet[JuliaSession] = WeakSet()
+        self._probes: WeakSet[JuliaTimingProbe] = WeakSet()
         self._groups: WeakSet[JuliaGroupSession] = WeakSet()
         self._prepared: WeakSet[JuliaPrepared] = WeakSet()
         self._closed = False
@@ -222,6 +233,7 @@ class JuliaBackend:
                 grid=self._grid,
                 modes=self._modes,
                 profiles=self._profiles,
+                trace_chunk=self._node_chunk,
             )
             if request.observation.stats.names
             or request.boundary.monitor is not None
@@ -254,11 +266,17 @@ class JuliaBackend:
                 if request.boundary.monitor is None
                 else request.boundary.monitor.check
             ),
+            transverse=transverse_format(
+                None
+                if request.boundary.monitor is None
+                else request.boundary.monitor.transverse
+            ),
         )
 
     def _prepare_numerical(self) -> None:
         """Publish numerical preparation and its BLAS lifetime as one transaction."""
         runtime = get_runtime(setup_id=self._setup_id, device="cpu")
+        fft_cache = load_planning_cache(runtime)
         blas: BlasHold | None = None
         handle: JuliaHandle | None = None
         try:
@@ -273,6 +291,7 @@ class JuliaBackend:
                     on_release=blas.close,
                 )
                 self._runtime, self._preparation, self._blas = runtime, handle, blas
+                self._fft_cache = fft_cache
         except BaseException as failure:
             published = (
                 handle is not None
@@ -350,28 +369,29 @@ class JuliaBackend:
         return 0
 
     def timing_probe(self, start: Start) -> TimingProbe:
-        """Refuse an estimate until this composition has a standalone trial probe.
+        """Load an isolated Julia-owned trial engine for the shared estimate.
 
         Parameters
         ----------
         start : solprop.backends.session.Start
-            Start retained unchanged on refusal.
+            Initial state, consumed only after successful numerical construction.
+            Its field is copied; monitor and march continuation are unused.
 
         Returns
         -------
         solprop.backends.protocol.TimingProbe
-            No probe is currently constructed.
+            An owned probe that commits no session state or observation.
 
         Raises
         ------
         BackendError
-            Naming the pending timing-probe capability.
+            Naming an invalid start or unsupported numerical capability.
         """
         self._check()
-        del start
-        raise BackendError(
-            "this Julia composition does not yet implement timing probes"
-        )
+        prepared = self.prepare(self._problem, self._request)
+        probe = JuliaTimingProbe(prepared, start)
+        self._probes.add(probe)
+        return probe
 
     def available_device_memory(self) -> int | None:
         """Return no device-memory limit for CPU execution.
@@ -430,6 +450,11 @@ class JuliaBackend:
             ledger.update(
                 (f"session.{index}.{name}", size)
                 for name, size in session.memory_ledger().items()
+            )
+        for index, probe in enumerate(self._probes):
+            ledger.update(
+                (f"timing.{index}.{name}", size)
+                for name, size in probe.memory_ledger().items()
             )
         for index, group in enumerate(self._groups):
             if group._owners[0] is self:
@@ -524,7 +549,7 @@ class JuliaBackend:
             session.check_close()
         self._closed = True
         failure: BaseException | None = None
-        for resource in (*groups, *sessions):
+        for resource in (*groups, *sessions, *self._probes):
             try:
                 resource.close()
             except BaseException as error:
@@ -563,6 +588,8 @@ class JuliaPrepared:
         Request-specific immutable observation layout and represented inputs.
     monitor : solprop.monitor.BoundaryCheck or None, optional
         Immutable temporal monitor policy for formatting Julia's records and notices.
+    transverse : TransverseFormat or None, optional
+        Host-only spatial message context, without a live edge monitor.
     """
 
     def __init__(  # noqa: PLR0913 - numerical preparation and independent service context
@@ -576,6 +603,7 @@ class JuliaPrepared:
         problem: PropagationProblem | None = None,
         observation: ObservationTransfer | None = None,
         monitor: BoundaryCheck | None = None,
+        transverse: TransverseFormat | None = None,
     ) -> None:
         """Retain numerical preparation without creating mutable march state."""
         self._owner = owner
@@ -586,6 +614,7 @@ class JuliaPrepared:
         self._problem = owner._problem if problem is None else problem
         self._observation = observation
         self._monitor = monitor
+        self._transverse = transverse
         self._owner._prepared.add(self)
 
     @property
@@ -651,7 +680,13 @@ class JuliaPrepared:
             started=started,
             observation=self._observation,
             monitor=self._monitor,
+            transverse=self._transverse,
             noise=noise,
+            fft_cache=(
+                None
+                if self._owner._fft_cache is None
+                else refresh_fft_cache(self._owner._fft_cache)
+            ),
         )
         self._owner.register(session)
         return session

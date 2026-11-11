@@ -24,7 +24,7 @@ def _install_monitor(boundary, monkeypatch, *, interrupt=False):
     boundary.prepared._monitor = BoundaryCheck()
     fired = False
 
-    def restore(session, numerical, plane):
+    def restore(session, numerical, plane, transverse=None):
         nonlocal fired
         if not hasattr(session, "monitor_resume"):
             session.monitor_resume = numerical

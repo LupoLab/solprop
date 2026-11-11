@@ -273,8 +273,9 @@ def clear(environ: Mapping[str, str] | None = None) -> int:
 
     The user's store loses the profiles, their refinements and the plans runs measured
     (``wisdom.json``, solprop ADR-076), and the file ``SOLPROP_FFTW_WISDOM`` keeps for
-    this build, when the variable is set, goes too. A calibration in progress keeps
-    its claim. Read-only directories are not touched.
+    this build, when the variable is set, goes too. Julia plan files with this machine's
+    recorded topology and process plan offers are also cleared, without loading Julia.
+    A calibration in progress keeps its claim. Read-only directories are not touched.
 
     Parameters
     ----------
@@ -286,11 +287,13 @@ def clear(environ: Mapping[str, str] | None = None) -> int:
     int
         The files removed.
     """
+    from solprop.backends.julia._fft_cache import clear_fft_cache  # noqa: PLC0415
+
     found = choice(environ)
-    removed = 0
+    removed = clear_fft_cache(environ)
     digest = None if found.fingerprint is None else found.fingerprint.digest
     if digest is not None:
-        removed = _native.store.Store(store_directory(environ)).clear(digest)
+        removed += _native.store.Store(store_directory(environ)).clear(digest)
     named = (os.environ if environ is None else environ).get("SOLPROP_FFTW_WISDOM", "")
     if not named.strip():
         return removed

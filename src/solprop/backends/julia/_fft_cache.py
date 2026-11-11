@@ -36,10 +36,12 @@ __all__ = [
     "FFTCache",
     "FFTEngineIdentity",
     "FFTFingerprint",
+    "clear_fft_cache",
     "fingerprint",
     "forget_fft_cache",
     "load_fft_cache",
     "publish_fft_cache",
+    "refresh_fft_cache",
 ]
 
 type _Effort = Literal["estimate", "measure", "patient"]
@@ -457,6 +459,30 @@ def load_fft_cache(
         )
 
 
+def refresh_fft_cache(cache: FFTCache) -> FFTCache:
+    """Refresh offers for a later start using the preparation's bound identity.
+
+    Parameters
+    ----------
+    cache : FFTCache
+        Previously verified identity, destination and planning effort.
+
+    Returns
+    -------
+    FFTCache
+        New immutable offers, including successful measurements made after the
+        original preparation and any replaced complete cache file. Clearing the
+        cache removes old offers even from a still-live prepared owner.
+    """
+    found, path = cache.fingerprint, cache.path
+    with _LOCK:
+        stored = _load(path, found) if path is not None else {}
+        offered = stored | _measured.get(found.digest, {})
+        return FFTCache(
+            found, path, tuple(sorted(offered.items())), bool(stored), cache.effort
+        )
+
+
 @contextlib.contextmanager
 def _exclusive(path: Path) -> Generator[None]:
     """Serialize cooperating writers through read, merge and atomic replacement.
@@ -556,7 +582,7 @@ def publish_fft_cache(cache: FFTCache, measured: Mapping[str, str]) -> bool:
                     }
                     _replace(path, json.dumps(record, sort_keys=True, indent=0))
                 version = _version(path)
-        except (OSError, UnicodeDecodeError) as error:
+        except (OSError, UnicodeDecodeError, MemoryError) as error:
             logger.warning("julia: cannot store FFTW plans in %s: %s", path, error)
             return False
         if version is not None:
@@ -582,3 +608,103 @@ def forget_fft_cache(fingerprint: str | None = None) -> None:
             for key in tuple(_read):
                 if key[0] == fingerprint:
                     del _read[key]
+
+
+def clear_fft_cache(environ: Mapping[str, str] | None = None) -> int:
+    """Clear this machine's Julia plan files and process offers without loading Julia.
+
+    Parameters
+    ----------
+    environ : mapping of str to str or None, optional
+        Cache destination policy; the process environment by default.
+
+    Returns
+    -------
+    int
+        Removed compatible Julia cache files. Unrelated, malformed and inaccessible
+        files remain untouched. Existing numerical plans continue to be usable.
+    """
+    # These are shared pure machine records, not the native execution extension.
+    from solprop.calibration import _native  # noqa: PLC0415 - lazy clear operation
+
+    environment = os.environ if environ is None else environ
+    forget_fft_cache()
+    try:
+        topology = _native.topology.read_topology().record()
+    except BackendError:
+        return 0
+    candidates: set[Path] = set()
+    try:
+        candidates.update(
+            store_directory(environment).glob("machines/julia-*/wisdom.json")
+        )
+        named = environment.get("SOLPROP_FFTW_WISDOM", "").strip()
+        if named:
+            base = Path(named).expanduser().absolute()
+            prefix = f"{base.name}.julia-"
+            candidates.update(
+                path
+                for path in base.parent.iterdir()
+                if path.name.startswith(prefix)
+                and len(path.name) == len(prefix) + 64
+                and all(char in "0123456789abcdef" for char in path.name[len(prefix) :])
+            )
+    except OSError, RuntimeError, ValueError:
+        # The other destination can still contain readable, removable plans.
+        pass
+    removed = 0
+    for path in candidates:
+        try:
+            if not _clearable(path, topology):
+                continue
+            with _exclusive(path):
+                if _clearable(path, topology):
+                    path.unlink()
+                    removed += 1
+        except OSError, UnicodeDecodeError, ValueError:
+            continue
+    return removed
+
+
+def _clearable(path: Path, topology: Mapping[str, object]) -> bool:
+    """Match complete owned metadata before removing a stored plan file.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        Candidate default or explicitly named Julia cache file.
+    topology : mapping
+        Current machine record from the backend-neutral topology reader.
+
+    Returns
+    -------
+    bool
+        Whether a valid Julia fingerprint identifies this machine and platform.
+    """
+    record: object = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(record, dict):
+        return False
+    data = cast(dict[str, object], record)
+    canonical, digest = data.get("identity"), data.get("fingerprint")
+    if (
+        type(data.get("format")) is not int
+        or data["format"] != _FORMAT
+        or not isinstance(canonical, str)
+        or not isinstance(digest, str)
+        or hashlib.sha256(canonical.encode("utf-8")).hexdigest() != digest
+        or not (
+            path.parent.name == f"julia-{digest}"
+            or path.name.endswith(f".julia-{digest}")
+        )
+    ):
+        return False
+    identity: object = json.loads(canonical)
+    if not isinstance(identity, dict):
+        return False
+    found = cast(dict[str, object], identity)
+    return (
+        found.get("format") == _FORMAT
+        and found.get("system") == platform.system()
+        and found.get("architecture") == platform.machine()
+        and found.get("topology") == json.loads(json.dumps(dict(topology)))
+    )

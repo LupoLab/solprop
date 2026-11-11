@@ -1601,6 +1601,45 @@ Integrated Aqua/JET passes all 16 checks over 1,409 definitions, with no cached 
 Transverse monitoring, remaining preparation controls and the complete route/material
 qualification matrix still precede phase 2 completion.
 
+### Transverse services, FFT persistence and estimates — 2026-11-11
+
+The binary64 spatial session now owns transverse launch assessment, accepted-step
+readings, warning/stop barriers and continuation. Its noise-floor reference retains
+the original unmasked clean columns; a resumed checkpoint with no edge record uses
+the masked current field and original draw. Explicit continuation selection is
+separate from lifecycle resumption, so a selected absent record cannot later be
+replaced by a fallback (#693). Python formats detached records and preserves the
+earlier warning position in a face-stop message (#692).
+
+CPU source, temporal/spatial and Raman transforms use actual-array FFT planning.
+Each start receives an isolated context, checks offers against verified loaded
+libraries and artifact identities, and publishes successful measurements through an
+atomic cache. Later starts refresh process/file offers; calibration clearing handles
+Julia records too (#694). Optional file-write failure does not invalidate a prepared
+session, and unexpected adoption failure releases numerical ownership (#695).
+Preparation-only wisdom maps are released after facts are copied; no uncounted copy
+of the persistent cache remains in a running session. Metadata counts distinct
+transform keys. The precompile workload explicitly uses estimate-only contexts.
+
+The execution owner supplies a separate Julia timing probe, retaining its own copied
+load, stages, norm, source and flow. It constructs no controller, observation or march
+history. Embedded candidates receive their usual boundary treatments once at host
+readback; low-storage probes update discarded registers and expose no trial field.
+Start handover and main-thread cleanup retain ownership, and a cleanup failure cannot
+replace the initiating exception (#696).
+
+Independent reviews cover the Julia leaves and each Python integration. The actual
+managed bridge passes 34 new transverse, timing and cache cases. The bounds-checked
+Core selection passed 119,300 assertions in 323 sets before its final inventory module;
+that module then passed all 34 assertions in seven sets under the required isolated
+startup flags. The first Core command omitted those flags, and the first isolated
+retry omitted its usual TOML import; neither failure required a production change.
+Integrated Aqua/JET passes 16 checks over 1,544 definitions, none cached. The affected
+typed Python/SEP selection passes 455 tests with three declared process-SEP skips.
+Sphinx builds successfully. Whole-package Python analysis has no errors and the three
+existing local native-stub warnings. CPU provider selection, budgeted node planning,
+remaining route/material witnesses and measurements still precede phase 2 completion.
+
 ## Part III — History
 
 - 2026-11-10: The maintainer accepted external hard-kill supervision for stalled Julia

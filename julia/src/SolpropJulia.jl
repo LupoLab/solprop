@@ -25,6 +25,7 @@ public copy_preparation
 public StopFlag, stop_address, stop_requested, stop_setter_address
 
 include("cancellation.jl")
+include("fft_plans.jl")
 include("execution.jl")
 include("double_float.jl")
 include("double_float_functions.jl")
@@ -49,6 +50,7 @@ include("composition.jl")
 include("spatial_composition.jl")
 include("observations.jl")
 include("spatial_observations.jl")
+include("transverse_observations.jl")
 include("quadrature_alarm.jl")
 include("march.jl")
 include("runge_kutta_observation.jl")
@@ -62,6 +64,7 @@ include("input_noise.jl")
 include("transfer.jl")
 include("monitor_transfer.jl")
 include("group_session.jl")
+include("trial_probe.jl")
 
 """
     copy_preparation(values::AbstractArray)

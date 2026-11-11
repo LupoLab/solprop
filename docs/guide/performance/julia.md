@@ -103,7 +103,12 @@ Unsupported combinations currently refuse by name at preparation. The standalone
 Statistics and temporal/transverse-monitor components have separate tests;
 their presence alone does not establish complete Python session support.
 The current session supports in-stage and split temporal absorption. Transverse monitor
-attachment remains in progress. Vector
+attachment now uses the same event barriers as temporal monitoring. It retains original
+clean launch columns for noise-floor subtraction, restores per-face cumulative totals,
+and uses the first explicitly supplied continuation, including an absent edge record.
+An older checkpoint without an edge continuation initializes its baseline from the
+resumed field. Python formats the shared warnings and summaries from detached Julia
+readings; it does not recompute edge decisions. Vector
 polarisation, tensor Raman, general modal and planar routes, coupled flows, TDSE and
 dispersive Kerr remain outside SEP 48's admitted scope and refuse by name.
 An explicit node chunk bounds the source's physical-node scratch; memory-budget
@@ -140,6 +145,30 @@ construction and Julia preparations retain the narrowest active request, and rel
 restores the previous width only after the last owner finishes. Metadata records the
 actual controllable libraries and their current widths. The current engine uses its
 Julia OpenBLAS provider; macOS Accelerate forwarding remains to be attached.
+
+CPU starts plan against their own transform arrays and keep successful FFTW measurements
+in the calibration store. Cache identities include the actual loaded FFT libraries and
+their inventoried artifacts, Julia and engine versions, CPU topology, target and effective
+preferences. Each transform key includes its shape, strides, transform kind, precision,
+alignment and actual planner thread count. Reusing a prepared execution refreshes its
+offers, including plans measured by earlier starts in the same process.
+`SOLPROP_FFTW_PLAN` selects `estimate`, `measure` (the default) or `patient`.
+`SOLPROP_CALIBRATION=off` retains new plans only in the process unless an explicit
+`SOLPROP_FFTW_WISDOM` path is supplied. That override names a Julia-specific file beside
+the requested path. Invalid or unusable cache files produce a warning and leave planning
+available. A failed optional file write also leaves successful numerical preparation
+usable. `solprop calibrate --clear` removes compatible plans for the current topology
+and forgets process offers, without loading Julia or changing already-created plans.
+Execution metadata reports measured, applied and reused **distinct transform keys**,
+cache rejections and whether a file was supplied or written. Wisdom strings are released
+after construction; the session retains only its actual plans and compact metadata.
+
+The internal execution owner also supplies isolated timing probes for cost estimates.
+Julia owns their loaded field, stages, source, norms and accepted-step finishing. A probe
+creates no session, monitor, history or output event, and a normal embedded trial does
+not advance its loaded state. Its field readback is an owning host copy available once
+per trial. Low-storage probes update discarded registers and have no readable trial
+field. Closing the execution owner closes its probes before releasing preparation.
 
 ## Install and inspect
 

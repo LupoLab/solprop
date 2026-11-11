@@ -2,6 +2,28 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 public FFTPlanning, plan_owned_fft!, fft_planning_record, fft_runtime_identity
+public prepare_fft_planning, fft_planning_transfer, release_fft_planning!
+
+"""
+    prepare_fft_planning(transfer)
+
+Copy detached cache offers and effort through the optional PythonCall extension.
+
+The result is one start's private `FFTPlanning`. It borrows no Python data and
+publishes nothing. Failed starts discard their context without publishing facts.
+"""
+function prepare_fft_planning end
+
+"""
+    fft_planning_transfer(context::FFTPlanning)
+
+Return owned sorted tuple pairs and keys for guarded host transfer.
+
+The same measured/applied/rejected/reused facts as `fft_planning_record` are packed
+without dictionaries so conversion never depends on a foreign mapping protocol.
+No cache file or numerical workspace is changed.
+"""
+function fft_planning_transfer end
 
 """
     FFTPlanning(; offered=Dict{String,String}(), effort=:measure, keep=true,
@@ -64,6 +86,33 @@ function fft_planning_record(context::FFTPlanning)
         measured = copy(context.measured), applied = copy(context.applied),
         reused = sort!(collect(context.reused)), rejected = copy(context.rejected),
     )
+end
+
+function fft_planning_transfer(context::FFTPlanning)
+    packed(values) = Tuple((key, values[key]) for key in sort!(collect(keys(values))))
+    return (
+        measured = packed(context.measured), applied = packed(context.applied),
+        rejected = packed(context.rejected), reused = Tuple(sort!(collect(context.reused))),
+    )
+end
+
+"""
+    release_fft_planning!(context::FFTPlanning)
+
+Release preparation-only wisdom after the host has detached the planning facts.
+
+Replace all five maps/sets so retained execution contexts hold no cache strings or
+their former container capacity. This changes no FFT plan, array or global wisdom.
+Call only after all numerical construction using this private context has finished.
+Return `nothing`.
+"""
+function release_fft_planning!(context::FFTPlanning)
+    context.offered = Dict{String, String}()
+    context.measured = Dict{String, String}()
+    context.applied = Dict{String, String}()
+    context.rejected = Dict{String, String}()
+    context.reused = Set{String}()
+    return nothing
 end
 
 """

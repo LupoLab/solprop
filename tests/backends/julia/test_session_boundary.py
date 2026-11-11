@@ -204,6 +204,8 @@ class _Engine:
         stop,
         noise=None,
         resume=False,
+        transverse_continuation=None,
+        planning=None,
     ):
         if self.construct_error is not None:
             raise self.construct_error
@@ -332,8 +334,10 @@ def boundary(monkeypatch, setup_record):
     owner._runtime = runtime
     owner._preparation = preparation
     owner._blas = None
+    owner._fft_cache = None
     owner._closed = False
     owner._sessions = WeakSet()
+    owner._probes = WeakSet()
     owner._groups = WeakSet()
     owner._prepared = WeakSet()
     monkeypatch.setattr(owner, "_lowered", (), raising=False)

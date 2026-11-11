@@ -30,6 +30,7 @@ from solprop.backends.julia._descriptors import (
 )
 from solprop.backends.julia._profiles import ProfileLowering, lower_statistic_profile
 from solprop.backends.julia._spatial import SeparableTransfer, lower_separable
+from solprop.backends.julia._transverse import TransverseTransfer, lower_transverse
 from solprop.constants import EPS0, C
 from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
@@ -374,6 +375,8 @@ class ObservationTransfer:
         Species mapping for requested population statistics, otherwise absent.
     temporal : TemporalObservationTransfer or None
         Fresh temporal monitor configuration, otherwise absent.
+    transverse : TransverseTransfer or None
+        Owned scalar spatial edge configuration, otherwise absent.
     split_rate : numpy.ndarray or None
         Coarse temporal power-loss rate in m^-1, shape ``(n_t,)``, under the split
         scheme, including unmonitored runs. Its application remains Julia-owned.
@@ -399,6 +402,7 @@ class ObservationTransfer:
     split_rate: Float[np.ndarray, " n_t"] | None
     can_rest: bool
     spatial: SpatialObservationTransfer | None = None
+    transverse: TransverseTransfer | None = None
 
 
 def _admit(
@@ -777,8 +781,6 @@ def _temporal(
     BackendError
         For unsupported transverse data, inconsistent schemes or invalid weights.
     """
-    if monitor.transverse is not None:
-        raise BackendError("julia scalar modal observations refuse transverse monitors")
     if monitor.kind != problem.grid_kind or monitor.split != (split_rate is not None):
         raise BackendError(
             "julia temporal monitor formulation or split scheme is inconsistent"
@@ -905,6 +907,7 @@ def lower_observations(
     grid: TimeGrid | None = None,
     modes: Sequence[Mode] | None = None,
     profiles: Mapping[str, ZProfile] | None = None,
+    trace_chunk: int = 1,
 ) -> ObservationTransfer:
     """Prepare one request's scalar statistics and temporal monitor numerically.
 
@@ -922,6 +925,8 @@ def lower_observations(
     profiles : mapping of str to ZProfile or None, optional
         Independent density, pressure and core-radius profiles when requested.
         Pressure is already in catalogue bar; no conversion occurs here.
+    trace_chunk : int, optional
+        Positive execution bound for transverse collar transforms.
 
     Returns
     -------
@@ -994,4 +999,7 @@ def lower_observations(
         and problem.linear.coupled_flow is None
         and resting_geometry,
         spatial,
+        None
+        if monitor is None or monitor.transverse is None
+        else lower_transverse(problem, monitor.transverse, trace_chunk),
     )

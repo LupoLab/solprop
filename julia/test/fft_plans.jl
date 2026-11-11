@@ -381,3 +381,22 @@ end
     @test all(iszero, x) && all(==(1 + 2im), y)
     @test isempty(context.applied) && isempty(context.measured)
 end
+
+@testset "detached planning facts release preparation-only wisdom" begin
+    input, output = ComplexF64.(1:8), zeros(ComplexF64, 8)
+    context = SJ.FFTPlanning(; offered = Dict("unused" => "unneeded offered text"))
+    plan = SJ.plan_owned_fft!(context, input, output, (1,), :c2c_forward)
+    facts = SJ.fft_planning_transfer(context)
+    offered, measured = context.offered, context.measured
+    @test length(facts.measured) == length(facts.applied) == 1
+    @test !isempty(offered) && !isempty(measured)
+    @test SJ.release_fft_planning!(context) === nothing
+    @test isempty(context.offered) && isempty(context.measured)
+    @test isempty(context.applied) && isempty(context.rejected) && isempty(context.reused)
+    @test context.offered !== offered && context.measured !== measured
+    @test length(facts.measured) == 1 && !isempty(facts.measured[1][2])
+    LinearAlgebra.mul!(output, plan, input)
+    expected, bound = fft_direct_reference(input, -1), fft_rounding_bound(input)
+    @test maximum(abs.(Complex{BigFloat}.(output) .- expected)) <= bound
+    @test SJ.release_fft_planning!(context) === nothing
+end

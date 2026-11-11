@@ -18,7 +18,9 @@ function copy_session_monitor_rows!(rows, session, generation::Int)
     return nothing
 end
 
-function restore_session_monitor!(session, continuation::Py, plane::Bool)
+function restore_session_monitor!(
+        session, continuation::Py, plane::Bool, transverse = nothing,
+    )
     record = if pyis(continuation, nothing)
         nothing
     else
@@ -40,5 +42,15 @@ function restore_session_monitor!(session, continuation::Py, plane::Bool)
             pyconvert(Bool, continuation.has_quiet_run),
         )
     end
-    return SolpropJulia.restore_session_monitor!(session, record, plane)
+    return SolpropJulia.restore_session_monitor!(
+        session, record, plane, _transverse_continuation(transverse),
+    )
+end
+
+function restore_session_monitor!(
+        session, ::Nothing, plane::Bool, transverse::Py,
+    )
+    return SolpropJulia.restore_session_monitor!(
+        session, nothing, plane, _transverse_continuation(transverse),
+    )
 end

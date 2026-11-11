@@ -12,9 +12,11 @@ import sys
 import textwrap
 from dataclasses import asdict, replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from solprop import calibration
 from solprop.backends.julia import _fft_cache as cache
 from solprop.exceptions import BackendError
 
@@ -66,6 +68,82 @@ def _write(found, record):
     assert found.path is not None
     found.path.parent.mkdir(parents=True, exist_ok=True)
     found.path.write_text(json.dumps(record), encoding="utf-8")
+
+
+def test_later_start_refreshes_process_and_replaced_file_offers(identity, policy):
+    first = _load(identity, policy)
+    assert not first.offered
+    assert cache.publish_fft_cache(first, {"temporal": "first successful plan"})
+    second = cache.refresh_fft_cache(first)
+    assert dict(second.offered) == {"temporal": "first successful plan"}
+    assert not first.offered and second.file_supplied
+    _write(first, _record(first, {"spatial": "external plan", "temporal": "older"}))
+    third = cache.refresh_fft_cache(first)
+    assert dict(third.offered) == {
+        "spatial": "external plan",
+        "temporal": "first successful plan",
+    }
+    assert third.fingerprint is first.fingerprint
+    assert third.path == first.path and third.effort == first.effort
+    cache.forget_fft_cache()
+    assert first.path is not None
+    first.path.unlink()
+    assert not cache.refresh_fft_cache(third).offered
+
+
+def test_process_only_refresh_preserves_its_bound_policy(identity, policy):
+    first = _load(identity, {**policy, "SOLPROP_CALIBRATION": "off"})
+    assert first.path is None
+    assert not cache.publish_fft_cache(first, {"temporal": "measured"})
+    assert cache.refresh_fft_cache(first).offered == (("temporal", "measured"),)
+    cache.forget_fft_cache(first.fingerprint.digest)
+    assert not cache.refresh_fft_cache(first).offered
+
+
+def test_calibration_clear_removes_only_this_machines_julia_plans(
+    identity, policy, monkeypatch, tmp_path
+):
+    topology = {"cores": [[0, 1], [2, 3]]}
+    monkeypatch.setattr(
+        calibration._native.topology,
+        "read_topology",
+        lambda: SimpleNamespace(record=lambda: topology),
+    )
+    monkeypatch.setattr(
+        calibration, "choice", lambda _: SimpleNamespace(fingerprint=None)
+    )
+    environment = {**policy, "SOLPROP_FFTW_WISDOM": str(tmp_path / "named")}
+    default, named = _load(identity, policy), _load(identity, environment)
+    foreign = cache.load_fft_cache(identity, {"cores": [[8]]}, environ=policy)
+    for found in (default, named, foreign):
+        assert cache.publish_fft_cache(found, {"temporal": "plan"})
+    unrelated = tmp_path / "named.julia-unrelated"
+    unrelated.write_text("{}", encoding="utf-8")
+    malformed = tmp_path / "named.julia-malformed"
+    malformed.write_text("{broken", encoding="utf-8")
+    assert calibration.clear(environment) == 2
+    assert default.path is not None and not default.path.exists()
+    assert named.path is not None and not named.path.exists()
+    assert foreign.path is not None and foreign.path.is_file()
+    assert unrelated.is_file() and malformed.is_file()
+    assert not cache.refresh_fft_cache(default).offered
+    remaining = set(tmp_path.rglob("*"))
+    assert calibration.clear(environment) == 0
+    assert set(tmp_path.rglob("*")) == remaining
+    assert not list(tmp_path.rglob("*.lock.lock"))
+
+
+def test_clear_without_topology_still_forgets_process_measurements(
+    identity, policy, monkeypatch
+):
+    def absent():
+        raise BackendError("topology unavailable")
+
+    first = _load(identity, {**policy, "SOLPROP_CALIBRATION": "off"})
+    cache.publish_fft_cache(first, {"temporal": "plan"})
+    monkeypatch.setattr(calibration._native.topology, "read_topology", absent)
+    assert cache.clear_fft_cache(policy) == 0
+    assert not cache.refresh_fft_cache(first).offered
 
 
 def test_every_engine_field_and_topology_affect_identity(identity):

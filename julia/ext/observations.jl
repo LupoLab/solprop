@@ -100,6 +100,9 @@ function prepare_observations(modal::SolpropJulia._ProblemPreparation, transfer:
         prepared; period = pyconvert(Int, transfer.period),
         can_rest = pyconvert(Bool, transfer.can_rest),
         split_rate = _optional_copy(transfer.split_rate),
+        transverse = _observation_transverse(execution, prepared, transfer.transverse),
+        trace_chunk = pyis(transfer.transverse, nothing) ? 1 :
+            pyconvert(Int, transfer.transverse.trace_chunk),
     )
     return SolpropJulia.SessionPreparation(modal, policy)
 end
