@@ -76,16 +76,23 @@ end
         active = fill(true, 2)
         before_initial, before_endpoint, before_stages =
             copy(initial), copy(endpoint), copy(stages)
-        for theta in (0.125, 0.4, 0.5, 0.875)
-            field = SolpropJulia.observe_runge_kutta!(work, 0.2 * theta, active, execution)
+        for position in (0.025, 0.2 * 0.4, 0.1, 0.2 * 0.875, prevfloat(0.2))
+            field = SolpropJulia.observe_runge_kutta!(work, position, active, execution)
             # Each real/imaginary path has <48 rounded operations: two ordered
             # seven-term scale/sums, h scaling, three coefficient differences,
-            # and the nested extension. gamma48 times the absolute expression
-            # bounds their error without dividing by a cancellation-prone result.
+            # and the nested extension. gamma48 bounds this arithmetic at the
+            # rounded coordinates. Coordinate error is accounted separately:
+            # fl(position/h) has absolute error et <= u*abs(t), and subtracting
+            # its rounded value from one has es <= et + u*(1+T). This does not
+            # presume a small relative error in the endpoint complement 1-t.
             u = BigFloat(eps()) / 2
             gamma = 48u / (1 - 48u)
-            t = BigFloat(0.2 * theta) / BigFloat(0.2)
+            t = BigFloat(position) / BigFloat(0.2)
             rest = 1 - t
+            et = u * abs(t)
+            T = abs(t) + et
+            es = et + u * (1 + T)
+            S = abs(rest) + es
             for column in 1:2, row in 1:2
                 slopes = Complex{BigFloat}.(stages[row, column, :])
                 weights = BigFloat.(work.solution_weights)
@@ -101,8 +108,13 @@ end
                 b3 = h * norm1(slopes[1]) + b2
                 b4 = b2 + h * norm1(slopes[end]) + b3
                 b5 = h * sum(abs.(dense) .* norm1.(slopes))
-                magnitude = norm1(y) + t * (b2 + rest * (b3 + t * (b4 + rest * b5)))
-                budget = gamma * magnitude
+                magnitude = norm1(y) + T * (b2 + S * (b3 + T * (b4 + S * b5)))
+                # For P(t,s)=y+t*r2+t*s*r3+t^2*s*r4+t^2*s^2*r5,
+                # these one-norm derivative bounds hold over the rectangle
+                # joining exact and rounded coordinates, with abs(t)<=T, abs(s)<=S.
+                coordinate = et * (b2 + S * b3 + 2T * S * b4 + 2T * S^2 * b5) +
+                    es * (T * b3 + T^2 * b4 + 2T^2 * S * b5)
+                budget = gamma * magnitude + coordinate
                 @test budget > 0
                 @test norm1(Complex{BigFloat}(field[row, column]) - expected) <= budget
             end
