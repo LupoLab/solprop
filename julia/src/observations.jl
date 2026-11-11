@@ -11,6 +11,27 @@ public observation_check!, observation_plane!, observation_finish!
 abstract type _ObservationPreparation end
 abstract type _ObservationWorkspace end
 
+_observation_arithmetic(::_ObservationPreparation) = SourceArithmetic(Float64)
+
+function _observation_axis_map(execution, matrix, arithmetic, name)
+    matrix === nothing && return (nothing, nothing, nothing)
+    if source_type(arithmetic) === Float64
+        owned = upload(execution, matrix)
+        return (owned, owned, nothing)
+    end
+    host = Matrix{Float64}(matrix)
+    owned, range = source_narrow(
+        execution, host, arithmetic, name;
+        exponent = arithmetic.state_exponent - arithmetic.field_exponent,
+    )
+    return host, owned, range
+end
+
+function _observation_taper(arithmetic, scale)
+    return source_type(arithmetic) === Float64 ? scale :
+        source_coefficient(arithmetic, :observation_taper, scale)
+end
+
 """
     ObservationProfiles(; density=nothing, pressure=nothing, core_radius=nothing)
 
@@ -131,6 +152,9 @@ function ObservationPopulations(
         all(profile -> profile isa SourceProfile, species_densities) ||
         throw(ArgumentError("population observations need complete species profiles"))
     channels = plasma === nothing ? () : plasma.channels
+    map.arithmetic == grid.arithmetic &&
+        (plasma === nothing || plasma.arithmetic == grid.arithmetic) ||
+        throw(ArgumentError("population grid, map and channels need matching arithmetic"))
     length(channel_species) == length(channels) ||
         throw(DimensionMismatch("population channel and species mappings disagree"))
     all(
@@ -147,7 +171,8 @@ function ObservationPopulations(
         all(channel -> (channel.quadrature === nothing) == field, channels) ||
         throw(ArgumentError("population channels disagree with the temporal grid kind"))
     if field && plasma !== nothing
-        plasma.rule.dt == grid.dt && length(plasma.rule.taps) <= grid.n_time ||
+        plasma.rule.dt == source_type(grid.arithmetic)(grid.dt) &&
+            length(plasma.rule.taps) <= grid.n_time ||
             throw(DimensionMismatch("population integral disagrees with its fine grid"))
     end
     owned_potentials = _population_inventory_data(
@@ -213,13 +238,15 @@ ordinary binary64 preparation rounding. Nonproportional rows can represent ellip
 envelopes and raise by name before workspace allocation; no envelope magnitude
 shortcut is substituted for the vector cycle model. Malformed data also raise.
 """
-struct ObservationAxisPopulations{P, G, A, D, I, T}
+struct ObservationAxisPopulations{P, G, A, D, I, T, H, R}
     plasma::P
     grid::G
     synthesis::A
     species_densities::D
     channel_species::I
     taper::T
+    host_synthesis::H
+    range::R
 end
 
 function ObservationAxisPopulations(
@@ -230,6 +257,8 @@ function ObservationAxisPopulations(
     synthesis isa AbstractMatrix{Float64} && 1 <= size(synthesis, 1) <= 2 &&
         size(synthesis, 2) > 0 && all(isfinite, synthesis) ||
         throw(ArgumentError("fine on-axis synthesis needs one or two finite binary64 rows"))
+    plasma.arithmetic == grid.arithmetic ||
+        throw(ArgumentError("on-axis grid and channels need matching source arithmetic"))
     !isempty(species_densities) &&
         all(profile -> profile isa SourceProfile, species_densities) ||
         throw(ArgumentError("on-axis populations need complete species profiles"))
@@ -244,14 +273,26 @@ function ObservationAxisPopulations(
         all(channel -> (channel.quadrature === nothing) == field, plasma.channels) ||
         throw(ArgumentError("on-axis population channels disagree with their grid kind"))
     if field
-        plasma.rule.dt == grid.dt && length(plasma.rule.taps) <= grid.n_time ||
+        plasma.rule.dt == source_type(grid.arithmetic)(grid.dt) &&
+            length(plasma.rule.taps) <= grid.n_time ||
             throw(DimensionMismatch("on-axis population integral disagrees with its grid"))
     end
     owned = Matrix{Float64}(synthesis)
     grid.kind == :envelope && (owned = _observation_scalar_axis(owned))
+    arithmetic = grid.arithmetic
+    narrow, range = if source_type(arithmetic) === Float64
+        (owned, nothing)
+    else
+        buffer = Matrix{Float32}(undef, size(owned))
+        fact = source_narrow!(
+            buffer, owned, :observation_axis_population;
+            exponent = arithmetic.state_exponent - arithmetic.field_exponent,
+        )
+        (buffer, fact)
+    end
     return ObservationAxisPopulations(
-        plasma, grid, owned, species_densities,
-        channel_species, taper
+        plasma, grid, narrow, species_densities,
+        channel_species, taper, owned, range
     )
 end
 
@@ -295,7 +336,8 @@ end
     ObservationPreparation(execution, grid, selection; kind, n_modes, power_weight,
         profiles=ObservationProfiles(), axis_synthesis=nothing,
         taper=SourceProfile(1.0), intensity_factor=nothing,
-        populations=nothing, temporal=nothing, axis_populations=nothing)
+        populations=nothing, temporal=nothing, axis_populations=nothing,
+        arithmetic=SourceArithmetic(Float64))
 
 Own numerical preparation for scalar modal statistics and temporal monitoring.
 
@@ -310,11 +352,17 @@ Optional population/monitor records are `ObservationPopulations` and
 axis map and scan for the four plane-only on-axis plasma statistics. No Python object,
 session cursor or mutable source is owned.
 
-This initial composition requires CPU binary64 and refuses spatial statistics or
-vector propagation. The lowerer retains the catalogue's route eligibility rules.
+`arithmetic` selects binary32 or binary64 stored work and explicit state/field powers.
+Population/grid/map arithmetic must match it exactly. The coarse axis matrix folds
+the state-to-field power once; its original binary64 matrix remains immutable in
+`host_axis_synthesis`. Power weights evaluate wide and normalize before binary32
+products. Packed values, coordinates and monitor continuations remain binary64.
+This composition requires CPU and refuses spatial statistics or vector propagation.
+The lowerer retains the catalogue's route eligibility rules.
 Missing required families and invalid numerical layouts raise before workspace creation.
 """
-struct ObservationPreparation{G, S, W, P, A, T, L, M, X} <: _ObservationPreparation
+struct ObservationPreparation{G, S, W, P, A, T, L, M, X, R, H, N} <:
+    _ObservationPreparation
     kind::Symbol
     n_modes::Int
     grid::G
@@ -329,7 +377,12 @@ struct ObservationPreparation{G, S, W, P, A, T, L, M, X} <: _ObservationPreparat
     axis_populations::X
     needs::StatisticsNeeds
     periodic_needs::StatisticsNeeds
+    arithmetic::R
+    host_axis_synthesis::H
+    ranges::N
 end
+
+_observation_arithmetic(data::ObservationPreparation) = data.arithmetic
 
 function _observation_population_requirements(selection, populations, kind)
     diagnostics = statistics_needs(selection).plasma_diagnostics
@@ -348,13 +401,23 @@ end
 
 function ObservationPreparation(
         execution, grid::StatisticsGrid, selection::StatisticsSelection;
-        kind::Symbol, n_modes::Int, power_weight::ObservationWeight,
+        kind::Symbol, n_modes::Int,
+        power_weight::Union{ObservationWeight, NormalizedObservationWeight},
         profiles::ObservationProfiles = ObservationProfiles(), axis_synthesis = nothing,
         taper::SourceProfile = SourceProfile(1.0), intensity_factor = nothing,
         populations = nothing, temporal = nothing, axis_populations = nothing,
+        arithmetic::SourceArithmetic = SourceArithmetic(Float64),
     )
     oncpu(execution) || throw(ArgumentError("modal observations currently require CPU"))
     n_time, n_frequency = length(grid.time), length(grid.omega)
+    T = source_type(arithmetic)
+    T === Float64 && power_weight isa NormalizedObservationWeight &&
+        throw(ArgumentError("binary64 observations require their original wide weights"))
+    if T === Float32
+        _float32_sum_count(n_time)
+        _float32_sum_count(n_frequency)
+        _float32_sum_count(n_modes)
+    end
     all(
         array -> eltype(array) === Float64,
         (grid.time, grid.omega, grid.parseval, grid.spectral_density)
@@ -377,6 +440,12 @@ function ObservationPreparation(
             length(populations.grid.omega) == n_frequency &&
             size(populations.map.synthesis, 2) == n_modes ||
             throw(DimensionMismatch("population preparation disagrees with modal state"))
+        populations.grid.arithmetic == arithmetic ||
+            throw(ArgumentError("population and observation source arithmetic differ"))
+        if T === Float32
+            _float32_sum_count(size(populations.map.synthesis, 1))
+            _float32_sum_count(length(populations.species_densities))
+        end
     end
     _observation_population_requirements(selection, populations, kind)
     needs.axis_populations && !(axis_populations isa ObservationAxisPopulations) &&
@@ -387,6 +456,10 @@ function ObservationPreparation(
             length(axis_populations.grid.omega) == n_frequency &&
             size(axis_populations.synthesis, 2) == n_modes ||
             throw(DimensionMismatch("on-axis population preparation disagrees with state"))
+        axis_populations.grid.arithmetic == arithmetic ||
+            throw(ArgumentError("on-axis and observation source arithmetic differ"))
+        T === Float32 &&
+            _float32_sum_count(length(axis_populations.species_densities))
     end
     any(slot -> slot.code == 34, selection.slots) &&
         length(grid.spectral_density) != n_frequency &&
@@ -455,17 +528,24 @@ function ObservationPreparation(
             )
         ) ||
             throw(DimensionMismatch("temporal crossing buckets and limits disagree"))
+        T === Float32 && buckets !== nothing &&
+            _float32_sum_count(Base.checked_mul(n_frequency, n_modes))
     end
     owned_grid = StatisticsGrid(
         copy(grid.omega), copy(grid.time), copy(grid.parseval);
         windows = copy(grid.windows), spectral_density = copy(grid.spectral_density),
         d_omega = grid.d_omega,
     )
+    host_axis, axis, axis_range = _observation_axis_map(
+        execution, axis_synthesis, arithmetic, :observation_axis_synthesis
+    )
+    metric = T === Float32 && power_weight isa ObservationWeight ?
+        NormalizedObservationWeight(execution, power_weight, arithmetic) : power_weight
     return ObservationPreparation(
-        kind, n_modes, owned_grid, selection, power_weight, profiles,
-        axis_synthesis === nothing ? nothing : upload(execution, axis_synthesis), taper,
+        kind, n_modes, owned_grid, selection, metric, profiles, axis, taper,
         intensity_factor === nothing ? 1.0 : intensity_factor, populations, temporal,
         axis_populations, needs, statistics_needs(selection; periodic = true),
+        arithmetic, host_axis, (axis = axis_range,),
     )
 end
 
@@ -478,9 +558,9 @@ struct _ObservationPair{A, F}
     weighted_transform::F
 end
 
-function _observation_pair(execution, n_time, n_columns)
-    spectrum, weighted_spectrum = zeros(ComplexF64, n_time, n_columns),
-        zeros(ComplexF64, n_time, n_columns)
+function _observation_pair(execution, n_time, n_columns, ::Type{T} = Float64) where {T}
+    spectrum, weighted_spectrum = dzeros(execution, Complex{T}, n_time, n_columns),
+        dzeros(execution, Complex{T}, n_time, n_columns)
     samples, weighted = similar(spectrum), similar(spectrum)
     return _ObservationPair(
         spectrum, weighted_spectrum, samples, weighted,
@@ -495,7 +575,7 @@ struct _ObservationWindows{P, A}
     weighted::A
 end
 
-struct _ObservationPopulationWork{A, T, F, P, W, C, D}
+struct _ObservationPopulationWork{A, T, F, P, W, C, D, V}
     spectrum::A
     modal::T
     transform::F
@@ -504,8 +584,8 @@ struct _ObservationPopulationWork{A, T, F, P, W, C, D}
     workspace::W
     chunks::C
     densities::Vector{Float64}
-    fractions::Matrix{Float64}
-    peaks::Matrix{Float64}
+    fractions::V
+    peaks::V
     diagnostics::D
 end
 
@@ -515,17 +595,18 @@ function _observation_population_work(
     )
     data === nothing && return nothing
     grid, maps = data.grid, data.map
+    T = source_type(grid.arithmetic)
     n_nodes, n_species = size(maps.synthesis, 1), length(data.species_densities)
     capacity = min(node_chunk, n_nodes)
     field = grid.kind == :field
-    scalar = field ? Float64 : ComplexF64
+    scalar = field ? T : Complex{T}
     frequencies = field ? grid.n_time ÷ 2 + 1 : grid.n_time
-    spectrum = zeros(ComplexF64, frequencies, n_modes)
-    modal = zeros(scalar, grid.n_time, n_modes)
-    nodes = zeros(scalar, grid.n_time, capacity)
+    spectrum = dzeros(execution, Complex{T}, frequencies, n_modes)
+    modal = dzeros(execution, scalar, grid.n_time, n_modes)
+    nodes = dzeros(execution, scalar, grid.n_time, capacity)
     layout = ResponseLayout(grid.n_time, 1, capacity)
     workspace = data.plasma === nothing ? nothing :
-        PopulationWorkspace(execution, Float64, layout)
+        PopulationWorkspace(execution, T, layout)
     chunks = map(1:capacity:n_nodes) do first
         last = min(first + capacity - 1, n_nodes)
         (
@@ -536,14 +617,15 @@ function _observation_population_work(
     return _ObservationPopulationWork(
         spectrum, modal,
         TemporalFFT(execution, modal, spectrum),
-        SpectralPadding(execution, grid.crop_index, frequencies, 1.0, 1.0),
+        SpectralPadding(execution, grid.crop_index, frequencies, one(T), one(T)),
         nodes, workspace, chunks,
-        zeros(n_species), zeros(n_nodes, n_species), zeros(n_nodes, n_species),
-        diagnostics ? PlasmaDiagnosticWorkspace(execution, Float64, capacity) : nothing,
+        zeros(n_species), dzeros(execution, T, n_nodes, n_species),
+        dzeros(execution, T, n_nodes, n_species),
+        diagnostics ? PlasmaDiagnosticWorkspace(execution, T, capacity) : nothing,
     )
 end
 
-struct _ObservationAxisPopulationWork{A, T, F, P, W}
+struct _ObservationAxisPopulationWork{A, T, F, P, W, V}
     spectrum::A
     modal::T
     transform::F
@@ -552,34 +634,37 @@ struct _ObservationAxisPopulationWork{A, T, F, P, W}
     nodes::T
     workspace::W
     densities::Vector{Float64}
-    fractions::Matrix{Float64}
-    peaks::Matrix{Float64}
+    fractions::V
+    peaks::V
     diagnostics::Nothing
 end
 
 function _observation_axis_population_work(execution, data::ObservationAxisPopulations)
     grid, modes = data.grid, size(data.synthesis, 2)
+    T = source_type(grid.arithmetic)
     field = grid.kind == :field
-    scalar = field ? Float64 : ComplexF64
+    scalar = field ? T : Complex{T}
     frequencies = field ? grid.n_time ÷ 2 + 1 : grid.n_time
-    spectrum = zeros(ComplexF64, frequencies, modes)
-    modal = zeros(scalar, grid.n_time, modes)
+    spectrum = dzeros(execution, Complex{T}, frequencies, modes)
+    modal = dzeros(execution, scalar, grid.n_time, modes)
     species = length(data.species_densities)
     return _ObservationAxisPopulationWork(
         spectrum, modal,
         TemporalFFT(execution, modal, spectrum),
-        SpectralPadding(execution, grid.crop_index, frequencies, 1.0, 1.0),
-        zeros(scalar, grid.n_time, size(data.synthesis, 1)), zeros(scalar, grid.n_time, 1),
-        PopulationWorkspace(execution, Float64, ResponseLayout(grid.n_time, 1, 1)),
-        zeros(species), zeros(1, species), zeros(1, species), nothing
+        SpectralPadding(execution, grid.crop_index, frequencies, one(T), one(T)),
+        dzeros(execution, scalar, grid.n_time, size(data.synthesis, 1)),
+        dzeros(execution, scalar, grid.n_time, 1),
+        PopulationWorkspace(execution, T, ResponseLayout(grid.n_time, 1, 1)),
+        zeros(species), dzeros(execution, T, 1, species),
+        dzeros(execution, T, 1, species), nothing
     )
 end
 
-mutable struct _ObservationMonitorWork{A, T, F, R}
+mutable struct _ObservationMonitorWork{A, T, F, R, V}
     spectrum::A
     samples::T
     transform::F
-    power::Vector{Float64}
+    power::V
     reading::R
     pending::R
     floor::TemporalFloor
@@ -591,15 +676,19 @@ end
 function _observation_monitor_work(execution, data, noise)
     data.temporal === nothing && return nothing
     temporal = data.temporal
+    T = source_type(_observation_arithmetic(data))
+    T === Float32 && noise !== nothing &&
+        throw(ArgumentError("binary32 observations do not support input noise"))
     n_time, n_modes = length(data.grid.time), data.n_modes
-    spectrum = zeros(ComplexF64, length(data.grid.omega), n_modes)
-    samples = zeros(data.kind == :field ? Float64 : ComplexF64, n_time, n_modes)
+    spectrum = dzeros(execution, Complex{T}, length(data.grid.omega), n_modes)
+    samples = dzeros(execution, data.kind == :field ? T : Complex{T}, n_time, n_modes)
     buckets = temporal.weights.buckets
     n_buckets = length(temporal.policy.bucket_limits)
     reading, pending = TemporalReading(n_buckets), TemporalReading(n_buckets)
     work = _ObservationMonitorWork(
         spectrum, samples,
-        TemporalFFT(execution, samples, spectrum), zeros(n_time), reading, pending,
+        TemporalFFT(execution, samples, spectrum), dzeros(execution, T, n_time),
+        reading, pending,
         TemporalFloor(0.0, (0.0, 0.0, 0.0, 0.0)), false, NaN, 0.0
     )
     if noise !== nothing
@@ -634,6 +723,8 @@ _observation_arrays(work::_ObservationAxisPopulationWork) = (
 _observation_arrays(work::PopulationWorkspace) = _population_arrays(work)
 _observation_arrays(work::PlasmaDiagnosticWorkspace) =
     (work.parts, work.maxima, work.scales === nothing ? () : work.scales)
+_observation_arrays(work::ObservationWeightWorkspace) = (work.host,)
+_observation_arrays(work::AbstractVector) = (work,)
 _observation_arrays(work::_ObservationPopulationWork) =
     (
     work.spectrum, work.modal, work.nodes, work.densities,
@@ -672,13 +763,13 @@ by `buffers`. `monitor` is its optional `TemporalMonitorState`; the caller owns 
 row capacity, export and acknowledgment. `valid` is set only after successful observe!.
 Warm numerical evaluation does not allocate or increment propagation source calls.
 """
-mutable struct ObservationWorkspace{E, D, P, W, A, T, L, M, C, I, B, X} <:
+mutable struct ObservationWorkspace{E, D, P, W, A, T, L, M, C, I, B, X, S, V, H} <:
     _ObservationWorkspace
     execution::E
     data::D
-    spectrum::Matrix{ComplexF64}
-    weight::Matrix{Float64}
-    weight_work::Vector{Float64}
+    spectrum::S
+    weight::V
+    weight_work::H
     pair::P
     windows::W
     axis::A
@@ -701,19 +792,21 @@ function ObservationWorkspace(
     )
     oncpu(execution) && node_chunk > 0 ||
         throw(ArgumentError("modal observations need CPU execution and a positive chunk"))
+    T = source_type(prepared.arithmetic)
+    T === Float32 && noise_spectrum !== nothing &&
+        throw(ArgumentError("binary32 observations do not support input noise"))
     n_time, n_modes = length(prepared.grid.time), prepared.n_modes
     needs = prepared.needs
-    spectrum = zeros(ComplexF64, prepared.power_weight.shape)
-    weight = ones(prepared.power_weight.shape)
-    n_terms = prepared.power_weight.weights === nothing ? 0 :
-        size(prepared.power_weight.weights.coefficients, 1)
-    weight_work = zeros(n_terms)
+    spectrum = dzeros(execution, Complex{T}, prepared.power_weight.shape...)
+    weight = dzeros(execution, T, prepared.power_weight.shape...)
+    fill!(weight, one(T))
+    weight_work = _observation_weight_work(prepared.power_weight)
     pair = needs.temporal || needs.intensity ?
-        _observation_pair(execution, n_time, n_modes) : nothing
+        _observation_pair(execution, n_time, n_modes, T) : nothing
     n_windows = size(prepared.grid.windows, 2)
     windows = if needs.windows
         n_windows > 0 || throw(ArgumentError("windowed power needs spectral gates"))
-        window_pair = _observation_pair(execution, n_time, n_modes * n_windows)
+        window_pair = _observation_pair(execution, n_time, n_modes * n_windows, T)
         _ObservationWindows(
             window_pair,
             reshape(view(window_pair.samples, :, :), n_time, n_modes, n_windows),
@@ -726,8 +819,8 @@ function ObservationWorkspace(
         prepared.axis_synthesis === nothing &&
             throw(ArgumentError("peak_intensity needs a separate coarse on-axis map"))
         (
-            zeros(ComplexF64, n_time, size(prepared.axis_synthesis, 1)),
-            zeros(ComplexF64, n_time, size(prepared.axis_synthesis, 1)),
+            dzeros(execution, Complex{T}, n_time, size(prepared.axis_synthesis, 1)),
+            dzeros(execution, Complex{T}, n_time, size(prepared.axis_synthesis, 1)),
         )
     else
         nothing
@@ -748,7 +841,7 @@ function ObservationWorkspace(
     end
     n_nodes = populations === nothing ? 0 : size(populations.fractions, 1)
     statistics = StatisticsWorkspace(
-        execution, Float64;
+        execution, T;
         n_time, n_columns = n_modes, n_nodes
     )
     monitor_work = _observation_monitor_work(execution, prepared, noise_spectrum)
@@ -757,7 +850,9 @@ function ObservationWorkspace(
         monitor === nothing && throw(ArgumentError("monitor continuation needs a monitor"))
         restore_temporal!(monitor, temporal_continuation; plane = continuation_plane)
     end
-    spectral_input = needs.spectral ? SpectralStatisticsInput(spectrum, weight) : nothing
+    spectral_input = needs.spectral ? SpectralStatisticsInput(
+            spectrum, weight; amplitude_exponent = prepared.arithmetic.state_exponent
+        ) : nothing
     temporal_input = if needs.temporal || needs.windows || needs.intensity
         TemporalStatisticsInput(
             pair === nothing ? nothing : pair.samples,
@@ -767,6 +862,8 @@ function ObservationWorkspace(
             axis_analytic = axis === nothing ? nothing : axis[1],
             axis_weighted = axis === nothing ? nothing : axis[2],
             intensity_factor = prepared.intensity_factor,
+            amplitude_exponent = prepared.arithmetic.state_exponent,
+            axis_exponent = prepared.arithmetic.field_exponent,
         )
     else
         nothing
@@ -787,13 +884,14 @@ function ObservationWorkspace(
     )
     values = zeros(prepared.selection.width)
     buffers = (
-        spectrum, weight, weight_work, values,
+        spectrum, weight, _observation_arrays(weight_work), values,
         _observation_arrays(pair), _observation_arrays(windows),
         axis === nothing ? () : axis, _observation_arrays(populations),
         _observation_arrays(axis_populations),
         _observation_arrays(monitor_work), statistics.power, statistics.total_power,
         statistics.column_energy, statistics.column_moment, statistics.node_total,
         statistics.fluence, statistics.magnitude, statistics.radial_average,
+        statistics.scales === nothing ? () : (statistics.scales.columns,),
     )
     return ObservationWorkspace(
         execution, prepared, spectrum, weight, weight_work,
@@ -804,9 +902,10 @@ function ObservationWorkspace(
 end
 
 
-function _observation_field(work, field, z)
-    field isa AbstractMatrix{ComplexF64} && size(field) == size(work.spectrum) ||
-        throw(DimensionMismatch("observation field must match its binary64 modal state"))
+function _observation_field(work::ObservationWorkspace, field, z)
+    field isa AbstractMatrix && eltype(field) === eltype(work.spectrum) &&
+        size(field) == size(work.spectrum) ||
+        throw(DimensionMismatch("observation field must match its stored modal arithmetic"))
     isfinite(z) && all(isfinite, field) ||
         throw(ArgumentError("observation position and field must be finite"))
     _observation_no_alias(field, work.buffers)
@@ -816,20 +915,22 @@ end
 function _observation_analytic!(pair, field, weight, kind, windows, gated, execution)
     pair === nothing && throw(ArgumentError("analytic observation buffers are missing"))
     spectrum, weighted = pair.spectrum, pair.weighted_spectrum
+    T = real(eltype(spectrum))
+    nil, real_zero, single, doubled = zero(eltype(spectrum)), zero(T), one(T), T(2)
     n_frequency, n_modes = size(field)
     real_field = kind == :field
     each!(execution, size(spectrum)...) do row, column
         mode = mod(column - 1, n_modes) + 1
         window = div(column - 1, n_modes) + 1
         value = if row > n_frequency || (gated && !windows[row, window])
-            0.0im
+            nil
         elseif real_field && (row == 1 || row == n_frequency)
-            complex(real(field[row, mode]), 0.0)
+            complex(real(field[row, mode]), real_zero)
         else
-            (real_field ? 2.0 : 1.0) * field[row, mode]
+            (real_field ? doubled : single) * field[row, mode]
         end
         spectrum[row, column] = value
-        weighted[row, column] = row <= n_frequency ? value * weight[row, mode] : 0.0im
+        weighted[row, column] = row <= n_frequency ? value * weight[row, mode] : nil
     end
     temporal_inverse!(pair.samples, pair.transform, spectrum, execution)
     temporal_inverse!(pair.weighted, pair.weighted_transform, weighted, execution)
@@ -841,12 +942,13 @@ function _observation_axis!(work, position)
     data, execution = work.data, work.execution
     scale = _source_profile(data.taper, position)
     scale > 0 || throw(ArgumentError("observation taper must be positive"))
+    coefficient = _observation_taper(data.arithmetic, scale)
     for (destination, source) in (
             (work.axis[1], work.pair.samples),
             (work.axis[2], work.pair.weighted),
         )
         synthesize!(destination, source, data.axis_synthesis, execution; n_components = 1)
-        _source_scale!(destination, scale, execution)
+        _source_scale!(destination, coefficient, execution)
     end
     return nothing
 end
@@ -873,13 +975,15 @@ function _observation_channel!(
         field_populations!(
             work.nodes, channel.channel.rate,
             data.plasma.rule, work.workspace, execution;
-            preionisation = initial, count = chunk.count
+            preionisation = initial, count = chunk.count,
+            field_exponent = data.grid.arithmetic.field_exponent,
         )
     else
         envelope_populations!(
             work.nodes, channel.channel.rate,
             channel.quadrature, work.workspace, execution;
-            preionisation = initial, dt = data.grid.dt, count = chunk.count
+            preionisation = initial, dt = data.grid.dt, count = chunk.count,
+            field_exponent = data.grid.arithmetic.field_exponent,
         )
     end
     failure = plasma_failure(work.workspace.status)
@@ -900,7 +1004,7 @@ function _observation_channel!(
     fraction, rate = work.workspace.fraction, work.workspace.rate
     fractions, peaks, first = work.fractions, work.peaks, chunk.first
     each_column!(execution, chunk.count) do node
-        peak = 0.0
+        peak = zero(eltype(rate))
         for row in axes(rate, 1)
             peak = max(peak, rate[row, node])
         end
@@ -922,6 +1026,7 @@ function _observation_populations!(
     data.plasma === nothing && return nothing
     scale = _source_profile(data.map.taper, position)
     scale > 0 || throw(ArgumentError("population taper must be positive"))
+    coefficient = _observation_taper(data.grid.arithmetic, scale)
     pad_spectrum!(work.spectrum, field, work.padding, execution)
     temporal_inverse!(work.modal, work.transform, work.spectrum, execution)
     for chunk in work.chunks
@@ -929,7 +1034,7 @@ function _observation_populations!(
             work.nodes, work.modal, chunk.synthesis, execution;
             n_components = 1, active_nodes = chunk.count
         )
-        _source_scale!(work.nodes, scale, execution)
+        _source_scale!(work.nodes, coefficient, execution)
         all(isfinite, work.nodes) ||
             throw(ArgumentError("population field reconstruction overflowed"))
         _source_each_indexed(data.plasma.channels) do channel, index
@@ -956,10 +1061,11 @@ function _observation_axis_populations!(
     fill!(work.peaks, 0.0)
     scale = _source_profile(data.taper, position)
     isfinite(scale) && scale > 0 || throw(ArgumentError("on-axis taper must be positive"))
+    coefficient = _observation_taper(data.grid.arithmetic, scale)
     pad_spectrum!(work.spectrum, field, work.padding, execution)
     temporal_inverse!(work.modal, work.transform, work.spectrum, execution)
     synthesize!(work.components, work.modal, data.synthesis, execution; n_components = 1)
-    _source_scale!(work.components, scale, execution)
+    _source_scale!(work.components, coefficient, execution)
     components, output = work.components, work.nodes
     data.grid.kind == :envelope && size(components, 2) != 1 &&
         throw(ArgumentError("scalar envelope axis work requires one collapsed row"))
@@ -989,7 +1095,34 @@ end
 _observation_profile(::Nothing, selected, position) = selected ?
     throw(ArgumentError("selected observation profile is missing")) : NaN
 
-_observation_identity(::Nothing, identity) = nothing
+_observation_identity(::Nothing, identity, weight_exponent) = nothing
+
+function _observation_weight_work(weight::ObservationWeight)
+    count = weight.weights === nothing ? 0 : size(weight.weights.coefficients, 1)
+    return zeros(count)
+end
+_observation_weight_work(weight::NormalizedObservationWeight) =
+    ObservationWeightWorkspace(weight)
+
+function _observation_weight!(output, weight::ObservationWeight, position, execution, work)
+    evaluate_weight!(output, weight, position, execution; work)
+    return 0, all(isone, output)
+end
+function _observation_weight!(
+        output, weight::NormalizedObservationWeight, position, execution, work
+    )
+    exponent = evaluate_weight!(output, weight, position, execution; work)
+    return exponent, work.identity
+end
+
+_observation_spectral(::Nothing, identity, weight_exponent) = nothing
+function _observation_spectral(input::SpectralStatisticsInput, identity, weight_exponent)
+    return SpectralStatisticsInput(
+        input.spectrum, input.power_weight; total = input.total,
+        amplitude_exponent = input.amplitude_exponent, weight_exponent,
+        identity_weight = identity,
+    )
+end
 function _observation_diagnostics(::Nothing, selected)::NTuple{3, Float64}
     selected && throw(ArgumentError("plasma diagnostic buffers are missing"))
     return (0.0, 0.0, 0.0)
@@ -1020,11 +1153,14 @@ function _observation_population_input(
     )
 end
 
-function _observation_identity(input::TemporalStatisticsInput, identity)
+function _observation_identity(input::TemporalStatisticsInput, identity, weight_exponent)
     return TemporalStatisticsInput(
-        input.analytic, input.weighted,
-        input.window_analytic, input.window_weighted, input.axis_analytic,
-        input.axis_weighted, input.intensity_factor, identity
+        input.analytic, input.weighted;
+        window_analytic = input.window_analytic, window_weighted = input.window_weighted,
+        axis_analytic = input.axis_analytic, axis_weighted = input.axis_weighted,
+        intensity_factor = input.intensity_factor, identity_weight = identity,
+        amplitude_exponent = input.amplitude_exponent, weight_exponent,
+        axis_exponent = input.axis_exponent,
     )
 end
 
@@ -1053,10 +1189,11 @@ function observe!(
     data, execution = work.data, work.execution
     needs = periodic ? data.periodic_needs : data.needs
     weighted = needs.spectral || needs.temporal || needs.windows || needs.intensity
+    weight_exponent, identity = 0, false
     if weighted
         copyto!(work.spectrum, field)
-        evaluate_weight!(
-            work.weight, data.power_weight, z, execution; work = work.weight_work,
+        weight_exponent, identity = _observation_weight!(
+            work.weight, data.power_weight, z, execution, work.weight_work,
         )
     end
     if needs.temporal || needs.intensity
@@ -1083,7 +1220,8 @@ function observe!(
     needs.axis_populations && _observation_axis_populations!(
         work.axis_populations, data.axis_populations, field, z, execution
     )
-    temporal = _observation_identity(work.inputs.temporal, all(isone, work.weight))
+    temporal = _observation_identity(work.inputs.temporal, identity, weight_exponent)
+    spectral = _observation_spectral(work.inputs.spectral, identity, weight_exponent)
     profiles = (
         _observation_profile(
             data.profiles.density,
@@ -1106,7 +1244,7 @@ function observe!(
         _observation_diagnostic_work(work.populations), needs.plasma_diagnostics,
     )
     inputs = StatisticsInputs(;
-        spectral = work.inputs.spectral, temporal, populations,
+        spectral, temporal, populations,
         profiles, quadrature_error, diagnostics,
         axis_populations = work.inputs.axis_populations,
     )
@@ -1130,7 +1268,9 @@ function _observation_read!(work, field)
     _observation_monitor_inverse!(work, field)
     temporal_reading!(
         monitor.reading, monitor.samples, weights, monitor.power,
-        work.execution; spectrum = weights.buckets === nothing ? nothing : monitor.spectrum
+        work.execution;
+        spectrum = weights.buckets === nothing ? nothing : monitor.spectrum,
+        amplitude_exponent = _observation_arithmetic(work.data).state_exponent,
     )
     return nothing
 end
@@ -1191,7 +1331,8 @@ function capture_split!(work::_ObservationWorkspace, field, z, dz)
     _observation_monitor_inverse!(work, field)
     split_reading!(
         monitor.pending, monitor.samples, dz, work.data.temporal.weights,
-        monitor.power, work.execution
+        monitor.power, work.execution;
+        amplitude_exponent = _observation_arithmetic(work.data).state_exponent,
     )
     monitor.captured, monitor.capture_z, monitor.capture_dz = true, z, dz
     return nothing
