@@ -343,6 +343,8 @@ from pathlib import Path
 output = Path(sys.argv[1])
 ignored = sys.argv[2] == 'ignored'
 signal.signal(signal.SIGTERM, signal.SIG_IGN if ignored else signal.SIG_DFL)
+# The fixture owns its disposition and mask; exec inherits a parent's blocked mask.
+signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM})
 output.write_text(json.dumps(dict(case='sigterm', pid=os.getpid(), requested_threads=2,
     actual_threads=2, initial_handler=sys.argv[2], phase='idle',
     stage='ready-for-accepted-termination')), encoding='utf-8')
@@ -354,18 +356,32 @@ while True:
 """
 
 
+@pytest.mark.parametrize("block_term", [False, True], ids=["ambient", "blocked"])
 @pytest.mark.parametrize("mode", ["default", "ignored"])
-def test_real_posix_supervisor_distinguishes_prompt_and_forced_exit(tmp_path, mode):
+def test_real_posix_supervisor_distinguishes_prompt_and_forced_exit(
+    tmp_path, mode, block_term
+):
     output = tmp_path / "real.json"
-    process = subprocess.Popen(
-        [sys.executable, "-c", _CHILD, str(output), mode],
-        start_new_session=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+    # Exec preserves the caller's blocked mask. Exercise that inheritance without
+    # leaving a changed mask in pytest, even when child creation fails (#710).
+    original_mask = signal.pthread_sigmask(
+        signal.SIG_BLOCK, {signal.SIGTERM} if block_term else set()
     )
     try:
+        process = subprocess.Popen(
+            [sys.executable, "-c", _CHILD, str(output), mode],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
+    try:
+        assert signal.pthread_sigmask(signal.SIG_BLOCK, set()) == original_mask
+        # Keep the real child on the normal grace: a 50 ms smoke-test deadline
+        # also measures CI scheduling. Mocked-clock tests pin exact deadlines.
         result = runtime_tests._supervise_sigterm(
-            process, output, f"{mode}:idle", 2, ready_timeout=10, grace=0.05
+            process, output, f"{mode}:idle", 2, ready_timeout=10
         )["supervision"]
     finally:
         if process.poll() is None:
@@ -378,4 +394,7 @@ def test_real_posix_supervisor_distinguishes_prompt_and_forced_exit(tmp_path, mo
         result["entered_seconds"] <= result["term_seconds"] <= result["elapsed_seconds"]
     )
     if result["forced_escalation"]:
-        assert result["kill_seconds"] >= result["term_seconds"] + 0.05
+        assert (
+            result["kill_seconds"]
+            >= result["term_seconds"] + result["term_grace_seconds"]
+        )
