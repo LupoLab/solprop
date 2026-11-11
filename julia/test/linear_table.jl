@@ -33,6 +33,15 @@ end
             @test length(flow.table.factors) == count
             @test all(eltype(array) === Complex{T} for array in flow.table.factors)
             @test flow.table.factors[1] !== other.table.factors[1]
+            other_type = T === Float32 ? ComplexF64 : ComplexF32
+            other_input = other_type.(input)
+            other_output = copy(other_input)
+            @test_throws ArgumentError flow(other_output, other_input, 0.0, 0.125)
+            @test other_output == other_input
+            @test flow.table.builds == flow.table.hits == 0
+            @test_throws ArgumentError reference(
+                other_output, other_input, 0.0, 0.125,
+            )
             for (origin, destination) in (
                     (0.0, 0.125), (0.0, 0.125), (0.25, 0.375),
                     (0.25, 0.25), (0.375, 0.25), (0.0, 0.25), (0.0, 0.125),

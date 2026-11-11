@@ -58,20 +58,22 @@ multiplication. Expansion operators need their caller-owned
 weight work. Calling `flow(out,input,z0,z1)` applies the represented flow and returns
 `nothing`, checking numerical failures outside leaf kernels. Input and output must be
 disjoint or the exact same array; partial overlap refuses. The CPU implementation
-allocates nothing after warmup.
+allocates nothing after warmup. Both caller arrays must retain the preparation's
+state element type, including when the table is disabled.
 
 `tabulate=true` retains one factor matrix for a constant generator, or two for a
 represented varying generator. Keys are exact interval lengths for constant data
 and exact endpoint pairs otherwise. Tables are session-owned and regenerated after
 eviction; neither interpolation nor a phase/step tolerance changes their values.
 """
-struct LinearFlow{E, O, A, W, C}
+struct LinearFlow{E, O, A, W, C, T}
     execution::E
     operator::O
     exponent::A
     work::W
     failures::Vector{Int}
     table::C
+    state_type::Type{T}
 end
 
 function LinearFlow(
@@ -81,11 +83,13 @@ function LinearFlow(
     oncpu(execution) || throw(ArgumentError("this linear flow currently requires CPU"))
     return LinearFlow(
         execution, operator, similar(state, ComplexF64), work, zeros(Int, size(state, 2)),
-        tabulate ? _linear_flow_table(operator, state) : nothing,
+        tabulate ? _linear_flow_table(operator, state) : nothing, eltype(state),
     )
 end
 
 function (flow::LinearFlow)(output, input, origin::Float64, destination::Float64)
+    eltype(output) === eltype(input) === flow.state_type ||
+        throw(ArgumentError("linear flow buffers must use their prepared state precision"))
     size(output) == size(input) == size(flow.exponent) ||
         throw(DimensionMismatch("linear flow buffers do not match their preparation"))
     _transfer_writable_destination(output)

@@ -25,6 +25,10 @@ cherry-pick and restarted four import-failed workers; the stable rerun is the ci
 result. No numerical/runtime crash is inferred from that orchestration error.
 Independent review of `397a8407` passed 196 assertions, including all 92 committed
 march checks and 104 additional transaction, range and mask witnesses.
+The flow review identified cross-precision caller reuse (#709). Both flow modes now
+require the prepared input/output element type before touching any cache or output.
+The corrected flow leaf passes 297 assertions; all 92 march checks still pass.
+The public managed CPU module passes all 11 tests, and probe/lowering checks pass 54.
 
 | Phase | Status | Evidence or prerequisite |
 |---|---|---|
