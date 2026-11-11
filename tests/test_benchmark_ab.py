@@ -11,7 +11,7 @@ import sys
 import numpy as np
 import pytest
 from benchmarks import __main__ as cli
-from benchmarks import ab
+from benchmarks import ab, worker
 from benchmarks.records import read_record
 
 
@@ -200,6 +200,15 @@ def test_small_case_runs_both_builds_in_alternating_order(
     results = read_record(out / "results.json")
     assert len(results["samples"]) == 4
     assert all(len(item["repetitions"]) == 1 for item in results["samples"])
+    for item in results["samples"]:
+        assert item["prepared_runtime"]["execution"]["backend"] == "numpy_ref"
+        for repetition in item["repetitions"]:
+            assert repetition["timing_boundary"] == worker.TIMING_BOUNDARY
+            assert repetition["wall_seconds"] >= repetition["seconds"] > 0
+            assert repetition["source_evaluations"] == (
+                repetition["source_evaluations_after"]
+                - repetition["source_evaluations_before"]
+            )
     assert all(
         rep["z"] == pytest.approx(0.5e-4)
         for item in results["samples"]
@@ -222,6 +231,27 @@ def test_each_arm_runs_its_own_backend_in_double_precision():
         "precision": "double",
     }
     assert ab.arm_configuration(values, "native")["precision"] == "double"
+    assert ab.arm_configuration(values, "julia")["backend"] == "julia"
+
+
+def test_julia_is_selectable_for_either_cpu_ab_arm_without_starting_a_runtime():
+    args = cli.parser_for().parse_args(
+        [
+            "ab",
+            "--case",
+            "smoke",
+            "--threads",
+            "1",
+            "--baseline-python",
+            sys.executable,
+            "--baseline-backend",
+            "numpy_ref",
+            "--candidate-backend",
+            "julia",
+        ]
+    )
+    assert args.baseline_backend == "numpy_ref"
+    assert args.candidate_backend == "julia"
 
 
 def test_each_arm_takes_its_own_environment(tmp_path, monkeypatch):

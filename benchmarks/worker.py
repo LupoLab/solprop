@@ -28,9 +28,10 @@ import tempfile
 import time
 import traceback
 import warnings
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
+from types import TracebackType
 from typing import TYPE_CHECKING, Any, cast
 
 from benchmarks.records import (
@@ -45,6 +46,7 @@ from benchmarks.records import (
 __all__ = [
     "HOST_SPACES",
     "SNAPSHOT_CAPACITY",
+    "TIMING_BOUNDARY",
     "Diagnostics",
     "count",
     "emit",
@@ -60,10 +62,12 @@ if TYPE_CHECKING:
     import numpy as np
 
     from solprop.backends.protocol import Backend, ExecutionBackend
+    from solprop.backends.session import PreparedExecution, RunSession, Start
     from solprop.driver import Simulation
     from solprop.monitor import BoundaryMonitor
     from solprop.output.schema import FieldRetention, Output
     from solprop.translate.problem import PropagationProblem
+    from solprop.translate.run_request import RunRequest
 
 
 def emit(kind: str, **values: object) -> None:
@@ -162,16 +166,18 @@ class Diagnostics(logging.Handler):
         ]
 
 
-def source_calls(engine: ExecutionBackend) -> int | None:
-    """Read the backend's source-evaluation ledger, or ``None`` if it has none."""
-    metadata = engine.metadata()
-    value = metadata.get("source_evaluations")
-    if isinstance(value, int):
-        return value
-    ledger = metadata.get("response_calls")
-    if isinstance(ledger, dict):
-        return sum(int(ledger[key]) for key in ("startup", "predictor", "corrected"))
-    return None
+def source_calls(record: Mapping[str, object], counter: str) -> int | None:
+    """Read an actual source counter from a session's execution record.
+
+    A missing counter stays unavailable. The Adams ``response_calls`` ledger is
+    logical work and cannot substitute for actual invocations.
+    """
+    value = record.get(counter)
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise SuiteError(f"invalid session source counter {counter}: {value!r}")
+    return value
 
 
 def integrator_label(integrator: object) -> str:
@@ -193,50 +199,197 @@ SNAPSHOT_CAPACITY = 100_000
 """Snapshot generations a repetition's store holds: every one a case asks for."""
 
 
-class _Loaded:
-    """Note when a run's session finishes loading its backend, and the counts then.
+TIMING_BOUNDARY = "prepared.start.return.v1"
+"""Propagation starts when the generic prepared execution returns its session."""
 
-    The run's session loads the launch inside ``run_problem`` (SEP 47), and the load
-    resets the backend's counters and masks and uploads the state. The timed window
-    and the counted evaluations start where they always did: once the state is
-    loaded, before the output opens and the launch plane is saved. Within the block
-    the backend's ``set_initial`` is wrapped to read the clock and the counter as it
-    returns; it is restored on exit.
 
-    Attributes
-    ----------
-    ended : int
-        ``time.perf_counter_ns()`` when the load returned.
-    calls : int or None
-        The backend's source evaluations just after the load (:func:`source_calls`).
+class _Forward:
+    """Expose a live protocol member, including to runtime structural checks.
+
+    ``__getattr__`` alone is invisible to runtime-checkable protocols. These
+    descriptors forward the original bound methods/properties without copying
+    mutable lifecycle facts or requiring writable attributes on the target.
+    Dynamic types are confined to these transparent benchmark proxies.
     """
 
+    def __set_name__(self, _owner: type, name: str) -> None:
+        self.name = name
+
+    def __get__(self, instance: _Proxy | None, _owner: type | None = None) -> Any:
+        return self if instance is None else getattr(instance._target, self.name)
+
+
+class _Proxy:
+    def __init__(self, target: object, timing: _Started) -> None:
+        self._target = target
+        self._timing = timing
+
+    def __getattr__(self, name: str) -> Any:
+        # Optional session extensions, e.g. march_refusal, retain their semantics.
+        return getattr(self._target, name)
+
+    @property
+    def __class__(self) -> type:
+        # The service loop still recognizes transitional sessions with isinstance.
+        # Preserve that existing path as well as the structural protocol surface.
+        return type(self._target)
+
+    @__class__.setter
+    def __class__(self, _value: type) -> None:
+        raise SuiteError("a benchmark proxy cannot change its target's class")
+
+
+class _Owner(_Proxy):
+    name = _Forward()
+    request = _Forward()
+    metadata = _Forward()
+    march_export_refusal = _Forward()
+    edge_memory = _Forward()
+    timing_probe = _Forward()
+    available_device_memory = _Forward()
+    memory_ledger = _Forward()
+    close = _Forward()
+    closed = _Forward()
+    start_group = _Forward()
+
+    def prepare(
+        self, problem: PropagationProblem, request: RunRequest
+    ) -> PreparedExecution:
+        prepared = cast("ExecutionBackend", self._target).prepare(problem, request)
+        return cast("PreparedExecution", _Prepared(prepared, self._timing))
+
+
+class _Prepared(_Proxy):
+    backend = _Forward()
+    metadata = _Forward()
+    memory_ledger = _Forward()
+    close = _Forward()
+
+    def start(self, start: Start, **keywords: Any) -> RunSession:
+        if self._timing.started_at is not None:
+            raise SuiteError("one timed run must start exactly one session")
+        session = cast("PreparedExecution", self._target).start(start, **keywords)
+        self._timing.started_at = time.perf_counter_ns()
+        wrapped = _Session(session, self._timing)
+        try:
+            self._timing.begin(session.execution_record())
+        except BaseException:
+            # A returned session is owned even if reading its first record fails.
+            wrapped.close()
+            raise
+        return cast("RunSession", wrapped)
+
+
+class _Session(_Proxy):
+    finished = _Forward()
+    closed = _Forward()
+    status = _Forward()
+    advance = _Forward()
+    acknowledge = _Forward()
+    export = _Forward()
+    noise_phase = _Forward()
+    request_snapshot = _Forward()
+    march_snapshot = _Forward()
+    march_snapshot_nbytes = _Forward()
+    march_export_refusal = _Forward()
+    execution_record = _Forward()
+    monitor_record = _Forward()
+    continue_monitor = _Forward()
+    undelivered = _Forward()
+    pending_ticket = _Forward()
+
+    def _finish(
+        self, release: Callable[[], None], active: BaseException | None
+    ) -> None:
+        failure: BaseException | None = None
+        try:
+            if not self._timing.captured:
+                self._timing.end(cast("RunSession", self._target).execution_record())
+        except BaseException as error:
+            failure = error
+        try:
+            release()
+        except BaseException as error:
+            if failure is None:
+                failure = error
+            else:
+                failure.add_note(f"session cleanup also failed: {error!r}")
+        if failure is not None:
+            if active is None:
+                raise failure
+            if failure is not active:
+                active.add_note(
+                    f"benchmark session finalization also failed: {failure!r}"
+                )
+                for note in getattr(failure, "__notes__", ()):
+                    active.add_note(note)
+
+    def close(self) -> None:
+        self._finish(cast("RunSession", self._target).close, sys.exception())
+
+    def __enter__(self) -> RunSession:
+        cast("RunSession", self._target).__enter__()
+        return cast("RunSession", self)
+
+    def __exit__(
+        self,
+        kind: type[BaseException] | None,
+        error: BaseException | None,
+        trace: TracebackType | None,
+    ) -> None:
+        self._finish(
+            lambda: cast("RunSession", self._target).__exit__(kind, error, trace), error
+        )
+
+
+class _Started:
+    """Observe one generic start and its session counters without mutating either."""
+
     def __init__(self, engine: ExecutionBackend) -> None:
-        from solprop.backends.protocol import Backend  # noqa: PLC0415
-
-        if not isinstance(engine, Backend):
-            raise SuiteError(
-                "the legacy benchmark window needs a driver load boundary; "
-                "execution-only backend timing is not yet supported"
-            )
         self._engine = engine
-        self.ended = 0
-        self.calls: int | None = None
+        self.started_at: int | None = None
+        self.counter: str | None = None
+        self.before: int | None = None
+        self.after: int | None = None
+        self.execution: Record = {}
+        self.captured = False
 
-    def _load(self, *args: object, **keywords: object) -> None:
-        type(self._engine).set_initial(self._engine, *args, **keywords)  # pyright: ignore[reportArgumentType]
-        self.calls = source_calls(self._engine)
-        self.ended = time.perf_counter_ns()
+    @property
+    def engine(self) -> ExecutionBackend:
+        # Do not retain the proxy: it points back here, and a cycle would keep the
+        # underlying owner alive beyond the caller's explicit lifecycle.
+        return cast("ExecutionBackend", _Owner(self._engine, self))
 
-    def __enter__(self) -> _Loaded:
-        self._engine.set_initial = self._load  # type: ignore[method-assign]  # pyright: ignore[reportAttributeAccessIssue]
-        return self
+    def begin(self, record: Mapping[str, object]) -> None:
+        self.counter = next(
+            (
+                name
+                for name in ("attempted_source_evaluations", "source_evaluations")
+                if record.get(name) is not None
+            ),
+            None,
+        )
+        self.before = (
+            None if self.counter is None else source_calls(record, self.counter)
+        )
 
-    def __exit__(self, kind: type[BaseException] | None, *rest: object) -> None:
-        del self._engine.set_initial  # pyright: ignore[reportAttributeAccessIssue]
-        if kind is None and not self.ended:
-            msg = "the run never loaded its backend, so nothing was timed"
-            raise SuiteError(msg)
+    def end(self, record: Mapping[str, object]) -> None:
+        self.after = (
+            None if self.counter is None else source_calls(record, self.counter)
+        )
+        self.execution = metadata_value(dict(record))
+        self.captured = True
+
+    def evaluations(self) -> int | None:
+        if self.started_at is None:
+            raise SuiteError("the run never returned a session from prepared.start")
+        if not self.captured:
+            raise SuiteError("the run never closed its started session")
+        if self.before is None or self.after is None:
+            return None
+        if self.after < self.before:
+            raise SuiteError("the session's source counter decreased during the run")
+        return self.after - self.before
 
 
 def timed_run(  # noqa: PLR0913 - the run and how it is observed
@@ -250,7 +403,11 @@ def timed_run(  # noqa: PLR0913 - the run and how it is observed
     scratch: Path | None = None,
     snapshots: int | None = None,
 ) -> tuple[Record, np.ndarray | None]:
-    """Time one complete run from the launch; return its counts and final field.
+    """Time from generic ``prepared.start`` return through the run's close.
+
+    ``wall_seconds`` additionally includes run preparation and session start. Both
+    source counter readings come from the same returned session; missing actual
+    counters stay unavailable. Historical builds without this start boundary refuse.
 
     `monitor` is a fresh boundary monitor, attached as ``Simulation.run`` attaches
     one; ``None`` runs without the boundary checks. `output` is ``"memory"`` or
@@ -266,6 +423,11 @@ def timed_run(  # noqa: PLR0913 - the run and how it is observed
     from solprop.output.hdf5 import HDF5Output, open_file  # noqa: PLC0415
 
     Start = _session_start()  # noqa: N806 - the class, or None before SEP 47
+    if Start is None:
+        raise SuiteError(
+            "benchmark timing requires prepared.start; this historical build "
+            "has no common session-start boundary"
+        )
 
     if (output == "hdf5" or snapshots is not None) and scratch is None:
         raise SuiteError("a run to HDF5 or with snapshots needs a scratch directory")
@@ -291,41 +453,32 @@ def timed_run(  # noqa: PLR0913 - the run and how it is observed
         "snapshots": controller,
         "boundary_monitor": monitor,
     }
+    timing = _Started(engine)
     began = time.perf_counter_ns()
-    if Start is None:
-        # A build from before SEP 47's sessions: run_problem takes a loaded backend,
-        # so the load comes first and the window starts after it, as it did then.
-        cast("Backend", engine).set_initial(
-            problem.initial.field0, None, z=problem.initial.z
-        )
-        before = source_calls(engine)
-        loaded_at = time.perf_counter_ns()
-        run_problem(problem, engine, handler, **observed)
-    else:
-        loaded = _Loaded(engine)
-        with loaded:
-            run_problem(
-                problem, engine, handler, start=Start.entrance(problem), **observed
-            )
-        before, loaded_at = loaded.calls, loaded.ended
+    run_problem(
+        problem, timing.engine, handler, start=Start.entrance(problem), **observed
+    )
     ended = time.perf_counter_ns()
-    seconds = (ended - loaded_at) * 1e-9
-    after = source_calls(engine)
+    evaluations = timing.evaluations()
+    assert timing.started_at is not None  # evaluations validates the required boundary
+    seconds = (ended - timing.started_at) * 1e-9
     if isinstance(handler, HDF5Output) and path is not None:
         handler = open_file(path)
     try:
         accepted = np.asarray(handler["step_history/accepted"], dtype=bool)
         record: Record = {
             "seconds": seconds,
+            "timing_boundary": TIMING_BOUNDARY,
             "accepted": int(accepted.sum()),
             "rejected": int((~accepted).sum()),
-            "source_evaluations": None
-            if before is None or after is None
-            else after - before,
+            "source_evaluations": evaluations,
+            "source_counter": timing.counter,
+            "source_evaluations_before": timing.before,
+            "source_evaluations_after": timing.after,
+            "execution": timing.execution,
             "z": float(handler["z"][-1]),
             "planes": handler.n_saved,
-            # The whole run_problem call, the load and any session preparation
-            # before it included, for an end-to-end comparison across the change.
+            # The whole run_problem call, including its preparation and start.
             "wall_seconds": (ended - began) * 1e-9,
             "rows": _periodic_rows(handler),
         }
@@ -481,7 +634,13 @@ def _repetition(
             case.workload, simulation, scratch, configuration["fields"]
         )
         seconds = (time.perf_counter_ns() - started) * 1e-9
-        return {"seconds": seconds, "source_evaluations": None, **record}, final
+        return {
+            "seconds": seconds,
+            "wall_seconds": seconds,
+            "timing_boundary": "workload.call.v1",
+            "source_evaluations": None,
+            **record,
+        }, final
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
@@ -589,6 +748,22 @@ def _repeat_difference(finals: list[np.ndarray]) -> float | None:
     return max(float(np.linalg.norm(final - finals[0])) / scale for final in finals)
 
 
+def _prepared_runtime(engine: ExecutionBackend | None) -> Record:
+    """Read effective ownership and loaded-pool facts after numerical preparation.
+
+    The initial provenance event intentionally imports no optional execution runtime.
+    A session-only owner may load its runtime, provider and thread pools during
+    preparation, so those actual facts need a later, separately labelled snapshot.
+    Per-session execution records additionally carry their plans and counters.
+    """
+    from threadpoolctl import threadpool_info  # noqa: PLC0415
+
+    return {
+        "execution": None if engine is None else metadata_value(engine.metadata()),
+        "libraries": threadpool_info(),
+    }
+
+
 def measure(
     configuration: Record,
     repeats: int,
@@ -671,6 +846,7 @@ def measure(
         warmup = _warm(
             configuration, simulation, problem, engine, retention, root / "warm"
         )
+        prepared_runtime = _prepared_runtime(engine)
         free_warm = _device_free(configuration)
         repetitions = []
         finals = []
@@ -704,6 +880,7 @@ def measure(
             # Another workload constructs its backends inside each repetition.
             "backend_seconds": backend_seconds,
             "warmup_seconds": warmup,
+            "prepared_runtime": prepared_runtime,
             "repetitions": repetitions,
             "peak_rss_bytes": peak_rss(),
             # The run's workspace stays allocated, so the drop in free memory from

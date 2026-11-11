@@ -10,8 +10,7 @@ from dataclasses import fields, is_dataclass, replace
 
 import numpy as np
 import pytest
-from benchmarks.records import SuiteError
-from benchmarks.worker import _Loaded
+from benchmarks.worker import _Started
 
 from backends.julia.cases import adams_case, cpu_case, low_storage_case
 from solprop.backends.julia import backend
@@ -299,12 +298,15 @@ def test_foreign_numerical_request_refuses_before_runtime_selection(monkeypatch)
     owner.close()
 
 
-def test_legacy_benchmark_window_refuses_an_execution_only_owner():
+def test_benchmark_start_proxy_accepts_an_execution_only_owner_without_loading():
     case = cpu_case()
     owner = JuliaBackend(case.problem, case.request)
     try:
-        with pytest.raises(SuiteError, match="driver load boundary"):
-            _Loaded(owner)
+        timing = _Started(owner)
+        assert timing.engine.request is owner.request
+        assert timing.engine.metadata() == owner.metadata()
+        assert timing.started_at is None
+        assert owner._runtime is None
     finally:
         owner.close()
 

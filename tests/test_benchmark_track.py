@@ -13,7 +13,7 @@ import sys
 
 import pytest
 from benchmarks import __main__ as cli
-from benchmarks import history, runner, system, telemetry, track
+from benchmarks import history, runner, system, telemetry, track, worker
 from benchmarks.records import SuiteError, read_record
 from benchmarks.registry import CASES, select
 
@@ -317,6 +317,25 @@ def test_list_and_dry_run_plan_without_running(capsys):
     assert "unknown case" in capsys.readouterr().err
 
 
+def test_julia_cpu_tracking_selection_remains_a_lazy_plan(capsys):
+    assert (
+        cli.main(
+            [
+                "track",
+                "--dry-run",
+                "--case",
+                "smoke",
+                "--threads",
+                "1",
+                "--backend",
+                "julia",
+            ]
+        )
+        == 0
+    )
+    assert "configurations" in capsys.readouterr().out
+
+
 @pytest.mark.child_runs_auto
 @pytest.mark.medium
 def test_a_tracking_run_records_complete_runs_and_appends_history(
@@ -353,6 +372,9 @@ def test_a_tracking_run_records_complete_runs_and_appends_history(
         assert row["repeats"] == 2
         assert row["same_steps"]
         assert row["finite"]
+        assert row["timing_boundary"] == worker.TIMING_BOUNDARY
+        assert row["wall_median_s"] >= row["median_s"] > 0
+        assert row["prepared_runtime"]["execution"]["backend"] == "numpy_ref"
     assert read_record(out / "plan.json")["hardware"]["slug"]
     # The history takes the whole default plan only.
     assert (

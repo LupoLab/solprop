@@ -39,7 +39,7 @@ from benchmarks.system import (
     thread_environment,
 )
 
-BACKENDS = ("numpy_ref", "native")
+BACKENDS = ("numpy_ref", "native", "julia")
 """The backends a benchmark can name."""
 
 REPEAT_TOLERANCE = 1e-9
@@ -205,8 +205,14 @@ def summarise(
     # unchecked: no evidence of consistency, never a pass.
     same_steps = None if any(None in pair for pair in steps) else len(steps) == 1
     difference = result["repeat_difference"]
+    wall_times = [item.get("wall_seconds") for item in result["repetitions"]]
     return {
         **base,
+        "timing_boundary": last.get("timing_boundary"),
+        "wall_median_s": None
+        if any(value is None for value in wall_times)
+        else statistics.median(wall_times),
+        "prepared_runtime": result.get("prepared_runtime"),
         "median_s": statistics.median(times),
         "min_s": min(times),
         "max_s": max(times),
@@ -222,6 +228,7 @@ def summarise(
         and result["finite"] is True
         and (device or native_threads in (None, values["threads"])),
         "source_evaluations": last["source_evaluations"],
+        "source_counter": last.get("source_counter"),
         "peak_rss_gib": result["peak_rss_bytes"] / 2**30,
         "device_gib": None
         if result.get("device_bytes") is None
