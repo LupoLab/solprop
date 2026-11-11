@@ -97,14 +97,54 @@ function prepare_observations end
 
 _problem_preparation(preparation::_ProblemPreparation) = preparation
 _problem_preparation(preparation::SessionPreparation) = preparation.problem
-_observation_services(preparation::_ProblemPreparation; noise_spectrum = nothing) =
+_observation_services(
+    preparation::_ProblemPreparation; noise_spectrum = nothing,
+    transverse_clean = nothing, transverse_continuation = nothing,
+) =
     _NoSessionServices()
-function _observation_services(preparation::SessionPreparation; noise_spectrum = nothing)
+function _observation_services(
+        preparation::SessionPreparation; noise_spectrum = nothing,
+        transverse_clean = nothing, transverse_continuation = nothing,
+    )
     modal = preparation.problem
     return ObservationServices(
         modal.execution, preparation.observations; node_chunk = modal.node_chunk,
-        noise_spectrum,
+        noise_spectrum, transverse_clean, transverse_continuation,
     )
+end
+
+# Run once on the owned copied launch, before constructing the numerical session.
+# A resumed field is not a pre-noise launch. Its explicitly shared fallback must
+# use the already masked current field, never the fresh active/inactive formula.
+function _launch_observation_services(
+        preparation, state, noise::Union{Nothing, InputNoise}, active,
+        z::Float64, resume::Bool;
+        transverse_continuation::Union{Nothing, TransverseContinuation} = nothing,
+    )
+    problem = _problem_preparation(preparation)
+    edge = preparation isa SessionPreparation ?
+        preparation.observations.transverse : nothing
+    resumed_edge = transverse_continuation !== nothing &&
+        transverse_continuation.launch > 0
+    needs_clean = noise !== nothing && edge !== nothing &&
+        edge.policy.has_design && !resumed_edge
+    fresh = noise !== nothing && !resume && z == noise.launch
+    clean = needs_clean && fresh && noise !== nothing ?
+        transverse_clean_columns(problem.execution, state, noise.spectrum, active) : nothing
+    if noise !== nothing
+        apply_input_noise!(state, noise, active, z, resume, problem.execution)
+        if needs_clean && !fresh
+            clean = transverse_fallback_clean_columns(
+                problem.execution, state, noise.spectrum,
+            )
+        end
+    end
+    services = _observation_services(
+        preparation; noise_spectrum = noise === nothing ? nothing : noise.spectrum,
+        transverse_clean = clean, transverse_continuation,
+    )
+    services isa ObservationServices && (services.resume_pending = resume)
+    return services
 end
 
 struct _FieldExport{W, A, C, N}
@@ -851,6 +891,9 @@ function session_memory(session)
     end
     if session.services isa ObservationServices
         _memory_arrays!(ledger, seen, "shared.observations", session.services.work.data)
+        transverse = session.services.transverse
+        transverse === nothing ||
+            _memory_arrays!(ledger, seen, "shared.transverse", transverse.data)
     end
     empty!(ledger)
     _memory_arrays!(ledger, seen, "session", session)

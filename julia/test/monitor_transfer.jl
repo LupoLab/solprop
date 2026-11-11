@@ -100,7 +100,7 @@ end
 
 @testset "Temporal transport publishes fresh and pending diagnostic records" begin
     @test isbitstype(SolpropJulia.TemporalMonitorRecord)
-    @test Base.datatype_pointerfree(SolpropJulia.SessionMonitorPayload)
+    @test Base.datatype_pointerfree(SolpropJulia.SessionMonitorPayload{Nothing})
     for plane_pending in (false, true)
         session = monitor_transfer_case(; plane_pending)
         initial = SolpropJulia.session_monitor_payload(session, 0)

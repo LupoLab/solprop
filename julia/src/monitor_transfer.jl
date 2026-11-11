@@ -30,23 +30,31 @@ end
 """
     SessionMonitorPayload
 
-Describe one generation's fixed temporal record, rows and already decided notices.
+Describe one generation's detached monitor records, rows and already decided notices.
 
-`record` is a `TemporalMonitorRecord`; `row_count` is between zero and two. `notice`
+`record` is an optional `TemporalMonitorRecord`; `transverse` is an optional
+`TransverseMonitorRecord` with its fixed face tuples. `row_count` counts only temporal
+rows and is between zero and two. `notice`
 is either nothing or the single pending `MonitorNotice`, and `crossing` is either
 nothing or a `TemporalCrossingRefusal`. The latter records contain only numerical
 facts for external formatting, never a callback or an exception. `attached` is the
 session's services-started fact, including a failed launch, and `finished` is the
 service's completed finish-hook fact. Reading this immutable pointer-free record
 neither drains buffers nor changes a monitor or session decision.
+`resuming` and `committed` are the temporal lifecycle facts when that monitor exists;
+otherwise they identify an unconsumed edge attachment and its committed coordinate.
+They remain distinct from transverse `resumed`, which means positive totals restored.
 """
-struct SessionMonitorPayload
-    record::TemporalMonitorRecord
+struct SessionMonitorPayload{T}
+    record::Union{Nothing, TemporalMonitorRecord}
+    transverse::T
     row_count::Int
     notice::Union{Nothing, MonitorNotice}
     crossing::Union{Nothing, TemporalCrossingRefusal}
     attached::Bool
     finished::Bool
+    resuming::Bool
+    committed::Float64
 end
 
 function _monitor_transfer_generation(session, generation)
@@ -66,7 +74,7 @@ end
 
 Read detached numerical monitor data without draining the pending generation.
 
-Return a `SessionMonitorPayload` whenever temporal state exists, including before
+Return a `SessionMonitorPayload` whenever either monitor exists, including before
 attachment, or nothing for an unmonitored session. A zero generation is allowed only
 for an open nonpending session whose generation is zero and services have not started;
 a resumed constructor may already mark its launch event as delivered. Every later
@@ -79,22 +87,30 @@ function session_monitor_payload(session, generation::Int)
     services = session.services
     services isa ObservationServices || return nothing
     state = services.work.monitor
-    state === nothing && return nothing
+    transverse = services.transverse
+    state === nothing && transverse === nothing && return nothing
     0 <= services.monitor_count <= 2 &&
         services.monitor_count <= length(services.monitor_rows) &&
         0 <= services.notices.count <= 1 &&
         services.notices.count <= length(services.notices.records) ||
-        throw(ArgumentError("temporal monitor transport counts exceed their fixed buffers"))
-    removed = temporal_removed(state)
-    record = TemporalMonitorRecord(
-        temporal_continuation(state), removed, max(removed, 0.0),
-        state.launch > 0.0 ? state.floor / state.launch : 0.0,
-        state.resuming, state.committed,
-    )
+        throw(ArgumentError("monitor transport counts exceed their fixed buffers"))
+    record = if state === nothing
+        nothing
+    else
+        removed = temporal_removed(state)
+        TemporalMonitorRecord(
+            temporal_continuation(state), removed, max(removed, 0.0),
+            state.launch > 0.0 ? state.floor / state.launch : 0.0,
+            state.resuming, state.committed,
+        )
+    end
     notice = services.notices.count == 0 ? nothing : services.notices.records[1]
     return SessionMonitorPayload(
-        record, services.monitor_count, notice, services.crossing_refusal,
+        record, transverse === nothing ? nothing : transverse_monitor_record(transverse),
+        services.monitor_count, notice, services.crossing_refusal,
         session.state.services_started, services.finished,
+        state === nothing ? services.resume_pending && !transverse.started : state.resuming,
+        state === nothing ? transverse.committed_z : state.committed,
     )
 end
 
@@ -146,13 +162,16 @@ No Python object is retained after return, and no copy drains the generation.
 function copy_session_monitor_rows! end
 
 """
-    restore_session_monitor!(session, continuation, plane)
+    restore_session_monitor!(session, continuation, plane, transverse=nothing)
 
-Restore numerical temporal continuation before the monitor attaches to a run.
+Restore numerical monitor continuations before either monitor attaches to a run.
 
 `continuation` is an already parsed `TemporalContinuation`, or nothing for a resumed
 execution with no previous record. The latter still suppresses fresh-launch judgment.
-`plane` says whether the resumed endpoint is a saved plane. Open unmonitored sessions
+`plane` says whether the resumed endpoint is a saved plane. Optional `transverse`
+is an already parsed `TransverseContinuation`; positive launch totals preserve the
+original edge baselines. Check its face count before changing either monitor. Open
+unmonitored sessions
 are unchanged; an already marked resumption keeps its first record. Attachment/lifetime
 checks run before either no-op, including while the initial launch receipt is pending.
 Closed, ended or attached sessions refuse without mutation. Legacy scalar parsing,
@@ -160,17 +179,32 @@ row history and textual metadata remain outside this numerical operation.
 """
 function restore_session_monitor!(
         session, continuation::Union{Nothing, TemporalContinuation}, plane::Bool,
+        transverse::Union{Nothing, TransverseContinuation},
     )
     state = session.state
     !state.closed && !state.finished && !state.services_started ||
-        throw(ArgumentError("a temporal monitor must be restored before attachment"))
+        throw(ArgumentError("a monitor must be restored before attachment"))
     services = session.services
     services isa ObservationServices || return nothing
     !services.started ||
-        throw(ArgumentError("a temporal monitor must be restored before attachment"))
+        throw(ArgumentError("a monitor must be restored before attachment"))
     monitor = services.work.monitor
-    monitor === nothing && return nothing
-    monitor.resuming && return nothing
-    restore_temporal!(monitor, continuation; plane)
+    edge = services.transverse
+    if edge !== nothing && !edge.state.resumed
+        !edge.started && isnan(edge.state.last_z) ||
+            throw(ArgumentError("a transverse monitor must be restored before attachment"))
+        if transverse !== nothing && transverse.launch > 0
+            length(transverse.baseline) == length(edge.state.baseline) ||
+                throw(DimensionMismatch("resumed transverse faces do not match"))
+        end
+    end
+    monitor !== nothing && !monitor.resuming &&
+        restore_temporal!(monitor, continuation; plane)
+    edge !== nothing && !edge.state.resumed && restore_transverse!(edge.state, transverse)
+    services.resume_pending = true
     return nothing
 end
+
+restore_session_monitor!(
+    session, continuation::Union{Nothing, TemporalContinuation}, plane::Bool,
+) = restore_session_monitor!(session, continuation, plane, nothing)

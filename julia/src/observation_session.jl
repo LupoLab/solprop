@@ -94,30 +94,52 @@ function finish_temporal_split!(candidate, work::TemporalSplitWorkspace, dz, exe
 end
 
 """
-    SessionObservationPolicy(prepared; period=1, can_rest=false, split_rate=nothing)
+    SessionObservationPolicy(prepared; period=1, can_rest=false, split_rate=nothing,
+                             transverse=nothing, trace_chunk=1)
 
-Retain immutable modal observation policy for independently constructed sessions.
+Retain immutable scalar observation policy for independently constructed sessions.
 
-`prepared` is an `ObservationPreparation`. `period` is positive accepted steps from
-this session's load, independent of event yields. `can_rest` is the already lowered
+`prepared` is a modal or spatial observation preparation. `period` is positive accepted
+steps from this session's load, independent of event yields. `can_rest` is the lowered
 route/method eligibility for omitting an in-stage temporal absorber; it requires a
 nonsplit monitor. Optional copied binary64 `split_rate` contains one nonnegative
 power-loss rate per coarse sample, m⁻¹. It may be present without a monitor, but a
-monitored split must use exactly its fourth region column. Refuse inconsistent policy
-or nonfinite/negative rates. No physics object, callback or mutable source is retained.
+monitored split must use exactly its fourth region column. Optional `transverse` is
+a `TransversePreparation` for the same scalar spatial map, frequency count and columns;
+positive `trace_chunk` bounds its strip FFT batch. Refuse inconsistent policy or
+nonfinite/negative rates. No physics object, callback or mutable source is retained.
 """
-struct SessionObservationPolicy{P, R}
+struct SessionObservationPolicy{P, R, T}
     observation::P
     period::Int
     can_rest::Bool
     split_rate::R
+    transverse::T
+    trace_chunk::Int
 end
+
+_observation_same_map(left::RadialObservationMap, right::RadialObservationMap) =
+    left.synthesis == right.synthesis
+_observation_same_map(left::CartesianObservationMap, right::CartesianObservationMap) =
+    left.shape == right.shape
+_observation_same_map(left, right) = false
 
 function SessionObservationPolicy(
         prepared::_ObservationPreparation;
         period::Int = 1, can_rest::Bool = false, split_rate = nothing,
+        transverse = nothing, trace_chunk::Int = 1,
     )
     period > 0 || throw(ArgumentError("observation period must be positive"))
+    trace_chunk > 0 || throw(ArgumentError("transverse trace chunk must be positive"))
+    if transverse !== nothing
+        prepared isa SpatialObservationPreparation &&
+            transverse isa TransversePreparation ||
+            throw(ArgumentError("transverse monitoring requires scalar spatial inputs"))
+        transverse.n_frequency == length(prepared.grid.omega) &&
+            transverse.n_columns == prepared.n_modes &&
+            _observation_same_map(prepared.map, transverse.map) ||
+            throw(DimensionMismatch("transverse and observation maps must agree"))
+    end
     temporal = prepared.temporal
     can_rest && (temporal === nothing || temporal.policy.split || split_rate !== nothing) &&
         throw(ArgumentError("resting a source collar requires a nonsplit monitor"))
@@ -144,7 +166,9 @@ function SessionObservationPolicy(
         result = Vector{Float64}(undef, length(split_rate))
         copyto!(result, split_rate)
     end
-    return SessionObservationPolicy(prepared, period, can_rest, owned)
+    return SessionObservationPolicy(
+        prepared, period, can_rest, owned, transverse, trace_chunk,
+    )
 end
 
 """Identify no barrier, a warning awaiting service, or a decided boundary stop."""
@@ -161,6 +185,9 @@ end
     ObservationAcceptedRest
     ObservationPlaneRest
     ObservationFinishRest
+    ObservationTransverseLaunch
+    ObservationTransverseAccepted
+    ObservationTransversePlane
 end
 
 """
@@ -209,16 +236,20 @@ end
 
 """
     ObservationServices(execution, policy; attempt_capacity=256, node_chunk,
-        noise_spectrum=nothing, temporal_continuation=nothing, continuation_plane=false)
+        noise_spectrum=nothing, temporal_continuation=nothing, continuation_plane=false,
+        transverse_clean=nothing, transverse_continuation=nothing)
 
-Own bounded modal statistics, temporal monitor payloads and their continuations.
+Own bounded scalar statistics, monitor payloads and their warning continuations.
 
 `policy` is a `SessionObservationPolicy`; the other preparation keywords are those of
 `ObservationWorkspace`. `attempt_capacity` matches the containing march's positive
 AttemptBuffer capacity. Periodic storage has that capacity plus one for a row resumed
 after its warning delivered the accepted attempt. Compact periodic slices follow the
 selection's periodic order. One packed plane vector and at most two monitor plane rows
-are retained until valid acknowledgment; one temporal notice causes an immediate barrier.
+are retained until valid acknowledgment; one monitor notice causes an immediate barrier.
+The optional transverse workspace uses `policy.trace_chunk`, the original input-noise
+spectrum, and explicit clean columns only when its fresh ramp judgment needs them.
+Transverse continuation is the already parsed numerical record; no noise is reapplied.
 
 No field, session, source, Python callback or delivery receipt is retained. Numerical
 acceptance hooks use the committed field; plane hooks use the selected observation,
@@ -227,8 +258,9 @@ master-owned alarm scalar, initially NaN when unavailable; it is never inferred 
 stale RHS scratch. Copy-out accessors do not drain. The containing session validates
 generations and owns event/plane cursors. Refuse invalid capacity or preparation.
 """
-mutable struct ObservationServices{W, S, R, Q}
+mutable struct ObservationServices{W, S, R, Q, T}
     work::W
+    transverse::T
     split::S
     row_slices::R
     period::Int
@@ -254,19 +286,21 @@ mutable struct ObservationServices{W, S, R, Q}
     quadrature_error::Float64
     quadrature_work::Q
     periodic_pending::Bool
+    resume_pending::Bool
 
     function ObservationServices(
-            work::W, split::S, row_slices::R, period::Int, attempt_capacity::Int,
+            work::W, transverse::T, split::S, row_slices::R,
+            period::Int, attempt_capacity::Int,
             can_rest::Bool, rows::_ObservationRows, plane_values::Vector{Float64},
             quadrature_work::Q,
-        ) where {W, S, R, Q}
+        ) where {W, S, R, Q, T}
         blank = TemporalPlaneRow(false, NaN, NaN, NaN, NaN, 0.0)
-        return new{W, S, R, Q}(
-            work, split, row_slices, period, attempt_capacity, can_rest, rows,
+        return new{W, S, R, Q, T}(
+            work, transverse, split, row_slices, period, attempt_capacity, can_rest, rows,
             plane_values, false, NaN, fill(blank, 2), 0,
             MonitorNotices(1), nothing, ObservationNoBarrier, ObservationNoContinuation,
             NaN, (quiet = false, step_cap = Inf), false, false, false, 0, NaN, NaN,
-            quadrature_work, false,
+            quadrature_work, false, false,
         )
     end
 end
@@ -279,6 +313,7 @@ function ObservationServices(
         attempt_capacity::Int = 256, node_chunk::Int,
         noise_spectrum = nothing, temporal_continuation = nothing,
         continuation_plane::Bool = false,
+        transverse_clean = nothing, transverse_continuation = nothing,
     )
     0 < attempt_capacity < typemax(Int) ||
         throw(ArgumentError("observation attempt capacity must be positive and bounded"))
@@ -289,6 +324,11 @@ function ObservationServices(
     )
     split = policy.split_rate === nothing ? nothing :
         _temporal_split_workspace(execution, data, policy.split_rate)
+    transverse = policy.transverse === nothing ? nothing : TransverseWorkspace(
+            execution, policy.transverse; trace_chunk = policy.trace_chunk,
+            noise_spectrum, clean_columns = transverse_clean,
+            continuation = transverse_continuation,
+        )
     slots, selected = data.selection.slots, data.selection.periodic
     slices = map(eachindex(selected) |> Tuple) do ordinal
         slot = slots[selected[ordinal]]
@@ -304,7 +344,8 @@ function ObservationServices(
         zeros(capacity), zeros(Int, capacity), zeros(width, capacity), 0,
     )
     return ObservationServices(
-        work, split, slices, policy.period, attempt_capacity, policy.can_rest, rows,
+        work, transverse, split, slices, policy.period, attempt_capacity,
+        policy.can_rest, rows,
         zeros(data.selection.width),
         any(slot -> slot.code == 20, slots) ?
             QuadratureWorkspace(execution, data.n_modes) : nothing,
@@ -440,7 +481,17 @@ end
 
 function _observation_launch_rest!(services, session)
     _observation_sync_collar!(services, session)
-    _observation_crossing!(services, session, ObservationLaunchRest)
+    _observation_crossing!(services, session, ObservationLaunchRest) && return nothing
+    work = services.transverse
+    if work !== nothing
+        steps = session.schedule.replay_steps
+        maximum_step = isempty(steps) ? nothing : maximum(steps)
+        transverse_monitor_launch!(
+            work, session.field, session.state.z, services.notices;
+            fixed_step_max = maximum_step,
+        )
+        _observation_pause!(services, ObservationTransverseLaunch, session.state.z)
+    end
     return nothing
 end
 
@@ -512,6 +563,17 @@ end
 function _observation_accepted_rest!(services, session)
     _observation_sync_collar!(services, session)
     _observation_crossing!(services, session, ObservationAcceptedRest) && return nothing
+    work = services.transverse
+    if work !== nothing
+        steps, cursor = session.schedule.replay_steps, session.state.replay
+        next_step = isempty(steps) ? session.state.proposal :
+            cursor > length(steps) ? 0.0 : steps[cursor]
+        transverse_monitor_endpoint!(
+            work, session.field, session.state.z, next_step, services.notices,
+        )
+        _observation_pause!(services, ObservationTransverseAccepted, session.state.z) &&
+            return nothing
+    end
     # The first dense plane can deliver and drain this accepted attempt. Its
     # periodic row must already belong to that same chunk (SEP 47 section 5.3).
     # A warning continuation remains the shared explicit previous-chunk case.
@@ -569,6 +631,19 @@ end
 function _observation_plane_rest!(services, session)
     _observation_sync_collar!(services, session)
     _observation_crossing!(services, session, ObservationPlaneRest) && return nothing
+    work = services.transverse
+    if work !== nothing
+        transverse_monitor_plane!(
+            work, _march_observed_field(session), _march_observed_position(session),
+            services.notices,
+        )
+        _observation_pause!(services, ObservationTransversePlane, session.state.z) &&
+            return nothing
+    end
+    return _observation_plane_complete!(services, session)
+end
+
+function _observation_plane_complete!(services, session)
     services.monitor_count < length(services.monitor_rows) ||
         throw(DimensionMismatch("observation monitor row buffer is full"))
     position = _march_observed_position(session)
@@ -659,7 +734,9 @@ function _session_quiet_interval(services::ObservationServices, session)
     return services.left_out ? services.work.data.temporal.policy.interval : nothing
 end
 function _session_cap(services::ObservationServices, session, proposal::Float64)
-    return min(proposal, services.decision.step_cap)
+    cap = services.transverse === nothing ? Inf :
+        transverse_monitor_ceiling(services.transverse)
+    return min(proposal, services.decision.step_cap, cap)
 end
 
 function _session_barrier(services::ObservationServices, session)
@@ -668,9 +745,11 @@ function _session_barrier(services::ObservationServices, session)
 end
 
 function _observation_continuation_tag(continuation)
-    continuation == ObservationLaunchRest && return :launch_rest
-    continuation == ObservationAcceptedRest && return :accepted_rest
-    continuation == ObservationPlaneRest && return :plane_rest
+    continuation in (ObservationLaunchRest, ObservationTransverseLaunch) &&
+        return :launch_rest
+    continuation in (ObservationAcceptedRest, ObservationTransverseAccepted) &&
+        return :accepted_rest
+    continuation in (ObservationPlaneRest, ObservationTransversePlane) && return :plane_rest
     continuation == ObservationFinishRest && return :finish_rest
     return :none
 end
@@ -690,6 +769,19 @@ function _session_continue!(services::ObservationServices, session)
         _observation_accepted_rest!(services, session)
     elseif continuation == ObservationPlaneRest
         _observation_plane_rest!(services, session)
+    elseif continuation in (
+            ObservationTransverseLaunch, ObservationTransverseAccepted,
+            ObservationTransversePlane,
+        )
+        work = services.transverse
+        work !== nothing || throw(ArgumentError("transverse continuation has no owner"))
+        transverse_monitor_proceed!(work, services.notices)
+        _observation_pause!(services, continuation, session.state.z) && return :none
+        if continuation == ObservationTransverseAccepted
+            _session_endpoint!(services, session)
+        elseif continuation == ObservationTransversePlane
+            _observation_plane_complete!(services, session)
+        end
     else
         _observation_finish_rest!(services, session)
     end
