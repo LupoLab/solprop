@@ -1,7 +1,10 @@
 # SPDX-FileCopyrightText: 2026 John C. Travers and contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-function transverse_observation_case(route; collar = true, tasks = 1)
+function transverse_observation_case(
+        route; collar = true, tasks = 1,
+        arithmetic = SolpropJulia.SourceArithmetic(Float64),
+    )
     execution = SolpropJulia.KernelExecution(
         SolpropJulia.KernelAbstractions.CPU(), tasks, true,
     )
@@ -12,9 +15,9 @@ function transverse_observation_case(route; collar = true, tasks = 1)
             cospi((node - 0.5) * (column - 1) / nx) / sqrt(nx)
                 for node in 1:nx, column in 1:nx
         ]
-        SolpropJulia.RadialObservationMap(synthesis; pad_scale = 1.0)
+        SolpropJulia.RadialObservationMap(synthesis; pad_scale = 1.0, arithmetic)
     else
-        SolpropJulia.CartesianObservationMap((nx, ny))
+        SolpropJulia.CartesianObservationMap((nx, ny); arithmetic)
     end
     faces = zeros(nc, 4)
     for node in 1:nc

@@ -258,7 +258,7 @@ end
     end
 end
 
-function observation_cycle()
+function observation_cycle(; moment_rtol = 2.0e-8)
     nodes, weights, ends = Float64[], Float64[], Int[]
     for count in (16, 32)
         off_diagonal = [index / sqrt(4index^2 - 1) for index in 1:(count - 1)]
@@ -271,7 +271,7 @@ function observation_cycle()
     end
     return SolpropJulia.CycleQuadrature(
         nodes, weights, Tuple(ends);
-        moment_rtol = 2.0e-8, negligible_rate = 1.0e-30
+        moment_rtol, negligible_rate = 1.0e-30
     )
 end
 
@@ -322,7 +322,10 @@ end
     end
 end
 
-function observation_population_case(execution, kind; ionising = true, chunk = 2)
+function observation_population_case(
+        execution, kind; ionising = true, chunk = 2,
+        arithmetic = SolpropJulia.SourceArithmetic(Float64), moment_rtol = 2.0e-8,
+    )
     grid = observation_grid(kind)
     n_frequency = length(grid.omega)
     crop = kind == :field ? collect(0:4) : [0, 1, 2, 3, 12, 13, 14, 15]
@@ -332,12 +335,12 @@ function observation_population_case(execution, kind; ionising = true, chunk = 2
         execution; kind, n_time = 16, dt = 0.0625,
         crop_index = crop, omega = grid.omega, active,
         omega_window = ones(n_frequency), source_window = ones(16),
-        source_window_derivative = zeros(16)
+        source_window_derivative = zeros(16), arithmetic
     )
     maps = SolpropJulia.ModalSourceMap(
         execution;
         synthesis = 2 .* [0.8 -0.3; 0.2 0.4; 0.9 0.6], projection = zeros(2, 3),
-        taper = observation_profile(execution, 0.7, 0.2)
+        taper = observation_profile(execution, 0.7, 0.2), arithmetic
     )
     channels = ntuple(2) do index
         lower, upper, scale = 1.0e-12, 100.0, 0.4index
@@ -350,17 +353,19 @@ function observation_population_case(execution, kind; ionising = true, chunk = 2
             channel,
             observation_profile(execution, index + 1.0, index * 0.1),
             observation_profile(execution, index * 0.1, 0.02);
-            quadrature = kind == :field ? nothing : observation_cycle()
+            quadrature = kind == :field ? nothing : observation_cycle(; moment_rtol),
+            arithmetic,
         )
     end
     plasma = !ionising ? nothing : kind == :field ?
         SolpropJulia.ModalPlasma(
             execution, channels,
-            SolpropJulia.RunningIntegralRule([1.0], 0.0625; floor_exposure = false)
+            SolpropJulia.RunningIntegralRule([1.0], 0.0625; floor_exposure = false);
+            arithmetic,
         ) :
         SolpropJulia.ModalPlasma(
             execution, channels;
-            drude = -ones(n_frequency), loss = -im .* ones(n_frequency)
+            drude = -ones(n_frequency), loss = -im .* ones(n_frequency), arithmetic,
         )
     populations = SolpropJulia.ObservationPopulations(
         plasma, fine, maps;
@@ -381,7 +386,7 @@ function observation_population_case(execution, kind; ionising = true, chunk = 2
         kind, n_modes = 2, power_weight = SolpropJulia.ObservationWeight(
             execution,
             ones(n_frequency, 2)
-        ), populations
+        ), populations, arithmetic
     )
     return SolpropJulia.ObservationWorkspace(execution, prepared; node_chunk = chunk)
 end

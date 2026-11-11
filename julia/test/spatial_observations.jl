@@ -65,17 +65,17 @@ end
 function spatial_observation_replace(execution, prepared; changes...)
     options = (
         kind = prepared.kind, map = prepared.map, flux = prepared.flux,
-        spectral_weights = prepared.spectral_weights, on_axis = prepared.on_axis,
+        spectral_weights = prepared.spectral_weights, on_axis = prepared.host_on_axis,
         intensity_factor = prepared.intensity_factor, widths = prepared.widths,
         profiles = prepared.profiles, populations = prepared.populations,
-        temporal = prepared.temporal,
+        temporal = prepared.temporal, arithmetic = prepared.arithmetic,
     )
     return SP.SpatialObservationPreparation(
         execution, prepared.grid, prepared.selection; merge(options, (; changes...))...,
     )
 end
 
-function spatial_observation_cycle()
+function spatial_observation_cycle(; moment_rtol = 2.0e-8)
     nodes, weights, ends = Float64[], Float64[], Int[]
     for count in (16, 32)
         off = [index / sqrt(4index^2 - 1) for index in 1:(count - 1)]
@@ -85,19 +85,22 @@ function spatial_observation_cycle()
         push!(ends, length(nodes))
     end
     return SP.CycleQuadrature(
-        nodes, weights, Tuple(ends); moment_rtol = 2.0e-8, negligible_rate = 1.0e-30,
+        nodes, weights, Tuple(ends); moment_rtol, negligible_rate = 1.0e-30,
     )
 end
 
-function spatial_observation_populations(execution, prepared; ionising = true)
+function spatial_observation_populations(
+        execution, prepared; ionising = true, moment_rtol = 2.0e-8,
+    )
     kind, count = prepared.kind, length(prepared.grid.omega)
+    arithmetic = prepared.arithmetic
     crop = kind == :field ? collect(0:4) : [0, 1, 2, 3, 12, 13, 14, 15]
     active = fill(true, count)
     active[1] = false
     fine = SP.ModalSourceGrid(
         execution; kind, n_time = 16, dt = 0.0625, crop_index = crop,
         omega = prepared.grid.omega, active, omega_window = ones(count),
-        source_window = ones(16), source_window_derivative = zeros(16),
+        source_window = ones(16), source_window_derivative = zeros(16), arithmetic,
     )
     channels = ntuple(2) do index
         low, high, scale = 1.0e-12, 100.0, 0.4index
@@ -108,15 +111,18 @@ function spatial_observation_populations(execution, prepared; ionising = true)
         SP.ModalPlasmaChannel(
             SP.PlasmaChannel(table, 1.0, 0.2), SP.SourceProfile(100.0index),
             spatial_observation_profile(execution, 0.1index, 0.02);
-            quadrature = kind == :field ? nothing : spatial_observation_cycle(),
+            quadrature = kind == :field ? nothing :
+                spatial_observation_cycle(; moment_rtol),
+            arithmetic,
         )
     end
     plasma = !ionising ? nothing : kind == :field ?
         SP.ModalPlasma(
             execution, channels,
-            SP.RunningIntegralRule([1.0], 0.0625; floor_exposure = false),
+            SP.RunningIntegralRule([1.0], 0.0625; floor_exposure = false); arithmetic,
         ) : SP.ModalPlasma(
             execution, channels; drude = -Float64.(active), loss = -1.0im .* active,
+            arithmetic,
         )
     species_densities = (
         SP.SourceProfile(3.0), spatial_observation_profile(execution, 4.0, 1.0),
@@ -125,8 +131,8 @@ function spatial_observation_populations(execution, prepared; ionising = true)
     channel_species = ionising ? (3, 1) : ()
     if prepared.map isa SP.RadialObservationMap
         maps = SP.ModalSourceMap(
-            execution; synthesis = 2prepared.map.synthesis,
-            projection = zeros(reverse(size(prepared.map.synthesis))),
+            execution; synthesis = 2prepared.map.host_synthesis,
+            projection = zeros(reverse(size(prepared.map.host_synthesis))), arithmetic,
         )
         return SP.ObservationPopulations(
             plasma, fine, maps; species_densities, channel_species, peak_species = 0,
@@ -178,7 +184,7 @@ function spatial_observation_case(
         names = (
             :energy, :peak_intensity, :on_axis_intensity, :on_axis_spectrum,
             :beam_radius, :fwhm_r, :density, :pressure, :core_radius, :quadrature_error,
-        ), periodic = (1, 2, 7),
+        ), periodic = (1, 2, 7), arithmetic = SP.SourceArithmetic(Float64),
     )
     n_time, dt = 8, 0.125
     frequencies = kind == :field ? 5 : 8
@@ -212,11 +218,11 @@ function spatial_observation_case(
     flux = SP.SpatialFluxData(base; material, light_speed = 2.0)
     if route == :radial
         synthesis = [1.0 0.1 0.0 0.0; 0.1 0.8 0.1 0.0; 0.0 0.1 0.6 0.1; 0.0 0.0 0.1 0.4]
-        map = SP.RadialObservationMap(2synthesis; pad_scale = 2.0)
+        map = SP.RadialObservationMap(2synthesis; pad_scale = 2.0, arithmetic)
         axis = ComplexF64[1.1, 0.1, 0.01, 0.0]
         widths = SP.SpatialWidthGrid(:radial, [0.1, 0.4, 0.7, 1.0], Float64[], ones(4))
     else
-        map = SP.CartesianObservationMap(shape)
+        map = SP.CartesianObservationMap(shape; arithmetic)
         axis = ComplexF64[
             cis(2pi * (div(shape[1], 2) * x / shape[1] + div(shape[2], 2) * y / shape[2])) /
                 columns for x in 0:(shape[1] - 1), y in 0:(shape[2] - 1)

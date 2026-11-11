@@ -283,12 +283,10 @@ function ObservationAxisPopulations(
     narrow, range = if source_type(arithmetic) === Float64
         (owned, nothing)
     else
-        buffer = Matrix{Float32}(undef, size(owned))
-        fact = source_narrow!(
-            buffer, owned, :observation_axis_population;
+        _source_host_narrow(
+            owned, arithmetic, :observation_axis_population;
             exponent = arithmetic.state_exponent - arithmetic.field_exponent,
         )
-        (buffer, fact)
     end
     return ObservationAxisPopulations(
         plasma, grid, narrow, species_densities,
@@ -558,7 +556,10 @@ struct _ObservationPair{A, F}
     weighted_transform::F
 end
 
-function _observation_pair(execution, n_time, n_columns, ::Type{T} = Float64) where {T}
+function _observation_pair(
+        execution::KernelExecution, n_time::Int, n_columns::Int,
+        T::Union{Type{Float32}, Type{Float64}} = Float64,
+    )
     spectrum, weighted_spectrum = dzeros(execution, Complex{T}, n_time, n_columns),
         dzeros(execution, Complex{T}, n_time, n_columns)
     samples, weighted = similar(spectrum), similar(spectrum)
@@ -673,10 +674,19 @@ mutable struct _ObservationMonitorWork{A, T, F, R, V}
     capture_dz::Float64
 end
 
-function _observation_monitor_work(execution, data, noise)
+function _observation_monitor_work(
+        execution::KernelExecution, data::_ObservationPreparation, noise,
+    )
+    return _observation_monitor_work(execution, data, noise, _observation_arithmetic(data))
+end
+
+function _observation_monitor_work(
+        execution::KernelExecution, data::_ObservationPreparation, noise,
+        arithmetic::Union{SourceArithmetic{Float32}, SourceArithmetic{Float64}},
+    )
+    T = source_type(arithmetic)
     data.temporal === nothing && return nothing
     temporal = data.temporal
-    T = source_type(_observation_arithmetic(data))
     T === Float32 && noise !== nothing &&
         throw(ArgumentError("binary32 observations do not support input noise"))
     n_time, n_modes = length(data.grid.time), data.n_modes
@@ -705,6 +715,9 @@ function _observation_monitor_work(execution, data, noise)
     end
     return work
 end
+
+_observation_scale_arrays(::Nothing) = ()
+_observation_scale_arrays(scales::_ObservationScales) = (scales.columns, scales.nodes)
 
 _observation_arrays(::Nothing) = ()
 _observation_arrays(pair::_ObservationPair) =
@@ -755,7 +768,8 @@ Allocate owned numerical observation scratch without retaining a session or sour
 `prepared` is an `ObservationPreparation`, and the positive `node_chunk` bounds fresh
 population reconstruction. Optional binary64 complex `noise_spectrum` has the coarse
 state shape and is reduced once to a numerical floor; its array is not retained.
-An optional `TemporalContinuation` is restored before numerical launch initialization.
+Binary32 arithmetic refuses input noise before allocating monitor work. An optional
+`TemporalContinuation` is restored before numerical launch initialization.
 
 `values` is the packed statistics output. Every temporal transform, window pair,
 population matrix and monitor reading is independently owned, with all arrays listed
@@ -891,7 +905,7 @@ function ObservationWorkspace(
         _observation_arrays(monitor_work), statistics.power, statistics.total_power,
         statistics.column_energy, statistics.column_moment, statistics.node_total,
         statistics.fluence, statistics.magnitude, statistics.radial_average,
-        statistics.scales === nothing ? () : (statistics.scales.columns,),
+        _observation_scale_arrays(statistics.scales),
     )
     return ObservationWorkspace(
         execution, prepared, spectrum, weight, weight_work,
@@ -1019,7 +1033,11 @@ function _observation_populations!(
         diagnostics::Bool = false
     )
     work === nothing && throw(ArgumentError("population observation buffers are missing"))
-    diagnostics && reset_plasma_diagnostics!(work.diagnostics)
+    if diagnostics
+        work.diagnostics === nothing &&
+            throw(ArgumentError("plasma diagnostic buffers are missing"))
+        reset_plasma_diagnostics!(work.diagnostics)
+    end
     _observation_densities!(work.densities, data.species_densities, position, 1)
     fill!(work.fractions, 0.0)
     fill!(work.peaks, 0.0)
@@ -1169,8 +1187,9 @@ end
 
 Reconstruct fresh modal statistics at the actual supplied field and position.
 
-`work` is an `ObservationWorkspace`. Binary64 complex `field` has coarse state shape
-`(n_omega,n_modes)` and is preserved; `z` is finite in m. `periodic` selects exactly
+`work` is an `ObservationWorkspace`. Complex `field` has the prepared arithmetic and
+coarse state shape `(n_omega,n_modes)`, in stored units, and is preserved. `z` is finite
+in m. `periodic` selects exactly
 the prepared periodic slots, leaving other packed slices zero. The optional alarm is
 the session's accepted quadrature diagnostic, never inferred from stage scratch.
 Write `work.values`, then mark `valid=true` and `z` only after successful evaluation;
@@ -1217,9 +1236,15 @@ function observe!(
         work.populations, data.populations, field, z, execution;
         diagnostics = needs.plasma_diagnostics
     )
-    needs.axis_populations && _observation_axis_populations!(
-        work.axis_populations, data.axis_populations, field, z, execution
-    )
+    if needs.axis_populations
+        work.axis_populations === nothing &&
+            throw(ArgumentError("axis population buffers are missing"))
+        data.axis_populations === nothing &&
+            throw(ArgumentError("axis population preparation is missing"))
+        _observation_axis_populations!(
+            work.axis_populations, data.axis_populations, field, z, execution
+        )
+    end
     temporal = _observation_identity(work.inputs.temporal, identity, weight_exponent)
     spectral = _observation_spectral(work.inputs.spectral, identity, weight_exponent)
     profiles = (

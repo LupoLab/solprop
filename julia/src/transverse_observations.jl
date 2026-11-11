@@ -116,7 +116,7 @@ end
 
 """
     TransversePreparation(execution, map, policy, tables;
-                          n_frequency, rows, lines, declared)
+                          n_frequency, rows, lines, declared, arithmetic=map.arithmetic)
 
 Copy the translated inputs for scalar radial, Cartesian or line proxy monitoring.
 
@@ -127,9 +127,13 @@ is positive, `rows` is a Boolean node mask containing every face/rate row an ord
 read uses, and `lines` is a concrete tuple of `TransverseLineData`. A collar has one
 line per face; without a collar the tuple is empty. `declared` preserves the existing
 above-discard declaration. Tables, masks and line arrays are copied; the map is shared
-read-only. Reject unsupported execution, inconsistent geometry or invalid inputs.
+read-only. `arithmetic` must match the map. Node reconstruction uses its field scale,
+while canonical-column energies use its state scale. Binary32 strip/current work
+normalizes actual weighted sample components before products or FFTs; its derived
+integer exponent is restored only in physical binary64 readings. Reject unsupported
+execution, inconsistent geometry or invalid inputs.
 """
-struct TransversePreparation{M, T, L}
+struct TransversePreparation{M, T, L, A}
     map::M
     policy::TransversePolicy
     tables::T
@@ -140,17 +144,7 @@ struct TransversePreparation{M, T, L}
     current_rows::Vector{Bool}
     lines::L
     declared::Bool
-
-    function TransversePreparation(
-            map::M, policy::TransversePolicy, tables::T, n_frequency::Int,
-            n_columns::Int, rows::Vector{Bool}, read_rows::Vector{Bool},
-            current_rows::Vector{Bool}, lines::L, declared::Bool,
-        ) where {M, T, L}
-        return new{M, T, L}(
-            map, policy, tables, n_frequency, n_columns, rows, read_rows,
-            current_rows, lines, declared,
-        )
-    end
+    arithmetic::A
 end
 
 function TransversePreparation(
@@ -159,9 +153,12 @@ function TransversePreparation(
         policy::TransversePolicy, tables::TransverseTables;
         n_frequency::Int, rows::AbstractVector{Bool},
         lines::Tuple{Vararg{TransverseLineData}}, declared::Bool,
+        arithmetic::SourceArithmetic = map.arithmetic,
     )
     oncpu(execution) && n_frequency > 0 ||
-        throw(ArgumentError("transverse observations require scalar binary64 CPU data"))
+        throw(ArgumentError("transverse observations require scalar CPU data"))
+    arithmetic == map.arithmetic ||
+        throw(ArgumentError("transverse observations and map need one arithmetic policy"))
     n_nodes, n_columns = _spatial_map_shape(map)
     length(rows) == n_nodes && size(tables.faces, 1) == n_nodes &&
         length(tables.column_weights) == n_columns ||
@@ -199,7 +196,7 @@ function TransversePreparation(
     end
     return TransversePreparation(
         map, policy, _transverse_copy_tables(tables), n_frequency, n_columns,
-        owned_rows, read_rows, current_rows, owned_lines, declared,
+        owned_rows, read_rows, current_rows, owned_lines, declared, arithmetic,
     )
 end
 
@@ -278,34 +275,27 @@ function transverse_fallback_clean_columns(execution::KernelExecution, field, no
     return result
 end
 
-struct _TransverseLineWork{P, S, C, R}
+mutable struct _TransverseLineWork{A, P, S, C, R}
     data::TransverseLineData
-    spectrum::Matrix{ComplexF64}
-    current::Matrix{ComplexF64}
+    spectrum::A
+    current::A
     plan::P
     strip::S
     onset::C
     reading::R
     n_traces::Int
     chunk::Int
-
-    function _TransverseLineWork(
-            data::TransverseLineData, spectrum::Matrix{ComplexF64},
-            current::Matrix{ComplexF64}, plan::P, strip::S, onset::C,
-            reading::R, n_traces::Int, chunk::Int,
-        ) where {P, S, C, R}
-        return new{P, S, C, R}(
-            data, spectrum, current, plan, strip, onset, reading, n_traces, chunk,
-        )
-    end
+    strip_exponent::Int
+    current_exponent::Int
 end
 
 function _TransverseLineWork(execution, prepared, line, trace_chunk)
     _, n_cross = _transverse_line_shape(prepared.map, line)
     n_traces = Base.checked_mul(prepared.n_frequency, n_cross)
     chunk = min(trace_chunk, n_traces)
-    spectrum = zeros(ComplexF64, 2length(line.strip), chunk)
-    current = zeros(ComplexF64, line.onset === nothing ? 0 : 3, chunk)
+    T = source_type(prepared.arithmetic)
+    spectrum = dzeros(execution, Complex{T}, 2length(line.strip), chunk)
+    current = dzeros(execution, Complex{T}, line.onset === nothing ? 0 : 3, chunk)
     plan = isempty(line.strip) ? nothing : SpatialFFT(execution, spectrum, (1,))
     strip = isempty(line.strip) ? nothing : TransverseStripLine(
             spectrum, line.spacing, line.measure, line.inward...,
@@ -315,7 +305,7 @@ function _TransverseLineWork(execution, prepared, line, trace_chunk)
         )
     return _TransverseLineWork(
         line, spectrum, current, plan, strip, onset, TransverseReading(1, 1),
-        n_traces, chunk,
+        n_traces, chunk, 0, 0,
     )
 end
 
@@ -332,7 +322,8 @@ reduced once at preparation. A fresh ramp judgement with noise requires explicit
 finite nonnegative `clean_columns` from the appropriate preparation helper; this
 workspace never infers them. No clean vector is required without a ramp or with
 usable positive restored totals, because neither path judges it. Only the reduced
-noise data are retained. Optional `TransverseContinuation` preserves the
+noise data are retained. Binary32 arithmetic refuses noise. Optional
+`TransverseContinuation` preserves the
 original launch and totals while a later resumed launch refreshes samples unjudged.
 This admitted scalar spatial attachment always reads the edge, as native sessions
 do; an off request creates no workspace. The generic eager control API separately
@@ -340,10 +331,13 @@ retains its unwatched-backend capability path.
 
 State matrices use `(n_frequency,n_columns)`. Read-only maps/tables and every owned
 numeric buffer are reachable through `data`/`buffers`; no borrowed field is retained.
+Band, strip/current and node scratch follow `source_type(prepared.arithmetic)`;
+control readings/continuation remain binary64. Each line retains its most recently
+used strip/current exponent as small integer metadata.
 Fresh invalid inputs raise before attachment. Warmed lifecycle calls allocate nothing
 and produce at most one existing `MonitorNotice` before their explicit continuation.
 """
-mutable struct TransverseWorkspace{E, D, B, F, L, S, R, N, C, U}
+mutable struct TransverseWorkspace{E, D, B, F, L, S, R, N, C, V, U}
     execution::E
     data::D
     band::B
@@ -353,23 +347,11 @@ mutable struct TransverseWorkspace{E, D, B, F, L, S, R, N, C, U}
     reading::R
     noise::N
     clean_columns::C
-    nodes::Vector{Float64}
+    nodes::V
     buffers::U
     started::Bool
     committed_z::Float64
     fixed_step_max::Union{Nothing, Float64}
-
-    function TransverseWorkspace(
-            execution::E, data::D, band::B, spatial::F, lines::L, state::S,
-            reading::R, noise::N, clean_columns::C, nodes::Vector{Float64},
-            buffers::U, started::Bool, committed_z::Float64,
-            fixed_step_max::Union{Nothing, Float64},
-        ) where {E, D, B, F, L, S, R, N, C, U}
-        return new{E, D, B, F, L, S, R, N, C, U}(
-            execution, data, band, spatial, lines, state, reading, noise,
-            clean_columns, nodes, buffers, started, committed_z, fixed_step_max,
-        )
-    end
 end
 
 function _transverse_spatial_work(
@@ -380,7 +362,10 @@ end
 function _transverse_spatial_work(
         execution, prepared::TransversePreparation{<:CartesianObservationMap},
     )
-    return CartesianBandWork(execution, prepared.map.shape, prepared.n_frequency)
+    return CartesianBandWork(
+        execution, prepared.map.shape, prepared.n_frequency;
+        arithmetic = prepared.arithmetic,
+    )
 end
 
 function TransverseWorkspace(
@@ -390,6 +375,9 @@ function TransverseWorkspace(
     )
     oncpu(execution) && trace_chunk > 0 ||
         throw(ArgumentError("transverse workspace requires CPU and a positive trace chunk"))
+    T = source_type(prepared.arithmetic)
+    T === Float32 && noise_spectrum !== nothing &&
+        throw(ArgumentError("binary32 transverse observations do not support input noise"))
     state = TransverseState(prepared.tables)
     restore_transverse!(state, continuation)
     shape = (prepared.n_frequency, prepared.n_columns)
@@ -408,8 +396,8 @@ function TransverseWorkspace(
     end
     spatial = _transverse_spatial_work(execution, prepared)
     n_nodes = size(prepared.tables.faces, 1)
-    band = spatial === nothing ? zeros(ComplexF64, prepared.n_frequency, n_nodes) :
-        spatial.band
+    band = spatial === nothing ?
+        dzeros(execution, Complex{T}, prepared.n_frequency, n_nodes) : spatial.band
     lines = map(
         line -> _TransverseLineWork(execution, prepared, line, trace_chunk), prepared.lines,
     )
@@ -417,7 +405,7 @@ function TransverseWorkspace(
     noise = noise_spectrum === nothing ? nothing :
         TransverseReading(prepared.n_columns, length(lines))
     clean = clean_columns === nothing ? nothing : Vector{Float64}(clean_columns)
-    nodes = zeros(Float64, n_nodes)
+    nodes = dzeros(execution, T, n_nodes)
     buffers = (
         band, nodes, state.last_columns, state.noise_columns,
         reading.columns, reading.strip, clean, noise, lines,
@@ -446,9 +434,10 @@ function _transverse_copy_reading!(destination, source)
 end
 
 function _transverse_field(work, field)
-    field isa StridedMatrix{ComplexF64} &&
+    T = source_type(work.data.arithmetic)
+    field isa StridedMatrix{Complex{T}} &&
         size(field) == (work.data.n_frequency, work.data.n_columns) ||
-        throw(DimensionMismatch("transverse field requires its binary64 spectral layout"))
+        throw(DimensionMismatch("transverse field requires its prepared spectral layout"))
     all(isfinite, field) || throw(ArgumentError("transverse field must be finite"))
     _retained_alias(field, work) &&
         throw(ArgumentError("transverse field aliases retained preparation or work"))
@@ -462,7 +451,7 @@ function _transverse_band!(
     band, synthesis = work.band, work.data.map.synthesis
     read_rows, current_rows = work.data.read_rows, work.data.current_rows
     each!(work.execution, size(band)...) do row, node
-        value = zero(ComplexF64)
+        value = zero(eltype(band))
         if full || (faces && read_rows[node]) || (current && current_rows[node])
             for column in axes(field, 2)
                 value += synthesis[node, column] * field[row, column]
@@ -478,10 +467,20 @@ function _transverse_band!(
         field, faces, full, current,
     ) where {E}
     cartesian_inverse!(work.spatial, field)
+    if source_type(work.data.arithmetic) === Float32
+        band, scale = work.band, work.data.map.scale
+        each!(work.execution, size(band)...) do row, column
+            band[row, column] *= scale
+        end
+    end
     return nothing
 end
 
 function _transverse_strip_chunk!(work, line, first_trace, count)
+    if source_type(work.data.arithmetic) === Float32
+        _transverse_strip_single!(work, line, first_trace, count)
+        return nothing
+    end
     spectrum, data, band = line.spectrum, line.data, work.band
     strip, window, scale = data.strip, data.window, data.sample_scale
     n_frequency = work.data.n_frequency
@@ -507,6 +506,10 @@ function _transverse_strip_chunk!(work, line, first_trace, count)
 end
 
 function _transverse_current_chunk!(work, line, first_trace, count)
+    if source_type(work.data.arithmetic) === Float32
+        _transverse_current_single!(work, line, first_trace, count)
+        return nothing
+    end
     samples, data, band = line.current, line.data, work.band
     onset, scale = something(data.onset, (0, 0, 0)), data.sample_scale
     n_frequency = work.data.n_frequency
@@ -527,6 +530,100 @@ function _transverse_current_chunk!(work, line, first_trace, count)
         samples[row, column] = value
     end
     transverse_current!(line.reading, (line.onset,), work.data.policy.k_min)
+    return nothing
+end
+
+function _transverse_trace_parameters(work, line)
+    radial = work.data.map isa RadialObservationMap
+    return (
+        band = work.band, frequencies = work.data.n_frequency, radial = radial,
+        nx = radial ? 0 : work.data.map.shape[1], along_x = line.axis == :x,
+    )
+end
+
+@inline function _transverse_trace_sample(inputs, axis_node, trace)
+    frequency = mod(trace - 1, inputs.frequencies) + 1
+    cross = div(trace - 1, inputs.frequencies) + 1
+    node = inputs.radial ? axis_node : inputs.along_x ?
+        axis_node + inputs.nx * (cross - 1) : cross + inputs.nx * (axis_node - 1)
+    return inputs.band[frequency, node]
+end
+
+# Derive each chunk exponent from the actual weighted components, then form every
+# product in binary32. The common FFT input scale is metadata, never a physical power.
+# A large scale paired only with zero samples cannot erase another trace's signal.
+function _transverse_strip_single!(work, line, first_trace, count)
+    spectrum, data = line.spectrum, line.data
+    inputs = _transverse_trace_parameters(work, data)
+    strip, window, sample_scale = data.strip, data.window, data.sample_scale
+    scale = typemin(Int)
+    for column in 1:count, row in eachindex(strip)
+        node = strip[row]
+        value = _transverse_trace_sample(inputs, node, first_trace + column - 1)
+        factors = (window[row], sample_scale[node])
+        scale = max(
+            scale, _observation_product_exponent((real(value), factors...)),
+            _observation_product_exponent((imag(value), factors...)),
+        )
+    end
+    product_scale = _observation_product_scale(scale)
+    amplitude = work.data.arithmetic.field_exponent + product_scale
+    _observation_derived_exponents((amplitude,))
+    each!(work.execution, size(spectrum)...) do row, column
+        value = zero(eltype(spectrum))
+        if column <= count && row <= length(strip)
+            node = strip[row]
+            sample = _transverse_trace_sample(inputs, node, first_trace + column - 1)
+            factors = (window[row], sample_scale[node])
+            value = complex(
+                _observation_product((real(sample), factors...), product_scale),
+                _observation_product((imag(sample), factors...), product_scale),
+            )
+        end
+        spectrum[row, column] = value
+    end
+    spatial_forward!(spectrum, line.plan)
+    transverse_strip!(
+        line.reading, (line.strip,), work.execution;
+        amplitude_exponent = amplitude
+    )
+    line.strip_exponent = amplitude
+    return nothing
+end
+
+function _transverse_current_single!(work, line, first_trace, count)
+    samples, data = line.current, line.data
+    inputs = _transverse_trace_parameters(work, data)
+    sample_scale = data.sample_scale
+    onset = something(data.onset, (0, 0, 0))
+    scale = typemin(Int)
+    for column in 1:count, node in onset
+        value = _transverse_trace_sample(inputs, node, first_trace + column - 1)
+        scale = max(
+            scale, _observation_product_exponent((real(value), sample_scale[node])),
+            _observation_product_exponent((imag(value), sample_scale[node])),
+        )
+    end
+    product_scale = _observation_product_scale(scale)
+    amplitude = work.data.arithmetic.field_exponent + product_scale
+    _observation_derived_exponents((amplitude,))
+    each!(work.execution, size(samples)...) do row, column
+        value = zero(eltype(samples))
+        if column <= count
+            node = onset[row]
+            sample = _transverse_trace_sample(inputs, node, first_trace + column - 1)
+            value = complex(
+                _observation_product((real(sample), sample_scale[node]), product_scale),
+                _observation_product((imag(sample), sample_scale[node]), product_scale),
+            )
+        end
+        samples[row, column] = value
+    end
+    transverse_current!(
+        line.reading, (line.onset,), work.data.policy.k_min;
+        amplitude_exponent = amplitude
+    )
+    line.current_exponent = amplitude
     return nothing
 end
 
@@ -566,6 +663,8 @@ function _transverse_form_reading!(
     if faces
         transverse_reading!(
             reading, work.band, field, work.data.tables, work.nodes, work.execution; full,
+            node_exponent = work.data.arithmetic.field_exponent,
+            column_exponent = work.data.arithmetic.state_exponent,
         )
     end
     _transverse_line_readings!(work, work.lines, 1, faces, current)

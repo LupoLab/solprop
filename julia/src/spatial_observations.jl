@@ -48,46 +48,76 @@ end
 abstract type _SpatialObservationMap end
 
 """
-    RadialObservationMap(synthesis; pad_scale)
+    RadialObservationMap(synthesis; pad_scale, arithmetic=SourceArithmetic(Float64))
 
 Copy the scalar radial coarse physical synthesis from its translated fine matrix.
 
 `synthesis` is a finite real binary64 `(n_nodes,n_modes)` matrix with the temporal
 oversampling factor already folded in. Divide once by positive finite `pad_scale`;
-coarse spectra and analytic samples then reconstruct in V/m without fine padding.
-The on-axis row remains an independent preparation input. Invalid data raise.
+coarse spectra and analytic samples then reconstruct without fine padding. Fold the
+state-to-field power from `arithmetic` once into `synthesis`; its original binary64
+matrix remains independently owned in `host_synthesis` (aliased for binary64 work).
+`ranges.synthesis` records binary32 conversion. The on-axis row remains an independent
+preparation input. Invalid data or an unrepresentable direct fold raise.
 """
-struct RadialObservationMap <: _SpatialObservationMap
-    synthesis::Matrix{Float64}
+struct RadialObservationMap{M, A, H, R} <: _SpatialObservationMap
+    synthesis::M
+    arithmetic::A
+    host_synthesis::H
+    ranges::R
 
-    RadialObservationMap(::Val{:owned}, synthesis::Matrix{Float64}) = new(synthesis)
+    function RadialObservationMap(
+            ::Val{:owned}, synthesis::M, arithmetic::A, host_synthesis::H, ranges::R,
+        ) where {M, A, H, R}
+        return new{M, A, H, R}(synthesis, arithmetic, host_synthesis, ranges)
+    end
 end
 
-function RadialObservationMap(synthesis; pad_scale::Float64)
+function RadialObservationMap(
+        synthesis; pad_scale::Float64,
+        arithmetic::SourceArithmetic = SourceArithmetic(Float64),
+    )
     synthesis isa AbstractMatrix{Float64} && !isempty(synthesis) &&
         all(isfinite, synthesis) && isfinite(pad_scale) && pad_scale > 0 ||
         throw(ArgumentError("radial observation synthesis needs finite binary64 data"))
-    owned = Matrix{Float64}(synthesis)
-    owned ./= pad_scale
-    all(isfinite, owned) || throw(ArgumentError("radial coarse synthesis overflowed"))
-    return RadialObservationMap(Val(:owned), owned)
+    host = Matrix{Float64}(synthesis)
+    host ./= pad_scale
+    all(isfinite, host) || throw(ArgumentError("radial coarse synthesis overflowed"))
+    narrow, range = source_type(arithmetic) === Float64 ? (host, nothing) :
+        _source_host_narrow(
+            host, arithmetic, :radial_observation_synthesis;
+            exponent = arithmetic.state_exponent - arithmetic.field_exponent,
+        )
+    return RadialObservationMap(
+        Val(:owned), narrow, arithmetic, host, (; synthesis = range),
+    )
 end
 
 """
-    CartesianObservationMap(shape::NTuple{2,Int})
+    CartesianObservationMap(shape::NTuple{2,Int}; arithmetic=SourceArithmetic(Float64))
 
 Retain an x-fastest scalar Cartesian grid or line without constructing a dense map.
 
 `shape=(n_x,n_y)` requires `n_x>=2` and `n_y>=1`; a line has `n_y=1`.
-Physical reconstruction uses the normalized transverse inverse raw DFT. Each workspace
-owns its plans and band storage. Invalid or overflowing dimensions raise.
+Physical reconstruction uses the normalized transverse inverse raw DFT and the once
+narrowed state-to-field power from `arithmetic`. Each workspace owns its plans and
+band storage. Invalid or overflowing dimensions and an unrepresentable fold raise.
 """
-struct CartesianObservationMap <: _SpatialObservationMap
+struct CartesianObservationMap{A, T} <: _SpatialObservationMap
     shape::NTuple{2, Int}
+    arithmetic::A
+    scale::T
 
-    function CartesianObservationMap(shape::NTuple{2, Int})
+    function CartesianObservationMap(
+            shape::NTuple{2, Int};
+            arithmetic::SourceArithmetic = SourceArithmetic(Float64),
+        )
         _cartesian_shape(shape)
-        return new(shape)
+        scale = source_coefficient(
+            arithmetic, :cartesian_observation_synthesis, 1.0;
+            exponent = arithmetic.state_exponent - arithmetic.field_exponent,
+        )
+        return new{typeof(arithmetic), typeof(scale)}(shape, arithmetic, scale)
     end
 end
 
@@ -140,6 +170,8 @@ function SpatialObservationPopulations(
         throw(ArgumentError("spatial population species mapping is invalid"))
     isfinite(pad_scale) && pad_scale > 0 ||
         throw(ArgumentError("spatial population padding scale must be positive finite"))
+    (plasma === nothing || plasma.arithmetic == grid.arithmetic) ||
+        throw(ArgumentError("spatial population inputs must use one arithmetic policy"))
     _validate_source_responses(grid, nothing, (), plasma)
     owned_potentials = _population_inventory_data(
         potentials, measure, length(species_densities),
@@ -154,7 +186,8 @@ end
 """
     SpatialObservationPreparation(execution, grid, selection; kind, map, flux,
         spectral_weights, on_axis, intensity_factor, widths=nothing,
-        profiles=ObservationProfiles(), populations=nothing, temporal=nothing)
+        profiles=ObservationProfiles(), populations=nothing, temporal=nothing,
+        arithmetic=map.arithmetic)
 
 Own numerical preparation for scalar radial, Cartesian or line observations.
 
@@ -173,18 +206,23 @@ coarse inverse proxy, exactly as `BoundaryMonitor.power`, not physical axial flu
 
 Admit total energy, profiles, population diagnostics, physical peak/axis intensity,
 widths, axis spectrum and the explicit quadrature alarm. Refuse modal-only, far-field,
-planar and vector statistics by name before workspace allocation. Unsupported CPU/
-binary64 layouts, inconsistent route inputs and invalid numerical values raise.
+planar and vector statistics by name before workspace allocation. `arithmetic` must
+match the map and population grid exactly. Binary32 work retains its original wide
+axis row in `host_on_axis`, evaluates each admittance in host binary64 at z, normalizes
+its weight/closure coefficient, then rounds once before pointwise products. No mutable
+binary64 state-sized scratch is retained. Packed values and monitor decisions remain
+physical binary64. Unsupported execution, layouts or inconsistent inputs raise.
 """
-struct SpatialObservationPreparation{G, S, M, F, W, P, L, T} <: _ObservationPreparation
+struct SpatialObservationPreparation{G, S, M, F, V, A, W, P, L, T, R, H, N} <:
+    _ObservationPreparation
     kind::Symbol
     n_modes::Int
     grid::G
     selection::S
     map::M
     flux::F
-    spectral_weights::Vector{Float64}
-    on_axis::Vector{ComplexF64}
+    spectral_weights::V
+    on_axis::A
     intensity_factor::Float64
     widths::W
     profiles::P
@@ -192,29 +230,25 @@ struct SpatialObservationPreparation{G, S, M, F, W, P, L, T} <: _ObservationPrep
     temporal::T
     needs::StatisticsNeeds
     periodic_needs::StatisticsNeeds
-
-    function SpatialObservationPreparation(
-            kind::Symbol, n_modes::Int, grid::G, selection::S, map::M, flux::F,
-            spectral_weights::Vector{Float64}, on_axis::Vector{ComplexF64},
-            intensity_factor::Float64, widths::W, profiles::P, populations::L,
-            temporal::T, needs::StatisticsNeeds, periodic_needs::StatisticsNeeds,
-        ) where {G, S, M, F, W, P, L, T}
-        return new{G, S, M, F, W, P, L, T}(
-            kind, n_modes, grid, selection, map, flux, spectral_weights, on_axis,
-            intensity_factor, widths, profiles, populations, temporal, needs,
-            periodic_needs,
-        )
-    end
+    arithmetic::R
+    host_on_axis::H
+    ranges::N
 end
+
+_observation_arithmetic(data::SpatialObservationPreparation) = data.arithmetic
 
 function SpatialObservationPreparation(
         execution::KernelExecution, grid::StatisticsGrid, selection::StatisticsSelection;
         kind::Symbol, map::_SpatialObservationMap, flux::SpatialFluxData,
         spectral_weights, on_axis, intensity_factor::Float64, widths = nothing,
         profiles::ObservationProfiles = ObservationProfiles(), populations = nothing,
-        temporal = nothing,
+        temporal = nothing, arithmetic::SourceArithmetic = map.arithmetic,
     )
     oncpu(execution) || throw(ArgumentError("spatial observations currently require CPU"))
+    arithmetic == map.arithmetic ||
+        throw(ArgumentError("spatial observations and map must use one arithmetic policy"))
+    populations === nothing || populations.grid.arithmetic == arithmetic ||
+        throw(ArgumentError("spatial populations must match observation arithmetic"))
     n_time, n_frequency = length(grid.time), length(grid.omega)
     nodes, columns = _spatial_map_shape(map)
     kind in (:field, :envelope) && n_time >= 4 && iseven(n_time) ||
@@ -300,10 +334,17 @@ function SpatialObservationPreparation(
     owned_widths = widths === nothing ? nothing : SpatialWidthGrid(
             widths.kind, copy(widths.x), copy(widths.y), copy(widths.weights)
         )
+    host_axis = Vector{ComplexF64}(on_axis)
+    narrow_axis, axis_range = source_type(arithmetic) === Float64 ? (host_axis, nothing) :
+        source_narrow(
+            execution, host_axis, arithmetic, :spatial_observation_axis;
+            exponent = arithmetic.state_exponent - arithmetic.field_exponent,
+        )
     return SpatialObservationPreparation(
         kind, columns, owned_grid, selection, map, flux, Vector{Float64}(spectral_weights),
-        Vector{ComplexF64}(on_axis), intensity_factor, owned_widths, profiles, populations,
-        temporal, needs, statistics_needs(selection; periodic = true),
+        narrow_axis, intensity_factor, owned_widths, profiles, populations,
+        temporal, needs, statistics_needs(selection; periodic = true), arithmetic,
+        host_axis, (; axis = axis_range),
     )
 end
 
@@ -337,9 +378,9 @@ function _spatial_observation_temporal(temporal, n_time, n_frequency, columns)
     return nothing
 end
 
-struct _SpatialPhysicalPair{B, P}
-    spectrum::Matrix{ComplexF64}
-    closure::Matrix{ComplexF64}
+struct _SpatialPhysicalPair{A, B, P}
+    spectrum::A
+    closure::A
     band::B
     pair::P
 end
@@ -347,31 +388,38 @@ end
 function _spatial_physical_pair(execution, data, analytic)
     frequencies, n_time = length(data.grid.omega), length(data.grid.time)
     nodes, _ = _spatial_map_shape(data.map)
+    T = source_type(data.arithmetic)
     band = data.map isa CartesianObservationMap ?
-        CartesianBandWork(execution, data.map.shape, frequencies) : nothing
+        CartesianBandWork(
+            execution, data.map.shape, frequencies; arithmetic = data.arithmetic,
+        ) :
+        nothing
     return _SpatialPhysicalPair(
-        zeros(ComplexF64, frequencies, nodes), zeros(ComplexF64, frequencies, nodes),
-        band, analytic ? _observation_pair(execution, n_time, nodes) : nothing,
+        dzeros(execution, Complex{T}, frequencies, nodes),
+        dzeros(execution, Complex{T}, frequencies, nodes),
+        band, analytic ? _observation_pair(execution, n_time, nodes, T) : nothing,
     )
 end
 
-struct _SpatialAxisPair{P}
-    spectrum::Matrix{ComplexF64}
-    closure::Matrix{ComplexF64}
+struct _SpatialAxisPair{A, P}
+    spectrum::A
+    closure::A
     pair::P
 end
 
 function _spatial_axis_pair(execution, data, analytic)
     frequencies, n_time = length(data.grid.omega), length(data.grid.time)
+    T = source_type(data.arithmetic)
     return _SpatialAxisPair(
-        zeros(ComplexF64, frequencies, 1), zeros(ComplexF64, frequencies, 1),
-        analytic ? _observation_pair(execution, n_time, 1) : nothing,
+        dzeros(execution, Complex{T}, frequencies, 1),
+        dzeros(execution, Complex{T}, frequencies, 1),
+        analytic ? _observation_pair(execution, n_time, 1, T) : nothing,
     )
 end
 
-struct _SpatialPopulationWork{A, F, P, W, B, C, D}
-    spectrum::Matrix{ComplexF64}
-    coarse::Matrix{ComplexF64}
+struct _SpatialPopulationWork{S, A, F, P, W, B, C, D, V}
+    spectrum::S
+    coarse::S
     nodes::A
     transform::F
     padding::P
@@ -379,8 +427,8 @@ struct _SpatialPopulationWork{A, F, P, W, B, C, D}
     band::B
     chunks::C
     densities::Vector{Float64}
-    fractions::Matrix{Float64}
-    peaks::Matrix{Float64}
+    fractions::V
+    peaks::V
     diagnostics::D
 end
 
@@ -394,27 +442,34 @@ function _spatial_population_work(execution, data, node_chunk)
         )
     end
     grid = prepared.grid
+    T = source_type(data.arithmetic)
     capacity = min(node_chunk, data.n_modes)
     n_time, frequencies = grid.n_time, length(data.grid.omega)
     field = data.kind == :field
     fine = field ? n_time ÷ 2 + 1 : n_time
-    nodes = zeros(field ? Float64 : ComplexF64, n_time, capacity)
-    spectrum = zeros(ComplexF64, fine, capacity)
+    nodes = dzeros(execution, field ? T : Complex{T}, n_time, capacity)
+    spectrum = dzeros(execution, Complex{T}, fine, capacity)
     layout = ResponseLayout(n_time, 1, capacity)
     population = prepared.plasma === nothing ? nothing :
-        PopulationWorkspace(execution, Float64, layout)
+        PopulationWorkspace(execution, T, layout)
     chunks = map(1:capacity:data.n_modes) do first
         (first = first, count = min(capacity, data.n_modes - first + 1))
     end
     n_species = length(prepared.species_densities)
     return _SpatialPopulationWork(
-        spectrum, zeros(ComplexF64, frequencies, capacity), nodes,
+        spectrum, dzeros(execution, Complex{T}, frequencies, capacity), nodes,
         TemporalFFT(execution, nodes, spectrum),
-        SpectralPadding(execution, grid.crop_index, fine, prepared.pad_scale, 1.0),
-        population, CartesianBandWork(execution, data.map.shape, frequencies), chunks,
-        zeros(n_species), zeros(data.n_modes, n_species), zeros(data.n_modes, n_species),
-        data.needs.plasma_diagnostics ?
-            PlasmaDiagnosticWorkspace(execution, Float64, capacity) : nothing,
+        SpectralPadding(
+            execution, grid.crop_index, fine,
+            source_coefficient(data.arithmetic, :population_padding, prepared.pad_scale),
+            one(T),
+        ),
+        population, CartesianBandWork(
+            execution, data.map.shape, frequencies; arithmetic = data.arithmetic,
+        ), chunks, zeros(n_species), dzeros(execution, T, data.n_modes, n_species),
+        dzeros(execution, T, data.n_modes, n_species),
+        data.needs.plasma_diagnostics ? PlasmaDiagnosticWorkspace(execution, T, capacity) :
+            nothing,
     )
 end
 
@@ -454,6 +509,8 @@ function _spatial_statistics_input(physical, axis, data)
         spectrum, closure, analytic, analytic_closure,
         axis_spectrum, axis_closure, axis_analytic, axis_analytic_closure,
         factor = data.intensity_factor, widths = data.widths, source_columns = data.n_modes,
+        field_exponent = data.arithmetic.field_exponent,
+        closure_exponent = data.arithmetic.field_exponent,
     )
 end
 
@@ -465,6 +522,9 @@ Allocate independent scalar spatial statistics, reconstruction and monitor stora
 
 `prepared` is `SpatialObservationPreparation`. The positive `node_chunk` bounds fine
 population samples; optional noise and continuation match `ObservationWorkspace`.
+Binary32 refuses input noise. `weight_range` and `closure_range` retain the most recent
+host coefficient normalization facts, and their integer exponents restore the final
+physical statistics. These are scalar facts, not extra full-volume storage.
 Only requested coarse physical/axis pairs are allocated, each linear in the field
 size. Cartesian reconstruction uses FFT plans, never a quadratic dense matrix. Every
 retained numerical workspace array is listed in `buffers` for the caller's ledger.
@@ -474,13 +534,13 @@ state is retained. Warm evaluation allocates nothing and does not advance source
 monitor counters. Invalid data, unsupported execution and inconsistent continuation
 raise before the workspace is returned.
 """
-mutable struct SpatialObservationWorkspace{E, D, L, A, P, T, M, C, I, B} <:
+mutable struct SpatialObservationWorkspace{E, D, S, W, L, A, P, T, M, C, I, B} <:
     _ObservationWorkspace
     execution::E
     data::D
-    spectrum::Matrix{ComplexF64}
-    closure::Matrix{ComplexF64}
-    weight::Matrix{Float64}
+    spectrum::S
+    closure::S
+    weight::W
     material::Vector{ComplexF64}
     physical::L
     axis::A
@@ -493,18 +553,23 @@ mutable struct SpatialObservationWorkspace{E, D, L, A, P, T, M, C, I, B} <:
     buffers::B
     valid::Bool
     z::Float64
+    weight_exponent::Int
+    closure_exponent::Int
+    weight_range::SourceRange
+    closure_range::SourceRange
 
     function SpatialObservationWorkspace(
-            execution::E, data::D, spectrum::Matrix{ComplexF64},
-            closure::Matrix{ComplexF64}, weight::Matrix{Float64},
+            execution::E, data::D, spectrum::S, closure::S, weight::W,
             material::Vector{ComplexF64}, physical::L, axis::A, populations::P,
             statistics::T, monitor_work::M, monitor::C, inputs::I,
             values::Vector{Float64}, buffers::B, valid::Bool, z::Float64,
-        ) where {E, D, L, A, P, T, M, C, I, B}
-        return new{E, D, L, A, P, T, M, C, I, B}(
+            weight_exponent::Int, closure_exponent::Int,
+            weight_range::SourceRange, closure_range::SourceRange,
+        ) where {E, D, S, W, L, A, P, T, M, C, I, B}
+        return new{E, D, S, W, L, A, P, T, M, C, I, B}(
             execution, data, spectrum, closure, weight, material, physical, axis,
             populations, statistics, monitor_work, monitor, inputs, values, buffers,
-            valid, z,
+            valid, z, weight_exponent, closure_exponent, weight_range, closure_range,
         )
     end
 end
@@ -518,6 +583,9 @@ function SpatialObservationWorkspace(
         throw(ArgumentError("spatial observations need CPU and a positive node chunk"))
     frequencies, n_time = length(prepared.grid.omega), length(prepared.grid.time)
     nodes, columns = _spatial_map_shape(prepared.map)
+    T = source_type(prepared.arithmetic)
+    T === Float32 && noise_spectrum !== nothing &&
+        throw(ArgumentError("binary32 spatial observations do not support input noise"))
     selection, needs = prepared.selection, prepared.needs
     local_peak = _observation_selected(selection, 18, false)
     axis_peak = _observation_selected(selection, 19, false)
@@ -525,10 +593,11 @@ function SpatialObservationWorkspace(
         _spatial_physical_pair(execution, prepared, local_peak) : nothing
     axis = needs.widths || needs.axis_spectrum || axis_peak ?
         _spatial_axis_pair(execution, prepared, axis_peak) : nothing
-    spectrum = zeros(ComplexF64, frequencies, columns)
+    spectrum = dzeros(execution, Complex{T}, frequencies, columns)
     closure = physical !== nothing || axis !== nothing ? similar(spectrum) :
-        zeros(ComplexF64, 0, 0)
-    weight = needs.spectral ? zeros(frequencies, columns) : zeros(0, 0)
+        dzeros(execution, Complex{T}, 0, 0)
+    weight = needs.spectral ? dzeros(execution, T, frequencies, columns) :
+        dzeros(execution, T, 0, 0)
     material = prepared.flux.material === nothing ?
         ComplexF64[] : zeros(ComplexF64, frequencies)
     populations = needs.populations ?
@@ -541,10 +610,13 @@ function SpatialObservationWorkspace(
     end
     radii = prepared.widths === nothing ? 0 : prepared.widths.radius_capacity
     statistics = StatisticsWorkspace(
-        execution, Float64; n_time, n_columns = columns, n_nodes = nodes, n_radii = radii,
+        execution, T; n_time, n_columns = columns, n_nodes = nodes, n_radii = radii,
     )
     spectral_input = needs.spectral ?
-        SpectralStatisticsInput(spectrum, weight; total = true) : nothing
+        SpectralStatisticsInput(
+            spectrum, weight; total = true,
+            amplitude_exponent = prepared.arithmetic.state_exponent,
+        ) : nothing
     spatial_input = _spatial_statistics_input(physical, axis, prepared)
     population_input = if populations === nothing
         nothing
@@ -569,10 +641,13 @@ function SpatialObservationWorkspace(
         _observation_arrays(monitor_work), statistics.power, statistics.total_power,
         statistics.column_energy, statistics.column_moment, statistics.node_total,
         statistics.fluence, statistics.magnitude, statistics.radial_average,
+        _observation_scale_arrays(statistics.scales),
     )
     return SpatialObservationWorkspace(
         execution, prepared, spectrum, closure, weight, material, physical, axis,
         populations, statistics, monitor_work, monitor, inputs, values, buffers, false, NaN,
+        0, 0, SourceRange(:spatial_power_weight, 0, 0, true, 0.0, 0.0),
+        SourceRange(:spatial_admittance, 0, 0, true, 0.0, 0.0),
     )
 end
 
@@ -583,8 +658,9 @@ function ObservationWorkspace(
 end
 
 function _observation_field(work::SpatialObservationWorkspace, field, z)
-    field isa StridedMatrix{ComplexF64} && size(field) == size(work.spectrum) ||
-        throw(DimensionMismatch("observation field must match its binary64 spatial state"))
+    T = source_type(work.data.arithmetic)
+    field isa StridedMatrix{Complex{T}} && size(field) == size(work.spectrum) ||
+        throw(DimensionMismatch("observation field must match its prepared spatial state"))
     isfinite(z) && all(isfinite, field) ||
         throw(ArgumentError("observation position and field must be finite"))
     _retained_alias(field, work) &&
@@ -602,6 +678,10 @@ function _spatial_observation_flux!(work, position, spectral, closure)
         all(isfinite, work.material) ||
             throw(ArgumentError("spatial material square is nonfinite at observation"))
         work.material
+    end
+    if source_type(data.arithmetic) === Float32
+        _spatial_observation_flux_single!(work, high, spectral, closure)
+        return nothing
     end
     low, transverse, residual = base.k_squared_low, base.kperp_sq, base.kperp_sq_low
     active, omega, speed = base.active, data.grid.omega, flux.light_speed
@@ -621,6 +701,85 @@ function _spatial_observation_flux!(work, position, spectral, closure)
     return nothing
 end
 
+# Evaluate immutable host coefficients in binary64 at z, then round once into the
+# normalized binary32 pass. No state-sized binary64 temporary or sample product is
+# formed, and the original binary64 graph above remains untouched.
+@inline function _spatial_observation_admittance(inputs, row, column)::ComplexF64
+    material = inputs.varying && !inputs.active[row] ? 0.0im : inputs.high[row]
+    square = (material - inputs.transverse[column]) +
+        (inputs.low[row] - inputs.residual[column])
+    return inputs.active[row] && inputs.omega[row] > 0 && real(square) > 0 ?
+        inputs.speed * sqrt(square) / inputs.omega[row] : 0.0im
+end
+
+function _spatial_observation_range(name::Symbol, largest::Float64, smallest::Float64)
+    exponent = iszero(largest) ? 0 : last(frexp(largest)) - 1
+    return SourceRange(
+        name, exponent, 0, true, ldexp(largest, -exponent),
+        isinf(smallest) ? 0.0 : ldexp(smallest, -exponent),
+    )
+end
+
+function _spatial_observation_flux_single!(
+        work::SpatialObservationWorkspace, high::AbstractVector{ComplexF64},
+        spectral::Bool, closure::Bool,
+    )
+    data, input = work.data, work.spectrum
+    base = data.flux.base
+    coefficients = (
+        high = high, low = base.k_squared_low, transverse = base.kperp_sq,
+        residual = base.kperp_sq_low, active = base.active, omega = data.grid.omega,
+        speed = data.flux.light_speed, varying = data.flux.material !== nothing,
+    )
+    factor, measure = data.intensity_factor, data.spectral_weights
+    largest_weight, largest_partner = 0.0, 0.0
+    smallest_weight = smallest_partner = Inf
+    for column in axes(input, 2), row in axes(input, 1)
+        admittance = _spatial_observation_admittance(coefficients, row, column)
+        isfinite(admittance) ||
+            throw(ArgumentError("spatial observation admittance is nonfinite"))
+        if spectral
+            value = factor * measure[column] * real(admittance)
+            isfinite(value) && value >= 0 ||
+                throw(ArgumentError("spatial observation power weight is invalid"))
+            largest_weight = max(largest_weight, value)
+            iszero(value) || (smallest_weight = min(smallest_weight, value))
+        end
+        if closure
+            value = abs(admittance)
+            isfinite(value) ||
+                throw(ArgumentError("spatial observation admittance magnitude overflowed"))
+            largest_partner = max(largest_partner, value)
+            iszero(value) || (smallest_partner = min(smallest_partner, value))
+        end
+    end
+    weight_range = _spatial_observation_range(
+        :spatial_power_weight, largest_weight, smallest_weight,
+    )
+    closure_range = _spatial_observation_range(
+        :spatial_admittance, largest_partner, smallest_partner,
+    )
+    weight_exponent, closure_exponent = weight_range.block_exponent,
+        closure_range.block_exponent
+    partner, weights = work.closure, work.weight
+    each!(work.execution, size(input)...) do row, column
+        admittance = _spatial_observation_admittance(coefficients, row, column)
+        if spectral
+            value = factor * measure[column] * real(admittance)
+            weights[row, column] = _observation_scaled(Float64(value), weight_exponent)
+        end
+        if closure
+            coefficient = ComplexF32(_source_scaled(conj(admittance), -closure_exponent))
+            partner[row, column] = coefficient * input[row, column]
+        end
+    end
+    (!spectral || all(isfinite, weights)) && (!closure || all(isfinite, partner)) ||
+        throw(ArgumentError("spatial observation normalized partner overflowed"))
+    work.weight_exponent, work.closure_exponent = weight_exponent, closure_exponent
+    work.weight_range, work.closure_range = weight_range, closure_range
+    return nothing
+end
+
 function _spatial_reconstruct!(work, field, closure, map::RadialObservationMap, execution)
     synthesize!(work.spectrum, field, map.synthesis, execution; n_components = 1)
     synthesize!(work.closure, closure, map.synthesis, execution; n_components = 1)
@@ -632,6 +791,13 @@ function _spatial_reconstruct!(
     )
     copyto!(work.spectrum, cartesian_inverse!(work.band, field))
     copyto!(work.closure, cartesian_inverse!(work.band, closure))
+    if source_type(map.arithmetic) === Float32
+        first, second, scale = work.spectrum, work.closure, map.scale
+        each!(execution, size(first)...) do row, column
+            first[row, column] *= scale
+            second[row, column] *= scale
+        end
+    end
     return nothing
 end
 
@@ -639,14 +805,15 @@ function _spatial_analytic!(pair, first, second, kind, execution)
     spectrum, closure = pair.spectrum, pair.weighted_spectrum
     frequencies = size(first, 1)
     field = kind == :field
+    T = real(eltype(spectrum))
+    blank, real_zero, scale = zero(eltype(spectrum)), zero(T), field ? T(2) : one(T)
     each!(execution, size(spectrum)...) do row, column
         if row > frequencies
-            spectrum[row, column], closure[row, column] = 0.0im, 0.0im
+            spectrum[row, column], closure[row, column] = blank, blank
         elseif field && (row == 1 || row == frequencies)
-            spectrum[row, column] = complex(real(first[row, column]), 0.0)
-            closure[row, column] = complex(real(second[row, column]), 0.0)
+            spectrum[row, column] = complex(real(first[row, column]), real_zero)
+            closure[row, column] = complex(real(second[row, column]), real_zero)
         else
-            scale = field ? 2.0 : 1.0
             spectrum[row, column] = scale * first[row, column]
             closure[row, column] = scale * second[row, column]
         end
@@ -659,7 +826,7 @@ end
 function _spatial_axis!(work, field, closure, axis, execution)
     first, second = work.spectrum, work.closure
     each!(execution, size(first, 1), 1) do row, _
-        electric = magnetic = 0.0im
+        electric = magnetic = zero(eltype(first))
         for column in axes(field, 2)
             electric += axis[column] * field[row, column]
             magnetic += axis[column] * closure[row, column]
@@ -688,11 +855,19 @@ function _spatial_observation_populations!(
     data.plasma === nothing && return nothing
     physical = cartesian_inverse!(work.band, field)
     coarse = work.coarse
+    arithmetic = data.grid.arithmetic
+    scale = source_coefficient(
+        arithmetic, :spatial_population_synthesis, 1.0;
+        exponent = arithmetic.state_exponent - arithmetic.field_exponent,
+    )
     for chunk in work.chunks
         first, count = chunk.first, chunk.count
         each!(execution, size(coarse)...) do row, column
             coarse[row, column] = column <= count ?
-                physical[row, first + column - 1] : 0.0im
+                physical[row, first + column - 1] : zero(eltype(coarse))
+            if source_type(arithmetic) === Float32
+                coarse[row, column] *= scale
+            end
         end
         pad_spectrum!(work.spectrum, coarse, work.padding, execution)
         temporal_inverse!(work.nodes, work.transform, work.spectrum, execution)
@@ -708,15 +883,29 @@ function _spatial_observation_populations!(
     return nothing
 end
 
+_spatial_observation_input(::Nothing, exponent) = nothing
+function _spatial_observation_input(input::SpatialStatisticsInput, exponent)
+    return SpatialStatisticsInput(;
+        spectrum = input.spectrum, closure = input.closure, analytic = input.analytic,
+        analytic_closure = input.analytic_closure, axis_spectrum = input.axis_spectrum,
+        axis_closure = input.axis_closure, axis_analytic = input.axis_analytic,
+        axis_analytic_closure = input.axis_analytic_closure, factor = input.factor,
+        widths = input.widths, source_columns = input.source_columns,
+        field_exponent = input.field_exponent,
+        closure_exponent = input.field_exponent + exponent,
+    )
+end
+
 """
     observe!(work::SpatialObservationWorkspace, field, z;
              periodic=false, quadrature_error=NaN)
 
 Reconstruct fresh scalar spatial statistics from this actual observed field.
 
-The disjoint finite complex binary64 `field` has `(n_omega,n_modes)` shape and is
-preserved. `z` is metres within every selected represented profile's span. Periodic
-evaluation selects exactly the prepared periodic slots and clears other slices.
+The disjoint finite complex `field` has `(n_omega,n_modes)` shape and the preparation's
+stored arithmetic/scale, and is preserved. `z` is metres within every selected represented
+profile's span. Periodic evaluation selects exactly the prepared periodic slots and clears
+other slices.
 `quadrature_error` is the caller's accepted-step alarm; no RHS is reevaluated here.
 
 Evaluate physical axial admittance at z, construct its conjugated magnetic partner,
@@ -760,10 +949,16 @@ function observe!(
             work.axis.pair, work.axis.spectrum, work.axis.closure, data.kind, execution,
         )
     end
-    needs.populations && _spatial_observation_populations!(
-        work.populations, data.populations, field, z, execution;
-        diagnostics = needs.plasma_diagnostics,
-    )
+    if needs.populations
+        work.populations === nothing &&
+            throw(ArgumentError("spatial population buffers are missing"))
+        data.populations === nothing &&
+            throw(ArgumentError("spatial population preparation is missing"))
+        _spatial_observation_populations!(
+            work.populations, data.populations, field, z, execution;
+            diagnostics = needs.plasma_diagnostics,
+        )
+    end
     profiles = (
         _observation_profile(
             data.profiles.density, _observation_selected(data.selection, 11, periodic), z,
@@ -784,7 +979,10 @@ function observe!(
         _observation_diagnostic_work(work.populations), needs.plasma_diagnostics,
     )
     inputs = StatisticsInputs(;
-        spectral = work.inputs.spectral, spatial = work.inputs.spatial,
+        spectral = _observation_spectral(
+            work.inputs.spectral, false, work.weight_exponent,
+        ),
+        spatial = _spatial_observation_input(work.inputs.spatial, work.closure_exponent),
         populations, profiles, quadrature_error, diagnostics,
     )
     statistics!(

@@ -3,8 +3,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # The aggregate includes the existing modal observation fixtures first.
-function axis_statistics_case(execution, kind, matrix)
-    base = observation_population_case(execution, kind)
+function axis_statistics_case(
+        execution, kind, matrix; arithmetic = SolpropJulia.SourceArithmetic(Float64),
+        moment_rtol = 2.0e-8,
+    )
+    base = observation_population_case(execution, kind; arithmetic, moment_rtol)
     data, populations = base.data, base.data.populations
     axis = SolpropJulia.ObservationAxisPopulations(
         populations.plasma, populations.grid,
@@ -32,7 +35,7 @@ function axis_statistics_case(execution, kind, matrix)
     prepared = SolpropJulia.ObservationPreparation(
         execution, grid, selection;
         kind, n_modes = data.n_modes, power_weight = data.power_weight,
-        axis_populations = axis
+        axis_populations = axis, arithmetic,
     )
     return SolpropJulia.ObservationWorkspace(execution, prepared; node_chunk = 1)
 end
