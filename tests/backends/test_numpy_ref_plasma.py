@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 
 from _session_probe_extra import run
+from backends._session_probe_b2 import launched
 from bounds import fft_bound, scan_bound
 from plasma_cases import (
     CARRIER,
@@ -38,6 +39,7 @@ from plasma_cases import (
 from rate_oracles import adk_oracle
 from solprop import fourier
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.session import Start
 from solprop.constants import CHARGE_MASS_RATIO as COMPILED_CHARGE_MASS_RATIO
 from solprop.constants import E_CHARGE, EPS0, M_E, C
 from solprop.exceptions import (
@@ -730,7 +732,10 @@ def test_the_on_axis_matrix_follows_a_taper(field_grid, backend_class):
 
     The entrance matrix times the transform's taper factor is the matrix built at z, to
     the tolerance the factor is tabulated at, and the row at a plane is the plane's own
-    number through the same cache.
+    number through the same cache. On native, whose matrix is its statistics' own, the
+    plane's number is held to the reference's statistic of native's own exported field
+    at the plane, which reads the reference's rescaled matrix: measured 8.7e-16
+    relative, within ``scan_bound(n_to)``.
     """
     from solprop.modes.quadrature import mode_matrix, on_axis_rule  # noqa: PLC0415
     from solprop.profiles import Linear  # noqa: PLC0415 - one test builds a taper
@@ -763,7 +768,8 @@ def test_the_on_axis_matrix_follows_a_taper(field_grid, backend_class):
             rescaled = backend._on_axis_synthesis([mode])
         else:
             # Native keeps the entrance matrix (its statistics' own) and rescales it
-            # by the transform's taper factor where it reads it.
+            # by the transform's taper factor where it reads it. This is that law on
+            # the host; native's own arithmetic is held through its plane below.
             from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
                 _statistics,
             )
@@ -785,3 +791,20 @@ def test_the_on_axis_matrix_follows_a_taper(field_grid, backend_class):
         at_plane["peak_intensity"],
         rtol=scan_bound(field_grid.n_to),
     )
+    if backend_class is not NumpyRefBackend:
+        reference = NumpyRefBackend(problem, run_request, grid=field_grid, modes=[mode])
+        plane = Start(
+            field=np.array(observed.field),
+            z=observed.z,
+            plane_index=1,
+            plane_pending=True,
+        )
+        try:
+            with launched(reference, problem, run_request, start=plane) as (_, ours):
+                assert ours.z == observed.z
+                expected = ours.stats["peak_intensity"]
+        finally:
+            reference.close()
+        np.testing.assert_allclose(
+            at_plane["peak_intensity"], expected, rtol=scan_bound(field_grid.n_to)
+        )

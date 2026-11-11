@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from backends import test_free_ladders
+from backends._session_probe_b2 import launched
 from solprop.backends.session import ExecutionOptions
 from solprop.stats import StatsSpec
 from solprop.translate.free import free_transform
@@ -54,10 +55,12 @@ def test_cartesian_column_buffers_stay_within_the_shared_budget(
         grid=grid,
         options=ExecutionOptions(node_budget=budget),
     )
+    statistics = StatsSpec(names=("energy", "beam_radius", "peak_intensity"))
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.stats(StatsSpec(names=("energy", "beam_radius", "peak_intensity")))
-        ledger = backend.memory_ledger()
+        # The ledger while the session holds the loaded state and its launch plane's
+        # statistics.
+        with launched(backend, problem, run_request.for_run(stats=statistics)):
+            ledger = backend.memory_ledger()
         names = (
             "fine_spectrum",
             "modal_time",

@@ -35,7 +35,7 @@ def lockstep_runner(owners: Sequence[Backend]) -> BatchBackend:
     -------
     solprop.backends.protocol.BatchBackend
         :class:`NumpyBatchBackend`, or :class:`~solprop.backends.host.group.HostGroup`
-        when a member is single precision.
+        when a member is single precision or carries a coupled flow.
     """
     from solprop.backends.numpy_ref.single import (  # noqa: PLC0415 - lazy precision
         NumpySingleBackend,
@@ -46,6 +46,12 @@ def lockstep_runner(owners: Sequence[Backend]) -> BatchBackend:
         # single-precision path's members each take their own binary32 trial. The
         # group's member validation refuses mixed precisions.
         return HostGroup(cast("Sequence[HostDriver[object]]", owners))
+    hosts = cast("Sequence[HostDriver[object]]", owners)
+    if any(host._problem.linear.coupled_flow is not None for host in hosts):
+        # NumpyBatchBackend's stage arithmetic over the member axis applies neither a
+        # flow's action nor its explicit residual; a coupled member takes its own
+        # trial, flow included, member by member (solprop issue #241).
+        return HostGroup(hosts)
     return NumpyBatchBackend(cast(Sequence[NumpyRefBackend], owners))
 
 

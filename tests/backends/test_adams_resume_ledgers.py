@@ -150,7 +150,11 @@ def test_compiled_adams_refuses_atomic_ledger_without_changing_logical_counts(
 
 def refused_then_fresh(simulation, backend_class, ledgers, match):
     """A resume carrying `ledgers` is refused at its start, matching `match`, and
-    leaves the backend's next run with a fresh ledger."""
+    leaves the backend's next run with a fresh ledger.
+
+    The refusal acts on the backend's own ledger, which its metadata reports: a
+    restore that took part of the ledgers before refusing the rest would show there.
+    """
     problem = simulation.translate()
     run_request = simulation._run_request()
     backend = backend_class(
@@ -164,6 +168,7 @@ def refused_then_fresh(simulation, backend_class, ledgers, match):
         )
         with pytest.raises(BackendError, match=match):
             session_run(backend, problem, run_request, start, owns=False)
+        assert backend.metadata()["response_calls"] == CallLedger().to_record()
         fresh = session_run(
             backend, problem, run_request, owns=False, until=0.0, records=True
         )

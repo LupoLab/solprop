@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from _session_probe_extra import run
 from solprop.constants import EPS0, C
 from solprop.fourier import energy_omega
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
@@ -141,15 +142,14 @@ def test_radial_linear_propagation_on_each_backend(
         dz_init=grid.length / steps,
         schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / steps),
     )
-    backend = spatial_backend_class(problem, run_request, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(grid.length)
-        actual = backend.observe().require_field()
-        assert summary.n_steps == steps
-        assert_allclose(actual, expected, rtol=0, atol=bound * np.max(np.abs(expected)))
-    finally:
-        backend.close()
+    plane = run(
+        spatial_backend_class(problem, run_request, grid=grid), problem, run_request
+    ).final
+    assert plane.z == grid.length
+    assert plane.summary.n_steps == steps
+    assert_allclose(
+        plane.field, expected, rtol=0, atol=bound * np.max(np.abs(expected))
+    )
 
 
 def test_spatial_launch_prepropagation_uses_the_exact_operator(radial_case):

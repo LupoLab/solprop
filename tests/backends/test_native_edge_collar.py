@@ -740,6 +740,19 @@ def test_a_supplied_unmasked_draw_judges_as_the_host_does_with_no_transfer(
         judge(self, columns, *args, **kwargs)
 
     monkeypatch.setattr(TransverseEdge, "_judge_ramp_band", seen)
+    # The native session hands its native judge the clean columns its load formed,
+    # through the readings it forms from them: those, in the node reduction's units as
+    # the host edge judges them (`TransverseEdge._column_power`), are its columns.
+    transverse = pytest.importorskip("solprop_native._transverse")
+    readings = transverse.noise_readings
+    handed: list[np.ndarray] = []
+
+    def formed(edge: Any, noise: np.ndarray, clean: np.ndarray | None) -> Any:
+        assert clean is not None
+        handed.append(np.array(edge._column_power(clean)))
+        return readings(edge, noise, clean)
+
+    monkeypatch.setattr(transverse, "noise_readings", formed)
 
     def launch(name: str) -> tuple[dict[str, Any], int | None]:
         simulation = _case(route, noise="input")
@@ -789,9 +802,12 @@ def test_a_supplied_unmasked_draw_judges_as_the_host_does_with_no_transfer(
     assert native["noise_share_in_ramp"] > 0.0
     # The native session judges its launch natively, from the clean columns its load
     # formed, and records the judgement compared above; the reference judges the
-    # columns it forms on the host, which hold light in the ramp's band.
+    # columns it forms on the host, which hold light in the ramp's band. A column's
+    # own rounding is that of adding the draw and taking it away again.
     assert len(judged) == 1
+    assert len(handed) == 1
     assert np.max(judged[0]) > 0.0
+    np.testing.assert_allclose(handed[0], judged[0], rtol=1e-10, atol=1e-30)
 
 
 def test_a_resume_with_no_monitor_record_crosses_once() -> None:

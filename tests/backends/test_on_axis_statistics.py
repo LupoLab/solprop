@@ -512,12 +512,16 @@ def test_the_native_axis_row_leaves_the_state_on_the_device(grid, table, radial_
         ) as backend,
         launched(backend, problem, run_request) as (session, observation),
     ):
-        # The session counts every field that crossed out of its state.
+        # The session counts every field it exports, and the native state every
+        # whole-state transfer to the host by any path (solprop SEP 44).
         native = session.native  # pyright: ignore[reportAttributeAccessIssue]
+        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
         assert native.status().exports == 0
+        assert state.crossed_bytes()[0] == 0
         values = _stats(observation)
         session.export(observation.ticket, IDENTITY)
         assert native.status().exports == 1, "the count sees a crossing"
+        assert state.crossed_bytes()[0] > 0, "the state's count sees a crossing"
     assert np.all(values["on_axis_peak_ionisation_rate"] > 0)
 
 

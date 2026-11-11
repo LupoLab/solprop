@@ -31,6 +31,7 @@ from backends._session_probe_b1 import summary as run_summary
 from bounds import gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from modal_provider_cases import GENERAL_Z_END, WAVELENGTH, general_grid
+from solprop.backends.numpy_ref.passes import apply_hard_mask
 from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings
@@ -193,17 +194,23 @@ def source(
     grid: TimeGrid,
     options: ExecutionOptions | None = None,
 ) -> np.ndarray:
-    """Return one evaluation of the source at the launch, in the lab frame.
+    """Return one evaluation of the source at the masked launch, in the lab frame.
 
     The reference's lab-frame sample, and the native state's own evaluation of it
-    (:func:`backends._session_probe_b1.native_source`).
+    (:func:`backends._session_probe_b1.native_source`), both at the launch as the
+    native state loads it: hard-masked to the active band. The native state masks what
+    it loads, and the reference's sample takes its field as given, so an unmasked
+    launch would be two inputs. The hybrid planar launch has content outside the band,
+    which moved the samples 3e-11 to 6e-11 apart; at the one input they meet to
+    about 5 eps.
     """
+    launch = apply_hard_mask(problem.initial.field0[None], problem.grids.active_mask)[0]
     backend = backend_class(problem, run_request, grid=grid, options=options)
     try:
         if backend.name == "native":
-            return native_source(backend, problem.initial.field0)
-        backend.set_initial(problem.initial.field0, None)
-        return np.array(backend._adams_lab_source(problem.initial.field0[None], 0.0))
+            return native_source(backend, launch)
+        backend.set_initial(launch, None)
+        return np.array(backend._adams_lab_source(launch[None], 0.0))
     finally:
         backend.close()
 
