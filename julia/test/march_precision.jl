@@ -18,6 +18,43 @@ function precision_march_callbacks(execution, initial)
     return SolpropJulia.LinearFlow(execution, operator, initial)
 end
 
+@testset "Trial-time coefficients refuse before any buffer or callback changes" begin
+    ex = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 1, true)
+    state = fill(1.0f0 + 0.0f0im, 2, 1)
+    original = copy(state)
+    tableau = SolpropJulia.EmbeddedTableau([0.0], zeros(1, 1), [1.0], [0.0])
+    work = SolpropJulia.RungeKuttaWork(state, tableau)
+    fill!(work.candidate, 7)
+    calls = Ref(0)
+    source! = (output, input, position) -> (calls[] += 1; copyto!(output, input))
+    flow = precision_march_callbacks(ex, state)
+    for coefficient in (1.0e-100, 1.0e100)
+        replacement = SolpropJulia.EmbeddedTableau(
+            [0.0], zeros(1, 1), [coefficient], [0.0],
+        )
+        @test_throws ArgumentError SolpropJulia.rk_trial!(
+            work, state, 0.0, 0.01, replacement, source!, flow, ex,
+        )
+        @test calls[] == 0
+        @test state == original && all(==(7), work.candidate)
+    end
+end
+
+@testset "Masked norm rows do not evaluate unused denominators" begin
+    ex = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 1, true)
+    state = reshape(ComplexF32[1.0f10, 0], 2, 1)
+    tableau = SolpropJulia.EmbeddedTableau([0.0], zeros(1, 1), [1.0], [0.0])
+    work = SolpropJulia.RungeKuttaWork(state, tableau)
+    copyto!(work.candidate, state)
+    fill!(work.defect, 1)
+    actual = SolpropJulia.rk_error_norm!(
+        work, state, [true, false], [1.0, 1.0e308], 1.0, 0.0, ex,
+    )
+    expected = inv(Float64(real(state[1])))
+    # One binary32 denominator narrowing and division dominate the host merge.
+    @test abs(actual - expected) <= 4eps(Float32) * expected
+end
+
 function precision_march_rk_allocation(work, state, tableau, flow, execution)
     SolpropJulia.rk_trial!(
         work, state, 0.0, 0.005, tableau, precision_march_source!, flow, execution,

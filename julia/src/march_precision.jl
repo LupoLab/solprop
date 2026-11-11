@@ -64,8 +64,9 @@ function _float32_norm_value(parts, offset)
     return scale * sqrt(total)
 end
 
-function _float32_norm_scale!(scale, weights, relative, atol)
+function _float32_norm_scale!(scale, weights, mask, relative, atol)
     for row in eachindex(weights)
+        mask[row] || continue
         denominator = relative * weights[row] + atol
         isfinite(denominator) && denominator >= 0 || return false
         mantissa, exponent = frexp(denominator)
@@ -120,7 +121,7 @@ function _float32_error_norm!(work, state, mask, weights, rtol, atol, execution)
     _float32_state_parts!(parts, work.candidate, mask, 3, execution)
     magnitude = max(_float32_norm_value(parts, 1), _float32_norm_value(parts, 3))
     isfinite(magnitude) || return Inf
-    _float32_norm_scale!(work.norm_scale, weights, rtol * magnitude, atol) || return Inf
+    _float32_norm_scale!(work.norm_scale, weights, mask, rtol * magnitude, atol) || return Inf
     _float32_defect_parts!(parts, work.defect, mask, work.norm_scale, execution)
     return _float32_norm_value(parts, 1)
 end

@@ -7,6 +7,15 @@ The completed implementation is left ready for maintainer review, not auto-merge
 
 ## Current status
 
+Latest integration: device selection and recipe/runner transport are reviewed and
+integrated at `7c9a1e4a` (84 integration checks; managed runtime checks separate).
+The binary32 march review found and corrected actual-trial tableau admission (#707)
+and inactive norm-row overflow (#708). The corrected leaf passes 92 assertions with
+bounds checks and retains zero warmed allocation. Public single precision remains
+closed until the source, observations, Adams/history and session composition pass.
+CPU qualification exposed missing default plasma statistics (#702) and low-storage
+flow tables (#704); these are active completion work, not qualified exclusions.
+
 | Phase | Status | Evidence or prerequisite |
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |

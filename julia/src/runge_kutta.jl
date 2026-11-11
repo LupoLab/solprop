@@ -89,17 +89,22 @@ function RungeKuttaWork(
         state::AbstractMatrix{Complex{T}}, tableau::EmbeddedTableau,
     ) where {T <: Union{Float32, Float64}}
     norm_scale = _march_norm_scale(state)
+    _march_tableau(T, tableau)
+    stages = similar(state, size(state)..., length(tableau.nodes))
+    return RungeKuttaWork(
+        stages, similar(state), similar(state), similar(state), similar(state),
+        similar(state), similar(state), similar(state, T, 4, size(state, 2)), norm_scale,
+    )
+end
+
+function _march_tableau(::Type{T}, tableau) where {T}
     for row in tableau.matrix, coefficient in row
         _march_scalar(T, coefficient)
     end
     for coefficient in (tableau.solution_weights..., tableau.error_weights...)
         _march_scalar(T, coefficient)
     end
-    stages = similar(state, size(state)..., length(tableau.nodes))
-    return RungeKuttaWork(
-        stages, similar(state), similar(state), similar(state), similar(state),
-        similar(state), similar(state), similar(state, T, 4, size(state, 2)), norm_scale,
-    )
+    return nothing
 end
 
 """
@@ -137,6 +142,7 @@ function rk_trial!(
         throw(ArgumentError("Runge–Kutta workspace and state/tableau extents disagree"))
     end
     _march_scalar(real(eltype(state)), dz)
+    _march_tableau(real(eltype(state)), tableau)
     for node in tableau.nodes
         if !isfinite(z + node * dz)
             throw(ArgumentError("a Runge–Kutta stage position must remain finite"))

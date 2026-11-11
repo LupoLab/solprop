@@ -30,7 +30,8 @@ scalars in host binary64, then retain `d_i = m_i*2^e_i` as a rounded binary32 ma
 and an integer exponent per frequency. Defect ratios use binary32 `ldexp` and division;
 no physical inverse-square weight is formed in binary32. A zero denominator and zero
 defect contribute exact zero. A nonzero defect with zero denominator, a nonfinite
-denominator, or an unrepresentable ratio yields a failed scalar norm. All buffers are
+denominator, or an overflowing/nonfinite ratio yields a failed scalar norm. Gradual
+underflow retains the additive underflow term in the reduction bound. All buffers are
 reused and appear in the ordinary retained-array ledger.
 
 The error budget includes normalization divisions, squared products, the rounded
