@@ -16,6 +16,7 @@ import math
 
 import numpy as np
 
+from backends._session_probe_b2 import run_session
 from backends.test_low_storage import ARGUMENT_FACTOR, MARCH, populated
 from bounds import EPS, assert_within, departure, step_budget
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -88,13 +89,13 @@ def parity_bound(problem, run_request, *, growth=2.0, transverse=1, depth=0):
 def replay(
     backend_class, problem, run_request, grid, *, modes=None, noise=None, **options
 ):
-    """Replay the problem's schedule through its planes; return the final state."""
+    """Replay the problem's schedule through its planes; return the final state.
+
+    The backend's own session runs it (SEP 47 phase 5), from the problem's entrance.
+    """
     backend = backend_class(problem, run_request, grid=grid, modes=modes, **options)
     try:
-        backend.set_initial(problem.initial.field0, noise)
-        for plane in run_request.stepper.save_planes:
-            backend.propagate_to(float(plane))
-        field = backend.observe().require_field().copy()
+        field = run_session(backend, problem, run_request, noise=noise).field
         assert np.all(np.isfinite(field))
         return field
     finally:
