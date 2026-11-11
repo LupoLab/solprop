@@ -761,7 +761,7 @@ methods are explicitly separated from that promise.
 | Coupled flow off the eigenbasis path or above the current 16-channel march limit; other admitted non-exponential or untransported-compensation host-engine paths | Probe descriptor feasibility in phase 1; port admitted built-in cases in phase 4, preserving the chosen flow and arithmetic protections. Test small/large dimensions, transport variants, matched steps and converged short runs; lack of an existing performance case is not permission to drop a scientific capability. | Port and qualify on both CUDA and HIP in phase 4, explicitly including off-eigenbasis and more-than-16-channel coupled cases. Retain the existing constant-Schur/frozen-residual and exponential-Adams scope beside a coupled flow; no CF4 or new coupled formulation is admitted. |
 | Host-formed rows or operator/prefactor representations missing from native stage-table evaluation | Inventory/probe in phase 1; lower common representations in phase 3 and remaining admitted built-in cases in phase 4. Test each representation's values, trial and event lifecycle. Retire private host-row/debug switches as production execution modes; retain diagnostic witnesses through test interfaces. | Port admitted device-ready representations and qualify on both CUDA and HIP in phase 4. General operator/prefactor z tables that are not device-ready remain refused by name, as today. |
 | Carrier-frame general z table (#255) | Probe descriptor/history requirements in phase 1; port the native CPU gap in phase 4 without changing the carrier approximation. Test varying tables, history and restart. | All carrier-frame runs remain refused by name on both CUDA and HIP, as today. This CPU port does not admit device carrier frames or general z tables. |
-| Native members forced to host replay by lockstep/nominal batching | Native group session in phase 3, with actual member parameters and cursors. Preserve existing coupled-batch refusals; this does not newly admit every coupled flow as a group. | Port the existing fibre/general-guide groups and qualify on both CUDA and HIP in phase 4, including per-member events and partially advanced group failures. Coupled-flow groups remain refused. |
+| Native members forced to host replay by lockstep/nominal batching | Native group session in phase 3, with actual member parameters and cursors. Coupled-flow members are admitted: the group fuses nothing, so each member's own session carries its flow (amended 2026-11-11, Part III). | Port the existing fibre/general-guide groups and qualify on both CUDA and HIP in phase 4, including per-member events and partially advanced group failures. Coupled-flow members are admitted as the session admits each member. |
 | Low-storage replay's Python loop around resident native registers | Native session in phase 3 on the existing diagonal-flow routes; qualify replay, event bounds, stop and in-flight failure semantics. | Port admitted device-ready diagonal-flow cases to the session and qualify on both CUDA and HIP in phase 4. HIP is already qualified; CUDA is admitted but not yet qualified, so its session needs actual-device evidence before Final. |
 | Private host-engine or host-march forcing switches (`SOLPROP_ADAMS_MARCH`, `SOLPROP_RK_ROWS`, `SOLPROP_RK_MARCH`, the `adams_march="host"` keyword, and any added by concurrent work) | Retire from production; update `benchmarks/adams_host.py`; replace their diagnostic purpose with independent reference and identical-input control tests. | Retire on both CUDA and HIP as well; retain explicit test probes, not a production host executor. |
 
@@ -1796,8 +1796,10 @@ main before SEP 47, B = milestone 1 and C = this milestone. Geometric means, end
   accepted update applied no flow action; the native group fuses nothing, each member's
   own session carrying its flow, so a member is bitwise its lone run on one thread
   (`native/tests/test_coupled_flow.py`). On GPU builds a member is admitted as the
-  session admits it, not separately qualified. The reference's binary64 lockstep batch
-  still refuses a coupled member.
+  session admits it, not separately qualified. The reference's lockstep runner gives a
+  group with a coupled member its member-by-member group, each its own trial with its
+  flow (#241); its binary64 member-axis batch still refuses such a member itself. §6.3's
+  row was amended to match on 2026-11-11 (Part III).
 
 ## Part III — History
 
@@ -2551,6 +2553,25 @@ The existing per-case and aggregate regression policies remain explicit safeguar
 This direction supersedes the earlier MLX-host-session and separate-optimization
 planning choices in the review responses above. Those reviews and responses are
 preserved as history; Part I states the current proposal.
+
+### Maintainer decisions during implementation — 2026-11-11
+
+John Travers decided these during phase 5, after Opus 5.5 put each question:
+
+1. **Coupled-flow groups (§6.3 amended).** The native group session admits coupled-flow
+   members, as it did from phase 3. The refusal §6.3 preserved belonged to the fused
+   lockstep update, which applied no flow action; the group fuses nothing, so each
+   member is its lone run. The reference's lockstep runner takes such members one by
+   one (#241). Fused group kernels stay separate work (§6.7): #356 records the
+   measurement that decides them, and #110 the batch axis they would need.
+2. **The device node chunk (#361).** A device build's automatic plan budgets a quarter
+   of the accelerator's free bytes through the host rule, never fewer nodes than the
+   host plan; an explicit budget or chunk wins. Accepted on the evidence of an AMD
+   Instinct MI300X (one chunk 0.74–0.92 of the default's time) and an NVIDIA H100
+   (6–10 % on a 128 × 128 Cartesian filament, fields bitwise unchanged), at the cost of
+   space-domain buffers for every node at once.
+3. **One PR.** The removal of `StepDriver` inheritance stays in PR-C rather than a
+   follow-up PR, with the protocol prune (`HostStepping`) and the test conversion.
 
 ### Maintainer decisions at acceptance — 2026-11-09
 
