@@ -9,6 +9,7 @@ import dataclasses
 import numpy as np
 import pytest
 
+from backends._session_probe_b2 import native_trial
 from backends.test_band_plasma_parity import CASES, bound, case, options_for
 from backends.test_radial_nonlinear import derivative
 from gated_source import _gated_source
@@ -25,18 +26,6 @@ pytestmark = [
         ":solprop.exceptions.SolpropWarning"
     ),
 ]
-
-
-def _trial(backend, run_request, field, dz):
-    """Load `field` into native's state and take one trial from z = 0 on its staged
-    rows, the state's own (SEP 47 phase 5 retired the backend's driver calls)."""
-    state = backend._native_state
-    flat = np.ascontiguousarray(field, dtype=np.complex128).reshape(-1)
-    state.set_initial(flat, np.empty(0, dtype=np.complex128))
-    state.clear_fsal()
-    backend._staged_rows()
-    nodes = [float(node) for node in run_request.stepper.tableau.nodes]
-    state.rk_trial(0.0, dz, nodes, prepare_only=False)
 
 
 @pytest.mark.parametrize("name", CASES)
@@ -63,8 +52,10 @@ def test_current_assembly_and_ledger_on_each_route(name, rule):
     backend = native.NativeBackend(problem, run_request, grid=grid, options=options)
     try:
         ledger = backend.memory_ledger()
-        _trial(backend, run_request, problem.initial.field0, 0.0)
-        _trial(backend, run_request, np.zeros_like(problem.initial.field0), 0.0)
+        native_trial(backend, run_request, 0.0, 0.0, field=problem.initial.field0)
+        native_trial(
+            backend, run_request, 0.0, 0.0, field=np.zeros_like(problem.initial.field0)
+        )
         assert np.count_nonzero(backend._native_state.stage_to_host(0)) == 0
         # A second evaluation neither plans nor grows a resident source buffer.
         assert backend.memory_ledger() == ledger

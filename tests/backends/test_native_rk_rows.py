@@ -24,7 +24,7 @@ import warnings
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import run_session
+from backends._session_probe_b2 import load_native, native_trial, run_session
 from capability_routes import ROUTES
 from native_flow_guards import check_flow_conditioning, flow_squarings
 from solprop.backends import available
@@ -91,28 +91,12 @@ def launched(simulation, controller: PIController | None = None):
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
-    _load(backend, problem.initial.field0)
+    load_native(backend, problem.initial.field0)
     return backend, problem, run_request
-
-
-def _load(backend, field):
-    """Load a host state into the native state, its recycled stage dropped."""
-    state = backend._native_state
-    flat = np.ascontiguousarray(field, dtype=np.complex128).reshape(-1)
-    state.set_initial(flat, np.empty(0, dtype=np.complex128))
-    state.clear_fsal()
 
 
 def _nodes(run_request) -> list[float]:
     return [float(node) for node in run_request.stepper.tableau.nodes]
-
-
-def _trial(backend, run_request, z, dz):
-    """Take one trial on the native state's staged rows; return its partials."""
-    backend._staged_rows()
-    return np.asarray(
-        backend._native_state.rk_trial(z, dz, _nodes(run_request), prepare_only=False)
-    )
 
 
 def steps(problem, run_request) -> list[tuple[float, float]]:
@@ -165,7 +149,9 @@ def test_the_native_flow_guards_refuse_as_the_host_s(route, monkeypatch):
                 backend_module._MAX_FLOW_SQUARINGS,
                 allowance,
             )
-            assert _refusal(lambda: _trial(backend, run_request, z, dz)) == expected
+            assert (
+                _refusal(lambda: native_trial(backend, run_request, z, dz)) == expected
+            )
         tiny = 1e-12
         # Both refuse at the first stage length past the scale, in the nodes' order.
         first = next(
@@ -180,7 +166,7 @@ def test_the_native_flow_guards_refuse_as_the_host_s(route, monkeypatch):
             backend_module._MAX_FLOW_SQUARINGS,
             allowance,
         )
-        assert _refusal(lambda: _trial(backend, run_request, z, dz)) == expected
+        assert _refusal(lambda: native_trial(backend, run_request, z, dz)) == expected
     finally:
         backend.close()
 
@@ -224,8 +210,8 @@ def _first_attempt(route: str, controller: PIController):
         dz, norm = float(history.dz[0]), float(history.error_norm[0])
         start = float(problem.initial.z)
         assert float(history.z[0]) == start + dz
-        _load(backend, problem.initial.field0)
-        partials = _trial(backend, run_request, start, dz)
+        load_native(backend, problem.initial.field0)
+        partials = native_trial(backend, run_request, start, dz)
         weighted = None
         if controller.weights is not None:
             old = math.sqrt(float(partials[0].sum()))

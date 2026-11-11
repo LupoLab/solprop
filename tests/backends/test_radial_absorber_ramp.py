@@ -18,6 +18,8 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from backends._session_probe_b2 import native_trial
+
 pytest.importorskip("solprop_native")
 
 
@@ -29,18 +31,6 @@ from solprop.backends.numpy_ref import NumpyRefBackend, passes
 __all__ = ["absorber_case"]
 
 EPS = np.finfo(float).eps
-
-
-def _trial(backend, run_request, field, dz):
-    """Load `field` into native's state and take one trial from z = 0 on its staged
-    rows, the state's own (SEP 47 phase 5 retired the backend's driver calls)."""
-    state = backend._native_state
-    flat = np.ascontiguousarray(field, dtype=np.complex128).reshape(-1)
-    state.set_initial(flat, np.empty(0, dtype=np.complex128))
-    state.clear_fsal()
-    backend._staged_rows()
-    nodes = [float(node) for node in run_request.stepper.tableau.nodes]
-    state.rk_trial(0.0, dz, nodes, prepare_only=False)
 
 
 def test_a_ramped_rate_is_read_sample_by_sample(absorber_case):
@@ -81,7 +71,9 @@ def test_a_ramped_rate_is_read_sample_by_sample(absorber_case):
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        _trial(backend, run_request, problem.initial.field0, LENGTH / 8)
+        native_trial(
+            backend, run_request, 0.0, LENGTH / 8, field=problem.initial.field0
+        )
         measured = backend._native_state.stage_to_host(0).reshape(expected.shape)
     finally:
         backend.close()

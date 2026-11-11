@@ -17,7 +17,7 @@ import warnings
 import numpy as np
 import pytest
 
-from backends._session_probe_b2 import run_session
+from backends._session_probe_b2 import native_trial, run_session
 from general_parity import (
     CASES,
     LENGTH,
@@ -44,18 +44,6 @@ pytestmark = [
 
 HEAVY = {"grin", "raman"}
 """Cases whose guide or window makes a run seconds rather than milliseconds."""
-
-
-def _trial(backend, run_request, field, dz):
-    """Load `field` into native's state and take one trial from z = 0 on its staged
-    rows, the state's own (SEP 47 phase 5 retired the backend's driver calls)."""
-    state = backend._native_state
-    flat = np.ascontiguousarray(field, dtype=np.complex128).reshape(-1)
-    state.set_initial(flat, np.empty(0, dtype=np.complex128))
-    state.clear_fsal()
-    backend._staged_rows()
-    nodes = [float(node) for node in run_request.stepper.tableau.nodes]
-    state.rk_trial(0.0, dz, nodes, prepare_only=False)
 
 
 def marks(name):
@@ -107,7 +95,7 @@ def test_one_stage_of_the_source_is_the_reference_within_the_bound(
     expected = reference_source(maps, state, grid) * grid.crop_scale
     backend = native.NativeBackend(problem, run_request, grid=grid)
     try:
-        _trial(backend, run_request, problem.initial.field0, 0.0)
+        native_trial(backend, run_request, 0.0, 0.0, field=problem.initial.field0)
         got = np.asarray(backend._native_state.stage_to_host(0)).reshape(expected.shape)
     finally:
         backend.close()
