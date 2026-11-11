@@ -12,6 +12,22 @@ function (source::TransverseSessionSource)(output, field, position)
     return nothing
 end
 
+function transverse_session_source_data(session, observation)
+    n_frequency, n_columns = size(session.field)
+    # Service fixtures still need valid source data to verify their amplitude scales.
+    grid = SP.ModalSourceGrid(
+        session.execution; kind = observation.kind, n_time = 8, dt = 0.125,
+        crop_index = collect(0:(n_frequency - 1)), omega = observation.grid.omega,
+        active = fill(true, n_frequency), omega_window = ones(n_frequency),
+        source_window = ones(8), source_window_derivative = zeros(8),
+        temporal_rate = zeros(8), arithmetic = observation.arithmetic,
+    )
+    return SP.CartesianSourceData(
+        grid, observation.map.shape, observation.flux.base, zeros(n_columns), 1.0;
+        arithmetic = observation.arithmetic,
+    )
+end
+
 function transverse_session_preparation(
         execution, edge; temporal = false, temporal_warning = false,
     )
@@ -371,9 +387,10 @@ end
     # A resumed lifecycle with no supplied record has not selected its later
     # output fallback. Explicit restoration, including nothing, selects it once.
     fallback, policy = transverse_session_case(; temporal = true)
+    data = transverse_session_source_data(fallback, policy.observation)
     preparation = SP.SessionPreparation(
         SP.SpatialPreparation(
-            fallback.execution, nothing, fallback.flow.operator,
+            fallback.execution, data, fallback.flow.operator,
             SP.ObservationWeight(fallback.execution, ones(size(fallback.field))), 3,
         ), policy,
     )
@@ -401,7 +418,8 @@ end
     session, policy = transverse_session_case()
     execution, field = session.execution, copy(session.field)
     problem = SP.SpatialPreparation(
-        execution, nothing, session.flow.operator,
+        execution, transverse_session_source_data(session, policy.observation),
+        session.flow.operator,
         SP.ObservationWeight(execution, ones(size(field))), 3,
     )
     preparation = SP.SessionPreparation(problem, policy)
