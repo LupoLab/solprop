@@ -1546,7 +1546,7 @@ public:
   }
   // What the march asked, one dict an entry: a startup's position, or a trial's
   // position, step, nodes, rows and orders with the row its accept freed.
-  nb::list log() const {
+  [[nodiscard]] nb::list log() const {
     nb::list out;
     for (const auto& entry : log_) {
       nb::dict event;
@@ -1591,7 +1591,7 @@ public:
     return rk_result_to(result, state);
   }
   // Each trial's position and step, one dict a trial.
-  nb::list log() const {
+  [[nodiscard]] nb::list log() const {
     nb::list out;
     for (const auto& entry : log_) {
       nb::dict event;
@@ -1919,7 +1919,7 @@ public:
     general_state_->field_to_host(destination);
   }
   /** The state's element count, `columns * n_omega`. */
-  std::size_t elements() const noexcept { return elements_; }
+  [[nodiscard]] std::size_t elements() const noexcept { return elements_; }
   std::vector<native::Complex> adams_source(const std::vector<native::Complex>& input,
                                             const native::TrialScalars& scalars) {
     require_open();
@@ -1978,7 +1978,7 @@ public:
     auto sample = native::stage::sample(*stage_tables_, stage_anchor_, step, z1);
     return {std::move(step), std::move(sample)};
   }
-  std::vector<double> stage_rate(const double z) const {
+  [[nodiscard]] std::vector<double> stage_rate(const double z) const {
     require_open();
     if (!stage_tables_)
       throw std::logic_error("no stage tables were uploaded");
@@ -2054,7 +2054,7 @@ public:
     return general_state_->projected_to_host(coarse);
   }
   // Not `require_open`: a closed state, whose pointer is null, reads as having none.
-  std::map<std::string, bool> dispersive_path() const {
+  [[nodiscard]] std::map<std::string, bool> dispersive_path() const {
     return general_state_ ? general_state_->dispersive_path()
                           : std::map<std::string, bool>{};
   }
@@ -2098,51 +2098,51 @@ public:
     require_built();
     return general_state_->memory_ledger();
   }
-  native::CpuSizing execution_sizing() const {
+  [[nodiscard]] native::CpuSizing execution_sizing() const {
     require_built();
     return general_state_->execution_sizing();
   }
-  nb::dict cpu_execution() const {
+  [[nodiscard]] nb::dict cpu_execution() const {
     require_built();
     return cpu_execution_dict(general_state_->cpu_execution());
   }
-  nb::dict fft_planning() const {
+  [[nodiscard]] nb::dict fft_planning() const {
     require_built();
     return fft_planning_dict(general_state_->fft_planning());
   }
-  double planning_seconds() const {
+  [[nodiscard]] double planning_seconds() const {
     require_built();
     return general_state_->planning_seconds();
   }
-  double raman_planning_seconds() const {
+  [[nodiscard]] double raman_planning_seconds() const {
     require_built();
     return general_state_->raman_planning_seconds();
   }
-  std::string raman_fft_provider() const {
+  [[nodiscard]] std::string raman_fft_provider() const {
     require_built();
     return general_state_->raman_fft_provider();
   }
-  std::map<std::string, int> raman_fft_tasks() const {
+  [[nodiscard]] std::map<std::string, int> raman_fft_tasks() const {
     require_built();
     return general_state_->raman_fft_tasks();
   }
-  std::size_t raman_kernel_transforms() const {
+  [[nodiscard]] std::size_t raman_kernel_transforms() const {
     require_built();
     return general_state_->raman_kernel_transforms();
   }
-  bool fsal_ready() const {
+  [[nodiscard]] bool fsal_ready() const {
     require_built();
     return general_state_->fsal_ready();
   }
-  std::size_t rk_source_evaluations() const {
+  [[nodiscard]] std::size_t rk_source_evaluations() const {
     require_built();
     return general_state_->rk_source_evaluations();
   }
-  std::size_t axis_scans() const {
+  [[nodiscard]] std::size_t axis_scans() const {
     require_built();
     return general_state_->axis_scans();
   }
-  double quadrature_error() const {
+  [[nodiscard]] double quadrature_error() const {
     require_open();
     return general_state_->quadrature_error();
   }
@@ -2150,27 +2150,29 @@ public:
     require_open();
     return general_state_->quadrature_peak();
   }
-  std::string synthesis_provider() const {
+  [[nodiscard]] std::string synthesis_provider() const {
     require_built();
     return general_state_->synthesis_provider();
   }
-  std::string projection_provider() const {
+  [[nodiscard]] std::string projection_provider() const {
     require_built();
     return general_state_->projection_provider();
   }
-  std::string gemm_shape_policy() const {
+  [[nodiscard]] std::string gemm_shape_policy() const {
     require_built();
     return general_state_->gemm_shape_policy();
   }
-  std::size_t response_team_size() const {
+  [[nodiscard]] std::size_t response_team_size() const {
     require_built();
     return general_state_->response_team_size();
   }
-  std::size_t columns() const noexcept { return columns_; }
-  std::size_t stages() const noexcept { return stages_; }
-  std::size_t raman_terms() const noexcept { return raman_terms_; }
-  bool raman() const noexcept { return raman_; }
-  bool closed() const noexcept { return !general_state_ || general_state_->closed(); }
+  [[nodiscard]] std::size_t columns() const noexcept { return columns_; }
+  [[nodiscard]] std::size_t stages() const noexcept { return stages_; }
+  [[nodiscard]] std::size_t raman_terms() const noexcept { return raman_terms_; }
+  [[nodiscard]] bool raman() const noexcept { return raman_; }
+  [[nodiscard]] bool closed() const noexcept {
+    return !general_state_ || general_state_->closed();
+  }
   // Closes a session that leases this state first (below, after its class).
   void close() noexcept;
 
@@ -2296,7 +2298,7 @@ private:
     if (closed())
       throw std::logic_error("native state is closed");
   }
-  native::GeneralState& built_state() const {
+  [[nodiscard]] native::GeneralState& built_state() const {
     require_built();
     return *general_state_;
   }
@@ -2432,8 +2434,10 @@ public:
     const auto receipt = session_->request_snapshot();
     return nb::make_tuple(receipt.request, receipt.coalesced);
   }
-  native::session::Status status() const noexcept { return session_->status(); }
-  std::size_t elements() const { return session_->elements(); }
+  [[nodiscard]] native::session::Status status() const noexcept {
+    return session_->status();
+  }
+  [[nodiscard]] std::size_t elements() const { return session_->elements(); }
   // Continue a resumed run's monitor record; takes the session's lock.
   void continue_monitor(const nb::dict record, const bool plane,
                         const nb::handle unwatched, const nb::dict edge_record) {

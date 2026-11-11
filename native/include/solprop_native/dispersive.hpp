@@ -442,10 +442,10 @@ private:
   bool borrowed_{}, shifted_{}, coarse_pending_{}, closed_{};
   ExecutionSpace kernels_, response_, tail_response_, dense_, tail_dense_, matrix_copy_;
   std::size_t response_chunk_{};
-  const ExecutionSpace& response_for(std::size_t count) const {
+  [[nodiscard]] const ExecutionSpace& response_for(std::size_t count) const {
     return count == response_chunk_ ? response_ : tail_response_;
   }
-  const ExecutionSpace& dense_for(std::size_t count) const {
+  [[nodiscard]] const ExecutionSpace& dense_for(std::size_t count) const {
     return count == response_chunk_ ? dense_ : tail_dense_;
   }
   StageViews stage_;
@@ -555,10 +555,10 @@ private:
   std::size_t tail_rows_{}, active_rows_{};
   bool active_tail_{};
   std::size_t response_chunk_{};
-  const ExecutionSpace& response_for(std::size_t count) const {
+  [[nodiscard]] const ExecutionSpace& response_for(std::size_t count) const {
     return count == response_chunk_ ? response_ : tail_response_;
   }
-  const ExecutionSpace& dense_for(std::size_t count) const {
+  [[nodiscard]] const ExecutionSpace& dense_for(std::size_t count) const {
     return count == response_chunk_ ? dense_ : tail_dense_;
   }
   StageViews stage_;
@@ -646,7 +646,7 @@ private:
   std::size_t tail_rows_{}, active_rows_{}, last_chunk_{};
   bool active_tail_{};
   std::size_t response_chunk_{};
-  const ExecutionSpace& response_for(std::size_t count) const {
+  [[nodiscard]] const ExecutionSpace& response_for(std::size_t count) const {
     return count == response_chunk_ ? response_ : tail_response_;
   }
   StageViews stage_;

@@ -81,7 +81,7 @@ public:
   bool operator()(const Stat stat) const {
     return set_[static_cast<std::size_t>(stat)];
   }
-  bool any(std::initializer_list<Stat> stats) const {
+  [[nodiscard]] bool any(std::initializer_list<Stat> stats) const {
     return std::any_of(stats.begin(), stats.end(),
                        [this](const Stat stat) { return (*this)(stat); });
   }

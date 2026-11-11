@@ -284,7 +284,7 @@ using StripPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView2, ComplexView2, 1>
 struct EnvelopeStream {
   ComplexView2 node, projected, coarse, stacked, spectrum, coarse_spectrum;
   std::unique_ptr<ComplexPlan> forward, coarse_forward;
-  std::size_t bytes() const {
+  [[nodiscard]] std::size_t bytes() const {
     return sizeof(Complex) *
            (node.size() + projected.size() + coarse.size() + stacked.size() +
             spectrum.size() + coarse_spectrum.size());
@@ -296,7 +296,7 @@ struct FieldCurrentStream {
   RealView2 node, projected, coarse, stacked;
   ComplexView2 spectrum, coarse_spectrum;
   std::unique_ptr<ForwardRealPlan> forward, coarse_forward;
-  std::size_t bytes() const {
+  [[nodiscard]] std::size_t bytes() const {
     return sizeof(double) *
                (node.size() + projected.size() + coarse.size() + stacked.size()) +
            sizeof(Complex) * (spectrum.size() + coarse_spectrum.size());
@@ -357,11 +357,12 @@ void cartesian_for(const char* label, const ExecutionSpace& execution,
 struct CrossingTile {
   std::size_t first_row, last_row, first_bin, last_bin;
 
-  std::size_t size() const noexcept {
+  [[nodiscard]] std::size_t size() const noexcept {
     return (last_row - first_row) * (last_bin - first_bin);
   }
   // An element's place in a tile buffer, rows outermost.
-  std::size_t at(const std::size_t row, const std::size_t bin) const noexcept {
+  [[nodiscard]] std::size_t at(const std::size_t row,
+                               const std::size_t bin) const noexcept {
     return (row - first_row) * (last_bin - first_bin) + (bin - first_bin);
   }
   // Every element in the traversal order `crossing_for` names.
@@ -1666,7 +1667,7 @@ struct EntryBlock {
   double magnitude[stage_block], inverse[stage_block];
   double noise_cosine[stage_block], noise_sine[stage_block];
 
-  EntryFactors at(const std::size_t bin) const {
+  [[nodiscard]] EntryFactors at(const std::size_t bin) const {
     return {cosine[bin],  sine[bin],         magnitude[bin],
             inverse[bin], noise_cosine[bin], noise_sine[bin]};
   }
