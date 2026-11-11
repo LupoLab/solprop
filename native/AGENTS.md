@@ -17,7 +17,7 @@ contract and its conventions; where both apply, follow the stricter rule.
 - Both distributions take one version from the repository's git tags, and solprop
   requires this package at that same version: it is a required dependency, with no
   extra.
-- The public names are `NativeBackend`, `NativeBatchBackend`, the frozen `BuildInfo`,
+- The public names are `NativeBackend`, the frozen `BuildInfo`,
   `build_info`, `check_build`, `__version__`, and the contract tuples
   `DRIVER_SURFACE`, `LINEAR_OPERATOR_FIELDS`, `TRANSFORM_FIELDS`, `RESPONSE_FIELDS`,
   `SEPARABLE_OPERATOR_FIELDS`, `STAGE_TERMS_FIELDS`, `STAGE_SCALARS_FIELDS`,

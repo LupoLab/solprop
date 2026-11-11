@@ -118,10 +118,14 @@ The CPU backends inherit the host defaults. The hooks are part of the frozen sur
 ([kernel-contract.md §8](kernel-contract.md)).
 
 **Batches.** `BatchBackend` adds independent member observations and metadata through
-`select_batch(owners)`. `numpy_ref` and `native` implement this
-fixed-schedule interface. Singleton constructors keep their single-member shape; the
-batch owns a sequence of independently loaded workspaces, fuses the accepted update over
-members and leaves stage, response and FFT/BLAS work member-owned. A batch member agrees
+`select_batch(owners)`, the reference group's lockstep runner: `numpy_ref` alone
+implements this fixed-schedule interface, and `select_batch` refuses a `native` member by
+name, since a native group runs one native session per member through `start_group`
+(`NativeBackend.prepare_group`, `solprop_native.group.NativeGroupSession`, SEP 47 §6.7)
+and fuses nothing. Singleton constructors keep their single-member shape; the reference's
+batch owns a sequence of independently loaded workspaces, evaluates the stage sums, the
+stage input and the accepted update over the member axis and leaves response and
+FFT work member-owned. A batch or group member agrees
 with the same member run singly under the same schedule within a matched-discrete rounding
 bound, on every backend
 ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)).
@@ -141,7 +145,9 @@ assembled outside that grouping is refused by name, at `driver.batch`'s
 `refuse_mixed_guides` and again by each backend's group: the reference's `_validate_members`
 (`backends/host/group.py`) and the native `solprop_native.group.refusal`. A group hands each member its own problem, so a batched general run is what its members
 are alone, to the same rounding bound; a problem is one trajectory and carries no batch
-axis. A member carrying a coupled flow is refused by every backend's group, by name.
+axis. A member carrying a coupled flow is refused by name by the reference's binary64
+lockstep batch (`NumpyBatchBackend`), whose stage arithmetic over the member axis applies
+no flow action; the native group admits one, each member's own session carrying its flow.
 
 **Three things every backend owes, beyond the ten methods.**
 
@@ -1659,8 +1665,9 @@ that order for the stage too. The state crosses the seam once
 at a load and once at an observation, straight between the memory space and the NumPy
 buffer.
 
-The singleton constructor requires a one-member problem; fixed-schedule batches go
-through `select_batch` over independently loaded member workspaces (§1). The backend
+The singleton constructor requires a one-member problem; fixed-schedule groups go
+through `start_group` (`NativeBackend.prepare_group`), the native group session over one
+native session per independently loaded member (§1). The backend
 refuses scalar-only declarations on vector Raman problems, spectral responses other than
 the compiled envelope-plasma assembly, and, on a device build, z-tabulated operators or
 prefactors, before field-sized allocation (the CPU build runs them, §1). Supported mixture density, pre-ionisation and Raman decay paths
@@ -1981,7 +1988,7 @@ that execution space.
 | the Adams carrier frame (`Multistep(carrier_frame="scalar")`, SEP 35) | every guided route; free space refused | CPU builds, resident, on every representation of the operator (a z table's chord carried as its own scalar table, #255); device builds refused | refused by name |
 | the low-storage RK4IP march (`LowStorageRungeKutta`), replay-only | every diagonal-flow route | every diagonal-flow route, a resident engine whose step is one native call | flows recomputed per element; qualified under HIP, not under CUDA |
 | moving solid guide (moving maps beside a frozen-residual flow) | yes | yes | qualified |
-| fixed-schedule lockstep batches (no coupled flow) | fibre and general guides | fibre and general guides | fibre and general guides |
+| fixed-schedule groups | fibre and general guides; a coupled flow refused (binary64 lockstep batch) | fibre and general guides, a coupled flow included (the native group session) | fibre and general guides, and a coupled flow where the session admits each member (the native group session) |
 | the native execution session and group session (SEP 47) | its own session (`HostSession`) | every native run and group (phase 5: no other native executor) | admitted on CUDA and HIP as on the CPU build (SEP 47 phase 4): beyond the modal route with planes, rows, the temporal monitor and the Adams history (phase 3), the spatial routes (radial, Cartesian, line, planar) with their fluence widths, a transverse edge and a collar's current, the noise models, dense output, the low-storage replay, a coupled flow wider than 16 channels or off its eigenbasis route, and the native group session; run on an NVIDIA A40 against the transitional bridge on the same device before phase 5 deleted it (bitwise, but for the bounded transverse sums and dense Runge-Kutta planes), not yet qualified on either vendor |
 | periodic statistics between planes | yes | yes | yes: the native session takes each row natively and keeps it in a resident buffer until the next observation, with no return to Python (SEP 47 §6.4) |
 | Adams snapshots and a resume that continues the history (`MarchSnapshot`) | yes | yes: the resident engine copies its rows (`store`, and `states`, `rates`, `applied` where kept) to the host at a kept save and back on a resume | compiles; not qualified |

@@ -619,6 +619,11 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
 def select_batch(owners: Sequence[Backend]) -> BatchBackend:
     """Select batch arithmetic without substituting a different backend.
 
+    This is the reference group's lockstep runner, read from the registry row's
+    ``batch``. A backend whose row names none, as ``native``'s, runs its groups through
+    its own prepared group instead (:func:`solprop.backends.sessions.start_group`;
+    SEP 47 section 6.7), and is refused here by name.
+
     Parameters
     ----------
     owners : sequence of solprop.backends.protocol.Backend
@@ -632,7 +637,8 @@ def select_batch(owners: Sequence[Backend]) -> BatchBackend:
     Raises
     ------
     BackendError
-        If the backend does not expose the shared step-driver contract.
+        If the members are not of one backend, or their backend has no lockstep runner
+        (its groups start through ``start_group``).
     """
     if not owners:
         raise BackendError("Batch requires at least one loaded member")
@@ -640,8 +646,15 @@ def select_batch(owners: Sequence[Backend]) -> BatchBackend:
         raise BackendError("Batch refuses mixed backends")
     name = owners[0].name
     entry = BACKENDS.get(name)
-    if entry is None or entry.batch is None:
+    if entry is None:
         raise BackendError(f"Batch has no runner for backend {name!r}")
+    if entry.batch is None:
+        msg = (
+            f"select_batch is the reference's lockstep runner, and the {name!r} "
+            "backend has none: its groups run through its own group session, started "
+            "with solprop.backends.sessions.start_group (SEP 47 section 6.7)"
+        )
+        raise BackendError(msg)
     runner = cast("Callable[[Sequence[Backend]], BatchBackend]", _load(entry.batch))
     return runner(owners)
 
