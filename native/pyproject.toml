@@ -160,7 +160,7 @@ select = ["B", "E", "F", "I", "PERF", "PT", "RUF", "UP", "W"]
 "tests/**" = ["S101"]
 
 [tool.pyright]
-include = ["src", "tests", "benchmarks"]
+include = ["src", "tests"]
 exclude = ["build", "dist", "dist-*", ".venv"]
 extraPaths = ["src", "../src"]
 pythonVersion = "3.14"

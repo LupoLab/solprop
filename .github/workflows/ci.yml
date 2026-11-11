@@ -203,7 +203,7 @@ jobs:
           path: wheelhouse
           key: >-
             native-wheel-v1-${{ matrix.id }}-${{ hashFiles('native/**', '!native/tests/**',
-            '!native/benchmarks/**', '!native/**/*.md') }}
+            '!native/**/*.md') }}
       - if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Linux'
         name: Install the native toolchain
         run: |

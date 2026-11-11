@@ -2,7 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Measure the periodic statistics channel inside propagation."""
+"""Measure the periodic statistics channel inside propagation.
+
+Each case runs three ways through the backend's session, interleaved round by round:
+``plain`` (no periodic statistics), ``stashed`` (the electron density's plasma stash
+alone) and ``watched`` (every periodic row). The JSON line reports what the channel and
+its collection cost per step and per row. ``m2_reduced`` is the two-mode helium RDW
+capillary below; ``ctc_reduced`` is the registry's case of that name::
+
+    python -m benchmarks.statistics_cost --case m2_reduced --repeats 5
+"""
 
 from __future__ import annotations
 
@@ -13,7 +22,19 @@ import math
 import os
 import time
 import warnings
-from typing import TypedDict, cast
+from typing import TypedDict
+
+import numpy as np
+import solprop_native
+
+from benchmarks.builders import capillary, variant
+from solprop.backends.registry import select
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
+from solprop.driver import Simulation
+from solprop.exceptions import MaterialRangeWarning
+from solprop.stats import StatsSpec
+from solprop.translate.run_request import RunRequest
 
 PERIODIC = ("energy", "peak_power", "fwhm_t", "electron_density")
 
@@ -26,39 +47,24 @@ class Arm(TypedDict):
     rows: int
 
 
-class CaseTable(TypedDict):
-    """Geometry and sampling values of the M2 benchmark cases (``m2_cases.py``)."""
-
-    radius: float
-    length: float
-    pressure: float | tuple[float, float]
-    modes: int
-    lambda_min: float
-    lambda_max: float
-    trange: float
-    n_save: int
-    expected_steps: int
-
-
-class FamilyTable(TypedDict):
-    """Pulse and gas values of the M2 benchmark cases (``m2_cases.py``)."""
-
-    gas: str
-    wavelength: float
-    tau_fwhm: float
-    energy: float
-    loss: bool
+M2_REDUCED = {
+    "radius": 125e-6,
+    "length": 1.0,
+    "gas": "He",
+    "pressure": (1.2, 0.0),
+    "modes": 2,
+    "wavelength": 800e-9,
+    "wavelength_limits": (100e-9, 1.5e-6),
+    "trange": 200e-15,
+    "fwhm": 7.5e-15,
+    "energy": 275e-6,
+    "n_save": 51,
+}
+"""The reduced resonant-dispersive-wave capillary: the ``rdw`` case's 7.5 fs, 275 uJ
+pulse at 800 nm in helium, over 1 m at 1.2 bar falling to vacuum, two modes."""
 
 
-def _case_tables() -> tuple[CaseTable, FamilyTable]:
-    from m2_cases import CASES, FAMILIES
-
-    return cast(CaseTable, CASES["m2_reduced"]), cast(
-        FamilyTable, FAMILIES["m2_reduced"]
-    )
-
-
-def _worker(
+def _worker(  # noqa: PLR0915 - one measurement: set up, run the arms, report
     backend_name: str,
     case_name: str,
     target: float,
@@ -71,8 +77,6 @@ def _worker(
     fftw_threads = 1
     native_threads = int(os.environ.get("SOLPROP_NATIVE_THREADS", "1"))
     if backend_name == "native":
-        import solprop_native
-
         build = solprop_native.build_info()
         blas_backend = build.blas_backend
         fftw_threads = build.fftw_threads
@@ -84,36 +88,25 @@ def _worker(
         else:
             blas_threads = "disabled"
 
-    import numpy as np
-    from solprop.backends.registry import select
-    from solprop.backends.session import Start
-    from solprop.backends.sessions import start_session
-    from solprop.driver import Simulation
-    from solprop.exceptions import MaterialRangeWarning
-    from solprop.stats import StatsSpec
-    from solprop.translate.run_request import RunRequest
-
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
         if case_name == "ctc_reduced":
-            from ctc import build_simulation
-
-            simulation = build_simulation(case_name, backend_name)
+            simulation = capillary(case_name, variant({"backend": backend_name}))
         else:
-            case, family = _case_tables()
+            case = M2_REDUCED
             simulation = Simulation.from_capillary(
                 case["radius"],
                 case["length"],
-                family["gas"],
+                case["gas"],
                 case["pressure"],
                 pressure_floor=0.0,
-                wavelength=family["wavelength"],
-                wavelength_limits=(case["lambda_min"], case["lambda_max"]),
+                wavelength=case["wavelength"],
+                wavelength_limits=case["wavelength_limits"],
                 trange=case["trange"],
-                fwhm=family["tau_fwhm"],
-                energy=family["energy"],
+                fwhm=case["fwhm"],
+                energy=case["energy"],
                 modes=case["modes"] if modes is None else modes,
-                loss=family["loss"],
+                loss=True,
                 n_save=case["n_save"],
                 rtol=1e-6,
                 atol=1e-10,

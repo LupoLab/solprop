@@ -17,7 +17,7 @@ at a size boundary rather than with the work. The nearest power of two, not the
 cheapest, because fixed per-evaluation costs make small grids dearer per sample.
 ``--check`` exits non-zero on one. Run on a quiet machine, with the threads pinned::
 
-    OMP_PLACES=cores OMP_PROC_BIND=close python native/benchmarks/size_cliffs.py --check
+    OMP_PLACES=cores OMP_PROC_BIND=close python -m benchmarks.size_cliffs --check
 """
 
 from __future__ import annotations
@@ -31,6 +31,10 @@ import time
 import warnings
 from typing import Any, cast
 
+from solprop.driver import Simulation
+from solprop.grid import FieldGrid
+from solprop.stepper import RungeKutta
+
 FACTORS = (1.0, 1.125, 1.25, 1.375, 1.5, 1.75, 2.0)
 LENGTH = 1.5
 STEP = LENGTH / 4000
@@ -39,10 +43,6 @@ SHORT, LONG = 10, 40
 
 def simulation(factor: float, fft_size: str, backend: str, steps: int) -> Any:
     """Return the RDW case on one grid, with `steps` capped Runge-Kutta steps."""
-    from solprop.driver import Simulation
-    from solprop.grid import FieldGrid
-    from solprop.stepper import RungeKutta
-
     grid = FieldGrid.from_limits(
         LENGTH, 800e-9, (90e-9, 4e-6), factor * 400e-15, fft_size=fft_size
     )
