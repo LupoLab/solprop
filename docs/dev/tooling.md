@@ -116,8 +116,11 @@ The `[tool.coverage]` tables in `pyproject.toml` are the shared defaults. The la
 
 `[tool.numpydoc_validation] checks = ["all", "ES01", "SA01", "EX01", "GL01", "GL02"]` ("all"
 minus extended summary, see-also and examples being mandatory, and minus the two quote-placement
-rules that conflict with ruff's numpy docstring style), excluding `__init__` and test functions;
-run by `numpydoc lint` in the gate and by the pre-commit hook. Sphinx renders docstrings with
+rules that conflict with ruff's numpy docstring style), excluding `__init__`, test functions
+and private names: any dotted name with a single-underscore component (`(^|\.)_[^_]`, so a
+private module, class or function and everything inside it), which keep a short docstring
+instead (`AGENTS.md`, "Docstrings"). The same exclusions hold for the front end in
+`gui/pyproject.toml`. It is run by `numpydoc lint` in the gate and by the pre-commit hook. Sphinx renders docstrings with
 the `numpydoc` extension alone (napoleon is not loaded: the two conflict).
 
 ## jaxtyping + beartype
