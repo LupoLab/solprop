@@ -40,9 +40,9 @@ Shared interfaces and integration remain master-owned.
 | Owner | Exclusive active scope |
 |---|---|
 | Master | Shared interfaces, integration, CI and records; CUDA bridge, exports and services |
-| Independent reviewer | CUDA march, storage and capture; then complete CPU/CUDA integration |
-| Numerical agent | CUDA modal source composition and modal contraction helpers; source tests/note |
-| Device agent | A40 storage qualification; common/CUDA capture guards; low-storage device method |
+| Independent reviewer | Complete CPU/CUDA integration; read-only service interface planning |
+| Numerical agent | CUDA Raman/plasma composition, narrow validated coefficient-copy hooks, source tests/note |
+| Device agent | A40 storage qualification; binary64 Adams method/dense mirrors and tests |
 
 The RK dense leaf `990871fb` is independently approved and integrated as `ad5ab855`,
 with its reviewed engine attachment at `98f6af3e`. Python DF32 dense admission remains
@@ -53,7 +53,10 @@ rate-provenance design is not qualified evidence.
 Reviewed CUDA storage/readback, capture guards and RK orchestration are integrated at
 `75d6849a`, `ba632416` and `9e41cdb1`. Host execution-model tests pass; actual A40
 storage qualification is queued, and device RK qualification remains pending.
-The master develops transactional device export in a separate worktree.
+The reviewed Kerr source, low-storage method and transactional export are now
+integrated at `23fed2ab`, `900ce053`, `bbdf0eda` and `f007e1b7`. The master connects
+execution selection through the bridge in a separate worktree. Actual device
+qualification and the rest of the CUDA session catalogue remain required.
 
 The RK/low-storage DF32 bridge attachment is independently approved: ten files covering
 `backend.py`, `_session.py`, `_wide.py`, PythonCall launch/wide attachment, its focused
@@ -125,6 +128,17 @@ both owned kernel launch forms. DF32 Metal is not qualified.
 
 ## Latest validation
 
+- CUDA source review passes 858 host assertions, including 194 independent
+  composition/session/ownership checks. Low-storage review passes 179 assertions,
+  including 64 independent extreme-norm, early-refusal and analytic-phase checks;
+  its author passes 2,322 affected CPU assertions and Aqua/JET. Export review passes
+  362 assertions after correcting explicit power weights overlapping staging storage.
+  Its author passes 2,469 affected CPU assertions and Aqua/JET. No actual GPU result
+  is implied by these host checks. The inherited RK positional alias fixture now
+  includes its readback field; 431 affected assertions pass.
+- The combined source/method/export tree passes 1,700 targeted assertions across
+  41 testsets. CPU Aqua/JET passes 16 checks with all 2,294 definitions analyzed and
+  none cached. The complete gate still runs in CI; device tests remain pending.
 - The amended baseline selector passes 79 committed tool tests and 104 independent
   inventory/verifier checks. Actual opt-in collection selects 1,374 baseline cases
   across 55 modules and exactly 118 deferred precision cases across seven modules;
@@ -173,8 +187,8 @@ source identities, validation counts and ownership handoffs.
 
 ## Next actions
 
-1. Commit the reviewed scope amendment and retained precision evidence; no further
-   binary32 numerical campaign is on the baseline critical path.
+1. Run the integrated CUDA source/method/export host regressions and the next actual
+   device snapshot; no further binary32 campaign is on the baseline critical path.
 2. Complete binary64 CUDA modal source, low-storage/Adams methods, observations,
    export and shared services; integrate the selected-device bridge and registry.
 3. Qualify actual CUDA kernels, ownership and complete session behavior on A40,
