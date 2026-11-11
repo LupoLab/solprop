@@ -400,7 +400,7 @@ inline std::vector<std::string> split_key(const std::string& text, const char by
   return parts;
 }
 
-inline double median_execution(const fftw_plan plan) {
+inline double median_execution(fftw_plan plan) {
   using Clock = std::chrono::steady_clock;
   fftw_execute(plan);
   const auto first = Clock::now();
@@ -482,7 +482,7 @@ inline PlanAlone time_fft_plan(const std::string& key, const std::string& wisdom
     if ((flags & FFTW_WISDOM_ONLY) != 0U &&
         fftw_import_wisdom_from_string(wisdom.c_str()) == 0)
       return std::numeric_limits<double>::quiet_NaN();
-    const fftw_plan plan = make(flags);
+    auto* const plan = make(flags);
     if (plan == nullptr) {
       fftw_forget_wisdom();
       return std::numeric_limits<double>::quiet_NaN();

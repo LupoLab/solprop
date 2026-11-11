@@ -615,7 +615,7 @@ inline void seed_fftw_wisdom(const ExecutionSpace& space, Complex* input,
   fftw_plan_with_nthreads(space.concurrency());
   auto* in = reinterpret_cast<fftw_complex*>(input);
   auto* out = reinterpret_cast<fftw_complex*>(output);
-  const fftw_plan seeded = fftw_plan_many_dft(
+  auto* const seeded = fftw_plan_many_dft(
       static_cast<int>(extents.size()), extents.data(), howmany, in, nullptr, 1,
       input_distance, out, nullptr, 1, output_distance, sign, *chosen);
   // The policy has always tolerated a plane it cannot seed; a profile records it.
