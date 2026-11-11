@@ -12,8 +12,9 @@ installed package and nothing from a checkout::
 It checks that the package imports and passes ``check_build``, that it is the
 distribution build, that its version is the expected one, and that the libraries it
 loaded (FFT, BLAS, OpenMP) are the copies inside the installed wheel, not ones from
-the build machine or the system. On Arm it checks that both precisions of the bundled
-FFTW carry the NEON codelets. It then runs ``python -m solprop_native`` and checks
+the build machine or the system, and that the wheel neither carries nor imports a
+single-precision FFTW. On Arm it checks that the bundled FFTW carries the NEON codelets.
+It then runs ``python -m solprop_native`` and checks
 that the build record it prints is JSON.
 """
 
@@ -42,30 +43,37 @@ def bundled(library: str, package: Path) -> bool:
     return any(path.is_relative_to(root) for root in roots)
 
 
-def fftw_versions(fft_library: str) -> dict[str, str]:
-    """Return the version strings of the bundled FFTW's double and single libraries.
+def fftw_version(fft_library: str) -> str:
+    """Return the bundled FFTW's version string, which names its codelet family.
 
-    FFTW names its codelet family in the version (``fftw-3.3.11-neon``). The single
-    precision library lies beside the double one under the repair's naming.
+    For example ``fftw-3.3.11-neon``.
     """
-    single = sorted(
-        {
-            path.resolve()
-            for path in Path(fft_library).parent.glob("libfftw3f[-.]*")
-            if path.suffix not in {".a", ".la"}
-        }
-    )
-    if len(single) != 1:
-        sys.exit(f"expected one single-precision FFTW beside {fft_library}: {single}")
-    versions = {}
-    for symbol, library in (
-        ("fftw_version", fft_library),
-        ("fftwf_version", str(single[0])),
-    ):
-        handle = ctypes.CDLL(library)
-        address = ctypes.addressof(ctypes.c_char.in_dll(handle, symbol))
-        versions[symbol] = ctypes.string_at(address).decode()
-    return versions
+    handle = ctypes.CDLL(fft_library)
+    address = ctypes.addressof(ctypes.c_char.in_dll(handle, "fftw_version"))
+    return ctypes.string_at(address).decode()
+
+
+def single_precision_fftw(package: Path) -> list[str]:
+    """Return what in the installed wheel names a single-precision FFTW.
+
+    The package computes in double precision only: the build points Kokkos-FFT's
+    single-precision library names at the double libraries
+    (``cmake/HostLibraries.cmake``), so no ``libfftw3f`` is linked or bundled, and the
+    extension imports no ``fftwf_`` symbol (an import's name is in the extension's
+    dynamic string table).
+    """
+    found = [
+        str(path)
+        for root in (package, package.parent / "solprop_native.libs")
+        if root.is_dir()
+        for path in root.rglob("*fftw3f*")
+    ]
+    found += [
+        f"fftwf_ in {path.name}"
+        for path in package.glob("_core*")
+        if path.suffix in {".so", ".pyd"} and b"fftwf_" in path.read_bytes()
+    ]
+    return found
 
 
 def main() -> None:
@@ -98,12 +106,14 @@ def main() -> None:
             and not bundled(library, package)
         ):
             sys.exit(f"{name} {library} is not the wheel's own copy (under {package})")
+    if single := single_precision_fftw(package):
+        sys.exit(f"the wheel carries a single-precision FFTW: {single}")
     # Compiling with -mcpu does not enable FFTW's NEON codelets; the recipe must.
     fftw = {}
     if platform.machine() in {"arm64", "aarch64"}:
-        fftw = fftw_versions(info.fft_library)
-        if scalar := [name for name, version in fftw.items() if "-neon" not in version]:
-            sys.exit(f"the bundled FFTW lacks NEON codelets: {fftw} ({scalar})")
+        fftw = {"fftw_version": fftw_version(info.fft_library)}
+        if "-neon" not in fftw["fftw_version"]:
+            sys.exit(f"the bundled FFTW lacks NEON codelets: {fftw}")
     if info.blas_backend == "OpenBLAS" and info.blas_threads is None:
         sys.exit("the bundled OpenBLAS reports no thread count")
     # Every library the wheel bundles travels with its licence.

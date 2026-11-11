@@ -30,7 +30,7 @@ the arithmetic is double precision throughout, and no build enables fast-math.
 | C++20 compiler, CUDA | GCC 14 or newer as the host compiler, with `nvcc` from CUDA 12.8 or newer (qualified on CUDA 13) |
 | C++20 compiler, HIP | ROCm's Clang (`hipcc` or `amdclang++`) |
 | OpenMP (CPU builds) | the compiler's runtime; on macOS Homebrew's `libomp` |
-| FFT (CPU builds) | FFTW 3 with its threaded libraries, in double and single precision (or MKL's FFTW interface) |
+| FFT (CPU builds) | FFTW 3 in double precision with its threaded libraries (or MKL's FFTW interface); the build needs no single-precision FFTW |
 | BLAS (CPU builds) | optional but recommended: Accelerate (macOS), OpenBLAS, MKL or another LP64 BLAS |
 | GPU libraries | cuFFT and cuBLAS (CUDA), or rocFFT and rocBLAS (HIP) |
 | network | configuring fetches the pinned dependencies below from GitHub (see [offline builds](#offline-builds)) |
@@ -81,7 +81,7 @@ export CMAKE_ARGS="-DCMAKE_OSX_SYSROOT=$SDKROOT"
 ```
 
 For an Apple silicon performance build, the pinned dependency recipe enables FFTW
-3.3.11's NEON codelets in **both precisions**. Compiling scalar code with `-mcpu`
+3.3.11's NEON codelets. Compiling scalar code with `-mcpu`
 does not enable those codelets. The recipe also retains the Arm cycle counter needed
 by measured planning, the Apple M1 distribution baseline and the macOS 14 deployment
 target. Its FFTW threading libraries and the native extension share one source-built
@@ -100,9 +100,8 @@ uv run --no-sync python -m solprop_native
 
 Check the reported `fft_library` and `openmp_library` before benchmarking. The
 [pinned upstream configuration](https://github.com/FFTW/fftw3/blob/fftw-3.3.11/configure.ac)
-supports `--enable-neon` for double and single precision on AArch64. The installed
-libraries identify their codelet family in `fftw_version` and `fftwf_version`, which
-both end in `-neon` for this recipe. Keep these prefixes separate from a comparison's
+supports `--enable-neon` on AArch64. The installed library identifies its codelet family
+in `fftw_version`, which ends in `-neon` for this recipe. Keep these prefixes separate from a comparison's
 baseline libraries. See [OpenMP runtimes](#openmp-runtimes) below for the limits of mixing
 independently bundled wheels.
 
@@ -123,7 +122,7 @@ cd solprop
 CXX=g++-14 uv pip install --python /path/to/env/bin/python . ./native
 ```
 
-`libfftw3-dev` provides the OpenMP and pthreads FFTW libraries in both precisions. For
+`libfftw3-dev` provides the OpenMP and pthreads FFTW libraries. For
 MKL instead of OpenBLAS, source oneAPI first (`source /opt/intel/oneapi/setvars.sh`): a
 set `MKLROOT` makes the automatic search choose MKL. Other compilers and libraries are
 in [Linux compilers and libraries](#linux-compilers-and-libraries).

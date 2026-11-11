@@ -88,7 +88,7 @@ $ompLibrary = ($omp -replace '\\', '/') + '/lib/libomp.lib'
 $openmp = @('-DOpenMP_C_FLAGS=-fopenmp', '-DOpenMP_C_LIB_NAMES=libomp',
             "-DOpenMP_libomp_LIBRARY=$ompLibrary")
 
-# FFTW, double and single precision, static, with OpenMP.
+# FFTW, double precision (the package computes in no other), static, with OpenMP.
 Get-Source "https://www.fftw.org/fftw-$fftwVersion.tar.gz" $fftwSha256
 $fftwSimd = @('-DCMAKE_C_FLAGS=-march=x86-64-v2', '-DENABLE_SSE2=ON', '-DENABLE_AVX=ON')
 if ($arm) {
@@ -105,19 +105,16 @@ if ($arm) {
     $text = $text.Replace('/* #undef HAVE_NEON */', "#define HAVE_NEON 1`n#define HAVE_ARMV8_CNTVCT_EL0 1")
     Set-Content $config $text -NoNewline
 }
-foreach ($precision in @('double', 'float')) {
-    $build = Join-Path $work "fftw-build-$precision"
-    $flags = @('-S', "$work\fftw-$fftwVersion", '-B', $build, '-G', 'Ninja',
-        '-DCMAKE_C_COMPILER=clang', '-DCMAKE_BUILD_TYPE=Release',
-        '-DCMAKE_POLICY_VERSION_MINIMUM=3.5',
-        '-DBUILD_SHARED_LIBS=OFF', '-DBUILD_TESTS=OFF', '-DENABLE_OPENMP=ON',
-        '-DENABLE_THREADS=OFF',
-        "-DCMAKE_INSTALL_PREFIX=$Prefix\fftw") + $fftwSimd + $openmp
-    if ($precision -eq 'float') { $flags += '-DENABLE_FLOAT=ON' }
-    cmake @flags; Invoke-Native "FFTW $precision configure"
-    cmake --build $build --parallel; Invoke-Native "FFTW $precision build"
-    cmake --install $build; Invoke-Native "FFTW $precision install"
-}
+$build = Join-Path $work 'fftw-build'
+$flags = @('-S', "$work\fftw-$fftwVersion", '-B', $build, '-G', 'Ninja',
+    '-DCMAKE_C_COMPILER=clang', '-DCMAKE_BUILD_TYPE=Release',
+    '-DCMAKE_POLICY_VERSION_MINIMUM=3.5',
+    '-DBUILD_SHARED_LIBS=OFF', '-DBUILD_TESTS=OFF', '-DENABLE_OPENMP=ON',
+    '-DENABLE_THREADS=OFF',
+    "-DCMAKE_INSTALL_PREFIX=$Prefix\fftw") + $fftwSimd + $openmp
+cmake @flags; Invoke-Native 'FFTW configure'
+cmake --build $build --parallel; Invoke-Native 'FFTW build'
+cmake --install $build; Invoke-Native 'FFTW install'
 Copy-Item "$work\fftw-$fftwVersion\COPYING" "$licences\LICENSE-fftw.txt"
 
 # OpenBLAS, static, BLAS plus its C LAPACK translation (Kokkos Kernels needs crot_ and
@@ -145,11 +142,9 @@ if ($arm) {
     Build-OpenBlas 'NEHALEM' "$Prefix\openblas-v2"
 }
 if ($arm) {
-    foreach ($library in @('fftw3.lib', 'fftw3f.lib')) {
-        # The version string names the codelets, as the smoke test reads it elsewhere.
-        if (-not (Select-String -Path "$Prefix\fftw\lib\$library" -Pattern '-neon' -SimpleMatch -Quiet)) {
-            throw "$library lacks the NEON codelets"
-        }
+    # The version string names the codelets, as the smoke test reads it elsewhere.
+    if (-not (Select-String -Path "$Prefix\fftw\lib\fftw3.lib" -Pattern '-neon' -SimpleMatch -Quiet)) {
+        throw 'fftw3.lib lacks the NEON codelets'
     }
 }
 Get-ChildItem "$Prefix\fftw\lib", "$Prefix\openblas\lib", "$omp\lib", "$omp\bin" |

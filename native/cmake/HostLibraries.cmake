@@ -464,8 +464,9 @@ if(SOLPROP_NATIVE_FFT_PROVIDER STREQUAL "MKL_FFTW")
     HINTS "${SOLPROP_NATIVE_MKL_ROOT}" PATH_SUFFIXES include/fftw REQUIRED)
   set(FFTW_INCLUDE_DIRS "${SOLPROP_NATIVE_MKL_FFT_INCLUDE}" CACHE PATH "FFTW API headers" FORCE)
   # Kokkos FFT uses the same FFTW C API for both thread implementations.
-  # MKL exports both precisions and the planning-thread controls from its LP64
-  # interface; its dependency libraries are linked after the FFT/BLAS targets.
+  # MKL exports the planning-thread controls from its LP64 interface; its
+  # dependency libraries are linked after the FFT/BLAS targets. The single-precision
+  # names are the same library, as with FFTW below.
   foreach(_component IN ITEMS DOUBLE_LIB FLOAT_LIB DOUBLE_OPENMP_LIB FLOAT_OPENMP_LIB)
     set(FFTW_${_component} "${SOLPROP_NATIVE_mkl_intel_lp64_LIBRARY}"
         CACHE FILEPATH "MKL FFTW compatibility library" FORCE)
@@ -477,11 +478,7 @@ elseif(SOLPROP_NATIVE_ENABLE_OPENMP)
   if(SOLPROP_NATIVE_FFTW_THREADING STREQUAL "PTHREADS")
     find_library(SOLPROP_NATIVE_FFTW_DOUBLE_PTHREADS fftw3_threads
       HINTS "${FFTW_ROOT}" PATH_SUFFIXES lib lib64 REQUIRED)
-    find_library(SOLPROP_NATIVE_FFTW_FLOAT_PTHREADS fftw3f_threads
-      HINTS "${FFTW_ROOT}" PATH_SUFFIXES lib lib64 REQUIRED)
     set(FFTW_DOUBLE_OPENMP_LIB "${SOLPROP_NATIVE_FFTW_DOUBLE_PTHREADS}"
-        CACHE FILEPATH "FFTW pthread implementation of the thread API" FORCE)
-    set(FFTW_FLOAT_OPENMP_LIB "${SOLPROP_NATIVE_FFTW_FLOAT_PTHREADS}"
         CACHE FILEPATH "FFTW pthread implementation of the thread API" FORCE)
     set(SOLPROP_NATIVE_HOST_FFT_BACKEND "FFTW_PTHREADS")
   else()
@@ -489,4 +486,34 @@ elseif(SOLPROP_NATIVE_ENABLE_OPENMP)
   endif()
 else()
   set(SOLPROP_NATIVE_HOST_FFT_BACKEND "FFTW_SERIAL")
+endif()
+
+# solprop computes in double precision only. Kokkos-FFT's FindFFTW requires the
+# single-precision libraries as well, though each of its fftwf_ calls sits behind an
+# `if constexpr` on float that this package never instantiates. Name the double
+# libraries for them, as the MKL branch above does, so that a build needs no
+# single-precision FFTW and links none (FindFFTW keeps cached results; its own search
+# is repeated here for the double libraries, which it would otherwise find later).
+if(SOLPROP_NATIVE_FFT_PROVIDER STREQUAL "FFTW")
+  if(NOT FFTW_ROOT AND DEFINED ENV{FFTWDIR})
+    set(FFTW_ROOT "$ENV{FFTWDIR}")
+  endif()
+  if(FFTW_ROOT)
+    set(_fftw_search PATHS "${FFTW_ROOT}"
+        PATH_SUFFIXES lib lib64 lib/x86_64-linux-gnu NO_DEFAULT_PATH)
+  else()
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+      pkg_check_modules(PKG_FFTW QUIET fftw3)
+    endif()
+    set(_fftw_search PATHS ${PKG_FFTW_LIBRARY_DIRS})
+  endif()
+  find_library(FFTW_DOUBLE_LIB NAMES fftw3 libfftw3-3 ${_fftw_search} REQUIRED)
+  set(FFTW_FLOAT_LIB "${FFTW_DOUBLE_LIB}" CACHE FILEPATH
+      "The double-precision FFTW: the build makes no single-precision call" FORCE)
+  if(SOLPROP_NATIVE_ENABLE_OPENMP)
+    find_library(FFTW_DOUBLE_OPENMP_LIB NAMES fftw3_omp ${_fftw_search} REQUIRED)
+    set(FFTW_FLOAT_OPENMP_LIB "${FFTW_DOUBLE_OPENMP_LIB}" CACHE FILEPATH
+        "The double-precision FFTW: the build makes no single-precision call" FORCE)
+  endif()
 endif()
