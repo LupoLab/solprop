@@ -20,6 +20,7 @@ from typing import cast
 import numpy as np
 import pytest
 
+from _session_probe_extra import run as session_run
 from backends.planar_cases import planar_case
 from backends.test_radial_nonlinear import LENGTH, QuadraticRate, make_problem
 from bounds import gamma, ladder_bound
@@ -161,17 +162,13 @@ def case(name):
 
 
 def march(implementation, problem, run_request, grid, *, steps, options=None):
-    """Return the field and the statistics after the problem's fixed steps."""
+    """Return the field and the statistics after the problem's fixed steps, run
+    through the backend's own session."""
     backend = implementation(problem, run_request, grid=grid, options=options)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-        assert summary.n_steps == steps
-        return backend.observe().require_field().copy(), backend.stats(
-            run_request.observation.stats
-        )
-    finally:
-        backend.close()
+    ran = session_run(backend, problem, run_request)
+    assert ran.final.z == float(run_request.stepper.save_planes[-1])
+    assert ran.n_steps == steps
+    return ran.final.field, ran.final.stats
 
 
 def bound(problem, grid, backend, steps):

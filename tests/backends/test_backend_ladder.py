@@ -28,6 +28,7 @@ import dataclasses
 import numpy as np
 import pytest
 
+from _session_probe_extra import run as session_run
 from bounds import (
     AccuracyEnvelope,
     analytic_bound,
@@ -39,6 +40,7 @@ from bounds import (
 from convergence_records import record
 from convergence_studies import BACKEND_EQUIVALENCE
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import Start
 from solprop.stepper import FixedSchedule, PIController
 
 EPS = np.finfo(float).eps
@@ -93,17 +95,13 @@ def run(  # noqa: PLR0913 - the run and its context
     noise=None,
     **options,
 ):
-    """Propagate a problem to every plane and return the fields and the summaries."""
+    """Propagate a problem through the backend's own session to every plane, its save
+    planes; return the fields and the summaries there."""
     backend = backend_class(problem, run_request, grid=grid, modes=modes, **options)
-    try:
-        backend.set_initial(problem.initial.field0, noise)
-        fields, summaries = [], []
-        for plane in planes:
-            summaries.append(backend.propagate_to(plane))
-            fields.append(backend.observe().require_field().copy())
-        return fields, summaries
-    finally:
-        backend.close()
+    start = Start.entrance(problem, noise=noise)
+    ran = session_run(backend, problem, run_request, start)
+    assert [one.z for one in ran.planes] == list(planes)
+    return [one.field for one in ran.planes], [one.summary for one in ran.planes]
 
 
 def disagreement(ours, theirs):
@@ -395,7 +393,8 @@ def test_a_resume_continues_where_the_run_stopped(
     soliton_problem,
     soliton_grid,
 ):
-    """``set_initial(z=)`` on a replayed schedule, to round-off against a whole run."""
+    """A start at the first plane on a replayed schedule, to round-off against a whole
+    run."""
     schedule = FixedSchedule.uniform(0.0, 0.02, 1e-3)
     problem, run_request = soliton_problem(
         soliton_grid, 3, save_planes=[0.01, 0.02], schedule=schedule
@@ -405,12 +404,10 @@ def test_a_resume_continues_where_the_run_stopped(
     )
 
     backend = equivalence_backend_class(problem, run_request, grid=soliton_grid)
-    try:
-        backend.set_initial(whole[0], None, z=0.01)
-        backend.propagate_to(0.02)
-        resumed = backend.observe().require_field().copy()
-    finally:
-        backend.close()
+    start = Start(field=whole[0], z=0.01, plane_index=1, plane_pending=False)
+    resumed = session_run(backend, problem, run_request, start).final
+    assert resumed.z == 0.02
+    resumed = resumed.field
     # A load clears a recycled stage, which a backend may keep across a plane, so the
     # resume evaluates the first derivative afresh after the plane. Thirty-two epsilon
     # covers that one additional FFT round-off.

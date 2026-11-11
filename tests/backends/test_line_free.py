@@ -18,6 +18,8 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from _session_probe_extra import final_field
+from _session_probe_extra import run as session_run
 from backends.test_free_ladders import amplitude_bound
 from backends.test_radial_nonlinear import (
     CHI3,
@@ -28,7 +30,7 @@ from backends.test_radial_nonlinear import (
 )
 from bounds import gamma
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.session import ExecutionOptions
+from solprop.backends.session import ExecutionOptions, Start
 from solprop.grid import EnvelopeGrid, FieldGrid, LineGrid
 from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
@@ -146,12 +148,7 @@ def test_line_nonlinear_ladder(line_case, spatial_backend_class, steps):
         values = []
         for implementation in (NumpyRefBackend, spatial_backend_class):
             backend = implementation(problem, run_request, grid=grid, options=REMAINDER)
-            try:
-                backend.set_initial(problem.initial.field0, None)
-                backend.propagate_to(LENGTH)
-                values.append(backend.observe().require_field().copy())
-            finally:
-                backend.close()
+            values.append(final_field(backend, problem, run_request, LENGTH))
         reference, actual = values
     scale = np.max(np.abs(reference))
     assert scale > 0
@@ -175,18 +172,32 @@ def test_line_statistics_fresh_and_cached(line_case, spatial_backend_class, step
     )
     if family.endswith("plasma"):
         names += ("electron_density", "peak_ionisation_rate")
-    spec = StatsSpec(names=names)
+    run_request = run_request.for_run(stats=StatsSpec(names=names))
     rows = []
     for implementation in (NumpyRefBackend, spatial_backend_class):
+        # The plane's statistics in the backend's own session (the launch's, or the
+        # end's after the march), then the same state's afresh: the launch of a new
+        # session started from it there.
         backend = implementation(problem, run_request, grid=grid, options=REMAINDER)
         try:
-            backend.set_initial(problem.initial.field0, None)
-            if steps:
-                backend.propagate_to(LENGTH)
-            rows.append(backend.stats(spec))
-            state = backend.observe().require_field().copy()
-            backend.set_initial(state, None)
-            fresh = backend.stats(spec)
+            ran = session_run(
+                backend, problem, run_request, owns=False, until=None if steps else 0.0
+            )
+            plane = ran.final if steps else ran.launch
+            assert plane is not None
+            rows.append(plane.stats)
+            again = Start(
+                field=plane.field,
+                z=plane.z,
+                plane_index=int(
+                    np.searchsorted(run_request.stepper.save_planes, plane.z, "right")
+                ),
+            )
+            relaunch = session_run(
+                backend, problem, run_request, again, owns=False, until=plane.z
+            ).launch
+            assert relaunch is not None
+            fresh = relaunch.stats
             for name in names:
                 assert_allclose(
                     fresh[name],

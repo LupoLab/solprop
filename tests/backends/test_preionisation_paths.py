@@ -19,6 +19,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 
+from _session_probe_extra import run as session_run
 from bounds import assert_within
 from mixture_cases import AnalyticRate, mixture_case, mixture_translation
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -67,20 +68,21 @@ def smooth(length, low, high):
 
 
 def run(backend_class, problem, run_request, grid, stop, *, stats=NAMES):
-    """Propagate to `stop` and return the field, the summary, the history and stats."""
-    backend = backend_class(problem, run_request, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        summary = backend.propagate_to(stop)
-        observed = backend.observe()
-        return (
-            observed.require_field().copy(),
-            summary,
-            observed.step_history,
-            backend.stats(StatsSpec(names=stats)),
+    """Propagate to `stop` through the backend's own session, `stop` made a plane of
+    the run's schedule, and return the field, the summary, the history and the
+    statistics there."""
+    planes = np.asarray(run_request.stepper.save_planes, dtype=float)
+    if stop not in planes:
+        run_request = run_request.with_stepper(
+            dataclasses.replace(
+                run_request.stepper, save_planes=np.sort(np.append(planes, stop))
+            )
         )
-    finally:
-        backend.close()
+    run_request = run_request.for_run(stats=StatsSpec(names=stats))
+    backend = backend_class(problem, run_request, grid=grid)
+    plane = session_run(backend, problem, run_request, until=stop).final
+    assert plane.z == stop
+    return plane.field, plane.summary, plane.history, plane.stats
 
 
 def field_case(preionisation):

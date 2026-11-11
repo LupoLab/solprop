@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
+from _session_probe_extra import run as session_run
 from bounds import assert_within, gamma
 from mixture_cases import mixture_translation
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
@@ -150,33 +151,33 @@ def test_inactive_components_keep_the_species_axis(backend_class, channels):
         "species_ionisation_energy",
         "species_peak_ionisation_rate",
     )
+    totals_names = ("electron_density", "peak_ionisation_rate")
+    # The launch plane's statistics, in the backend's own session.
+    run_request = run_request.for_run(
+        stats=StatsSpec(names=names + (totals_names if channels else ()))
+    )
     backend = backend_class(problem, run_request, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        values = backend.stats(StatsSpec(names=names))
-        assert values["species_ionisation"].shape == (2, 1)
-        # Structural: an inactive component's statistics are exactly zero.
-        assert_array_equal(values["species_ionisation"][channels:], 0.0)
-        assert_array_equal(values["species_ionisation_energy"][channels:], 0.0)
-        if channels:
-            totals = backend.stats(
-                StatsSpec(names=("electron_density", "peak_ionisation_rate"))
-            )
-            # A second statistics evaluation of the same state: the plasma ladder's
-            # running-sum budget, 4 n eps.
-            bound = 4 * grid.n_to * np.finfo(float).eps
-            assert_allclose(
-                totals["electron_density"],
-                values["species_electron_density"].sum(axis=0),
-                rtol=bound,
-            )
-            assert_allclose(
-                totals["peak_ionisation_rate"],
-                values["species_peak_ionisation_rate"].max(axis=0),
-                rtol=bound,
-            )
-    finally:
-        backend.close()
+    launch = session_run(backend, problem, run_request, until=0.0).launch
+    assert launch is not None
+    values = launch.stats
+    assert values["species_ionisation"].shape == (2, 1)
+    # Structural: an inactive component's statistics are exactly zero.
+    assert_array_equal(values["species_ionisation"][channels:], 0.0)
+    assert_array_equal(values["species_ionisation_energy"][channels:], 0.0)
+    if channels:
+        # The totals and the species' rows of the same state: the plasma ladder's
+        # running-sum budget, 4 n eps.
+        bound = 4 * grid.n_to * np.finfo(float).eps
+        assert_allclose(
+            values["electron_density"],
+            values["species_electron_density"].sum(axis=0),
+            rtol=bound,
+        )
+        assert_allclose(
+            values["peak_ionisation_rate"],
+            values["species_peak_ionisation_rate"].max(axis=0),
+            rtol=bound,
+        )
 
 
 @pytest.mark.parametrize("taper", [None, 2.0])

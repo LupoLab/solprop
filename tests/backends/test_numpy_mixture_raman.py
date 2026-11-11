@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from _session_probe_extra import run as session_run
 from mixture_cases import mixture_translation
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.exceptions import BackendError
@@ -164,13 +165,13 @@ def test_multiple_raman_components_propagate_with_one_cached_kernel(
     for backend_type in (NumpyRefBackend, equivalence_backend_class):
         backend = backend_type(problem, run_request, grid=grid)
         try:
-            backend.set_initial(problem.initial.field0, None)
-            summary = backend.propagate_to(grid.length)
-            assert summary.n_steps == steps
+            ran = session_run(backend, problem, run_request, owns=False)
+            assert ran.final.z == grid.length
+            assert ran.n_steps == steps
             assert raman_refreshes(backend) == 1
-            outputs.append(backend.observe().require_field().copy())
         finally:
             backend.close()
+        outputs.append(ran.final.field)
     relative = np.linalg.norm(outputs[1] - outputs[0]) / np.linalg.norm(outputs[0])
     assert relative < bound
 
