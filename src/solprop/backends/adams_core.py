@@ -4,7 +4,7 @@
 
 """The Adams march's controller as functions of its policy and its state (SEP 39).
 
-The decisions of :class:`~solprop.backends.multistep.AdamsMarch` -- the stencil and
+The decisions of :class:`~solprop.backends.host.adams.HostAdamsMarch` -- the stencil and
 scored orders, the step-size factor, a rejection and its restart, the order choice, the
 proposal's caps and the approach to a landing -- each as a function of the run's
 :class:`~solprop.stepper.multistep.MarchPolicy` and the values it decides on, with no

@@ -703,8 +703,8 @@ once-per-run FFTW planning and the output's planes.
 
 ### 3.1a What exists
 
-The adapter `native/src/solprop_native/backend.py` and the engine `native/src/general.cpp`
-over the shared driver of `backends/driver.py`. The public default is `"auto"`: the
+The adapter `native/src/solprop_native/backend.py`, its session
+`native/src/solprop_native/session.py` and the engine `native/src/general.cpp`. The public default is `"auto"`: the
 native backend, with no fallback (§1, ADR-029).
 `numpy_ref` stays selectable by name.
 

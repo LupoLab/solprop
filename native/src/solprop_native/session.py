@@ -551,8 +551,10 @@ class NativeSession:
         self._backend: NativeBackend | None = backend
         self._axis_scans = 0
         self._axis_scans_closed = 0
-        # Whether this plane's quadrature alarm was given (`_check_quadrature`).
+        # Whether this plane's quadrature alarm was given (`_check_quadrature`), and
+        # the largest accepted step's score the session has drained for it.
         self._alarm_reported = False
+        self._quadrature_peak = math.nan
         try:
             kind, state = self._prepare(backend, start)
             # The on-axis row scans this session's statistics make: the state's
@@ -1065,6 +1067,9 @@ class NativeSession:
         if self.closed:
             return
         peak = float(self._native.quadrature_peak())
+        if not math.isnan(peak) and not peak <= self._quadrature_peak:
+            # The largest drained so far, for the record (`execution_record`).
+            self._quadrature_peak = peak
         if peak > QUADRATURE_ALARM and not self._alarm_reported:
             self._alarm_reported = True
             _QUADRATURE_LOG.warning(
@@ -1442,6 +1447,9 @@ class NativeSession:
             "export_bytes": status.export_bytes,
             "buffer_bytes": status.buffer_bytes,
             "axis_scans": self._axis_scan_count(),
+            # The largest accepted step's transverse quadrature score this session
+            # read for its alarm (`_check_quadrature`); NaN where none was scored.
+            "quadrature_peak": self._quadrature_peak,
         }
         monitor = self.monitor_record()
         if monitor is not None:

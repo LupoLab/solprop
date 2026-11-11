@@ -91,9 +91,9 @@ Text: [architecture.md §8](architecture.md) for the passes,
 
 The seam at the top is the whole of what a backend is. Under it is the step loop no
 backend reimplements — the march, the replay, the landing, the controller, the history,
-the noise and the per-stage bundle all live in the step driver — the reference's own in
-`backends/host/driver.py` and the native bridge's temporary copy in `backends/driver.py`
-since [SEP 47](seps/sep-0047-run-ownership.md) phase 2 — and under that the
+the noise and the per-stage bundle all live in the reference's step driver,
+`backends/host/driver.py`, while the native backend's session marches natively
+([SEP 47](seps/sep-0047-run-ownership.md)) — and under that the
 the implemented backends: NumPy reference and native (built from `native/`). Each
 supplies trial/state operations and the relevant hooks; the loop's
 statistics channel and progress reporter call back through the seam. Fixed fibre

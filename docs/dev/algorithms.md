@@ -155,7 +155,8 @@ $f_{\max} = 1.1$, and a lag of one step by default.
 {py:class}`solprop.stepper.controller.PIController`;
 {py:func}`solprop.stepper.controller.limit_step`;
 {py:func}`solprop.stepper.schedule.landing` with
-{py:class}`solprop.stepper.schedule.StepTargets`. The loop is `backends/driver.py`.
+{py:class}`solprop.stepper.schedule.StepTargets`. The loop is the reference's
+`backends/host/driver.py`; the native session's compiled march performs the same steps.
 
 **Why a global magnitude.** Per-element scaling is catastrophic here: the in-band dynamic
 range of a hollow-fibre spectrum reaches $10^{17}$ and about a third of in-band bins carry

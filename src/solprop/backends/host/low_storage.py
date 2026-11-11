@@ -6,11 +6,10 @@
 
 :class:`HostLowStorageMarch` replays a prescribed schedule and accepts each step in
 place, through the host engine (:class:`solprop.backends.low_storage.HostLowStorage`),
-which holds the registers and makes the step's four passes. It is owned by the NumPy
-reference since SEP 47 phase 2: a copy of the march the native bridge still inherits
-(:class:`solprop.backends.low_storage.LowStorageMarch`), sharing only the stateless
-engine. The method, the register form and the in-flight contract are those of
-:mod:`solprop.backends.low_storage`'s module documentation.
+which holds the registers and makes the step's four passes. It is the NumPy
+reference's own since SEP 47 phase 2, sharing only the stateless engine; the native
+session replays the march natively. The method, the register form and the in-flight
+contract are those of :mod:`solprop.backends.low_storage`'s module documentation.
 """
 
 import logging

@@ -4,15 +4,13 @@
 
 """The reference's interaction-picture Adams march (SEP 13, SEP 14, SEP 47).
 
-The controller, history, ledger and lifecycle of :class:`HostAdamsMarch`, owned by the
-NumPy reference since SEP 47 phase 2: copied from the shared march that the native
-bridge still inherits (:class:`solprop.backends.multistep.AdamsMarch`), so that the
-control is the reference's own. The state-sized arithmetic stays shared, a recorded
-exception (:mod:`solprop.backends.host`): the march hands every operation of its fused
-and exponential paths to the host engine
-(:class:`solprop.backends.multistep.HostHistory`), which the bridge's march also takes
-where native keeps no resident history, and the comparison variants' trials to
-:class:`solprop.backends.host.general.HostGeneralPath`. The decisions are
+The controller, history, ledger and lifecycle of :class:`HostAdamsMarch`, the NumPy
+reference's own since SEP 47 phase 2 (the shared march it was copied from is deleted
+with the native backend's step driver, phase 5). The state-sized arithmetic is the
+shared stateless code (:mod:`solprop.backends.host`): the march hands every operation
+of its fused and exponential paths to the host engine
+(:class:`solprop.backends.multistep.HostHistory`), and the comparison variants' trials
+to :class:`solprop.backends.host.general.HostGeneralPath`. The decisions are
 :mod:`solprop.backends.adams_core`'s functions of one policy record.
 
 The method, its lifecycle and its numbers are those of

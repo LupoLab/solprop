@@ -13,6 +13,7 @@ two observations; a rule that resolves the field gives none.
 
 import logging
 import warnings
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -65,7 +66,12 @@ def _warnings(name: str, n_r: int, caplog: pytest.LogCaptureFixture) -> list[str
     backend = select(name, problem, request, grid=grid, modes=modes)
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger="solprop.backends.numpy_ref.backend"):
-        drive(Started(start_session(backend, problem, request, entrance(problem))))
+        session = start_session(backend, problem, request, entrance(problem))
+        drive(Started(session))
+    if name == "native":
+        # The largest score the session drained for its alarm is in its record.
+        record = cast("dict[str, Any]", session.execution_record()["native_session"])
+        assert (record["quadrature_peak"] > 1e-6) == (n_r < 32)
     return [
         record.getMessage()
         for record in caplog.records
