@@ -281,7 +281,7 @@ class JuliaBackend:
         handle: JuliaHandle | None = None
         try:
             with _interrupts.committing():
-                blas = acquire_blas()
+                blas = acquire_blas(provider=runtime.cpu_blas)
                 handle = runtime.own_call(
                     "prepare_spatial" if self._spatial else "prepare_modal",
                     self._lowered,

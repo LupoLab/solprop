@@ -11,7 +11,7 @@ The completed implementation is left ready for maintainer review, not auto-merge
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
 | 1: package and runtime | Setup/package integrated; remaining runtime qualification deferred | Maintainer directs core implementation to proceed; failures remain tracked |
-| 2: CPU binary64 session | Scalar modal and spatial stepping/statistics, temporal/transverse monitoring, groups, dense output, absorption, noise, FFT persistence and timing probes are integrated and independently reviewed | CPU provider selection, budgeted preparation, complete material/service qualification and measurements remain pending |
+| 2: CPU binary64 session | Scalar modal/spatial sessions, services, FFT persistence and timing probes are integrated; the 20-case combined material matrix passes | Verified CPU provider and budget planner are in final integration; CPU measurements remain pending |
 | 3: CPU binary32 | DF32 primitives, conservative function leaf and operand analysis reviewed; full execution pending | Whole-expression and device admission remain unqualified |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
@@ -60,8 +60,8 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
 | Independent reviewer | Production code read-only; independent transaction tests returned to master | Group, dense scheduler/adapter and corrected input-noise leaf approved; independent integration review continues |
 | Wide arithmetic agent | New `wide_operators.jl`, its focused tests and `WIDE_ASSEMBLY.md` | Phase 3 whole-expression assembly and range/error certificate; shared interfaces require master agreement before dependent work |
-| CPU provider agent | New `cpu_blas.jl`, `_accelerate.py` and focused tests | Verify Accelerate forwarding and a main-thread single/automatic-mode lease; master owns runtime/shared-lease attachment and dependency regeneration |
-| Preparation agent | New `_node_plan.py`, focused Python/Julia tests and `NODE_MEMORY.md` | Derive Julia-specific chunk storage bounds and authoritative budget admission; master owns shared adapter integration |
+| CPU provider agent | New `cpu_blas.jl`, `_accelerate.py` and focused tests | Reviewed leaf integrated at `5795fe65`; runtime/lease attachment reviewed, managed checks passed; files return to master |
+| Preparation agent | New `_node_plan.py`, focused Python/Julia tests and `NODE_MEMORY.md`; narrow owned-window reshape correction in `observations.jl` | Derive Julia-specific chunk storage bounds and authoritative budget admission; master owns shared adapter integration |
 
 The precompile workload uses only owned, small CPU arrays and existing numerical
 constructors. It covers serial CPU session/source/observation dispatch without loading
@@ -271,10 +271,10 @@ successful forced termination is recorded separately from voluntary Julia shutdo
 
 ## Next actions
 
-1. Attach the reviewed scalar radial/Cartesian/line source chain, then independently
-   reviewed spatial statistics and transverse monitoring. General modal remains refused.
-2. Complete FFT-plan
-   persistence, shared host BLAS leases, memory-budget admission and CPU measurements.
+1. Integrate verified CPU provider selection and budgeted node preparation; retain
+   measured buffer bounds and independently reviewed material accuracy witnesses.
+2. Retrieve the one/eight-thread Linux qualification, address required CI findings,
+   and complete the initial CPU startup, preparation and short-window timing record.
 3. Complete binary32 execution and whole-expression DF32 bounds, then each vendor's
    public selection/qualification and the phase 5 documentation/evidence gates.
 4. Revisit deferred runtime issues after core implementation; preserve all failed
@@ -844,3 +844,32 @@ successful forced termination is recorded separately from voluntary Julia shutdo
   transverse capability skips. Both newly enabled transverse conformance cases then
   pass separately. CI now requires them and the spatial, transverse, timing-probe and
   FFT managed modules; only the explicit bitwise-repeatability skips remain allowed.
+- Verified CPU provider attachment passes 133 independent bounds-enabled Julia
+  assertions and four actual managed preparation/cache checks. Both integer ABIs,
+  real/complex products and missing-symbol fallback are checked. Missing Apple
+  threading capabilities retain OpenBLAS; actual provider and calling-thread scope
+  are metadata. ADR-079 records the macOS 15 control boundary. Regenerated manifests
+  add only the Libdl dependency edge. Independent wiring review passes 113 typed
+  checks, including the corrected #697 acquisition/rollback ownership and orderly
+  main-thread retry. The final affected cleanup selection passes 78 tests.
+- The combined material matrix passes all 20 managed cases. It covers field and
+  envelope on five routes, plural plasma/Raman, independent modal gradients and
+  uncoupled tapers, and alternate march families. Independently reviewed eight-step
+  accuracy envelopes require separately refined 16/32-step reference settlement;
+  no formal convergence-order result is inferred. The material module and actual
+  provider checks are now mandatory in the Julia lane.
+- Wide assembly leaf `d6687bd7` is independently approved and integrated at
+  `1a653768`: 25,055 independent exact-rational, domain, ownership and IR assertions.
+  Author final numerical checks pass 9,960 at one thread and 18,930 at two, including
+  zero warmed allocations. This certifies conditional CPU operations only; public
+  binary32 execution, stored-history integration, device certification and performance
+  remain separate work. Combined provider/wide/window package quality passes all
+  16 Aqua/JET checks over 1,644 definitions, none cached.
+- Window ownership correction #698 is independently inspected and integrated at
+  `3138fa4c`; 52 repeated bounds-enabled assertions verify one storage owner, actual
+  window results and zero warmed allocation. The shared planner's 23 pure and 38
+  managed inventory cases accompany its pending adapter integration.
+- The `162da950` CI static lane identified seven missing private-helper docstrings.
+  Scoped validation passes after `72ee3e4c`. Documentation builds successfully;
+  the SEP selection passes 349 tests with three declared process-SEP skips. Full
+  CI and the current one/eight-thread Linux correctness campaign remain in progress.

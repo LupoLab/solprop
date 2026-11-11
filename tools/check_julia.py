@@ -38,6 +38,8 @@ _RUNTIME_TESTS = (
     "tests/backends/julia/test_cpu_transverse.py",
     "tests/backends/julia/test_cpu_probe.py",
     "tests/backends/julia/test_cpu_fft.py",
+    "tests/backends/julia/test_cpu_provider.py",
+    "tests/backends/julia/test_cpu_material_routes.py",
     "tests/backends/julia/test_transfer_aliases.py",
     "tests/backends/julia/test_session_boundary.py",
     "tests/sessions/executors.py",
@@ -289,6 +291,8 @@ def _verify_runtime_report(report: Path) -> None:
         "test_cpu_transverse",
         "test_cpu_probe",
         "test_cpu_fft",
+        "test_cpu_provider",
+        "test_cpu_material_routes",
         "test_transfer_aliases",
     ):
         cases = [

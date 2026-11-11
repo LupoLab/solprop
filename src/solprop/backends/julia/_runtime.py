@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from solprop import _process
-from solprop.backends.julia._blas import prepare_blas_cleanup
+from solprop.backends.julia._blas import CPUBlasInfo, prepare_blas_cleanup
 from solprop.backends.julia._bridge import invoke
 from solprop.backends.julia._identity import SetupRecord
 from solprop.backends.julia._ownership import (
@@ -97,6 +97,8 @@ class JuliaRuntime:
         Device packages already loaded successfully into this runtime.
     owners : OwnerRegistry
         Wrappers and borrowed buffers retained until owner-thread release.
+    cpu_blas : CPUBlasInfo or None
+        Detached provider facts, established before any numerical preparation.
     """
 
     setup: SetupRecord
@@ -109,6 +111,7 @@ class JuliaRuntime:
     devices: set[str] = field(default_factory=lambda: {"cpu"})
     _identity: _ProcessIdentity = field(init=False)
     owners: OwnerRegistry = field(default_factory=OwnerRegistry)
+    cpu_blas: CPUBlasInfo | None = None
 
     def __post_init__(self) -> None:
         """Pin physical paths as well as content identity before later selections."""
@@ -395,9 +398,20 @@ def _start_runtime(record: SetupRecord, threads: int) -> JuliaRuntime:
     ):
         raise BackendError("the julia PythonCall extension did not activate")
     engine = namespace.SolpropJulia
+    provider = getattr(engine, "configure_cpu_blas!")()
+    cpu_blas = CPUBlasInfo(
+        str(provider.provider),
+        str(provider.library),
+        str(provider.interface),
+        str(provider.fallback_library),
+        str(provider.thread_scope),
+        str(provider.reason),
+    )
     # Compile the leaf now; foreign stopping threads must never enter the JIT.
     setter = int(engine.stop_setter_address())
-    runtime = JuliaRuntime(record, threads, namespace, engine, setter)
+    runtime = JuliaRuntime(
+        record, threads, namespace, engine, setter, cpu_blas=cpu_blas
+    )
     # Root before publication can be interrupted. Failed hook registration still
     # poisons startup, but cannot send the last wrapper owner to a foreign thread.
     _STATE.runtime = runtime

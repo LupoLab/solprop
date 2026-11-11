@@ -54,6 +54,18 @@ def isolated_runtime(monkeypatch, setup_record):
 
     compiled = []
     engine = SimpleNamespace(stop_setter_address=lambda: compiled.append(True) or 1)
+    setattr(
+        engine,
+        "configure_cpu_blas!",
+        lambda: SimpleNamespace(
+            provider="openblas",
+            library="libopenblas.so",
+            interface="ilp64",
+            fallback_library="",
+            thread_scope="process",
+            reason="not-macos",
+        ),
+    )
     namespace = SimpleNamespace(seval=evaluate, SolpropJulia=engine)
     imports = []
     bridge = SimpleNamespace(__version__="0.9.37", newmodule=lambda _: namespace)
@@ -100,6 +112,9 @@ def test_first_preparation_pins_stack_and_restores_actual_sigint(
     runtime = _runtime.get_runtime()
     assert runtime.setup == setup_record
     assert runtime.threads == 2
+    assert runtime.cpu_blas == _blas.CPUBlasInfo(
+        "openblas", "libopenblas.so", "ilp64", "", "process", "not-macos"
+    )
     assert isolated_runtime.imports == ["juliacall"]
     assert isolated_runtime.compiled == [True]
     assert isolated_runtime.restored == [
@@ -342,6 +357,27 @@ def test_loaded_juliacall_version_is_verified(isolated_runtime):
     isolated_runtime.bridge.__version__ = "0.9.36"
     with pytest.raises(BackendError, match="failed to start"):
         _runtime.get_runtime()
+
+
+def test_partial_blas_provider_configuration_poisons_runtime(
+    isolated_runtime, monkeypatch
+):
+    calls = []
+
+    def broken():
+        calls.append(True)
+        raise RuntimeError("provider verification failed after forwarding")
+
+    monkeypatch.setattr(
+        isolated_runtime.namespace.SolpropJulia, "configure_cpu_blas!", broken
+    )
+    with pytest.raises(BackendError, match="provider verification failed"):
+        _runtime.get_runtime()
+    with pytest.raises(BackendError, match="previously failed"):
+        _runtime.get_runtime()
+    assert calls == [True]
+    assert _runtime._STATE.runtime is None
+    assert isolated_runtime.compiled == []
 
 
 def test_partial_device_loading_poisoning(isolated_runtime):

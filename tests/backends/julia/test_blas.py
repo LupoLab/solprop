@@ -5,6 +5,7 @@
 """Keep Julia, construction and native BLAS lifetimes independently owned."""
 
 import gc
+import threading
 from types import SimpleNamespace
 from weakref import ref
 
@@ -13,13 +14,203 @@ import threadpoolctl
 
 from backends.julia.cases import cpu_case
 from solprop import _interrupts, _process
-from solprop.backends.julia import _blas, _runtime, backend
-from solprop.backends.julia._blas import acquire_blas
+from solprop.backends.julia import _accelerate, _blas, _runtime, backend
+from solprop.backends.julia._blas import CPUBlasInfo, acquire_blas
 from solprop.backends.julia._ownership import OwnerRegistry
 from solprop.backends.julia._runtime import JuliaRuntime
 from solprop.backends.julia.backend import JuliaBackend
 from solprop.exceptions import BackendError
 from test_construction_blas import Controller, Library
+
+
+@pytest.fixture
+def apple_mode(monkeypatch, tmp_path):
+    mode = SimpleNamespace(value=0, refuse=None)
+
+    def setter(value):
+        if value == mode.refuse:
+            return -1
+        mode.value = value
+        return 0
+
+    library = _accelerate._AccelerateLibrary(
+        str(tmp_path / "Accelerate"),
+        mode,
+        lambda: mode.value,
+        setter,
+        threading.get_ident(),
+    )
+    provider = CPUBlasInfo(
+        "accelerate", library.filepath, "ilp64", "/julia/OpenBLAS", "calling_thread", ""
+    )
+    monkeypatch.setattr(_accelerate, "_library", lambda: library)
+    return mode, library, provider
+
+
+@pytest.mark.parametrize("release_first", [0, 1])
+def test_verified_apple_provider_joins_lifetime_limits_and_keeps_enum_out_of_counts(
+    libraries, apple_mode, release_first, monkeypatch
+):
+    mode, library, provider = apple_mode
+    libraries.append(Library(library.filepath))
+    monkeypatch.setenv("SOLPROP_BLAS_THREADS", "3")
+    first, second = acquire_blas(provider=provider), acquire_blas(provider=provider)
+    assert mode.value == 1
+    record = first.metadata()
+    assert record["blas_provider"] == "accelerate"
+    assert record["blas_integer_interface"] == "ilp64"
+    assert record["blas_fallback_library"] == "OpenBLAS"
+    assert record["blas_libraries"] == [{"library": "libblas", "threads": 3}]
+    assert record["accelerate_threads_requested"] == 3
+    assert record["accelerate_threads"] == 1
+    holds = (first, second)
+    holds[release_first].close()
+    assert mode.value == 1 and libraries[0].num_threads == 3
+    holds[1 - release_first].close()
+    assert mode.value == 0 and libraries[0].num_threads == 12
+    assert not _process._BLAS_POOLS
+
+
+def test_apple_framework_used_by_native_shares_the_calling_thread_mode(
+    libraries, apple_mode, monkeypatch
+):
+    mode, library, provider = apple_mode
+    libraries.append(Library(library.filepath))
+    monkeypatch.setitem(
+        _process.sys.modules,
+        "solprop_native",
+        SimpleNamespace(
+            build_info=lambda: SimpleNamespace(blas_library=library.filepath)
+        ),
+    )
+    hold = acquire_blas(provider=provider)
+    assert mode.value == 1
+    assert hold.metadata()["blas_libraries"] == [{"library": "libblas", "threads": 1}]
+    hold.close()
+    assert mode.value == 0
+
+
+def test_verified_apple_provider_requires_its_documented_control(
+    libraries, apple_mode, monkeypatch
+):
+    _, _, provider = apple_mode
+    monkeypatch.setattr(_accelerate, "_library", lambda: None)
+    with pytest.raises(BackendError, match="no threading control"):
+        acquire_blas(provider=provider)
+    assert libraries[0].num_threads == 12 and not _process._BLAS_POOLS
+
+
+def test_process_pool_acquisition_failure_releases_the_apple_mode(
+    libraries, apple_mode, monkeypatch
+):
+    mode, library, provider = apple_mode
+    acquire = _process.acquire_host_blas
+    failure = MemoryError("process pool construction")
+
+    def failing(controllers, threads):
+        if tuple(controllers) == (library,):
+            return acquire(controllers, threads)
+        raise failure
+
+    monkeypatch.setattr(_process, "acquire_host_blas", failing)
+    with pytest.raises(MemoryError, match="process pool construction") as caught:
+        acquire_blas(provider=provider)
+    assert caught.value is failure
+    assert mode.value == 0 and libraries[0].num_threads == 12
+    assert not _process._BLAS_POOLS
+
+
+def test_apple_release_failure_still_restores_other_pools_and_retains_a_retry(
+    libraries, apple_mode
+):
+    mode, _, provider = apple_mode
+    hold = acquire_blas(provider=provider)
+    mode.refuse = 0
+    with pytest.raises(BackendError, match="refused"):
+        hold.close()
+    assert libraries[0].num_threads == 12 and mode.value == 1
+    assert tuple(_blas._FAILED_RELEASES.values()) == (hold,)
+    mode.refuse = None
+    retry = acquire_blas(provider=provider)
+    assert not _blas._FAILED_RELEASES
+    retry.close()
+    assert mode.value == 0 and not _process._BLAS_POOLS
+
+
+def test_host_release_failure_still_restores_the_apple_mode(
+    libraries, apple_mode, monkeypatch
+):
+    mode, _, provider = apple_mode
+    hold = acquire_blas(provider=provider)
+    setter = libraries[0].set_num_threads
+
+    def fail_once(threads):
+        monkeypatch.setattr(libraries[0], "set_num_threads", setter)
+        raise RuntimeError("foreign host restore")
+
+    monkeypatch.setattr(libraries[0], "set_num_threads", fail_once)
+    with pytest.raises(RuntimeError, match="foreign host restore"):
+        hold.close()
+    assert mode.value == 0 and tuple(_blas._FAILED_RELEASES.values()) == (hold,)
+    hold.close()
+    assert libraries[0].num_threads == 12 and not _process._BLAS_POOLS
+
+
+def test_hold_allocation_failure_precedes_either_native_mutation(
+    libraries, apple_mode, monkeypatch
+):
+    mode, _, provider = apple_mode
+
+    def refuse(*_):
+        raise MemoryError("BLAS hold")
+
+    monkeypatch.setattr(_blas, "BlasHold", refuse)
+    with pytest.raises(MemoryError, match="BLAS hold"):
+        acquire_blas(provider=provider)
+    assert mode.value == 0 and libraries[0].num_threads == 12
+    assert not _process._BLAS_POOLS
+
+
+@pytest.mark.parametrize("retry_fails", [False, True])
+def test_orderly_cleanup_retries_unpublished_acquisitions_and_other_holds(
+    libraries, apple_mode, monkeypatch, retry_fails
+):
+    mode, _, provider = apple_mode
+    original = _accelerate._library
+    library = original()
+    assert library is not None
+    setter = library.setter
+    failed = RuntimeError("Apple acquisition")
+    mode.broken = True
+
+    def break_both(value):
+        result = setter(value)
+        if mode.broken:
+            raise failed
+        return result
+
+    monkeypatch.setattr(
+        _accelerate,
+        "_library",
+        lambda: _accelerate._AccelerateLibrary(
+            library.filepath, mode, library.getter, break_both, library.thread
+        ),
+    )
+    with pytest.raises(RuntimeError, match="Apple acquisition"):
+        acquire_blas(provider=provider)
+    assert len(_process._BLAS_PENDING) == 1
+    released = []
+    other = _blas.BlasHold(1, (), lambda: released.append(True))
+    _blas._FAILED_RELEASES[id(other)] = other
+    if retry_fails:
+        with pytest.raises(RuntimeError, match="Apple acquisition"):
+            _blas._release_pending()
+        assert released == [True] and len(_process._BLAS_PENDING) == 1
+    mode.broken = False
+    _blas._release_pending()
+    assert released == [True]
+    assert mode.value == 0 and not _process._BLAS_PENDING
+    assert not _process._BLAS_POOLS and not _blas._FAILED_RELEASES
 
 
 @pytest.fixture(autouse=True)
@@ -32,6 +223,7 @@ def _isolated_fft_preparation(monkeypatch):
 def libraries(monkeypatch):
     loaded = [Library("/numpy/libblas", 12)]
     monkeypatch.setattr(_process, "_BLAS_POOLS", {})
+    monkeypatch.setattr(_process, "_BLAS_PENDING", {})
     monkeypatch.setattr(_blas, "_FAILED_RELEASES", {})
     monkeypatch.setattr(
         _process, "thread_budget", lambda: _process.ThreadBudget(4, "affinity")

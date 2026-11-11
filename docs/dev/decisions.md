@@ -2284,3 +2284,32 @@ Withdrawn (development-process record, not a design decision).
   tests must distinguish prompt exit from explicit forced termination and verify child
   cleanup. [Issue #610](https://github.com/LupoLab/solprop/issues/610) remains open for
   a supported improvement with stable Julia 1.14 and compatible packages.
+
+## ADR-079 — Verify Julia's CPU BLAS provider and lease its real controls
+
+- **Status:** accepted during SEP 48 implementation, 2026-11-11.
+- **Context:** Julia's libblastrampoline supports forwarding to system Accelerate,
+  but forwarding and a generic BLAS thread-count request do not establish which
+  library executes each ABI or how Apple controls its threads. The pinned trampoline
+  does not implement Apple's documented calling-thread mode API. Accelerate's modes
+  are automatic and single; automatic is not a known numerical width.
+- **Decision:** verify the new LAPACK symbols, both integer ABIs and the documented
+  mode controls before forwarding. Retain OpenBLAS for missing symbols and verify
+  representative real/complex GEMM and GESV owners. Missing platform capabilities keep
+  OpenBLAS with an explicit reason. Each Julia preparation leases single mode on the
+  acquiring Python main thread; overlapping owners share the existing lease manager
+  and the last release restores the exact original enum. Ordinary independent BLAS
+  libraries retain their count-based leases. Provider, ABI, fallback and actual thread
+  scope are copied into execution metadata. Failed acquisition and rollback retain
+  an owned retry on the acquiring thread, preserving the initiating failure (#697).
+- **Consequences:** the qualified Accelerate path requires its macOS 15 threading
+  API. All framework callers on that OS thread share the mode, including NumPy and
+  native; this is not private Julia state. Worker-thread BLAS would require its own
+  call-scoped control before admission. Current parallel matrix maps are Julia kernels.
+  Tests verify actual BLAS/LAPACK products, missing-symbol fallback, zero warmed GEMM
+  allocation, overlapping lifetimes, restoration and detached metadata. These checks
+  establish provider behavior, not a comparative performance result.
+- **Sources:** Apple's [mode setter](https://developer.apple.com/documentation/accelerate/blassetthreading(_:))
+  and [mode getter](https://developer.apple.com/documentation/accelerate/blasgetthreading()),
+  the installed public `vecLib/thread_api.h`, and the pinned trampoline's
+  [thread-control implementation](https://github.com/JuliaLinearAlgebra/libblastrampoline/blob/v5.15.0/src/threading.c).

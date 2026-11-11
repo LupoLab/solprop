@@ -25,6 +25,7 @@ public copy_preparation
 public StopFlag, stop_address, stop_requested, stop_setter_address
 
 include("cancellation.jl")
+include("cpu_blas.jl")
 include("fft_plans.jl")
 include("execution.jl")
 include("double_float.jl")
@@ -34,6 +35,7 @@ include("transforms.jl")
 include("tables.jl")
 include("power_weights.jl")
 include("operators.jl")
+include("wide_operators.jl")
 include("spatial_operators.jl")
 include("runge_kutta.jl")
 include("adams.jl")

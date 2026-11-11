@@ -16,6 +16,7 @@ import SolpropJulia
 
 if group == "Core"
     include("cancellation.jl")
+    include("cpu_blas.jl")
     include("execution.jl")
     include("double_float.jl")
     include("double_float_functions.jl")
@@ -24,6 +25,7 @@ if group == "Core"
     include("tables.jl")
     include("power_weights.jl")
     include("operators.jl")
+    include("wide_operators.jl")
     include("runge_kutta.jl")
     include("adams.jl")
     include("low_storage.jl")
@@ -40,6 +42,7 @@ if group == "Core"
     include("spatial_operators.jl")
     include("spatial_composition.jl")
     include("observations.jl")
+    include("node_memory.jl")
     include("spatial_observations.jl")
     include("transverse_observations.jl")
     include("fft_plans.jl")

@@ -217,6 +217,15 @@ class _BlasLease(contextlib.AbstractContextManager[None]):
 _BLAS_PENDING: dict[object, tuple[threading.Thread, _BlasLease]] = {}
 
 
+def _retry_blas_acquisitions() -> None:
+    """Retry unpublished leases on their acquiring thread, including orderly cleanup."""
+    with _BLAS_LOCK:
+        thread = threading.current_thread()
+        for acquiring_thread, pending in tuple(_BLAS_PENDING.values()):
+            if acquiring_thread is thread:
+                pending.restore_original_limits()
+
+
 def acquire_host_blas(libraries: Sequence[Any], threads: int) -> _BlasLease:
     """Borrow host BLAS libraries at the narrowest of their active requests.
 
@@ -245,11 +254,8 @@ def acquire_host_blas(libraries: Sequence[Any], threads: int) -> _BlasLease:
     paths = tuple(os.path.realpath(library.filepath) for library in libraries)
     lease = _BlasLease(owner, paths)
     with _BLAS_LOCK:
-        thread = threading.current_thread()
-        for acquiring_thread, pending in tuple(_BLAS_PENDING.values()):
-            if acquiring_thread is thread:
-                pending.restore_original_limits()
-        _BLAS_PENDING[owner] = (thread, lease)
+        _retry_blas_acquisitions()
+        _BLAS_PENDING[owner] = (threading.current_thread(), lease)
         try:
             for library, path in zip(libraries, paths, strict=True):
                 if path not in _BLAS_POOLS:

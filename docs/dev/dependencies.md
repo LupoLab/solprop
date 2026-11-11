@@ -90,7 +90,9 @@ only, by at most 1.5 times, and a large dependency); see ADR-059.
 engine and its separate application environments. Its committed manifests pin a joint
 CPU/device resolution; PythonCall and vendor packages remain weak engine dependencies.
 The numerical package directly uses FFTW, KernelAbstractions, AcceleratedKernels,
-Polyester, Atomix and PrecompileTools, with Julia's LinearAlgebra standard library.
+Polyester, Atomix and PrecompileTools, with Julia's LinearAlgebra and Libdl standard
+libraries. Libdl supplies verified system BLAS symbol discovery; its compat bound is
+`1`, matching the non-upgradable standard library bundled with the pinned Julia release.
 
 **Adapt** and **StrideArraysCore** are direct dependencies for the bounded CPU scalar
 launcher. Adapt recursively converts immutable closure captures, including nested

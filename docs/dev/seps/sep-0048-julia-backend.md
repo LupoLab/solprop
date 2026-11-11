@@ -1640,6 +1640,41 @@ Sphinx builds successfully. Whole-package Python analysis has no errors and the 
 existing local native-stub warnings. CPU provider selection, budgeted node planning,
 remaining route/material witnesses and measurements still precede phase 2 completion.
 
+### CPU providers and combined materials — 2026-11-11
+
+CPU initialization now verifies its BLAS/LAPACK provider before publishing the runtime.
+On supported macOS systems it forwards both integer ABIs to Accelerate while retaining
+OpenBLAS for missing symbols. The documented single/automatic calling-thread control
+requires macOS 15 or later; older or incomplete platforms retain OpenBLAS and record
+why. This qualifies the proposal's macOS preference to a controllable implementation.
+Preparation leases preserve overlapping users and restore the exact previous mode.
+All callers of Accelerate on that OS thread share its mode. ADR-079 records the control
+boundary and metadata; no new external package is needed. Libdl is now an explicit
+standard-library dependency, and all affected manifests were mechanically regenerated.
+
+Independent provider checks cover actual real/complex BLAS/LAPACK products, both ABIs,
+missing-symbol fallback and zero warmed GEMM allocation. The final Julia selection
+passes 133 bounds-enabled assertions with two threads. Four actual managed cases
+verify overlapping preparation lifetimes, provider metadata and persistent FFT reuse.
+The shared acquisition review found #697: a simultaneous setter/rollback failure could
+orphan a request before returning its lease. The corrected boundary roots the lease
+before mutation, preserves the primary error and retries only on its acquiring thread.
+The affected Python selection passes 109 tests; an independent two-pool interruption
+witness also passes. The final leaf quality gate passes 16 Aqua/JET checks over all
+1,560 definitions with none cached. These checks establish provider behavior; quiet
+machine performance measurements remain outstanding.
+
+The combined-material matrix passes 20 actual CPU sessions: field and envelope on
+averaged, multimode, radial, Cartesian and line routes; independent material gradients
+and uncoupled modal tapers; and alternate RK, Adams and low-storage marches. Every case
+contains two plasma populations and two independent Raman components. Eight-step runs
+are compared with separate 16/32-step reference refinements under accuracy envelopes
+fixed before comparison. The one-micrometre window resolves the field carrier for all
+methods. Independent review checked nonzero observables, species additivity, refinement
+and admitted statistics. This is an accuracy qualification, not a formal convergence
+order measurement. CPU measurements and the remaining preparation integration still
+precede phase 2 completion.
+
 ## Part III — History
 
 - 2026-11-10: The maintainer accepted external hard-kill supervision for stalled Julia

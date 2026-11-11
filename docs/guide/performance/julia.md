@@ -143,8 +143,20 @@ CPU preparation shares solprop's host BLAS limits. The default is one BLAS threa
 `SOLPROP_BLAS_THREADS` requests another width within the process budget. Overlapping
 construction and Julia preparations retain the narrowest active request, and release
 restores the previous width only after the last owner finishes. Metadata records the
-actual controllable libraries and their current widths. The current engine uses its
-Julia OpenBLAS provider; macOS Accelerate forwarding remains to be attached.
+actual controllable libraries and their current widths. OpenBLAS is the provider on
+Linux and other supported platforms. On macOS with the new LAPACK ABI and documented
+calling-thread controls (macOS 15 or later), Julia forwards BLAS/LAPACK to Accelerate
+and retains OpenBLAS for symbols Accelerate does not provide. Missing capabilities
+leave OpenBLAS selected, with the reason recorded in execution metadata.
+
+Accelerate offers automatic or single-thread mode, so a Julia preparation keeps it in
+single-thread mode even when a larger BLAS width was requested. That mode belongs to
+Python's main OS thread and affects all Accelerate callers there, including NumPy and
+native code using the same framework. Independent BLAS libraries keep their ordinary
+count limits. The last preparation restores the exact previous Apple mode; metadata
+records the requested width, actual single mode and its calling-thread scope. Julia's
+worker threads do not inherit this setting; the current engine's parallel matrix maps
+use its own kernels. See [ADR-079](../../dev/decisions.md#adr-079--verify-julias-cpu-blas-provider-and-lease-its-real-controls).
 
 CPU starts plan against their own transform arrays and keep successful FFTW measurements
 in the calibration store. Cache identities include the actual loaded FFT libraries and

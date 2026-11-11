@@ -256,6 +256,8 @@ def test_python_phase_runs_the_whole_adapter_directory(pinned_tree, monkeypatch)
                     "test_cpu_transverse",
                     "test_cpu_probe",
                     "test_cpu_fft",
+                    "test_cpu_provider",
+                    "test_cpu_material_routes",
                     "test_transfer_aliases",
                 )
             )
