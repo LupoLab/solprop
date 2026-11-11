@@ -938,6 +938,9 @@ The filtered rate is scratch for the field's FIR rule.
 Envelope populations use the same storage and clear unused filter values. Current
 coefficients and density are absent: populations depend only on rate and initial
 fraction. Invalid vector layouts raise `ArgumentError` before allocation.
+Population calls require independent writable destinations with immutable affine
+index metadata. Mutable gather destinations and overlapping foreign storage are
+refused before any numerical write, including workspaces assembled positionally.
 """
 struct PopulationWorkspace{T, A <: AbstractMatrix{T}, U <: AbstractMatrix{UInt8}}
     layout::ResponseLayout
@@ -966,7 +969,7 @@ end
 
 @inline _population_disjoint(destination, ::Tuple{}) = nothing
 @inline function _population_disjoint(destination, inputs::Tuple)
-    Base.mightalias(destination, first(inputs)) &&
+    _transfer_arrays_alias(destination, first(inputs)) &&
         throw(ArgumentError("population workspace aliases numerical input or scratch"))
     _population_disjoint(destination, Base.tail(inputs))
     return nothing
@@ -994,6 +997,9 @@ function _population_admit(work, samples, prepared, initial, count)
         throw(ArgumentError("population preionisation must lie in [0, 1]"))
     arrays = _population_arrays(work)
     _population_shapes(work.layout, arrays)
+    # Disjoint storage alone does not make a mutable gather destination safe:
+    # repeated or later-changed indices can redirect a numerical write.
+    _transfer_admit_destinations(arrays)
     _population_storage(arrays, samples, prepared)
     return nothing
 end
