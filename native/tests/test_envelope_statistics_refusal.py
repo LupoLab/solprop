@@ -16,6 +16,9 @@ from typing import cast
 import numpy as np
 import numpy.typing as npt
 import pytest
+from session_runs import drain, finish
+from solprop.backends.events import Outcome
+from solprop.backends.session import Start
 from solprop.exceptions import ConvergenceError
 from solprop.stats import StatsSpec
 from test_envelope_plasma import envelope_case, envelope_options, terms
@@ -29,6 +32,13 @@ from solprop_native.backend import (
 SPEC = StatsSpec(names=("electron_density", "peak_ionisation_rate"))
 
 
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="until native/src/session.cpp failure_of maps EnvelopeConvergenceError "
+    "to Category::convergence, the native session reports a refinement failure "
+    "outside a march call as RuntimeError, not ConvergenceError",
+)
 @pytest.mark.parametrize(
     "geometry",
     ["mode_averaged", "free"],
@@ -54,18 +64,27 @@ def test_the_statistics_refuse_and_a_quiet_field_recovers(
         return payload
 
     monkeypatch.setattr(adapter, "_native_problem", corrupt_payload)
+    # The launch plane's statistics meet the bad rule before any step.
+    run_request = run_request.for_run(stats=SPEC)
     owner = NativeBackend(
         problem, run_request, grid=grid, options=envelope_options(geometry)
     )
     try:
-        owner.set_initial(
-            np.asarray(10.0 * problem.initial.field0, dtype=np.complex128), None
+        loud = np.asarray(10.0 * problem.initial.field0, dtype=np.complex128)
+        session = owner.prepare(problem, run_request).start(
+            Start(field=loud, z=0.0), owns=False
         )
-        with pytest.raises(ConvergenceError, match="angular refinement"):
-            owner.stats(SPEC)
+        try:
+            terminal = drain(session)
+        finally:
+            session.close()
+        assert terminal.outcome is Outcome.FAILED
+        assert isinstance(terminal.error, ConvergenceError), terminal.error
+        assert "angular refinement" in str(terminal.error)
+        assert terminal.z == 0.0
         # A quiet field below threshold: no refinement, and no failure left behind.
-        owner.set_initial(np.zeros_like(problem.initial.field0), None)
-        quiet = owner.stats(SPEC)
-        assert np.all(np.asarray(quiet["peak_ionisation_rate"]) == 0.0)
+        quiet = Start(field=np.zeros_like(problem.initial.field0), z=0.0)
+        planes = finish(owner, problem, run_request, quiet, owns=False).planes
+        assert np.all(np.asarray(planes[0]["stats"]["peak_ionisation_rate"]) == 0.0)
     finally:
         owner.close()

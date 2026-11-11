@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import sys
 import warnings
+from collections.abc import Mapping
 
 import solprop_native
 
@@ -29,16 +30,8 @@ from test_band_stress import case
 
 from solprop_native import NativeBackend
 
-sizings: list[object] = []
-
-
-class _Recording(NativeBackend):
-    """Keep each march's ``execution_sizing``; ``march`` closes its own backend."""
-
-    def close(self) -> None:
-        sizings.append(self.metadata()["execution_sizing"])
-        super().close()
-
+# Each march's backend metadata, for its ``execution_sizing``.
+records: list[Mapping[str, object]] = []
 
 arrays: dict[str, np.ndarray] = {}
 with warnings.catch_warnings():
@@ -50,12 +43,17 @@ with warnings.catch_warnings():
         ("long_mixture", case("mixture_edge", 10)),
     ):
         run_request = run_request.for_run(stats=StatsSpec(names=STATISTICS))
-        field, stats = march(_Recording, problem, run_request, grid)
+        field, stats = march(NativeBackend, problem, run_request, grid, record=records)
         arrays[f"{label}_field"] = field
         for name in STATISTICS:
             arrays[f"{label}_{name}"] = np.asarray(stats[name])
 np.savez(sys.argv[1], allow_pickle=False, **arrays)
 
 print(
-    json.dumps({"threads": solprop_native.build_info().thread_count, "sizing": sizings})
+    json.dumps(
+        {
+            "threads": solprop_native.build_info().thread_count,
+            "sizing": [record["execution_sizing"] for record in records],
+        }
+    )
 )
