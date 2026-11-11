@@ -438,6 +438,8 @@ function(solprop_native_configure_project_target target)
   if(SOLPROP_NATIVE_ENABLE_SANITIZERS)
     target_compile_options(${target} PRIVATE
       $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-fsanitize=address,undefined>
+      # A report stops the test there, whatever UBSAN_OPTIONS says.
+      $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-fno-sanitize-recover=all>
       $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-fno-omit-frame-pointer>
     )
     target_link_options(${target} PRIVATE

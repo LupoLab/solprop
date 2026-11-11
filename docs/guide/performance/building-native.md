@@ -402,11 +402,12 @@ OpenBLAS is.
 ### Presets
 
 `native/CMakePresets.json` defines development builds, all with `BUILD_TESTING=ON`:
-`cpu-debug`, `cpu-tidy` and `cpu-sanitize` (reference profile, Debug), `cpu-benchmark`
-(local, Release, IPO), `cuda` (with cuBLAS) and `hip`. Dense transforms
-take the vendor GEMM where a transform is eligible and the package's own kernels for
-the rest, in every build. The presets do not choose a compiler: pass `-DCMAKE_CXX_COMPILER=...` (on
-macOS, Homebrew's `clang++`) and `-DPython_EXECUTABLE=...`.
+`cpu-debug`, `cpu-tidy` and `cpu-sanitize` (reference profile, Debug; `cpu-sanitize`
+adds ASan, UBSan that stops at its first report, and Kokkos's view bounds checks),
+`cpu-benchmark` (local, Release, IPO), `cuda` (with cuBLAS) and `hip`. Dense transforms
+take the vendor GEMM where a transform is eligible and the package's own kernels for the
+rest, in every build. The presets do not choose a compiler: pass
+`-DCMAKE_CXX_COMPILER=...` (on macOS, Homebrew's `clang++`) and `-DPython_EXECUTABLE=...`.
 
 ### Offline builds
 

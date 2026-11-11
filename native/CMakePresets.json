@@ -35,7 +35,8 @@
       "inherits": "cpu-debug",
       "binaryDir": "${sourceDir}/build/presets/cpu-sanitize",
       "cacheVariables": {
-        "SOLPROP_NATIVE_ENABLE_SANITIZERS": "ON"
+        "SOLPROP_NATIVE_ENABLE_SANITIZERS": "ON",
+        "Kokkos_ENABLE_DEBUG_BOUNDS_CHECK": "ON"
       }
     },
     {
