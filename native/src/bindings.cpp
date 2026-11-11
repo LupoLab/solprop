@@ -889,37 +889,6 @@ exponential_weights_at(const RealInput nodes, const IndexInput slots,
                                 compensated);
 }
 
-// One Adams trial's coefficient tables (solprop SEP 16 phase 3b): the history rows,
-// newest first, and the weights over them; `rows` is (n_rows, width), at most three.
-native::AdamsWeights adams_weights(const IndexInput slots, const RealInput predictor,
-                                   const RealInput corrector, const RealInput rows,
-                                   const std::size_t order) {
-  native::AdamsWeights weights;
-  const auto slot_values = index_vector(slots);
-  const auto predictor_values = real_vector(predictor);
-  const auto corrector_values = real_vector(corrector);
-  const auto row_values = real_vector(rows);
-  const std::size_t width = corrector_values.size();
-  if (width > native::adams_max_samples || slot_values.size() + 1 < width ||
-      predictor_values.size() != order || order > slot_values.size() ||
-      (width > 0 && row_values.size() % width != 0) ||
-      (width > 0 && row_values.size() / width > 3))
-    throw std::invalid_argument("Adams coefficient tables have inconsistent extents");
-  for (std::size_t t = 0; t < slot_values.size() && t < native::adams_max_samples; ++t)
-    weights.slot[t] = slot_values[t];
-  for (std::size_t t = 0; t < order; ++t)
-    weights.predictor[t] = predictor_values[t];
-  for (std::size_t t = 0; t < width; ++t)
-    weights.corrector[t] = corrector_values[t];
-  weights.order = order;
-  weights.width = width;
-  weights.n_rows = width > 0 ? row_values.size() / width : 0;
-  for (std::size_t row = 0; row < weights.n_rows; ++row)
-    for (std::size_t t = 0; t < width; ++t)
-      weights.rows[row][t] = row_values[row * width + t];
-  return weights;
-}
-
 // One exponential trial's tables (solprop SEP 16 phase 3b): `predictor` is
 // (order, order), `corrector` (width, width) and `rows` (n_rows, 2 width), row-major.
 native::ExponentialWeights exponential_weights(const IndexInput slots,
