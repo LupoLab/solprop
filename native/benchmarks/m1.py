@@ -2,7 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Measure the full N=6 soliton run in isolated backend/thread processes."""
+"""Measure the full N=6 soliton run in isolated backend/thread processes.
+
+A propagation is the backend's session (solprop SEP 47): its start loads the launch
+before the clock starts, and the timed region is the session's advances to the one save
+plane, stopped when that plane's observation arrives, before its field is exported. A
+trial is the backend's timing probe (``Backend.timing_probe``), which loads the start
+once and times single trials from it. The untimed warm-up is the launch plane and one
+attempt of a session of the timed run itself, closed there: a backend serves only its
+own request's planes, where the step driver's warm-up marched to a short plane of its
+own.
+"""
 
 # ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
@@ -15,7 +25,7 @@ import statistics
 import subprocess
 import sys
 import time
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 from device_record import DeviceRecord, device_record
 
@@ -56,6 +66,75 @@ class Measurement(Result):
     maximum_seconds: float
 
 
+class Marched(NamedTuple):
+    """One session's march to its last plane."""
+
+    seconds: float
+    accepted: int
+    rejected: int
+    field: Any
+
+
+def _warm(session: Any) -> None:
+    """Take a started session's launch plane and one attempt beyond it, then close it.
+
+    The untimed warm-up: a backend serves only its own request's planes, so it is
+    warmed on the timed run's own itinerary, cut short; the timed run loads the
+    launch again.
+    """
+    try:
+        for _ in range(2):  # the launch plane's batch, then one attempt
+            if session.finished:
+                break
+            batch = session.advance(work_limit=1)
+            terminal = batch.terminal
+            if terminal is not None and terminal.error is not None:
+                raise terminal.error
+            session.acknowledge(batch.receipt)
+    finally:
+        session.close()
+
+
+def _march(session: Any, last: float) -> Marched:
+    """Advance a started session to its end, timing it up to the plane at `last`.
+
+    The clock stops when that plane's observation arrives, before its field is
+    exported (the internal convention, as the step driver observed it).
+    """
+    import numpy as np
+
+    from solprop.backends.events import ObservationReady
+    from solprop.backends.export import ExportRecipe
+
+    accepted = rejected = 0
+    seconds = 0.0
+    field = None
+    try:
+        started = time.perf_counter()
+        while not session.finished:
+            batch = session.advance()
+            for event in batch.events:
+                history = getattr(event, "history", None)
+                if history is not None:
+                    taken = int(np.count_nonzero(history.accepted))
+                    accepted += taken
+                    rejected += history.n_steps - taken
+                if isinstance(event, ObservationReady) and event.z == last:
+                    seconds = time.perf_counter() - started
+                    field = np.array(
+                        session.export(event.ticket, ExportRecipe(False, False))
+                    )
+            terminal = batch.terminal
+            if terminal is not None and terminal.error is not None:
+                raise terminal.error
+            session.acknowledge(batch.receipt)
+    finally:
+        session.close()
+    if field is None:
+        raise RuntimeError(f"the session observed no plane at {last} m")
+    return Marched(seconds, accepted, rejected, field)
+
+
 def _worker(
     backend_name: str,
     target_fraction: float,
@@ -71,6 +150,8 @@ def _worker(
     import numpy as np
 
     from solprop.backends.registry import select
+    from solprop.backends.session import Start
+    from solprop.backends.sessions import start_session
     from solprop.grid import EnvelopeGrid
     from solprop.nonlinear.gnlse import problem_from
     from solprop.pulses import SechPulse
@@ -108,33 +189,43 @@ def _worker(
         prefactor_index=1.0,
     )
     backend: Any = select(backend_name, problem, request, grid=grid)
+    dz = float(request.stepper.dz_init)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        if warmup:
-            if mode == "trial":
-                backend._trial_step(0.0, request.stepper.dz_init)
-            else:
-                backend.propagate_to(min(target, 1e-4 * period))
-            backend.set_initial(problem.initial.field0, None)
-        device_before = device_record(backend.metadata())
-        load_start = os.getloadavg()[0]
-        started = time.perf_counter()
         if mode == "trial":
+            probe = backend.timing_probe(Start.entrance(problem))
+            if warmup:
+                probe.trial(0.0, dz)
+            device_before = device_record(backend.metadata())
+            load_start = os.getloadavg()[0]
+            started = time.perf_counter()
             for _ in range(trial_count):
-                backend._trial_step(0.0, request.stepper.dz_init)
+                probe.trial(0.0, dz)
             seconds = time.perf_counter() - started
-            _, candidate = backend._trial_step(0.0, request.stepper.dz_init)
-            backend._finish(candidate, request.stepper.dz_init)
+            probe.trial(0.0, dz)
+            field_out = probe.field()
             accepted = 0
             rejected = 0
             trials = trial_count
         else:
-            summary = backend.propagate_to(target)
-            seconds = time.perf_counter() - started
-            accepted = summary.n_steps - summary.n_rejected
-            rejected = summary.n_rejected
-            trials = summary.n_steps + summary.n_rejected
-        field_out = backend.observe().field
+            if warmup:
+                _warm(
+                    start_session(
+                        backend, problem, request, Start.entrance(problem), owns=False
+                    )
+                )
+            session = start_session(
+                backend, problem, request, Start.entrance(problem), owns=False
+            )
+            device_before = device_record(backend.metadata())
+            load_start = os.getloadavg()[0]
+            marched = _march(session, target)
+            seconds = marched.seconds
+            attempts = marched.accepted + marched.rejected
+            accepted = marched.accepted
+            rejected = marched.rejected
+            # As the step driver's summary counted them: its attempts plus rejections.
+            trials = attempts + rejected
+            field_out = marched.field
         load_end = os.getloadavg()[0]
         if not np.all(np.isfinite(field_out)):
             raise RuntimeError("M1 produced a non-finite field")
@@ -257,7 +348,7 @@ def main() -> None:
     parser.add_argument(
         "--warmup",
         action="store_true",
-        help="run one untimed adaptive step before the measured propagation",
+        help="run one untimed adaptive step before the measured run",
     )
     parser.add_argument(
         "--grid-scale",
