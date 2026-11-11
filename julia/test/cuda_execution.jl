@@ -5,6 +5,52 @@ using Test
 import CUDA
 import SolpropJulia as SP
 
+# Host-only metadata admission; no device allocation, launch or dereference.
+struct CUDAParameterCarrier{P} end
+struct CUDAParameterRecord{P}
+    value::P
+end
+
+function cuda_parameter_allocation(value)
+    extension = Base.get_extension(SP, :SolpropJuliaCUDAExt)
+    extension._cuda_capture(value, nothing)
+    return @allocated extension._cuda_capture(value, nothing)
+end
+
+@testset "CUDA host capture metadata preserves pointer ownership" begin
+    extension = Base.get_extension(SP, :SolpropJuliaCUDAExt)
+    for P in (
+            Ptr{Float32}, Core.LLVMPtr{Float32, 1}, CUDA.CuPtr{Float32},
+            CUDA.PtrOrCuPtr{Float32}, CUDA.CuArrayPtr{Float32},
+        )
+        address = reinterpret(P, UInt(0x1000))
+        for token in (
+                Val(address), Val((address,)), CUDAParameterCarrier{address}(),
+                Val(Tuple{Val{address}}), Val(CUDAParameterRecord(address)),
+                Val((tag = :stage, nested = (CUDAParameterRecord(address),))),
+                Val(Union{Nothing, Val{address}}),
+                Val(Tuple{Val{address}, T} where {T}),
+            )
+            @test_throws ArgumentError extension._cuda_capture(token, nothing)
+            body = let captured = token
+                (row, column) -> captured
+            end
+            @test_throws ArgumentError extension._cuda_capture(body, nothing)
+        end
+        @test extension._cuda_capture(Val(P), nothing) === nothing
+    end
+    for token in (
+            Val(:stage), Val(2), Val(Float32), Val(Ptr{Float32}),
+            Val(CUDA.CuPtr{Float32}), Val((:stage, 2)),
+            CUDAParameterCarrier{Tuple{Int32, Float32}}(),
+            Val(Union{Nothing, Ptr{Float32}}),
+            Val(Tuple{T, Ptr{Float32}} where {T}),
+        )
+        @test extension._cuda_capture(token, nothing) === nothing
+        @test cuda_parameter_allocation(token) == 0
+    end
+end
+
 # This is an explicitly selected device suite: unavailable CUDA is a failing
 # qualification prerequisite, never a silent skipped implementation test.
 @test CUDA.functional()

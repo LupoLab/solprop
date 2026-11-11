@@ -181,8 +181,6 @@ function SolpropJulia.dzeros(
     end
 end
 
-@inline _cuda_capture(array::AbstractArray, execution) = _cuda_array(array, execution)
-
 @generated function _cuda_capture(value::T, execution) where {T}
     # Pointer-backed arrays can themselves be isbits. Traverse closure/tuple and
     # scalar-record fields before treating a value as an inert scalar capture.
@@ -191,6 +189,11 @@ end
     )
     T <: Union{Ptr, Core.LLVMPtr, CUDA.CuPtr, CUDA.PtrOrCuPtr, CUDA.CuArrayPtr} &&
         return :(throw(ArgumentError("CUDA kernels refuse unowned raw pointer captures")))
+    pointers = Union{Ptr, Core.LLVMPtr, CUDA.CuPtr, CUDA.PtrOrCuPtr, CUDA.CuArrayPtr}
+    SolpropJulia._capture_parameter_pointer(T, pointers) && return :(
+        throw(ArgumentError("CUDA kernels refuse pointer values in captured type metadata"))
+    )
+    T <: AbstractArray && return :(_cuda_array(value, execution))
     (isbitstype(T) || T <: Union{Function, Tuple, NamedTuple}) || return :(
         throw(ArgumentError("CUDA kernels require scalar or dense device-array captures"))
     )

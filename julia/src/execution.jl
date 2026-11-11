@@ -4,6 +4,43 @@
 public KernelExecution, each!, each_column!, oncpu, upload, dzeros
 public device_execution, synchronize_execution, copy_host!, copy_device!
 
+# Type parameters can carry actual addresses even when a captured value has no
+# fields (for example Val(pointer)). Inspect that immutable metadata at generation
+# time; a pointer type alone carries no address and remains ordinary metadata.
+function _capture_parameter_pointer(
+        value, pointers::Type = Union{Ptr, Core.LLVMPtr}, seen::Tuple = (),
+    )::Bool
+    value isa pointers && return true
+    if value isa Union{DataType, UnionAll, TypeVar, Union}
+        any(item -> item === value, seen) && return false
+        visited = (seen..., value)
+        if value isa DataType
+            return any(
+                parameter -> _capture_parameter_pointer(parameter, pointers, visited),
+                value.parameters
+            )
+        elseif value isa UnionAll
+            return _capture_parameter_pointer(value.var, pointers, visited) ||
+                _capture_parameter_pointer(value.body, pointers, visited)
+        elseif value isa TypeVar
+            return _capture_parameter_pointer(value.lb, pointers, visited) ||
+                _capture_parameter_pointer(value.ub, pointers, visited)
+        else
+            return any(
+                member -> _capture_parameter_pointer(member, pointers, visited),
+                Base.uniontypes(value)
+            )
+        end
+    elseif value isa Union{Tuple, NamedTuple} || isbitstype(typeof(value))
+        _capture_parameter_pointer(typeof(value), pointers, seen) && return true
+        for index in 1:fieldcount(typeof(value))
+            _capture_parameter_pointer(getfield(value, index), pointers, seen) &&
+                return true
+        end
+    end
+    return false
+end
+
 """
     KernelExecution(backend, tasks::Integer, check_body::Bool = false; planning=nothing)
 

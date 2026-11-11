@@ -183,3 +183,43 @@ end
     @test_throws ArgumentError SolpropJulia.copy_device!(destination, source, unsupported)
     @test destination == [-2.0] && source == [1.0]
 end
+
+
+struct ExecutionParameterCarrier{P} end
+struct ExecutionParameterRecord{P}
+    value::P
+end
+primitive type ExecutionAddress 64 end
+
+@testset "Host capture metadata separates pointer values from address-free types" begin
+    for P in (Ptr{Float32}, Core.LLVMPtr{Float64, 1})
+        address = reinterpret(P, UInt(0x1000))
+        for value in (
+                address, Val(address), (tag = :stage, nested = (address,)),
+                ExecutionParameterRecord(address),
+                Val(Tuple{Val{address}}), Val(Union{Nothing, Val{address}}),
+                Val(Tuple{Val{address}, T} where {T}),
+            )
+            @test SolpropJulia._capture_parameter_pointer(value)
+        end
+        for T in (
+                Val{address}, ExecutionParameterCarrier{address},
+                Array{ExecutionParameterCarrier{address}, 1},
+            )
+            @test SolpropJulia._capture_parameter_pointer(T)
+        end
+    end
+    for value in (
+            1, :stage, (kind = :stage, index = 2), Float64, Ptr{Float32},
+            Core.LLVMPtr{Float32, 1}, Val(Ptr{Float32}),
+            Tuple{Ptr{Float32}, T} where {T}, Union{Nothing, Ptr{Float32}},
+            ExecutionParameterCarrier{Tuple{Int, Ptr{Float32}}},
+        )
+        @test !SolpropJulia._capture_parameter_pointer(value)
+    end
+    address = reinterpret(ExecutionAddress, UInt(0x1000))
+    @test !SolpropJulia._capture_parameter_pointer(Val(address))
+    family = Union{Ptr, Core.LLVMPtr, ExecutionAddress}
+    @test SolpropJulia._capture_parameter_pointer(Val(address), family)
+    @test !SolpropJulia._capture_parameter_pointer(Val(ExecutionAddress), family)
+end
