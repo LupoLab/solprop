@@ -8,7 +8,8 @@
 
 [private_docstrings]
 # Private or nested definitions whose docstring has numpydoc sections (Parameters,
-# Returns, Yields, Raises, Examples, See Also). The target is 0 (AGENTS.md, "Docstrings").
+# Returns, Yields, Raises, Examples, See Also). The target is 0 (AGENTS.md,
+# "Docstrings and comments").
 max_sectioned = 2895
 
 [modules]

@@ -114,7 +114,7 @@ xfail_strict = true
 checks = ["all", "ES01", "SA01", "EX01", "GL01", "GL02"]
 # Private names are left out: a dotted name with a single-underscore component (a private
 # module, class or function, or anything inside one) carries a short docstring, not the
-# public API's numpydoc sections (AGENTS.md, "Docstrings").
+# public API's numpydoc sections (AGENTS.md, "Docstrings and comments").
 exclude = ['\.__init__$', '^test_', '(^|\.)_[^_]']
 
 # ---------------------------------------------------------------------------- coverage

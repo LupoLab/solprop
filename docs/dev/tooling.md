@@ -122,7 +122,7 @@ minus extended summary, see-also and examples being mandatory, and minus the two
 rules that conflict with ruff's numpy docstring style), excluding `__init__`, test functions
 and private names: any dotted name with a single-underscore component (`(^|\.)_[^_]`, so a
 private module, class or function and everything inside it), which keep a short docstring
-instead (`AGENTS.md`, "Docstrings"). The same exclusions hold for the front end in
+instead (`AGENTS.md`, "Docstrings and comments"). The same exclusions hold for the front end in
 `gui/pyproject.toml`. It is run by `numpydoc lint` in the gate and by the pre-commit hook. Sphinx renders docstrings with
 the `numpydoc` extension alone (napoleon is not loaded: the two conflict).
 
