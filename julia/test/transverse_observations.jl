@@ -151,10 +151,12 @@ function transverse_observation_reference(prepared, field)
             end
         end
     end
-    # The fixed fixtures have at most 48 spatial columns, 16 strip bins, 40 traces,
-    # two separable FFT axes and <=4 lines. gamma_8192 exceeds their butterfly,
-    # squared-norm, dot-product and chunk-accumulation depths. Absolute envelopes
-    # precede both spatial and strip cancellation; rectification is 1-Lipschitz.
+    # Assume the finite binary64 FFT/twiddle error model independently exercised
+    # in transforms.jl, with no overflow or underflow. Butterfly counts alone do
+    # not prove FFTW's twiddle-generation accuracy. Under that hypothesis these
+    # fixed fixtures have <=48 spatial columns, 16 strip bins, 40 traces and four
+    # lines; gamma_8192 covers FFT, norm, dot-product and chunk-accumulation depths.
+    # Absolute envelopes precede both cancellations; rectification is 1-Lipschitz.
     gamma = BigFloat(8192) * eps(Float64) / (1 - BigFloat(8192) * eps(Float64))
     positive_scale = maximum(transpose(BigFloat.(prepared.tables.totals)) * node_scale)
     scales = (
