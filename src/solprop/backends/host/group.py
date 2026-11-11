@@ -530,9 +530,10 @@ def _validate_members(members: tuple[HostDriver[object], ...]) -> None:
     for member in members:
         if not isinstance(member, Backend):
             raise BackendError("lockstep members must implement the backend protocol")
-        member._require_state()
+        # Before the load: a member of another backend may hold no state here at all.
         if member.name != first.name:
             raise BackendError("lockstep execution refuses mixed backends")
+        member._require_state()
         if member._z != 0.0 or member._history or member._schedule_index != 0:
             raise BackendError(
                 "lockstep members must be freshly loaded at the entrance"

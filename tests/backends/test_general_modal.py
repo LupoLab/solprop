@@ -856,14 +856,7 @@ def test_both_backends_check_the_whitelist_before_the_spatial_branch(name):
     "name",
     [
         "numpy_ref",
-        pytest.param(
-            "native",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="the native session's admission does not yet apply "
-                "weight_refusal_for, which the retired per-plane stats call did",
-            ),
-        ),
+        "native",
     ],
 )
 def test_a_general_statistic_under_a_weight_that_is_not_one_is_refused(strand, name):

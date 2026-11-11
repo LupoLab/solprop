@@ -299,9 +299,6 @@ def test_lockstep_refuses_mixed_backends(monkeypatch):
         members = tuple(
             loaded(simulation(0, name), cleanup) for name in ("numpy_ref", "native")
         )
-        # A native backend loads only in its session (SEP 47), so the group's check
-        # that a member is loaded is stood in for: the refusal here is the name's.
-        monkeypatch.setattr(members[1], "_require_state", lambda: None, raising=False)
         with pytest.raises(BackendError, match="mixed backends"):
             inspect.unwrap(HostGroup.__init__)(HostGroup.__new__(HostGroup), members)
 

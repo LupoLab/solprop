@@ -123,6 +123,7 @@ from solprop.output.capability import (
     withheld_accessors,
 )
 from solprop.output.schema import MarchSnapshot
+from solprop.stats import weight_refusal_for
 from solprop.stepper.controller import ControlRecord
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
@@ -332,6 +333,42 @@ def _statistics_refusal(problem: PropagationProblem, spec: StatsSpec) -> str | N
         return refused
     # Every other name the backend admits is the plan's on its route.
     return axis_refusal(problem, names)
+
+
+def _refuse_foreign_monitor(
+    name: str, problem: PropagationProblem, monitor: BoundaryMonitor
+) -> None:
+    """Refuse a boundary monitor built for another grid or mode set, by name.
+
+    Its weights would be read out of bounds by the compiled sums, so they are held to
+    the grid's samples and the state's modes before they are bound, as the reference
+    refuses them where it attaches the monitor.
+
+    Parameters
+    ----------
+    name : str
+        The backend's name, for the message.
+    problem : solprop.translate.problem.PropagationProblem
+        The run's problem.
+    monitor : solprop.monitor.BoundaryMonitor
+        The request's monitor.
+
+    Raises
+    ------
+    solprop.exceptions.BackendError
+        If the weights are not ``(4, n_t)`` or the columns not ``(n_modes,)``.
+    """
+    n_t = problem.grids.n_t
+    n_modes = problem.shape[0]
+    columns = monitor.columns
+    given = None if columns is None else columns.shape
+    if monitor.weights.shape != (4, n_t) or given not in {None, (n_modes,)}:
+        msg = (
+            f"{name}: the boundary monitor's weights {monitor.weights.shape} "
+            f"or columns {given} do not match the grid's {n_t} samples and the "
+            f"state's {n_modes} modes"
+        )
+        raise BackendError(msg)
 
 
 class NativeSession:
@@ -630,6 +667,7 @@ class NativeSession:
             )
         monitor = self._monitor
         if monitor is not None:
+            _refuse_foreign_monitor(driver.name, self._problem, monitor)
             # The monitor's weights where the state lives, read at every check, and the
             # split collar's walk-off buckets; the monitor stays solprop's and fresh:
             # the session owns its state natively.
@@ -2093,6 +2131,15 @@ class NativePrepared:
         if refused is not None:
             msg = f"native cannot prepare this run: native refuses {refused}"
             raise BackendError(msg)
+        if problem.transform.modal_tables is not None:
+            # The general route's unit-weight statistics under a weight that is not
+            # the constant one would be silently wrong (`weight_refusal_for`); the
+            # route certifies the constant weight, so this guards a later loosening.
+            weight = power_weight_at(problem, float(problem.initial.z))
+            refused = weight_refusal_for((*stats.names, *stats.periodic), weight)
+            if refused is not None:
+                msg = f"native cannot prepare this run: {refused}"
+                raise BackendError(msg)
         self._backend = driver
         self._problem = problem
         self._request = request

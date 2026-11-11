@@ -270,10 +270,9 @@ def test_a_monitor_for_another_grid_is_refused(backend: str) -> None:
             with pytest.raises(BackendError, match="do not match the grid"):
                 driver.attach_monitor(other)
         else:
-            # The native session binds the monitor where its state lives, which
-            # refuses the weights' extent before any reading.
-            refused = "monitor weights has the wrong extent"
-            with pytest.raises(ValueError, match=refused):
+            # The native session refuses the weights by name before it binds them
+            # where its state lives.
+            with pytest.raises(BackendError, match="do not match the grid"):
                 session_run(made, problem, run_request.for_run(monitor=other))
     finally:
         made.close()
