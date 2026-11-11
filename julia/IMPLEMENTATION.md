@@ -19,8 +19,10 @@ Phase 3 has reviewed source composition, march arithmetic and protected-reductio
 foundations. Adams leaf `d1a0c1f3` is independently approved: the master passes 3,617
 bounds-enabled assertions including 68 new MPFR/range witnesses. Review corrected
 the imaginary-transport guard (#714); the final author gate passes 5,820 affected
-assertions and Aqua/JET. RK/session/probe leaf `cf78b0b4` has passed author bounds
-and quality checks and is under independent integration review. Observation
+assertions and Aqua/JET. RK/session/probe leaf `cf78b0b4` is independently approved;
+the master repeats its focused source/dense/session/probe families and adds 240
+scale, bounded-delivery and exact-work witnesses. All pass with bounds enabled.
+The author gate passes 2,552 affected assertions and Aqua/JET. Observation
 numerical leaf `077211b5` is under independent review; reconstruction is the next
 assigned slice. Master launch-scale records and source/launch bridge attachment pass
 51 Python checks, 235 bounds-enabled Julia assertions, 25 typed managed CPU/axis
