@@ -39,6 +39,7 @@ if group == "Core"
     include("low_storage.jl")
     include("march_precision.jl")
     include("device_march.jl")
+    include("device_export.jl")
     include("control.jl")
     include("adams_control.jl")
     include("responses.jl")

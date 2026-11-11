@@ -7,6 +7,7 @@ public ObservationWeight, evaluate_weight!
 """
     ObservationWeight(execution, values::Matrix{Float64})
     ObservationWeight(table::ChebyshevTable, shape::Tuple{Int,Int})
+    ObservationWeight(execution, table::ChebyshevTable, shape::Tuple{Int,Int})
     ObservationWeight(execution, terms::Array{Float64,3}, weights::ChebyshevTable)
 
 Own a constant, direct-value table or expansion of modal power weights.
@@ -43,6 +44,17 @@ function ObservationWeight(table::ChebyshevTable, shape::Tuple{Int, Int})
 end
 
 function ObservationWeight(
+        execution::KernelExecution, table::ChebyshevTable, shape::Tuple{Int, Int},
+    )
+    eltype(table.coefficients) === Float64 &&
+        eltype(table.breakpoints) === Float64 && all(>(0), shape) ||
+        throw(ArgumentError("power-weight tables require real binary64 values"))
+    prod(shape) == size(table.coefficients, 1) ||
+        throw(DimensionMismatch("power-weight table does not match its modal shape"))
+    return ObservationWeight(_copy_power_weight_table(execution, table), nothing, shape)
+end
+
+function ObservationWeight(
         execution, terms::AbstractArray{Float64, 3}, weights::ChebyshevTable,
     )
     !isempty(terms) && all(isfinite, terms) &&
@@ -52,7 +64,8 @@ function ObservationWeight(
     size(terms, 3) == size(weights.coefficients, 1) ||
         throw(DimensionMismatch("power-weight expansion terms and weights disagree"))
     return ObservationWeight(
-        upload(execution, terms), _copy_power_weight_table(weights), size(terms)[1:2]
+        upload(execution, terms), _copy_power_weight_table(execution, weights),
+        size(terms)[1:2],
     )
 end
 
@@ -66,6 +79,14 @@ function _copy_power_weight_table(table::ChebyshevTable)
     )
 end
 
+function _copy_power_weight_table(execution, table::ChebyshevTable)
+    oncpu(execution) && return _copy_power_weight_table(table)
+    return ChebyshevTable(
+        upload(execution, table.breakpoints), upload(execution, table.coefficients),
+        table.lower, table.upper,
+    )
+end
+
 _power_weight_alias(buffer, ::Nothing) = false
 _power_weight_alias(buffer, values::AbstractArray) = Base.mightalias(buffer, values)
 _power_weight_alias(buffer, table::ChebyshevTable) =
@@ -73,7 +94,7 @@ _power_weight_alias(buffer, table::ChebyshevTable) =
     Base.mightalias(buffer, table.breakpoints)
 
 """
-    evaluate_weight!(output, weight, z, execution; work)
+    evaluate_weight!(output, weight, z, execution; work, status=nothing)
 
 Evaluate real modal power weights at the actual observation or export position.
 
@@ -88,8 +109,13 @@ evaluated result raises `ArgumentError` instead of being used in an amplitude ex
 Return `nothing`. The direct table uses the shared Chebyshev evaluator; an expansion
 first evaluates its scalar weights, then forms each explicit term sum. Warmed CPU
 calls allocate nothing. This leaf contains no source-call accounting or physics model.
+Device callers supply an owned `DeviceReadback` of Int shape `(2,n_modes)` in `status`.
+Only those per-column validity/identity facts are read back; numerical values and
+expansion scratch remain on the selected device.
 """
-function evaluate_weight!(output, weight::ObservationWeight, z, execution; work)
+function evaluate_weight!(
+        output, weight::ObservationWeight, z, execution; work, status = nothing,
+    )
     output isa AbstractMatrix{Float64} && work isa AbstractVector{Float64} ||
         throw(ArgumentError("modal power-weight output and work require binary64 storage"))
     size(output) == weight.shape ||
@@ -98,6 +124,18 @@ function evaluate_weight!(output, weight::ObservationWeight, z, execution; work)
     length(work) == n_terms ||
         throw(DimensionMismatch("power-weight expansion scratch has the wrong length"))
     isfinite(z) || throw(ArgumentError("power-weight position must be finite"))
+    if !oncpu(execution)
+        _weight_summary_admit(status, output, execution)
+        _transfer_writable_destination(output)
+        _transfer_writable_destination(work)
+        (
+            _transfer_arrays_alias(output, work) || _retained_alias(output, weight) ||
+                _retained_alias(work, weight) || _retained_alias(work, status) ||
+                _retained_alias(status.device, weight) ||
+                _retained_alias(status.host, weight)
+        ) &&
+            throw(ArgumentError("power-weight writable storage aliases prepared input"))
+    end
     (
         Base.mightalias(output, work) || _power_weight_alias(output, weight.data) ||
             _power_weight_alias(output, weight.weights) ||
@@ -118,11 +156,55 @@ function evaluate_weight!(output, weight::ObservationWeight, z, execution; work)
     elseif weight.data isa ChebyshevTable
         evaluate_table!(output, weight.data, z, execution)
     else
-        copyto!(output, weight.data)
+        if oncpu(execution)
+            copyto!(output, weight.data)
+        else
+            copy_device!(output, weight.data, execution)
+        end
     end
-    all(value -> isfinite(value) && value > 0, output) ||
-        throw(ArgumentError("evaluated modal power weights must be positive finite"))
+    if oncpu(execution)
+        all(value -> isfinite(value) && value > 0, output) ||
+            throw(ArgumentError("evaluated modal power weights must be positive finite"))
+    else
+        _weight_summary!(status, output, execution)
+    end
     return nothing
+end
+
+function _weight_summary_admit(status, values, execution)
+    status isa DeviceReadback && status.execution === execution ||
+        throw(ArgumentError("device power weights require their owned status readback"))
+    eltype(status.device) === Int && eltype(status.host) === Int &&
+        size(status.device) == size(status.host) == (2, size(values, 2)) ||
+        throw(DimensionMismatch("power-weight status needs two Int rows per column"))
+    _retained_alias(values, status) &&
+        throw(ArgumentError("power-weight values must not alias status storage"))
+    return nothing
+end
+
+function _weight_summary!(status, values, execution)
+    _weight_summary_admit(status, values, execution)
+    parts = status.device
+    rows, columns = size(values)
+    each_column!(execution, columns) do column
+        invalid, nonunit = 0, 0
+        for row in 1:rows
+            value = values[row, column]
+            if !(isfinite(value) && value > 0) && invalid == 0
+                invalid = row
+            end
+            nonunit |= !isone(value)
+        end
+        parts[1, column], parts[2, column] = invalid, nonunit
+    end
+    host = readback!(status, execution)
+    identity = true
+    for column in 1:columns
+        iszero(host[1, column]) ||
+            throw(ArgumentError("evaluated modal power weights must be positive finite"))
+        identity &= iszero(host[2, column])
+    end
+    return identity
 end
 
 public NormalizedObservationWeight, ObservationWeightWorkspace

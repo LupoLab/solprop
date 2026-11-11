@@ -201,24 +201,28 @@ function _launch_observation_services(
     return services
 end
 
-struct _FieldExport{W, A, C, N}
+struct _FieldExport{W, A, C, N, T}
     weight::W
     values::A
     coefficients::C
     noise::N
+    transfer::T
 end
 
-function _FieldExport(execution, weight; noise = nothing)
+function _FieldExport(execution, weight; noise = nothing, shape = weight.shape)
+    shape == weight.shape ||
+        throw(DimensionMismatch("field export shape differs from its power weight"))
     count = weight.weights === nothing ? 0 : size(weight.weights.coefficients, 1)
     return _FieldExport(
         weight, dzeros(execution, Float64, weight.shape...),
-        dzeros(execution, Float64, count), noise,
+        dzeros(execution, Float64, count), noise, _device_field_export(execution, shape),
     )
 end
 
-function _FieldExport(execution, ::Nothing; noise = nothing)
+function _FieldExport(execution, ::Nothing; noise = nothing, shape = (0, 0))
     return _FieldExport(
         nothing, dzeros(execution, Float64, 0, 0), dzeros(execution, Float64, 0), noise,
+        _device_field_export(execution, shape),
     )
 end
 
@@ -812,6 +816,9 @@ function export_session!(
     _transfer_writable_destination(output)
     (_retained_alias(output, session) || _transfer_arrays_alias(output, power_weight)) &&
         throw(ArgumentError("an export must not alias session storage"))
+    if !oncpu(session.execution)
+        return _device_export!(output, session, field, power_weight, power, optics)
+    end
     arithmetic = eltype(field) === ComplexF32 ? session.arithmetic :
         SourceArithmetic(Float64)
     scale = power && !all(isone, power_weight)
@@ -1041,6 +1048,7 @@ function export_session!(
             storage.values, storage.weight, _march_observed_position(session),
             session.execution;
             work = storage.coefficients,
+            status = storage.transfer === nothing ? nothing : storage.transfer.status,
         )
     end
     return export_session!(output, session, generation, storage.values, power, optics)
