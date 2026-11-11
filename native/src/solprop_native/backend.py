@@ -732,6 +732,32 @@ class NativeBackend(StepDriver[_core.State]):
         self._clean_columns = loaded.clean_columns
         self._begin_load(loaded.z)
 
+    def restore_march(self, snapshot: MarchSnapshot) -> str | None:
+        """Continue the Adams march from a snapshot (the legacy direct API).
+
+        Bridge only, removed with the ``StepDriver`` inheritance (SEP 47 phase 5): a
+        session restores through `_restore`.
+
+        Parameters
+        ----------
+        snapshot : solprop.output.schema.MarchSnapshot
+            The snapshot a file holds.
+
+        Returns
+        -------
+        str or None
+            ``None`` when the history was continued, otherwise why the march starts
+            afresh.
+        """
+        if self._adams is None:
+            march = (
+                "low-storage"
+                if self._resident_low_storage is not None
+                else "Runge-Kutta"
+            )
+            return f"the run steps with the {march} march, which keeps no history"
+        return self._adams.load(snapshot)
+
     def _march_to(self, target: float) -> None:
         """Step to `target` with the native Adams march when one is set, else the
         native Runge-Kutta march (the legacy direct API)."""
