@@ -942,12 +942,12 @@ RUN_STAGES = (
     ),
     Stage(
         "B",
-        "StepDriver.propagate_to(z_save)",
+        "session.advance() to z_save",
         (
             "the march, the replay, the landing, the controller,",
             "the history, the noise, the per-stage bundle",
         ),
-        "shared Python step loop",
+        "HostDriver for numpy_ref; native's session",
     ),
     Stage(
         "D",
@@ -1256,7 +1256,7 @@ DRIVER_PARTS = (
         ("_trial_step", "_apply_mask", "_finish", "_begin_plane", "_on_accepted_step"),
     ),
 )
-"""What `backends/driver.py` owns, and the `StepDriver` members of each part."""
+"""What `backends/host/driver.py` owns, and the `HostDriver` members of each part."""
 
 CONTROLLER_PARTS = ("propose", "accepts", "rejection_factor", "equivalent_norm")
 """The methods of `stepper.controller.PIController` the driver calls."""
@@ -2547,7 +2547,7 @@ def _step_panel(
 
 
 BACKEND_OVERRIDES = ("_trial_step", "_apply_mask", "_finish", "_observed_field")
-"""What a backend supplies to `StepDriver`, and nothing else of the loop."""
+"""What a reference backend supplies to `HostDriver`, and nothing else of the loop."""
 
 DEVICE_SLOT = (
     "solprop-native distribution, native/",
@@ -2651,7 +2651,7 @@ def backends() -> drawsvg.Drawing:
     _table(
         drawing,
         Slot(MARGIN, y, left_width),
-        "HostDriver (reference)  ·  StepDriver (native base, retiring)",
+        "HostDriver (the reference's step loop)",
         driver_rows,
         168,
         Paint("fill-d", "ink-d"),

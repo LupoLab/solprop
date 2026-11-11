@@ -778,7 +778,7 @@ otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native 
   [SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md)): a plane without its field is not copied, converted or
   stored, the stores allocate field storage for the kept planes only, and the admission
   charges those alone (its `output` group). The backend is asked for the field only on
-  the kept planes: `StepDriver.observe(field=False)` transfers nothing from a device,
+  the kept planes: `HostDriver.observe(field=False)` transfers nothing from a device,
   scans nothing for finiteness, skips the collar diagnostic (counted in the execution
   record) and forms no noise-phase volume, so a field-free plane costs its statistics
   alone. Under the low-storage march a step abandoned in flight after such a plane leaves

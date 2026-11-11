@@ -129,10 +129,8 @@ if TYPE_CHECKING:
     from .backend import NativeBackend
 
 __all__ = [
-    "ADAMS_MARCH_SURFACE",
     "COUPLED_FLOW_FIELDS",
     "DISPERSIVE_KERR_FIELDS",
-    "DRIVER_SURFACE",
     "LINEAR_OPERATOR_FIELDS",
     "MARCH_POLICY_FIELDS",
     "MODAL_TABLES_FIELDS",
@@ -272,79 +270,6 @@ if not any(
 # A compact problem's products then run on one OpenBLAS thread (``CpuTeamScope``).
 _core.register_host_blas()
 
-DRIVER_SURFACE: tuple[str, ...] = (
-    "_account_step",
-    "_adams_engine",
-    "_adams_restore",
-    "_adams_state",
-    "_apply_mask",
-    "_axis_row_populations",
-    "_axis_statistics",
-    "_begin_plane",
-    "_bind_monitor",
-    "_boundary_energies",
-    "_collar_changed",
-    "_controller_policy",
-    "_delta_phi",
-    "_dense_record",
-    "_dense_stages",
-    "_edge_reading",
-    "edge_memory",
-    "_finish",
-    "_hoist",
-    "_low_storage_engine",
-    "_march_to",
-    "_natural_stop",
-    "_natural_stop_due",
-    "_observe_inside",
-    "_observed_field",
-    "_on_accepted_step",
-    "_on_axis_synthesis",
-    "_poll_stop",
-    "_record_attempt",
-    "_replay_to",
-    "_require_grid",
-    "_require_state",
-    "_stage_bundles",
-    "_stage_scalars",
-    "_start_up",
-    "_statistics_step",
-    "_take_step_stats",
-    "_trial_step",
-    "_unitary_phase",
-    "_watched_step",
-    "available_device_memory",
-    "metadata",
-    "restore_march",
-    "set_initial",
-    "stats",
-    "timing_probe",
-)
-"""Every ``StepDriver`` method this backend overrides or calls.
-
-solprop freezes the signatures in its ``tests/backends/test_driver.py``, and a change to
-one rewrites that table and adds a release note in the same commit. :func:`check_build`
-looks each name up, so a solprop that renamed one is refused by name rather than failing
-inside a step. What the run layer calls on a backend and this one inherits unchanged
-(``propagate_to``, ``observe``, ``set_stop``, ...) is solprop's to keep consistent with
-itself, and is not listed.
-"""
-
-_DRIVER_CLASS_MEMBERS: tuple[str, ...] = (
-    "_collar_quiet",
-    "chunk_plan",
-    "node_chunk",
-    "_monitor",
-    "_propagator_mode",
-    "far_field_statistics",
-    "helpers",
-    "name",
-    "observes_fresh_field",
-    "reads_transverse_edge",
-)
-"""The ``StepDriver`` attributes and properties of the class this backend sets or reads,
-which :func:`check_build` looks up as it does :data:`DRIVER_SURFACE`; the attributes set
-at construction are frozen beside it in solprop's test."""
 
 MARCH_POLICY_FIELDS: tuple[str, ...] = (
     "order",
@@ -415,17 +340,6 @@ WATCH_STATE_FIELDS: tuple[str, ...] = (
 """``BoundaryMonitor.watch_state``'s fields, exactly: what the predictions read and
 change, compared with solprop's monitor after every drain (SEP 45 section 4.8)."""
 
-ADAMS_MARCH_SURFACE: tuple[str, ...] = (
-    "_budget_error",
-    "_observe",
-    "_raise_floor",
-    "begin_run",
-    "load",
-    "march_to",
-    "snapshot",
-)
-"""The ``solprop.backends.multistep.AdamsMarch`` methods the native march's adapter
-overrides or calls (schema 39); its state attributes are the snapshot's."""
 
 LINEAR_OPERATOR_FIELDS: tuple[str, ...] = (
     "power_weight_representation",
@@ -1010,8 +924,7 @@ def check_build() -> None:
         If an editable checkout's ``native`` sources are not the ones the extension
         was compiled from, if the installed solprop lacks a seam member this backend
         relies on
-        (:data:`DRIVER_SURFACE`, :data:`ADAMS_MARCH_SURFACE`,
-        :data:`MARCH_POLICY_FIELDS`, :data:`STAGE_TERMS_FIELDS`,
+        (:data:`MARCH_POLICY_FIELDS`, :data:`STAGE_TERMS_FIELDS`,
         :data:`STAGE_SCALARS_FIELDS`, :data:`SEPARABLE_OPERATOR_FIELDS`,
         :data:`PROBLEM_FIELDS`, :data:`REQUEST_FIELDS`, :data:`REQUEST_SECTION_FIELDS`,
         :data:`ROUTE_FIELDS`,
@@ -1092,11 +1005,9 @@ def check_build() -> None:
 
 
 def _check_seam(info: BuildInfo, error: type[Exception]) -> None:
-    """Refuse a solprop lacking a driver or bundle member this backend uses."""
+    """Refuse a solprop lacking a descriptor or bundle member this backend uses."""
     import dataclasses as _dataclasses
 
-    from solprop.backends.driver import StepDriver
-    from solprop.backends.multistep import AdamsMarch
     from solprop.stepper.multistep import MarchPolicy
     from solprop.translate import routes
     from solprop.translate import run_request as run_requests
@@ -1115,21 +1026,7 @@ def _check_seam(info: BuildInfo, error: type[Exception]) -> None:
     from solprop.translate.spatial import SeparableOperator
     from solprop.translate.stage import StageScalars, StageTerms
 
-    missing = [
-        f"StepDriver.{name}"
-        for name in DRIVER_SURFACE
-        if not callable(getattr(StepDriver, name, None))
-    ]
-    missing.extend(
-        f"StepDriver.{name}"
-        for name in _DRIVER_CLASS_MEMBERS
-        if not hasattr(StepDriver, name)
-    )
-    missing.extend(
-        f"AdamsMarch.{name}"
-        for name in ADAMS_MARCH_SURFACE
-        if not callable(getattr(AdamsMarch, name, None))
-    )
+    missing: list[str] = []
     # The policy is exact: a field the native march does not read is not honoured.
     policy = tuple(field.name for field in _dataclasses.fields(MarchPolicy))
     missing.extend(

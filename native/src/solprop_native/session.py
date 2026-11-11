@@ -124,9 +124,10 @@ from solprop.output.capability import (
 )
 from solprop.output.schema import MarchSnapshot
 from solprop.stats import weight_refusal_for
-from solprop.stepper.controller import ControlRecord
+from solprop.stepper.controller import START_GROWTH, ControlRecord
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
+from solprop.stepper.schedule import LANDING_ULPS
 from solprop.stepper.tableau import continuous_extension
 from solprop.translate.linop import power_weight_at
 
@@ -144,12 +145,14 @@ from ._statistics import (
 from .backend import (
     _BUDGET,  # pyright: ignore[reportPrivateUsage]
     _DIVERGED,  # pyright: ignore[reportPrivateUsage]
+    _ERROR,  # pyright: ignore[reportPrivateUsage]
+    _FLOOR,  # pyright: ignore[reportPrivateUsage]
+    _NO_SCHEDULE,  # pyright: ignore[reportPrivateUsage]
     NativeBackend,
     _aperture_payload,  # pyright: ignore[reportPrivateUsage]
     _low_storage_payload,  # pyright: ignore[reportPrivateUsage]
-    _NativeRungeKuttaMarch,  # pyright: ignore[reportPrivateUsage]
     _on_device,  # pyright: ignore[reportPrivateUsage]
-    _raise_rk,  # pyright: ignore[reportPrivateUsage]
+    _raise_native,  # pyright: ignore[reportPrivateUsage]
 )
 
 if TYPE_CHECKING:
@@ -649,7 +652,7 @@ class NativeSession:
             # Runge-Kutta march's over the stage tables the state reads each step's
             # scalars from (SEP 47 section 6.3).
             driver._staged_rows()
-            _NativeRungeKuttaMarch(backend, monitored=False)._configure()  # pyright: ignore[reportPrivateUsage]
+            _NativeRungeKuttaMarch(backend)._configure()  # pyright: ignore[reportPrivateUsage]
         kind = "runge_kutta"
         if isinstance(integrator, Multistep):
             kind = "adams"
@@ -702,8 +705,8 @@ class NativeSession:
     def _noise_readings(self, driver: Any, start: Start) -> dict[str, object] | None:
         """Return the input noise's readings the transverse edge's launch carries.
 
-        ``StepDriver.attach_monitor`` hands the edge's launch the input draw and the
-        launch's columns without it (``_edge_clean_columns``), formed where the load
+        The edge's launch takes the input draw and the launch's columns without it
+        (``NativeBackend._launch_clean_columns``), formed where the load
         holds both parts or, on a restart, from the loaded state, which is read here
         before the native session leases it. A launch that resumes an earlier edge's
         record is not judged, so it takes no such columns and no state is read for
@@ -738,10 +741,10 @@ class NativeSession:
     def _driver(backend: NativeBackend | None) -> Any:
         """Return the backend as the untyped protected surface the session lowers from.
 
-        The one place the adapter reaches the backend's protected members (its march
-        adapters, their policy and state records, its statistics unpacking), as the
-        backend's own march adapters reach them (``DRIVER_SURFACE``); confined here and
-        typed ``Any`` because those members are the driver's private surface.
+        The one place the session reaches the backend's private members (its load and
+        restore, its march records and policies, its stage tables and monitor
+        binding); confined here and typed ``Any`` because those members are the
+        backend's own, shared within this package alone.
 
         Parameters
         ----------
@@ -1163,7 +1166,7 @@ class NativeSession:
         """Return the noise phase at a pending observation, ``Im Phi`` there.
 
         Formed on the host from the problem's scalar tables, as the backend's own
-        observation forms it (``StepDriver._noise_phase``); a z table's, which the
+        observation forms it (``HostDriver._noise_phase``); a z table's, which the
         leased state holds, is its slot at the plane, read through the native session
         under its lock as the backend reads it (``NativeBackend._unitary_phase``).
 
@@ -1337,8 +1340,8 @@ class NativeSession:
         Returns
         -------
         str or None
-            The backend march's reason (:meth:`~solprop.backends.driver.StepDriver.
-            restore_march`), or ``None`` when it was installed or none was given.
+            The march record's reason (``NativeBackend._restore``), or ``None`` when
+            it was installed or none was given.
         """
         return self._march_refusal
 
@@ -1376,7 +1379,7 @@ class NativeSession:
         }
         monitor = self.monitor_record()
         if monitor is not None:
-            # Where the driver's record carries its monitor's (`StepDriver.metadata`).
+            # Where the driver's record carries its monitor's (`HostDriver.metadata`).
             record["boundary_monitor"] = monitor
         return record
 
@@ -2075,6 +2078,152 @@ class NativeSession:
         except Exception as error:
             return error
         return RuntimeError(event.message or "the native session failed")
+
+
+class _NativeRungeKuttaMarch:
+    """The Runge-Kutta march's policy for the native state (solprop SEP 45 phase 3).
+
+    The adaptive loop -- the landing candidate, the trial on the staged rows, the
+    equivalent norm and acceptance, the start-up rule, the next proposal or the
+    rejection's, and the boundary checks -- runs natively in the session from one
+    policy record (the kernel contract's section 12), which this hands the native
+    state once.
+
+    Parameters
+    ----------
+    backend : NativeBackend
+        The backend whose native state steps the march; a scripted harness stands in
+        for it in the decision-trace tests.
+    """
+
+    def __init__(self, backend: Any) -> None:
+        """Hold the backend; nothing is configured yet."""
+        self._driver: Any = backend
+
+    def _policy(self, interval: float | None = None) -> dict[str, object]:
+        """Return the run's controller and landing record (kernel contract 12).
+
+        Parameters
+        ----------
+        interval : float or None, optional
+            A resting collar's quiet interval, m; ``None`` for a session, whose
+            native monitor holds its own.
+
+        Returns
+        -------
+        dict
+            The record the native march reads.
+        """
+        backend = self._driver
+        stepper = backend._stepper
+        controller = stepper.controller
+        breakpoints = np.asarray(backend._problem.linear.phi_breakpoints, np.float64)
+        if not stepper.interval_cap:
+            breakpoints = breakpoints[[0, -1]]
+        return {
+            "dz_min": float(stepper.dz_min),
+            "dz_max": float(stepper.dz_max),
+            "stretch": float(stepper.stretch),
+            "z_end": float(stepper.z_end),
+            # Interpolated planes are stepped across (SEP 14 section 4.3).
+            "save_planes": []
+            if stepper.interpolate_planes
+            else [float(z) for z in stepper.save_planes],
+            "interpolate": bool(stepper.interpolate_planes),
+            "hard_kinks": [float(z) for z in backend._problem.linear.hard_kinks],
+            "breakpoints": [float(z) for z in breakpoints],
+            "landing_ulps": LANDING_ULPS,
+            "quiet_interval": interval,
+            "safety": float(controller.safety),
+            "beta1": float(controller.beta1),
+            "beta2": float(controller.beta2),
+            "min_factor": float(controller.min_factor),
+            "max_factor": float(controller.max_factor),
+            "lag": int(controller.lag),
+            "reject_free": bool(controller.reject_free),
+            "power": float(controller.estimator_order + 1),
+            "exponent": 1.0 / (controller.estimator_order + 1),
+            "start_growth": float(START_GROWTH),
+            "auto_init": bool(stepper.auto_init),
+        }
+
+    def _configure(self) -> None:
+        """Hand the native state the run's policy and a replay's schedule."""
+        backend = self._driver
+        stepper = backend._stepper
+        controller = stepper.controller
+        if controller.weights is not None:
+            backend._rk_weights_ready()
+        schedule = stepper.schedule
+        steps = edges = _NO_SCHEDULE
+        if schedule is not None:
+            steps = np.ascontiguousarray(schedule.steps, dtype=np.float64)
+            edges = np.ascontiguousarray(schedule.edges, dtype=np.float64)
+        backend._native_state.rk_march_configure(
+            self._policy(),
+            list(backend._rk_nodes),
+            float(controller.rtol),
+            float(controller.atol),
+            steps,
+            edges,
+        )
+
+
+def _raise_rk(
+    reason: int,
+    result: Mapping[str, Any],
+    *,
+    name: str,
+    dz_min: float,
+    at: tuple[float, int],
+    n_steps: int,
+) -> None:
+    """Raise the error a native Runge-Kutta march returned with, if any.
+
+    Parameters
+    ----------
+    reason : int
+        The call's return reason.
+    result : collections.abc.Mapping
+        Its result: the diverged replay's step and norm, the floor's proposal, or a
+        native error's message and category.
+    name : str
+        The backend's name, for a diverged replay's message.
+    dz_min : float
+        The step floor, m.
+    at : tuple of float and int
+        The position, m, and the replay's cursor the diverged step started from.
+    n_steps : int
+        The replayed schedule's steps.
+
+    Raises
+    ------
+    solprop.exceptions.ConvergenceError
+        For a diverged replay, the step floor or a native convergence failure.
+    """
+    if reason == _DIVERGED:
+        z, cursor = at
+        dz, norm = float(result["replay_dz"]), float(result["replay_norm"])
+        msg = (
+            f"{name}: replayed step {cursor + 1} of {n_steps}, {dz:.4g} m from "
+            f"z = {z:.6g} m, has a non-finite error norm ({norm!r}): the field has "
+            "diverged. A replayed schedule takes its steps as given and cannot "
+            "reject one, so a step beyond an explicit stability limit -- the "
+            "in-stage temporal collar's or a coupled flow's advisory step -- grows "
+            "until it overflows; the translation refuses a declared step past the "
+            "collar's limit and warns on one past the flow's. Take shorter steps, or "
+            "let the controller choose them"
+        )
+        raise ConvergenceError(msg)
+    if reason == _FLOOR:
+        proposed = float(result["floor_proposal"])
+        msg = (
+            f"step control asked for {proposed:.3e} m, below the floor dz_min ="
+            f" {dz_min:.3e} m; the tolerance cannot be met here"
+        )
+        raise ConvergenceError(msg)
+    if reason == _ERROR:
+        _raise_native(result)
 
 
 class NativePrepared:

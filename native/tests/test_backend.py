@@ -20,7 +20,6 @@ from bounds import EPS, assert_within, step_bound
 from conftest import PhaseACase, RamanCase
 from legacy_geometry import LEGACY_GRID
 from session_runs import finish, loaded_state, native_trial, steps
-from solprop.backends.driver import StepDriver
 from solprop.backends.events import ObservationReady
 from solprop.backends.low_storage import schedule_key
 from solprop.backends.node_chunk import plan_node_chunk
@@ -41,6 +40,7 @@ from solprop.translate import masks
 from solprop.translate.coupled import CoupledFlowTables
 from solprop.translate.linop import delta_phi
 from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.run_request import RunRequest
 from solprop.translate.stage import terms
 
 import solprop_native
@@ -165,24 +165,13 @@ def test_spatial_statistics_refuse_a_malformed_native_result(
         session.close()
 
 
-def test_a_solprop_without_a_driver_member_is_refused_by_name(
+def test_a_solprop_without_a_descriptor_member_is_refused_by_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The seam is the driver surface and the bundles, not solprop's version string."""
-    monkeypatch.delattr(StepDriver, "_hoist")
-    with pytest.raises(BackendError, match=r"has no StepDriver\._hoist"):
+    """The seam is the descriptors and the bundles, not solprop's version string."""
+    monkeypatch.delattr(RunRequest, "stepper")
+    with pytest.raises(BackendError, match=r"has no RunRequest\.stepper"):
         check_build()
-
-
-def test_the_driver_surface_names_every_method_the_adapter_overrides() -> None:
-    overridden = {
-        name
-        for name, member in vars(NativeBackend).items()
-        if not name.startswith("__")
-        and callable(member)
-        and callable(getattr(StepDriver, name, None))
-    }
-    assert overridden <= set(solprop_native.DRIVER_SURFACE)
 
 
 def test_stage_observation_owns_its_host_copy_and_checks_lifetime(
@@ -473,18 +462,6 @@ def test_tdse_is_refused_by_name_before_integrator_or_native_setup(
     monkeypatch.setattr(_core, "State", forbidden)
     with pytest.raises(BackendError, match=r"TDSEGasResponse.*SEP 12"):
         NativeBackend(requested, requested_request, grid=grid)
-
-
-@pytest.mark.parametrize(
-    "member",
-    ["_adams_block", "_march_to", "_propagator_mode", "reads_transverse_edge"],
-)
-def test_the_build_requires_each_kind_of_driver_member_the_adapter_uses(
-    monkeypatch: pytest.MonkeyPatch, member: str
-) -> None:
-    monkeypatch.delattr(StepDriver, member)
-    with pytest.raises(BackendError, match=rf"has no StepDriver\.{member}"):
-        check_build()
 
 
 def _resumed(problem: PropagationProblem, ledgers: dict[str, object]) -> Start:

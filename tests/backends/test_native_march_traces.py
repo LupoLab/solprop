@@ -5,13 +5,14 @@
 """The native Adams march against the Python march's decision traces (SEP 39 7.1).
 
 The corpus of ``tests/data/adams_traces.json.gz`` was taken from the Python march before
-SEP 39 refactored it. Here the same scenarios run through the native backend's adapter
-(``_NativeAdamsMarch``) with the native march's loop and decisions, its field arithmetic
-replaced by the script of norms (``_core.ScriptedMarch``). Each call is bound to one
-attempt, so the state the adapter adopts after each call is the state after that
-attempt, and every stencil, decision, proposal, order, landing, restart and ledger
-counter is compared exactly with the reference's. A second pass lets the calls run to
-their events with the production bound and compares the attempts and the end state.
+SEP 39 refactored it. Here the same scenarios run through the native Adams record
+driven a call at a time (``native_trace_marches.TraceAdamsMarch``) with the native
+march's loop and decisions, its field arithmetic replaced by the script of norms
+(``_core.ScriptedMarch``). Each call is bound to one attempt, so the state the adapter
+adopts after each call is the state after that attempt, and every stencil, decision,
+proposal, order, landing, restart and ledger counter is compared exactly with the
+reference's. A second pass lets the calls run to their events with the production bound
+and compares the attempts and the end state.
 """
 
 import gzip
@@ -22,10 +23,14 @@ from typing import Any
 
 import numpy as np
 import pytest
-from tests.backends.adams_traces import Scenario, _Harness, _march_state, run_scenario
+from tests.backends.adams_traces import (
+    Scenario,
+    _HostHarness,
+    _march_state,
+    run_scenario,
+)
 
 from solprop.backends import available
-from solprop.backends.multistep import AdamsKernels, ExponentialKernels
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.log import NullReporter
 from solprop.stepper.multistep import Multistep
@@ -37,9 +42,8 @@ pytestmark = pytest.mark.skipif(
 
 native = pytest.importorskip("solprop_native")
 _core = pytest.importorskip("solprop_native._core")
-NativeAdamsMarch = pytest.importorskip("solprop_native.backend")._NativeAdamsMarch
 
-from solprop._helpers import PLAIN  # noqa: E402
+from tests.backends.native_trace_marches import TraceAdamsMarch  # noqa: E402
 
 CORPUS = Path(__file__).parents[1] / "data" / "adams_traces.json.gz"
 
@@ -118,7 +122,7 @@ class _Runner:
         return result
 
 
-class _NativeHarness(_Harness):
+class _NativeHarness(_HostHarness):
     """The stub backend with the driver hooks the native march's adapter calls."""
 
     def __init__(self, scenario: Scenario, max_attempts: int) -> None:
@@ -155,13 +159,7 @@ def run_native(scenario: Scenario, max_attempts: int) -> dict[str, Any]:
     harness = _NativeHarness(scenario, max_attempts)
     method = Multistep(formulation="exponential", **scenario.method)
     runner = _Runner(harness, scenario.norms)
-    march = NativeAdamsMarch(
-        harness,
-        method,
-        runner=runner,
-        kernels=AdamsKernels(helpers=PLAIN),
-        exponential=ExponentialKernels(helpers=PLAIN),
-    )
+    march = TraceAdamsMarch(harness, method, runner=runner)
     harness.march = march
     if scenario.targets is not None:
         targets = list(scenario.targets)

@@ -670,7 +670,6 @@ def test_the_plasma_statistics_are_the_same_between_planes_as_at_one(
 
 MODE_MATRIX_BUILDERS = (
     "solprop.backends.host.driver",
-    "solprop.backends.driver",
     "solprop_native._statistics",
     "solprop_native.backend",
 )

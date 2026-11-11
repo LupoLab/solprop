@@ -33,12 +33,11 @@ from typing import Any
 
 import numpy as np
 
-from solprop.backends.driver import StepDriver, reached
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.rk_core import RungeKuttaPolicy
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.controller import PIController
-from solprop.stepper.schedule import FixedSchedule
+from solprop.stepper.schedule import FixedSchedule, reached
 
 __all__ = ["Scenario", "run_scenario"]
 
@@ -319,24 +318,17 @@ class _Scripted:
         }
 
 
-class _Harness(_Scripted, StepDriver):
-    """The stub over the native bridge's driver."""
-
-
 class _HostHarness(_Scripted, HostDriver):
     """The stub over the reference's own driver."""
 
 
-def run_scenario(scenario: Scenario, *, host: bool = True) -> dict[str, Any]:
+def run_scenario(scenario: Scenario) -> dict[str, Any]:
     """Run a scenario through a Python Runge-Kutta march and return its trace.
 
     Parameters
     ----------
     scenario : Scenario
         The scripted march.
-    host : bool, optional
-        Whether to run the reference's driver (the default) or the native bridge's
-        copy.
 
     Returns
     -------
@@ -346,7 +338,7 @@ def run_scenario(scenario: Scenario, *, host: bool = True) -> dict[str, Any]:
         or the exception's class and message) with the controller's state at that
         point, including any attempt left in flight.
     """
-    harness = _HostHarness(scenario) if host else _Harness(scenario)
+    harness = _HostHarness(scenario)
     if scenario.targets is not None:
         targets = list(scenario.targets)
     elif not scenario.save_planes:

@@ -554,7 +554,7 @@ class MarchPolicy:
     quiet_interval : float or None
         The boundary monitor's interval, m, which caps a step while the collar rests;
         ``None`` without a monitor. The Python march reads the same number from the
-        monitor through the driver (``StepDriver._quiet_capped``).
+        monitor through the driver (``HostDriver._quiet_capped``).
 
     Raises
     ------

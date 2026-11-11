@@ -57,7 +57,7 @@ What is counted, and where:
   served from the first and not counted) and ``snapshot`` (a native session's copy of
   the Adams state and history).
 - **Fields loaded into the native state** with their bytes, by where: ``start``
-  (``NativeBackend.set_initial``: a run's start or resume, on either path) and
+  (``NativeBackend._load``: a run's start or resume, or a timing probe's) and
   ``restore`` (the Adams march's reload after a dense observation or at a method
   history's restore). solprop's host Adams engine reloads its masked state at each
   step, which is not counted: its ``step`` crossings mark that route.
@@ -73,7 +73,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-from solprop.backends.driver import StepDriver
 
 __all__ = ["Counters", "active", "disable", "enable"]
 
@@ -274,43 +273,15 @@ active: Counters | None = None
 """The counters the hooks add to, or ``None`` when counting is off."""
 
 
-def _record(self: Any, z: float, dz: float, norm: float, accepted: bool) -> None:
-    """``StepDriver._record``, counting the attempt: installed while counting."""
-    StepDriver._record(self, z, dz, norm, accepted)  # pyright: ignore[reportPrivateUsage, reportUnknownMemberType] - the hook replaces it
-    if active is not None:
-        active.host_attempts += 1
-        active.host_accepted += int(accepted)
-
-
-def _record_step_stats(self: Any, spec: Any, z: float, step: int) -> None:
-    """``StepDriver._record_step_stats``, counting the row: installed while counting."""
-    StepDriver._record_step_stats(self, spec, z, step)  # pyright: ignore[reportPrivateUsage, reportUnknownMemberType] - the hook replaces it
-    if active is not None:
-        active.statistics_rows += 1
-
-
-_HOOKS = {"_record": _record, "_record_step_stats": _record_step_stats}
-"""The per-attempt hooks :func:`enable` installs on ``NativeBackend``."""
-
-
 def enable() -> Counters:
     """Start counting into fresh counters and return them."""
     global active
-    from .backend import NativeBackend
-
-    for name, hook in _HOOKS.items():
-        setattr(NativeBackend, name, hook)
     active = Counters()
     return active
 
 
 def disable() -> Counters | None:
-    """Stop counting and remove the hooks; return the counters that were active."""
+    """Stop counting; return the counters that were active."""
     global active
-    from .backend import NativeBackend
-
-    for name, hook in _HOOKS.items():
-        if NativeBackend.__dict__.get(name) is hook:
-            delattr(NativeBackend, name)
     found, active = active, None
     return found

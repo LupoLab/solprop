@@ -391,7 +391,7 @@ def carrier_capped(
 def quiet_capped(proposal: float, *, quiet: bool, interval: float | None) -> float:
     """Return the proposal, held to the monitor's interval while the collar rests.
 
-    The rule of ``solprop.backends.driver.StepDriver._quiet_capped``, with the
+    The rule of ``solprop.backends.host.driver.HostDriver._quiet_capped``, with the
     collar's state and the monitor's interval passed in.
 
     Parameters
@@ -547,7 +547,7 @@ def replay_kink(policy: MarchPolicy, end: float, slack: float) -> bool:
     end : float
         The schedule's edge the step ends on, m.
     slack : float
-        The replay's tolerance, m (:func:`solprop.backends.driver.replay_tolerance`).
+        The replay's tolerance, m (:func:`solprop.stepper.schedule.replay_tolerance`).
 
     Returns
     -------

@@ -64,10 +64,8 @@ class PhaseBThreadRecord(ThreadRecord):
 
 def test_public_surface_is_exact() -> None:
     assert native.__all__ == [
-        "ADAMS_MARCH_SURFACE",
         "COUPLED_FLOW_FIELDS",
         "DISPERSIVE_KERR_FIELDS",
-        "DRIVER_SURFACE",
         "LINEAR_OPERATOR_FIELDS",
         "MARCH_POLICY_FIELDS",
         "MODAL_TABLES_FIELDS",

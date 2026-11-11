@@ -197,9 +197,10 @@ and `rate_weights`) and the Lagrange basis of an Adams formula on its actual nod
 (`stepper.multistep.integrated_weights` and `lagrange_coefficients`). The shared code
 takes the implementation from the backend that runs the stage, never from a
 process-wide switch or from what is installed (SEP 29 section 6.6, R16): each
-`StepDriver` subclass sets the class attribute `helpers` (kernel schema 34), a
-`solprop._helpers.Helpers` record of the two operations, and the driver, the Adams march,
-its engines and the native backend's resident engine pass it down. `numpy_ref` takes
+backend sets the class attribute `helpers` (kernel schema 34), a
+`solprop._helpers.Helpers` record of the two operations, and the reference's driver, its
+Adams march, its engines and the native backend's own load and resident engine pass it
+down. `numpy_ref` takes
 `PLAIN`, the uncompiled Python forms, so the oracle never runs the compiled code it
 checks; `native` takes its own
 `NATIVE`, C++ transcriptions (`native/include/solprop_native/chebyshev.hpp` and
@@ -220,27 +221,31 @@ both backends in one process, with every other implementation made to raise afte
 translation, and a native z-table run of each march with the plain forms
 forbidden.
 
-**3. One driver, seven marches.** `StepDriver.propagate_to` is the one way in, and it hands
-the steps to one of these loops:
+**3. Two owners, eight marches.** The reference steps through its own driver,
+`HostDriver.propagate_to`, which hands the steps to one of its loops; every native run is
+its native session's (`solprop_native.session`), whose compiled marches advance to an
+event from one policy record and hand back the events (SEP 47):
 
 | Loop | Steps | Where its state-sized work runs |
 |---|---|---|
-| `StepDriver._march_to`, in `backends/driver.py` | adaptive Runge-Kutta | the backend's `_trial_step` |
-| `StepDriver._replay_to` | Runge-Kutta on a fixed schedule | the backend's `_trial_step` |
-| `AdamsMarch.march_to`, in `backends/multistep.py` | adaptive Adams | an `AdamsEngine`: `HostHistory`, or `native`'s resident `_ResidentAdams` |
-| `AdamsMarch._replay_to` | Adams on a fixed schedule | the same engines |
-| `LowStorageMarch.replay_to`, in `backends/low_storage.py` | low-storage, always on a schedule | a `LowStorageEngine`: `HostLowStorage`; `native` refuses it, its session replays the march natively |
-| `_NativeAdamsMarch.march_to`, with `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine; it returns to Python only at a host event |
-| `_NativeRungeKuttaMarch.march_to`, with `native/src/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm; it returns to Python only at a host event |
+| `HostDriver._march_to`, in `backends/host/driver.py` | adaptive Runge-Kutta | the backend's `_trial_step` |
+| `HostDriver._replay_to` | Runge-Kutta on a fixed schedule | the backend's `_trial_step` |
+| `HostAdamsMarch.march_to`, in `backends/host/adams.py` | adaptive Adams | an `AdamsEngine`: `HostHistory` |
+| `HostAdamsMarch._replay_to` | Adams on a fixed schedule | the same engine |
+| `HostLowStorageMarch.replay_to`, in `backends/host/low_storage.py` | low-storage, always on a schedule | a `LowStorageEngine`: `HostLowStorage` |
+| the native session's Adams march, `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine (`_ResidentAdams`), from the record `_NativeAdamsMarch` |
+| the native session's Runge-Kutta march, `native/src/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm |
+| the native session's low-storage replay | low-storage, always on a schedule | one in-place native step a schedule step |
 
-Only the last two loops are compiled. The driver's Runge-Kutta march is the reference for the
-compiled Runge-Kutta march, which holds to it through kernel contract §12 (ADR-069), and for the
-march's bookkeeping. `AdamsMarch` is the reference for the compiled Adams march, which holds to it
-through kernel contract §11 (ADR-060), and steps every configuration the compiled march doesn't
-cover. A new compiled loop needs a contract that specifies it in full and a reference to compare
-it with.
+The reference's Runge-Kutta march is the reference for the compiled Runge-Kutta march,
+which holds to it through kernel contract §12 (ADR-069), and for the march's bookkeeping.
+`HostAdamsMarch` is the reference for the compiled Adams march, which holds to it through
+kernel contract §11 (ADR-060). The decision-trace tests drive each compiled march a call
+at a time over a scripted host backend (`tests/backends/native_trace_marches.py`) and
+hold it to the reference's decisions on the same readings. A new compiled loop needs a
+contract that specifies it in full and a reference to compare it with.
 
-What stays common, and is never reimplemented, is what the loops do around a step:
+What the reference's loops share around a step, and the native session transcribes, is:
 `propagate_to` and `observe`, the history (`_record`, or `_record_attempt` and `_skip_step`
 for the attempts a compiled march books together), the committed step's work
 (`_take_step_stats`: **the statistics channel between planes** and the boundary monitor), the
@@ -249,7 +254,7 @@ natural stops, the noise models and **the progress reporter**. A backend supplie
 and hooks `_begin_plane` and `_on_accepted_step` if it has something to score.
 
 `set_progress` attaches the observer the loop calls (the driver, not the backend, also
-tells an `InterruptibleReporter` when its loop raised). `StepDriver` calls
+tells an `InterruptibleReporter` when its loop raised). `HostDriver` calls
 `ProgressReporter.step` from `_record`, which every attempted step of every backend already
 passes through, so a host backend gets the per-step channel for nothing; a backend whose
 loop runs on a **device** -- where a per-step host callback would mean a synchronisation per
@@ -603,8 +608,8 @@ as one; its end-of-plane log is retired, and the boundary monitor's transverse e
 (SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the problem.
 
 **The transverse edge is read where the state lives** ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md), [SEP 44](seps/archive/sep-0044-native-edge-read.md)).
-A backend whose `StepDriver.reads_transverse_edge` is set hands the monitor's
-`TransverseEdge` an `_EdgeReading` from `StepDriver._edge_reading` at the edge's reads, at saved planes, and with a
+A backend whose `HostDriver.reads_transverse_edge` is set hands the monitor's
+`TransverseEdge` an `_EdgeReading` from `HostDriver._edge_reading` at the edge's reads, at saved planes, and with a
 requested collar at every committed step. The reading is numbers and never the field: region sums, each
 column's energy and any collar's strip and current. The default forms them with `_HostEdgeReduction` on a host copy,
 the reference, which `numpy_ref` uses. `native` forms them on its own state against
@@ -930,9 +935,10 @@ Kokkos regions.
 
 ### 3.5 The step driver: Python first, compiled when measured
 
-**One driver, for every backend.** `backends/driver.py` is the Runge-Kutta march and replay,
-the controller bookkeeping, the history and the noise models, and every backend inherits it
-(§1, point 3, lists the other marches). Per stage a backend asks the translation layer for one bundle of host
+**One driver for the reference, one session for native.** `backends/host/driver.py` is the
+reference's Runge-Kutta march and replay, the controller bookkeeping, the history and the
+noise models, which every NumPy reference backend inherits; the native backend inherits no
+driver, and its session marches natively (§1, point 3, lists the marches). Per stage a backend asks the translation layer for one bundle of host
 scalars and combines the terms it holds over them (§1); the driver applies the boundary
 treatments of `_finish` to a step it keeps, so a rejected step does not pay the temporal
 absorber's transform pair for a state that is thrown away.
@@ -969,7 +975,7 @@ builds, the system libm, with each element's own calls, on Arm and on devices
 the stage that formed them — the forward in pass 1 and the inverse in pass 7 — so
 recomputing evaluates `ΔΦ` exactly as often as tabulating does and the table buys residency
 and nothing else (a step within 2 %, measured on the retired `numba_cpu` backend). The flag's
-default is therefore `"auto"` and the choice is the backend's (`StepDriver.propagator_default`):
+default is therefore `"auto"` and the choice is the backend's (`HostDriver.propagator_default`):
 `numpy_ref` resolves it to `tabulate`, because it forms two complex exponentials per stage and
 the table saves five of them, and implements both paths; `native` resolves it to `recompute`,
 because both signs come from one `exp` and a `sincos` in the stage that consumes them
@@ -1433,14 +1439,15 @@ backend runs on the CPU (OpenMP) or a device. How to build it is
 [Building the native backend](../guide/performance/building-native.md); the native rules are in
 `native/AGENTS.md`.
 
-The backend depends on solprop's seam: the `PropagationProblem`, the protected surface of `StepDriver`
-and the stage bundles, all frozen by `tests/backends/test_driver.py`. A change to any of them
-rewrites those tables in the same commit and adds a release-note fragment. The two packages are
-released together, and solprop's metadata pins this one to its own version. `check_build` looks
-the driver members, bundle fields and contract tuples the adapter relies on up by name. Since SEP
-47 phase 5 the native backend lowers the problem, loads a start (`solprop_native._load`), keeps
-its Adams march's record and times its trials (`timing_probe`, `solprop_native._probe`) itself;
-it inherits `StepDriver` only for the legacy direct API, which that phase removes. In an editable
+The backend depends on solprop's seam: the `PropagationProblem` and `RunRequest` descriptors,
+the stage bundles and the march policy, all frozen by `tests/backends/test_driver.py`. A change
+to any of them rewrites those tables in the same commit and adds a release-note fragment. The
+two packages are released together, and solprop's metadata pins this one to its own version.
+`check_build` looks the descriptor and bundle fields and contract tuples the adapter relies on
+up by name. Since SEP 47 phase 5 the native backend is a resource holder: it lowers the problem,
+loads a start (`solprop_native._load`), keeps its Adams march's record and times its trials
+(`timing_probe`, `solprop_native._probe`) itself, inherits no step driver, and serves every run
+through its session. In an editable
 checkout it also recomputes the digest of `native/CMakeLists.txt` and the C++ under `native/src`
 and `native/include`, once per process, and refuses an extension built from anything else
 (`BuildInfo.source_digest`, ADR-068), which catches a C++-only change too. It records the repository
@@ -1453,7 +1460,7 @@ leaves (the coupled flow, the moving guide and the others) are part of the contr
 or not a backend executes them, and a backend that
 accepted a problem carrying one it ignores would silently run a different model. A backend
 therefore calls
-{py:func}`~solprop.backends.driver.refuse_general_leaves` before it runs, naming in
+{py:func}`~solprop.backends.numpy_ref.admission.refuse_general_leaves` before it runs, naming in
 `admits` the leaves it executes, as `numpy_ref` does, or makes the same
 refusals itself, as `native` does in its own adapter. A third-party backend owes the same. A change that
 touches `native/` is complete only when the gates (`poe check-all`) and solprop's lanes
@@ -1893,15 +1900,13 @@ A test asserts which entries are field-sized, that everything is named even when
 that the total is within the documented budget for the standard cases.
 
 **The native Adams march** (ADR-060, [SEP 39](seps/archive/sep-0039-native-adams-march.md)).
-`native` steps `Multistep()` itself, in either formulation, and replayed schedules: `_NativeAdamsMarch` hands the native state
-solprop's `MarchPolicy` (and a replay's schedule) once, then each call runs attempts on
-the resident engine -- stage scalars and tables evaluated natively from the run's
-uploaded expansions, the trial, the decision, the accept, and the boundary monitor's
-checks ([SEP 45](seps/archive/sep-0045-native-rk-march.md) §4.8) -- until a host event, and
-returns the
-march's state, one row per attempt (its end, step, norm, verdict, order and wall
-time) and the readings its checks took, which the driver replays through solprop's
-monitor and holds the march's predictions to (`BackendError` on a difference). The decisions are compiled without contraction in their own translation unit,
+`native` steps `Multistep()` itself, in either formulation, and replayed schedules: the
+record `_NativeAdamsMarch` hands the native state solprop's `MarchPolicy` (and a replay's
+schedule) once, and the session's native march runs attempts on the resident engine --
+stage scalars and tables evaluated natively from the run's uploaded expansions, the
+trial, the decision, the accept, and the boundary monitor's checks
+([SEP 45](seps/archive/sep-0045-native-rk-march.md) §4.8) -- to each event, the session
+holding the march's state natively (SEP 47). The decisions are compiled without contraction in their own translation unit,
 so that they round as solprop's do; within one build the two marches take the same
 steps. The host marches are no longer execution modes ([SEP 47](seps/sep-0047-run-ownership.md)
 §6.3): the environment variables `SOLPROP_ADAMS_MARCH`, `SOLPROP_RK_MARCH` and

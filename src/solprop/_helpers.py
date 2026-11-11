@@ -15,7 +15,7 @@ stage** (SEP 29 section 6.6, R16), never to a process-wide switch or to what hap
 to be installed: the NumPy reference must not run compiled code it exists to check,
 and one simulation must not change another's arithmetic.
 
-A backend names its record in ``StepDriver.helpers`` and the shared driver, march and
+A backend names its record in ``HostDriver.helpers`` and the shared driver, march and
 engines pass it down: ``numpy_ref`` takes :data:`PLAIN`, the uncompiled Python forms;
 the native backend takes its own record of C++ bindings, defined in its package. Both
 perform the same IEEE operations in the same order, strict (no contraction, no

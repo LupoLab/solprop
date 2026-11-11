@@ -925,7 +925,7 @@ def test_the_reference_refuses_a_regional_response_it_cannot_execute(
 
     Checked through the backend's constructor rather than through
     `node_kerr_tensor`, because that is where it matters: the refusal is in the
-    admission list, which runs before `StepDriver.__init__` allocates a stage.
+    admission list, which runs before the backend allocates a stage.
     """
     problem, run_request = spoiled_problem(
         strand,

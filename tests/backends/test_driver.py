@@ -2,14 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The shared step loop, driven through a stage evaluation that is not a backend.
+"""The reference's step loop, driven through a stage evaluation that is not a backend.
 
-:class:`solprop.backends.driver.StepDriver` is the marching half of a backend with the
-kernels left abstract, so it can be tested with a stage evaluation whose answers are
-scripted. That is the point: every claim here is about the *step control* -- landing,
-acceptance, the controller's state, the history, the noise models, the guards --
-and none of them depends on any physics being evaluated correctly, which is what makes
-the same assertions true of every backend that inherits it.
+:class:`solprop.backends.host.driver.HostDriver` is the marching half of the NumPy
+reference with the kernels left abstract, so it can be tested with a stage evaluation
+whose answers are scripted. That is the point: every claim here is about the *step
+control* -- landing, acceptance, the controller's state, the history, the noise models,
+the guards -- and none of them depends on any physics being evaluated correctly, which
+is what makes the same assertions true of every reference backend that inherits it.
+The descriptor and stage bundles a compiled backend is built against are frozen here
+too (``docs/dev/kernel-contract.md``).
 """
 
 import dataclasses
@@ -22,13 +24,8 @@ import numpy as np
 import pytest
 
 from bounds import assert_within
-from scripted_driver import HostScriptedDriver, ScriptedDriver
-from solprop.backends.driver import (
-    INITIAL_STEP_STATS_CAPACITY,
-    StepDriver,
-    reached,
-)
-from solprop.backends.host.driver import HostDriver
+from scripted_driver import HostScriptedDriver
+from solprop.backends.host.driver import INITIAL_STEP_STATS_CAPACITY, HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.numpy_ref.single import NumpySingleBackend
@@ -39,7 +36,7 @@ from solprop.noise import input_noise, modified_noise
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.multistep import MarchPolicy
-from solprop.stepper.schedule import FixedSchedule
+from solprop.stepper.schedule import FixedSchedule, reached
 from solprop.translate import routes
 from solprop.translate import run_request as run_requests
 from solprop.translate.linop import LinearOperator, delta_phi
@@ -62,20 +59,15 @@ def present(value):
     return value
 
 
-@pytest.fixture(params=[ScriptedDriver, HostScriptedDriver], ids=["bridge", "host"])
-def scripted(request):
-    """The scripted driver on each copy of the step loop (SEP 47 phase 2).
-
-    The native bridge's :class:`~solprop.backends.driver.StepDriver` and the
-    reference's own :class:`~solprop.backends.host.driver.HostDriver` started as one
-    loop and must keep its step control: every claim here holds of both.
-    """
-    return request.param
+@pytest.fixture
+def scripted():
+    """The scripted driver on the reference's step loop."""
+    return HostScriptedDriver
 
 
 @pytest.fixture
 def driver(soliton_problem, narrow_grid, scripted):
-    """Return ``(**kwargs) -> ScriptedDriver`` loaded at the entrance, on each copy."""
+    """Return ``(**kwargs) -> HostScriptedDriver`` loaded at the entrance."""
 
     def build(*, planes=(LENGTH,), field=None, noise=None, **kwargs):
         problem, run_request = soliton_problem(narrow_grid, 1, save_planes=list(planes))
@@ -469,9 +461,7 @@ def test_the_reporter_is_the_backend_s_and_the_default_is_silent(driver):
 
 
 @pytest.mark.parametrize("period", [0.0, 1e9])
-def test_a_run_with_a_reporter_is_the_run_without(
-    soliton_problem, narrow_grid, backend_class, period
-):
+def test_a_run_with_a_reporter_is_the_run_without(soliton_problem, narrow_grid, period):
     """Layer D throughout: the calls are observers, made after the step is decided.
 
     ``wall_time`` is excluded because it is a clock reading rather than a result -- two
@@ -490,7 +480,7 @@ def test_a_run_with_a_reporter_is_the_run_without(
         problem, run_request = soliton_problem(
             narrow_grid, 1, save_planes=[LENGTH / 2, LENGTH], schedule=schedule
         )
-        made = backend_class(problem, run_request, grid=narrow_grid)
+        made = NumpyRefBackend(problem, run_request, grid=narrow_grid)
         made.set_progress(reporter)
         made.set_initial(problem.initial.field0, None)
         fields, histories = [], []
@@ -526,13 +516,13 @@ def test_a_run_with_a_reporter_is_the_run_without(
             )
 
 
-def test_both_backends_report_the_same_calls_in_the_same_order(
-    soliton_problem, narrow_grid, backend_class
-):
+def test_the_reference_reports_its_calls_in_order(soliton_problem, narrow_grid):
+    # The native backend reports through its session's listener (the lifecycle
+    # suite's progress cases, ``tests/sessions``).
     reporter = Events()
     planes = [LENGTH / 2, LENGTH]
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=planes)
-    made = backend_class(problem, run_request, grid=narrow_grid)
+    made = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     made.set_progress(reporter)
     made.set_initial(problem.initial.field0, None)
     summaries = []
@@ -589,7 +579,7 @@ def test_a_row_is_taken_at_the_position_the_accepted_step_reached(
         made = scripted(problem, run_request, grid=narrow_grid)
         made.set_initial(problem.initial.field0, None)
         rows = rows_of(made)
-        # `ScriptedDriver.stats` returns `self._z`, so the recorded value is the
+        # `HostScriptedDriver.stats` returns `self._z`, so the recorded value is the
         # position the driver held when the row was taken.
         assert rows.n_rows > 0
         np.testing.assert_array_equal(rows.values["energy"][:, 0], rows.z)
@@ -839,233 +829,6 @@ def test_the_controller_keeps_only_the_norms_it_reads(driver):
 
 # --- the seam a compiled backend subclasses ----------------------------------------
 
-FIELD = "jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega']"
-
-DRIVER_SURFACE = {
-    "__init__": (
-        "(self, problem: solprop.translate.problem.PropagationProblem, "
-        "request: solprop.translate.run_request.RunRequest, *, "
-        "grid: solprop.grid.TimeGrid | None = None, "
-        "modes: collections.abc.Sequence[solprop.modes.protocol.Mode] | None = None, "
-        "profiles: collections.abc.Mapping[str, solprop.profiles.ZProfile] | None = "
-        "None, "
-        "options: solprop.backends.session.ExecutionOptions | None = None"
-        ") -> None"
-    ),
-    "_trial_step": "(self, z: float, dz: float) -> tuple[float, _StateT]",
-    "_delta_phi": (
-        "(self, bundle: solprop.translate.stage.StageScalars) -> "
-        "jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega']"
-    ),
-    "_unitary_phase": (
-        "(self, bundle: solprop.translate.stage.StageScalars) -> "
-        "jaxtyping.Float[ndarray, 'n_batch n_modes n_pol n_omega']"
-    ),
-    "_apply_mask": (
-        "(self, state: jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega'])"
-        " -> _StateT"
-    ),
-    "_finish": "(self, state: _StateT, dz: float) -> _StateT",
-    "_bind_monitor": "(self, monitor: solprop.monitor.BoundaryMonitor | None) -> None",
-    "_boundary_energies": "(self, state: _StateT) -> solprop.monitor.BoundaryEnergies",
-    "edge_memory": "(self, space: object) -> int",
-    "_edge_reading": (
-        "(self, state: _StateT, edge: solprop.transverse_monitor.TransverseEdge, *, "
-        "faces: bool = True, current: bool = False, full: bool = False"
-        ") -> solprop.transverse_monitor._EdgeReading"
-    ),
-    "_next_step": "(self) -> float",
-    "_observed_field": (
-        "(self, state: _StateT)"
-        " -> jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega']"
-    ),
-    "_reserve_source_calls": "(self, count: int) -> None",
-    "_release_source_calls": "(self) -> None",
-    "_adams_source": (
-        f"(self, lab: {FIELD}, anchor: float, position: float, *, "
-        "purpose: Literal['startup', 'predictor', 'corrected', 'diagnostic'] "
-        "= 'predictor') -> "
-        f"tuple[{FIELD}, {FIELD}]"
-    ),
-    "_adams_lab_source": (
-        f"(self, lab: {FIELD}, position: float, *, "
-        "purpose: Literal['startup', 'predictor', 'corrected', 'diagnostic'] "
-        f"= 'predictor') -> {FIELD}"
-    ),
-    "_adams_block": "(self, z: float, dz: float) -> object",
-    "_adams_engine": (
-        "(self, method: solprop.stepper.multistep.Multistep, "
-        "compensation: Literal['transported', 'untransported']) -> object"
-    ),
-    "_low_storage_engine": (
-        "(self, method: solprop.stepper.low_storage.LowStorageRungeKutta) -> object"
-    ),
-    "_adams_propagator": f"(self, anchor: float, position: float) -> {FIELD}",
-    "_adams_state": f"(self) -> {FIELD}",
-    "_adams_adopt": f"(self, advanced: {FIELD}, dz: float) -> {FIELD}",
-    "_adams_restore": f"(self, z: float, state: {FIELD}) -> None",
-    "_dense_stages": "(self) -> list[numpy.ndarray]",
-    "_begin_plane": "(self) -> None",
-    "_on_accepted_step": "(self) -> None",
-    "_record_attempt": (
-        "(self, z: float, dz: float, norm: float, accepted: bool, wall: float) -> None"
-    ),
-    "_account_step": (
-        "(self, z: float, cursor: int, "
-        "energies: solprop.monitor.BoundaryEnergies | None = None) -> None"
-    ),
-    "_watched_step": (
-        "(self, z: float, cursor: int, "
-        "energies: solprop.monitor.BoundaryEnergies | None) -> None"
-    ),
-    "_statistics_step": "(self) -> None",
-    "_take_step_stats": "(self) -> None",
-    "_natural_stop": "(self, target: float) -> bool",
-    "_natural_stop_due": "(self, target: float) -> bool",
-    "_reset_step_stats": "(self, *, release: bool) -> None",
-    "_record_step_stats": (
-        "(self, spec: solprop.stats.StatsSpec, z: float, step: int) -> None"
-    ),
-    "_drain_step_stats": "(self) -> solprop.backends.protocol.StepStats",
-    "stats": "(self, spec: solprop.stats.StatsSpec) -> dict[str, numpy.ndarray]",
-    "_hoist": "(self, z0: float) -> None",
-    "_stage_scalars": (
-        "(self, z0: float, z1: float) -> solprop.translate.stage.StageScalars"
-    ),
-    "_stage_bundles": (
-        "(self, z0: float, positions: collections.abc.Sequence[float])"
-        " -> tuple[solprop.translate.stage.StageScalars, ...]"
-    ),
-    "_on_axis_synthesis": (
-        "(self, modes: collections.abc.Sequence[solprop.modes.protocol.Mode])"
-        " -> jaxtyping.Float[ndarray, 'n_rows n_modes']"
-    ),
-    "_require_grid": "(self) -> solprop.grid.TimeGrid",
-    "_require_state": "(self) -> _StateT",
-    "metadata": "(self) -> dict[str, object]",
-    "restore_call_ledgers": (
-        "(self, logical: collections.abc.Mapping[str, object], "
-        "atomic: collections.abc.Mapping[str, object] | None = None) -> None"
-    ),
-    "observe": "(self, *, field: bool = True) -> solprop.backends.protocol.Observation",
-    "set_initial": (
-        "(self, field: jaxtyping.Complex[ndarray, 'n_modes n_pol n_omega'], "
-        "noise: solprop.noise.NoiseRealisation | None, *, z: float = 0.0, "
-        "resume: bool = False) -> None"
-    ),
-    "set_progress": "(self, reporter: solprop.log.ProgressReporter) -> None",
-    "propagate_to": "(self, z: float) -> solprop.backends.protocol.StepSummary",
-    "available_device_memory": "(self) -> int | None",
-    # A subclass's and the shared marches' bookkeeping.
-    "_axis_row_populations": (
-        "(self, field: jaxtyping.Complex[ndarray, 'n_modes n_pol n_omega'] | None, "
-        "axis: jaxtyping.Float[ndarray, 'n_rows n_modes']) -> "
-        "tuple[jaxtyping.Float[ndarray, 'n_channels'], "
-        "jaxtyping.Float[ndarray, 'n_channels']]"
-    ),
-    "_axis_statistics": (
-        "(self, field: jaxtyping.Complex[ndarray, 'n_modes n_pol n_omega'] | None, "
-        "scan: tuple[numpy.ndarray, numpy.ndarray] | None) -> dict[str, numpy.ndarray]"
-    ),
-    "_check_open": "(self) -> None",
-    "_collar_changed": "(self) -> None",
-    "_controller_policy": "(self) -> solprop.backends.rk_core.RungeKuttaPolicy",
-    "_dense_record": (
-        "(self, z: float, dz: float) -> tuple[float, float, list[numpy.ndarray]]"
-    ),
-    "_march_to": "(self, target: float) -> None",
-    "_observe_inside": "(self, position: float) -> None",
-    "_start_up": "(self, norm: float) -> None",
-    "_monitor_plane": "(self) -> None",
-    "_noise_at": (
-        "(self, bundle: solprop.translate.stage.StageScalars) -> "
-        "jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega'] | None"
-    ),
-    "_poll_stop": "(self) -> None",
-    "_quiet_capped": "(self, proposal: float) -> float",
-    "_record": "(self, z: float, dz: float, norm: float, accepted: bool) -> None",
-    "_refuse_in_flight": "(self) -> None",
-    "_replay_to": (
-        "(self, schedule: solprop.stepper.schedule.FixedSchedule, target: float) -> "
-        "None"
-    ),
-    "_set_collar_quiet": "(self, quiet: bool) -> None",
-    "_split_capped": "(self, proposal: float) -> float",
-    "_transverse_capped": "(self, proposal: float) -> float",
-    # What the run layer calls on every backend (the `Backend` protocol).
-    "attach_monitor": "(self, monitor: solprop.monitor.BoundaryMonitor) -> None",
-    "march_export_refusal": "(self) -> str | None",
-    "march_snapshot": "(self) -> solprop.output.schema.MarchSnapshot | None",
-    "march_snapshot_nbytes": "(self, z: float) -> int | None",
-    "restore_march": (
-        "(self, snapshot: solprop.output.schema.MarchSnapshot) -> str | None"
-    ),
-    "set_stop": "(self, flag: solprop.log.StopFlag | None) -> None",
-    "timing_probe": (
-        "(self, start: solprop.backends.session.Start) -> "
-        "solprop.backends.protocol.TimingProbe"
-    ),
-}
-"""Every ``StepDriver`` method a subclass overrides or calls, or the run layer calls.
-
-The literal is the seam a compiled backend is built against: change a signature here
-only together with a release-note fragment (``AGENTS.md``, "Backends, kernels and hot
-paths"). ``solprop-native`` looks the names it relies on up at construction (its
-``DRIVER_SURFACE``, which :func:`test_the_native_surface_is_inside_the_frozen_one`
-holds inside this one).
-"""
-
-DRIVER_ATTRIBUTES = (
-    "_adams",
-    "_chunk_plan",
-    "_options",
-    "chunk_plan",
-    "node_chunk",
-    "_low_storage",
-    "_in_flight",
-    "_problem",
-    "_request",
-    "_stepper",
-    "request",
-    "_terms",
-    "_grid",
-    "_modes",
-    "_profiles",
-    "_z",
-    "_state",
-    "_noise",
-    "_closed",
-    "_accepted_norms",
-    "_accepted_steps",
-    "_clock",
-    "_dense_ahead",
-    "_dense_step",
-    "_collar_quiet",
-    "_history",
-    "_monitor",
-    "_natural_count",
-    "_norm_controller",
-    "_progress",
-    "_propagator_mode",
-    "_proposal",
-    "_row_period",
-    "_row_spec",
-    "_schedule_index",
-    "_split_monitor",
-    "closed",
-    "far_field_statistics",
-    "helpers",
-    "in_flight",
-    "name",
-    "observes_fresh_field",
-    "reads_transverse_edge",
-)
-"""The attributes a subclass reads or sets, present from construction.
-
-``helpers`` is a class attribute: each backend sets its own record of the per-stage and
-per-step evaluations, which the shared code passes down.
-"""
-
 SEPARABLE_OPERATOR_FIELDS = (
     "k_squared",
     "kperp_sq",
@@ -1167,15 +930,14 @@ def test_a_trials_bundles_taken_together_are_kept_until_the_next_hoist(driver):
     made.close()
 
 
-def test_the_surface_a_backend_subclasses_is_frozen(soliton_problem, narrow_grid):
-    """The protected driver surface and stage bundles are the seam's literal.
+def test_the_bundles_a_compiled_backend_packs_are_frozen():
+    """The stage bundles, the march policy and the batch seam are the seam's literal.
 
     A compiled backend is built against these names and shapes, and its build stays
     valid across solprop commits because this test, not a version pin, guards them: a
     change here is a change of the seam, which rewrites these literals and adds a
     release-note fragment in the same commit.
     """
-    assert StepDriver.reads_transverse_edge is False
     for name, signature in {
         "observe_members": (
             "(self, *, field: bool = True) -> "
@@ -1184,14 +946,6 @@ def test_the_surface_a_backend_subclasses_is_frozen(soliton_problem, narrow_grid
         "member_metadata": "(self) -> tuple[dict[str, object], ...]",
     }.items():
         assert str(inspect.signature(getattr(BatchBackend, name))) == signature, name
-    for name, signature in DRIVER_SURFACE.items():
-        assert str(inspect.signature(getattr(StepDriver, name))) == signature, name
-    problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
-    made = ScriptedDriver(problem, run_request, grid=narrow_grid)
-    made.set_initial(problem.initial.field0, None)
-    for name in DRIVER_ATTRIBUTES:
-        assert hasattr(made, name), name
-    made.close()
     assert tuple(f.name for f in dataclasses.fields(StageTerms)) == STAGE_TERMS_FIELDS
     assert (
         tuple(f.name for f in dataclasses.fields(StageScalars)) == STAGE_SCALARS_FIELDS
@@ -1299,11 +1053,6 @@ def test_the_host_hooks_the_reference_overrides_are_frozen():
             assert hook.fget is not None
             hook = hook.fget
         assert str(inspect.signature(hook)) == signature, name
-
-
-def test_the_native_surface_is_inside_the_frozen_one():
-    native = pytest.importorskip("solprop_native")
-    assert set(native.DRIVER_SURFACE) <= set(DRIVER_SURFACE)
 
 
 def test_separable_operator_fields_are_frozen_with_the_driver_seam():

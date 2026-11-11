@@ -47,7 +47,9 @@ __all__ = [
     "discover",
     "landing",
     "observed_order",
+    "reached",
     "replay",
+    "replay_tolerance",
 ]
 
 ORDER_MARGIN = 3
@@ -76,7 +78,7 @@ A landing target within this many ulp of the current position counts as already
 passed. Eight covers the rounding of a snap onto the target plus the addition that put
 the position there; without it, landing exactly on a save plane would make the next
 step zero-length and the march would stall. The marches use the same guard to decide
-that they have arrived (:func:`solprop.backends.driver.reached`), so a march stops
+that they have arrived (:func:`solprop.stepper.schedule.reached`), so a march stops
 exactly where :func:`landing` would refuse to take another step rather than one
 round-off-sized sliver short of it, and the Adams march to find its kinks and its next
 forced landing (SEP 39 section 4.6).
@@ -1112,3 +1114,64 @@ def landing(z: float, dz: float, targets: StepTargets) -> Landing:
     if gap <= min(targets.stretch * cap_dz, targets.dz_max):
         return Landing(dz=gap, target=kind, z_target=ahead, stretched=True)
     return Landing(dz=cap_dz, target=cap_kind, z_target=None)
+
+
+def reached(position: float, target: float) -> bool:
+    """Return whether a march at ``position`` has arrived at ``target``.
+
+    Parameters
+    ----------
+    position : float
+        Current position, m.
+    target : float
+        Position being marched to, m.
+
+    Returns
+    -------
+    bool
+        True when no further step is due.
+
+    Examples
+    --------
+    >>> from solprop.stepper.schedule import reached
+    >>> reached(0.5, 1.0), reached(1.0, 1.0)
+    (False, True)
+    """
+    tolerance = LANDING_ULPS * float(np.spacing(max(abs(position), abs(target))))
+    return bool(position >= target - tolerance)
+
+
+def replay_tolerance(schedule: FixedSchedule, position: float) -> float:
+    """Return how far a replayed schedule's edge may sit from a target it lands on, m.
+
+    A schedule's edges are the running sum of its steps, and a sum of ``n`` rounded
+    steps can drift from the position they were chosen to reach by about ``n`` ulps:
+    ``FixedSchedule(np.full(160, L / 160))`` ends 12 ulps short of ``L``. The slack
+    is therefore :data:`~solprop.stepper.schedule.LANDING_ULPS` or the step count,
+    whichever is larger, in ulps of the larger of the position and the schedule's
+    length -- still far inside the ``1e-9`` of the length that
+    :meth:`~solprop.translate.problem.PropagationProblem.validate` allows an edge to
+    miss a save plane by, so no step is ever skipped.
+
+    Parameters
+    ----------
+    schedule : solprop.stepper.schedule.FixedSchedule
+        The schedule being replayed.
+    position : float
+        The position the edge is compared with, m.
+
+    Returns
+    -------
+    float
+        The slack, m.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.stepper.schedule import FixedSchedule, replay_tolerance
+    >>> schedule = FixedSchedule(np.full(160, 1e-3 / 160))
+    >>> bool(1e-3 - schedule.z_end <= replay_tolerance(schedule, 1e-3))
+    True
+    """
+    ulps = max(LANDING_ULPS, schedule.n_steps)
+    return ulps * float(np.spacing(max(schedule.total_length, abs(position))))

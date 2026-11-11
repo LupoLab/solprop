@@ -863,7 +863,7 @@ class _HostEdgeReduction:
     """The reference reductions of the edge, on a host copy of a state (SEP 44).
 
     A backend whose state lives elsewhere forms the same numbers there instead
-    (``StepDriver._edge_reading``), and is held to these.
+    (``HostDriver._edge_reading``), and is held to these.
 
     Attributes
     ----------

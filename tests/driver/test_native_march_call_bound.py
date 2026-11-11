@@ -43,7 +43,6 @@ pytestmark = [
     pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
 ]
 
-NativeAdamsMarch = pytest.importorskip("solprop_native.backend")._NativeAdamsMarch
 native_session = pytest.importorskip("solprop_native.session")
 
 BOUNDS = {
@@ -336,4 +335,5 @@ def test_the_rejections_case_rejects_steps(build_simulation, tmp_path):
 
 def test_the_call_bound_is_the_documented_one():
     # `docs/guide/results/resuming.md` and `docs/dev/kernel-contract.md` state these.
-    assert (NativeAdamsMarch.MAX_ATTEMPTS, NativeAdamsMarch.MAX_SECONDS) == (256, 0.1)
+    bound = (native_session.CALL_ATTEMPTS, native_session.CALL_SECONDS)
+    assert bound == (256, 0.1)

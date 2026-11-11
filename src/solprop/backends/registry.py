@@ -248,8 +248,8 @@ def _plugin_far_field(name: str) -> frozenset[str] | None:
     -------
     frozenset of str or None
         What the plugin declares (its row's ``far_field``: the native backend's
-        :attr:`~solprop.backends.driver.StepDriver.far_field_statistics`), or ``None``
-        when the name is not a known, installed plugin that declares them.
+        ``NativeBackend.far_field_statistics``), or ``None`` when the name is not a
+        known, installed plugin that declares them.
     """
     entry = BACKENDS.get(name)
     if entry is None or entry.far_field is None or not _satisfied(entry):
