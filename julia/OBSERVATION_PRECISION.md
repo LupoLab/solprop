@@ -151,8 +151,14 @@ This does not open public session admission or qualify device execution.
   binary64, with the same physical thresholds and continuation representation.
 - `PlasmaDiagnosticWorkspace` owns six binary32 parts per active-node capacity and
   three Int exponents per node. Its six global maxima are host binary64. Raw
-  exposure increments, paid-work defect and fraction/field integrands have separate
-  actual-product scales. Inactive rates and zero fractions cannot determine them.
+  exposure is normalized by its column envelope before differencing. If the exact
+  normalized increment is `d`, endpoint alignment and the subtraction give an
+  absolute error at most `u*abs(d) + (3/2+u)*eta`; taking each dip/rise maximum does
+  not amplify that absolute error. A tiny dip beside a large envelope may disappear
+  within this bound; per-extremum relative preservation is not claimed. The resulting
+  ratio also retains its denominator conditioning. Paid-work defect and fraction/field
+  integrands have separate actual-product scales. Inactive rates and zero fractions
+  cannot determine them.
   The freed-fraction denominator remains unscaled and cannot disappear when the paid
   work is large. All chunks and channels share one field scale, which
   cancels from the boundary-level ratio. The paid-work sum uses `n_time-1` terms.
