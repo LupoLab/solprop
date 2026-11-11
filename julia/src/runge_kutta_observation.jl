@@ -15,8 +15,10 @@ Prepare owned CPU storage in state precision for the translated RK continuous ex
 units. `tableau` and finite `dense_weights` supply one dimensionless weight per stage;
 the first/last stage nodes are zero/one. The caller selects the compatible DOPRI5
 extension through solprop's `continuous_extension`, never by counting stages here.
-`operator` is a binary64 `DiagonalOperator`, `RepresentedOperator` or `ExpansionOperator`
-of the same shape. Its immutable prepared data are borrowed.
+`operator` is a binary64 `DiagonalOperator`, `RepresentedOperator`, `ExpansionOperator`
+or scalar Cartesian/line `SeparableSpatialOperator` of the same shape. Its immutable
+prepared data are borrowed. Separable coefficients remain vectors; dense observation
+does not retain a spectral operator volume.
 
 `state` and `arithmetic` agree; binary32 state has already been physically scaled.
 Own five coefficient fields, a finished endpoint, the observed field, and either a
@@ -90,6 +92,9 @@ function _rk_observation_shape(operator::ExpansionOperator)
     return (size(operator.terms, 1), size(operator.terms, 2)), size(operator.terms, 3)
 end
 
+_rk_observation_shape(operator::SeparableSpatialOperator) =
+    (_spatial_operator_shape(operator), 0)
+
 _rk_observation_shape(operator) =
     throw(ArgumentError("RK dense observation requires a supported diagonal operator"))
 
@@ -146,6 +151,15 @@ function _rk_observation_wide_prepare(
     difference_table!(weights, operator.cumulative_weights, z0, z1, execution)
     return nothing
 end
+function _rk_observation_wide_prepare(
+        operator::SeparableSpatialOperator, z0, z1, weights, execution,
+    )
+    _spatial_operator_position(operator, z0)
+    _spatial_operator_position(operator, z1)
+    isfinite(Float64(z1) - Float64(z0)) ||
+        throw(ArgumentError("the RK dense operator interval must be finite"))
+    return nothing
+end
 
 function _rk_observation_phase_body(operator::DiagonalOperator, z0, z1, weights)
     rate, distance = operator.rate, z1 - z0
@@ -170,6 +184,13 @@ function _rk_observation_phase_body(operator::ExpansionOperator, z0, z1, weights
         end
         return total
     end
+end
+function _rk_observation_phase_body(operator::SeparableSpatialOperator, z0, z1, weights)
+    tables, distance = _spatial_operator_tables(operator), Float64(z1) - Float64(z0)
+    # Reuse the protected high/low root, branch and mask assembly from ordinary
+    # propagation. Capture only the rooted tuple of arrays/scalars in worker bodies.
+    return (row, column) -> iszero(distance) ? 0.0im :
+        first(_spatial_element(tables, row, column)) * distance
 end
 
 function _rk_observation_narrow_factors!(work, origin, destination, execution, retain)
