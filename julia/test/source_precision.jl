@@ -74,7 +74,8 @@ end
         zeros(Float32, 4, 1), lower, upper, 2.0, log(lower), log(upper / lower)
     )
     parameters = SP._rate_parameters(table, 0)
-    @test parameters[2:end] isa NTuple{5, Float32}
+    @test parameters[2:6] isa NTuple{5, Float32}
+    @test parameters[7] isa SP._PlasmaLogCoordinate
     @test SP._ionisation_rate(1.0f0, parameters) === 0.0f0
     @test SP._ionisation_rate(nextfloat(1.0f0), parameters) === 1.0f0
     @test SP._ionisation_rate(2.0f0, parameters) === 1.0f0

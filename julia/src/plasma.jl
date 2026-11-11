@@ -25,8 +25,9 @@ Retain a translated instantaneous ionisation-rate spline with explicit clipping.
 # Returns
 An immutable numerical table. No rate model, species object or Python value is retained.
 Scalar clipping/log-grid metadata remains binary64 at preparation. Each call shifts
-it to the stored field scale and rounds once before entering its response-precision
-kernel; the coefficient matrix already has that kernel precision.
+the clipping coordinates to the stored field scale. Binary32 logarithmic coordinates
+use local compensated binary32 words to avoid subtracting rounded absolute logarithms;
+the coefficient matrix and final spline offset use response precision.
 
 # Throws
 - `ArgumentError`: If shape, finiteness, clipping bounds or spacing are invalid.
@@ -233,8 +234,38 @@ end
     )
 end
 
-@inline _rate_parameters(table::IonisationRateTable{Float32}, exponent::Int = 0) =
-    _scaled_rate_parameters(table, exponent)
+struct _PlasmaLogCoordinate
+    origin::DF32
+    spacing::DF32
+    logtwo::DF32
+    exponent::Int
+end
+
+function _plasma_log_pair(value::Float64)
+    high = Float32(value)
+    low = Float32(value - Float64(high))
+    isfinite(high) && isfinite(low) ||
+        throw(ArgumentError("plasma reduced logarithmic coordinate overflows"))
+    # This source-local split retains gradual underflow. Its absolute conversion
+    # allowance is u^2*abs(value)+eta, unlike prepare_df32's normal-only admission.
+    high, low = _df32_fast_two_sum(high, low)
+    isfinite(high) && isfinite(low) ||
+        throw(ArgumentError("plasma reduced logarithmic coordinate overflows"))
+    return _df32_raw(high, low)
+end
+
+function _rate_parameters(table::IonisationRateTable{Float32}, exponent::Int = 0)
+    parameters = _scaled_rate_parameters(table, exponent)
+    # The clipping field provides a bounded integer anchor even for an unusual
+    # translated log origin; no logarithm-to-Int conversion is required.
+    anchor = last(frexp(table.field_min))
+    logtwo = log(2.0)
+    reduced = _PlasmaLogCoordinate(
+        _plasma_log_pair(fma(-Float64(anchor), logtwo, table.log_field_min)),
+        _plasma_log_pair(table.d_log_field), _plasma_log_pair(logtwo), exponent - anchor,
+    )
+    return parameters..., reduced
+end
 
 function _scaled_rate_parameters(table::IonisationRateTable{T}, exponent::Int) where {T}
     -1074 <= exponent <= 1023 ||
@@ -288,6 +319,71 @@ end
     coordinate = floor((logarithm - origin) / spacing)
     interval = Int(clamp(coordinate, zero(coordinate), size(coefficients, 2) - 1)) + 1
     offset = logarithm - (origin + (interval - 1) * spacing)
+    polynomial = muladd(
+        muladd(
+            muladd(coefficients[1, interval], offset, coefficients[2, interval]),
+            offset, coefficients[3, interval]
+        ), offset, coefficients[4, interval]
+    )
+    return min(exp(polynomial), cap)
+end
+
+@inline function _plasma_log_scale(value::DF32, shift::Int)
+    high, low = _df32_fast_two_sum(ldexp(value.hi, shift), ldexp(value.lo, shift))
+    return _df32_raw(high, low)
+end
+
+@inline function _plasma_log_offset(
+        magnitude::Float32, reduced::_PlasmaLogCoordinate, intervals::Int,
+    )
+    mantissa, exponent = frexp(magnitude)
+    if mantissa < sqrt(0.5f0)
+        mantissa *= 2.0f0
+        exponent -= 1
+    end
+    # mantissa-1 is exact by Sterbenz. The logarithm's argument stays near one;
+    # its rounded absolute value no longer contains the physical field exponent.
+    logarithm = _df32_raw(log1p(mantissa - 1.0f0), 0.0f0)
+    power = _df32_raw(Float32(exponent + reduced.exponent), 0.0f0)
+    coordinate = logarithm + power * reduced.logtwo - reduced.origin
+    estimate = coordinate.hi / reduced.spacing.hi
+    interval = if estimate <= 0.0f0
+        1
+    elseif estimate >= Float32(intervals)
+        intervals
+    else
+        # Exact binary scaling puts the divisor in the reviewed [8, 2^42]
+        # reciprocal domain. Scaling a low word can only add gradual-underflow
+        # error; it cannot overflow while this guarded quotient is below the
+        # number of stored spline intervals.
+        shift = 4 - last(frexp(reduced.spacing.hi))
+        numerator = _plasma_log_scale(coordinate, shift)
+        denominator = _plasma_log_scale(reduced.spacing, shift)
+        fraction = numerator / denominator
+        isfinite(fraction) || return 1, NaN32
+        leading = floor(Int, fraction.hi)
+        trailing = floor(Int, (fraction.hi - Float32(leading)) + fraction.lo)
+        clamp(leading + trailing, 0, intervals - 1) + 1
+    end
+    # Integer knot indices may exceed binary32's exact-integer range. Split the
+    # index before multiplying rather than dropping its low bits implicitly.
+    index = interval - 1
+    high = Float32(index)
+    low = Float32(index - Int(high))
+    offset = coordinate - _df32_raw(high, low) * reduced.spacing
+    return interval, offset.hi
+end
+
+@inline function _ionisation_rate(
+        magnitude::Float32,
+        parameters::Tuple{
+            A, Float32, Float32, Float32, Float32, Float32, _PlasmaLogCoordinate,
+        },
+    ) where {A <: AbstractMatrix{Float32}}
+    coefficients, lower, upper, cap = parameters[1:4]
+    magnitude < lower && return 0.0f0
+    magnitude >= upper && return cap
+    interval, offset = _plasma_log_offset(magnitude, parameters[7], size(coefficients, 2))
     polynomial = muladd(
         muladd(
             muladd(coefficients[1, interval], offset, coefficients[2, interval]),

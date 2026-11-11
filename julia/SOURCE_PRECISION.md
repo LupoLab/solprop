@@ -48,9 +48,18 @@ does not establish the finite-range hypotheses of DF32 exponent assembly.
 
 Rate-table coefficients use the response precision. Their physical clipping bounds
 and logarithmic grid remain immutable host binary64 metadata. At evaluation the
-host shifts the log origin by `ef*log(2)` and scales the clipping coordinates by
-`2^-ef`, then rounds those scalar parameters once. The pointwise table lookup therefore
-uses the stored field directly. For real representable magnitudes, clipping bounds
+host scales the clipping coordinates by `2^-ef`. Binary64 retains its original
+shifted-logarithm evaluation. Binary32 instead splits the field into an exact
+power of two and a mantissa near one, evaluates the existing binary32 `log1p`, and
+assembles the local knot offset with the reviewed two-word primitives. Only the
+final offset is narrowed for the binary32 cubic. The host retains three scalar
+word pairs and an integer anchor; no pointwise binary64 fallback or new array is
+introduced. [The coordinate derivation](PLASMA_CYCLE_PRECISION.md) separates its
+metadata, elementary-function, assembly and spline-conditioning errors.
+The Float32 elementary-function boundary concerns inputs, returned values and their
+error hypotheses. The pinned CPU library can widen internally; this is not a
+transitive all-binary32 instruction claim or device qualification.
+For real representable magnitudes, clipping bounds
 are rounded upwards so comparison retains the side of the exact scaled threshold.
 Collapsed, overflowing or subnormal scaled coordinate ranges are refused before
 kernel writes. This does not promise bitwise agreement with binary64 rate lookup:
