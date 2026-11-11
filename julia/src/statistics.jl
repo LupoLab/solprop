@@ -65,8 +65,10 @@ function StatisticsSelection(slots::Tuple, periodic::Tuple = ())
     offset = 1
     for (index, slot) in pairs(slots)
         slot.offset == offset || throw(ArgumentError("statistics slots must be contiguous"))
-        any(previous -> previous.code == slot.code, slots[1:(index - 1)]) &&
-            throw(ArgumentError("duplicate statistic in selection"))
+        for previous in 1:(index - 1)
+            slots[previous].code == slot.code &&
+                throw(ArgumentError("duplicate statistic in selection"))
+        end
         slot.count <= typemax(Int) - offset ||
             throw(ArgumentError("statistics packed width is too large"))
         offset += slot.count
@@ -1116,7 +1118,9 @@ Other missing, malformed, nonfinite or unrepresentable requested inputs raise
 A failed evaluation does not publish a row; the session owns that transaction.
 """
 function statistics!(
-        output, selection, grid, inputs, workspace, execution;
+        output, selection::StatisticsSelection{<:Tuple{Vararg{StatisticSlot}}},
+        grid::StatisticsGrid,
+        inputs::StatisticsInputs, workspace::StatisticsWorkspace, execution;
         periodic::Bool = false
     )
     length(output) == selection.width ||

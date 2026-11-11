@@ -975,9 +975,16 @@ function _source_material!(source, kerr_density, count)
     fill!(source.polarisation, 0)
     if data.kerr !== nothing
         coefficients = data.kerr.coefficients
-        samples = data.grid.kind == :field &&
-            coefficients isa KerrCoefficients{Float64, :analytic} ?
-            source.analytic.nodes : source.nodes
+        samples = if data.grid.kind == :field &&
+                coefficients isa KerrCoefficients{Float64, :analytic}
+            if source.analytic === nothing
+                message = "analytic field Kerr requires prepared analytic storage"
+                throw(ArgumentError(message))
+            end
+            source.analytic.nodes
+        else
+            source.nodes
+        end
         kerr_polarisation!(
             source.polarisation, samples, layout, coefficients, execution;
             density = kerr_density, carrier = data.grid.carrier, count,
@@ -1128,6 +1135,8 @@ function _source_temporal!(output, source)
     execution = source.execution
     rate, modal, scratch = source.data.grid.temporal_rate, source.modal_time,
         source.projection_work
+    rate === nothing &&
+        throw(ArgumentError("an active temporal source requires a prepared rate"))
     each!(execution, size(scratch)...) do row, column
         scratch[row, column] = -0.5 * rate[row] * modal[row, column]
     end

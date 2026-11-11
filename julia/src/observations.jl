@@ -198,11 +198,20 @@ function ObservationPreparation(
             throw(DimensionMismatch("population preparation disagrees with modal state"))
     end
     for slot in selection.slots
-        expected = slot.code in (1, 2, 4) ? n_modes :
-            slot.code in (3, 5) ? n_modes * size(grid.windows, 2) :
-            slot.code == 14 ? size(populations.map.synthesis, 1) *
-            length(populations.species_densities) :
-            slot.code == 15 ? length(populations.species_densities) : 1
+        expected = if slot.code in (1, 2, 4)
+            n_modes
+        elseif slot.code in (3, 5)
+            n_modes * size(grid.windows, 2)
+        elseif slot.code in (14, 15)
+            if populations === nothing
+                message = "selected population statistics need prepared populations"
+                throw(ArgumentError(message))
+            end
+            species = length(populations.species_densities)
+            slot.code == 14 ? size(populations.map.synthesis, 1) * species : species
+        else
+            1
+        end
         slot.count == expected ||
             throw(DimensionMismatch("observation slot disagrees with its numerical shape"))
     end
@@ -466,11 +475,16 @@ function ObservationWorkspace(
     else
         nothing
     end
-    axis = needs.intensity ?
+    axis = if needs.intensity
+        prepared.axis_synthesis === nothing &&
+            throw(ArgumentError("peak_intensity needs a separate coarse on-axis map"))
         (
             zeros(ComplexF64, n_time, size(prepared.axis_synthesis, 1)),
             zeros(ComplexF64, n_time, size(prepared.axis_synthesis, 1)),
-        ) : nothing
+        )
+    else
+        nothing
+    end
     populations = needs.populations ?
         _observation_population_work(execution, prepared.populations, n_modes, node_chunk) :
         nothing

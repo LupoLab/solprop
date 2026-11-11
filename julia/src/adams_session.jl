@@ -399,7 +399,9 @@ function _adams_session_mask!(field, active, execution)
     return nothing
 end
 
-function _adams_session_free(session, keep, offset)
+function _adams_session_free(
+        session::AdamsSession{E, A, P, H}, keep::Int, offset::Int,
+    )::Int where {E, A, P, H <: AdamsHistory}
     for candidate in eachindex(session.history.positions)
         used = false
         for index in 1:keep
@@ -410,7 +412,10 @@ function _adams_session_free(session, keep, offset)
     error("Adams history has no free prepared slot")
 end
 
-function _adams_session_commit!(session, landing, choice)
+function _adams_session_commit!(
+        session::AdamsSession{E, A, P, H}, landing::AdamsApproach,
+        choice::AdamsOrderChoice,
+    ) where {E, A, P <: AdamsControlPolicy, H <: AdamsHistory}
     control, history, policy = session.control, session.history, session.policy
     accepted_steps = Base.Checked.checked_add(session.ledger.accepted_steps, 1)
     restarts = Base.Checked.checked_add(session.ledger.restarts, Int(landing.hard_kink))

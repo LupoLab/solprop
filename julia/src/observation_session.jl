@@ -475,8 +475,9 @@ end
 
 @inline _observation_copy_slices!(destination, source, ::Tuple{}, column) = nothing
 @inline function _observation_copy_slices!(
-        destination, source, slices::Tuple{T, Vararg}, column,
-    ) where {T}
+        destination, source, slices::Tuple{NTuple{3, Int}, Vararg{NTuple{3, Int}}},
+        column::Int,
+    )
     first, output, count = Base.first(slices)
     for index in 0:(count - 1)
         destination[output + index, column] = source[first + index]
