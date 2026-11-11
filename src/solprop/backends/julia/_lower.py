@@ -22,7 +22,7 @@ __all__ = ["RunTransfer", "lower_run"]
 
 @dataclass(frozen=True, eq=False)
 class RunTransfer:
-    """Hold one resolved landed-session request for one-time Julia conversion.
+    """Hold one resolved numerical session request for one-time Julia conversion.
 
     Attributes
     ----------
@@ -80,7 +80,7 @@ class RunTransfer:
 
 
 def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
-    """Lower a resolved landed-plane method and numerical policy once.
+    """Lower a resolved method and numerical observation policy once.
 
     Parameters
     ----------
@@ -107,8 +107,11 @@ def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
     validate_run(problem, request)
     if type(request.error_control.controller) is not PIController:
         raise BackendError("julia refuses custom controllers; use numpy_ref")
-    if request.observation.dense:
-        raise BackendError("julia refuses interpolated planes; use native or numpy_ref")
+    if request.observation.dense and request.integration.kind is not MethodKind.ADAMS:
+        raise BackendError(
+            "julia currently supports interpolated planes only with adaptive Adams; "
+            "use native or numpy_ref for other methods"
+        )
     tableau, control = request.integration.tableau, request.error_control
     replay = request.replay
     weights = control.controller.weights

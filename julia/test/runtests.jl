@@ -46,6 +46,8 @@ if group == "Core"
     include("adams_observation.jl")
     include("adams_transfer.jl")
     include("observation_session.jl")
+    include("adams_dense_session.jl")
+    include("adams_dense_transfer.jl")
     include("observation_transfer.jl")
     include("monitor_transfer.jl")
     include("transfer_aliases.jl")

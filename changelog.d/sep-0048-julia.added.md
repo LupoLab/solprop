@@ -49,6 +49,10 @@ binary64 snapshots transfer raw accepted state and full history stores losslessl
 compatible Julia/NumPy/native CPU continuation adds no startup charge. Field-only resets preserve
 cumulative budgets and record incompatible history explicitly. The remaining restart
 and device qualification matrix is still in progress.
+Adaptive Adams dense planes retain their own selected field and coordinate while the
+committed march remains ahead. Power conversion and statistics use the observation
+coordinate; interior fields refuse future endpoint history, and snapshots wait for
+all owed planes before copying a committed checkpoint.
 Cumulative counters refuse before overflow or unrecordable work, preserving their
 saved values ([#658](https://github.com/LupoLab/solprop/issues/658)).
 

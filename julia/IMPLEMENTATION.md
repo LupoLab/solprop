@@ -11,7 +11,7 @@ The completed implementation is left ready for maintainer review, not auto-merge
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
 | 1: package and runtime | Setup/package integrated; remaining runtime qualification deferred | Maintainer directs core implementation to proceed; failures remain tracked |
-| 2: CPU binary64 session | Scalar modal stepping, statistics, temporal monitoring and fixed groups pass; remaining services/routes in progress | Histories, same-field statistics and 24 common conformance cases pass; dense and transverse attachment remain pending |
+| 2: CPU binary64 session | Scalar modal stepping, statistics, temporal monitoring, fixed groups and adaptive Adams dense output pass; remaining services/routes in progress | Histories, same-field statistics and 24 common conformance cases pass; RK dense, noise, split and spatial attachment remain pending |
 | 3: CPU binary32 | DF32 primitives, conservative function leaf and operand analysis reviewed; full execution pending | Whole-expression and device admission remain unqualified |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
@@ -54,10 +54,10 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Numerical transform/Adams agent | New scalar spatial transform/composition files and focused tests, exact interface pending agreement | Dense scheduler `c527047a` returned for independent review; analysing radial, Cartesian and line routes |
-| Numerical services agent | New `input_noise.jl`, its Julia test, Python `_noise.py` and `test_noise_records.py` | Binary64 input-noise leaf; shared lifecycle and monitor attachment remain master-owned |
+| Numerical transform/Adams agent | New `spatial_operators.jl`, `spatial_composition.jl` and focused tests; narrow shared response-validation extraction in `composition.jl` | Scalar radial, Cartesian and line kernels; frozen constructors, Python/services remain master-owned |
+| Numerical services agent | New RK dense observation leaf and two focused tests; narrow RK fields/constructor/trial and landing-target hook in `march.jl` | Frozen translated DOPRI5 weights interface; no common scheduler/service edits |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
-| Independent reviewer | Production code read-only; independent transaction tests returned to master | Group adapter approved; dense scheduler and input noise next |
+| Independent reviewer | Production code read-only; independent transaction tests returned to master | Group, dense scheduler/adapter and corrected input-noise leaf approved; independent integration review continues |
 
 The temporary CI assignments for `restore_control!`, CPU allocation and source/monitor
 constructors are complete and integrated after independent review. Their files return
@@ -82,8 +82,8 @@ The request-specific statistics bridge has passed integration and independent re
 Its first runtime pass found a PythonCall automatic-array-conversion dispatch gap;
 a distinct Python copy entry now transposes the packed destination explicitly.
 Transactional retries, buffer alias/admission and retained-array cleanup now pass.
-Dense output, groups, noise
-and broader routes still block phase 2 completion. The subsequent phases continue
+RK dense output, noise, split absorption
+and admitted spatial routes still block phase 2 completion. The subsequent phases continue
 without another approval step; the completed implementation PR remains unmerged.
 The reviewer-authored statistic-bound helper is integrated at `8e8aa1c6` after
 master review. It uses exact rational reduction bounds, a declared CPU FFT envelope,
@@ -97,8 +97,9 @@ group contract; portable-history groups are not admitted.
 The numerical group leaf `cb8ace0e` is integrated at `340ea43c`. Independent review
 passed 639 bounds-enabled assertions, including original witnesses for nonprogressing
 near-coincident planes (#666) and zero-trial deadline turns (#667). Warmed advancement
-allocates zero; the author's package/concrete quality checks pass. Public compatibility,
-transactional original-start adoption and complete Python group windows remain pending.
+allocates zero; the author's package/concrete quality checks pass. Its public compatibility,
+transactional original-start adoption and complete Python windows have since passed
+the integration milestone below.
 The DF32 function API admits only the documented `abs(real(z)) <= 16`,
 `abs(imag(z)) <= 2^20` domain with a separate `u/8` input-error budget. Protected
 exponential, phasor and phi helpers implement that derivation;
@@ -123,7 +124,7 @@ The Python group adapter is independently approved on the reviewed Julia coordin
 chooses every member turn; Python copies bounded transports and joins each member
 chunk exactly once. Core group acknowledgment leaves member barriers held until the
 next Julia turn. Starts and owners transfer only after all member construction succeeds.
-Dense Adams attachment proceeds independently with explicit observed-field/coordinate
+Dense Adams attachment is independently approved with explicit observed-field/coordinate
 selectors while committed state stays monotone. Dense observations precede deferred
 endpoint periodic rows and snapshots. Shared replay-plus-interpolation refusal remains
 unchanged.
@@ -664,3 +665,14 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   remain visible; no whole-package CI result is inferred from these checks.
   The shared alias/layout correction is now exercised through the actual managed
   PythonCall bridge in the mandatory Julia lane. Review and current runtime checks pass.
+- Adaptive Adams dense scheduler `c527047a` is integrated as `6da9b9b7` after an
+  independent 1,327-assertion numerical review. The adapter uses authoritative observed
+  field/coordinate selectors for export and power conversion; no caller can request
+  committed history while a dense plane behind it is selected. Snapshots drain owed
+  observations before saving the endpoint. The independent attachment review passes
+  2,291 bounds-enabled assertions, including forced-terminal coordinate changes and
+  an affine-weight export bound. All 85 real core/history/statistic/monitor/group/dense
+  cases pass, including an interior field-only restart and independent RK refinement.
+  The integrated Core suite passes 110,764 assertions in 244 sets. Aqua/JET passes all
+  16 checks over 1,217 definitions; the affected typed selection passes 149 tests.
+  Replay/interpolation and split/interpolation refusals remain unchanged.

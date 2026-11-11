@@ -645,7 +645,7 @@ function export_session!(
         power::Bool, optics::Bool,
     )
     _session_exportable(session, generation)
-    field = session.field
+    field = _march_observed_field(session)
     size(output) == size(field) == size(power_weight) ||
         throw(DimensionMismatch("session export dimensions disagree"))
     _transfer_writable_destination(output)
@@ -822,7 +822,8 @@ function export_session!(
         throw(ArgumentError("an export must not alias retained numerical storage"))
     if power
         evaluate_weight!(
-            storage.values, storage.weight, session.state.z, session.execution;
+            storage.values, storage.weight, _march_observed_position(session),
+            session.execution;
             work = storage.coefficients,
         )
     end

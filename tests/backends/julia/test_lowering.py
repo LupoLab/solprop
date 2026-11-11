@@ -93,6 +93,18 @@ def test_run_lowering_preserves_actual_replay_lengths_beyond_the_adaptive_ceilin
     assert not transfer.matrix.flags.writeable
 
 
+def test_dense_adams_separates_observation_planes_from_step_landings():
+    case = adams_case(steps=None)
+    request = replace(
+        case.request, observation=replace(case.request.observation, dense=True)
+    )
+    transfer = lower_run(case.problem, request)
+    assert transfer.adams is not None and transfer.adams.interpolate
+    assert transfer.adams.save_planes == ()
+    np.testing.assert_array_equal(transfer.planes, request.observation.save_planes)
+    assert not transfer.planes.flags.writeable
+
+
 @pytest.mark.parametrize("order", [1, 5, 6])
 @pytest.mark.parametrize("interval_cap", [False, True])
 def test_adams_lowering_uses_shared_policy_and_preserves_replay(order, interval_cap):

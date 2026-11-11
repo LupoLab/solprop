@@ -56,7 +56,13 @@ Julia setup, thread count or backend name. Incompatible keys, precision or store
 produce the shared explicit field-reset reason before any history is installed.
 Short fixed-history continuation between Julia, the NumPy reference and native CPU is
 tested in both directions involving Julia. Plain and compensated stores retain every
-row exactly. Dense checkpoints and the remaining restart matrix still need qualification.
+row exactly. Adaptive Adams can retain its accepted step and evaluate all crossed
+observation planes without replacing the committed state or calling the source again.
+Statistics and field conversion use the plane's own coordinate. An interior plane has
+no portable history from the endpoint ahead of it; it can restart from its exported
+field. Snapshot requests wait until the owed planes are delivered, then save the
+committed endpoint and its history. Dense output remains incompatible with fixed replay
+and split temporal absorption, as in the shared policy.
 
 Low-storage execution records preserve the established `source_evaluations` count
 of committed steps and separately report `attempted_source_evaluations` and completed
@@ -69,7 +75,7 @@ Unsupported combinations currently refuse by name at preparation. The standalone
 Statistics and temporal/transverse-monitor components have separate tests;
 their presence alone does not establish complete Python session support.
 The current session supports in-stage temporal absorption. Split absorption, input noise,
-radial, Cartesian and line transforms, and dense attachment remain pending. Vector
+radial, Cartesian and line transforms, and Runge–Kutta dense attachment remain pending. Vector
 polarisation, tensor Raman, general modal and planar routes, coupled flows, TDSE and
 dispersive Kerr remain outside SEP 48's admitted scope and refuse by name.
 An explicit node chunk bounds the source's physical-node scratch; memory-budget

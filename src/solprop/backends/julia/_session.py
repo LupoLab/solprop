@@ -861,9 +861,7 @@ class JuliaSession:
             or ticket.generation != report.generation
             or ticket.z != report.z
         ):
-            raise SessionError(
-                "the Julia export ticket does not name this committed state"
-            )
+            raise SessionError("the Julia export ticket does not name this held state")
         return report
 
     def export(
@@ -877,7 +875,7 @@ class JuliaSession:
         Parameters
         ----------
         ticket : solprop.backends.events.ExportTicket
-            Current committed-state ticket.
+            Current ticket for the selected observation or committed endpoint.
         recipe : solprop.backends.export.ExportRecipe
             Power and Fourier-convention conversion, in shared operation order.
         out : numpy.ndarray or None, optional
@@ -927,7 +925,7 @@ class JuliaSession:
         Parameters
         ----------
         ticket : solprop.backends.events.ExportTicket
-            Current committed-state ticket.
+            Current ticket for the selected observation or committed endpoint.
 
         Returns
         -------
@@ -957,7 +955,7 @@ class JuliaSession:
         Parameters
         ----------
         ticket : solprop.backends.events.ExportTicket
-            Current committed-state ticket.
+            Current ticket for the selected observation or committed endpoint.
 
         Returns
         -------
@@ -1109,7 +1107,7 @@ class JuliaSession:
         Parameters
         ----------
         ticket : solprop.backends.events.ExportTicket
-            Pending committed-state ticket.
+            Pending ticket for the selected observation or committed endpoint.
 
         Returns
         -------
@@ -1127,7 +1125,7 @@ class JuliaSession:
         return chunk, payload.rows
 
     def pending_ticket(self) -> ExportTicket | None:
-        """Return a pending committed-state ticket after an external service failure.
+        """Return the held observation or endpoint ticket, even after service failure.
 
         Returns
         -------

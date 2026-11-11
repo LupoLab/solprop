@@ -153,8 +153,9 @@ Services supply scalar quiet/cap decisions and candidate finishing through the
 shared march hooks. Interpolating sessions own one retained accepted dense window,
 observed separately from the committed state. Each crossed interior plane is delivered
 before endpoint periodic rows or snapshots, without another source evaluation.
-`ledger.dense_observations` counts each successful strict interior evaluation once;
-canonical endpoint observations copy the committed field and do not increment it.
+`ledger.dense_observations` counts each successful observation strictly before the
+canonical committed endpoint once, including endpoint copies in a validated positive
+raw-to-canonical snap gap. Observations at the canonical endpoint do not increment it.
 
 Throw `ArgumentError` for interpolation with replay or a per-step split collar,
 unsupported execution/flow, inconsistent run topology or incompatible initial arrays.

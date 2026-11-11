@@ -156,7 +156,10 @@ function adams_history_info(
     _session_exportable(session, generation)
     isfinite(observation_z) || throw(ArgumentError("the observation position is nonfinite"))
     count = session.control.held
-    (count == 0 || observation_z != session.state.z) && return nothing
+    (
+        count == 0 || observation_z != session.state.z ||
+            _march_observed_position(session) != session.state.z
+    ) && return nothing
     1 <= count <= session.policy.order + 1 ||
         throw(ArgumentError("the retained Adams history count is invalid"))
     history = session.history

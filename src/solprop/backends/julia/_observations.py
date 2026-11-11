@@ -4,7 +4,7 @@
 
 """Lower one request's scalar modal observations without entering a backend.
 
-Julia reconstructs and evaluates every observation from the actual committed field.
+Julia evaluates each observation from the selected dense or committed field.
 This module only prepares numeric inputs: the catalogue's packed output layout,
 represented power and material profiles, a separate coarse on-axis map, and the
 shared temporal monitor policy. It retains no Python physics object or callback.
