@@ -680,7 +680,8 @@ which is authoritative, or the automatic choice
 (`solprop.backends.node_chunk.plan_node_chunk`) -- records it in its execution metadata,
 and keeps it out of every identity and resume key. The native backend lowers the plan
 further (`solprop_native.backend.native_node_chunk`: whole y rows on the planar kind, and
-`device_node_chunk` for a device build's automatic plan).
+`device_node_chunk` for a device build's automatic plan: the host rule at a quarter of the
+accelerator's free bytes, never fewer nodes than the host plan, solprop issue #361).
 
 For radial geometry, `synthesis` is the inverse raw QDHT times the temporal pad
 scale, `projection` is the forward QDHT, and `projection_coarse` equals

@@ -461,7 +461,8 @@ def test_the_device_rule_applies_to_an_automatic_plan_alone(
     problem = BUILDERS["collar-free"]()
     calls = []
 
-    def larger(problem, planned):
+    def larger(problem, planned, free):
+        del free
         calls.append(planned)
         return problem.transform.n_nodes
 
@@ -476,9 +477,26 @@ def test_the_device_rule_applies_to_an_automatic_plan_alone(
     assert lower(problem, forced, device=True) == 3
     assert lower(problem, automatic, device=False) == automatic.chunk
     assert calls == [automatic.chunk]
-    # Today's rule is the host plan's chunk.
+    # A host build knows no free device bytes: the host plan's chunk.
     monkeypatch.undo()
-    assert native_backend.device_node_chunk(problem, 7) == 7
+    assert native_backend.device_node_chunk(problem, 7, None) == 7
+
+
+def test_the_device_rule_budgets_a_share_of_the_free_device_bytes(native_backend):
+    """One chunk where a quarter of the free bytes holds it, else the largest that
+    does, never below the host plan's chunk (solprop issue #361)."""
+    rule = native_backend.device_node_chunk
+    share = native_backend.DEVICE_BUDGET_SHARE
+    problem = BUILDERS["collar-free"]()
+    n_nodes = problem.transform.n_nodes
+    narrow = plan_node_chunk(problem, ExecutionOptions(node_budget=2**18)).chunk
+    assert 1 < narrow < n_nodes
+    assert rule(problem, 1, 2**50) == n_nodes
+    assert rule(problem, 1, share * 2**18) == narrow
+    assert rule(problem, narrow + 1, share * 2**18) == narrow + 1
+    # A share that cannot hold one node leaves the host plan's chunk.
+    assert rule(problem, 5, share) == 5
+    assert rule(problem, 5, None) == 5
 
 
 def test_the_native_backend_executes_and_records_its_lowered_chunk(native_backend):

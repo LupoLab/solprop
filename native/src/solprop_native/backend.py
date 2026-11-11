@@ -2757,15 +2757,29 @@ def _on_device() -> bool:
     return _build_facts().info["device_backend"] != "none"
 
 
-def device_node_chunk(problem: PropagationProblem, planned: int) -> int:
+DEVICE_BUDGET_SHARE = 4
+"""The share of the accelerator's free bytes an automatic plan budgets: one quarter.
+
+The budget is spent on the host plan's conservative inventory (twenty column buffers a
+Cartesian column, about three times the live buffers, solprop issue #349), so the live
+space-domain buffers take near a twelfth of the free bytes, leaving the rest for the
+state, the march's registers and a scan's other members."""
+
+
+def device_node_chunk(
+    problem: PropagationProblem, planned: int, free: int | None
+) -> int:
     """Return the node chunk a device build takes when no budget or chunk is given.
 
-    solprop issue #361: on a device a node chunk is a kernel launch, and SEP 46's phase
-    6 measured 6-25 % from larger chunks on H200 spatial routes. No larger default is
-    qualified yet, so this keeps the host plan's chunk, today's device behaviour. A
-    changed rule lands here, once its benefit, memory cost and CUDA and HIP timing are
-    qualified (SEP 47 section 11, phase 4). It is consulted only for an automatic plan:
-    an explicit budget or chunk always wins. It runs at backend construction, after the
+    solprop issue #361: on a device a node chunk is a kernel launch, and fewer, larger
+    launches are faster: one chunk took 0.74-0.92 of the default's time on AMD Instinct
+    MI300X spatial routes (SEP 47 Part II), at the cost of space-domain buffers for
+    every node at once. So an automatic plan budgets :data:`DEVICE_BUDGET_SHARE`'s share
+    of the free device bytes, through the host plan's own rule and response admissions
+    (:func:`solprop.backends.node_chunk.plan_node_chunk`): one chunk wherever that fits,
+    otherwise the largest that does, and never fewer nodes than the host plan's chunk
+    at the route's default budget. It is consulted only for an automatic plan: an
+    explicit budget or chunk always wins. It runs at backend construction, after the
     translation, so no device runtime starts before a scan forks.
 
     Parameters
@@ -2775,14 +2789,24 @@ def device_node_chunk(problem: PropagationProblem, planned: int) -> int:
     planned : int
         The host plan's chunk at the default budget
         (:func:`solprop.backends.node_chunk.plan_node_chunk`).
+    free : int or None
+        The accelerator's free bytes, or ``None`` where none is known.
 
     Returns
     -------
     int
         The device's chunk, between 1 and the node count.
     """
-    del problem
-    return planned
+    if free is None:
+        return planned
+    budget = max(1, free // DEVICE_BUDGET_SHARE)
+    try:
+        roomy = plan_node_chunk(problem, ExecutionOptions(node_budget=budget))
+    except BackendError:
+        # A quarter of the free bytes cannot hold one node: the default plan stands,
+        # and its own allocation reports what does not fit.
+        return planned
+    return max(planned, roomy.chunk)
 
 
 def native_node_chunk(
@@ -2810,7 +2834,7 @@ def native_node_chunk(
     """
     chunk = plan.chunk
     if device and plan.automatic:
-        chunk = device_node_chunk(problem, chunk)
+        chunk = device_node_chunk(problem, chunk, _core.available_device_memory())
     chunk = min(chunk, problem.transform.n_nodes)
     geometry = problem.transform.geometry
     if geometry is not None and geometry.kind == "slab":
