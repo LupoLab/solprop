@@ -173,7 +173,8 @@ def test_a_z_table_s_staged_trial_is_the_host_packed_trial():
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        assert backend._staged_rows()
+        backend._staged_rows()
+        assert backend._rk_staged
         state = backend._native_state
         field = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
         state.set_initial(field.reshape(-1), np.empty(0, dtype=np.complex128))
