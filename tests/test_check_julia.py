@@ -250,6 +250,7 @@ def test_python_phase_runs_the_whole_adapter_directory(pinned_tree, monkeypatch)
                     "test_cpu_monitor",
                     "test_cpu_group",
                     "test_cpu_dense",
+                    "test_cpu_noise",
                     "test_transfer_aliases",
                 )
             )

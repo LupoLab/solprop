@@ -15,6 +15,7 @@ from solprop.backends.julia import _calls
 from solprop.backends.julia._descriptors import lower_modal, transfer_memory
 from solprop.backends.julia._group import JuliaGroupSession
 from solprop.backends.julia._lower import RunTransfer, lower_run
+from solprop.backends.julia._noise import lower_input_noise
 from solprop.backends.julia._observations import ObservationTransfer, lower_observations
 from solprop.backends.julia._ownership import JuliaHandle, require_main_thread
 from solprop.backends.julia._runtime import JuliaRuntime, get_runtime
@@ -232,6 +233,7 @@ class JuliaBackend:
             prepared,
             transfer,
             problem.shape,
+            problem=problem,
             observation=observation,
             monitor=(
                 None
@@ -499,6 +501,9 @@ class JuliaPrepared:
         Per-run policy, copied into each independently owned engine session.
     shape : tuple of int
         Host field shape ``(n_modes, n_pol, n_omega)``.
+    problem : PropagationProblem or None, optional
+        Actual scientific input descriptor for per-start noise selection; the owner's
+        descriptor by default. A derived input keeps its own draw without a draw cache.
     observation : ObservationTransfer or None, optional
         Request-specific immutable observation layout and represented inputs.
     monitor : solprop.monitor.BoundaryCheck or None, optional
@@ -513,6 +518,7 @@ class JuliaPrepared:
         transfer: RunTransfer,
         shape: tuple[int, int, int],
         *,
+        problem: PropagationProblem | None = None,
         observation: ObservationTransfer | None = None,
         monitor: BoundaryCheck | None = None,
     ) -> None:
@@ -522,6 +528,7 @@ class JuliaPrepared:
         self._preparation = preparation
         self._transfer = transfer
         self._shape = shape
+        self._problem = owner._problem if problem is None else problem
         self._observation = observation
         self._monitor = monitor
         self._owner._prepared.add(self)
@@ -571,8 +578,8 @@ class JuliaPrepared:
         SessionError
             If its execution owner is already closed.
         """
-        if self._owner.closed:
-            raise SessionError("the Julia prepared execution is closed")
+        self._owner._check()
+        noise = lower_input_noise(self._problem, noise=start.noise)
         session = JuliaSession(
             self._runtime,
             self._preparation,
@@ -589,6 +596,7 @@ class JuliaPrepared:
             started=started,
             observation=self._observation,
             monitor=self._monitor,
+            noise=noise,
         )
         self._owner.register(session)
         return session

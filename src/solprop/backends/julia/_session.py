@@ -52,6 +52,7 @@ from solprop.backends.julia._monitor import (
     parse_resume,
     read_monitor,
 )
+from solprop.backends.julia._noise import InputNoiseTransfer
 from solprop.backends.julia._observations import ObservationTransfer
 from solprop.backends.julia._ownership import JuliaHandle, require_main_thread
 from solprop.backends.julia._runtime import JuliaRuntime
@@ -147,6 +148,9 @@ class JuliaSession:
         Immutable shapes and offsets for Julia-owned observation services.
     monitor : solprop.monitor.BoundaryCheck or None, optional
         Immutable policy for formatting Julia-decided monitor records and notices.
+    noise : InputNoiseTransfer or None, optional
+        Owned per-start draw, copied into Julia during construction and not retained
+        by Python. Its active model was checked by the prepared execution.
 
     Raises
     ------
@@ -171,6 +175,7 @@ class JuliaSession:
         started: Callable[[float, float, int], None] | None = None,
         observation: ObservationTransfer | None = None,
         monitor: BoundaryCheck | None = None,
+        noise: InputNoiseTransfer | None = None,
     ) -> None:
         """Validate the start, construct its independent engine, then take the field."""
         runtime.check()
@@ -214,7 +219,7 @@ class JuliaSession:
         self._stop = stop
         self._token = stop if isinstance(stop, StopToken) else StopToken()
         self._lease = StopLease(runtime, self._token)
-        self._engine = self._start_engine(transfer, start, restored)
+        self._engine = self._start_engine(transfer, start, restored, noise)
         start.take_field()
         self._busy = False
         self._servicing = False
@@ -223,13 +228,22 @@ class JuliaSession:
         self._last_status = SessionStatus(
             start.z, start.plane_index, 0, 0, SessionState.READY
         )
-        self._exports: dict[ExportRecipe, np.ndarray] = {}
+        self._exports: dict[ExportRecipe, tuple[ExportTicket, np.ndarray]] = {}
+        self._has_noise = noise is not None
+        self._phases: dict[ExportTicket, np.ndarray] = {}
+        # Copies retain their local cache until publication. Invalidating an event
+        # replaces these dictionaries, so callbacks cannot republish into a new
+        # event or a closed session after returning from the foreign copy.
         self._field_exports = 0
         self._abandoned: tuple[float, float] | None = None
         self._group_chunk = 0
 
     def _start_engine(
-        self, transfer: RunTransfer, start: Start, restored: CallRestore | None
+        self,
+        transfer: RunTransfer,
+        start: Start,
+        restored: CallRestore | None,
+        noise: InputNoiseTransfer | None,
     ) -> JuliaHandle:
         """Construct and restore a numerical owner before taking the start's field.
 
@@ -241,6 +255,8 @@ class JuliaSession:
             Unconsumed field and optional portable history.
         restored : CallRestore or None
             Validated cumulative ledger, installed before numerical history.
+        noise : InputNoiseTransfer or None
+            The selected input draw, copied before launch observation or history work.
 
         Returns
         -------
@@ -263,6 +279,8 @@ class JuliaSession:
                 int(start.plane_index),
                 bool(start.plane_pending),
                 self._lease.flag,
+                noise,
+                bool(start.resume),
                 owners=(self._lease,),
             )
             if restored is not None:
@@ -327,8 +345,6 @@ class JuliaSession:
             or not math.isfinite(start.z)
         ):
             raise BackendError("julia requires a finite complex128 starting field")
-        if start.noise is not None:
-            raise BackendError("this Julia composition does not yet restore noise")
 
     def _check(self, *, allow_control: bool = False) -> None:
         """Require an open session on main without recursive entry.
@@ -559,7 +575,8 @@ class JuliaSession:
                     ),
                 )
         self._group_chunk = chunk
-        self._exports.clear()
+        self._exports = {}
+        self._phases = {}
         receipt = self._hold(report)
         history = _calls.attempts(self._runtime, self._engine, report.generation)
         if error is None:
@@ -829,7 +846,8 @@ class JuliaSession:
                 self._report.generation,
             )
             self._ledger.acknowledge(receipt)
-            self._exports.clear()
+            self._exports = {}
+            self._phases = {}
             self._payload = None
             self._held = False
 
@@ -896,11 +914,12 @@ class JuliaSession:
         report = self._check_ticket(ticket)
         if out is not None and (reason := destination_refusal(out, self._shape)):
             raise BackendError(reason)
-        held = self._exports.get(recipe)
-        if held is not None:
+        cache = self._exports
+        held = cache.get(recipe)
+        if held is not None and held[0] == ticket:
             if out is None:
-                return held
-            np.copyto(out, held)
+                return held[1]
+            np.copyto(out, held[1])
             return out
         destination = np.empty(self._shape, dtype=np.complex128) if out is None else out
         _calls.call_void(
@@ -916,11 +935,14 @@ class JuliaSession:
         self._field_exports += 1
         if out is None:
             destination.setflags(write=False)
-            self._exports[recipe] = destination
+            # A main-thread callback may acknowledge or replace the event after
+            # the foreign copy returns. Bind publication to the complete ticket,
+            # including a terminal replacement within one numerical generation.
+            cache[recipe] = (ticket, destination)
         return destination
 
     def noise_phase(self, ticket: ExportTicket) -> np.ndarray | None:
-        """Return no noise phase for this noiseless composition.
+        """Copy the input draw's absolute unitary phase at the selected coordinate.
 
         Parameters
         ----------
@@ -930,10 +952,28 @@ class JuliaSession:
         Returns
         -------
         numpy.ndarray or None
-            None; noise is refused before this composition starts.
+            Read-only binary64 radians with the field's shape, detached from Julia;
+            None when the problem has no active input noise. Returned arrays remain
+            valid after acknowledgment and closure.
         """
-        self._check_ticket(ticket)
-        return None
+        report = self._check_ticket(ticket)
+        if not self._has_noise:
+            return None
+        cache = self._phases
+        held = cache.get(ticket)
+        if held is None:
+            phase = np.empty(self._shape, dtype=np.float64)
+            _calls.call_void(
+                self._runtime,
+                "copy_session_noise_phase!",
+                phase,
+                self._engine,
+                report.generation,
+            )
+            phase.setflags(write=False)
+            cache[ticket] = phase
+            return phase
+        return held
 
     def request_snapshot(self) -> SnapshotReceipt:
         """Latch a snapshot at an eligible accepted endpoint.
@@ -1181,6 +1221,10 @@ class JuliaSession:
         self._check()
         ledger = _calls.memory(self._runtime, self._engine)
         ledger["execution.response_orders"] = self._accounting.orders.nbytes
+        if self._phases:
+            ledger["input_noise.phase_export"] = sum(
+                phase.nbytes for phase in self._phases.values()
+            )
         if self._payload is not None:
             ledger.update(
                 (f"observation.{name}", size)
@@ -1191,7 +1235,7 @@ class JuliaSession:
                 (f"monitor.{name}", size)
                 for name, size in transfer_memory(self._monitor).items()
             )
-        for recipe, values in self._exports.items():
+        for recipe, (_, values) in self._exports.items():
             ledger[f"export_power_{recipe.power}_optics_{recipe.optics}"] = (
                 values.nbytes
             )
@@ -1216,7 +1260,8 @@ class JuliaSession:
                 SessionState.CLOSED,
                 status.outcome,
             )
-            self._exports.clear()
+            self._exports = {}
+            self._phases = {}
             self._payload = None
             try:
                 self._engine.close()

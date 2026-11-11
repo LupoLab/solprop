@@ -744,7 +744,13 @@ class JuliaGroupSession:
             else None
         )
         shared = tuple(
-            (member._payload, member._accounting, member._monitor, member._exports)
+            (
+                member._payload,
+                member._accounting,
+                member._monitor,
+                member._exports,
+                member._phases,
+            )
             for member in self._members
         )
         result.update(

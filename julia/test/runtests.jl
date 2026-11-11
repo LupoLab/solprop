@@ -51,6 +51,8 @@ if group == "Core"
     include("observation_transfer.jl")
     include("monitor_transfer.jl")
     include("transfer_aliases.jl")
+    include("input_noise.jl")
+    include("input_noise_transfer.jl")
     include("low_storage_session.jl")
     include("group_session.jl")
     include("transfer.jl")

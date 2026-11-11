@@ -194,7 +194,16 @@ class _Engine:
             setattr(self.module, name, operation)
 
     def start(  # noqa: PLR0913, PLR0917 - mirrors the fixed Julia bridge entry
-        self, preparation, transfer, field, z, plane, plane_pending, stop
+        self,
+        preparation,
+        transfer,
+        field,
+        z,
+        plane,
+        plane_pending,
+        stop,
+        noise=None,
+        resume=False,
     ):
         if self.construct_error is not None:
             raise self.construct_error
@@ -331,6 +340,7 @@ def boundary(monkeypatch, setup_record):
     owner._wide = "binary64"
     owner._node_chunk = 1
     owner._observation = None
+    owner._problem = cpu_case().problem
     prepared = JuliaPrepared(owner, runtime, preparation, _transfer(), SHAPE)
     harness = SimpleNamespace(
         engine=engine,

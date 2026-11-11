@@ -11,6 +11,7 @@ public restore_session_counts!
 public SessionPreparation, prepare_observations, session_observation_status
 public session_observations!
 public copy_session_observations!
+public copy_session_noise_phase!
 
 """
     ModalPreparation(execution, data, operator, power_weight, node_chunk)
@@ -56,25 +57,28 @@ function prepare_observations end
 
 _modal_preparation(preparation::ModalPreparation) = preparation
 _modal_preparation(preparation::SessionPreparation) = preparation.modal
-_observation_services(preparation::ModalPreparation) = _NoSessionServices()
-function _observation_services(preparation::SessionPreparation)
+_observation_services(preparation::ModalPreparation; noise_spectrum = nothing) =
+    _NoSessionServices()
+function _observation_services(preparation::SessionPreparation; noise_spectrum = nothing)
     modal = preparation.modal
     return ObservationServices(
         modal.execution, preparation.observations; node_chunk = modal.node_chunk,
+        noise_spectrum,
     )
 end
 
-struct _FieldExport{W, A, C}
+struct _FieldExport{W, A, C, N}
     weight::W
     values::A
     coefficients::C
+    noise::N
 end
 
-function _FieldExport(execution, weight)
+function _FieldExport(execution, weight; noise = nothing)
     count = weight.weights === nothing ? 0 : size(weight.weights.coefficients, 1)
     return _FieldExport(
         weight, dzeros(execution, Float64, weight.shape...),
-        dzeros(execution, Float64, count),
+        dzeros(execution, Float64, count), noise,
     )
 end
 
@@ -90,7 +94,8 @@ admission precedes this entry; typed numerical constructors recheck the data.
 function prepare_modal end
 
 """
-    start_runge_kutta(preparation, transfer, field, z, plane, plane_pending, stop)
+    start_runge_kutta(preparation, transfer, field, z, plane, plane_pending, stop,
+                      noise=nothing, resume=false)
 
 Copy a starting Python field and resolved run transfer into an independently owned session.
 
@@ -98,11 +103,15 @@ The field uses `(n_modes,n_pol,n_omega)` Python storage; `z` is metres and `plan
 the authoritative zero-based next-plane cursor. `plane_pending` says whether launch
 must be delivered. `stop` is the lifetime-owned atomic flag. The extension performs
 all conversion before returning the session; mutable state is never shared between starts.
+Optional binary64 input `noise` is copied and added only at its fresh launch, before
+observations or history initialization. A `resume` never adds it again; the retained
+draw still supplies the monitor floor and observed-position phase exports.
 """
 function start_runge_kutta end
 
 """
-    start_adams(preparation, transfer, field, z, plane, plane_pending, stop)
+    start_adams(preparation, transfer, field, z, plane, plane_pending, stop,
+                noise=nothing, resume=false)
 
 Copy a starting field and resolved exponential Adams policy into an owned session.
 
@@ -113,7 +122,8 @@ The extension copies every policy value from the shared resolved Python record.
 function start_adams end
 
 """
-    start_low_storage(preparation, transfer, field, z, plane, plane_pending, stop)
+    start_low_storage(preparation, transfer, field, z, plane, plane_pending, stop,
+                      noise=nothing, resume=false)
 
 Copy a starting field and fixed itinerary into an owned low-storage RK4IP session.
 
@@ -668,6 +678,34 @@ function export_session!(
         end
         output[row, column] = ComplexF64(re, im)
     end
+    return nothing
+end
+
+"""
+    copy_session_noise_phase!(output, session, generation)
+
+Copy the input draw's unitary phase at the held observation or committed endpoint.
+
+`output` is detached writable binary64 real storage `(n_omega,n_columns)`, in radians.
+Validate the pending generation, layout, shape and every retained-storage dependency
+before evaluating the represented absolute phase. Missing input noise or invalid
+destinations throw `ArgumentError`; a failed evaluation leaves the destination intact.
+No source evaluation, trial, history mutation or launch addition occurs. The session
+owns and reuses the phase work; the destination remains caller-owned.
+"""
+function copy_session_noise_phase!(
+        output::AbstractMatrix{Float64}, session, generation::Int,
+    )
+    _session_exportable(session, generation)
+    noise = session.exports === nothing ? nothing : session.exports.noise
+    noise === nothing && throw(ArgumentError("this session has no input-noise phase"))
+    size(output) == size(noise.phase) ||
+        throw(DimensionMismatch("noise phase destination dimensions disagree"))
+    _transfer_writable_destination(output)
+    _retained_alias(output, session) &&
+        throw(ArgumentError("a noise phase destination must not alias retained storage"))
+    phase = input_noise_phase!(noise, _march_observed_position(session), session.execution)
+    copyto!(output, phase)
     return nothing
 end
 

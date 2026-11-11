@@ -11,7 +11,7 @@ The completed implementation is left ready for maintainer review, not auto-merge
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
 | 1: package and runtime | Setup/package integrated; remaining runtime qualification deferred | Maintainer directs core implementation to proceed; failures remain tracked |
-| 2: CPU binary64 session | Scalar modal stepping, statistics, temporal monitoring, fixed groups and adaptive Adams dense output pass; remaining services/routes in progress | Histories, same-field statistics and 24 common conformance cases pass; RK dense, noise, split and spatial attachment remain pending |
+| 2: CPU binary64 session | Scalar modal stepping, statistics, temporal monitoring, fixed groups, adaptive Adams dense output and input noise pass; remaining services/routes in progress | Histories, same-field statistics and 24 common conformance cases pass; RK dense, split and spatial attachment remain pending |
 | 3: CPU binary32 | DF32 primitives, conservative function leaf and operand analysis reviewed; full execution pending | Whole-expression and device admission remain unqualified |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
@@ -55,9 +55,15 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 | Assignment | Exclusive files | State |
 |---|---|---|
 | Numerical transform/Adams agent | New `spatial_operators.jl`, `spatial_composition.jl` and focused tests; narrow shared response-validation extraction in `composition.jl` | Scalar radial, Cartesian and line kernels; frozen constructors, Python/services remain master-owned |
-| Numerical services agent | New RK dense observation leaf and two focused tests; narrow RK fields/constructor/trial and landing-target hook in `march.jl` | Frozen translated DOPRI5 weights interface; no common scheduler/service edits |
+| Numerical services agent | New `precompile_workload.jl` source and focused test only | RK dense slice `f4cf2ed4` awaits independent review; shared scheduler correction stays master-owned |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
 | Independent reviewer | Production code read-only; independent transaction tests returned to master | Group, dense scheduler/adapter and corrected input-noise leaf approved; independent integration review continues |
+
+The precompile workload uses only owned, small CPU arrays and existing numerical
+constructors. It covers serial CPU session/source/observation dispatch without loading
+Python or devices, retaining no global mutable workspace and publishing no calibration
+files. Parallel specialization and cold-cache evidence are qualified separately; the
+workload never changes the process's thread policy. Module inclusion remains master-owned.
 
 The temporary CI assignments for `restore_control!`, CPU allocation and source/monitor
 constructors are complete and integrated after independent review. Their files return
@@ -82,7 +88,7 @@ The request-specific statistics bridge has passed integration and independent re
 Its first runtime pass found a PythonCall automatic-array-conversion dispatch gap;
 a distinct Python copy entry now transposes the packed destination explicitly.
 Transactional retries, buffer alias/admission and retained-array cleanup now pass.
-RK dense output, noise, split absorption
+RK dense output, split absorption
 and admitted spatial routes still block phase 2 completion. The subsequent phases continue
 without another approval step; the completed implementation PR remains unmerged.
 The reviewer-authored statistic-bound helper is integrated at `8e8aa1c6` after
@@ -676,3 +682,21 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   The integrated Core suite passes 110,764 assertions in 244 sets. Aqua/JET passes all
   16 checks over 1,217 definitions; the affected typed selection passes 149 tests.
   Replay/interpolation and split/interpolation refusals remain unchanged.
+- Binary64 input noise is attached to all three session methods. Each start selects
+  its actual problem/override draw, copies it into owned Julia storage, and adds it
+  only at a fresh launch before observations or history. Resumes keep their field
+  and the draw's monitor floor. Phase exports use the observed coordinate and the
+  absolute cumulative operator, including direct/expanded offsets. Modified and
+  binary32 noise still refuse. Independent review passed 1,340 bounds-enabled
+  assertions and eight typed callback-publication tests. The callback tests exposed
+  and fixed #680: copied fields/phases cannot populate replacement or closed caches.
+  The separately reviewed noise-floor comparison bound propagates absolute FFT
+  and energy errors through both numerator and denominator; its 19 tests pass.
+  All 100 real core/history/statistic/monitor/group/dense/noise cases pass on macOS
+  arm64 with two Julia threads. The affected typed selection passes 149 tests.
+  Core numerical tests plus the isolated inventory rerun pass 111,597 assertions
+  in 251 sets; the first inventory invocation lacked `--startup-file=no`, and an
+  isolated retry needed its existing `Pkg`/`TOML` imports. Those command errors did
+  not require source changes. Aqua/JET passes 16 checks over 1,236 definitions,
+  none cached. Scoped types, docstrings, Ruff, Runic, spelling and Sphinx pass.
+  Whole-package CI, standard performance records and remaining routes are pending.

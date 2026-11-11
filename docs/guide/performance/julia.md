@@ -28,6 +28,14 @@ into an error. Monitor continuation restores its original launch, cumulative tot
 and saved rows; it does not judge a resumed launch again. The first continuation
 supplied in `Start` takes precedence over a later output-record fallback. Monitor
 metadata remains readable after the session closes.
+Binary64 input noise uses the supplied draw without generating another realisation.
+Julia adds it once at a fresh problem launch and applies the active-band mask; a
+resumed field already contains its draw and never receives it again. The draw remains
+available for the monitor's noise floor. Phase exports evaluate the cumulative unitary
+phase at the selected observation coordinate, including a dense plane, and preserve
+represented absolute offsets. Each start selects its own draw, so reusing preparation
+does not reuse an earlier start's replacement noise. Modified noise and every binary32
+noise configuration remain refused.
 Snapshots, cooperative stops and field exports use the same session contract as other
 backends. An acknowledged event invalidates its export ticket; arrays already returned
 to Python remain valid. Failed output consumers can recover an undelivered history chunk
@@ -74,7 +82,7 @@ services before public backend selection is enabled.
 Unsupported combinations currently refuse by name at preparation. The standalone
 Statistics and temporal/transverse-monitor components have separate tests;
 their presence alone does not establish complete Python session support.
-The current session supports in-stage temporal absorption. Split absorption, input noise,
+The current session supports in-stage temporal absorption. Split absorption,
 radial, Cartesian and line transforms, and Runge–Kutta dense attachment remain pending. Vector
 polarisation, tensor Raman, general modal and planar routes, coupled flows, TDSE and
 dispersive Kerr remain outside SEP 48's admitted scope and refuse by name.

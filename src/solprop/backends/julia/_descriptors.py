@@ -614,7 +614,7 @@ def lower_modal(problem: PropagationProblem) -> ModalTransfer:
         (linear.modal_metric is not None, "general modal power metrics"),
         (responses.dispersive_kerr is not None, "dispersive Kerr"),
         (responses.regional_responses is not None, "regional responses"),
-        (problem.flags.has_noise, "input noise"),
+        (problem.initial.noise_model == "modified", "modified noise"),
         (
             problem.flags.has_temporal_absorber
             and responses.absorber_scheme != "nonlinear",

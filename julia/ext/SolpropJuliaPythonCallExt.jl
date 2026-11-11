@@ -7,6 +7,7 @@ import PythonCall: Py, PyArray, pyconvert, pyis, pyisinstance, pybuiltins
 import SolpropJulia
 import SolpropJulia: copy_preparation, prepare_modal, start_runge_kutta, start_adams
 import SolpropJulia: start_low_storage
+import SolpropJulia: copy_session_noise_phase!
 import SolpropJulia: prepare_observations, copy_session_observations!
 import SolpropJulia: copy_session_monitor_rows!, restore_session_monitor!
 import SolpropJulia: export_session!, session_attempts!, session_orders!
@@ -235,12 +236,25 @@ function _launch(preparation, transfer, field)
     return state, norm, schedule, source, flow
 end
 
+_launch_noise(preparation, ::Nothing) = nothing
+function _launch_noise(preparation, transfer::Py)
+    pyis(transfer, nothing) && return nothing
+    return SolpropJulia.InputNoise(
+        preparation.execution, copy_preparation(transfer.spectrum),
+        pyconvert(Float64, transfer.launch), preparation.operator,
+    )
+end
+
 function start_runge_kutta(
         preparation::Union{SolpropJulia.ModalPreparation, SolpropJulia.SessionPreparation},
         transfer::Py, field,
         z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
+        noise = nothing, resume::Bool = false,
     )
-    services = SolpropJulia._observation_services(preparation)
+    noise = _launch_noise(SolpropJulia._modal_preparation(preparation), noise)
+    services = SolpropJulia._observation_services(
+        preparation; noise_spectrum = noise === nothing ? nothing : noise.spectrum,
+    )
     preparation = SolpropJulia._modal_preparation(preparation)
     execution = preparation.execution
     tableau = SolpropJulia.EmbeddedTableau(
@@ -249,10 +263,12 @@ function start_runge_kutta(
     )
     policy = _control(transfer)
     state, norm, schedule, source, flow = _launch(preparation, transfer, field)
+    noise === nothing ||
+        SolpropJulia.apply_input_noise!(state, noise, norm.active, z, resume, execution)
     return SolpropJulia.RungeKuttaSession(
         execution, state, z, pyconvert(Float64, transfer.control.dz_init), tableau, policy,
         norm, schedule, source, flow; stop, plane_index = plane, plane_pending, services,
-        exports = SolpropJulia._FieldExport(execution, preparation.power_weight),
+        exports = SolpropJulia._FieldExport(execution, preparation.power_weight; noise),
     )
 end
 
@@ -291,18 +307,24 @@ function start_adams(
         preparation::Union{SolpropJulia.ModalPreparation, SolpropJulia.SessionPreparation},
         transfer::Py, field,
         z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
+        noise = nothing, resume::Bool = false,
     )
-    services = SolpropJulia._observation_services(preparation)
+    noise = _launch_noise(SolpropJulia._modal_preparation(preparation), noise)
+    services = SolpropJulia._observation_services(
+        preparation; noise_spectrum = noise === nothing ? nothing : noise.spectrum,
+    )
     preparation = SolpropJulia._modal_preparation(preparation)
     execution = preparation.execution
     policy = _adams_control(transfer.adams)
     state, norm, schedule, source, flow = _launch(preparation, transfer, field)
+    noise === nothing ||
+        SolpropJulia.apply_input_noise!(state, noise, norm.active, z, resume, execution)
     return SolpropJulia.AdamsSession(
         execution, state, z, pyconvert(Float64, transfer.control.dz_init),
         policy, norm, schedule, source, flow;
         stop, plane_index = plane, plane_pending, services,
         source_absent = pyconvert(Bool, transfer.source_absent),
-        exports = SolpropJulia._FieldExport(execution, preparation.power_weight),
+        exports = SolpropJulia._FieldExport(execution, preparation.power_weight; noise),
     )
 end
 
@@ -310,15 +332,21 @@ function start_low_storage(
         preparation::Union{SolpropJulia.ModalPreparation, SolpropJulia.SessionPreparation},
         transfer::Py, field,
         z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
+        noise = nothing, resume::Bool = false,
     )
-    services = SolpropJulia._observation_services(preparation)
+    noise = _launch_noise(SolpropJulia._modal_preparation(preparation), noise)
+    services = SolpropJulia._observation_services(
+        preparation; noise_spectrum = noise === nothing ? nothing : noise.spectrum,
+    )
     preparation = SolpropJulia._modal_preparation(preparation)
     execution = preparation.execution
     state, norm, schedule, source, flow = _launch(preparation, transfer, field)
+    noise === nothing ||
+        SolpropJulia.apply_input_noise!(state, noise, norm.active, z, resume, execution)
     return SolpropJulia.LowStorageSession(
         execution, state, z, SolpropJulia.RK4IPTableau(), norm, schedule, source, flow;
         stop, plane_index = plane, plane_pending, services,
-        exports = SolpropJulia._FieldExport(execution, preparation.power_weight),
+        exports = SolpropJulia._FieldExport(execution, preparation.power_weight; noise),
     )
 end
 
@@ -356,6 +384,22 @@ end
 
 include("observations.jl")
 include("monitor.jl")
+
+function copy_session_noise_phase!(
+        output::Union{Py, PyArray}, session, generation::Int,
+    )
+    borrowed = _python_buffer(Float64, Val(3), output)
+    modes, components, frequencies = size(borrowed)
+    wanted = (components * frequencies, frequencies, 1)
+    all(axis -> size(borrowed, axis) == 1 || stride(borrowed, axis) == wanted[axis], 1:3) ||
+        throw(ArgumentError("a Python phase destination must be C-contiguous"))
+    GC.@preserve output borrowed begin
+        address = Base.unsafe_convert(Ptr{Float64}, borrowed)
+        columns = unsafe_wrap(Array, address, (frequencies, components * modes); own = false)
+        copy_session_noise_phase!(columns, session, generation)
+    end
+    return nothing
+end
 
 function session_attempts!(
         positions::Py, lengths::Union{Py, PyArray},

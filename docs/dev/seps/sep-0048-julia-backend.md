@@ -1484,6 +1484,39 @@ passes targeted types, docstrings, formatting, spelling and documentation checks
 These are integration milestones; the remaining admitted spatial routes, split collar,
 input noise, dense attachment and qualification still block phase 2 completion.
 
+### Dense Adams observations and binary64 input noise — 2026-11-11
+
+Adaptive Adams now delivers every crossed plane from its retained accepted window
+without replacing the committed state. Statistics, phase and power conversion use the
+selected observation coordinate. Interior planes refuse the endpoint's future history;
+snapshots drain the owed planes before copying the committed endpoint. Replay and
+split/interpolation refusals are unchanged. Independent scheduler/attachment review
+and short refined-reference witnesses pass.
+
+All three CPU methods accept binary64 input noise. Julia copies the selected per-start
+draw, adds it only at a fresh problem launch, applies the active mask and retains the
+draw for monitor floors on resume. Cumulative phase exports preserve represented
+absolute offsets. Modified noise and all binary32 noise remain refused. No random
+generator, physical coefficient or noise model is introduced. The shared initial-state
+and cumulative-phase contracts were checked against the NumPy implementation.
+
+Independent review passes 1,340 bounds-enabled noise/session assertions and eight
+typed callback-publication witnesses. The latter exposed #680: a callback between a
+foreign copy and publication could populate the wrong event's cache. Export caches
+now retain the full ticket and are replaced at acknowledgment, terminal replacement
+or close; an interrupted copy can publish only to its original cache. A separately
+reviewed input-only noise-floor bound propagates absolute transform and reduction
+errors through the energy ratio and passes 19 perturbation/range witnesses.
+
+The integrated macOS arm64 selection passes 100 real managed-runtime cases, and its
+affected typed selection passes 149. Core numerical tests and the corrected isolated
+inventory invocation pass 111,597 assertions in 251 sets. The initial invocation
+errors omitted required startup/import context; no source workaround was made.
+Aqua/JET passes 16 checks with all 1,236 definitions analyzed, none cached. Targeted
+types, docstrings, formatting, spelling and Sphinx pass. These remain integration
+milestones: remaining routes, split/RK dense attachment, preparation and performance
+records still block phase 2 completion; later phases continue on the same branch.
+
 The recoverable assignment and verification record is `julia/IMPLEMENTATION.md`.
 The full primary-source DF32 analysis and per-vendor qualification remain in phases 3
 and 4. All implementation changes remain on the single draft PR #611.

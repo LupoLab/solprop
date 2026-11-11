@@ -43,6 +43,15 @@ events carry detached records; failed copies can retry without duplicating rows.
 Resumed runs retain the original launch, removal totals and monitor history, with
 the first supplied continuation taking precedence over an output-record fallback.
 
+Binary64 Julia input-noise sessions add the selected per-start draw only at a fresh
+launch, retain it for resumed monitor floors, and export detached cumulative phase
+arrays at the selected observation coordinate. Modified and binary32 noise remain
+refused. Draw application protects the active-mask storage before any candidate write
+([#678](https://github.com/LupoLab/solprop/issues/678)).
+Field and phase caches retain their original ticket and owner across Python callbacks,
+so a completed copy cannot repopulate a replacement or closed session
+([#680](https://github.com/LupoLab/solprop/issues/680)).
+
 Adams preserves shared control policy, exact logical budget charges, actual source-call
 counts and compact accepted-order records across event yields and resumes. Portable
 binary64 snapshots transfer raw accepted state and full history stores losslessly;
