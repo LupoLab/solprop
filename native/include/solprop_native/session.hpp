@@ -367,6 +367,10 @@ public:
   /** The boundary monitor's record (`BoundaryMonitor.summary`'s numbers), or none
       without a monitor; takes the session's lock. */
   [[nodiscard]] std::optional<watch::Record> monitor_record() const;
+  /** The split collar's crossing cap the monitor holds (`step_cap`), m, or none
+      without a monitor; takes the session's lock. Outside the record, whose layout is
+      the reference's. */
+  [[nodiscard]] std::optional<double> monitor_cap() const;
   /** The transverse edge's record (`TransverseEdge.summary`'s numbers) and its finish,
       or none without an edge; takes the session's lock. */
   [[nodiscard]] std::optional<std::pair<transverse::Record, transverse::Finish>>

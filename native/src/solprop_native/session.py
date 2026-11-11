@@ -1388,6 +1388,23 @@ class NativeSession:
             record["transverse"] = _transverse.record_of(monitor.transverse, edge)
         return record
 
+    def monitor_cap(self) -> float:
+        """Return the split collar's crossing cap the native monitor holds, m.
+
+        ``BoundaryMonitor.step_cap``: the longest step the split temporal collar's
+        crossing limit, read at the last check, allows until the next (solprop #440);
+        infinite without a monitor or a split collar's limit. It is read after any
+        march, Runge-Kutta, Adams or low-storage, and is kept out of the record
+        (:meth:`monitor_record`), whose layout is the reference's.
+
+        Returns
+        -------
+        float
+            The cap, m.
+        """
+        cap = self._native.monitor_cap()
+        return math.inf if cap is None else float(cap)
+
     def continue_monitor(self, continuation: Mapping[str, object]) -> None:
         """Continue a resumed run's boundary-monitor record, before it is attached.
 

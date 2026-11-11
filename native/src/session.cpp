@@ -13,6 +13,8 @@
 #include <type_traits>
 #include <utility>
 
+#include "solprop_native/core.hpp"
+
 // As in adams_march.cpp (solprop #135): the scheduler's comparisons and the export's
 // recipe round as solprop's Python does, so this file takes no contraction (CMake) and
 // the optimize attribute this pragma gives every function below keeps GCC from
@@ -53,14 +55,20 @@ Failure failure_of(const march::Result& result, const std::uint64_t cursor) {
   return failure;
 }
 
-/** A failure outside a march call: an exception the session caught. */
+/** A failure outside a march call: an exception the session caught, its solprop
+    error class as the marches map it (`rk_march.cpp`, `adams_march.cpp`). */
 Failure failure_of(const std::exception& error) {
   Failure failure;
   failure.reason = march::Reason::error;
   failure.message = error.what();
-  failure.category = dynamic_cast<const std::invalid_argument*>(&error) != nullptr
-                         ? march::Category::value
-                         : march::Category::backend;
+  if (dynamic_cast<const EnvelopeConvergenceError*>(&error) != nullptr)
+    failure.category = march::Category::convergence;
+  else if (dynamic_cast<const BackendRefusal*>(&error) != nullptr)
+    failure.category = march::Category::refused;
+  else if (dynamic_cast<const std::invalid_argument*>(&error) != nullptr)
+    failure.category = march::Category::value;
+  else
+    failure.category = march::Category::backend;
   return failure;
 }
 
@@ -972,6 +980,13 @@ std::optional<watch::Record> Session::monitor_record() const {
   if (!monitor_)
     return std::nullopt;
   return monitor_->record();
+}
+
+std::optional<double> Session::monitor_cap() const {
+  const std::scoped_lock lock(mutex_);
+  if (!monitor_)
+    return std::nullopt;
+  return monitor_->cap();
 }
 
 void Session::acknowledge(const std::uint64_t sequence) {
