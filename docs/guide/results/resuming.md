@@ -261,7 +261,7 @@ history neither repeats nor loses a step. A later saved plane supersedes it. A
 low-storage step abandoned in flight cannot be checkpointed; the file then falls back
 to its latest running checkpoint, or to the checkpoint the run resumed from, and only
 without one to its last saved plane
-([SEP 47](../../dev/seps/sep-0047-run-ownership.md)).
+([SEP 47](../../dev/seps/archive/sep-0047-run-ownership.md)).
 
 ### What a restart keeps and restores
 

@@ -1,5 +1,5 @@
 A run now starts from an explicit start rather than from a backend its caller loaded
-([SEP 47](docs/dev/seps/sep-0047-run-ownership.md) section 5.2):
+([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md) section 5.2):
 `solprop.driver.run.run_problem` takes a required `start=`, a
 `solprop.backends.session.Start` (`Start.entrance(problem)` for a fresh run), and loads
 it into the backend through the run's session; its `start_plane=` argument is removed,

@@ -220,7 +220,7 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `translate/` | Validated `PropagationProblem` and its route union (`translate/routes.py`); parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); response tables, masks and stage bundles | T |
 | `backends/` | Registry and protocols, shared step and batch drivers, scalar bodies, spatial and population statistics | B |
 | `backends/numpy_ref/` | Reference execution | B |
-| `backends/host/` | The reference's own step driver, Adams and low-storage marches, fixed-schedule group, run session and group session ([SEP 47](seps/sep-0047-run-ownership.md) phase 2); the inherited driver and marches in `backends/` (`driver.py`, `multistep.py`, `low_storage.py`) remain the native backend's base class until SEP 47 phase 5 removes them, though no run is served through them, and the parts the Python sessions compose are in `backends/session_core.py` | B |
+| `backends/host/` | The reference's own step driver, Adams and low-storage marches, fixed-schedule group, run session and group session ([SEP 47](seps/archive/sep-0047-run-ownership.md) phase 2); the inherited driver and marches in `backends/` (`driver.py`, `multistep.py`, `low_storage.py`) remain the native backend's base class until SEP 47 phase 5 removes them, though no run is served through them, and the parts the Python sessions compose are in `backends/session_core.py` | B |
 | `stepper/`, `log.py`, `stats.py` | Tableaux, controllers, schedules, progress reporters and statistics specifications | D |
 | `driver/`, `driver/executors/`, `scan.py` | Simulation and convenience interfaces, scan/batch orchestration, Local/Pool/Queue/Slurm execution and scan CLI | D |
 | `calibration/` | The native backend's machine calibration ([SEP 46](seps/archive/sep-0046-machine-calibration.md)): reading, showing, exporting, importing and clearing profiles in the per-user store, through solprop-native's standard-library modules loaded by path so that the native runtime never starts (`calibration/_native.py`), the measuring controller, its child processes, the synthetic problems they time, the operation-grain candidates and the selection rule (`calibration/controller.py`, `child.py`, `problems.py`, `grain.py`, `selection.py`), the refinement of one simulation (`calibration/refine.py`, stage 2, which `Simulation.calibrate` runs), and the `solprop calibrate` command (`calibration/command.py`) | D |
@@ -471,7 +471,7 @@ shared groups are common to every route; what differs between routes is one vari
 closed union, `problem.route` (`translate/routes.py`: `ModalRoute`, `GeneralRoute` or
 `SpatialRoute` of kind radial, Cartesian, planar or line), each with the fields its
 executor needs, which every backend visits explicitly and refuses by name before it
-allocates ([SEP 47](seps/sep-0047-run-ownership.md) §6.2). Beside the problem it
+allocates ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.2). Beside the problem it
 returns the run's `RunRequest` (`translate/run_request.py`): the stepper settings with
 the route's defaults filled and the collars' limits applied, the save planes and the
 statistics, which are how the problem is run and not what it means (SEP 47 §5.2;
@@ -623,7 +623,7 @@ A TDSE run may also write its raw provider evaluations to a separate archive
 (`output/tdse_archive.py`, schema `solprop.tdse-archive.v1`), which the optical record
 references and never needs ([the archive page](../guide/media/tdse.md)).
 
-A kept field reaches a store once, already converted ([SEP 47](seps/sep-0047-run-ownership.md)
+A kept field reaches a store once, already converted ([SEP 47](seps/archive/sep-0047-run-ownership.md)
 §5.4): the run's session exports it in the stored form straight into the room the store
 gives (`PlaneStore.field_destination`) -- `MemoryOutput`'s own block row, or a new array
 that `HDF5Output` writes as it is -- and `PlaneStore.save_exported` stores the plane. The

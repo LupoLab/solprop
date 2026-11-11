@@ -1431,7 +1431,7 @@ records a maintainer decision.
    (§§4, 7.1).** Section 4 promises agreement to rounding without limiting that promise
    to matched discrete histories; §7.1 then requires independent adaptive runs to take
    the same accepted steps and bounds every field and statistic by summation counts.
-   [SEP 47 §4.3](sep-0047-run-ownership.md)
+   [SEP 47 §4.3](archive/sep-0047-run-ownership.md)
    explicitly permits different accepted counts when numerical readings differ.
    [SEP 25 §§4.3–4.4](archive/sep-0025-rounding-level-reproducibility.md)
    also requires conditioning and propagated sensitivity in rounding budgets, and a

@@ -6,7 +6,7 @@
 | **Title** | Backend-owned execution sessions |
 | **Author** | John Travers |
 | **Drafting agent** | GPT-6 (2026-11-08); Opus 5.5 (acceptance revisions, 2026-11-09) |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | Opus 5.5 (AI); John Travers (human) |
 | **Type** | Change |
@@ -15,8 +15,8 @@
 | **Requires** | SEPs 21, 22, 24, 25, 29, 33, 39, 44, 45 and 46 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers. Milestones in delivery order: (1) phases 1–2, branch `feature/sep-0047-contract` ([#605](https://github.com/LupoLab/solprop/pull/605)); (2) phase 3, branch `feature/sep-0047-native-session` ([#607](https://github.com/LupoLab/solprop/pull/607)); started 2026-11-09 |
-| **Manual pages** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers. Milestones in delivery order: (1) phases 1–2, branch `feature/sep-0047-contract` ([#605](https://github.com/LupoLab/solprop/pull/605)); (2) phase 3, branch `feature/sep-0047-native-session` ([#607](https://github.com/LupoLab/solprop/pull/607)); (3) phases 4–5, branch `feature/sep-0047-final` ([#650](https://github.com/LupoLab/solprop/pull/650)); started 2026-11-09, complete 2026-11-11 (qualified on an AMD EPYC 7763 and 9R45, an Apple M5 Max, an AMD Instinct MI300X and an NVIDIA H100) |
+| **Manual pages** | [Saving and reading output](../../../guide/results/output.md), [Resuming a run](../../../guide/results/resuming.md) |
 
 ## Part I — Proposal
 
@@ -123,8 +123,8 @@ This response also checked main at
 [`eee57c65`](https://github.com/LupoLab/solprop/commit/eee57c656364861fb7c56ceaad7c93ae8228c92f),
 where SEP 46 / #582 is merged and Final. Historical timings below retain their
 original measurement scope; they are not new measurements of this main.
-The [architecture](../architecture.md), [backend design](../backends.md),
-[kernel contract](../kernel-contract.md) and [stepper design](../stepper.md) describe
+The [architecture](../../architecture.md), [backend design](../../backends.md),
+[kernel contract](../../kernel-contract.md) and [stepper design](../../stepper.md) describe
 the existing layers. The following implementation details matter to this proposal:
 
 - The [native Python adapter](https://github.com/LupoLab/solprop/blob/e555fcf585b8014f36862422a7e92c7275f5e908/native/src/solprop_native/backend.py)
@@ -146,9 +146,9 @@ the existing layers. The following implementation details matter to this proposa
   drives separate member workspaces and reaches into their private state. It is a
   correctness implementation, not general fused native batching.
 
-SEPs [39](archive/sep-0039-native-adams-march.md),
-[44](archive/sep-0044-native-edge-read.md) and
-[45](archive/sep-0045-native-rk-march.md) establish that native ownership can move
+SEPs [39](sep-0039-native-adams-march.md),
+[44](sep-0044-native-edge-read.md) and
+[45](sep-0045-native-rk-march.md) establish that native ownership can move
 upward without changing the equations. This proposal builds on their algorithms; it
 replaces the surrounding ownership contract. Their historical qualification remains
 valid and they are not marked superseded.
@@ -187,7 +187,7 @@ outside share would give 1.044×. The #585 Kerr-beam run spent about 2.9 s of 35
 saves: even eliminating all saving would give only 1.088×, and required transfer and
 I/O cannot disappear. These fractions overlap other useful work and must not be added.
 The published period-1 statistics profiles in the
-[native Adams ledger](../benchmarks.md#the-native-adams-march) report approximately
+[native Adams ledger](../../benchmarks.md#the-native-adams-march) report approximately
 290 microseconds per trial outside the march on EPYC 7763 and 75 microseconds on an
 Apple M5 Max (one and sixteen threads). The ledger attributes that cost to producing
 the row, rather than the return itself. The opportunity is therefore resident rows,
@@ -239,7 +239,7 @@ admission policy (ADR-065). This SEP does not restore either. Its buffer plan is
 backend's actual allocation plan, used to implement explicit workspace budgets and
 report actual storage, not a second host prediction of a backend's total memory.
 
-SEP [46](archive/sep-0046-machine-calibration.md) is now Final; its execution-policy
+SEP [46](sep-0046-machine-calibration.md) is now Final; its execution-policy
 design and qualification are the baseline for the new native planner. SEPs 21, 22,
 24, 29 and 33 supply the boundary, memory, low-storage, helper-ownership and precision
 contracts being moved, not replaced numerically. No kernel optimization above blocks
@@ -258,7 +258,7 @@ $$
 
 with $z$ in metres, $D$ in inverse metres and $N$ in amplitude per metre. All signs,
 normalizations, Fourier conventions and array meanings are those of
-[conventions.md](../conventions.md). In the diagonal commuting case, define a primitive
+[conventions.md](../../conventions.md). In the diagonal commuting case, define a primitive
 $\Phi(z)=\int^z D(s)\,ds$. Then
 
 $$
@@ -321,7 +321,7 @@ does not make it a mandatory equality test on restart: the existing compatibilit
 policy still decides which scientific or numerical changes a restart permits. Do not
 replace that policy with an all-fields hash of either descriptor.
 
-SEP [25](archive/sep-0025-rounding-level-reproducibility.md) governs comparison. Matched
+SEP [25](sep-0025-rounding-level-reproducibility.md) governs comparison. Matched
 discrete histories use rounding budgets derived from operations, magnitudes,
 conditioning and propagation sensitivity. Adaptive trajectories and ordinary replay
 use accuracy envelopes against a tighter or converged reference. Execution changes
@@ -709,7 +709,7 @@ state boundary, observations and statistics. A group is a sequence of typed memb
 descriptions, parameters and initial realizations, replacing `batch_params` and its
 parallel arrays (§6.7). Internal native storage may add batching, padding or other
 qualified layouts. The existing public `Backend` already makes its state opaque
-([backends.md](../backends.md)); the restrictions being removed are the shared
+([backends.md](../../backends.md)); the restrictions being removed are the shared
 `StepDriver` march's canonical-array coupling and `native/AGENTS.md`'s explicit ban on
 backend-dependent field layouts. Kernel views still declare their layouts. Packing
 is planned and accounted for, never a hidden O(n) binding coercion.
@@ -922,7 +922,7 @@ integration contract. Do not retain MLX or an old driver hierarchy as a frozen
 compatibility branch inside the production package.
 
 Preserve explicit `solprop._helpers.Helpers` ownership from
-[backends.md](../backends.md) and `tests/backends/test_helper_ownership.py`: NumPy uses
+[backends.md](../../backends.md) and `tests/backends/test_helper_ownership.py`: NumPy uses
 `PLAIN` for both precisions; native uses its compiled helpers. Remove MLX-specific
 helper-selection paths with that backend, retaining the no-native reference environment.
 Pass helpers to the extracted private operations, never select them globally through
@@ -1331,7 +1331,7 @@ device qualification (phase 4), and final deletion/qualification (phase 5);
 adjacent milestones may be combined when that makes a clearer review. Use topic
 branches `feature/sep-0047-<milestone>` and draft PRs while each is developed. This is
 an exception for SEP 47, not a general change to SEP 0.
-It is also indexed in [SEP 0's history](sep-0000-process.md#history). While this SEP
+It is also indexed in [SEP 0's history](../sep-0000-process.md#history). While this SEP
 is a Draft, its **Implementation** field stays `—`. At implementation start, list
 each successive `feature/sep-0047-<milestone>` branch and linked PR in that field, in
 delivery order, adding entries as PRs are opened and retaining merged entries. Part II
@@ -1507,37 +1507,37 @@ another decision.
 
 ### 13. References
 
-1. solprop [architecture](../architecture.md), [conventions](../conventions.md),
-   [kernel contract](../kernel-contract.md), [kernel problem](../kernel-problem.md)
-   and [stepper design](../stepper.md). Numerical meanings and current contracts.
-2. [SEP 25](archive/sep-0025-rounding-level-reproducibility.md). Rounding-level
+1. solprop [architecture](../../architecture.md), [conventions](../../conventions.md),
+   [kernel contract](../../kernel-contract.md), [kernel problem](../../kernel-problem.md)
+   and [stepper design](../../stepper.md). Numerical meanings and current contracts.
+2. [SEP 25](sep-0025-rounding-level-reproducibility.md). Rounding-level
    reproducibility and the distinction between matched histories and accuracy envelopes.
-3. [SEP 39](archive/sep-0039-native-adams-march.md) and the
-   [native Adams benchmark record](../benchmarks.md#the-native-adams-march).
-4. [SEP 45](archive/sep-0045-native-rk-march.md). Native RK march, event boundaries,
+3. [SEP 39](sep-0039-native-adams-march.md) and the
+   [native Adams benchmark record](../../benchmarks.md#the-native-adams-march).
+4. [SEP 45](sep-0045-native-rk-march.md). Native RK march, event boundaries,
    qualification and host-overhead measurements.
 5. [PR #576](https://github.com/LupoLab/solprop/pull/576),
    [PR #585](https://github.com/LupoLab/solprop/pull/585) and
    [PR #586](https://github.com/LupoLab/solprop/pull/586), with their entries in the
-   [benchmark ledger](../benchmarks.md). CPU execution, fixed costs and phase evaluation.
-6. [SEP 46](archive/sep-0046-machine-calibration.md) and its merged implementation
+   [benchmark ledger](../../benchmarks.md). CPU execution, fixed costs and phase evaluation.
+6. [SEP 46](sep-0046-machine-calibration.md) and its merged implementation
    [PR #582](https://github.com/LupoLab/solprop/pull/582). Machine policy and workspace
    choices; in progress at original drafting, Final at this review response.
-7. [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md),
-   [SEP 24](archive/sep-0024-low-storage-interaction-picture-runge-kutta.md) and
-   [SEP 44](archive/sep-0044-native-edge-read.md). Field retention, low-storage
+7. [SEP 22](sep-0022-memory-lean-spatial-execution.md),
+   [SEP 24](sep-0024-low-storage-interaction-picture-runge-kutta.md) and
+   [SEP 44](sep-0044-native-edge-read.md). Field retention, low-storage
    execution and resident edge observations.
 8. [PR #559](https://github.com/LupoLab/solprop/pull/559), experimental Julia backend;
    [status at its examined head](https://github.com/LupoLab/solprop/blob/1e609d68c2aa09e2f1b187cbf627a79826f5dd2a/julia/STATUS.md)
    and [benchmark ledger at that head](https://github.com/LupoLab/solprop/blob/1e609d68c2aa09e2f1b187cbf627a79826f5dd2a/docs/dev/benchmarks.md).
    Experimental evidence, not a supported backend or a precision-matched result in
    every reported comparison. Only solprop's own report is used here.
-9. [Decisions](../decisions.md), particularly ADR-065 (remove memory admission),
+9. [Decisions](../../decisions.md), particularly ADR-065 (remove memory admission),
    ADR-068 (one repository and an unversioned internal seam), and
-   [SEP 43](archive/sep-0043-retire-numba-cpu.md) for reference-only execution scope.
-10. [SEP 21](archive/sep-0021-absorbing-boundaries.md),
-    [SEP 29](archive/sep-0029-compiled-backend-distribution.md) and
-    [SEP 33](archive/sep-0033-single-precision-mlx.md). Boundary controller state,
+   [SEP 43](sep-0043-retire-numba-cpu.md) for reference-only execution scope.
+10. [SEP 21](sep-0021-absorbing-boundaries.md),
+    [SEP 29](sep-0029-compiled-backend-distribution.md) and
+    [SEP 33](sep-0033-single-precision-mlx.md). Boundary controller state,
     explicit helper ownership and the independent single-precision/MLX contracts.
 
 ## Part II — Implementation record
@@ -1801,7 +1801,7 @@ main before SEP 47, B = milestone 1 and C = this milestone. Geometric means, end
   flow (#241); its binary64 member-axis batch still refuses such a member itself. §6.3's
   row was amended to match on 2026-11-11 (Part III).
 
-### Milestone 3 (phases 4–5) — in review (#650)
+### Milestone 3 (phases 4–5) — merged 2026-11-11 (#650)
 
 Branch `feature/sep-0047-final`
 ([#650](https://github.com/LupoLab/solprop/pull/650)), retargeted to `main` when #607
@@ -1890,10 +1890,56 @@ the whole conversion.
 **Deviations from Part I.**
 
 - §6.3's coupled-flow group row was amended (Part III, 2026-11-11).
-- The A/B/C paired report of §7.2 and the structural report follow this milestone's
-  merge, before Final.
 - Follow-ups: #356 (fused group kernels, now measured against the coarse group),
   #618 (the remaining 4-D layouts and `Backend.max_batch`).
+
+### Final report — 2026-11-11
+
+**Paired timings (§7.2).** A = main before SEP 47 (`53e351eb`), B = milestone 1
+(`2e2490c2`), C = the final tree (`980300ca`). Interleaved pairs of `benchmarks ab`,
+five rounds of three repeats, no calibration, FFTW's measured plans on both sides, the
+milestone 2 case matrix; the candidate's event counts were checked against the baseline's
+before timing. Geometric means of C over each baseline (below 1, C is faster):
+
+| Machine | Pair | Production threads | 1 thread |
+|---|---|---|---|
+| AMD EPYC 9R45 (Zen 5, Linux, 16 of 32 cores, one NUMA domain) | A→C | 0.885 | 0.968 |
+| | B→C | 0.876 | 0.945 |
+| | C/C | — | 1.000 |
+| Apple M5 Max (macOS, 6 performance cores, Accelerate) | A→C | 0.859 | 0.979 |
+| | B→C | 0.851 | 0.970 |
+| | C/C | — | 0.994 |
+
+- *Largest gains:* the 17-channel coupled flow, now native, 0.23 (Zen 5) and 0.17 (M5
+  Max); period-one statistics 0.70–0.82 (Adams) and 0.87–0.92 (Runge-Kutta); idle
+  snapshots 0.86–0.95; the four-channel taper flow 0.91–0.97.
+- *Unchanged within 2 %:* plain envelope and field steps (the soliton, RDW) and the
+  radial filament's saved and field-free planes.
+- *No case is 5 % slower* (§7.3). The slowest are the local scan (1.008–1.016) and the
+  fixed-schedule group (1.003–1.015), their small service cost; `snapshots_every` B→C at
+  16 threads reads 1.042 within a round range of 0.945–1.048, beside its A→C of 0.983
+  and a C/C spread of ±5 % on that case.
+- *Fields:* bitwise equal to A on most cases; on the adaptive snapshot and statistics
+  cases the steps moved at rounding level, the final fields within 1.3e-8 relative,
+  the changes this SEP's acceptance allows (SEP 25).
+
+**Structure (§7.3).**
+
+- *No Python numerical controller:* a native run returns to Python only for what it was
+  asked to deliver: one return per observation, one per requested snapshot, the
+  terminal one, and a progress deadline where a reporter is attached. Period-one
+  statistics take no returns of their own (three observations in a run with a
+  statistics row at every step); an every-endpoint snapshot policy takes one per
+  snapshot, its required service.
+- *No mirrored state:* `StepDriver`, `AdamsMarch`, `LowStorageMarch`, the transitional
+  session, the lockstep runner and the native seam tables are deleted; `NativeBackend`
+  inherits nothing, and the monitor's decisions and records are native.
+- *Size:* the native backend is about 48,000 lines of code (37,800 C++, 9,400 Python,
+  700 of type stub; blanks, comments and docstrings excluded), against about 40,300
+  before this SEP counting the solprop driver code only it used. The growth is the
+  native session, which now owns the march, the monitor, the statistics ring, export,
+  groups and events. `solprop.backends` went from 14,200 to 13,100 lines, despite
+  gaining the independent host session.
 
 ## Part III — History
 

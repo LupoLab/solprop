@@ -67,7 +67,7 @@ the save planes, any fixed schedule and the statistics to collect are the run's 
 held by an immutable {class}`~solprop.translate.run_request.RunRequest` that
 {func}`~solprop.translate.problem.assemble` returns beside the problem
 ({class}`~solprop.translate.problem.Translation`); a backend is built from the two
-together ([SEP 47](seps/sep-0047-run-ownership.md) §5.2; the
+together ([SEP 47](seps/archive/sep-0047-run-ownership.md) §5.2; the
 [kernel contract](kernel-contract.md), §§7 and 8). So the same problem can be run with
 another request -- an interior launch's remaining planes, another start or retention --
 without being translated again, and a run's configuration record reads its stepper
@@ -77,7 +77,7 @@ Each variant has exactly the fields its executor needs and checks them when it i
 A backend visits the variant explicitly and refuses one it does not execute by name,
 before it allocates anything: extending a route changes this typed contract and its
 tests, never a bag of optional fields
-([SEP 47](seps/sep-0047-run-ownership.md) §6.2; the contract's extension procedure,
+([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.2; the contract's extension procedure,
 [kernel contract](kernel-contract.md) §10).
 Every array is `float64`, `complex128`, `bool` or `intp` (and `int32` at three named index
 leaves of the general modal route); C-contiguous; read-only; and in

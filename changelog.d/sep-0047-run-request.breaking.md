@@ -1,5 +1,5 @@
 The run's policy has left the backend seam's problem descriptor
-([SEP 47](docs/dev/seps/sep-0047-run-ownership.md) sections 5.2 and 6.2).
+([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md) sections 5.2 and 6.2).
 `PropagationProblem` no longer has `stepper` or `stats_spec`: the tableau, controller,
 step limits, schedule, save planes and statistics travel in the immutable
 `solprop.translate.run_request.RunRequest`. `solprop.translate.problem.assemble` returns
