@@ -37,6 +37,7 @@ from solprop.monitor import BoundaryCheck
 from solprop.stepper.controller import PIController
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
+from solprop.translate.stage import anchor, scalars_at
 from test_monitor import TRANGE, walker
 
 pytestmark = pytest.mark.skipif(
@@ -150,6 +151,56 @@ def test_the_native_march_runs_each_route(route):
 def test_interpolated_planes(route):
     """The session interpolates each plane inside the step that crossed it."""
     _held(lambda: _route(route, interpolate_planes=True))
+
+
+def test_a_z_table_s_staged_trial_is_the_host_packed_trial():
+    """The z table's positions load into other slots, holding the same values.
+
+    The native state forms a staged trial's stage rows itself (``rk_trial``), loading
+    the z table's positions stage by stage; the host packs the same trial's rows from
+    solprop's stage scalars (``translate.stage.scalars_at`` into the backend's
+    ``_trial_arrays``) for the state's unstaged trial (``trial_step``), loading them
+    together. On one state the two trials are the same to the bit: their scored
+    partials and every stage. Both trials are called on the backend's native state
+    directly, loaded with the launch: SEP 47 phase 5 retired the private switch that
+    made the backend's own trial pack its rows on the host.
+    """
+    simulation = walk_off("native", RungeKutta())
+    problem = simulation.translate()
+    run_request = simulation._run_request()
+    assert problem.linear.phi_representation == "table"
+    backend = backend_module.NativeBackend(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
+    try:
+        assert backend._staged_rows()
+        state = backend._native_state
+        field = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
+        state.set_initial(field.reshape(-1), np.empty(0, dtype=np.complex128))
+        nodes = [float(node) for node in run_request.stepper.tableau.nodes]
+        end = float(run_request.stepper.z_end)
+        for z in (0.0, 0.37 * end, 0.8 * end):
+            dz = 0.01 * end
+            staged = np.asarray(state.rk_trial(z, dz, nodes, prepare_only=False))
+            stages = [np.array(state.stage_to_host(i)) for i in range(len(nodes))]
+            held = anchor(problem, z, helpers=backend.helpers)
+            *bundles, whole = scalars_at(
+                problem,
+                z,
+                [*(z + node * dz for node in nodes), z + dz],
+                at=held,
+                helpers=backend.helpers,
+            )
+            arrays, material = backend._trial_arrays(bundles, whole)
+            packed = np.asarray(state.trial_step(dz, *arrays, material))
+            assert staged.tobytes() == packed.tobytes(), z
+            for index, stage in enumerate(stages):
+                assert np.array(state.stage_to_host(index)).tobytes() == (
+                    stage.tobytes()
+                ), (z, index)
+            assert np.max(np.abs(stages[-1])) > 0.0
+    finally:
+        backend.close()
 
 
 @pytest.mark.parametrize("dense", [False, True], ids=["landed", "interpolated"])
