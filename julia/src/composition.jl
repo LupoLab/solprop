@@ -557,7 +557,7 @@ end
 
 @inline _source_alias(array, ::Nothing) = false
 @inline _source_alias(array, value::Float64) = false
-@inline _source_alias(array, owned::AbstractArray) = Base.mightalias(array, owned)
+@inline _source_alias(array, owned::AbstractArray) = _transfer_arrays_alias(array, owned)
 @inline _source_alias(array, ::Tuple{}) = false
 @inline function _source_alias(array, owned::Tuple{T, Vararg}) where {T}
     return _source_alias(array, first(owned)) || _source_alias(array, Base.tail(owned))
@@ -676,10 +676,11 @@ use `(n_time,n_modes)` and `(n_omega,n_modes)`; nodal arrays use `(n_time,node_c
 The callable `source(out,state,z)` returns `nothing`, writes the complete derivative
 in state units per metre, and charges `calls` before any validation or physical work.
 Both caller arrays must be disjoint from this source's retained numerical inputs and
-work, as well as from each other; direct arrays, views and reinterpreted aliases refuse
-before any numerical write. It never changes `state`. All FFTs use one thread and
-numerical launches finish before return. Warmed calls allocate nothing. Every inactive
-chunk cell is overwritten.
+work, as well as from each other; direct arrays, views, foreign offset buffers and
+reinterpreted aliases refuse before any numerical write. Mutable gather indices are
+part of their array's retained storage. It never changes `state`. All FFTs use one
+thread and numerical launches finish before return. Warmed calls allocate nothing.
+Every inactive chunk cell is overwritten.
 
 Data records may be shared; all mutable stage values, plans and work belong to this
 instance. `ready` is true only after a successful call. When an embedded projection
@@ -1159,7 +1160,7 @@ function (source::ModalSource)(output, state, position::Float64)
     eltype(state) === eltype(output) === ComplexF64 ||
         throw(ArgumentError("modal source input/output requires complex binary64 storage"))
     isfinite(position) || throw(ArgumentError("a source position must be finite"))
-    Base.mightalias(output, state) &&
+    _transfer_arrays_alias(output, state) &&
         throw(ArgumentError("a modal source must not overwrite its input state"))
     (_source_caller_alias(output, source) || _source_caller_alias(state, source)) &&
         throw(ArgumentError("caller arrays must be disjoint from source inputs and work"))

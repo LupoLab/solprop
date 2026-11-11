@@ -841,3 +841,93 @@ end
         @test composition_allocations(source, output, state, 0.53) == 0
     end
 end
+
+@testset "foreign caller spans and gather dependencies refuse before writes (#688)" begin
+    budgets = unique((1, min(2, Threads.nthreads(:default))))
+    for tasks in budgets, kind in (:field, :envelope)
+        execution = SP.KernelExecution(SP.KernelAbstractions.CPU(), tasks, true)
+        data, state = composition_case(execution, kind; raman = 1, temporal = true)
+        source = SP.ModalSource(execution, data; node_chunk = 2)
+        output = similar(state)
+        source(output, state, 0.53)
+        expected = copy(output)
+        _, scale = composition_reference(data, state, 0.53)
+        @test scale > 0
+        # Each call has the existing 8192-operation composition rounding budget.
+        # Their difference is covered by gamma(16384) times the same source scale.
+        bound = 16384eps(Float64) / (1 - 16384eps(Float64)) * scale
+        disjoint = "disjoint from source inputs and work"
+        retained = (source.modal_spectrum, source.nodes, data.raman[1].kernel.undamped)
+        for owned in retained
+            # Every offset view remains wholly inside its explicitly preserved owner.
+            # Different wrapper pointers make Base.mightalias miss this overlap.
+            @test sizeof(owned) >= (length(state) + 1) * sizeof(ComplexF64)
+            GC.@preserve owned source begin
+                alias = unsafe_wrap(
+                    Array, Ptr{ComplexF64}(pointer(owned)) + sizeof(ComplexF64),
+                    size(state); own = false,
+                )
+                @test !Base.mightalias(alias, owned)
+                before, before_state, before_output = copy(owned), copy(state), copy(output)
+                calls = source.calls
+                @test_throws disjoint source(alias, state, 0.53)
+                @test source.calls == calls + 1 && !source.ready
+                @test isequal(owned, before) && state == before_state
+                @test_throws disjoint source(output, alias, 0.53)
+                @test source.calls == calls + 2 && !source.ready
+                @test isequal(owned, before) && output == before_output
+            end
+        end
+        # Foreign caller arrays can overlap each other without touching source work.
+        owner = zeros(ComplexF64, 2length(state) + 1)
+        GC.@preserve owner source begin
+            input = unsafe_wrap(Array, pointer(owner), size(state); own = false)
+            overlap = unsafe_wrap(Array, pointer(owner, 2), size(state); own = false)
+            copyto!(input, state)
+            before = copy(owner)
+            @test !Base.mightalias(input, overlap)
+            @test_throws "must not overwrite its input state" source(overlap, input, 0.53)
+            @test owner == before
+            # Independently wrapped, nonoverlapping spans remain usable.
+            separate = unsafe_wrap(
+                Array, pointer(owner, length(state) + 2), size(state); own = false,
+            )
+            source(separate, input, 0.53)
+            @test maximum(abs.(separate - expected)) <= bound
+            @test composition_allocations(source, separate, input, 0.53) == 0
+        end
+        n_frequency = size(state, 1)
+        GC.@preserve source begin
+            indices = unsafe_wrap(
+                Array, Ptr{Int}(pointer(source.nodes)) + sizeof(Int),
+                (n_frequency,); own = false,
+            )
+            indices .= 1:n_frequency
+            gathered = view(state, indices, :)
+            before_nodes, before_indices = copy(source.nodes), copy(indices)
+            before_output = copy(output)
+            @test !Base.mightalias(gathered, source.nodes)
+            @test_throws disjoint source(output, gathered, 0.53)
+            @test isequal(source.nodes, before_nodes) && indices == before_indices
+            @test output == before_output
+        end
+        # A caller output can also overwrite the other caller's gather-index storage.
+        GC.@preserve output begin
+            indices = unsafe_wrap(
+                Array, Ptr{Int}(pointer(output)) + sizeof(Int), (n_frequency,); own = false,
+            )
+            indices .= 1:n_frequency
+            gathered = view(state, indices, :)
+            before_output, before_indices = copy(output), copy(indices)
+            @test !Base.mightalias(gathered, output)
+            @test_throws "must not overwrite its input state" source(output, gathered, 0.53)
+            @test isequal(output, before_output) && indices == before_indices
+        end
+        # The same read-only gather with independent indices is a valid input.
+        independent = view(state, collect(1:n_frequency), :)
+        source(output, independent, 0.53)
+        @test maximum(abs.(output - expected)) <= bound
+        @test composition_allocations(source, output, independent, 0.53) == 0
+        @test state == copy(independent)
+    end
+end
