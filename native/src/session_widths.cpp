@@ -258,11 +258,15 @@ std::array<double, 3> line(const std::vector<double>& x,
     extent =
         index == 0 ? std::abs(offset[0]) : std::max(extent, std::abs(offset[index]));
   }
+  // The moment's terms take their own vector, as `radial`'s do: refilling the
+  // centroid's buffer left the arm64 builds summing the centroid's terms again.
+  std::vector<double> moment_terms(n);
   for (std::size_t index = 0; index < n; ++index) {
     const double ratio = offset[index] / extent;
-    terms[index] = samples[index] * (ratio * ratio);
+    moment_terms[index] = samples[index] * (ratio * ratio);
   }
-  const double second = 2 * extent * std::sqrt(pairwise_sum(terms.data(), n) / total);
+  const double second =
+      2 * extent * std::sqrt(pairwise_sum(moment_terms.data(), n) / total);
   if (!std::isfinite(second))
     throw std::invalid_argument("line fluence moments are not representable");
   const double spacing = (x[1] - x[0]) / 2;

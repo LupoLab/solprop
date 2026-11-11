@@ -27,6 +27,7 @@ from solprop.backends.driver import StepDriver
 from solprop.backends.events import ObservationReady
 from solprop.backends.export import ExportRecipe
 from solprop.backends.host.driver import HostDriver
+from solprop.backends.host.session import HostSession
 from solprop.backends.numpy_ref.single import NumpySingleBackend
 from solprop.backends.protocol import Backend, BackendHistory, Observation
 from solprop.backends.registry import available, select
@@ -103,6 +104,32 @@ CASES: dict[str, Callable[[str], Simulation]] = {
 }
 
 
+def exported_fields(monkeypatch: pytest.MonkeyPatch) -> list[np.ndarray]:
+    """Collect the array each session export returns, in order, for this test.
+
+    The reference session and the native session both hand a plane's field over by
+    export; the list holds what each call returned.
+    """
+    returned: list[np.ndarray] = []
+
+    def spied(export: Callable[..., np.ndarray]) -> Callable[..., np.ndarray]:
+        def recorded(session: object, *args: object, **kwargs: object) -> np.ndarray:
+            result = export(session, *args, **kwargs)
+            returned.append(result)
+            return result
+
+        return recorded
+
+    monkeypatch.setattr(HostSession, "export", spied(HostSession.export))
+    if "native" in available():
+        from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+            NativeSession,
+        )
+
+        monkeypatch.setattr(NativeSession, "export", spied(NativeSession.export))
+    return returned
+
+
 @pytest.mark.parametrize("backend", available())
 @pytest.mark.parametrize("case", CASES)
 def test_a_kept_plane_never_changes(backend, case):
@@ -144,28 +171,19 @@ def test_a_kept_plane_survives_the_field_free_planes_after_it(backend):
 
 
 @pytest.mark.parametrize("backend", available())
-def test_a_run_hands_over_the_observation_itself(backend, monkeypatch):
-    """No copy on the way to the handler, on a route with no conversion of units."""
+def test_a_run_hands_over_the_exported_field_itself(backend, monkeypatch):
+    """No copy after the session's export, on a route with no conversion of units."""
     simulation = cartesian(backend)
-    observed: list[Observation] = []
+    exported = exported_fields(monkeypatch)
     shared: list[bool] = []
 
     class Sharing(MemoryOutput):
         def save(self, plane: SavedPlane) -> None:
             assert plane.field is not None
-            shared.append(np.shares_memory(plane.field, observed[-1].field))
+            shared.append(np.shares_memory(plane.field, exported[-1]))
             super().save(plane)
 
-    with simulation.runner() as runner:
-        observe = runner.backend.observe
-
-        def watched(*, field: bool = True) -> Observation:
-            observation = observe(field=field)
-            observed.append(observation)
-            return observation
-
-        monkeypatch.setattr(runner.backend, "observe", watched)
-        runner.run(simulation._field0.copy(), output=Sharing(), progress="none")
+    simulation.run(output=Sharing(), progress="none")
     assert shared
     assert all(shared)
 

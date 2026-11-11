@@ -51,6 +51,7 @@ from solprop.translate.run_request import RunRequest
 from solprop.translate.tdse import TDSEBinding
 
 __all__ = [
+    "AUTO",
     "BACKENDS",
     "FAR_FIELD_BACKENDS",
     "REMOVED_BACKENDS",

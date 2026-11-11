@@ -14,7 +14,7 @@ kinks, the shot-noise field and the hard band mask.
 
 :mod:`solprop.backends.numpy_ref.passes` holds the passes;
 :mod:`solprop.backends.numpy_ref.backend` holds the step loop and the seam;
-:func:`construct` is the registry's constructor (:mod:`solprop.backends.registry`).
+``construct`` is the registry's constructor (:mod:`solprop.backends.registry`).
 """
 
 from collections.abc import Mapping, Sequence

@@ -230,7 +230,9 @@ def test_the_mode_averaged_route_is_still_refused_by_name():
     assert expected is not None
     assert native_session.refusal(problem, run, entrance(problem)) == expected
     # The plan's own refusal, for a caller that lowers it directly.
-    from solprop_native._statistics import lower  # noqa: PLC0415
+    from solprop_native._statistics import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        lower,
+    )
 
     with pytest.raises(BackendError, match="mode-averaged route is not qualified"):
         lower(
@@ -244,7 +246,9 @@ def test_the_mode_averaged_route_is_still_refused_by_name():
 
 def test_the_plan_needs_the_mode_set_for_them():
     """Without the mode set there is no axis synthesis to scan."""
-    from solprop_native._statistics import lower  # noqa: PLC0415
+    from solprop_native._statistics import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        lower,
+    )
 
     grid, _, problem, request = _capillary("gauss_kronrod", 32)
     spec = request.for_run(stats=StatsSpec(names=ON_AXIS_PLASMA_STATISTICS))
@@ -382,7 +386,10 @@ def test_the_plan_s_axis_row_is_the_bridge_s_and_the_reference_s(kind):
     one-component scan of two rows (their ellipse), the band rule's filtered exposure,
     and an envelope's cycle-averaged scan of one and two modes.
     """
-    from solprop_native._statistics import _on_axis, lower  # noqa: PLC0415
+    from solprop_native._statistics import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        _on_axis,
+        lower,
+    )
 
     grid, modes, problem, request = _entrance_problem(kind)
     names = ON_AXIS_PLASMA_STATISTICS

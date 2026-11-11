@@ -724,7 +724,9 @@ def _profiles(rng):
 def test_the_native_radial_widths_are_solprop_s_to_the_bit():
     """The radial widths ported operation for operation: NumPy's pairwise sums, the
     crossings' interpolation, the hollow and the uncrossed profiles."""
-    from solprop_native import _core  # noqa: PLC0415
+    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        _core,
+    )
 
     from solprop.spatial import radial_fluence_widths  # noqa: PLC0415
 
@@ -741,7 +743,9 @@ def test_the_native_radial_widths_are_solprop_s_to_the_bit():
 
 @native_only
 def test_the_native_radial_widths_refuse_what_solprop_s_refuse():
-    from solprop_native import _core  # noqa: PLC0415
+    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        _core,
+    )
 
     from solprop.spatial import radial_fluence_widths  # noqa: PLC0415
 
@@ -812,7 +816,9 @@ def test_the_unfused_interp_is_numpy_s_on_x86_64():
 def test_the_native_line_widths_are_solprop_s_to_the_bit(monkeypatch):
     """A line's centroid, moment and two-sided average, ``numpy.interp`` included: to
     the bit on x86-64, and to the unfused rule wherever NumPy's own may fuse."""
-    from solprop_native import _core  # noqa: PLC0415
+    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        _core,
+    )
 
     from solprop.spatial import _line_fluence_widths  # noqa: PLC0415
 
@@ -871,7 +877,10 @@ def test_a_profile_s_native_widths_refuse_as_the_host_s_do(monkeypatch, route):
     its ``BackendError`` for a lobe beyond the rounding budget and its ``GridError``
     for a value that is not finite, each through ``translated`` as the plan raises
     it."""
-    from solprop_native import _core, _statistics  # noqa: PLC0415
+    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        _core,
+        _statistics,
+    )
 
     host_interp(monkeypatch)
     grid, problem, run_request = _radial_route() if route == "radial" else _route(route)
@@ -936,7 +945,9 @@ def test_a_state_that_is_not_finite_has_the_host_s_grid_error():
         _measure("native", grid, problem, run_request, field, spec)
     assert str(got.value) == str(want.value)
     # And the session's plane, whose failure is the reference's exception too.
-    from solprop_native.session import NativeSession  # noqa: PLC0415
+    from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        NativeSession,
+    )
 
     from solprop.backends.events import Terminal  # noqa: PLC0415
     from solprop.backends.session import Start  # noqa: PLC0415

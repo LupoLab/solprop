@@ -576,7 +576,9 @@ def _noisy_members(kind: str) -> list[Any]:
 
 def _alone(simulation: Any) -> tuple[list[dict[str, Any]], Any]:
     """Run one member alone through the native session; return its planes, record."""
-    from solprop_native.session import NativeSession  # noqa: PLC0415
+    from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        NativeSession,
+    )
 
     problem = simulation.translate()
     request = simulation._run_request().for_run(monitor=simulation._boundary_monitor())
