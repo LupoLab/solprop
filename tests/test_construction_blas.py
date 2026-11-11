@@ -88,6 +88,7 @@ class Controller:
 def own_blas_pools(monkeypatch):
     """Keep these checks apart from a backend an earlier test left open."""
     monkeypatch.setattr(_process, "_BLAS_POOLS", {})
+    monkeypatch.setattr(_process, "_BLAS_PENDING", {})
     native = _process.sys.modules.get("solprop_native._host_blas")
     if native is not None:
         monkeypatch.setattr(native, "_holders", 0)
@@ -302,6 +303,63 @@ def test_releasing_one_owner_twice_keeps_another_owners_narrower_limit(pools):
     wide.restore_original_limits()
     assert widths(pools) == [2, 2]
     narrow.restore_original_limits()
+    assert widths(pools) == [32, 32]
+
+
+@pytest.mark.parametrize("retry_fails", [False, True])
+def test_failed_acquisition_and_rollback_keep_the_primary_error_and_retry_owner(
+    monkeypatch, pools, retry_fails
+):
+    failing = pools[0][0]
+    setter = failing.set_num_threads
+    calls = []
+    original = RuntimeError("initial BLAS setter failed")
+
+    def fail(threads):
+        calls.append(threads)
+        setter(threads)
+        if len(calls) == 1:
+            raise original
+        raise RuntimeError("BLAS rollback failed")
+
+    monkeypatch.setattr(failing, "set_num_threads", fail)
+    with pytest.raises(RuntimeError, match="initial BLAS setter failed") as caught:
+        _process.acquire_host_blas(pools[0], 1)
+    assert caught.value is original
+    assert "retained for retry" in caught.value.__notes__[0]
+    assert len(_process._BLAS_PENDING) == 1
+    if retry_fails:
+        with pytest.raises(RuntimeError, match="BLAS rollback failed"):
+            _process.acquire_host_blas(pools[0], 2)
+        assert len(_process._BLAS_PENDING) == 1
+    monkeypatch.setattr(failing, "set_num_threads", setter)
+    lease = _process.acquire_host_blas(pools[0], 2)
+    assert not _process._BLAS_PENDING
+    assert widths(pools) == [2, 2]
+    lease.restore_original_limits()
+    assert widths(pools) == [32, 32]
+    assert not _process._BLAS_POOLS
+
+
+def test_failed_acquisition_retry_stays_on_its_original_thread(monkeypatch, pools):
+    failing = pools[0][0]
+    setter = failing.set_num_threads
+
+    def fail(threads):
+        setter(threads)
+        raise RuntimeError("both set and restore fail")
+
+    monkeypatch.setattr(failing, "set_num_threads", fail)
+    with pytest.raises(RuntimeError, match="both set and restore fail"):
+        _process.acquire_host_blas(pools[0], 1)
+    monkeypatch.setattr(failing, "set_num_threads", setter)
+    with ThreadPoolExecutor(max_workers=1) as workers:
+        foreign = workers.submit(_process.acquire_host_blas, [], 1).result(timeout=5)
+    foreign.restore_original_limits()
+    assert len(_process._BLAS_PENDING) == 1
+    retry = _process.acquire_host_blas(pools[0], 2)
+    retry.restore_original_limits()
+    assert not _process._BLAS_PENDING and not _process._BLAS_POOLS
     assert widths(pools) == [32, 32]
 
 

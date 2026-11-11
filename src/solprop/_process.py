@@ -208,6 +208,13 @@ class _BlasLease(contextlib.AbstractContextManager[None]):
                 del pool.requests[self.owner]
                 if not pool.requests:
                     del _BLAS_POOLS[path]
+            _BLAS_PENDING.pop(self.owner, None)
+
+
+# An acquisition can fail together with its rollback before its caller receives
+# the lease (#697). Retain it before mutation; retry only on the acquiring thread,
+# since a controller may represent calling-thread state such as Accelerate's mode.
+_BLAS_PENDING: dict[object, tuple[threading.Thread, _BlasLease]] = {}
 
 
 def acquire_host_blas(libraries: Sequence[Any], threads: int) -> _BlasLease:
@@ -217,7 +224,8 @@ def acquire_host_blas(libraries: Sequence[Any], threads: int) -> _BlasLease:
     threadpoolctl limiters capture each other's temporary settings and restore
     them too early; this process-owned lease saves the original width once.
     Native's adapter supplies this hook explicitly, keeping standalone native
-    imports independent of solprop.
+    imports independent of solprop. A failed acquisition whose rollback also fails
+    retains its lease for retry before the same thread next acquires a pool.
 
     Parameters
     ----------
@@ -237,6 +245,11 @@ def acquire_host_blas(libraries: Sequence[Any], threads: int) -> _BlasLease:
     paths = tuple(os.path.realpath(library.filepath) for library in libraries)
     lease = _BlasLease(owner, paths)
     with _BLAS_LOCK:
+        thread = threading.current_thread()
+        for acquiring_thread, pending in tuple(_BLAS_PENDING.values()):
+            if acquiring_thread is thread:
+                pending.restore_original_limits()
+        _BLAS_PENDING[owner] = (thread, lease)
         try:
             for library, path in zip(libraries, paths, strict=True):
                 if path not in _BLAS_POOLS:
@@ -244,9 +257,14 @@ def acquire_host_blas(libraries: Sequence[Any], threads: int) -> _BlasLease:
                 pool = _BLAS_POOLS[path]
                 pool.requests[owner] = threads
                 library.set_num_threads(min(pool.requests.values()))
-        except BaseException:
-            lease.restore_original_limits()
+        except BaseException as failure:
+            try:
+                lease.restore_original_limits()
+            except BaseException as cleanup:
+                failure.add_note(f"BLAS rollback failed; retained for retry: {cleanup}")
             raise
+        else:
+            del _BLAS_PENDING[owner]
     return lease
 
 
