@@ -155,8 +155,9 @@ each backend is tested to give a batch member the output the same point gives ru
 to rounding: the same steps, with sums that may be ordered differently
 ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)). On the
 native builds each member of a batch runs in its own native execution session, stepping
-natively between save planes, its coupled flow (a coherent wall, for instance) included;
-the reference's batch refuses a coupled flow.
+natively between save planes, its coupled flow (a coherent wall, for instance) included.
+On the reference a coupled-flow member takes its own trial, flow included, member by
+member; its member-axis batch serves the other points.
 
 ```{code-block} python
 from solprop.driver.executors import Batch
