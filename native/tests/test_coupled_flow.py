@@ -276,6 +276,19 @@ def test_cf4_is_refused_by_name() -> None:
         NativeBackend(case.translate(), case._run_request(), grid=case.grid)  # pyright: ignore[reportPrivateUsage]
 
 
+def _owner(
+    case: Simulation, problem: PropagationProblem, run_request: RunRequest
+) -> NativeBackend:
+    """Return a native backend for one member, with the case's modes and profiles."""
+    return NativeBackend(
+        problem,
+        run_request,
+        grid=case.grid,
+        modes=case.modes,
+        profiles=case.profiles,
+    )
+
+
 @pytest.mark.parametrize("name", sorted(CASES))
 def test_a_coupled_flow_group_runs_each_member_as_its_lone_session(name: str) -> None:
     """A native group admits coupled-flow members (solprop SEP 47 section 6.7).
@@ -313,9 +326,8 @@ def test_a_coupled_flow_group_runs_each_member_as_its_lone_session(name: str) ->
         bounds.append((expected, _parity_bound(problem, run_request, expected, linear)))
     # The session forms the run's statistics, the gas's density among them, from the
     # case's profiles.
-    owned = {"grid": grid, "modes": case.modes, "profiles": case.profiles}
     members = grouped(
-        [NativeBackend(one, run_request, **owned) for one in problems],
+        [_owner(case, one, run_request) for one in problems],
         problems,
         requests,
         starts,
@@ -332,7 +344,7 @@ def test_a_coupled_flow_group_runs_each_member_as_its_lone_session(name: str) ->
         assert float(np.max(np.abs(actual - expected))) / scale <= bound
         if one_thread():
             single = alone(
-                NativeBackend(problem, run_request, **owned),
+                _owner(case, problem, run_request),
                 problem,
                 run_request,
                 Start.entrance(problem),

@@ -52,8 +52,9 @@ def test_batch_registry_has_no_native_runner_and_imports_nothing(monkeypatch):
         monkeypatch.setattr(owner, "name", "native")
         with pytest.raises(
             BackendError,
-            match=r"the 'native' backend has none: its groups run through its own "
-            r"group session, started with solprop\.backends\.sessions\.start_group",
+            match=r"no runner for backend 'native': .* its own prepared group, which "
+            r"solprop\.backends\.sessions\.start_group starts, as native's group "
+            r"session does",
         ):
             select_batch(cast(Sequence[Backend], [owner]))
         assert owner.observe().z == 0.0

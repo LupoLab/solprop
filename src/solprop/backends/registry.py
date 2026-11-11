@@ -650,9 +650,11 @@ def select_batch(owners: Sequence[Backend]) -> BatchBackend:
         raise BackendError(f"Batch has no runner for backend {name!r}")
     if entry.batch is None:
         msg = (
-            f"select_batch is the reference's lockstep runner, and the {name!r} "
-            "backend has none: its groups run through its own group session, started "
-            "with solprop.backends.sessions.start_group (SEP 47 section 6.7)"
+            f"Batch has no runner for backend {name!r}: select_batch is the "
+            "reference's lockstep runner, and a backend that registers none runs its "
+            "groups through its own prepared group, which "
+            "solprop.backends.sessions.start_group starts, as native's group session "
+            "does (SEP 47 section 6.7)"
         )
         raise BackendError(msg)
     runner = cast("Callable[[Sequence[Backend]], BatchBackend]", _load(entry.batch))

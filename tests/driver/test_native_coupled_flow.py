@@ -502,12 +502,19 @@ def test_a_batched_scan_of_coupled_flows_runs_as_the_local_loop(tmp_path):
     """A batched scan groups coupled-flow points into one native group, and each
     point is the local loop's to the matched-march bound (SEP 25)."""
     scan = Scan("coupled", power=[1.0, 2.0])
-    options = {"progress": "none"}
     local = run_scan(
-        scan, _scan_point, output=tmp_path / "local.h5", executor=Local(), **options
+        scan,
+        _scan_point,
+        output=tmp_path / "local.h5",
+        executor=Local(),
+        progress="none",
     )
     batched = run_scan(
-        scan, _scan_point, output=tmp_path / "batch.h5", executor=Batch(2), **options
+        scan,
+        _scan_point,
+        output=tmp_path / "batch.h5",
+        executor=Batch(2),
+        progress="none",
     )
     assert local.status.tolist() == batched.status.tolist() == ["done"] * 2
     assert_points_matched(batched, local, scan, _scan_point, what="batch member")
