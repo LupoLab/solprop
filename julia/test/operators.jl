@@ -60,6 +60,32 @@ function represented_cycle!(output, operator, work, execution)
     return nothing
 end
 
+@testset "Constant operator endpoint conversion precedes subtraction" begin
+    ex = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 1, true)
+    operator = SolpropJulia.DiagonalOperator(ex, fill(-2.0im, 2, 1))
+    output = zeros(ComplexF64, 2, 1)
+    for (left, right) in (
+            (typemin(Int), typemax(Int)), (typemax(Int), typemin(Int)),
+            (UInt(0), typemax(UInt)), (typemax(UInt), UInt(0)),
+        )
+        SolpropJulia.operator_exponent!(output, operator, left, right, ex)
+        expected = -2im * (BigInt(right) - BigInt(left))
+        # Two rounded endpoint conversions and one subtraction; scale by both
+        # absolute endpoints, not the cancellation-reduced interval.
+        bound = 8eps(Float64) * (abs(BigFloat(left)) + abs(BigFloat(right)))
+        @test bound > 0
+        @test all(abs.(Complex{BigFloat}.(output) .- expected) .<= bound)
+    end
+    SolpropJulia.operator_exponent!(output, operator, typemax(Int), typemax(Int), ex)
+    @test iszero(output)
+    fill!(output, 3 + 2im)
+    saved = copy(output)
+    @test_throws ArgumentError SolpropJulia.operator_exponent!(
+        output, operator, -(big(2)^2048), big(2)^2048, ex,
+    )
+    @test output == saved
+end
+
 @testset "Represented and expanded diagonal flow" begin
     ex = SolpropJulia.KernelExecution(
         SolpropJulia.KernelAbstractions.CPU(), Threads.nthreads(:default), true,

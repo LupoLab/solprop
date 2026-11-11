@@ -43,7 +43,8 @@ Write the dimensionless integrated diagonal generator between two positions in m
 zeros. A constant or represented table needs no `work`. An `ExpansionOperator` requires
 `work` to be a caller-owned real vector with one entry per fixed term; it stores the
 scalar weight differences. Positions must be finite and lie in a represented operator's
-admitted span; reversed intervals are allowed. Return `output`.
+admitted span; reversed intervals are allowed. Constant operators convert both positions
+to binary64 before subtracting, avoiding bounded-integer arithmetic. Return `output`.
 """
 function operator_exponent!(
         output, operator::DiagonalOperator, z0::Real, z1::Real,
@@ -55,7 +56,9 @@ function operator_exponent!(
         throw(ArgumentError("the exponent output must not overwrite its generator"))
     isfinite(z0) && isfinite(z1) ||
         throw(ArgumentError("operator positions must be finite"))
-    distance = z1 - z0
+    # Positions are host coordinates: convert before subtracting so finite Integer
+    # inputs cannot wrap in their source type (issue #684).
+    distance = Float64(z1) - Float64(z0)
     isfinite(distance) || throw(ArgumentError("the operator interval must be finite"))
     rate = operator.rate
     neutral = zero(eltype(output))
