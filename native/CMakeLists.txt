@@ -334,8 +334,19 @@ if(SOLPROP_NATIVE_CPU_BASELINE_FLAG)
   string(APPEND SOLPROP_NATIVE_COMPILER_FLAGS " ${SOLPROP_NATIVE_CPU_BASELINE_FLAG}")
 endif()
 string(STRIP "${SOLPROP_NATIVE_COMPILER_FLAGS}" SOLPROP_NATIVE_COMPILER_FLAGS)
-string(APPEND SOLPROP_NATIVE_COMPILER_FLAGS
-  " -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow")
+# The project's own sources' warnings, defined once: the targets compile with them and the
+# build record lists them. MSVC is not a supported compiler (Windows builds use clang++).
+set(SOLPROP_NATIVE_WARNING_FLAGS
+    -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wundef
+    -Wnon-virtual-dtor -Woverloaded-virtual)
+if(CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|AppleClang|AMDClang)$")
+  list(APPEND SOLPROP_NATIVE_WARNING_FLAGS -Wimplicit-fallthrough)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  list(APPEND SOLPROP_NATIVE_WARNING_FLAGS
+       -Wduplicated-cond -Wduplicated-branches -Wlogical-op)
+endif()
+list(JOIN SOLPROP_NATIVE_WARNING_FLAGS " " _warning_flags_record)
+string(APPEND SOLPROP_NATIVE_COMPILER_FLAGS " ${_warning_flags_record}")
 if(SOLPROP_NATIVE_FP_CONTRACT_FLAG)
   string(APPEND SOLPROP_NATIVE_COMPILER_FLAGS " ${SOLPROP_NATIVE_FP_CONTRACT_FLAG}")
 endif()
@@ -417,12 +428,7 @@ function(solprop_native_configure_project_target target)
     target_link_options(${target} PRIVATE -fprofile-instr-generate)
   endif()
   target_compile_options(${target} PRIVATE
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-Wall>
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-Wextra>
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-Wpedantic>
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-Wconversion>
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-Wsign-conversion>
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-Wshadow>
+    "$<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:${SOLPROP_NATIVE_WARNING_FLAGS}>"
     $<$<AND:$<BOOL:${SOLPROP_NATIVE_WARNINGS_AS_ERRORS}>,$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>>:-Werror>
   )
   if(SOLPROP_NATIVE_ENABLE_CLANG_TIDY)
@@ -791,7 +797,7 @@ if(SOLPROP_NATIVE_ENABLE_COVERAGE)
   target_include_directories(solprop_native_labels SYSTEM PRIVATE
     "${kokkos_SOURCE_DIR}/core/src")
   target_compile_options(solprop_native_labels PRIVATE
-    -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror)
+    ${SOLPROP_NATIVE_WARNING_FLAGS} -Werror)
   set_target_properties(solprop_native_labels PROPERTIES
     PREFIX "" CXX_VISIBILITY_PRESET default)
   install(TARGETS solprop_native_labels LIBRARY DESTINATION solprop_native)

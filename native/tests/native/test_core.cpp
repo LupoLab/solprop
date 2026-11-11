@@ -93,7 +93,7 @@ std::vector<double> real_time(const std::vector<Complex>& spectrum,
 native::Problem base_problem(const native::FieldFamily family) {
   native::Problem problem;
   problem.cpu_execution = native::test::table();
-  problem.n_t = family == native::FieldFamily::envelope ? 4 : 4;
+  problem.n_t = 4;
   problem.n_to = family == native::FieldFamily::envelope ? 4 : 8;
   problem.n_omega = family == native::FieldFamily::envelope ? 4 : 3;
   problem.n_stages = 1;
