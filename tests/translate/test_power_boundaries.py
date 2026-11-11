@@ -27,8 +27,8 @@ from solprop.profiles import Linear, PressureGradient
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec, _poynting_statistics, analytic_field
-from solprop.stepper import PIController
-from solprop.translate import expansion, linop
+from solprop.stepper import PIController, RungeKutta
+from solprop.translate import chebyshev, expansion, linop
 from solprop.translate.problem import assemble
 
 
@@ -252,13 +252,19 @@ def test_a_taper_with_a_floored_vacuum_end_translates():
             [mode.at_parameters(values)], simulation.grid, n_pol, None
         )(0.0)
 
-    # The block is resolved to `_power_phi`'s tolerance relative to each element's
-    # scale, so the largest element bounds its absolute error.
+    # Include both samplers in the declared endpoint tolerance. Previously the
+    # rounding of unity dominated the box floor, masking the independent path
+    # floor near this steep pressure endpoint.
     floor = expansion.parameter_roundoff_floor(value_at, phi.parameters, phi.ranges)
     entrance = sample(0.0)
-    bound = 8 * floor * float(np.abs(entrance).max())
+    tolerance = max(
+        8 * np.finfo(float).eps,
+        8 * floor,
+        8 * linop._roundoff_floor(sample, linear.z_span[1]),
+    )
     # The endpoint block alone is -ln(Re n_eff) / 2 relative to the entrance.
     n_endpoint = int(np.prod(phi.endpoint_degrees + 1))
+    bound = _endpoint_expansion_budget(phi, n_endpoint, tolerance)
     exit_side = length - np.logspace(-9, -3, 7)
     for z in np.concatenate((np.linspace(0.0, length, 11), exit_side)):
         expected = sample(float(z)) - entrance
@@ -266,6 +272,93 @@ def test_a_taper_with_a_floored_vacuum_end_translates():
             phi.weights(float(z))[-n_endpoint:], phi.terms[-n_endpoint:], axes=1
         )
         np.testing.assert_allclose(actual, expected, rtol=0.0, atol=bound)
+
+
+def test_short_helium_entrance_resolves_power_conversion_without_unity_roundoff():
+    # Keep the full physical pressure profile while requesting only its entrance.
+    # Previously log(neff) lost refractivity digits and drove an unresolved tail.
+    simulation = Simulation.from_capillary(
+        125e-6,
+        1.5,
+        "He",
+        (0.8, 0.0),
+        wavelength=800e-9,
+        wavelength_limits=(90e-9, 4e-6),
+        trange=400e-15,
+        fwhm=7.5e-15,
+        energy=275e-6,
+        modes=2,
+        loss=True,
+        noise=None,
+        backend="numpy_ref",
+        integrator=RungeKutta(),
+        rtol=1e-10,
+        dz_init=12.5e-6,
+        dz_max=12.5e-6,
+        save_planes=[100e-6],
+        stats=StatsSpec(names=("energy", "peak_power", "electron_density", "density")),
+    )
+    problem = simulation.translate()
+    linear = problem.linear
+    phi = linear.phi_expansion
+    assert phi is not None and phi.endpoint_degrees is not None
+    assert phi.parameters == ("density",)
+    modes = tuple(
+        mode for mode in simulation.modes if isinstance(mode, ParameterisedMode)
+    )
+    assert len(modes) == 2
+    sample = linop._log_weight_sampler(
+        modes, simulation.grid, linear.value_shape[2], None
+    )
+
+    def value_at(values):
+        return linop._log_weight_sampler(
+            [mode.at_parameters(values) for mode in modes],
+            simulation.grid,
+            linear.value_shape[2],
+            None,
+        )(0.0)
+
+    floor = expansion.parameter_roundoff_floor(value_at, phi.parameters, phi.ranges)
+    tolerance = max(
+        8 * np.finfo(float).eps,
+        8 * floor,
+        8 * linop._roundoff_floor(sample, linear.z_span[1]),
+    )
+    entrance = sample(0.0)
+    n_endpoint = int(np.prod(phi.endpoint_degrees + 1))
+    bound = _endpoint_expansion_budget(phi, n_endpoint, tolerance)
+    for z in np.linspace(0.0, 100e-6, 11):
+        actual = np.tensordot(
+            phi.weights(float(z))[-n_endpoint:], phi.terms[-n_endpoint:], axes=1
+        )
+        np.testing.assert_allclose(
+            actual, sample(float(z)) - entrance, rtol=0, atol=bound
+        )
+
+
+def _endpoint_expansion_budget(phi, n_endpoint, tolerance):
+    # build admits the rounding of z nodes through a derivative bound, separately
+    # from the requested tolerance and parameter-mapping noise. Near a vacuum end
+    # this floor dominates even when the endpoint sampler itself is accurate.
+    node_floor = max(
+        chebyshev.SAMPLING_NOISE_FACTOR
+        * chebyshev._sampling_noise(
+            phi.weights.coefficients[index, : int(degree) + 1, -n_endpoint:],
+            *phi.weights.breakpoints[index : index + 2],
+        )
+        for index, degree in enumerate(phi.weights.degrees)
+    )
+    weight_tolerance = max(
+        expansion.DEFAULT_TOL, expansion._mapping_noise(phi.ranges), node_floor
+    )
+    # Two tail allowances bound the endpoint fit. The weights pass through an
+    # endpoint table and a joined table: two evaluations for the endpoint
+    # difference, plus the joined interpolation, each with the factor-two tail
+    # criterion. Eight also covers the final evaluation's rounding. The L1 norm
+    # propagates those scalar-weight errors through every endpoint coefficient.
+    coefficient_scale = float(np.abs(phi.terms[-n_endpoint:]).sum(axis=0).max())
+    return (2 * tolerance + 8 * weight_tolerance) * coefficient_scale
 
 
 @pytest.mark.parametrize("name", ["numpy_ref", "native"])

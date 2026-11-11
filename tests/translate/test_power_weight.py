@@ -6,6 +6,7 @@
 
 from contextlib import nullcontext
 from dataclasses import replace
+from decimal import Decimal, localcontext
 
 import numpy as np
 import pytest
@@ -65,6 +66,52 @@ def test_log_power_weight_uses_the_prefactor_index():
     # The same logarithm of the same index: a rounding of the index moves its
     # logarithm by about eps absolutely, so 4 eps absolute with 4 eps relative.
     np.testing.assert_allclose(actual, expected, rtol=4 * EPS, atol=4 * EPS)
+
+
+def test_log_power_weight_preserves_refractivity_below_the_rounding_of_unity(
+    monkeypatch,
+):
+    refractivity = np.array([-(2.0**-60), 2.0**-60, -(2.0**-30), 2.0**-30])
+    mode = MarcatiliMode(125e-6, "He", 1.0)
+    monkeypatch.setattr(
+        MarcatiliMode,
+        "neff",
+        lambda self, omega, z: (1.0 + refractivity).astype(complex),
+    )
+    monkeypatch.setattr(
+        MarcatiliMode,
+        "neff_minus_one",
+        lambda self, omega, z: refractivity.astype(complex),
+    )
+    with localcontext() as context:
+        context.prec = 80
+        expected = np.array(
+            [float((1 + Decimal.from_float(value)).ln()) for value in refractivity]
+        )
+    actual = log_power_weight(mode, np.arange(1.0, 5.0))
+    # Independent high-precision logarithms; four binary64 rounding units cover
+    # log1p and reference conversion, with no absolute floor erasing tiny values.
+    np.testing.assert_allclose(actual, expected, rtol=4 * EPS, atol=0.0)
+
+
+def test_log_power_weight_retains_positive_indices_far_below_unity(monkeypatch):
+    weight = np.array([np.finfo(float).tiny, 1e-300, 0.25, 2.0, 3.0])
+    mode = MarcatiliMode(125e-6, "He", 1.0)
+    monkeypatch.setattr(
+        MarcatiliMode, "neff", lambda self, omega, z: weight.astype(complex)
+    )
+    monkeypatch.setattr(
+        MarcatiliMode,
+        "neff_minus_one",
+        lambda self, omega, z: (weight - 1.0).astype(complex),
+    )
+    with localcontext() as context:
+        context.prec = 80
+        expected = np.array([float(Decimal.from_float(value).ln()) for value in weight])
+    actual = log_power_weight(mode, np.arange(1.0, 6.0))
+    assert np.all(np.isfinite(actual))
+    # As above: logarithm and independent reference rounding, not a fitted bound.
+    np.testing.assert_allclose(actual, expected, rtol=4 * EPS, atol=0.0)
 
 
 def test_endpoint_terms_use_plain_products_and_integral_terms_keep_integrals():
@@ -127,10 +174,10 @@ def test_the_log_term_resolves_on_a_tapered_gradients_parameter_box():
 
     A 100 to 80 um taper beside a 5 to 0.2 bar argon gradient: the box's low-density,
     wide-bore corner, which the path never visits, holds bins near the long-wavelength
-    crossing of ``Re n_eff = 1`` whose ``ln Re n_eff`` is a few 1e-6, so the same
-    absolute rounding is a larger relative floor there than anywhere along z. The
-    translation raised before the fix; the floor on the box is above the tolerance the
-    path's floor gave, which is why no degree could meet it.
+    crossing of ``Re n_eff = 1`` whose ``ln Re n_eff`` is a few 1e-6. Forming the
+    index before its logarithm formerly made the box's noise floor much larger than
+    the path's. The cancellation-free logarithm removes that loss; the test retains
+    the physical corner and checks the complete expansion error budget.
     """
     grid = FieldGrid.from_limits(0.1, 800e-9, (300e-9, 2e-6), 400e-15)
     mode = MarcatiliMode(
@@ -153,7 +200,6 @@ def test_the_log_term_resolves_on_a_tapered_gradients_parameter_box():
     box_floor = parameter_roundoff_floor(
         value_at, expansion.parameters, expansion.ranges
     )
-    assert box_floor > 8 * path_floor
     tol = max(8 * np.finfo(float).eps, 8 * path_floor, 8 * box_floor)
     scale = max(float(np.abs(sample(z)).max()) for z in (0.0, 0.05, 0.1))
     # The declared tolerance of the parameter fit and of the scalar weight tables,

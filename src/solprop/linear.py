@@ -123,6 +123,10 @@ def log_power_weight(
 ) -> Float[np.ndarray, " n_omega"]:
     """Return the logarithm of the modal power weight.
 
+    Near unity, use the mode's cancellation-free ``n_eff - 1`` with ``log1p``.
+    Forming ``n_eff`` first discards the small refractivity's significant digits and
+    introduces sampling noise into the cumulative power-conversion endpoint term.
+
     Parameters
     ----------
     mode : solprop.modes.protocol.Mode
@@ -145,7 +149,15 @@ def log_power_weight(
     ModeError
         If the power weight is not positive and finite.
     """
-    return np.log(power_weight(mode, omega, z, index=index))
+    weight = power_weight(mode, omega, z, index=index)
+    result = np.log(weight)
+    if index is None:
+        refractivity = np.real(mode.neff_minus_one(omega, z))
+        near_unity = np.abs(refractivity) < 0.5
+        # Away from unity, keep the validated weight: a small positive index can
+        # round to exactly -1 when represented as n_eff - 1, outside log1p's domain.
+        result[near_unity] = np.log1p(refractivity[near_unity])
+    return result
 
 
 MAX_ATTENUATION_EXPONENT = 708.0

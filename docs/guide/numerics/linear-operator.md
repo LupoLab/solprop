@@ -23,7 +23,11 @@ where $a$ is the internal vacuum-normalised modal amplitude, $N_m$ the nonlinear
 explicit constant index a run declares in its place. The saved amplitude is the true-power
 $b=\sqrt w a$ ([power, energy and intensity](../results/power-and-intensity.md)); the logarithmic
 term keeps its energy right where $w$ varies along z, and vanishes for a constant fill and
-on the GNLSE mapping. The **dispersion operator**
+on the GNLSE mapping. Near unity, its logarithm is evaluated as
+`log1p(Re(n_eff - 1))`, using the mode's cancellation-free refractivity. This preserves
+small changes along a pressure gradient instead of interpolating the rounding noise
+introduced by first adding unity. Positive indices far from unity retain the ordinary
+logarithm of the validated power weight. The **dispersion operator**
 
 $$
 D_m(\omega, z) = -\mathrm{i}\bigl(\beta_m(\omega, z) - \beta_0(z) - \beta_1(z)(\omega - \omega_0)\bigr)
