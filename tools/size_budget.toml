@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Ratchets for `poe size-check` (tools/size_report.py --check) on src/solprop. Each cap
+# is today's figure or tighter: lower one when the code improves, never raise one to let
+# a change through (docs/dev/tooling.md, "Size").
+
+[private_docstrings]
+# Private or nested definitions whose docstring has numpydoc sections (Parameters,
+# Returns, Yields, Raises, Examples, See Also). The target is 0 (AGENTS.md, "Docstrings").
+max_sectioned = 2895
+
+[modules]
+# No module grows past this many lines.
+max_lines = 4000
+
+[modules.allow]
+# The modules already larger, each capped at its present size so it can only shrink.
+# Remove an entry once its module is split below max_lines.
+"src/solprop/driver/simulation.py" = 13113
+"src/solprop/translate/problem.py" = 6910
+"src/solprop/output/schema.py" = 5854
+"src/solprop/tools.py" = 4201
+"src/solprop/spatial.py" = 4031
+
+[private_imports]
+# Private names imported from another package (the root's shared private modules, such
+# as solprop._process, count only for their private names).
+max_cross_package = 88

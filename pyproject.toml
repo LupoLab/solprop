@@ -346,6 +346,8 @@ reuse      = "reuse lint"
 changelog-check = "python -m tools.release_notes check"
 changelog-preview = "python -m tools.release_notes preview"
 changelog-collect = "python -m tools.release_notes collect"
+size       = "python -m tools.size_report"           # where the lines go, per package
+size-check = "python -m tools.size_report --check"   # the ratchets of tools/size_budget.toml
 test-medium = "pytest -m medium --durations=0"   # the tier timed against its 60 s budget
 docs       = "sphinx-build -b html -W -n --keep-going docs docs/_build/html"
 # Python rather than `rm -rf`, so the task also runs on Windows.
@@ -447,7 +449,7 @@ args = [{ name = "SOLPROP_RUN_EXAMPLES", positional = true, default = "stale", h
 help = "Execute the stale gallery scripts and refresh their committed output (slow)."
 
 [tool.poe.tasks.check]
-sequence = ["lint-fix", "fmt", "lint", "types", "docstrings", "spell", "reuse", "changelog-check", "test", "docs"]
+sequence = ["lint-fix", "fmt", "lint", "types", "docstrings", "spell", "reuse", "changelog-check", "size-check", "test", "docs"]
 help = "The definition-of-done gate, in order."
 
 # The native package's gate: its lint and strict types, C++ format, clang-tidy, the

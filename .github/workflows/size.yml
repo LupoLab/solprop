@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A soft budget on growth: a pull request that adds more than 1,500 lines of Python to
+# src/solprop, net of what it removes, against its merge base, fails here unless it
+# carries the `size-ok` label. The hard ratchets are `poe size-check`, in CI's static
+# job (docs/dev/tooling.md, "Size").
+
+name: Size
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  growth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Net src/solprop growth against the merge base
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          LABELLED: ${{ contains(github.event.pull_request.labels.*.name, 'size-ok') }}
+          LIMIT: "1500"
+        run: |
+          base=$(git merge-base "origin/$BASE_REF" HEAD)
+          growth=$(git diff --numstat "$base" HEAD -- 'src/solprop/*.py' \
+            | awk '$1 != "-" { net += $1 - $2 } END { print net + 0 }')
+          echo "src/solprop grew by $growth lines (budget $LIMIT, merge base $base)." \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$growth" -gt "$LIMIT" ]; then
+            if [ "$LABELLED" = "true" ]; then
+              echo "Over budget, accepted by the size-ok label." | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::error::src/solprop grew by $growth lines, over the $LIMIT-line budget. Shrink the change, or ask a maintainer for the size-ok label."
+              exit 1
+            fi
+          fi

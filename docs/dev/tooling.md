@@ -38,7 +38,8 @@ A documentation-only change needs only the
 [documentation checks](testing.md#documentation-only-changes).
 
 Runs, in order: `ruff check --fix .` → `ruff format .` → `ruff check .` → `basedpyright` →
-`numpydoc lint` (on `src/solprop` and the two figure scripts) → `codespell` → `reuse lint` → `poe test`
+`numpydoc lint` (on `src/solprop` and the figure scripts) → `codespell` → `reuse lint` →
+`poe changelog-check` → `poe size-check` → `poe test`
 (fast and medium tiers, doctests included, under xdist) →
 `sphinx-build -b html -W -n --keep-going docs docs/_build/html`. CI runs exactly the same
 sequence plus `poe test-slow` and the CPU coverage lane; keep the two identical.
@@ -175,6 +176,32 @@ missing references are warnings (`-W -n`). `docs/dev/` is included in the manual
 first and read from the vendored copies under `docs/_inventories/` when that fails, so the
 build works offline and survives a flaky mirror; refresh the copies occasionally.
 
+## Size
+
+`poe size` (`tools/size_report.py`, standard library only) reports where the Python lines
+go, per top-level package of `src/solprop` (`--all` adds the native adapter and the front
+end, `--json` prints JSON): code, public and private docstring, comment and blank lines;
+private docstrings with numpydoc sections and docstrings longer than their body; the largest
+files and functions; `noqa` comments by rule; private names imported across packages;
+`__all__` lines; cloned code (windows of 50 tokens seen twice, with names renamed and as
+written) with the file pairs that share most; and ruff's complexity counts. A name is
+private by numpydoc's rule (a single-underscore component of `module.qualname`) or when it
+is nested in a function.
+
+`poe size-check`, in `poe check` and CI's static job, holds `src/solprop` to the ratchets in
+`tools/size_budget.toml`: the number of private docstrings with numpydoc sections, a
+4,000-line cap on a module (the modules already larger are listed, each capped at its
+present size), and the number of private names imported across packages. A cap is lowered
+when the code improves and never raised to let a change through.
+`.github/workflows/size.yml` adds a soft budget: a pull request whose net growth of
+`src/solprop` against its merge base exceeds 1,500 lines fails unless a maintainer gives it
+the `size-ok` label.
+
+Dead code is looked for by hand, not in the gate:
+`uvx vulture src/solprop --min-confidence 80`. Its findings need reading, since public
+names, protocol members and names used only from tests or the native package look unused
+to it.
+
 ## Environment variables the tools honour
 
 - `SOLPROP_THREADS`, the thread budget the native backend's pools stay within, and
@@ -218,7 +245,7 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
 `SOLPROP_TEST_TYPECHECK=0` (ADR-053).
 
 - **static** (Linux): `uv lock --check`, ruff (lint and format check), `poe types`,
-  `poe docstrings`, `poe spell`, `poe reuse`, `poe changelog-check`.
+  `poe docstrings`, `poe spell`, `poe reuse`, `poe changelog-check`, `poe size-check`.
 - **docs** (Linux): `poe docs`, with the wheel installed, so a lesson or tutorial on
   `backend="auto"` runs on `native`.
 - **native-wheel** (Linux x86-64, macOS arm64, Windows x64, Windows on Arm): this tree's `native/` built
