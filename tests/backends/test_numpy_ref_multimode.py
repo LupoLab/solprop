@@ -383,17 +383,9 @@ def test_the_memory_ledger_sizes_the_node_buffers_by_the_chunk(
 
 
 def test_the_alarm_fires_on_a_rule_too_coarse_for_the_field(
-    backend_class, grid, capillary, caplog, request
+    backend_class, grid, capillary, caplog
 ):
     """A statistic and a logged warning, never a controller input."""
-    if backend_class.name == "native":
-        request.applymarker(
-            pytest.mark.xfail(
-                strict=True,
-                reason="the native session reports the alarm's statistic but does "
-                "not log its warning; the retired step driver did",
-            )
-        )
     modes = modes_of(capillary, 3)
     rule = transverse_quadrature(modes, n_r=8, radial_rule="gauss_kronrod")
     problem, run_request = build(grid, modes, pulse(grid, 3), quadrature=rule)
