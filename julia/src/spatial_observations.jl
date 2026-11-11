@@ -97,7 +97,8 @@ _spatial_map_shape(map::CartesianObservationMap) =
 
 """
     SpatialObservationPopulations(plasma, grid; species_densities, channel_species,
-                                  peak_species, pad_scale)
+                                  peak_species, pad_scale, potentials=nothing,
+                                  measure=nothing)
 
 Retain independent scalar Cartesian/line population inputs for fresh observations.
 
@@ -105,22 +106,26 @@ Retain independent scalar Cartesian/line population inputs for fresh observation
 `ModalSourceGrid`. Species/profile/index conventions match `ObservationPopulations`.
 `pad_scale` is the positive translated temporal oversampling factor, applied once
 after spatial reconstruction. Only rate, preionisation and integration/cycle data
-enter the population kernels; no source or current buffers are retained. Invalid
+enter the population kernels; no source or current buffers are retained. Optional
+complete-species `potentials` in J and `PopulationMeasure` supply only the final
+ionisation inventory. Invalid
 species mappings or field/envelope channel combinations raise before allocation.
 """
-struct SpatialObservationPopulations{P, G, D, I}
+struct SpatialObservationPopulations{P, G, D, I, U, W}
     plasma::P
     grid::G
     species_densities::D
     channel_species::I
     peak_species::Int
     pad_scale::Float64
+    potentials::U
+    measure::W
 end
 
 function SpatialObservationPopulations(
         plasma::Union{Nothing, ModalPlasma}, grid::ModalSourceGrid;
         species_densities::Tuple, channel_species::Tuple, peak_species::Int,
-        pad_scale::Float64,
+        pad_scale::Float64, potentials = nothing, measure = nothing,
     )
     !isempty(species_densities) &&
         all(profile -> profile isa SourceProfile, species_densities) ||
@@ -136,8 +141,13 @@ function SpatialObservationPopulations(
     isfinite(pad_scale) && pad_scale > 0 ||
         throw(ArgumentError("spatial population padding scale must be positive finite"))
     _validate_source_responses(grid, nothing, (), plasma)
+    owned_potentials = _population_inventory_data(
+        potentials, measure, length(species_densities),
+        measure isa PopulationMeasure ? length(measure.weights) : 0,
+    )
     return SpatialObservationPopulations(
-        plasma, grid, species_densities, channel_species, peak_species, pad_scale
+        plasma, grid, species_densities, channel_species, peak_species, pad_scale,
+        owned_potentials, measure,
     )
 end
 
@@ -227,7 +237,10 @@ function SpatialObservationPreparation(
     isfinite(intensity_factor) && intensity_factor > 0 ||
         throw(ArgumentError("spatial intensity conversion must be positive finite"))
     for slot in selection.slots
-        slot.code in (2, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23) ||
+        slot.code in (
+            2, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+            24, 25, 26, 27, 28, 29,
+        ) ||
             throw(
             ArgumentError(
                 "spatial statistic $(_STATISTIC_NAMES[slot.code]) is unsupported",
@@ -236,10 +249,14 @@ function SpatialObservationPreparation(
     end
     needs = statistics_needs(selection)
     _spatial_observation_populations(map, populations, kind, n_frequency, columns, nodes)
+    _observation_population_requirements(selection, populations, kind)
+    populations === nothing || populations.measure === nothing ||
+        length(populations.measure.weights) == nodes ||
+        throw(DimensionMismatch("spatial population measure does not match its nodes"))
     needs.populations && populations === nothing &&
         throw(ArgumentError("spatial population inputs are missing"))
     for slot in selection.slots
-        expected = if slot.code in (14, 15)
+        expected = if slot.code in (14, 15, 27, 28, 29)
             populations === nothing &&
                 throw(ArgumentError("spatial population inputs are missing"))
             length(populations.species_densities) * (slot.code == 14 ? nodes : 1)
@@ -352,7 +369,7 @@ function _spatial_axis_pair(execution, data, analytic)
     )
 end
 
-struct _SpatialPopulationWork{A, F, P, W, B, C}
+struct _SpatialPopulationWork{A, F, P, W, B, C, D}
     spectrum::Matrix{ComplexF64}
     coarse::Matrix{ComplexF64}
     nodes::A
@@ -364,13 +381,17 @@ struct _SpatialPopulationWork{A, F, P, W, B, C}
     densities::Vector{Float64}
     fractions::Matrix{Float64}
     peaks::Matrix{Float64}
+    diagnostics::D
 end
 
 function _spatial_population_work(execution, data, node_chunk)
     prepared = data.populations
     prepared === nothing && return nothing
     if prepared isa ObservationPopulations
-        return _observation_population_work(execution, prepared, data.n_modes, node_chunk)
+        return _observation_population_work(
+            execution, prepared, data.n_modes, node_chunk;
+            diagnostics = data.needs.plasma_diagnostics
+        )
     end
     grid = prepared.grid
     capacity = min(node_chunk, data.n_modes)
@@ -392,6 +413,8 @@ function _spatial_population_work(execution, data, node_chunk)
         SpectralPadding(execution, grid.crop_index, fine, prepared.pad_scale, 1.0),
         population, CartesianBandWork(execution, data.map.shape, frequencies), chunks,
         zeros(n_species), zeros(data.n_modes, n_species), zeros(data.n_modes, n_species),
+        data.needs.plasma_diagnostics ?
+            PlasmaDiagnosticWorkspace(execution, Float64, capacity) : nothing,
     )
 end
 
@@ -405,6 +428,7 @@ _observation_arrays(work::_SpatialPopulationWork) = (
     work.spectrum, work.coarse, work.nodes, work.band.band,
     work.padding.crop, work.padding.uncrop,
     work.densities, work.fractions, work.peaks, _observation_arrays(work.workspace),
+    _observation_arrays(work.diagnostics),
 )
 
 _spatial_population_arrays(::Nothing) = ()
@@ -530,6 +554,9 @@ function SpatialObservationWorkspace(
         PopulationStatisticsInput(
             populations.densities, populations.fractions, populations.peaks;
             peak_species = prepared.populations.peak_species,
+            potentials = prepared.populations.potentials,
+            node_weights = prepared.populations.measure === nothing ? nothing :
+                prepared.populations.measure.weights,
         )
     end
     inputs = StatisticsInputs(;
@@ -642,14 +669,19 @@ function _spatial_axis!(work, field, closure, axis, execution)
     return nothing
 end
 
-function _spatial_observation_populations!(work, data::ObservationPopulations, field, z, ex)
-    _observation_populations!(work, data, field, z, ex)
+function _spatial_observation_populations!(
+        work, data::ObservationPopulations, field, z, ex;
+        diagnostics::Bool = false
+    )
+    _observation_populations!(work, data, field, z, ex; diagnostics)
     return nothing
 end
 
 function _spatial_observation_populations!(
-        work, data::SpatialObservationPopulations, field, position, execution,
+        work, data::SpatialObservationPopulations, field, position, execution;
+        diagnostics::Bool = false,
     )
+    diagnostics && reset_plasma_diagnostics!(work.diagnostics)
     _observation_densities!(work.densities, data.species_densities, position, 1)
     fill!(work.fractions, 0.0)
     fill!(work.peaks, 0.0)
@@ -667,7 +699,10 @@ function _spatial_observation_populations!(
         all(isfinite, work.nodes) ||
             throw(ArgumentError("spatial population reconstruction overflowed"))
         _source_each_indexed(data.plasma.channels) do channel, index
-            _observation_channel!(work, data, channel, index, chunk, position, execution)
+            _observation_channel!(
+                work, data, channel, index, chunk, position, execution;
+                diagnostics
+            )
         end
     end
     return nothing
@@ -726,7 +761,8 @@ function observe!(
         )
     end
     needs.populations && _spatial_observation_populations!(
-        work.populations, data.populations, field, z, execution,
+        work.populations, data.populations, field, z, execution;
+        diagnostics = needs.plasma_diagnostics,
     )
     profiles = (
         _observation_profile(
@@ -740,9 +776,16 @@ function observe!(
             _observation_selected(data.selection, 13, periodic), z,
         ),
     )
+    populations = _observation_population_input(
+        work.inputs.populations, data.populations, z,
+        _observation_selected(data.selection, 28, periodic),
+    )
+    diagnostics = _observation_diagnostics(
+        _observation_diagnostic_work(work.populations), needs.plasma_diagnostics,
+    )
     inputs = StatisticsInputs(;
         spectral = work.inputs.spectral, spatial = work.inputs.spatial,
-        populations = work.inputs.populations, profiles, quadrature_error,
+        populations, profiles, quadrature_error, diagnostics,
     )
     statistics!(
         work.values, data.selection, data.grid, inputs, work.statistics, execution;

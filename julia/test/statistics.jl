@@ -26,7 +26,7 @@ end
     @test SolpropJulia.statistics_needs(selection).spectral
     @test !SolpropJulia.statistics_needs(selection).temporal
     @test_throws ArgumentError SolpropJulia.StatisticSlot(:absorbed_power, 1, 1)
-    @test_throws ArgumentError SolpropJulia.StatisticSlot(:species_density, 1, 1)
+    @test SolpropJulia.StatisticSlot(:species_density, 1, 1).code == 27
     @test_throws ArgumentError SolpropJulia.StatisticSlot(:energy, 0, 1)
     @test_throws ArgumentError SolpropJulia.StatisticSlot(:energy, 1, 0)
     @test_throws ArgumentError SolpropJulia.StatisticSlot(:energy, big(typemax(Int)) + 1, 1)
@@ -544,4 +544,93 @@ end
     weights[1] = 1.0 + eps(Float64)
     SolpropJulia.spectral_statistics!(output, slot, grid, input, workspace, execution)
     @test output == [1.0, 3.0, 3.0]
+end
+
+@testset "Complete species inventory retains passive and preionised species" begin
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 2, true)
+    densities = [2.0, 9.0, 3.0]
+    fractions = [0.25 0.0 0.8; 0.75 0.0 0.1; 0.1 0.0 0.4]
+    rates = [4.0 0.0 2.0; 1.0 0.0 8.0; 2.0 0.0 3.0]
+    potentials = [0.5, 0.0, 1.25]
+    weights = [0.2, 0.3, 0.5]
+    input = SolpropJulia.PopulationStatisticsInput(
+        densities, fractions, rates;
+        peak_species = 1, potentials, node_weights = weights, measure_factor = 2.0
+    )
+    selection = _statistics_selection(
+        (
+            (:species_density, 3), (:species_ionisation_energy, 3),
+            (:species_peak_ionisation_rate, 3), (:peak_ionisation_rate, 1),
+        )
+    )
+    grid = SolpropJulia.StatisticsGrid([1.0], [0.0], [1.0])
+    workspace = SolpropJulia.StatisticsWorkspace(
+        execution, Float64;
+        n_time = 1, n_columns = 1, n_nodes = 3
+    )
+    output = zeros(selection.width)
+    inputs = SolpropJulia.StatisticsInputs(; populations = input)
+    SolpropJulia.statistics!(output, selection, grid, inputs, workspace, execution)
+    exact = [
+        sum(
+            BigFloat(weights[node]) * 2 * BigFloat(densities[species]) *
+                BigFloat(fractions[node, species]) * BigFloat(potentials[species])
+                for node in 1:3
+        )
+            for species in 1:3
+    ]
+    # Four positive products and the three-term accumulation, no cancellation.
+    gamma = 16eps(Float64) / (1 - 16eps(Float64))
+    @test gamma > 0
+    @test output[1:3] == densities
+    @test maximum(abs, BigFloat.(output[4:6]) - exact) <= gamma * maximum(exact)
+    @test output[7:9] == [4.0, 0.0, 8.0]
+    @test output[10] == 1.0
+    @test iszero(output[5])
+    @test _statistics_allocations(
+        output, selection, grid, inputs, workspace, execution
+    ) == 0
+    for name in (
+            :species_density, :species_ionisation_energy, :species_peak_ionisation_rate,
+        )
+        @test_throws ArgumentError SolpropJulia.StatisticsSelection(
+            (SolpropJulia.StatisticSlot(name, 1, 3),), (1,)
+        )
+    end
+    slot = SolpropJulia.StatisticSlot(:species_ionisation_energy, 1, 3)
+    missing = SolpropJulia.PopulationStatisticsInput(densities, fractions, rates)
+    @test_throws ArgumentError SolpropJulia.population_statistics!(
+        zeros(3), slot, missing, workspace, execution
+    )
+    preserved = copy(potentials)
+    @test_throws ArgumentError SolpropJulia.population_statistics!(
+        potentials, slot, input, workspace, execution
+    )
+    @test potentials == preserved
+    invalid = SolpropJulia.PopulationStatisticsInput(
+        densities, fractions, rates;
+        potentials, node_weights = [-1.0, 1.0, 1.0]
+    )
+    @test_throws ArgumentError SolpropJulia.population_statistics!(
+        zeros(3), slot, invalid, workspace, execution
+    )
+    diagnostic_selection = _statistics_selection(
+        (
+            (:plasma_undershoot, 1), (:plasma_work_defect, 1), (:plasma_boundary_level, 1),
+        )
+    )
+    values = zeros(3)
+    SolpropJulia.statistics!(
+        values, diagnostic_selection, grid,
+        SolpropJulia.StatisticsInputs(; diagnostics = (0.1, 0.2, 0.3)), workspace, execution
+    )
+    @test values == [0.1, 0.2, 0.3]
+    @test_throws ArgumentError SolpropJulia.statistics!(
+        values, diagnostic_selection, grid,
+        SolpropJulia.StatisticsInputs(), workspace, execution
+    )
+    @test_throws ArgumentError SolpropJulia.statistics!(
+        values, diagnostic_selection, grid,
+        SolpropJulia.StatisticsInputs(; diagnostics = (NaN, 0.0, 0.0)), workspace, execution
+    )
 end

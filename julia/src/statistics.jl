@@ -16,6 +16,8 @@ const _STATISTIC_NAMES = (
     :species_electron_density, :electron_density, :peak_ionisation_rate,
     :peak_intensity, :on_axis_intensity, :quadrature_error,
     :beam_radius, :fwhm_r, :on_axis_spectrum,
+    :plasma_undershoot, :plasma_work_defect, :plasma_boundary_level,
+    :species_density, :species_ionisation_energy, :species_peak_ionisation_rate,
 )
 
 """
@@ -24,9 +26,10 @@ const _STATISTIC_NAMES = (
 Describe one statistic's contiguous slice in a caller-owned packed output vector.
 
 `name` is an admitted catalogue symbol, `offset` is one-based and `count` is positive.
-Shapes and public names remain in the bridge's immutable output metadata. The last
-three admitted names, `beam_radius`, `fwhm_r` and `on_axis_spectrum`, remain plane-only.
-Unknown, far-field and other plane-only statistics raise `ArgumentError` by name.
+Shapes and public names remain in the bridge's immutable output metadata. Spatial
+widths/spectrum, plasma integration diagnostics and species inventory/peak rows
+remain plane-only. Unknown and far-field statistics and the
+plane-only mode-model root `zdw` raise `ArgumentError` by name.
 """
 struct StatisticSlot
     code::UInt8
@@ -78,19 +81,20 @@ function StatisticsSelection(slots::Tuple, periodic::Tuple = ())
     length(unique(periodic)) == length(periodic) ||
         throw(ArgumentError("duplicate periodic statistic index"))
     all(index -> slots[index].code <= 20, periodic) ||
-        throw(ArgumentError("spatial width and spectrum defaults are plane-only"))
+        throw(ArgumentError("selected statistics are plane-only"))
     return StatisticsSelection(slots, periodic, offset - 1)
 end
 
 """
     StatisticsNeeds(spectral, temporal, windows, populations, intensity, widths,
-                    axis_spectrum)
+                    axis_spectrum, plasma_diagnostics=false)
 
 Describe numerical families required to prepare one observation's inputs.
 
 Every field is a Boolean. `windows` requests windowed analytic pairs; `intensity`
 requests physical or on-axis analytic pairs, and `widths` requests local and axial
-spectral pairs. This record carries no state or callback.
+spectral pairs. `plasma_diagnostics` requests the plane-only raw field-population
+scan parts as well as final populations. This record carries no state or callback.
 """
 struct StatisticsNeeds
     spectral::Bool
@@ -100,7 +104,14 @@ struct StatisticsNeeds
     intensity::Bool
     widths::Bool
     axis_spectrum::Bool
+    plasma_diagnostics::Bool
 end
+
+StatisticsNeeds(spectral, temporal, windows, populations, intensity, widths, axis) =
+    StatisticsNeeds(
+    spectral, temporal, windows, populations, intensity, widths, axis,
+    false
+)
 
 """
     statistics_needs(selection; periodic=false)
@@ -112,19 +123,22 @@ cadence or advance any cursor. The result is an allocation-free `StatisticsNeeds
 """
 function statistics_needs(selection::StatisticsSelection; periodic::Bool = false)
     spectral = temporal = windows = populations = intensity = widths = axis = false
+    diagnostics = false
     for (index, slot) in pairs(selection.slots)
         periodic && !(index in selection.periodic) && continue
         code = slot.code
         spectral |= code in (1, 2, 3, 7)
         temporal |= code in (4, 6, 8, 9, 10)
         windows |= code == 5
-        populations |= 14 <= code <= 17
+        populations |= 14 <= code <= 17 || 24 <= code <= 29
         intensity |= code in (18, 19)
         widths |= code in (21, 22)
         axis |= code == 23
+        diagnostics |= 24 <= code <= 26
     end
     return StatisticsNeeds(
-        spectral, temporal, windows, populations, intensity, widths, axis
+        spectral, temporal, windows, populations, intensity, widths, axis,
+        diagnostics
     )
 end
 
@@ -236,7 +250,9 @@ function TemporalStatisticsInput(
 end
 
 """
-    PopulationStatisticsInput(densities, fractions, peak_rates; peak_species=0)
+    PopulationStatisticsInput(densities, fractions, peak_rates; peak_species=0,
+                              potentials=nothing, node_weights=nothing,
+                              measure_factor=1.0)
 
 Retain fresh scalar population reductions in the mixture's complete species order.
 
@@ -247,15 +263,34 @@ is the largest over all nodes/species. A positive one-based species index select
 its first largest-fraction node, preserving the legacy single-population statistic,
 including zero-density cases. Electron densities always use the first largest total
 number-density node. Which peak rule applies is resolved from the neutral request.
+
+Optional `potentials` has one finite nonnegative ionisation energy in J per species;
+`node_weights` has finite nonnegative physical transverse weights in m². The positive
+finite `measure_factor` rescales those weights at this observation. These data are
+required only by `species_ionisation_energy`, the final inventory in J/m including
+preionisation, rather than the newly deposited work.
 """
-struct PopulationStatisticsInput{D, F, P}
+struct PopulationStatisticsInput{D, F, P, U, W}
     densities::D
     fractions::F
     peak_rates::P
     peak_species::Int
+    potentials::U
+    node_weights::W
+    measure_factor::Float64
 end
-PopulationStatisticsInput(densities, fractions, peaks; peak_species::Int = 0) =
-    PopulationStatisticsInput(densities, fractions, peaks, peak_species)
+PopulationStatisticsInput(densities, fractions, peaks, peak_species::Int) =
+    PopulationStatisticsInput(
+    densities, fractions, peaks, peak_species, nothing, nothing, 1.0
+)
+PopulationStatisticsInput(
+    densities, fractions, peaks; peak_species::Int = 0,
+    potentials = nothing, node_weights = nothing, measure_factor::Float64 = 1.0
+) =
+    PopulationStatisticsInput(
+    densities, fractions, peaks, peak_species,
+    potentials, node_weights, measure_factor
+)
 
 """
     SpatialWidthGrid(kind, x, y, weights)
@@ -360,7 +395,8 @@ end
 
 """
     StatisticsInputs(; spectral=nothing, temporal=nothing, populations=nothing,
-                     spatial=nothing, profiles=(NaN,NaN,NaN), quadrature_error=NaN)
+                     spatial=nothing, profiles=(NaN,NaN,NaN), quadrature_error=NaN,
+                     diagnostics=nothing)
 
 Group explicit inputs for one actual observed field, with no mutable field cache.
 
@@ -369,21 +405,34 @@ The optional numerical families use the corresponding `*StatisticsInput` records
 evaluated from each profile's own Julia table. `quadrature_error` is the session's
 accepted-step alarm; statistics do not rescore the last trial. It is NaN before an
 accepted score, without an embedded rule or for a zero material source, as in the
-reference backend's `_update_alarm`. Other requested absent or nonfinite dependencies
+reference backend's `_update_alarm`. Optional `diagnostics` is the finite nonnegative
+Float64 tuple `(plasma_undershoot, plasma_work_defect, plasma_boundary_level)` from
+this observed field's complete scan. Other requested absent or nonfinite dependencies
 raise an error rather than being replaced by a default.
 """
-struct StatisticsInputs{S, T, P, G, F, Q}
+struct StatisticsInputs{S, T, P, G, F, Q, D}
     spectral::S
     temporal::T
     populations::P
     spatial::G
     profiles::F
     quadrature_error::Q
+    diagnostics::D
 end
+
+StatisticsInputs(spectral, temporal, populations, spatial, profiles, quadrature_error) =
+    StatisticsInputs(
+    spectral, temporal, populations, spatial, profiles, quadrature_error,
+    nothing
+)
 StatisticsInputs(;
     spectral = nothing, temporal = nothing, populations = nothing, spatial = nothing,
     profiles = (NaN, NaN, NaN), quadrature_error = NaN,
-) = StatisticsInputs(spectral, temporal, populations, spatial, profiles, quadrature_error)
+    diagnostics = nothing,
+) = StatisticsInputs(
+    spectral, temporal, populations, spatial, profiles, quadrature_error,
+    diagnostics
+)
 
 """
     StatisticsWorkspace(execution, T; n_time, n_columns, n_nodes=0, n_radii=0)
@@ -463,7 +512,12 @@ end
     return nothing
 end
 @inline function _stat_disjoint(destination, input::PopulationStatisticsInput)
-    _stat_disjoint_tuple(destination, (input.densities, input.fractions, input.peak_rates))
+    _stat_disjoint_tuple(
+        destination, (
+            input.densities, input.fractions, input.peak_rates,
+            input.potentials, input.node_weights,
+        )
+    )
     return nothing
 end
 @inline function _stat_disjoint(destination, input::SpatialStatisticsInput)
@@ -779,7 +833,7 @@ Mixture order includes non-ionising species. Densest-node ties choose the first 
 All populations and rates must be finite and in their documented domains.
 """
 function population_statistics!(output, slot, input, workspace, execution)
-    _stat_family(output, slot, (14, 15, 16, 17))
+    _stat_family(output, slot, (14, 15, 16, 17, 27, 28, 29))
     _stat_buffers(output, workspace, nothing, input)
     input === nothing &&
         throw(ArgumentError("population statistic needs fresh populations"))
@@ -820,6 +874,42 @@ function population_statistics!(output, slot, input, workspace, execution)
     elseif code == 16
         _stat_count(slot, 1)
         output[offset] = total[densest]
+    elseif code == 27
+        _stat_count(slot, n_species)
+        for species in 1:n_species
+            output[offset + species - 1] = densities[species]
+        end
+    elseif code == 28
+        _stat_count(slot, n_species)
+        potentials, weights = input.potentials, input.node_weights
+        if potentials === nothing || weights === nothing
+            throw(ArgumentError("species inventory needs potentials and physical weights"))
+        end
+        length(potentials) == n_species && length(weights) == n_nodes ||
+            throw(DimensionMismatch("species inventory measure dimensions disagree"))
+        all(value -> isfinite(value) && value >= 0, potentials) &&
+            all(value -> isfinite(value) && value >= 0, weights) &&
+            isfinite(input.measure_factor) && input.measure_factor > 0 ||
+            throw(ArgumentError("species inventory measure must be finite and nonnegative"))
+        for species in 1:n_species
+            value = 0.0
+            for node in 1:n_nodes
+                electrons = densities[species] * fractions[node, species]
+                weight = weights[node] * input.measure_factor
+                value += weight * electrons * potentials[species]
+            end
+            isfinite(value) || throw(ArgumentError("species ionisation energy overflowed"))
+            output[offset + species - 1] = value
+        end
+    elseif code == 29
+        _stat_count(slot, n_species)
+        for species in 1:n_species
+            value = 0.0
+            for node in 1:n_nodes
+                value = max(value, peaks[node, species])
+            end
+            output[offset + species - 1] = value
+        end
     else
         _stat_count(slot, 1)
         species = input.peak_species
@@ -1135,7 +1225,7 @@ function statistics!(
             _stat_buffers(output, workspace, grid, inputs.spectral)
         elseif code in (4, 5, 6, 8, 9, 10) || (code == 18 && inputs.spatial === nothing)
             _stat_buffers(output, workspace, grid, inputs.temporal)
-        elseif 14 <= code <= 17
+        elseif 14 <= code <= 17 || 27 <= code <= 29
             _stat_buffers(output, workspace, grid, inputs.populations)
         elseif code in (18, 19, 21, 22, 23)
             _stat_buffers(output, workspace, grid, inputs.spatial)
@@ -1154,8 +1244,15 @@ function statistics!(
             value = inputs.profiles[code - 10]
             isfinite(value) || throw(ArgumentError("requested scalar profile is nonfinite"))
             output[slot.offset] = value
-        elseif 14 <= code <= 17
+        elseif 14 <= code <= 17 || 27 <= code <= 29
             population_statistics!(output, slot, inputs.populations, workspace, execution)
+        elseif 24 <= code <= 26
+            _stat_count(slot, 1)
+            inputs.diagnostics isa NTuple{3, Float64} ||
+                throw(ArgumentError("plasma diagnostic statistics need a fresh scan"))
+            all(value -> isfinite(value) && value >= 0, inputs.diagnostics) ||
+                throw(ArgumentError("plasma diagnostics must be nonnegative finite"))
+            output[slot.offset] = inputs.diagnostics[code - 23]
         elseif code == 20
             _stat_count(slot, 1)
             (

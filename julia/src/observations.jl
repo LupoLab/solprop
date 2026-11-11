@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-public ObservationProfiles, ObservationPopulations
+public ObservationProfiles, ObservationPopulations, PopulationMeasure
 public TemporalObservationData, ObservationPreparation, ObservationWorkspace
 public observe!, observation_launch!, capture_split!, observation_accepted!
 public observation_check!, observation_plane!, observation_finish!
@@ -36,8 +36,62 @@ function ObservationProfiles(; density = nothing, pressure = nothing, core_radiu
 end
 
 """
+    PopulationMeasure(weights; area=SourceProfile(1.0), taper=SourceProfile(1.0))
+
+Copy explicit reference transverse weights for the final species ionisation inventory.
+
+`weights` is a nonempty nonnegative finite binary64 vector. Its physical value at z
+is `weights * area(z) / taper(z)^2` in m². Resolved modal data use their reference
+node weights and own taper; geometry uses physical weights with unit profiles; a
+mode-averaged route uses `[1]` with its represented effective area in `area`.
+The caller chooses this existing route convention. Both profiles are independent
+`SourceProfile` records and must evaluate positive finite where used. No map or
+material response is inspected to infer the measure. Invalid inputs raise before copy.
+"""
+struct PopulationMeasure{W, A, T}
+    weights::W
+    area::A
+    taper::T
+end
+
+function PopulationMeasure(
+        weights::AbstractVector{Float64};
+        area::SourceProfile = SourceProfile(1.0),
+        taper::SourceProfile = SourceProfile(1.0)
+    )
+    !isempty(weights) && all(value -> isfinite(value) && value >= 0, weights) ||
+        throw(ArgumentError("population measure requires finite nonnegative weights"))
+    return PopulationMeasure(Vector{Float64}(weights), area, taper)
+end
+
+function _population_measure_factor(measure::PopulationMeasure, position)
+    area, taper = _source_profile(measure.area, position),
+        _source_profile(measure.taper, position)
+    isfinite(area) && area > 0 && isfinite(taper) && taper > 0 ||
+        throw(ArgumentError("population area and taper must be positive finite"))
+    value = area / taper^2
+    isfinite(value) && value > 0 ||
+        throw(ArgumentError("population physical measure scale is out of range"))
+    return value
+end
+
+function _population_inventory_data(potentials, measure, species, nodes)
+    if potentials !== nothing
+        potentials isa AbstractVector{Float64} && length(potentials) == species &&
+            all(value -> isfinite(value) && value >= 0, potentials) ||
+            throw(ArgumentError("species potentials need finite nonnegative binary64 data"))
+    end
+    measure === nothing || (
+        measure isa PopulationMeasure &&
+            length(measure.weights) == nodes
+    ) ||
+        throw(DimensionMismatch("population physical measure does not match its nodes"))
+    return potentials === nothing ? nothing : copy(potentials)
+end
+
+"""
     ObservationPopulations(plasma, grid, map; species_densities, channel_species,
-                           peak_species)
+                           peak_species, potentials=nothing, measure=nothing)
 
 Retain immutable scalar modal plasma data for fresh population observations.
 
@@ -51,21 +105,26 @@ retain zero populations. `peak_species` is zero for the mixture peak, or a one-b
 species index for the translated legacy single-population node-selection convention.
 Scans use only each channel's rate and preionisation with its integration/cycle rule;
 current-only density, charge and ionisation potential never enter population algebra.
+Optional complete-species `potentials` in J and `PopulationMeasure` are required only
+for the species ionisation inventory; they never enter the population recurrence.
 No mutable source instance or stage scratch is retained. Invalid mappings or field/
 envelope channel combinations raise `ArgumentError` or `DimensionMismatch`.
 """
-struct ObservationPopulations{P, G, M, D, I}
+struct ObservationPopulations{P, G, M, D, I, U, W}
     plasma::P
     grid::G
     map::M
     species_densities::D
     channel_species::I
     peak_species::Int
+    potentials::U
+    measure::W
 end
 
 function ObservationPopulations(
         plasma::Union{Nothing, ModalPlasma}, grid::ModalSourceGrid, map::ModalSourceMap;
         species_densities::Tuple, channel_species::Tuple, peak_species::Int,
+        potentials = nothing, measure = nothing,
     )
     !isempty(species_densities) &&
         all(profile -> profile isa SourceProfile, species_densities) ||
@@ -90,8 +149,12 @@ function ObservationPopulations(
         plasma.rule.dt == grid.dt && length(plasma.rule.taps) <= grid.n_time ||
             throw(DimensionMismatch("population integral disagrees with its fine grid"))
     end
+    owned_potentials = _population_inventory_data(
+        potentials, measure, length(species_densities), size(map.synthesis, 1),
+    )
     return ObservationPopulations(
-        plasma, grid, map, species_densities, channel_species, peak_species
+        plasma, grid, map, species_densities, channel_species, peak_species,
+        owned_potentials, measure,
     )
 end
 
@@ -168,6 +231,21 @@ struct ObservationPreparation{G, S, W, P, A, T, L, M} <: _ObservationPreparation
     periodic_needs::StatisticsNeeds
 end
 
+function _observation_population_requirements(selection, populations, kind)
+    diagnostics = statistics_needs(selection).plasma_diagnostics
+    if diagnostics
+        populations !== nothing && kind == :field && populations.plasma !== nothing &&
+            !isempty(populations.plasma.channels) ||
+            throw(ArgumentError("plasma diagnostics require field plasma channels"))
+    end
+    if any(slot -> slot.code == 28, selection.slots)
+        populations !== nothing && populations.potentials !== nothing &&
+            populations.measure !== nothing ||
+            throw(ArgumentError("species inventory needs potentials and physical measure"))
+    end
+    return nothing
+end
+
 function ObservationPreparation(
         execution, grid::StatisticsGrid, selection::StatisticsSelection;
         kind::Symbol, n_modes::Int, power_weight::ObservationWeight,
@@ -200,12 +278,13 @@ function ObservationPreparation(
             size(populations.map.synthesis, 2) == n_modes ||
             throw(DimensionMismatch("population preparation disagrees with modal state"))
     end
+    _observation_population_requirements(selection, populations, kind)
     for slot in selection.slots
         expected = if slot.code in (1, 2, 4)
             n_modes
         elseif slot.code in (3, 5)
             n_modes * size(grid.windows, 2)
-        elseif slot.code in (14, 15)
+        elseif slot.code in (14, 15, 27, 28, 29)
             if populations === nothing
                 message = "selected population statistics need prepared populations"
                 throw(ArgumentError(message))
@@ -298,7 +377,7 @@ struct _ObservationWindows{P, A}
     weighted::A
 end
 
-struct _ObservationPopulationWork{A, T, F, P, W, C}
+struct _ObservationPopulationWork{A, T, F, P, W, C, D}
     spectrum::A
     modal::T
     transform::F
@@ -309,9 +388,13 @@ struct _ObservationPopulationWork{A, T, F, P, W, C}
     densities::Vector{Float64}
     fractions::Matrix{Float64}
     peaks::Matrix{Float64}
+    diagnostics::D
 end
 
-function _observation_population_work(execution, data, n_modes, node_chunk)
+function _observation_population_work(
+        execution, data, n_modes, node_chunk;
+        diagnostics::Bool = false
+    )
     data === nothing && return nothing
     grid, maps = data.grid, data.map
     n_nodes, n_species = size(maps.synthesis, 1), length(data.species_densities)
@@ -337,7 +420,8 @@ function _observation_population_work(execution, data, n_modes, node_chunk)
         TemporalFFT(execution, modal, spectrum),
         SpectralPadding(execution, grid.crop_index, frequencies, 1.0, 1.0),
         nodes, workspace, chunks,
-        zeros(n_species), zeros(n_nodes, n_species), zeros(n_nodes, n_species)
+        zeros(n_species), zeros(n_nodes, n_species), zeros(n_nodes, n_species),
+        diagnostics ? PlasmaDiagnosticWorkspace(execution, Float64, capacity) : nothing,
     )
 end
 
@@ -393,10 +477,12 @@ _observation_arrays(work::_ObservationMonitorWork) =
     work.reading.occupancy, work.pending.occupancy,
 )
 _observation_arrays(work::PopulationWorkspace) = _population_arrays(work)
+_observation_arrays(work::PlasmaDiagnosticWorkspace) = (work.parts, work.maxima)
 _observation_arrays(work::_ObservationPopulationWork) =
     (
     work.spectrum, work.modal, work.nodes, work.densities,
     work.fractions, work.peaks, _observation_arrays(work.workspace),
+    _observation_arrays(work.diagnostics),
 )
 
 function _observation_no_alias(input, ::Tuple{})
@@ -490,7 +576,10 @@ function ObservationWorkspace(
         nothing
     end
     populations = needs.populations ?
-        _observation_population_work(execution, prepared.populations, n_modes, node_chunk) :
+        _observation_population_work(
+            execution, prepared.populations, n_modes, node_chunk;
+            diagnostics = needs.plasma_diagnostics
+        ) :
         nothing
     n_nodes = populations === nothing ? 0 : size(populations.fractions, 1)
     statistics = StatisticsWorkspace(
@@ -519,7 +608,10 @@ function ObservationWorkspace(
     end
     population_input = populations === nothing ? nothing : PopulationStatisticsInput(
             populations.densities, populations.fractions, populations.peaks;
-            peak_species = prepared.populations.peak_species
+            peak_species = prepared.populations.peak_species,
+            potentials = prepared.populations.potentials,
+            node_weights = prepared.populations.measure === nothing ? nothing :
+            prepared.populations.measure.weights,
         )
     inputs = StatisticsInputs(;
         spectral = spectral_input, temporal = temporal_input,
@@ -600,7 +692,10 @@ function _observation_densities!(output, profiles::Tuple, position, offset)
     return nothing
 end
 
-function _observation_channel!(work, data, channel, index, chunk, position, execution)
+function _observation_channel!(
+        work, data, channel, index, chunk, position, execution;
+        diagnostics::Bool = false
+    )
     initial = _source_profile(channel.preionisation, position)
     0 <= initial <= 1 ||
         throw(ArgumentError("invalid observation plasma preionisation"))
@@ -623,6 +718,14 @@ function _observation_channel!(work, data, channel, index, chunk, position, exec
             failure.code, index, chunk.first + failure.node - 1, failure.sample
         )
     )
+    if diagnostics
+        work.diagnostics === nothing &&
+            throw(ArgumentError("plasma diagnostic buffers are missing"))
+        plasma_diagnostics!(
+            work.diagnostics, work.nodes, work.workspace,
+            data.plasma.rule, execution; count = chunk.count
+        )
+    end
     species = data.channel_species[index]
     fraction, rate = work.workspace.fraction, work.workspace.rate
     fractions, peaks, first = work.fractions, work.peaks, chunk.first
@@ -637,8 +740,12 @@ function _observation_channel!(work, data, channel, index, chunk, position, exec
     return nothing
 end
 
-function _observation_populations!(work, data, field, position, execution)
+function _observation_populations!(
+        work, data, field, position, execution;
+        diagnostics::Bool = false
+    )
     work === nothing && throw(ArgumentError("population observation buffers are missing"))
+    diagnostics && reset_plasma_diagnostics!(work.diagnostics)
     _observation_densities!(work.densities, data.species_densities, position, 1)
     fill!(work.fractions, 0.0)
     fill!(work.peaks, 0.0)
@@ -656,7 +763,10 @@ function _observation_populations!(work, data, field, position, execution)
         all(isfinite, work.nodes) ||
             throw(ArgumentError("population field reconstruction overflowed"))
         _source_each_indexed(data.plasma.channels) do channel, index
-            _observation_channel!(work, data, channel, index, chunk, position, execution)
+            _observation_channel!(
+                work, data, channel, index, chunk, position, execution;
+                diagnostics
+            )
         end
     end
     return nothing
@@ -676,6 +786,36 @@ _observation_profile(::Nothing, selected, position) = selected ?
     throw(ArgumentError("selected observation profile is missing")) : NaN
 
 _observation_identity(::Nothing, identity) = nothing
+function _observation_diagnostics(::Nothing, selected)::NTuple{3, Float64}
+    selected && throw(ArgumentError("plasma diagnostic buffers are missing"))
+    return (0.0, 0.0, 0.0)
+end
+function _observation_diagnostics(
+        work::PlasmaDiagnosticWorkspace, selected
+    )::NTuple{3, Float64}
+    return selected ? plasma_diagnostic_values(work) : (0.0, 0.0, 0.0)
+end
+_observation_diagnostic_work(::Nothing) = nothing
+_observation_diagnostic_work(work) = work.diagnostics
+
+_observation_population_input(::Nothing, data, position, selected) = nothing
+function _observation_population_input(
+        input::PopulationStatisticsInput, data,
+        position, selected
+    )
+    factor = if selected
+        data.measure === nothing && throw(ArgumentError("population measure is missing"))
+        _population_measure_factor(data.measure, position)
+    else
+        1.0
+    end
+    return PopulationStatisticsInput(
+        input.densities, input.fractions, input.peak_rates;
+        peak_species = input.peak_species, potentials = input.potentials,
+        node_weights = input.node_weights, measure_factor = factor
+    )
+end
+
 function _observation_identity(input::TemporalStatisticsInput, identity)
     return TemporalStatisticsInput(
         input.analytic, input.weighted,
@@ -732,7 +872,10 @@ function observe!(
     end
     needs.intensity && _observation_axis!(work, z)
     needs.populations &&
-        _observation_populations!(work.populations, data.populations, field, z, execution)
+        _observation_populations!(
+        work.populations, data.populations, field, z, execution;
+        diagnostics = needs.plasma_diagnostics
+    )
     temporal = _observation_identity(work.inputs.temporal, all(isone, work.weight))
     profiles = (
         _observation_profile(
@@ -748,9 +891,16 @@ function observe!(
             _observation_selected(data.selection, 13, periodic), z
         ),
     )
+    populations = _observation_population_input(
+        work.inputs.populations, data.populations, z,
+        _observation_selected(data.selection, 28, periodic),
+    )
+    diagnostics = _observation_diagnostics(
+        _observation_diagnostic_work(work.populations), needs.plasma_diagnostics,
+    )
     inputs = StatisticsInputs(;
-        spectral = work.inputs.spectral, temporal, populations = work.inputs.populations,
-        profiles, quadrature_error
+        spectral = work.inputs.spectral, temporal, populations,
+        profiles, quadrature_error, diagnostics,
     )
     statistics!(
         work.values, data.selection, data.grid, inputs,
