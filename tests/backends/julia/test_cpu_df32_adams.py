@@ -4,6 +4,7 @@
 """Qualify complete DF32 Adams sessions and selected portable history."""
 
 import os
+from collections.abc import Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 
@@ -15,6 +16,7 @@ from backends.julia.test_cpu_single_groups import _group, _scaled
 from sessions.executors import IDENTITY, Started, drive, fibre, window
 from solprop.backends.events import ObservationReady, Outcome, Terminal
 from solprop.backends.export import ExportRecipe
+from solprop.backends.julia._session import JuliaSession
 from solprop.backends.julia.backend import JuliaBackend
 from solprop.backends.registry import select
 from solprop.backends.session import ExecutionOptions, Start
@@ -31,7 +33,7 @@ pytestmark = [
 ]
 
 
-def _case(*, order=5, compensated=False, single=True, steps=8):
+def _case(*, order=5, compensated=False, single=True, steps: int | None = 8):
     case = adams_case(
         method=Multistep(order=order, variable_order=steps is None),
         steps=steps,
@@ -58,7 +60,7 @@ def _case(*, order=5, compensated=False, single=True, steps=8):
 
 
 @contextmanager
-def _session(case, *, wide="df32", start=None):
+def _session(case, *, wide: str | None = "df32", start=None):
     if wide is None:
         owner = select(
             "numpy_ref", case.problem, case.request, grid=window(), modes=[fibre().mode]
@@ -84,7 +86,7 @@ def _session(case, *, wide="df32", start=None):
         owner.close()
 
 
-def _run(case, *, wide="df32", work_limit=256, recipe=IDENTITY):
+def _run(case, *, wide: str | None = "df32", work_limit=256, recipe=IDENTITY):
     with _session(case, wide=wide) as session:
         result = drive(Started(session), export=recipe, work_limit=work_limit)
         assert result.status.outcome is Outcome.COMPLETED, result.batches[-1].terminal
@@ -229,6 +231,7 @@ def test_df32_adams_raw_history_restore_is_lossless_and_completed_start_is_idle(
         resume=True,
     )
     with _session(case, start=start) as session:
+        assert isinstance(session, JuliaSession)
         batch = session.advance()
         event = next(
             event for event in batch.events if isinstance(event, ObservationReady)
@@ -274,10 +277,13 @@ def test_df32_adams_invalid_history_resets_before_binding_its_old_coordinates():
         resume=True,
     )
     with _session(case, start=start) as session:
+        assert isinstance(session, JuliaSession)
         assert "repeats a history slot" in str(session.march_refusal)
         result = drive(Started(session), export=IDENTITY)
         assert result.status.outcome is Outcome.COMPLETED
         restored = session.execution_record()["response_calls"]
+        assert isinstance(restored, Mapping) and isinstance(calls, Mapping)
+        assert isinstance(calls["startup"], int)
         assert restored["startup"] == calls["startup"] + 1
 
 
@@ -290,6 +296,7 @@ def test_df32_adams_group_preserves_independent_plain_and_compensated_members():
     recipe = ExportRecipe(power=True, optics=False)
     with ExitStack() as cleanup:
         group, _ = _group(cases, "df32", cleanup)
+        batch = None
         while not group.finished:
             batch = group.advance()
             for index, events in enumerate(batch.members):
@@ -297,7 +304,7 @@ def test_df32_adams_group_preserves_independent_plain_and_compensated_members():
                     if isinstance(event, ObservationReady):
                         fields[index].append(group.export(index, event.ticket, recipe))
             group.acknowledge(batch.receipt)
-        assert batch.outcome is Outcome.COMPLETED
+        assert batch is not None and batch.outcome is Outcome.COMPLETED
         for index, (kind, factor) in enumerate(specifications):
             status = group.member_status(index)
             assert status.attempts == 8 and status.rejected == 0
@@ -358,6 +365,7 @@ def test_df32_adams_group_phase_refusal_precedes_seed_source_and_history_work():
         )
         record = group.execution_record(1)
         assert record["source_evaluations"] == 0
-        assert record["response_calls"]["startup"] == 0
+        calls = record["response_calls"]
+        assert isinstance(calls, Mapping) and calls["startup"] == 0
         assert group.member_status(1).attempts == 0
         group.acknowledge(failed.receipt)

@@ -197,6 +197,7 @@ def test_history_preflight_owns_the_exact_rows_and_retains_reset_reason(
         assert selected.refusal == refusal
         assert len(seen) == 1 and start.field is not None
         if refusal is None:
+            assert selected.snapshot is not None
             assert selected.snapshot is seen[0]
             assert selected.snapshot.identities == snapshot.identities
             expected = snapshot.rows["store"].copy()
