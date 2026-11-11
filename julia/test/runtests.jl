@@ -49,6 +49,7 @@ if group == "Core"
     include("spatial_composition.jl")
     include("source_composition_precision.jl")
     include("observations.jl")
+    include("axis_statistics.jl")
     include("node_memory.jl")
     include("node_binding.jl")
     include("spatial_observations.jl")

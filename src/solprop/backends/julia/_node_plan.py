@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from solprop.backends.julia._observations import (
+    _AXIS_POPULATIONS,
     _PLASMA_DIAGNOSTICS,
     _POPULATIONS,
     _SPATIAL_STATISTICS,
@@ -35,7 +36,9 @@ if TYPE_CHECKING:
 
 __all__ = ["JuliaNodePlan", "NodeBuffer", "plan_julia_nodes"]
 
-_TEMPORAL = frozenset({"peak_power", "peak_power_total", "fwhm_t", "fwhm_t_outer"})
+_TEMPORAL = frozenset(
+    {"peak_power", "peak_power_total", "analytic_flux", "fwhm_t", "fwhm_t_outer"}
+)
 _WIDTHS = frozenset({"beam_radius", "fwhm_r"})
 _EXCLUSIONS = (
     "opaque FFTW native plan storage and temporary planning copies",
@@ -461,6 +464,7 @@ def _observation_inventory(
             rows.append(NodeBuffer("observations.axis_pair", fixed_bytes=4 * n * c))
     if population:
         rows.extend(_population_inventory(problem, d))
+    rows.extend(_axis_population_inventory(problem, names, d))
     if names & _PLASMA_DIAGNOSTICS:
         rows.append(
             NodeBuffer("observations.plasma_diagnostics", 6 * r, fixed_bytes=6 * r)
@@ -487,6 +491,41 @@ def _observation_inventory(
             )
         )
     return rows
+
+
+def _axis_population_inventory(
+    problem: PropagationProblem, names: frozenset[str], d: _Dimensions
+) -> list[NodeBuffer]:
+    """Count the separate fine-grid axis scan independently of node capacity.
+
+    Parameters
+    ----------
+    problem : PropagationProblem
+        Complete species ordering of the admitted modal descriptor.
+    names : frozenset of str
+        Selected statistic names.
+    d : _Dimensions
+        Admitted fine-grid extents and element widths.
+
+    Returns
+    -------
+    list of NodeBuffer
+        Owned axis work, or an empty list when no axis population is requested.
+    """
+    if not names & _AXIS_POPULATIONS:
+        return []
+    # Charge both physical components; an envelope collapses them only after its
+    # exact preparation-time collinearity admission. Plans remain opaque storage.
+    return [
+        NodeBuffer(
+            "observations.axis_populations",
+            fixed_bytes=d.fine_time * (3 * d.scalar + 5 * d.real + 1)
+            + 3 * problem.responses.n_species * d.real
+            + 8 * (d.frequency + d.fine_frequency),
+            full_volume_bytes=(d.fine_frequency * d.complex + d.fine_time * d.scalar)
+            * d.modes,
+        )
+    ]
 
 
 def _spatial_observation_inventory(

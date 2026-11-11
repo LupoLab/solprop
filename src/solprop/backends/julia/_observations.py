@@ -42,12 +42,13 @@ from solprop.monitor import (
     BoundaryMonitor,
 )
 from solprop.profiles import ZProfile
-from solprop.stats import CATALOGUE
+from solprop.stats import CATALOGUE, ON_AXIS_PLASMA_STATISTICS
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import ModalRoute, SpatialRoute
 from solprop.translate.run_request import MethodKind, RunRequest
 
 __all__ = [
+    "AxisPopulationObservationTransfer",
     "ObservationProfilesTransfer",
     "ObservationTransfer",
     "PopulationMeasureTransfer",
@@ -69,6 +70,9 @@ _STATISTICS = frozenset(
         "peak_power",
         "peak_power_window",
         "peak_power_total",
+        "physical_energy",
+        "analytic_flux",
+        "spectral_flux",
         "fwhm_t",
         "fwhm_t_outer",
         "density",
@@ -86,6 +90,7 @@ _STATISTICS = frozenset(
         "plasma_boundary_level",
         "peak_intensity",
         "quadrature_error",
+        *ON_AXIS_PLASMA_STATISTICS,
     )
 )
 _SPATIAL_STATISTICS = frozenset(
@@ -134,6 +139,8 @@ _POPULATIONS = frozenset(
 _PLASMA_DIAGNOSTICS = frozenset(
     ("plasma_undershoot", "plasma_work_defect", "plasma_boundary_level")
 )
+_UNIT_FLUX = frozenset(("physical_energy", "analytic_flux", "spectral_flux"))
+_AXIS_POPULATIONS = frozenset(ON_AXIS_PLASMA_STATISTICS)
 
 
 @dataclass(frozen=True, eq=False)
@@ -177,7 +184,7 @@ class StatisticsGridTransfer:
         ``(n_omega,n_windows)``. Every array is owned and read-only.
     spectral_density : numpy.ndarray or None
         Independent per-angular-frequency weights in seconds squared for spatial
-        axis spectra. Absent on modal paths.
+        axis spectra or modal spectral flux. Absent when neither is requested.
     d_omega : float
         Angular-frequency spacing in rad/s for spatial widths; NaN otherwise.
     """
@@ -272,6 +279,29 @@ class PopulationObservationTransfer:
     peak_species: int
     species_potentials: Float[np.ndarray, " n_species"]
     measure: PopulationMeasureTransfer | None
+
+
+@dataclass(frozen=True, eq=False)
+class AxisPopulationObservationTransfer:
+    """Own an independent fine-grid on-axis population reconstruction.
+
+    Attributes
+    ----------
+    synthesis : numpy.ndarray
+        Real physical axis map, shape ``(n_components,n_modes)`` with one or two
+        Cartesian components, including the fine temporal padding factor once.
+    species_densities : tuple of float or TableTransfer
+        Complete species order of independently represented densities, in m^-3.
+    channel_species : tuple of int
+        One-based species indices for the source's population channels.
+    taper : float or TableTransfer
+        Independent dimensionless mode taper evaluated at the observation plane.
+    """
+
+    synthesis: Float[np.ndarray, "n_components n_modes"]
+    species_densities: tuple[float | TableTransfer, ...]
+    channel_species: tuple[int, ...]
+    taper: float | TableTransfer
 
 
 @dataclass(frozen=True, eq=False)
@@ -434,6 +464,8 @@ class ObservationTransfer:
     can_rest : bool
         Whether the shared route/method rule permits this attached monitor to rest
         an in-stage collar. No Python objects or mutable lifecycle state are retained.
+    axis_populations : AxisPopulationObservationTransfer or None
+        Separate fine-grid axis reconstruction for the four on-axis plasma rows.
     """
 
     kind: str
@@ -454,6 +486,7 @@ class ObservationTransfer:
     can_rest: bool
     spatial: SpatialObservationTransfer | None = None
     transverse: TransverseTransfer | None = None
+    axis_populations: AxisPopulationObservationTransfer | None = None
 
 
 def _admit(
@@ -515,6 +548,35 @@ def _admit(
     for name in _PROFILES:
         if name in names and (profiles is None or name not in profiles):
             raise BackendError(f"julia {name} statistic needs its own {name!r} profile")
+    _admit_population_statistics(problem, names, modes)
+    if _UNIT_FLUX.intersection(names):
+        weight = problem.linear.power_weight_constant
+        if weight is None or not np.all(weight == 1.0):
+            raise BackendError(
+                "julia physical_energy, analytic_flux and spectral_flux require "
+                "represented constant unit modal power weights"
+            )
+
+
+def _admit_population_statistics(
+    problem: PropagationProblem, names: Sequence[str], modes: Sequence[Mode] | None
+) -> None:
+    """Check population-family context before constructing numerical observations.
+
+    Parameters
+    ----------
+    problem : PropagationProblem
+        Translated route and compiled population channels.
+    names : sequence of str
+        Requested public statistic names.
+    modes : sequence of Mode or None
+        Original mode set required only for independent axis reconstruction.
+
+    Raises
+    ------
+    BackendError
+        For a family without its required route, channels or physical axis context.
+    """
     if {"electron_density", "peak_ionisation_rate"}.intersection(
         names
     ) and not problem.responses.population_channels:
@@ -525,6 +587,18 @@ def _admit(
         problem.grid_kind != "field" or not problem.responses.plasma_channels
     ):
         raise BackendError("julia plasma diagnostics require field plasma channels")
+    if _AXIS_POPULATIONS.intersection(names):
+        if (
+            problem.transform.kind != "modal"
+            or not problem.responses.population_channels
+        ):
+            raise BackendError(
+                "julia on-axis plasma statistics require resolved modal plasma"
+            )
+        if modes is None or len(modes) != problem.shape[0]:
+            raise BackendError(
+                "julia on-axis plasma statistics need the matching mode set"
+            )
 
 
 def _grid(
@@ -578,6 +652,7 @@ def _grid(
             )
         )
         if isinstance(problem.route, SpatialRoute)
+        or "spectral_flux" in request.observation.stats.names
         else None,
         float(2 * np.pi / (data.n_to * data.dt_fine))
         if isinstance(problem.route, SpatialRoute)
@@ -615,6 +690,9 @@ def _slots(
         "species_density": (n_species,),
         "species_ionisation_energy": (n_species,),
         "species_peak_ionisation_rate": (n_species,),
+        "on_axis_species_electron_density": (n_species,),
+        "on_axis_species_peak_ionisation_rate": (n_species,),
+        "spectral_flux": (problem.shape[-1],),
     }
     if isinstance(problem.route, SpatialRoute):
         shapes.update(
@@ -856,6 +934,32 @@ def _axis(modes: Sequence[Mode]) -> Float[np.ndarray, "n_components n_modes"]:
             "julia peak_intensity needs a finite real scalar on-axis map"
         )
     return owned(matrix)
+
+
+def _axis_populations(
+    problem: PropagationProblem, modes: Sequence[Mode]
+) -> AxisPopulationObservationTransfer:
+    """Copy the independent fine on-axis map and complete species ordering.
+
+    Parameters
+    ----------
+    problem : PropagationProblem
+        Resolved modal descriptor with compiled population channels.
+    modes : sequence of Mode
+        Matching modes, used during preparation and never retained.
+
+    Returns
+    -------
+    AxisPopulationObservationTransfer
+        Owned synthesis with the fine temporal scale applied once.
+    """
+    population = _populations(problem)
+    return AxisPopulationObservationTransfer(
+        owned(_axis(modes) * problem.grids.pad_scale),
+        population.species_densities,
+        population.channel_species,
+        lower_profile(problem.transform.taper_scale),
+    )
 
 
 def _temporal(
@@ -1107,4 +1211,7 @@ def lower_observations(
         None
         if monitor is None or monitor.transverse is None
         else lower_transverse(problem, monitor.transverse, trace_chunk),
+        axis_populations=_axis_populations(problem, modes)
+        if _AXIS_POPULATIONS.intersection(names) and modes is not None
+        else None,
     )

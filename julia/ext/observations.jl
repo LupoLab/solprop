@@ -66,6 +66,23 @@ function _observation_temporal(transfer)
     return SolpropJulia.TemporalObservationData(lowered, weights)
 end
 
+function _observation_axis_populations(modal, transfer)
+    pyis(transfer, nothing) && return nothing
+    data, execution = modal.data, modal.execution
+    data isa SolpropJulia.ModalSourceData ||
+        throw(ArgumentError("on-axis plasma statistics require a resolved modal source"))
+    profiles = Tuple(
+        _profile(execution, value, :species_density)
+            for value in transfer.species_densities
+    )
+    return SolpropJulia.ObservationAxisPopulations(
+        data.plasma, data.grid, copy_preparation(transfer.synthesis);
+        species_densities = profiles,
+        channel_species = pyconvert(Tuple{Vararg{Int}}, transfer.channel_species),
+        taper = _profile(execution, transfer.taper, :axis_taper),
+    )
+end
+
 function prepare_observations(
         original::SolpropJulia._ProblemPreparation, transfer::Py,
         node_chunk::Int = original.node_chunk,
@@ -110,6 +127,9 @@ function prepare_observations(
             taper = _profile(execution, transfer.taper, :taper),
             intensity_factor = pyconvert(Float64, transfer.intensity_factor),
             populations = _observation_populations(modal, transfer.populations),
+            axis_populations = _observation_axis_populations(
+                modal, transfer.axis_populations
+            ),
             temporal = _observation_temporal(transfer.temporal),
         )
     end

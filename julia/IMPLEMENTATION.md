@@ -63,6 +63,18 @@ supervisor/Windows-collection checks pass after updating the expected collected
 case count. The CI-driver selection passes 64 checks; scoped types report no errors
 or warnings. The documentation build passes with the partial benchmark ledger.
 
+The next CPU campaign uses `5fc63437` and the same short-window settings for all
+twelve admitted standard tracking cases. The excluded general-modal case retains
+its original named refusal. The new full CI run is in progress; its static lane
+found one unformatted documentation code block, now formatted with the configured
+tool. The binary64 on-axis/spectral leaf is independently approved and integrated
+at `1e9f6a5f`/`b2baf14b`, including #713's foreign-span alias correction. Review
+passes 345 Julia assertions and 435 actual NumPy comparisons with zero warmed
+allocations. Public attachment passes 13 typed axis/lowering/inventory tests and
+one additional managed unit-flux test; the wider pure selection passes 88 tests,
+with 41 declared managed-runtime skips. Scoped types report no errors or warnings.
+The flux witness explicitly applies the launch hard mask before comparison.
+
 | Phase | Status | Evidence or prerequisite |
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
@@ -122,6 +134,7 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 | Observation precision agent | `observations.jl`, `spatial_observations.jl`, `transverse_observations.jl`, `statistics.jl`, `monitor.jl`, `observation_precision.jl`, `power_weights.jl` and focused tests | Binary32 pointwise work, protected reductions and host physical scaling; no source, Python or scheduling edits |
 | Device-controls/review agent | Python execution settings/options, registry, host/native guards, recipe execution transport, runner compatibility and focused tests | Public CPU preparation independently approved; implementing device controls with Julia devices still refused; then review master march precision |
 | Adams precision agent (rotated from review) | `src/adams.jl`, new `test/adams_precision.jl`, `ADAMS_PRECISION.md` | Binary32 state with binary64-wide phase/rate leaf under the explicit contract; no session, transfer, Python or inclusion edits |
+| Session precision agent (rotated from source/review) | `src/march.jl`, `low_storage_session.jl`, `runge_kutta_observation.jl`, `trial_probe.jl`, new precision tests and `SESSION_PRECISION.md` | Binary32 RK/low-storage/dense/probe core with explicit arithmetic; master retains physical I/O, transfers, Adams session and public admission |
 
 The precompile workload uses only owned, small CPU arrays and existing numerical
 constructors. It covers serial CPU session/source/observation dispatch without loading

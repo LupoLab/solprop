@@ -98,6 +98,14 @@ Their fine modal reconstruction costs `(Q*c+T*s)*M`; the Cartesian version uses
 the already-counted chunk spectra and a full `F*X*c` spatial band. Each owns its
 two padding maps independently of the source.
 
+The four resolved-modal on-axis population rows own another independent fine
+reconstruction: `(Q*c+T*s)*M`, at most `2*T*s` component samples, one `T*s` scalar
+column, five `T*r` recurrence columns, `T` status bytes, three `n_species*r` vectors,
+and `i*(F+Q)` padding indices. This storage is independent of the node chunk.
+The original axis map and represented species profiles are immutable preparation;
+FFT plans retain the stated opaque-storage exclusion. Envelope collinearity can
+reduce the component allocation, but the planner conservatively charges both rows.
+
 Spatial observations retain `F*M*r` weights only for spectral statistics and
 `F*M*c` closure values only when physical or axis reconstruction is requested.
 A material-index vector costs `F*c` when present. Physical spectra/closures cost

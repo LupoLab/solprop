@@ -639,10 +639,8 @@ def test_rest_eligibility_is_the_shared_route_method_intersection(field_case):
     "name",
     [
         "zdw",
-        "physical_energy",
         "on_axis_intensity",
         "beam_radius",
-        "spectral_flux",
         "fwhm_r",
     ],
 )

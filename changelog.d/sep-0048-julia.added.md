@@ -8,6 +8,12 @@ for source and observation array payloads together, bind to each actual run requ
 and report their fixed-storage and opaque-plan exclusions explicitly. Prepared requests
 share immutable numerical data while retaining independent chunk capacities.
 
+Evaluate the four resolved-modal on-axis plasma statistics from independent fine-grid
+observations, retaining both real field components and refusing nonproportional
+envelope axis maps. Add physical energy, analytic flux and spectral flux for constant
+unit modal power weights. Foreign array overlaps are refused before any observation
+or reduction writes ([#713](https://github.com/LupoLab/solprop/issues/713)).
+
 Use the common `prepared.start` return boundary for ordinary benchmark repetitions
 on every execution owner, with an explicit timing-boundary identifier and separate
 preparation-inclusive wall time. Actual source counters come from the same session;

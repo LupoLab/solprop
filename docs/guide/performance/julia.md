@@ -118,6 +118,21 @@ initial preionised fraction. It uses the physical transverse weights and represe
 area/taper at that plane; it is distinct from newly deposited ionisation work.
 Passive species keep their catalogue positions and zero ionisation potential.
 
+The four `on_axis_*` plasma statistics reconstruct the fine-grid axis field
+independently at each saved plane. They require a resolved modal plasma route and
+the original physical modes. Field simulations retain both real Cartesian field
+components. Envelope simulations admit a scalar envelope along a fixed real
+polarisation direction: the represented axis-map rows must be exactly proportional,
+including zero rows. A general elliptical envelope refuses by name. These rows are
+plane-only and do not reuse the last nonlinear stage's populations.
+
+For represented constant unit modal power weights, `physical_energy`, `analytic_flux`
+and `spectral_flux` are available. Other weight representations refuse these three
+names; use `energy` and `peak_power_total` for weighted modal power. Spectral flux
+uses its per-angular-frequency density weights in J/(rad/s), independently of the
+Parseval endpoint weights. Physical energy and analytic flux also support periodic
+rows; spectral flux is plane-only.
+
 Public CPU selection uses the same preparation and session contract as the other
 backends. Unsupported combinations refuse by name before session allocation.
 The current session supports in-stage and split temporal absorption. Transverse monitor

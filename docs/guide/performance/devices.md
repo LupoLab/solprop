@@ -22,8 +22,11 @@ separate checks. See [native builds](building-native.md), [Julia](julia.md) and
 from solprop.driver import SimulationSettings
 
 settings = SimulationSettings(
-    save_planes=[0.001], dz_max=0.0001, dz_init=0.00001,
-    backend="numpy_ref", device="cpu",
+    save_planes=[0.001],
+    dz_max=0.0001,
+    dz_init=0.00001,
+    backend="numpy_ref",
+    device="cpu",
 )
 assert settings.execution_options().device == "cpu"
 ```
