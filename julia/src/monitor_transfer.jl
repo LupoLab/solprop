@@ -119,6 +119,7 @@ function session_monitor_rows!(
     size(rows) == (5, count) ||
         throw(DimensionMismatch("temporal monitor rows require shape (5,row_count)"))
     Base.require_one_based_indexing(rows)
+    _transfer_writable_destination(rows)
     _retained_alias(rows, (session, session.services)) &&
         throw(ArgumentError("temporal monitor rows must not alias retained storage"))
     payload === nothing && return nothing

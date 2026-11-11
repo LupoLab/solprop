@@ -115,6 +115,7 @@ function _adams_transfer_destination_alias(buffers)
     arrays = _adams_transfer_arrays(buffers)
     for first in eachindex(arrays)
         arrays[first] === nothing && continue
+        _transfer_writable_destination(arrays[first])
         for second in (first + 1):length(arrays)
             arrays[second] === nothing && continue
             _transfer_arrays_alias(arrays[first], arrays[second]) && return true

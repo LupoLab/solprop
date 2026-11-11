@@ -281,6 +281,94 @@ end
     @test isequal(adams_transfer_record(session), before)
 end
 
+
+@testset "Writable layouts are affine and injective before any output changes" begin
+    session, generation, buffers = transfer_alias_pending()
+    indices = Int64[1, 2, 99]
+    data = fill(-9.0, 1, 4)
+    original = transfer_alias_record(session)
+    GC.@preserve indices begin
+        foreign_indices = unsafe_wrap(Array, pointer(indices), (2,); own = false)
+        steps = unsafe_wrap(Array, pointer(indices, 2), (2,); own = false)
+        values = view(data, :, foreign_indices)
+        before = (map(copy, buffers), copy(indices), copy(data))
+        @test !Base.mightalias(steps, values)
+        @test SolpropJulia._transfer_arrays_alias(steps, values)
+        @test_throws ArgumentError SolpropJulia.session_observations!(
+            buffers[1], steps, values, buffers[4], session, generation,
+        )
+        @test isequal((map(copy, buffers), indices, data), before)
+    end
+    for selection in ([1, 2], [1, 1])
+        gather = view(data, :, selection)
+        @test_throws ArgumentError SolpropJulia.session_observations!(
+            buffers[1], buffers[2], gather, buffers[4], session, generation,
+        )
+        @test all(==(-9.0), data)
+    end
+    @test isequal(transfer_alias_record(session), original)
+    padded_storage = zeros(UInt32, 4)
+    readonly = reinterpret(Tuple{UInt8, UInt32}, padded_storage)
+    @test !getfield(readonly, :writable)
+    @test_throws ArgumentError SolpropJulia._transfer_admit_destinations(
+        (buffers[1], readonly),
+    )
+    @test all(iszero, padded_storage)
+    numeric_storage = zeros(UInt64, 2)
+    writable = reinterpret(Float64, numeric_storage)
+    @test SolpropJulia._transfer_writable_destination(writable) === nothing
+    @test SolpropJulia._transfer_writable_destination(view(writable, 2:-1:1)) === nothing
+    for (dimensions, strides) in (
+            ((2, 3), (8, 16)), ((2, 3), (24, 8)), ((2, 3), (-48, 16)),
+            ((2,), (-16,)), ((1, 3), (0, 8)), ((0, 3), (0, 0)),
+        )
+        @test SolpropJulia._transfer_writable_strides(dimensions, strides, 8) === nothing
+    end
+    for (dimensions, strides) in (
+            ((2,), (0,)), ((2,), (4,)), ((2, 2), (8, 8)),
+            ((2, 2), (8, -8)), ((typemax(Int), 2), (8, typemax(Int))),
+        )
+        @test_throws ArgumentError SolpropJulia._transfer_writable_strides(
+            dimensions, strides, 8,
+        )
+    end
+end
+
+@testset "Read-only gather weights keep their index dependencies independent" begin
+    session, generation, _ = transfer_alias_pending()
+    output = similar(session.field)
+    indices = fill(Int64(1), 24)
+    weights = view(fill(2.0, 1, 1), view(indices, 1:8), :)
+    # Repeated read-only weights are valid. Only writable destinations require an
+    # injective layout; the destination export recipe is an exact structural check.
+    SolpropJulia.export_session!(output, session, generation, weights, true, false)
+    @test output == session.field .* sqrt(2.0)
+    @test all(==(1), indices)
+    GC.@preserve indices begin
+        pointers = SolpropJulia.StrideArraysCore.PtrArray(view(indices, 1:8))
+        @test isbitstype(typeof(pointers))
+        unknown_weights = view(fill(2.0, 1, 1), pointers, :)
+        previous = copy(output)
+        @test_throws ArgumentError SolpropJulia.export_session!(
+            output, session, generation, unknown_weights, true, false,
+        )
+        @test output == previous && all(==(1), indices)
+        alias = unsafe_wrap(
+            Array, Ptr{ComplexF64}(pointer(indices, 2)), size(output); own = false,
+        )
+        inputs = (weights, transpose(transpose(weights)), reshape(weights, size(output)))
+        for input in inputs
+            @test !Base.mightalias(alias, input)
+            @test SolpropJulia._transfer_arrays_alias(alias, input)
+            @test SolpropJulia._transfer_arrays_alias(input, alias)
+            @test_throws ArgumentError SolpropJulia.export_session!(
+                alias, session, generation, input, true, false,
+            )
+            @test all(==(1), indices)
+        end
+    end
+end
+
 function transfer_alias_allocations(session, generation, destinations, field, weights)
     SolpropJulia.session_observations!(destinations..., session, generation)
     SolpropJulia.export_session!(field, session, generation, weights, false, false)

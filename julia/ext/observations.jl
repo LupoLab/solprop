@@ -89,7 +89,9 @@ function prepare_observations(modal::SolpropJulia.ModalPreparation, transfer::Py
 end
 
 # PythonCall's PyArray has its own object identity, which does not establish
-# ownership of a foreign interior view. Its public strides use element counts.
+# ownership of a foreign interior view. PythonCall 0.9.37 retains byte strides;
+# Base.strides refuses foreign steps not divisible by the item size.
+# Keep bytes here so partial-item overlap is diagnosed before any destination write.
 function SolpropJulia._transfer_storage_span(
         array::PyArray{T, N, M, L, T},
     ) where {T, N, M, L}
@@ -98,11 +100,22 @@ function SolpropJulia._transfer_storage_span(
         throw(ArgumentError("transfer storage requires fixed-size foreign elements"))
     GC.@preserve array begin
         address = UInt(Base.unsafe_convert(Ptr{T}, array))
-        byte_strides = ntuple(axis -> Base.checked_mul(stride(array, axis), sizeof(T)), N)
+        byte_strides = getfield(array, :strides)
         return SolpropJulia._transfer_strided_span(
             address, size(array), byte_strides, sizeof(T),
         )
     end
+end
+
+
+function SolpropJulia._transfer_writable_destination(
+        array::PyArray{T, N, true, L, T},
+    ) where {T, N, L}
+    isempty(array) && return nothing
+    isbitstype(T) ||
+        throw(ArgumentError("transfer destinations require fixed-size foreign elements"))
+    byte_strides = getfield(array, :strides)
+    return SolpropJulia._transfer_writable_strides(size(array), byte_strides, sizeof(T))
 end
 
 function copy_session_observations!(
@@ -115,6 +128,7 @@ function copy_session_observations!(
     owners = (borrowed_positions, borrowed_steps, borrowed_values, borrowed_plane)
     for owner in owners
         isempty(owner) && continue
+        SolpropJulia._transfer_writable_destination(owner)
         expected = 1
         for axis in ndims(owner):-1:1
             size(owner, axis) == 1 || stride(owner, axis) == expected ||

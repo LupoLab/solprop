@@ -149,3 +149,36 @@ end
         empty..., fresh, launch.generation,
     )
 end
+
+
+@testset "Python writable strides cannot repeat or partially overlap output items" begin
+    numpy = pyimport("numpy")
+    session, generation, _ = transfer_alias_pending()
+    count = session.attempts.count
+    lengths = numpy.full(count, -9.0; dtype = "float64")
+    norms = numpy.full(count, -9.0; dtype = "float64")
+    accepted = numpy.zeros(count; dtype = "bool")
+    elapsed = numpy.full(count, -9.0; dtype = "float64")
+    original = transfer_alias_record(session)
+    for stride in (0, 4)
+        backing = numpy.full(count, -19.0; dtype = "float64")
+        positions = numpy.lib.stride_tricks.as_strided(
+            backing; shape = (count,), strides = (stride,), writeable = true,
+        )
+        @test_throws ArgumentError SolpropJulia.session_attempts!(
+            positions, lengths, norms, accepted, elapsed, session, generation,
+        )
+        @test all(==(-19.0), pyconvert(Vector{Float64}, backing))
+        @test all(==(-9.0), pyconvert(Vector{Float64}, lengths))
+        @test all(==(-9.0), pyconvert(Vector{Float64}, norms))
+        @test all(!, pyconvert(Vector{Bool}, accepted))
+        @test all(==(-9.0), pyconvert(Vector{Float64}, elapsed))
+        @test isequal(transfer_alias_record(session), original)
+    end
+    # A broadcast read-only input remains an admissible span; output-layout
+    # restrictions must not reject the repeated weight itself during alias checks.
+    weight = numpy.broadcast_to(numpy.array([2.0]), (8, 1))
+    borrowed = PyArray{Float64, 2}(weight; copy = false)
+    @test !SolpropJulia._transfer_arrays_alias(zeros(ComplexF64, 8, 1), borrowed)
+    @test SolpropJulia._transfer_storage_span(borrowed) !== nothing
+end

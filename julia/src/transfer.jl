@@ -213,8 +213,9 @@ Copy a pending observation payload into detached, writable destinations.
 The Float64 vectors `positions` and Int64 `steps` have the pending row count. The
 Float64 matrix `values` is `(periodic_width,n_rows)`; `plane` has the valid packed
 plane width or zero entries. Validate dimensions and all aliases before any writes.
-Admit dense host storage and its supported parent wrappers; refuse unknown storage
-families and overlap, including foreign interior views with distinct array identities.
+Admit dense host storage and supported affine, injective parent wrappers. Refuse
+unknown storage, gather/repeated-index destinations and overlap, including foreign
+interior views with distinct array identities.
 The call preserves the generation and its numerical buffers for a failed-copy retry.
 """
 function session_observations!(
@@ -228,6 +229,7 @@ function session_observations!(
         throw(DimensionMismatch("observation destinations disagree with the pending chunk"))
     destinations = (positions, steps, values, plane)
     Base.require_one_based_indexing(destinations...)
+    _transfer_admit_destinations(destinations)
     _transfer_retained_any(destinations, (session, session.services)) &&
         throw(ArgumentError("observation destinations must not alias retained storage"))
     _transfer_pairwise_alias(destinations) &&
@@ -341,6 +343,7 @@ function session_orders!(
     count = session.attempts.count
     length(output) == count ||
         throw(DimensionMismatch("order destination must match the pending chunk"))
+    _transfer_writable_destination(output)
     _retained_alias(output, session) &&
         throw(ArgumentError("order destination must not alias retained storage"))
     for row in 1:count
@@ -426,18 +429,132 @@ function _transfer_strided_span(
     end
 end
 
+
+# Writable views must have immutable affine index metadata. Arbitrary gather
+# indices can themselves alias another destination and change during the copy.
+_transfer_affine_index(index) = false
+_transfer_affine_index(index::Integer) = isbitstype(typeof(index))
+function _transfer_affine_index(index::Union{UnitRange, StepRange, Base.OneTo})
+    return isbitstype(typeof(index)) && (isempty(index) || !iszero(step(index)))
+end
+_transfer_affine_index(index::Base.Slice) = _transfer_affine_index(index.indices)
+_transfer_affine_indices(::Tuple{}) = true
+function _transfer_affine_indices(indices::Tuple)
+    return _transfer_affine_index(first(indices)) &&
+        _transfer_affine_indices(Base.tail(indices))
+end
+
+_transfer_writable_destination(array::Array) = nothing
+function _transfer_writable_destination(array::SubArray)
+    isempty(array) && return nothing
+    _transfer_affine_indices(parentindices(array)) ||
+        throw(ArgumentError("transfer destinations require immutable affine indices"))
+    return _transfer_writable_destination(parent(array))
+end
+function _transfer_writable_destination(array::Base.ReinterpretArray)
+    isempty(array) && return nothing
+    try
+        Base.check_writable(array)
+    catch error
+        error isa Base.PaddingError || rethrow()
+        throw(ArgumentError("reinterpret output padding is incompatible"))
+    end
+    return _transfer_writable_destination(parent(array))
+end
+function _transfer_writable_destination(
+        array::Union{
+            Base.ReshapedArray, LinearAlgebra.Transpose,
+            LinearAlgebra.Adjoint, PermutedDimsArray,
+        },
+    )
+    isempty(array) && return nothing
+    return _transfer_writable_destination(parent(array))
+end
+function _transfer_writable_destination(array::AbstractArray)
+    isempty(array) && return nothing
+    throw(ArgumentError("transfer destinations need a supported writable host layout"))
+end
+
+# Increasing absolute-stride blocks must not overlap. This sufficient injectivity
+# test accepts permutations, reversal and ordinary holed slices without allocating
+# an axis permutation; interleaved layouts that cannot establish it are refused.
+function _transfer_writable_strides(
+        dimensions::NTuple{N, Int}, byte_strides::NTuple{N, Int}, item_size::Int,
+    ) where {N}
+    all(>=(0), dimensions) && item_size > 0 ||
+        throw(ArgumentError("transfer destination dimensions and item size are invalid"))
+    any(iszero, dimensions) && return nothing
+    try
+        for axis in 1:N
+            dimensions[axis] > 1 || continue
+            stride = byte_strides[axis]
+            magnitude = stride < 0 ? UInt(-(stride + 1)) + UInt(1) : UInt(stride)
+            extent = UInt(item_size)
+            for other in 1:N
+                dimensions[other] > 1 || continue
+                step = byte_strides[other]
+                distance = step < 0 ? UInt(-(step + 1)) + UInt(1) : UInt(step)
+                if distance < magnitude || (distance == magnitude && other < axis)
+                    extent = Base.checked_add(
+                        extent, Base.checked_mul(UInt(dimensions[other] - 1), distance),
+                    )
+                end
+            end
+            magnitude >= extent ||
+                throw(ArgumentError("transfer destinations require nonoverlapping strides"))
+        end
+    catch error
+        error isa OverflowError || rethrow()
+        throw(ArgumentError("transfer destination strides overflow a machine address"))
+    end
+    return nothing
+end
+
+_transfer_admit_destinations(::Tuple{}) = nothing
+function _transfer_admit_destinations(destinations::Tuple)
+    _transfer_writable_destination(first(destinations))
+    return _transfer_admit_destinations(Base.tail(destinations))
+end
+
 @inline function _transfer_arrays_alias(destination, span, value::AbstractArray)
     (isempty(destination) || isempty(value) || span === nothing) && return false
     Base.mightalias(destination, value) && return true
     other = _transfer_storage_span(value)
     other === nothing && return false
-    return span[1] < other[2] && other[1] < span[2]
+    return (span[1] < other[2] && other[1] < span[2]) ||
+        _transfer_dependency_alias(destination, span, value)
+end
+
+# Read-only gathers remain valid inputs, but their mutable index arrays are also
+# dependencies: overwriting an index midway through export changes a later lookup.
+_transfer_index_alias(destination, span, ::Tuple{}) = false
+function _transfer_index_alias(destination, span, indices::Tuple)
+    index = first(indices)
+    return (
+        index isa AbstractArray && !_transfer_affine_index(index) &&
+            _transfer_arrays_alias(destination, span, index)
+    ) || _transfer_index_alias(destination, span, Base.tail(indices))
+end
+
+_transfer_dependency_alias(destination, span, value::AbstractArray) = false
+function _transfer_dependency_alias(destination, span, value::SubArray)
+    return _transfer_index_alias(destination, span, parentindices(value)) ||
+        _transfer_dependency_alias(destination, span, parent(value))
+end
+function _transfer_dependency_alias(
+        destination, span, value::Union{
+            Base.ReshapedArray, Base.ReinterpretArray, LinearAlgebra.Transpose,
+            LinearAlgebra.Adjoint, PermutedDimsArray,
+        },
+    )
+    return _transfer_dependency_alias(destination, span, parent(value))
 end
 
 function _transfer_arrays_alias(left::AbstractArray, right::AbstractArray)
     (isempty(left) || isempty(right)) && return false
     GC.@preserve left right begin
-        return _transfer_arrays_alias(left, _transfer_storage_span(left), right)
+        return _transfer_arrays_alias(left, _transfer_storage_span(left), right) ||
+            _transfer_dependency_alias(right, _transfer_storage_span(right), left)
     end
 end
 
@@ -531,6 +648,7 @@ function export_session!(
     field = session.field
     size(output) == size(field) == size(power_weight) ||
         throw(DimensionMismatch("session export dimensions disagree"))
+    _transfer_writable_destination(output)
     (_retained_alias(output, session) || _transfer_arrays_alias(output, power_weight)) &&
         throw(ArgumentError("an export must not alias session storage"))
     scale = power && !all(isone, power_weight)
@@ -571,6 +689,7 @@ function session_attempts!(
         length(elapsed) == buffer.count ||
         throw(DimensionMismatch("attempt destinations must match the pending chunk"))
     destinations = (positions, lengths, norms, accepted, elapsed)
+    _transfer_admit_destinations(destinations)
     _transfer_retained_any(destinations, session) &&
         throw(ArgumentError("attempt destinations must not alias retained storage"))
     _transfer_pairwise_alias(destinations) &&
@@ -698,6 +817,7 @@ function export_session!(
         throw(ArgumentError("session exports belong to another numerical preparation"))
     size(output) == size(session.field) ||
         throw(DimensionMismatch("session export dimensions disagree"))
+    _transfer_writable_destination(output)
     (_retained_alias(output, session) || _retained_alias(output, preparation)) &&
         throw(ArgumentError("an export must not alias retained numerical storage"))
     if power
