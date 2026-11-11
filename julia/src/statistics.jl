@@ -503,7 +503,7 @@ end
 
 @inline _stat_disjoint(destination, ::Nothing) = nothing
 @inline function _stat_disjoint(destination, source::AbstractArray)
-    Base.mightalias(destination, source) &&
+    _transfer_arrays_alias(destination, source) &&
         throw(ArgumentError("statistics writable storage aliases prepared input"))
     return nothing
 end

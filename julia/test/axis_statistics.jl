@@ -272,3 +272,51 @@ end
         selection.slots[2], missing, input, work, execution
     )
 end
+
+@testset "Foreign offset observation and axis destinations preserve their owners" begin
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 2, true)
+    work = axis_statistics_case(execution, :field, [1.0 -0.5; 0.25 0.75])
+    owner = work.axis_populations.spectrum
+    GC.@preserve owner begin
+        field = unsafe_wrap(
+            Array, pointer(owner, 2), size(observation_field(:field)); own = false
+        )
+        field .= observation_field(:field)
+        before = copy(owner)
+        @test !Base.mightalias(field, owner)
+        @test_throws ArgumentError SolpropJulia.observe!(work, field, 0.25)
+        @test owner == before
+        @test !work.valid
+    end
+    field = observation_field(:field)
+    @test axis_statistics_allocated(work, field) == 0
+    @test work.valid
+
+    storage = [2.0, 3.0, 5.0, 7.0]
+    input = SolpropJulia.PopulationStatisticsInput(
+        view(storage, 1:3), [0.5 0.25 0.75], zeros(1, 3)
+    )
+    statistic = SolpropJulia.StatisticSlot(:on_axis_species_electron_density, 1, 3)
+    selection = SolpropJulia.StatisticsSelection((statistic,))
+    workspace = SolpropJulia.StatisticsWorkspace(
+        execution, Float64; n_time = 4, n_columns = 2
+    )
+    grid = SolpropJulia.StatisticsGrid([0.0, 1.0, 2.0], collect(0.0:3.0), ones(3))
+    GC.@preserve storage begin
+        output = unsafe_wrap(Array, pointer(storage, 2), (3,); own = false)
+        before = copy(storage)
+        @test !Base.mightalias(output, input.densities)
+        @test_throws ArgumentError SolpropJulia.axis_population_statistics!(
+            output, statistic, input, workspace, execution
+        )
+        @test storage == before
+        @test_throws ArgumentError SolpropJulia.statistics!(
+            output, selection, grid,
+            SolpropJulia.StatisticsInputs(; axis_populations = input), workspace, execution
+        )
+        @test storage == before
+    end
+    output = zeros(3)
+    SolpropJulia.axis_population_statistics!(output, statistic, input, workspace, execution)
+    @test output == [1.0, 0.75, 3.75]
+end

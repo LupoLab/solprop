@@ -649,7 +649,7 @@ function _observation_no_alias(input, arrays::Tuple)
     return nothing
 end
 function _observation_no_alias(input, array::AbstractArray)
-    Base.mightalias(input, array) &&
+    _transfer_arrays_alias(input, array) &&
         throw(ArgumentError("observation input aliases its mutable workspace"))
     return nothing
 end
