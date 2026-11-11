@@ -59,7 +59,7 @@ spectrum of a real field. Throw on invalid storage, shape or overlap before muta
 function cartesian_inverse!(work::CartesianBandWork, input)
     input isa StridedMatrix{ComplexF64} && size(input) == size(work.band) ||
         throw(DimensionMismatch("Cartesian input requires its complex binary64 band shape"))
-    Base.mightalias(input, work.band) &&
+    _transfer_arrays_alias(input, work.band) &&
         throw(ArgumentError("Cartesian inverse input must be disjoint from owned work"))
     copyto!(work.band, input)
     spatial_inverse!(work.planes, work.plan, work.execution)
@@ -78,7 +78,7 @@ completion is synchronous and warmed calls allocate nothing.
 function cartesian_forward!(output, work::CartesianBandWork)
     output isa StridedMatrix{ComplexF64} && size(output) == size(work.band) ||
         throw(DimensionMismatch("Cartesian output needs its complex binary64 band shape"))
-    output !== work.band && Base.mightalias(output, work.band) &&
+    output !== work.band && _transfer_arrays_alias(output, work.band) &&
         throw(ArgumentError("Cartesian forward output refuses partial work overlap"))
     spatial_forward!(work.planes, work.plan)
     output === work.band || copyto!(output, work.band)
@@ -206,7 +206,8 @@ end
 
 @inline _source_alias(array, owned::SeparableSpatialOperator) =
     _spatial_operator_alias(array, owned)
-@inline _source_alias(array, owned::CartesianBandWork) = Base.mightalias(array, owned.band)
+@inline _source_alias(array, owned::CartesianBandWork) =
+    _transfer_arrays_alias(array, owned.band)
 @inline function _source_alias(array, owned::CartesianSourceData)
     return _source_alias(
         array, (
@@ -217,14 +218,9 @@ end
 end
 
 function _source_caller_alias(array, source::CartesianSource)
-    return _source_alias(
-        array, (
-            source.data, source.band, source.padding.crop, source.padding.uncrop,
-            source.spectrum, source.nodes, source.polarisation, source.analytic,
-            source.raman, source.raman_buffers, source.plasma,
-            source.chunk_spectrum, source.failures,
-        )
-    )
+    # Independent unsafe_wrap headers need the existing address-span guard, including
+    # all nested response/profile arrays, not only Julia's owner identity (#685).
+    return _retained_alias(array, source)
 end
 
 function set_temporal_source!(source::CartesianSource, active::Bool)
@@ -372,7 +368,7 @@ function (source::CartesianSource)(output, state, position::Float64)
         throw(DimensionMismatch("Cartesian source input/output does not match preparation"))
     _spatial_operator_position(source.data.operator, position)
     (
-        Base.mightalias(output, state) || _source_caller_alias(output, source) ||
+        _transfer_arrays_alias(output, state) || _source_caller_alias(output, source) ||
             _source_caller_alias(state, source)
     ) &&
         throw(ArgumentError("Cartesian caller arrays must be disjoint from owned storage"))
@@ -481,8 +477,7 @@ end
 end
 
 function _source_caller_alias(array, source::RadialSource)
-    return _source_caller_alias(array, source.material) ||
-        _source_alias(array, (source.data, source.scratch, source.failures))
+    return _retained_alias(array, source)
 end
 
 function set_temporal_source!(source::RadialSource, active::Bool)
@@ -495,7 +490,7 @@ function (source::RadialSource)(output, state, position::Float64)
     source.calls += 1
     source.ready = false
     (
-        Base.mightalias(output, state) || _source_caller_alias(output, source) ||
+        _transfer_arrays_alias(output, state) || _source_caller_alias(output, source) ||
             _source_caller_alias(state, source)
     ) &&
         throw(ArgumentError("radial caller arrays must be disjoint from inputs and work"))

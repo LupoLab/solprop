@@ -188,6 +188,34 @@ function spatial_flow_allocations(flow, output, input)
     return @allocated flow(output, input, 0.1, 0.100000001)
 end
 
+@testset "Spatial exponents convert endpoint types before subtraction" begin
+    execution = SP.KernelExecution(SP.KernelAbstractions.CPU(), 1, true)
+    inputs = spatial_operator_inputs()
+    operator = SP.SeparableSpatialOperator(
+        execution; inputs..., z_span = (-1.0e19, 1.0e19),
+    )
+    output = zeros(ComplexF64, 5, 4)
+    for (left, right) in (
+            (typemin(Int), typemax(Int)), (typemax(Int), typemin(Int)),
+        )
+        SP.operator_exponent!(output, operator, left, right, execution)
+        distance = BigFloat(BigInt(right) - BigInt(left))
+        for column in 1:4, row in 1:5
+            rate, unused, rate_bound, unused_bound =
+                spatial_operator_reference(inputs, row, column)
+            expected = rate * distance
+            # Endpoint conversion/subtraction error plus the independently bounded
+            # represented-root/rate arithmetic; an integer wrap is not in this bound.
+            bound = 8eps(Float64) *
+                (abs(BigFloat(left)) + abs(BigFloat(right))) * abs(rate) +
+                abs(distance) * rate_bound
+            @test abs(Complex{BigFloat}(output[row, column]) - expected) <= bound
+        end
+    end
+    SP.operator_exponent!(output, operator, typemax(Int), typemax(Int), execution)
+    @test iszero(output)
+end
+
 @testset "Separable coefficients drive the shared in-place linear flow" begin
     inputs = spatial_operator_inputs()
     for tasks in unique((1, min(2, Threads.nthreads(:default))))

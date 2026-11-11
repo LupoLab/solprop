@@ -192,7 +192,7 @@ end
 
 @inline _spatial_operator_alias(array, ::Tuple{}) = false
 @inline function _spatial_operator_alias(array, inputs::Tuple{T, Vararg}) where {T}
-    return Base.mightalias(array, first(inputs)) ||
+    return _transfer_arrays_alias(array, first(inputs)) ||
         _spatial_operator_alias(array, Base.tail(inputs))
 end
 
@@ -219,7 +219,8 @@ function operator_exponent!(
     _spatial_operator_output(output, operator)
     _spatial_operator_position(operator, z0)
     _spatial_operator_position(operator, z1)
-    distance = Float64(z1 - z0)
+    # Match host binary64 coordinates without subtracting in a bounded input type.
+    distance = Float64(z1) - Float64(z0)
     isfinite(distance) || throw(ArgumentError("the spatial interval must be finite"))
     tables = _spatial_operator_tables(operator)
     each!(execution, size(output)...) do row, column

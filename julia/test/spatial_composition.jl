@@ -235,6 +235,64 @@ function radial_reference(data, state, position; temporal_active = true)
     return result, bound
 end
 
+@testset "Spatial source boundaries refuse independent overlapping array headers" begin
+    for tasks in unique((1, min(2, Threads.nthreads(:default))))
+        execution = SP.KernelExecution(SP.KernelAbstractions.CPU(), tasks, true)
+        cartesian, cartesian_state = spatial_case(execution, :envelope; temporal = true)
+        radial, radial_state = radial_case(execution, :envelope)
+        for (source, state) in (
+                (SP.CartesianSource(execution, cartesian; node_chunk = 4), cartesian_state),
+                (SP.RadialSource(execution, radial; node_chunk = 3), radial_state),
+            )
+            retained = source isa SP.CartesianSource ? source.nodes : source.material.nodes
+            fill!(retained, 2 + 0.3im)
+            saved = copy(retained)
+            output = fill(3 + 0.1im, size(state))
+            output_saved = copy(output)
+            state_saved = copy(state)
+            @test length(retained) > length(state)
+            GC.@preserve source begin
+                wrapped = unsafe_wrap(Array, pointer(retained, 2), size(state); own = false)
+                @test !Base.mightalias(wrapped, retained)
+                @test SP._source_caller_alias(wrapped, source)
+                for (destination, input) in ((wrapped, state), (output, wrapped))
+                    calls = source.calls
+                    @test_throws ArgumentError source(destination, input, 0.53)
+                    @test source.calls == calls + 1 && !source.ready
+                    @test retained == saved && output == output_saved &&
+                        state == state_saved
+                end
+            end
+            # Both overlapping headers are valid inside an independently retained
+            # backing array; neither shares a Julia owner identity with the other.
+            backing = fill(2 + 0.2im, length(state) + 1)
+            GC.@preserve backing begin
+                first = unsafe_wrap(Array, pointer(backing), size(state); own = false)
+                second = unsafe_wrap(Array, pointer(backing, 2), size(state); own = false)
+                @test !Base.mightalias(first, second)
+                @test_throws ArgumentError source(first, second, 0.53)
+                @test all(==(2 + 0.2im), backing)
+            end
+            source(output, state, 0.53)
+            @test source.ready && state == state_saved
+            @test composition_allocations(source, output, state, 0.53) == 0
+        end
+        backing = zeros(ComplexF64, 13)
+        GC.@preserve backing begin
+            band = unsafe_wrap(Array, pointer(backing), (3, 4); own = false)
+            planes = reshape(view(band, :, :), 3, 2, 2)
+            work = SP.CartesianBandWork(
+                execution, (2, 2), band, planes, SP.SpatialFFT(execution, planes, (2, 3)),
+            )
+            overlapping = unsafe_wrap(Array, pointer(backing, 2), (3, 4); own = false)
+            @test !Base.mightalias(overlapping, band)
+            @test_throws ArgumentError SP.cartesian_inverse!(work, overlapping)
+            @test_throws ArgumentError SP.cartesian_forward!(overlapping, work)
+            @test iszero(backing)
+        end
+    end
+end
+
 @testset "Radial sources preserve independent profiles and additive loss" begin
     gamma = 32768eps(Float64) / (1 - 32768eps(Float64))
     budgets = unique((1, min(2, Threads.nthreads(:default))))
