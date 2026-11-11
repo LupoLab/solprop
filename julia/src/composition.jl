@@ -21,6 +21,21 @@ function _source_host_table(table::ChebyshevTable)
     return nothing
 end
 
+function _source_require_host(array::AbstractArray, name::Symbol)
+    KernelAbstractions.get_backend(array) isa KernelAbstractions.CPU ||
+        throw(ArgumentError("$name requires host preparation storage"))
+    return nothing
+end
+
+function _source_preparation_host(
+        array::AbstractArray{T, N}, execution::KernelExecution,
+    ) where {T, N}
+    oncpu(execution) && return array
+    owned = Array{T, N}(undef, size(array))
+    copy_host!(owned, array, execution)
+    return owned
+end
+
 function _copy_source_table(execution, table::ChebyshevTable)
     return ChebyshevTable(
         upload(execution, table.breakpoints), upload(execution, table.coefficients),
@@ -468,6 +483,7 @@ function ModalRaman(
         arithmetic::SourceArithmetic = SourceArithmetic(Float64),
     )
     tensor && throw(ArgumentError("Julia modal source refuses tensor Raman"))
+    _source_require_host(kernel.undamped, :raman_coefficients)
     length(decay_profiles) == size(kernel.undamped, 2) &&
         all(profile -> profile isa SourceProfile, decay_profiles) ||
         throw(DimensionMismatch("each Raman row needs its own scalar decay profile"))
@@ -483,6 +499,8 @@ end
 """
     ModalPlasmaChannel(channel, density, preionisation; quadrature=nothing,
                        arithmetic=SourceArithmetic(Float64))
+    ModalPlasmaChannel(execution::KernelExecution, channel, density, preionisation;
+                       quadrature=nothing, arithmetic=SourceArithmetic(Float64))
 
 Own one plasma channel with host profiles and declared response precision.
 
@@ -494,6 +512,8 @@ The input channel/rule are binary64; coefficient, node and weight arrays narrow 
 with named `ranges`. Physical table bounds and material coefficients stay binary64
 until combined with the field exponent. Refinement tolerances round down if necessary
 so conversion never enlarges the supplied physical tolerance.
+The execution overload uploads freshly validated host arrays into the selected owned
+context. Device execution currently requires binary64. Scalar profiles remain host data.
 """
 struct ModalPlasmaChannel{C, D, P, Q, A, R}
     channel::C
@@ -510,6 +530,7 @@ function ModalPlasmaChannel(
         arithmetic::SourceArithmetic = SourceArithmetic(Float64),
     )
     rate = channel.rate
+    _source_require_host(rate.coefficients, :ionisation_rate_coefficients)
     coefficients, rate_range = _source_prepare_host(
         rate.coefficients, arithmetic, :ionisation_rate_coefficients
     )
@@ -522,6 +543,8 @@ function ModalPlasmaChannel(
     copied_rule, node_range, weight_range = if quadrature === nothing
         (nothing, nothing, nothing)
     else
+        _source_require_host(quadrature.nodes, :plasma_cycle_nodes)
+        _source_require_host(quadrature.weights, :plasma_cycle_weights)
         nodes, node_fact = _source_prepare_host(
             quadrature.nodes, arithmetic, :plasma_cycle_nodes
         )
@@ -545,6 +568,31 @@ function ModalPlasmaChannel(
         PlasmaChannel(owned, channel.charge_mass_ratio, channel.ionisation_potential),
         density, preionisation, copied_rule, arithmetic,
         (rate = rate_range, cycle_nodes = node_range, cycle_weights = weight_range),
+    )
+end
+
+function ModalPlasmaChannel(
+        execution::KernelExecution, channel::PlasmaChannel{Float64},
+        density::SourceProfile, preionisation::SourceProfile; quadrature = nothing,
+        arithmetic::SourceArithmetic = SourceArithmetic(Float64),
+    )
+    _source_execution_arithmetic(execution, arithmetic)
+    # Public records retain mutable arrays. Revalidate their current values in the
+    # existing host constructor before uploading any data or using a clone hook.
+    prepared = ModalPlasmaChannel(channel, density, preionisation; quadrature, arithmetic)
+    oncpu(execution) && return prepared
+    host_rate = prepared.channel.rate
+    rate = IonisationRateTable(
+        _PlasmaValidatedCopy(), host_rate, upload(execution, host_rate.coefficients)
+    )
+    host_cycle = prepared.quadrature
+    cycle = host_cycle === nothing ? nothing : CycleQuadrature(
+            _PlasmaValidatedCopy(), host_cycle,
+            upload(execution, host_cycle.nodes), upload(execution, host_cycle.weights),
+        )
+    return ModalPlasmaChannel(
+        PlasmaChannel(rate, channel.charge_mass_ratio, channel.ionisation_potential),
+        density, preionisation, cycle, arithmetic, prepared.ranges,
     )
 end
 
@@ -582,17 +630,26 @@ function ModalPlasma(
         execution, channels::Tuple, rule::RunningIntegralRule{Float64};
         arithmetic::SourceArithmetic = SourceArithmetic(Float64),
     )
+    _source_execution_arithmetic(execution, arithmetic)
     _source_channels(channels)
     all(channel -> channel.arithmetic == arithmetic, channels) ||
         throw(ArgumentError("plasma channels must use the same source arithmetic"))
     all(channel -> channel.quadrature === nothing, channels) ||
         throw(ArgumentError("field plasma does not use envelope cycle rules"))
-    taps, range = _source_prepare(execution, rule.taps, arithmetic, :plasma_integral_taps)
+    _source_require_host(rule.taps, :plasma_integral_taps)
     spacing = source_type(arithmetic) === Float64 ? rule.dt :
         source_coefficient(arithmetic, :plasma_time_spacing, rule.dt)
-    owned = RunningIntegralRule(
-        taps, spacing; floor_exposure = rule.floor_exposure
-    )
+    owned, range = if oncpu(execution)
+        taps, fact = _source_prepare(
+            execution, rule.taps, arithmetic, :plasma_integral_taps
+        )
+        RunningIntegralRule(taps, spacing; floor_exposure = rule.floor_exposure), fact
+    else
+        taps, fact = _source_prepare_host(rule.taps, arithmetic, :plasma_integral_taps)
+        validated = RunningIntegralRule(taps, spacing; floor_exposure = rule.floor_exposure)
+        copied = upload(execution, validated.taps)
+        RunningIntegralRule(_PlasmaValidatedCopy(), validated, copied), fact
+    end
     return ModalPlasma(channels, owned, nothing, nothing, arithmetic, (taps = range,))
 end
 
@@ -601,6 +658,7 @@ function ModalPlasma(
         loss::AbstractVector{ComplexF64},
         arithmetic::SourceArithmetic = SourceArithmetic(Float64),
     )
+    _source_execution_arithmetic(execution, arithmetic)
     _source_channels(channels)
     all(channel -> channel.arithmetic == arithmetic, channels) ||
         throw(ArgumentError("plasma channels must use the same source arithmetic"))
@@ -608,6 +666,8 @@ function ModalPlasma(
         throw(ArgumentError("each envelope plasma channel needs a cycle rule"))
     length(drude) == length(loss) ||
         throw(DimensionMismatch("envelope plasma spectral factors disagree"))
+    _source_require_host(drude, :plasma_drude)
+    _source_require_host(loss, :plasma_loss)
     all(value -> isfinite(value) && value <= 0, drude) &&
         all(value -> isfinite(value) && iszero(real(value)) && imag(value) <= 0, loss) ||
         throw(ArgumentError("invalid translated envelope plasma spectral factors"))
@@ -621,6 +681,8 @@ end
 
 """
     ModalSourceData(grid, map, prefactor; kerr=nothing, raman=(), plasma=nothing)
+    ModalSourceData(execution::KernelExecution, grid, map, prefactor;
+                    kerr=nothing, raman=(), plasma=nothing)
 
 Bind independently owned immutable records for an admitted scalar modal source.
 
@@ -629,6 +691,8 @@ Raman components and plasma channels remain typed tuples in translated material 
 This record contains no workspace, session policy or Python object. Input noise belongs
 to initial-state preparation; modified noise, vector/tensor, general modal and changing
 bases are outside this source's admitted scope.
+Use the execution overload for device plasma. It validates immutable mask/spectral
+coefficients through preparation-only host copies; no evolving field is downloaded.
 Throw `ArgumentError` or `DimensionMismatch` for incompatible records.
 """
 struct ModalSourceData{G, M, P, K, R, L}
@@ -645,17 +709,49 @@ function ModalSourceData(
         kerr::Union{Nothing, ModalKerr} = nothing, raman::Tuple = (),
         plasma::Union{Nothing, ModalPlasma} = nothing,
     )
-    prefactor.shape == (length(grid.omega), size(map.synthesis, 2)) ||
-        throw(DimensionMismatch("source prefactor does not match the modal grid"))
-    grid.arithmetic == map.arithmetic == prefactor.arithmetic ||
-        throw(ArgumentError("modal grid, maps and prefactor must share source arithmetic"))
+    plasma === nothing ||
+        KernelAbstractions.get_backend(grid.active) isa KernelAbstractions.CPU ||
+        throw(ArgumentError("device plasma source data requires its execution policy"))
+    _source_data_shape(grid, map, prefactor)
     _validate_source_responses(grid, kerr, raman, plasma)
     return ModalSourceData(grid, map, prefactor, kerr, raman, plasma)
 end
 
+function _source_data_shape(grid, map, prefactor)
+    prefactor.shape == (length(grid.omega), size(map.synthesis, 2)) ||
+        throw(DimensionMismatch("source prefactor does not match the modal grid"))
+    grid.arithmetic == map.arithmetic == prefactor.arithmetic ||
+        throw(ArgumentError("modal grid, maps and prefactor must share source arithmetic"))
+    return nothing
+end
+
+function ModalSourceData(
+        execution::KernelExecution, grid::ModalSourceGrid, map::ModalSourceMap,
+        prefactor::SourcePrefactor; kerr::Union{Nothing, ModalKerr} = nothing,
+        raman::Tuple = (), plasma::Union{Nothing, ModalPlasma} = nothing,
+    )
+    oncpu(execution) && return ModalSourceData(grid, map, prefactor; kerr, raman, plasma)
+    _source_execution_arithmetic(execution, grid.arithmetic)
+    _source_data_shape(grid, map, prefactor)
+    data = ModalSourceData(grid, map, prefactor, kerr, raman, plasma)
+    _source_device_data(data, execution)
+    plasma_arrays = if plasma !== nothing && grid.kind == :envelope &&
+            plasma.drude !== nothing && plasma.loss !== nothing
+        (
+            _source_preparation_host(grid.active, execution),
+            _source_preparation_host(plasma.drude, execution),
+            _source_preparation_host(plasma.loss, execution),
+        )
+    else
+        nothing
+    end
+    _validate_source_responses(grid, kerr, raman, plasma; plasma_arrays)
+    return data
+end
+
 function _validate_source_responses(
         grid::ModalSourceGrid, kerr::Union{Nothing, ModalKerr}, raman::Tuple,
-        plasma::Union{Nothing, ModalPlasma},
+        plasma::Union{Nothing, ModalPlasma}; plasma_arrays = nothing,
     )
     if kerr !== nothing
         kerr.arithmetic == grid.arithmetic ||
@@ -694,9 +790,13 @@ function _validate_source_responses(
                 throw(ArgumentError("envelope plasma requires cycle quadrature assembly"))
             length(plasma.drude) == length(grid.omega) ||
                 throw(DimensionMismatch("plasma factors do not match the coarse grid"))
-            all(eachindex(grid.active)) do index
-                return grid.active[index] ||
-                    (iszero(plasma.drude[index]) && iszero(plasma.loss[index]))
+            active, drude, loss = plasma_arrays === nothing ?
+                (grid.active, plasma.drude, plasma.loss) : plasma_arrays
+            _source_require_host(active, :plasma_active_mask)
+            _source_require_host(drude, :plasma_drude)
+            _source_require_host(loss, :plasma_loss)
+            all(eachindex(active)) do index
+                return active[index] || (iszero(drude[index]) && iszero(loss[index]))
             end || throw(ArgumentError("plasma factors must vanish outside the band"))
         end
     end
@@ -724,7 +824,7 @@ struct _SourceRamanBuffers{R, C, F}
     transform::F
 end
 
-mutable struct _SourceRamanWork{D, F, C, S, T}
+mutable struct _SourceRamanWork{D, F, C, S, T, E}
     data::D
     drive::RamanDrive
     time_kernel::Vector{Float64}
@@ -737,23 +837,30 @@ mutable struct _SourceRamanWork{D, F, C, S, T}
     host_spectrum::Vector{ComplexF64}
     range::SourceRange
     factor::T
+    coefficient_execution::E
 
     function _SourceRamanWork(
             data::D, drive::RamanDrive, time_kernel::Vector{Float64},
             spectrum::S, rates::Vector{Float64}, weights::Vector{Float64},
             forward::F, convolution::C, density::Float64,
-            host_spectrum::Vector{ComplexF64}, range::SourceRange, factor::T,
+            host_spectrum::Vector{ComplexF64}, range::SourceRange, factor::T;
+            coefficient_execution::KernelExecution = KernelExecution(
+                KernelAbstractions.CPU(), 1
+            ),
         ) where {D, F, C, T, S <: AbstractVector{Complex{T}}}
         source_type(data.arithmetic) === T ||
             throw(ArgumentError("Raman kernel work differs from source arithmetic"))
-        return new{D, F, C, S, T}(
+        oncpu(coefficient_execution) ||
+            throw(ArgumentError("Raman coefficient reconstruction requires CPU execution"))
+        return new{D, F, C, S, T, typeof(coefficient_execution)}(
             data, drive, time_kernel, spectrum, rates, weights,
             forward, convolution, density, host_spectrum, range, factor,
+            coefficient_execution,
         )
     end
 end
 
-struct _SourcePlasmaWork{W, A, C, S, R}
+struct _SourcePlasmaWork{W, A, C, S, R, F}
     workspace::W
     first::A
     second::A
@@ -765,6 +872,7 @@ struct _SourcePlasmaWork{W, A, C, S, R}
     factors_second::S
     stage::Matrix{Float64}
     ranges::R
+    status_readback::F
 
     # These are already-owned prepared buffers. Keep construction from implicitly
     # converting arbitrary arrays into replacement storage with different ownership.
@@ -772,10 +880,12 @@ struct _SourcePlasmaWork{W, A, C, S, R}
             workspace::W, first::A, second::A, projected_first::A, projected_second::A,
             coarse_first::C, coarse_second::C, factors_first::S,
             factors_second::S, stage::Matrix{Float64}; ranges = nothing,
+            status_readback = nothing,
         ) where {W, A, C, S <: AbstractVector{<:Complex}}
-        return new{W, A, C, S, typeof(ranges)}(
+        return new{W, A, C, S, typeof(ranges), typeof(status_readback)}(
             workspace, first, second, projected_first, projected_second,
             coarse_first, coarse_second, factors_first, factors_second, stage, ranges,
+            status_readback,
         )
     end
 end
@@ -918,7 +1028,7 @@ end
         array, (
             owned.workspace, owned.first, owned.second, owned.projected_first,
             owned.projected_second, owned.coarse_first, owned.coarse_second,
-            owned.factors_first, owned.factors_second, owned.stage,
+            owned.factors_first, owned.factors_second, owned.stage, owned.status_readback,
         )
     )
 end
@@ -943,9 +1053,10 @@ Every inactive chunk cell is overwritten.
 The caller state/output are `Complex{source_type(data.grid.arithmetic)}` in the
 declared scaled state units. Pointwise/FFT buffers use that precision; represented
 profiles and Raman kernel reconstruction retain their explicit host-wide roles.
-Device execution currently admits binary64 Kerr and in-stage temporal absorption;
-device Raman and plasma raise named refusals. Device finite checks read
-back only one failure-row index per prepared column, never evolving field data.
+Device execution admits binary64 scalar Kerr, Raman, plasma and in-stage temporal
+absorption. Raman reconstructs only coefficient data on the host and uploads its
+persistent spectrum. Device finite/plasma checks read back bounded per-column status,
+never evolving field data.
 
 Data records may be shared; all mutable stage values, plans and work belong to this
 instance. `ready` is true only after a successful call. When an embedded projection
@@ -1026,12 +1137,14 @@ function _source_raman(execution, data, layout)
     frequency = dzeros(execution, Complex{T}, layout.n_time + 1, layout.n_nodes)
     transform = TemporalFFT(execution, drive, frequency)
     buffers = _SourceRamanBuffers(drive, frequency, transform)
+    coefficient_execution = oncpu(execution) ? execution :
+        KernelExecution(KernelAbstractions.CPU(), 1)
     components = map(data.raman) do component
         time_kernel = zeros(Float64, 2layout.n_time)
         host_spectrum = zeros(ComplexF64, layout.n_time + 1)
-        spectrum = T === Float64 ? host_spectrum :
+        spectrum = oncpu(execution) && T === Float64 ? host_spectrum :
             dzeros(execution, Complex{T}, layout.n_time + 1)
-        planning = execution.planning
+        planning = coefficient_execution.planning
         forward = if planning === nothing
             FFTW.plan_rfft(
                 time_kernel; flags = FFTW.ESTIMATE | FFTW.PRESERVE_INPUT, num_threads = 1,
@@ -1049,6 +1162,7 @@ function _source_raman(execution, data, layout)
             fill(component.fraction, length(component.decay_profiles)),
             forward, convolution, 0.0, host_spectrum,
             SourceRange(:raman_kernel, 0, 0, T === Float32, 0.0, 0.0), zero(T),
+            ; coefficient_execution,
         )
     end
     return components, buffers
@@ -1062,27 +1176,33 @@ function _source_plasma(
     grid, prepared = data.grid, data.plasma
     T = source_type(grid.arithmetic)
     field = grid.kind == :field
+    field || (prepared.drude !== nothing && prepared.loss !== nothing) ||
+        throw(ArgumentError("envelope plasma requires both spectral factors"))
     workspace = field ? FieldPlasmaWorkspace(execution, T, layout) :
         EnvelopePlasmaWorkspace(execution, T, layout)
     first = dzeros(execution, eltype(modal), layout.n_time, layout.n_nodes)
-    second = similar(first)
-    projected_first, projected_second = similar(modal), similar(modal)
-    coarse_first = coarse ? similar(modal) : nothing
-    coarse_second = coarse ? similar(modal) : nothing
+    second = dzeros(execution, eltype(modal), size(first)...)
+    projected_first = dzeros(execution, eltype(modal), size(modal)...)
+    projected_second = dzeros(execution, eltype(modal), size(modal)...)
+    coarse_first = coarse ? dzeros(execution, eltype(modal), size(modal)...) : nothing
+    coarse_second = coarse ? dzeros(execution, eltype(modal), size(modal)...) : nothing
     factors_first = zeros(ComplexF64, length(grid.omega))
     factors_second = similar(factors_first)
+    active = _source_preparation_host(grid.active, execution)
+    drude = field ? nothing : _source_preparation_host(prepared.drude, execution)
+    loss = field ? nothing : _source_preparation_host(prepared.loss, execution)
     for index in eachindex(grid.omega)
         if field
             # SEP 27's held-current identity is G/(i*omega)-G'/(i*omega)^2.
             # Division is evaluated only on the explicitly active positive band.
-            factors_first[index] = grid.active[index] ? inv(im * grid.omega[index]) : 0
-            factors_second[index] = grid.active[index] ?
+            factors_first[index] = active[index] ? inv(im * grid.omega[index]) : 0
+            factors_second[index] = active[index] ?
                 -inv((im * grid.omega[index])^2) : 0
         else
-            (prepared.drude === nothing || prepared.loss === nothing) &&
+            (drude === nothing || loss === nothing) &&
                 throw(ArgumentError("envelope plasma requires both spectral factors"))
-            factors_first[index] = prepared.drude[index]
-            factors_second[index] = prepared.loss[index]
+            factors_first[index] = drude[index]
+            factors_second[index] = loss[index]
         end
     end
     all(isfinite, factors_first) && all(isfinite, factors_second) ||
@@ -1098,6 +1218,8 @@ function _source_plasma(
         coarse_first, coarse_second, first_factor, second_factor,
         zeros(Float64, 2, length(prepared.channels));
         ranges = (first = first_range, second = second_range),
+        status_readback = oncpu(execution) ? nothing :
+            DeviceReadback(execution, Int, 2, layout.n_nodes),
     )
 end
 
@@ -1114,10 +1236,6 @@ end
 
 function _source_device_data(data, execution)
     oncpu(execution) && return nothing
-    isempty(data.raman) ||
-        throw(ArgumentError("device modal Raman source is not yet attached"))
-    data.plasma === nothing ||
-        throw(ArgumentError("device modal plasma source is not yet attached"))
     grid, maps, prefactor = data.grid, data.map, data.prefactor
     for array in (
             grid.active, grid.omega_window, grid.source_window,
@@ -1126,6 +1244,19 @@ function _source_device_data(data, execution)
             prefactor.data, prefactor.weights,
         )
         _source_device_array(array, execution)
+    end
+    if data.plasma !== nothing
+        plasma = data.plasma
+        _source_device_array(plasma.drude, execution)
+        _source_device_array(plasma.loss, execution)
+        plasma.rule === nothing || _source_device_array(plasma.rule.taps, execution)
+        _source_each_indexed(plasma.channels) do channel, unused
+            _source_device_array(channel.channel.rate.coefficients, execution)
+            if channel.quadrature !== nothing
+                _source_device_array(channel.quadrature.nodes, execution)
+                _source_device_array(channel.quadrature.weights, execution)
+            end
+        end
     end
     return nothing
 end
@@ -1217,7 +1348,7 @@ function _prepare_source_raman!(work, position, execution)
     end
     rebuild_raman!(
         work.time_kernel, work.host_spectrum, component.kernel, work.rates, work.weights,
-        work.forward, execution,
+        work.forward, work.coefficient_execution,
     )
     if source_type(component.arithmetic) === Float32
         work.range = source_narrow!(
@@ -1228,6 +1359,7 @@ function _prepare_source_raman!(work, position, execution)
             exponent = 2component.arithmetic.field_exponent + work.range.block_exponent,
         )
     else
+        oncpu(execution) || copy_upload!(work.spectrum, work.host_spectrum, execution)
         work.factor = component.material_factor * density
     end
     return nothing
@@ -1382,7 +1514,9 @@ function _source_plasma_channel!(source, channel, index, count, first)
             field_exponent = data.grid.arithmetic.field_exponent,
         )
     end
-    failure = plasma_failure(work.workspace.status)
+    failure = _source_plasma_failure!(
+        work.status_readback, work.workspace.status, execution
+    )
     failure.code == PlasmaSuccess || throw(
         SourcePlasmaError(
             failure.code, index, first + failure.node - 1, failure.sample

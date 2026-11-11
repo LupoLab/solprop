@@ -8,6 +8,11 @@ public PlasmaQuadratureFailure, PlasmaFailure, plasma_failure, field_plasma!
 public CycleQuadrature, EnvelopePlasmaWorkspace, envelope_plasma!
 public PopulationWorkspace, field_populations!, envelope_populations!
 
+# Only preparation uses this token after revalidating fresh host-owned data and
+# uploading an exact copy. Device copies are checked by shape/type, never reduced
+# or scalar-indexed from the host to repeat the already completed validation.
+struct _PlasmaValidatedCopy end
+
 """
     IonisationRateTable(coefficients, field_min, field_max, rate_max,
                         log_field_min, d_log_field)
@@ -55,7 +60,21 @@ struct IonisationRateTable{T <: AbstractFloat, A <: AbstractMatrix{T}}
             throw(ArgumentError("ionisation table host scalars must fit binary64"))
         return new{T, A}(coefficients, scalars...)
     end
+
+    function IonisationRateTable(
+            ::_PlasmaValidatedCopy, validated::IonisationRateTable{T}, coefficients::A,
+        ) where {T <: AbstractFloat, A <: AbstractMatrix{T}}
+        size(coefficients) == size(validated.coefficients) ||
+            throw(DimensionMismatch("uploaded rate coefficient shape differs"))
+        return new{T, A}(
+            coefficients, validated.field_min, validated.field_max, validated.rate_max,
+            validated.log_field_min, validated.d_log_field,
+        )
+    end
 end
+
+IonisationRateTable(::_PlasmaValidatedCopy, ::IonisationRateTable, ::AbstractArray) =
+    throw(ArgumentError("uploaded rate coefficients must preserve type and rank"))
 
 """
     PlasmaChannel(rate, charge_mass_ratio, ionisation_potential)
@@ -124,7 +143,18 @@ struct RunningIntegralRule{T <: AbstractFloat, A <: AbstractVector{T}}
             throw(ArgumentError("running integral requires finite taps and positive dt"))
         return new{T, A}(taps, dt, floor_exposure)
     end
+
+    function RunningIntegralRule(
+            ::_PlasmaValidatedCopy, validated::RunningIntegralRule{T}, taps::A,
+        ) where {T <: AbstractFloat, A <: AbstractVector{T}}
+        size(taps) == size(validated.taps) ||
+            throw(DimensionMismatch("uploaded integral tap shape differs"))
+        return new{T, A}(taps, validated.dt, validated.floor_exposure)
+    end
 end
+
+RunningIntegralRule(::_PlasmaValidatedCopy, ::RunningIntegralRule, ::AbstractArray) =
+    throw(ArgumentError("uploaded integral taps must preserve type and rank"))
 
 """Identify a numerical plasma result without throwing inside a scalar kernel."""
 @enum PlasmaCode::UInt8 begin
@@ -676,7 +706,23 @@ struct CycleQuadrature{T <: AbstractFloat, A <: AbstractVector{T}, E}
         end
         return new{T, A, typeof(ends)}(nodes, weights, ends, moment_rtol, negligible_rate)
     end
+
+    function CycleQuadrature(
+            ::_PlasmaValidatedCopy, validated::CycleQuadrature{T}, nodes::A, weights::A,
+        ) where {T <: AbstractFloat, A <: AbstractVector{T}}
+        size(nodes) == size(validated.nodes) && size(weights) == size(validated.weights) ||
+            throw(DimensionMismatch("uploaded cycle-rule shapes differ"))
+        return new{T, A, typeof(validated.ends)}(
+            nodes, weights, validated.ends,
+            validated.moment_rtol, validated.negligible_rate,
+        )
+    end
 end
+
+CycleQuadrature(
+    ::_PlasmaValidatedCopy, ::CycleQuadrature, ::AbstractArray, ::AbstractArray
+) =
+    throw(ArgumentError("uploaded cycle arrays must preserve type and rank"))
 
 """
     EnvelopePlasmaWorkspace(execution, T, layout)
