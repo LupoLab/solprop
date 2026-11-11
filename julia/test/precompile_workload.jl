@@ -30,7 +30,7 @@ import SolpropJulia as SP
         valid.kind, valid.n_modes, valid.grid, valid.selection, valid.power_weight,
         valid.profiles, nothing, valid.taper, valid.intensity_factor,
         valid.populations, valid.temporal, valid.axis_populations, valid.needs,
-        valid.periodic_needs,
+        valid.periodic_needs, valid.arithmetic, valid.host_axis_synthesis, valid.ranges,
     )
     before = copy(weight.data)
     message = "peak_intensity needs a separate coarse on-axis map"

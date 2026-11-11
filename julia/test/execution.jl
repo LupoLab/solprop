@@ -175,4 +175,11 @@ end
         (row, column) -> nothing, unsupported, 1, 1
     )
     @test_throws ArgumentError SolpropJulia.each_column!(column -> nothing, unsupported, 1)
+    @test SolpropJulia.synchronize_execution(serial) === nothing
+    @test_throws ArgumentError SolpropJulia.synchronize_execution(unsupported)
+    @test_throws ArgumentError SolpropJulia.device_execution(Val(:unqualified), 0, 1)
+    source, destination = [1.0], [-2.0]
+    @test_throws ArgumentError SolpropJulia.copy_host!(destination, source, unsupported)
+    @test_throws ArgumentError SolpropJulia.copy_device!(destination, source, unsupported)
+    @test destination == [-2.0] && source == [1.0]
 end

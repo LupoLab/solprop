@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 public KernelExecution, each!, each_column!, oncpu, upload, dzeros
+public device_execution, synchronize_execution, copy_host!, copy_device!
 
 """
     KernelExecution(backend, tasks::Integer, check_body::Bool = false; planning=nothing)
@@ -41,6 +42,69 @@ end
 Return whether the execution backend stores and computes arrays on the CPU.
 """
 oncpu(execution::KernelExecution) = execution.backend isa KernelAbstractions.CPU
+
+"""
+    device_execution(Val(device), device_index::Int, tasks::Int; check_body=false)
+
+Prepare an extension-owned device context and stream with a positive host task budget.
+
+`device` identifies the vendor, and `device_index` is a zero-based device ordinal.
+The returned `KernelExecution` retains its context and stream independently of the
+caller's active device. Each synchronous operation restores the caller's active state.
+This constructor requires a loaded, qualified vendor extension; it does not admit
+propagation capabilities. Throw `ArgumentError` for an unavailable extension, invalid
+ordinal or task budget. No device allocation occurs in the unavailable fallback.
+"""
+function device_execution(
+        ::Val{device}, device_index::Int, tasks::Int; check_body::Bool = false,
+    ) where {device}
+    throw(ArgumentError("no qualified execution extension is loaded for $device"))
+end
+
+"""
+    synchronize_execution(execution::KernelExecution)
+
+Finish pending work in the prepared execution context before returning `nothing`.
+
+CPU work is already synchronous. A device extension synchronizes only its owned
+context/stream and restores the caller's active state. Throw `ArgumentError` when
+the backend has no qualified synchronization method.
+"""
+function synchronize_execution(execution::KernelExecution)
+    oncpu(execution) ||
+        throw(ArgumentError("this execution backend has no qualified synchronization"))
+    return nothing
+end
+
+"""
+    copy_host!(destination, source, execution::KernelExecution)
+
+Copy owned device data into a matching dense host array and return the destination.
+
+Shape and element type must agree exactly; no unit or precision conversion occurs.
+The device extension validates source context and destination storage before writes,
+retains both owners until synchronous completion, and restores the caller's context.
+Throw `ArgumentError` for unsupported storage/context/precision or an unavailable
+extension, and `DimensionMismatch` for different shapes.
+"""
+function copy_host!(destination, source, execution::KernelExecution)
+    throw(ArgumentError("this execution backend has no qualified device-to-host copy"))
+end
+
+"""
+    copy_device!(destination, source, execution::KernelExecution)
+
+Copy between matching dense arrays owned by the same prepared device context.
+
+Shape and element type must agree exactly. Identical arrays are an exact no-op;
+other overlap refuses before writes. The extension retains both owners until
+synchronous completion, restores the caller's context and returns the destination.
+Throw `ArgumentError` for unsupported storage/context/precision, overlap or an
+unavailable extension, and `DimensionMismatch` for different shapes.
+"""
+function copy_device!(destination, source, execution::KernelExecution)
+    throw(ArgumentError("this execution backend has no qualified device copy"))
+end
 
 """
     upload(execution::KernelExecution, input::AbstractArray)
