@@ -62,6 +62,9 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 | Wide arithmetic agent | New `wide_operators.jl`, its focused tests and `WIDE_ASSEMBLY.md` | Phase 3 whole-expression assembly and range/error certificate; shared interfaces require master agreement before dependent work |
 | CPU provider agent | New `cpu_blas.jl`, `_accelerate.py` and focused tests | Reviewed leaf integrated at `5795fe65`; runtime/lease attachment reviewed, managed checks passed; files return to master |
 | Preparation agent | New `_node_plan.py`, focused Python/Julia tests and `NODE_MEMORY.md`; narrow owned-window reshape correction in `observations.jl` | Derive Julia-specific chunk storage bounds and authoritative budget admission; master owns shared adapter integration |
+| Source precision agent | `precision.jl`, `composition.jl`, `spatial_composition.jl`, `responses.jl`, `raman.jl`, `plasma.jl` and their focused tests | Binary32 source preparation/kernels under the shared `PRECISION.md` interface; no Python, transfer, session or observation edits |
+| Observation precision agent | `observations.jl`, `spatial_observations.jl`, `transverse_observations.jl`, `statistics.jl`, `monitor.jl` and their focused tests | Binary32 pointwise work, protected reductions and host physical scaling; no source, Python or scheduling edits |
+| Benchmark agent | `benchmarks/worker.py`, `benchmarks/track.py`, their focused tests and the existing legacy-window refusal test | Shared prepared-start timing boundary for all owners, explicit evidence label and preparation-inclusive time |
 
 The precompile workload uses only owned, small CPU arrays and existing numerical
 constructors. It covers serial CPU session/source/observation dispatch without loading

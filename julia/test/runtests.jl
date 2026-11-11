@@ -18,6 +18,7 @@ if group == "Core"
     include("cancellation.jl")
     include("cpu_blas.jl")
     include("execution.jl")
+    include("precision.jl")
     include("double_float.jl")
     include("double_float_functions.jl")
     include("phi_functions.jl")
