@@ -2738,9 +2738,7 @@ class _NativeAdamsMarch(AdamsMarch):
     native code cannot read, is polled before each call, not before each attempt: both
     a signal and a stop wait for the call in hand, at most its bound and one attempt.
 
-    Every configuration the backend admits is one the native march steps; a carrier
-    frame on an operator with no chord, which the admission refuses
-    (``refuse_carrier_frame``), is refused here too, before anything is stepped.
+    Every configuration the backend admits is one the native march steps.
     """
 
     MAX_ATTEMPTS: ClassVar[int] = 256
@@ -2762,11 +2760,6 @@ class _NativeAdamsMarch(AdamsMarch):
 
         `runner`, the scripted march of the decision-trace tests, takes the native
         state's place; `kernels` and `exponential` are the Python march's own.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            For a carrier frame on an operator with no chord.
         """
         # solprop's signature names the driver unparameterised.
         super().__init__(backend, method, kernels, exponential)  # pyright: ignore[reportUnknownMemberType]
@@ -2779,15 +2772,16 @@ class _NativeAdamsMarch(AdamsMarch):
         engine = self._engine
         # `_adams_engine` returns the resident history or refuses: the march has no
         # host engine to step. A scripted runner's harness keeps its own.
-        if runner is None:
-            assert isinstance(engine, _ResidentAdams)
-            chord = None if engine.carrier is None else engine.carrier.chord
-            if self._policy.carrier and chord is None:
-                msg = (
-                    "solprop-native does not step the carrier frame on an operator "
-                    "with no chord"
-                )
-                raise BackendError(msg)
+        # The admission refuses a carrier frame on an operator with no chord
+        # (``refuse_carrier_frame``).
+        assert runner is not None or (
+            isinstance(engine, _ResidentAdams)
+            and not (
+                self._policy.carrier
+                and engine.carrier is not None
+                and engine.carrier.chord is None
+            )
+        )
 
     def march_to(self, target: float) -> None:
         """Step the backend's state to `target`, natively when the march is admitted.
