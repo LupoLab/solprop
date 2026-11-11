@@ -2134,6 +2134,10 @@ public:
     require_built();
     return general_state_->rk_source_evaluations();
   }
+  std::size_t axis_scans() const {
+    require_built();
+    return general_state_->axis_scans();
+  }
   double quadrature_error() const {
     require_open();
     return general_state_->quadrature_error();
@@ -2497,7 +2501,7 @@ public:
   // The Adams march's history at the pending batch's committed state, its ticket
   // `(sequence, generation)` (SEP 47 section 5.4): the march's state, the accepted
   // field as the state holds it and each persistent history row, each copied once,
-  // losslessly (`AdamsMarch.snapshot`); None for a Runge-Kutta march or before any
+  // losslessly (`HostAdamsMarch.snapshot`); None for a Runge-Kutta march or before any
   // history.
   nb::object march_snapshot(const std::uint64_t sequence,
                             const std::uint64_t generation) {
@@ -4256,6 +4260,7 @@ NB_MODULE(_core, module_) {
       .def_prop_ro("fsal_ready", [](BoundState& self) { return self.fsal_ready(); })
       .def_prop_ro("rk_source_evaluations",
                    [](BoundState& self) { return self.rk_source_evaluations(); })
+      .def_prop_ro("axis_scans", [](BoundState& self) { return self.axis_scans(); })
       .def_prop_ro("quadrature_error",
                    [](BoundState& self) { return self.quadrature_error(); })
       .def("quadrature_peak", [](BoundState& self) { return self.quadrature_peak(); })

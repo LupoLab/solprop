@@ -2413,6 +2413,7 @@ public:
   std::size_t response_team_size() const noexcept;
   bool fsal_ready() const noexcept { return has_recycled_; }
   std::size_t rk_source_evaluations() const noexcept { return rk_source_evaluations_; }
+  std::size_t axis_scans() const noexcept { return axis_scans_; }
   bool closed() const noexcept { return closed_; }
   void close() noexcept;
 
@@ -2798,6 +2799,8 @@ public:
   bool has_noise_{};
   bool has_recycled_{};
   std::size_t rk_source_evaluations_{};
+  // On-axis row scans (`axis_populations`), for the session's record (SEP 19).
+  std::size_t axis_scans_{};
   bool pending_fsal_{};
   // Only the final trial source supplies the accepted quadrature score. Its
   // coarse time buffers survive until scoring, or until a new source replaces
@@ -6203,8 +6206,8 @@ void GeneralWorkspace::low_storage_modal_input(const std::size_t pass) {
 
 // --- solprop SEP 16 phase 3b: the Adams history resident in the engine ---------------
 //
-// solprop's AdamsMarch keeps the controller and hands every state-sized operation of
-// its fused path to an engine (solprop ADR-043). These are that engine's passes: the
+// solprop's HostAdamsMarch keeps the controller and hands every state-sized operation
+// of its fused path to an engine (solprop ADR-043). These are that engine's passes: the
 // history's rows, the trial's predictor, source, corrected field and defect norms, the
 // adoption and transport of an accepted step and dense observation all stay in device
 // memory; only the trial's scalars, its coefficient tables (by value, in AdamsWeights)
@@ -9438,7 +9441,7 @@ void GeneralWorkspace::adams_exponential_observe(const double xi, const double d
 //
 // DOPRI5's continuous extension (Hairer, Norsett and Wanner, II.6) in the step's
 // interaction picture, as solprop's `extension_coefficients`, `extension_value` and
-// `StepDriver._observe_inside` form it: with `v0` the state at the step's anchor, `k_i`
+// `HostDriver._observe_inside` form it: with `v0` the state at the step's anchor, `k_i`
 // its stages in the anchor's frame and `v1 - v0 = h sum_i b_i k_i`, the coefficients
 // `v0`, `v1 - v0`, `h k1 - (v1 - v0)`, `(v1 - v0) - h k7 - (h k1 - (v1 - v0))` and
 // `h sum_i d_i k_i`, evaluated at the fraction theta as `r1 + theta (r2 + (1 - theta)
@@ -15348,6 +15351,7 @@ GeneralWorkspace::axis_populations(const std::vector<double>& matrix,
   if (problem_.separable_geometry() || problem_.general_modal || retained_synthesis_)
     throw std::invalid_argument(
         "the on-axis plasma statistics read a resolved modal state");
+  ++axis_scans_;
   const auto n_modes = problem_.n_modes;
   const auto n_pol_state = problem_.n_pol_state;
   const auto node_pol = problem_.effective_node_pol();
@@ -18124,6 +18128,9 @@ bool GeneralState::fsal_ready() const noexcept {
 }
 std::size_t GeneralState::rk_source_evaluations() const noexcept {
   return workspace_ ? workspace_->rk_source_evaluations() : 0;
+}
+std::size_t GeneralState::axis_scans() const noexcept {
+  return workspace_ ? workspace_->axis_scans() : 0;
 }
 bool GeneralState::closed() const noexcept {
   return !workspace_ || workspace_->closed();

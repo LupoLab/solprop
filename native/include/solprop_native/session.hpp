@@ -38,7 +38,7 @@
  *
  * The scheduler's decisions -- which plane is next, when a step plane, a statistics
  * row, a bounded yield or a snapshot falls due, and the reached and replay tolerances
- * -- are solprop's `DriverSession`, `StepDriver` and `solprop.backends.driver`
+ * -- are solprop's `DriverSession`, `HostDriver` and `solprop.backends.host.driver`
  * functions, transcribed. Like the marches they are compiled strict (no contraction, no
  * fast-math) in their own translation unit, so they round as solprop's Python does;
  * that unit also holds the export, whose recipe is `solprop.backends.export`'s
@@ -549,7 +549,7 @@ private:
     returned at `position` reached the plane it was sent to (`DriverSession.advance`).
  */
 [[nodiscard]] bool plane_reached(double position, double target);
-/** `solprop.backends.driver.replay_tolerance`: a replayed edge's slack at `position`,
+/** `solprop.stepper.schedule.replay_tolerance`: a replayed edge's slack at `position`,
     m, for a schedule of `steps` steps and length `length`. */
 [[nodiscard]] double replay_tolerance(std::size_t steps, double length, double position,
                                       int landing_ulps);

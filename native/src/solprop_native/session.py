@@ -541,6 +541,10 @@ class NativeSession:
                 options=options,
             )
         self._backend: NativeBackend | None = backend
+        # The on-axis row scans this session's statistics make: the state's count,
+        # less what earlier runs on the backend made (SEP 19).
+        self._axis_scans = int(backend._native_state.axis_scans)  # pyright: ignore[reportPrivateUsage]
+        self._axis_scans_closed = 0
         try:
             kind, state = self._prepare(backend, start)
             self._native = backend._native_state.start_session(  # pyright: ignore[reportPrivateUsage]
@@ -1376,12 +1380,29 @@ class NativeSession:
             "exports": status.exports,
             "export_bytes": status.export_bytes,
             "buffer_bytes": status.buffer_bytes,
+            "axis_scans": self._axis_scan_count(),
         }
         monitor = self.monitor_record()
         if monitor is not None:
             # Where the driver's record carries its monitor's (`HostDriver.metadata`).
             record["boundary_monitor"] = monitor
         return record
+
+    def _axis_scan_count(self) -> int:
+        """Return the on-axis row scans this session's statistics made (SEP 19).
+
+        A Radau rule's axis node is read from the node scan the species reduction
+        makes anyway; any other rule scans the axis row itself, which counts here.
+
+        Returns
+        -------
+        int
+            The scans since the session started.
+        """
+        backend = self._backend
+        if backend is None or backend.closed:
+            return self._axis_scans_closed
+        return int(backend._native_state.axis_scans) - self._axis_scans  # pyright: ignore[reportPrivateUsage]
 
     def _sync_calls(self) -> CallLedger | None:
         """Bring the Adams call ledger up to the native march's, and return it.
@@ -1583,6 +1604,7 @@ class NativeSession:
         self._native.close()
         self._exports.clear()
         if self._backend is not None:
+            self._axis_scans_closed = self._axis_scan_count()
             if self._owns:
                 self._backend.close()
             self._backend = None
