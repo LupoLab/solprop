@@ -959,9 +959,9 @@ def check_build() -> None:
             "the build enables OpenMP but its Kokkos execution space is "
             f"{info.execution_space!r}"
         )
-    # A CPU build runs OpenMP, or Kokkos Threads where it must add no OpenMP runtime.
+    # A CPU build runs OpenMP.
     expected_execution = {
-        "none": {"OpenMP", "Threads"},
+        "none": {"OpenMP"},
         "cuda": {"Cuda"},
         "hip": {"HIP"},
     }

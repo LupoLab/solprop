@@ -355,7 +355,6 @@ The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.
 | option | default | values and effect |
 |---|---|---|
 | `SOLPROP_NATIVE_ENABLE_OPENMP` | `ON` | the OpenMP host execution space and threaded FFTW. `OFF` in GPU builds, whose host space is Serial |
-| `SOLPROP_NATIVE_ENABLE_THREADS` | `OFF` | the Kokkos Threads (C++ threads) host space with FFTW's threads library, for a build that adds no OpenMP runtime (a fallback for Windows builds); requires `SOLPROP_NATIVE_ENABLE_OPENMP=OFF`. Kernels then run at the runtime's thread count, without per-operation sizing |
 | `SOLPROP_NATIVE_ENABLE_CUDA` | `OFF` | the CUDA execution space with cuFFT (Linux, GNU host compiler) |
 | `SOLPROP_NATIVE_ENABLE_HIP` | `OFF` | the HIP execution space with rocFFT (Linux, ROCm Clang); exclusive with CUDA |
 | `SOLPROP_NATIVE_CUDA_ARCH` | `HOPPER90` | the Kokkos architecture suffix, `Kokkos_ARCH_<value>` ([CUDA](#cuda)) |

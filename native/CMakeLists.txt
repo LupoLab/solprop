@@ -213,16 +213,6 @@ endif()
 # SOLPROP_NATIVE_*_THREADS pools, all read once at import; OMP_NUM_THREADS does not
 # set these counts.
 option(SOLPROP_NATIVE_ENABLE_OPENMP "Use OpenMP in Kokkos and FFTW" ON)
-# Kokkos Threads (C++ threads) is the host space of a build that must add no OpenMP
-# runtime to the process: a fallback for Windows builds (solprop SEP 29). FFTW then uses its own
-# threads library, Win32 threads on Windows and POSIX threads elsewhere. It replaces
-# OpenMP, so it needs SOLPROP_NATIVE_ENABLE_OPENMP=OFF.
-option(SOLPROP_NATIVE_ENABLE_THREADS "Use Kokkos Threads and FFTW's threads library" OFF)
-if(SOLPROP_NATIVE_ENABLE_THREADS AND SOLPROP_NATIVE_ENABLE_OPENMP)
-  message(FATAL_ERROR
-    "SOLPROP_NATIVE_ENABLE_THREADS replaces OpenMP; also set "
-    "SOLPROP_NATIVE_ENABLE_OPENMP=OFF.")
-endif()
 # Three build profiles. LOCAL (the default) is the fast build for the machine it is
 # built on: a vendor BLAS, that machine's own architecture and checked IPO.
 # DISTRIBUTION is the build for wheels that run on other machines: a documented CPU
@@ -312,7 +302,7 @@ if(SOLPROP_NATIVE_ENABLE_CUDA AND SOLPROP_NATIVE_ENABLE_HIP)
   message(FATAL_ERROR
     "CUDA and HIP are separate build variants and cannot both be enabled.")
 endif()
-if((SOLPROP_NATIVE_ENABLE_OPENMP OR SOLPROP_NATIVE_ENABLE_THREADS) AND
+if(SOLPROP_NATIVE_ENABLE_OPENMP AND
    (SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP))
   message(FATAL_ERROR
     "Accelerator variants use a Serial host execution space; disable OpenMP.")
@@ -523,9 +513,6 @@ endif()
 if(SOLPROP_NATIVE_ENABLE_OPENMP)
   set(Kokkos_ENABLE_SERIAL OFF CACHE BOOL "Disable the Serial backend" FORCE)
   set(Kokkos_ENABLE_OPENMP ON CACHE BOOL "Enable the OpenMP backend" FORCE)
-elseif(SOLPROP_NATIVE_ENABLE_THREADS)
-  set(Kokkos_ENABLE_SERIAL OFF CACHE BOOL "Disable the Serial backend" FORCE)
-  set(Kokkos_ENABLE_OPENMP OFF CACHE BOOL "Disable the OpenMP backend" FORCE)
 else()
   set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable the Serial backend" FORCE)
   set(Kokkos_ENABLE_OPENMP OFF CACHE BOOL "Disable the OpenMP backend" FORCE)
@@ -535,8 +522,7 @@ set(Kokkos_ARCH_NATIVE ${SOLPROP_NATIVE_HOST_ARCH} CACHE BOOL
 set(Kokkos_ENABLE_AGGRESSIVE_VECTORIZATION
     ${SOLPROP_NATIVE_ENABLE_AGGRESSIVE_VECTORIZATION} CACHE BOOL
     "Enable aggressive vectorization of independent Kokkos loops" FORCE)
-set(Kokkos_ENABLE_THREADS ${SOLPROP_NATIVE_ENABLE_THREADS} CACHE BOOL
-    "Enable the Threads backend" FORCE)
+set(Kokkos_ENABLE_THREADS OFF CACHE BOOL "OpenMP is the CPU host space" FORCE)
 set(Kokkos_ENABLE_CUDA ${SOLPROP_NATIVE_ENABLE_CUDA} CACHE BOOL
     "Enable the CUDA backend" FORCE)
 set(Kokkos_ENABLE_HIP ${SOLPROP_NATIVE_ENABLE_HIP} CACHE BOOL
