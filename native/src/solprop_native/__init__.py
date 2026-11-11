@@ -317,6 +317,7 @@ DRIVER_SURFACE: tuple[str, ...] = (
     "metadata",
     "set_initial",
     "stats",
+    "timing_probe",
 )
 """Every ``StepDriver`` method this backend overrides or calls.
 

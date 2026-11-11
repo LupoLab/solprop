@@ -35,7 +35,7 @@ import time
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, ClassVar, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeVar, cast
 
 import numpy as np
 from jaxtyping import Complex, Float
@@ -498,12 +498,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # problem and the options; a backend lowers it further (`node_chunk`).
         self._options = ExecutionOptions() if options is None else options
         self._chunk_plan: NodeChunkPlan = plan_node_chunk(problem, self._options)
-        self._adams: AdamsMarch | None = None
-        # The low-storage march (SEP 24), set at construction by a backend that
-        # executes it, and the step it has left in flight: from the step's start to
-        # its commit the state, accepted in place, is neither end of the step.
-        self._low_storage: LowStorageMarch | None = None
-        self._in_flight: tuple[float, float] | None = None
         # The fixed arrays of the seam's device form, held for the whole run; the
         # weights that multiply them are a bundle of host floats per stage.
         self._terms = terms(problem)
@@ -514,13 +508,31 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._prepared: dict[tuple[float, float], StageScalars] = {}
         self._grid = grid
         self._modes = modes
+        self._profiles = profiles
+        self._closed = False
+        self._init_march()
+
+    def _init_march(self) -> None:
+        """Start the march's bookkeeping: everything but the problem's lowering.
+
+        The native backend, which lowers the problem itself, calls this alone while it
+        still inherits the driver's legacy direct API (SEP 47 phase 5; removed with the
+        inheritance).
+        """
+        # The native backend's own record of the Adams march (bridge only) is no
+        # `AdamsMarch`; the driver's code reads the members both have.
+        self._adams: AdamsMarch | Any = None
+        # The low-storage march (SEP 24), set at construction by a backend that
+        # executes it, and the step it has left in flight: from the step's start to
+        # its commit the state, accepted in place, is neither end of the step.
+        self._low_storage: LowStorageMarch | None = None
+        self._in_flight: tuple[float, float] | None = None
         self._on_axis: Float[np.ndarray, "n_rows n_modes"] | None = None
         # The on-axis plasma scans actually run (SEP 19), so that a test can see that
         # a rule with a node on the axis supplies that row instead of a fresh scan.
         self.axis_scans = 0
         self._axis_node: int | None = None
         self._axis_node_known = False
-        self._profiles = profiles
         self._logger = logging.getLogger(type(self).__module__)
         self._state: _StateT | None = None
         self._noise: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None
@@ -528,7 +540,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._proposal = self._stepper.dz_init
         self._clean_columns: Float[np.ndarray, " n_columns"] | None = None
         self._schedule_index = 0
-        self._closed = False
         # The controller reads one norm a fixed lag back, and the one before it
         # (`PIController.propose`): a run keeps only those, not one per step.
         self._accepted_norms: deque[float] = deque(
@@ -550,7 +561,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # The statistics channel between planes. The spec a row is evaluated with is
         # the periodic subset promoted to `names`, so the row goes through the very
         # same `stats` the save planes use and is bitwise what a plane would record.
-        spec = request.observation.stats
+        spec = self._request.observation.stats
         self._row_spec: StatsSpec | None = (
             None
             if not spec.periodic
@@ -1458,6 +1469,21 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # The input draw rides in the state, a resumed one's too; the boundary monitor
         # reads it as the vacuum floor beneath the light it judges (SEP 21, Q24).
         self._input_floor = drawn if model == "input" else None
+        self._begin_load(position)
+
+    def _begin_load(self, position: float) -> None:
+        """Start the march's bookkeeping afresh at a loaded position.
+
+        The second half of :meth:`set_initial`, after the state and the noise are
+        held: the native backend loads those itself and calls this alone while it
+        still inherits the driver's legacy direct API (SEP 47 phase 5; removed with the
+        inheritance).
+
+        Parameters
+        ----------
+        position : float
+            The checked position the state was loaded at, m.
+        """
         self._z = position
         self._proposal = self._stepper.dz_init
         self._schedule_index = self._schedule_index_at(position)

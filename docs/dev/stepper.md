@@ -178,10 +178,13 @@ completed step (irrelevant without dense output, but tested).
 **Two copies of the Python control** ([SEP 47](seps/sep-0047-run-ownership.md) phase 2).
 The NumPy reference runs its own step driver and marches in `backends/host/`:
 `HostDriver`, `HostAdamsMarch`, `HostGeneralPath`, `HostLowStorageMarch` and the
-fixed-schedule group `HostGroup`. The native backend still inherits `StepDriver`,
-`AdamsMarch` and `LowStorageMarch` in `backends/`, though since SEP 47 phase 5 no run
-is served through them (every native run is its native session's), and they are removed
-with the rest of that phase. The copies
+fixed-schedule group `HostGroup`. Every native run is its native session's: the
+native backend loads a start itself (`solprop_native._load`), keeps its Adams march's
+policy, ledger and history in a record of its own (`_NativeAdamsMarch`, no longer an
+`AdamsMarch`) and holds no low-storage march (the session replays it natively). It
+still inherits `StepDriver` in `backends/` for the legacy direct API alone, which the
+rest of SEP 47 phase 5 removes with `StepDriver`, `AdamsMarch` and `LowStorageMarch`.
+The copies
 started identical and the decision corpora hold both to the same decisions; where this
 page names a member of one, the other's is the same. The comparison variants
 (`ComparisonMultistep`, whose general Adams path is the reference's) and a controller that
@@ -293,9 +296,9 @@ position) and one fold:
 
 `HostLowStorageMarch` replays a schedule and nothing else, mirroring `HostAdamsMarch`'s
 replay: each step calls the host engine (`HostLowStorage.step`), applies `_finish` and
-moves the position in one commit; the native bridge's `LowStorageMarch` does the same
-with the backend's resident engine from `_low_storage_engine`, one native call per step.
-The native execution session ([SEP 47](seps/sep-0047-run-ownership.md) section 6.3,
+moves the position in one commit. The native backend holds no such march: its resident
+registers (`_ResidentLowStorage`) step only for a timing probe's trial, one native call
+per step. The native execution session ([SEP 47](seps/sep-0047-run-ownership.md) section 6.3,
 `solprop_native.session`) owns the loop itself: the native Runge-Kutta march replays the
 schedule, and each step is one in-place native step whose stage scalars, the table keys
 of `table_steps` and the flows' increments, the native state forms from its stage

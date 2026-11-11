@@ -162,7 +162,10 @@ the gate.
 ## Python and nanobind seam
 
 - The contract with solprop is its kernel contract plus the `StepDriver` members and
-  bundle fields listed in the contract tuples. `check_build()` refuses a missing member
+  bundle fields listed in the contract tuples. The `StepDriver` members serve only the
+  legacy direct API, which SEP 47 phase 5 removes: a session's load, the Adams record and
+  the timing probe are the backend's own (`_load.py`, `_probe.py`) and call no driver
+  member. `check_build()` refuses a missing member
   by name and, in an editable checkout, an extension built from other sources than
   `native/` (`build_info().source_digest`; `cmake/SourceDigest.cmake` and
   `_source_digest` compute it, and stay in step). It records solprop's version without

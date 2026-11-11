@@ -130,6 +130,7 @@ from solprop.stepper.tableau import continuous_extension
 from solprop.translate.linop import power_weight_at
 
 from . import _core, _counters, _transverse, _watch
+from ._load import Loaded
 from ._statistics import (
     ADMITTED_GENERAL_STATISTICS,
     ADMITTED_SPATIAL_STATISTICS,
@@ -147,6 +148,7 @@ from .backend import (
     _low_storage_payload,  # pyright: ignore[reportPrivateUsage]
     _NativeRungeKuttaMarch,  # pyright: ignore[reportPrivateUsage]
     _on_device,  # pyright: ignore[reportPrivateUsage]
+    _raise_rk,  # pyright: ignore[reportPrivateUsage]
 )
 
 if TYPE_CHECKING:
@@ -253,8 +255,9 @@ def _diverged(
 ) -> ConvergenceError:
     """Return the error of a low-storage step that ended in a non-finite state.
 
-    ``LowStorageMarch``'s message: the step was accepted in place, so the state is lost
-    with it, and the terminal event that carries this error is poisoned.
+    The reference's message (``HostLowStorageMarch``): the step was accepted in place,
+    so the state is lost with it, and the terminal event that carries this error is
+    poisoned.
 
     Parameters
     ----------
@@ -447,6 +450,8 @@ class NativeSession:
         self._calls: CallLedger | None = None
         self._orders_seen = 0
         self._march_refusal: str | None = None
+        # The start as the backend loaded it (`NativeBackend._load`, in `_prepare`).
+        self._loaded: Loaded | None = None
         self._method: Multistep | None = None
         self._max_calls: int | None = None
         self._rows_nbytes = 0
@@ -588,34 +593,26 @@ class NativeSession:
         """
         driver = self._driver(backend)
         integrator = self._stepper.integrator
-        backend.set_initial(
+        # The native load: the field, the noise, the collar back in the stages and a
+        # fresh Adams record (`NativeBackend._load`); then a resume's ledgers and its
+        # method history, whose state replaces the loaded one.
+        loaded = driver._load(
             np.asarray(start.take_field()),
             start.noise,
             z=float(start.z),
             resume=start.resume,
         )
-        # The load put a collar back into the stages only in the driver's flag
-        # (`_set_collar_quiet`): an earlier native session on this backend (a runner's
-        # last input) rests it in the native state alone. The session starts with it in.
-        driver._collar_changed()
-        # A resume's ledgers, then its method history after the field, which resets
-        # it: the march's state below is the restored one.
-        if start.ledgers is not None:
-            driver.restore_call_ledgers(
-                start.ledgers.get("logical", {}), start.ledgers.get("atomic", {})
-            )
-        if start.march is not None:
-            self._march_refusal = driver.restore_march(start.march)
+        self._loaded = loaded
+        self._march_refusal, proposal = driver._restore(start, loaded)
         if isinstance(integrator, Multistep):
             march = driver._adams
-        elif isinstance(integrator, LowStorageRungeKutta):
-            # The replay is the native Runge-Kutta march's, over the stage tables the
-            # state reads each step's scalars from (SEP 47 section 6.3).
-            driver._staged_rows()
-            march = _NativeRungeKuttaMarch(backend)
+            march._configure()  # pyright: ignore[reportPrivateUsage]
         else:
-            march = driver._rk_march()
-        march._configure()  # pyright: ignore[reportPrivateUsage]
+            # The Runge-Kutta march, and the low-storage replay, which is the native
+            # Runge-Kutta march's over the stage tables the state reads each step's
+            # scalars from (SEP 47 section 6.3).
+            driver._staged_rows()
+            _NativeRungeKuttaMarch(backend, monitored=False)._configure()  # pyright: ignore[reportPrivateUsage]
         kind = "runge_kutta"
         if isinstance(integrator, Multistep):
             kind = "adams"
@@ -634,8 +631,8 @@ class NativeSession:
         monitor = self._monitor
         if monitor is not None:
             # The monitor's weights where the state lives, read at every check, and the
-            # split collar's walk-off buckets (`attach_monitor`); the monitor stays
-            # solprop's and fresh: the session owns its state natively.
+            # split collar's walk-off buckets; the monitor stays solprop's and fresh:
+            # the session owns its state natively.
             driver._bind_monitor(
                 dataclasses.replace(
                     monitor,
@@ -650,8 +647,19 @@ class NativeSession:
             self._max_calls = adams._policy.max_calls
             # The history's persistent rows, sized while the state is not leased.
             self._rows_nbytes = int(adams._engine.snapshot_nbytes())
+            state: dict[str, object] = adams.start_state(
+                loaded.z, proposal, loaded.cursor
+            )
+        else:
+            norms: list[float] = []
+            state = {
+                "z": float(loaded.z),
+                "proposal": float(proposal),
+                "norms": norms,
+                "cursor": int(loaded.cursor),
+            }
         self._edge_noise = self._noise_readings(driver, start)
-        return kind, march._state(False)  # pyright: ignore[reportPrivateUsage]
+        return kind, state
 
     def _noise_readings(self, driver: Any, start: Start) -> dict[str, object] | None:
         """Return the input noise's readings the transverse edge's launch carries.
@@ -678,13 +686,14 @@ class NativeSession:
             ``None`` without an edge or input noise.
         """
         edge = None if self._monitor is None else self._monitor.transverse
-        drawn = driver._input_floor
+        assert self._loaded is not None  # `_prepare` loaded the start
+        drawn = self._loaded.floor
         if edge is None or drawn is None:
             return None
         resumed = start.monitor is not None and "edge_baseline" in cast(
             "dict[str, object]", self._continuation(start.monitor)["edge_record"]
         )
-        clean = None if resumed else driver._edge_clean_columns(edge)
+        clean = None if resumed else driver._launch_clean_columns(edge)
         return _transverse.noise_readings(edge, np.asarray(drawn[0]), clean)
 
     @staticmethod
@@ -784,11 +793,12 @@ class NativeSession:
             "config": _watch.monitor_config(
                 monitor,
                 self._problem.split_crossing if monitor.split else None,
-                can_rest=bool(backend._collar_can_rest()),
+                can_rest=bool(backend._collar_rests()),
             ).native(),
             "resume": start.monitor is not None,
         }
-        drawn = backend._input_floor
+        assert self._loaded is not None  # `_prepare` loaded the start
+        drawn = self._loaded.floor
         if drawn is not None:
             # The input noise's vacuum floor, read from its draw on the host once, as
             # `BoundaryMonitor.launch` reads it.
@@ -1185,8 +1195,9 @@ class NativeSession:
 
         The native session copies the march's state, the accepted field as the state
         holds it and every persistent history row once, losslessly, as
-        :meth:`solprop.backends.multistep.AdamsMarch.snapshot` lays them out for the
-        backend's own march (SEP 47 section 5.4).
+        solprop's host history lays them out
+        (:meth:`solprop.backends.host.adams.HostAdamsMarch.snapshot`; SEP 47 section
+        5.4).
 
         Parameters
         ----------
@@ -1313,7 +1324,7 @@ class NativeSession:
             # The profile statistics' tables and their measured errors (SEP 47 6.4).
             record["statistics_tables"] = dict(self._statistics_tables)
         if self._low_storage:
-            # Four source evaluations a committed step (`LowStorageMarch`), which the
+            # Four source evaluations a committed step (SEP 24 section 5), which the
             # native replay makes: none for a step abandoned or diverged.
             method = cast("LowStorageRungeKutta", self._stepper.integrator)
             record["source_evaluations"] = method.evaluations * status.attempts
@@ -1991,19 +2002,21 @@ class NativeSession:
         driver = self._driver(self._backend)
         if self._low_storage and event.reason == _DIVERGED:
             return _diverged(driver.name, self._stepper, event)
-        if self._adams:
-            march = driver._adams
-        elif self._low_storage:
-            # A native exception's message and class, as the Runge-Kutta march maps
-            # them; the low-storage march's own divergence is formatted above.
-            march = _NativeRungeKuttaMarch(self._backend)  # pyright: ignore[reportArgumentType]
-        else:
-            # The diverged replay's message names the cursor and the position.
-            driver._schedule_index = int(event.cursor)
-            driver._z = float(event.z)
-            march = driver._rk_march()
+        schedule = self._stepper.schedule
         try:
-            march._raise(int(event.reason), result)  # pyright: ignore[reportPrivateUsage]
+            if self._adams:
+                driver._adams._raise(int(event.reason), result)
+            else:
+                # A native exception's message and class, as the Runge-Kutta march
+                # maps them; a diverged replay's names the cursor and the position.
+                _raise_rk(
+                    int(event.reason),
+                    result,
+                    name=driver.name,
+                    dz_min=float(self._stepper.dz_min),
+                    at=(float(event.z), int(event.cursor)),
+                    n_steps=0 if schedule is None else schedule.n_steps,
+                )
         except Exception as error:
             return error
         return RuntimeError(event.message or "the native session failed")

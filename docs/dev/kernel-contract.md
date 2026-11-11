@@ -1416,8 +1416,8 @@ by `rk_policy`, with the landings of the run):
 
 **The state**: the position; the controller's proposal; the accepted-norm history, at
 most `lag + 2` values, oldest first; the accepted count; the replay cursor. It is a
-continuation between the calls of one march only. `StepDriver.set_initial` resets it, on
-a fresh launch and on a resume alike, and `march_snapshot()` is `None` for this march.
+continuation between the calls of one march only. A load resets it (the native
+backend's `_load`), on a fresh launch and on a resume alike, and `march_snapshot()` is `None` for this march.
 
 **One attempt**, in order (SEP 45 §4.3):
 
