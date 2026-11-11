@@ -19,12 +19,14 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from backends._session_probe_b1 import last_field, launched_state, watched_run
+from backends._session_probe_b1 import run as session_run
 from bounds import fft_bound
 from solprop import transverse_monitor
-from solprop.backends.driver import StepDriver
 from solprop.backends.memory import low_storage_stage_register
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.registry import available, select
+from solprop.backends.session import Start
 from solprop.boundaries import SpatialAbsorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BoundaryWarning, StopRequested
@@ -181,7 +183,11 @@ def node_chunk(simulation: Simulation) -> int:
 
 
 def _attached(simulation: Simulation, state: np.ndarray) -> tuple[Any, Any]:
-    """Return a native backend loaded with `state`, its edge bound."""
+    """Return a native backend loaded with `state`, its edge bound.
+
+    The state is loaded into the backend's native state and the monitor bound there,
+    as the native session binds its own (the backend's ``_bind_monitor``).
+    """
     problem = simulation.translate()
     run_request = simulation._run_request()
     backend = cast(
@@ -196,7 +202,7 @@ def _attached(simulation: Simulation, state: np.ndarray) -> tuple[Any, Any]:
             options=simulation.settings.execution_options(),
         ),
     )
-    backend.set_initial(state, None)
+    launched_state(backend, state)
     monitor = simulation._boundary_monitor()
     assert monitor is not None
     assert monitor.transverse is not None
@@ -228,7 +234,7 @@ def test_native_reads_a_collars_strip_and_current_as_the_host_does(
     backend, edge = _attached(simulation, state)
     try:
         native = backend._edge_reading(
-            backend._require_state(), edge, current=True, full=True
+            backend._native_state, edge, current=True, full=True
         )
         host = edge.reduction.reading(state, current=True, full=True)
     finally:
@@ -247,7 +253,7 @@ def test_native_reads_a_collars_strip_and_current_as_the_host_does(
     # A later read uses only the collar's rate, from the rows a read can touch.
     backend, edge = _attached(simulation, state)
     try:
-        read = backend._edge_reading(backend._require_state(), edge)
+        read = backend._edge_reading(backend._native_state, edge)
     finally:
         backend.close()
     assert read.totals[1] > 0.0
@@ -279,7 +285,7 @@ def test_a_plane_wave_reads_its_exact_current() -> None:
     backend, edge = _attached(simulation, state)
     try:
         native = backend._edge_reading(
-            backend._require_state(), edge, faces=False, current=True
+            backend._native_state, edge, faces=False, current=True
         )
     finally:
         backend.close()
@@ -309,7 +315,7 @@ def test_the_current_is_rectified_per_row_and_not_after_summing() -> None:
     backend, edge = _attached(simulation, state)
     try:
         native = backend._edge_reading(
-            backend._require_state(), edge, faces=False, current=True
+            backend._native_state, edge, faces=False, current=True
         )
     finally:
         backend.close()
@@ -349,7 +355,7 @@ def test_the_strip_tells_a_packets_direction(kappa: float, reads_inward: bool) -
     state[:, 0, active[3]] = _packet(space, centre, kappa)
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._require_state(), edge, full=True)
+        native = backend._edge_reading(backend._native_state, edge, full=True)
     finally:
         backend.close()
     inward, windowed = native.strip[0]
@@ -370,13 +376,13 @@ def test_a_small_batch_reads_what_one_batch_reads(
     state = _noise(problem, 71)
     backend, edge = _attached(simulation, state)
     try:
-        whole = backend._edge_reading(backend._require_state(), edge, full=True)
+        whole = backend._edge_reading(backend._native_state, edge, full=True)
     finally:
         backend.close()
     monkeypatch.setattr(transverse_monitor, "_STRIP_BATCH_BYTES", 2**12)
     backend, edge = _attached(simulation, state)
     try:
-        small = backend._edge_reading(backend._require_state(), edge, full=True)
+        small = backend._edge_reading(backend._native_state, edge, full=True)
     finally:
         backend.close()
     budget = 4 * fft_bound(state.shape[0] * state.shape[2])
@@ -414,15 +420,15 @@ MARCHES = {
 
 @pytest.mark.parametrize("name", MARCHES)
 @pytest.mark.parametrize("route", ROUTES)
-def test_a_collars_read_leaves_the_march_where_it_was(
-    route: str, name: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_collars_read_leaves_the_march_where_it_was(route: str, name: str) -> None:
     march, scheme = MARCHES[name]
 
     # A collar reads at every commit, on the transverse scratch, which every march has
-    # to write again before it's used. Against the same run read on the host, which
-    # touches no scratch: same steps, same monitor, one process, so no rounding apart.
-    def final() -> tuple[bytes, dict[str, Any]]:
+    # to write again before it's used. The native session reads it so; against the
+    # same session unwatched, whose march touches no scratch for a read: same steps,
+    # one process, so no rounding apart. Its reads and current against the reference's
+    # run of the same schedule.
+    def final(backend: str, *, watched: bool) -> tuple[bytes, dict[str, Any]]:
         # The planar kind's collar has the much shorter stability limit.
         steps = 16 * STEPS if route == "planar" or scheme == "nonlinear" else STEPS
         schedule = FixedSchedule.uniform(
@@ -438,41 +444,33 @@ def test_a_collars_read_leaves_the_march_where_it_was(
             absorber_scheme=scheme,
             dz_max=LENGTH / steps,
         )
-        problem = simulation.translate()
-        run_request = simulation._run_request()
-        run_request = simulation._run_request()
-        backend = cast(
-            "Any",
-            select(
-                "native",
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", BoundaryWarning)
+            if watched:
+                field, record, _ = watched_run(simulation, backend)
+                return field.tobytes(), cast("dict[str, Any]", record["transverse"])
+            problem = simulation.translate()
+            made = select(
+                backend,
                 problem,
-                run_request,
+                simulation._run_request(),
                 grid=simulation.grid,
                 modes=simulation.modes,
                 profiles=simulation.profiles,
-            ),
-        )
-        try:
-            backend.set_initial(problem.initial.field0, None)
-            monitor = simulation._boundary_monitor()
-            assert monitor is not None
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", BoundaryWarning)
-                backend.attach_monitor(monitor)
-                backend.propagate_to(LENGTH)
-            record = cast("dict[str, Any]", monitor.summary())["transverse"]
-            return backend.observe(field=True).require_field().tobytes(), record
-        finally:
-            backend.close()
+            )
+            try:
+                return last_field(session_run(made, problem)).tobytes(), {}
+            finally:
+                made.close()
 
-    native, record = final()
-    with monkeypatch.context() as patch:
-        patch.setattr(NativeBackend, "_edge_reading", StepDriver._edge_reading)
-        host, host_record = final()
-    assert native == host
+    native, record = final("native", watched=True)
+    unwatched, _ = final("native", watched=False)
+    assert native == unwatched
+    _, host_record = final("numpy_ref", watched=True)
     assert record["reads"] == host_record["reads"] >= STEPS // 2
-    # The same numbers by two reducers: their rounding. A planar launch can't converge,
-    # so its current stays at rounding, and only its absolute size is left to hold.
+    # The same numbers by two reducers, on two matched marches: their rounding. A
+    # planar launch can't converge, so its current stays at rounding, and only its
+    # absolute size is left to hold.
     if route == "planar":
         assert record["current"] == pytest.approx(host_record["current"], abs=1e-15)
     else:
@@ -483,13 +481,8 @@ def test_a_collars_read_leaves_the_march_where_it_was(
 
 
 @pytest.mark.parametrize("route", ROUTES)
-def test_a_collar_run_brings_no_state_to_the_host(
-    route: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def refused(self: Any, state: Any) -> np.ndarray:
-        raise AssertionError("a field-free collar run brought the state to the host")
-
-    monkeypatch.setattr(NativeBackend, "_observed_field", refused)
+def test_a_collar_run_brings_no_state_to_the_host(route: str) -> None:
+    # Native's own count of the bytes through its state's crossings.
     simulation = _case(route, fields="none")
     field = np.asarray(simulation.translate().initial.field0)
     with simulation.runner() as runner, warnings.catch_warnings():
@@ -524,7 +517,7 @@ def test_a_lit_node_reads_the_collars_rate_from_its_design() -> None:
     state[:, 0, active[3]] = phase
     backend, edge = _attached(simulation, state)
     try:
-        read = backend._edge_reading(backend._require_state(), edge)
+        read = backend._edge_reading(backend._native_state, edge)
     finally:
         backend.close()
     expected = rate[node] * float(np.asarray(space.spatial_weights)[node])
@@ -551,7 +544,7 @@ def test_a_standing_wave_reads_almost_no_current() -> None:
     backend, edge = _attached(simulation, state)
     try:
         native = backend._edge_reading(
-            backend._require_state(), edge, faces=False, current=True
+            backend._native_state, edge, faces=False, current=True
         )
     finally:
         backend.close()
@@ -661,7 +654,7 @@ def test_the_smallest_node_chunk_reads_what_the_default_reads(route: str) -> Non
     backend, edge = _attached(simulation, state)
     try:
         whole = backend._edge_reading(
-            backend._require_state(), edge, current=True, full=True
+            backend._native_state, edge, current=True, full=True
         )
     finally:
         backend.close()
@@ -671,7 +664,7 @@ def test_the_smallest_node_chunk_reads_what_the_default_reads(route: str) -> Non
     backend, edge = _attached(small, state)
     try:
         read = backend._edge_reading(
-            backend._require_state(), edge, current=True, full=True
+            backend._native_state, edge, current=True, full=True
         )
     finally:
         backend.close()
@@ -736,7 +729,9 @@ def test_a_supplied_unmasked_draw_judges_as_the_host_does_with_no_transfer(
 ) -> None:
     # The ramp judges the launch without its noise, which is where the load has both
     # parts. A masked draw would hide the mask's own part of that. The record
-    # can't show it unless the stop's reached, so this looks at what's judged.
+    # can't show it unless the stop's reached, so this looks at what's judged. The
+    # native session's launch against the reference's, which holds its state on the
+    # host and judges the columns it forms there.
     judge = TransverseEdge._judge_ramp_band
     judged: list[np.ndarray] = []
 
@@ -746,16 +741,15 @@ def test_a_supplied_unmasked_draw_judges_as_the_host_does_with_no_transfer(
 
     monkeypatch.setattr(TransverseEdge, "_judge_ramp_band", seen)
 
-    def launch() -> tuple[dict[str, Any], int]:
+    def launch(name: str) -> tuple[dict[str, Any], int | None]:
         simulation = _case(route, noise="input")
         problem = simulation.translate()
-        run_request = simulation._run_request()
         run_request = simulation._run_request()
         assert transverse_of(problem.route) is not None
         backend = cast(
             "Any",
             select(
-                "native",
+                name,
                 problem,
                 run_request,
                 grid=simulation.grid,
@@ -764,39 +758,40 @@ def test_a_supplied_unmasked_draw_judges_as_the_host_does_with_no_transfer(
             ),
         )
         try:
-            backend.set_initial(problem.initial.field0, _unmasked(problem, 89))
             monitor = simulation._boundary_monitor()
             assert monitor is not None
+            record: dict[str, Any] = {}
+            start = Start.entrance(problem, noise=_unmasked(problem, 89))
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", BoundaryWarning)
-                backend.attach_monitor(monitor)
-            record = cast("dict[str, Any]", monitor.summary())["transverse"]
-            return record, backend._native_state.crossed_bytes()[0]
+                # The launch plane, then the first advance, whose launch is judged.
+                session_run(
+                    backend,
+                    problem,
+                    run_request.for_run(monitor=monitor),
+                    start,
+                    export=None,
+                    observations=2,
+                    monitor=record,
+                )
+            crossed = (
+                backend._native_state.crossed_bytes()[0] if name == "native" else None
+            )
+            return cast("dict[str, Any]", record["transverse"]), crossed
         finally:
             backend.close()
 
-    native, to_host = launch()
+    native, to_host = launch("native")
     assert to_host == 0
-    with monkeypatch.context() as patch:
-        patch.setattr(NativeBackend, "_edge_reading", StepDriver._edge_reading)
-        patch.setattr(NativeBackend, "_edge_clean_columns", _host_clean_columns)
-        host, _ = launch()
+    host, _ = launch("numpy_ref")
     for key in ("launch_energy", "noise_allowance", "noise_share_in_ramp"):
         assert native[key] == pytest.approx(host[key], rel=1e-11, abs=1e-30), key
     assert native["noise_share_in_ramp"] > 0.0
-    # A column's own rounding is that of adding the draw and taking it away again.
-    assert len(judged) == 2
+    # The native session judges its launch natively, from the clean columns its load
+    # formed, and records the judgement compared above; the reference judges the
+    # columns it forms on the host, which hold light in the ramp's band.
+    assert len(judged) == 1
     assert np.max(judged[0]) > 0.0
-    np.testing.assert_allclose(judged[0], judged[1], rtol=1e-10, atol=1e-30)
-
-
-def _host_clean_columns(self: Any, edge: Any) -> np.ndarray | None:
-    """Return a launch's clean columns the way a state on the host gives them."""
-    floor = self._input_floor
-    if floor is None or edge.resumed:
-        return None
-    state = np.asarray(self._observed_field(self._require_state())[0])
-    return edge.reduction.column_power(state - np.asarray(floor[0]))
 
 
 def test_a_resume_with_no_monitor_record_crosses_once() -> None:
@@ -818,12 +813,25 @@ def test_a_resume_with_no_monitor_record_crosses_once() -> None:
     )
     try:
         state = np.asarray(problem.initial.field0)
-        backend.set_initial(state, _unmasked(problem, 97), resume=True)
         monitor = simulation._boundary_monitor()
         assert monitor is not None
+        start = Start(
+            field=state,
+            z=float(problem.initial.z),
+            noise=_unmasked(problem, 97),
+            resume=True,
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", BoundaryWarning)
-            backend.attach_monitor(monitor)
+            # The resumed plane, then the first advance, whose launch is judged.
+            session_run(
+                backend,
+                problem,
+                run_request.for_run(monitor=monitor),
+                start,
+                export=None,
+                observations=2,
+            )
         assert backend._native_state.crossed_bytes()[0] == state.nbytes
     finally:
         backend.close()
@@ -847,7 +855,7 @@ def test_a_strip_of_too_few_nodes_reads_nothing_on_either_side(
     monkeypatch.setattr(transverse_monitor, "_edge_lines", with_an_empty_line)
     backend, edge = _attached(simulation, state)
     try:
-        read = backend._edge_reading(backend._require_state(), edge, full=True)
+        read = backend._edge_reading(backend._native_state, edge, full=True)
         held = edge.reduction.reading(state, full=True)
         _, n_pol, n_omega = problem.shape
         assert backend.memory_ledger()["transverse_edge"] == (

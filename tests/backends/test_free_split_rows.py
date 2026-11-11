@@ -17,10 +17,12 @@ from typing import Any
 import numpy as np
 import pytest
 
+from backends._session_probe_b1 import watched_run
 from backends.low_storage_cases import parity_bound
 from bounds import assert_within, device_backend, ladder_bound
 from capability_routes import LENGTH, STEP
-from monitor_cases import MARCHES, STEPS, as_driver, watched
+from monitor_cases import MARCHES, STEPS, with_copy
+from solprop.backends.registry import select
 from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, TimeGrid
@@ -33,6 +35,7 @@ from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import PropagationProblem
 
 native_backend = pytest.importorskip("solprop_native.backend")
+native_session = pytest.importorskip("solprop_native.session")
 
 BLOCKS = [1, 5, None]
 """Node chunks: one row at a time, one that leaves a shorter last block (192 columns
@@ -108,17 +111,12 @@ def _marched(
     problem: PropagationProblem,
     options: ExecutionOptions | None = None,
 ) -> tuple[np.ndarray, dict[str, Any], dict[str, int]]:
-    """Return the state, the monitor's record and the ledger after the fixed march."""
-    backend = watched(simulation, name, problem, options)
-    try:
-        backend.propagate_to(LENGTH)
-        driver = as_driver(backend)
-        monitor = driver._monitor
-        assert monitor is not None
-        field = np.array(driver._observed_field(driver._require_state()))
-        return field, monitor.summary(), backend.memory_ledger()
-    finally:
-        backend.close()
+    """Return the state, the monitor's record and the ledger after the fixed march.
+
+    The session's run of the edge-reaching launch (:func:`monitor_cases.with_copy`).
+    """
+    launch = with_copy(problem.initial.field0, simulation.grid.n_t)
+    return watched_run(simulation, name, problem, options, launch=launch)
 
 
 @pytest.fixture(scope="module", params=sorted(MARCHES))
@@ -188,7 +186,9 @@ def test_a_devices_choices_on_any_build(
 ) -> None:
     # Flows recomputed under "auto" and input through tiles of team scratch, with a
     # short last block's plan, at the reference's numbers.
-    monkeypatch.setattr(native_backend, "_on_device", lambda: True)
+    # The session reads the build's kind where it lowers the low-storage flows.
+    for module in (native_backend, native_session):
+        monkeypatch.setattr(module, "_on_device", lambda: True)
     _check_block(reference, 5)
 
 
@@ -199,7 +199,15 @@ def test_real_rows_keep_their_buffers() -> None:
     simulation = _beam(grid)
     problem = simulation.translate()
     assert problem.grid_kind == "field"
-    backend = watched(simulation, "native", problem)
+    backend = select(
+        "native",
+        problem,
+        simulation._run_request(),
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
+        options=simulation.settings.execution_options(),
+    )
     try:
         ledger = backend.memory_ledger()
     finally:
