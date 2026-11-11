@@ -189,6 +189,7 @@ function low_storage_trial!(
     # Validate every multiplier before the first in-place flow changes the state.
     _march_scalar(T, step)
     _march_scalar(T, step / 6)
+    _check_trial_flow(flow!, RK4IPTableau(), position, step, state, work)
     midpoint, endpoint = position + 0.5step, position + step
     source, stage, accumulator = work.source, work.stage, work.accumulator
 

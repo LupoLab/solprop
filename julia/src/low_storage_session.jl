@@ -51,7 +51,7 @@ introduced. `norm::MarchNorm` supplies the norm and hard-band masks. The recorde
 error norm is `0.0`, meaning "not estimated". This is the SEP 24 fixed RK4IP scheme,
 not an embedded tableau or a dense-output integrator.
 
-`source` and `flow::LinearFlow` are independently owned numerical compositions using
+`source` and the prepared in-place `flow` are independently owned compositions using
 the admitted CPU execution budget. They return `nothing` or throw; the linear flow
 supports identical input and output arrays. Each step invokes the source four times,
 even when its physical response is structurally absent. `counts` distinguishes these
@@ -98,14 +98,15 @@ function LowStorageSession(
         arithmetic::SourceArithmetic = SourceArithmetic(Float64),
     ) where {T <: Union{Float32, Float64}}
     _march_arithmetic(state, arithmetic, source, flow)
+    _flow_start(flow, tableau, z, schedule)
     oncpu(execution) ||
         throw(ArgumentError("low-storage sessions currently require CPU"))
     isempty(schedule.replay_steps) &&
         throw(ArgumentError("low-storage RK4IP requires a fixed replay schedule"))
-    flow isa LinearFlow ||
-        throw(ArgumentError("low-storage sessions require an in-place LinearFlow"))
+    _inplace_flow(flow) ||
+        throw(ArgumentError("low-storage sessions require a prepared in-place linear flow"))
     capacity > 0 || throw(ArgumentError("attempt capacity must be positive"))
-    size(flow.exponent) == size(state) ||
+    _flow_shape(flow) == size(state) ||
         throw(DimensionMismatch("low-storage linear flow and state shapes disagree"))
     owned, progress = _prepare_march(
         execution, state, z, first(schedule.replay_steps), norm, schedule;
@@ -152,12 +153,15 @@ function _march_trial!(session::LowStorageSession, began)
     # Range admission is pretrial: no source or in-place register has been entered.
     _march_scalar(real(eltype(session.field)), dz)
     _march_scalar(real(eltype(session.field)), dz / 6)
+    flow = _prepare_trial_flow(
+        session.flow, session.tableau, state.z, dz, destination, state.replay,
+    )
     # There is no separate trial register or rollback. Even a first-stage source
     # failure has entered the reference method's in-flight contract.
     state.in_flight = true
     facts = low_storage_trial!(
         session.work, session.field, state.z, dz, session.tableau,
-        session.sampler, session.flow, session.execution,
+        session.sampler, flow, session.execution,
     )
     session.counts.norm_evaluations += facts.norm_calls
     facts.finite && isfinite(facts.state_norm) ||

@@ -87,6 +87,22 @@ function LinearFlow(
     )
 end
 
+_flow_shape(flow::LinearFlow) = size(flow.exponent)
+_inplace_flow(flow) = false
+_inplace_flow(::LinearFlow) = true
+_flow_start(flow, scheme, position, schedule) = nothing
+_flow_arithmetic(flow, state, arithmetic) = nothing
+function _flow_arithmetic(flow::LinearFlow, state, arithmetic)
+    flow.state_type === eltype(state) ||
+        throw(ArgumentError("march and prepared linear flow precision differ"))
+    return nothing
+end
+
+# Ordinary wide-binary64 and generic callbacks retain their existing trial graph.
+# A certified wide flow specializes these hooks without changing the leaf signature.
+_prepare_trial_flow(flow, scheme, position, step, destination, replay_index) = flow
+_check_trial_flow(flow, scheme, position, step, state, work) = nothing
+
 function (flow::LinearFlow)(output, input, origin::Float64, destination::Float64)
     eltype(output) === eltype(input) === flow.state_type ||
         throw(ArgumentError("linear flow buffers must use their prepared state precision"))

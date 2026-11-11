@@ -148,6 +148,7 @@ function rk_trial!(
             throw(ArgumentError("a Runge–Kutta stage position must remain finite"))
         end
     end
+    _check_trial_flow(flow!, tableau, z, dz, state, work)
     for stage in 1:count
         _rk_stage_input!(
             work.combination, state, work.stages, tableau, dz, stage, execution

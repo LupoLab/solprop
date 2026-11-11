@@ -269,10 +269,7 @@ function _march_arithmetic(state, arithmetic::SourceArithmetic, source, flow)
     prepared = _march_source_arithmetic(source)
     prepared === nothing || prepared == arithmetic ||
         throw(ArgumentError("march and prepared source arithmetic differ"))
-    if flow isa LinearFlow
-        flow.state_type === eltype(state) ||
-            throw(ArgumentError("march and prepared linear flow precision differ"))
-    end
+    _flow_arithmetic(flow, state, arithmetic)
     return nothing
 end
 
@@ -333,6 +330,7 @@ function RungeKuttaSession(
         arithmetic::SourceArithmetic = SourceArithmetic(Float64),
     ) where {T <: Union{Float32, Float64}}
     _march_arithmetic(state, arithmetic, source, flow)
+    _flow_start(flow, tableau, z, schedule)
     if dense_weights !== nothing
         oncpu(execution) ||
             throw(ArgumentError("Runge-Kutta dense observation currently requires CPU"))
@@ -553,9 +551,13 @@ function _march_trial!(session::RungeKuttaSession, began)
     state, norm = session.state, session.norm
     dz, destination = _march_landing(session)
     state.flight_z, state.flight_dz = state.z, dz
+    flow = _prepare_trial_flow(
+        session.flow, session.tableau, state.z, dz, destination,
+        isempty(session.schedule.replay_steps) ? 0 : state.replay,
+    )
     rk_trial!(
         session.work, session.field, state.z, dz, session.tableau,
-        session.source, session.flow, session.execution,
+        session.source, flow, session.execution,
     )
     reading = rk_error_norm!(
         session.work, session.field, norm.observed, norm.weights,
