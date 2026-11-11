@@ -86,6 +86,11 @@ class BackendEntry:
 BACKENDS: Mapping[str, BackendEntry] = {
     "numpy_ref": BackendEntry(requires=(), extras=()),
     "native": BackendEntry(requires=("solprop_native",), extras=()),
+    "julia": BackendEntry(
+        requires=("juliacall",),
+        extras=("julia",),
+        options=frozenset({"wide", "setup_id"}),
+    ),
 }
 """The backends this package knows, by name."""
 
@@ -187,7 +192,8 @@ def available(precision: str = "double") -> tuple[str, ...]:
     Detection is by :func:`importlib.util.find_spec`, so nothing is imported and nothing
     is cached: a backend whose optional dependency is installed while the process runs
     becomes available without a restart, and initializing a native runtime is never a
-    side effect of asking.
+    side effect of asking. Julia's bridge may be installed before explicit setup;
+    its verified runtime environment is checked only when preparing a simulation.
 
     Parameters
     ----------
@@ -495,7 +501,7 @@ def select(  # noqa: PLR0913 - the problem, its host context and its execution
     --------
     >>> from solprop.backends.registry import BACKENDS
     >>> sorted(BACKENDS)
-    ['native', 'numpy_ref']
+    ['julia', 'native', 'numpy_ref']
     """
     name = resolve_name(name)
     entry = BACKENDS.get(name)
@@ -698,6 +704,17 @@ def _construct(  # noqa: PLR0913 - as select
             modes=modes,
             profiles=profiles,
             tdse_binding=tdse_binding,
+            options=options,
+        )
+    if name == "julia":
+        from solprop.backends.julia.backend import JuliaBackend  # noqa: PLC0415
+
+        return JuliaBackend(
+            problem,
+            request,
+            grid=grid,
+            modes=modes,
+            profiles=profiles,
             options=options,
         )
     if name == "native":

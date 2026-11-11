@@ -11,7 +11,7 @@ The completed implementation is left ready for maintainer review, not auto-merge
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
 | 1: package and runtime | Setup/package integrated; remaining runtime qualification deferred | Maintainer directs core implementation to proceed; failures remain tracked |
-| 2: CPU binary64 session | Scalar modal/spatial sessions, services, FFT persistence and timing probes are integrated; the 20-case combined material matrix passes | Verified CPU provider and budget planner are in final integration; CPU measurements remain pending |
+| 2: CPU binary64 session | Scalar modal/spatial sessions, services, providers, FFT persistence, public selection and budgeted preparation are integrated; combined materials pass | Initial CPU measurements and remaining CI corrections precede completion |
 | 3: CPU binary32 | DF32 primitives, conservative function leaf and operand analysis reviewed; full execution pending | Whole-expression and device admission remain unqualified |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
@@ -24,7 +24,7 @@ Its actual interfaces have been read: the descriptor/request split and generic
 `Translation(problem, request)`, validation is `validate_run`, and preparation checks
 `foreign_request`. Group construction now dispatches through an execution owner's factory, independently
 of legacy numerical operations. The Julia owner now uses that contract directly;
-public registry selection awaits the broader CPU composition. No new backend-name
+public registry selection now exposes the admitted binary64 CPU composition. No new backend-name
 branch belongs in the service/session dispatcher.
 The subsequent Part B CI corrections at `f6921fae` are integrated at `10be2eff`.
 The additional CI corrections at `55fdc423` are also integrated: they restore
@@ -63,8 +63,8 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 | CPU provider agent | New `cpu_blas.jl`, `_accelerate.py` and focused tests | Reviewed leaf integrated at `5795fe65`; runtime/lease attachment reviewed, managed checks passed; files return to master |
 | Preparation agent | New `_node_plan.py`, focused Python/Julia tests and `NODE_MEMORY.md`; narrow owned-window reshape correction in `observations.jl` | Derive Julia-specific chunk storage bounds and authoritative budget admission; master owns shared adapter integration |
 | Source precision agent | `precision.jl`, `composition.jl`, `spatial_composition.jl`, `responses.jl`, `raman.jl`, `plasma.jl` and their focused tests | Binary32 source preparation/kernels under the shared `PRECISION.md` interface; no Python, transfer, session or observation edits |
-| Observation precision agent | `observations.jl`, `spatial_observations.jl`, `transverse_observations.jl`, `statistics.jl`, `monitor.jl` and their focused tests | Binary32 pointwise work, protected reductions and host physical scaling; no source, Python or scheduling edits |
-| Benchmark agent | `benchmarks/worker.py`, `benchmarks/track.py`, their focused tests and the existing legacy-window refusal test | Shared prepared-start timing boundary for all owners, explicit evidence label and preparation-inclusive time |
+| Observation precision agent | `observations.jl`, `spatial_observations.jl`, `transverse_observations.jl`, `statistics.jl`, `monitor.jl`, `observation_precision.jl`, `power_weights.jl` and focused tests | Binary32 pointwise work, protected reductions and host physical scaling; no source, Python or scheduling edits |
+| Benchmark/review agent | CI supervisor collection tests and `tests/service/test_service.py` | Benchmark slice integrated after master review; fix #699/#700 with deterministic test witnesses, then review master preparation integration |
 
 The precompile workload uses only owned, small CPU arrays and existing numerical
 constructors. It covers serial CPU session/source/observation dispatch without loading
@@ -274,8 +274,8 @@ successful forced termination is recorded separately from voluntary Julia shutdo
 
 ## Next actions
 
-1. Integrate verified CPU provider selection and budgeted node preparation; retain
-   measured buffer bounds and independently reviewed material accuracy witnesses.
+1. Finish independent review of request-specific node preparation and collect the
+   common benchmark window's actual Julia smoke evidence.
 2. Retrieve the one/eight-thread Linux qualification, address required CI findings,
    and complete the initial CPU startup, preparation and short-window timing record.
 3. Complete binary32 execution and whole-expression DF32 bounds, then each vendor's
@@ -876,3 +876,20 @@ successful forced termination is recorded separately from voluntary Julia shutdo
   Scoped validation passes after `72ee3e4c`. Documentation builds successfully;
   the SEP selection passes 349 tests with three declared process-SEP skips. Full
   CI and the current one/eight-thread Linux correctness campaign remain in progress.
+- Public CPU selection and request-specific node binding pass 38 actual retained-array
+  inventory cases, three public integrator cases and an independent-capacity reuse case.
+  Fourteen standalone Julia assertions verify immutable input sharing and range refusal.
+  A complete public simulation and the common benchmark window pass separately.
+  The corrected focused settings fixture passes; the combined pure selection passes
+  180 tests with five declared managed-runtime skips. Scoped types have zero errors or
+  warnings; documentation builds successfully and changed-file spelling passes.
+- The benchmark slice is independently reviewed and integrated at `dd94898d`.
+  Generic `prepared.start` return is the versioned ordinary-run timing boundary;
+  preparation-inclusive wall time and same-session actual counters remain separate.
+  Author validation passes 106 typed tests and 23 affected session cases; master
+  integration includes actual Julia public-run smoke. No timing ratio is claimed yet.
+- Required CI at `162da950` reports 100% package coverage. Windows collection failure
+  #699 is independently reviewed, integrated at `6c211acf`, and passes all 38 affected
+  tests including cold imports with absent signal constants. The unrelated service
+  scheduling assumption is tracked in #700. A macOS shard passes 7,229 tests but its
+  artifact upload fails DNS resolution; the next push must re-establish every gate.

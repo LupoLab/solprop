@@ -1394,12 +1394,13 @@ def _stepper_record(settings: StepperSettings) -> StepperRecord:
     )
 
 
-LOW_STORAGE_BACKENDS = ("native", "numpy_ref")
+LOW_STORAGE_BACKENDS = ("native", "numpy_ref", "julia")
 """The backends that execute :class:`~solprop.stepper.low_storage.LowStorageRungeKutta`.
 
 ``numpy_ref`` from SEP 24's phase 1 and solprop-native from phase 3, on every route the
 translation admits the march on; ``backend="auto"`` resolves as for every other
 integrator (:func:`solprop.backends.registry.resolve_name`: the native backend).
+The optional Julia backend admits its qualified scalar CPU routes (SEP 48).
 """
 
 
@@ -1473,9 +1474,10 @@ def _admit_integrator(integrator: Multistep, backend: str) -> None:
     DriverError
         Naming the conflict and the Runge-Kutta march every backend executes.
     """
-    if backend not in ("auto", "numpy_ref", "native"):
+    if backend not in ("auto", "numpy_ref", "native", "julia"):
         msg = (
-            f"the {integrator.name} integrator is implemented on numpy_ref and native "
+            f"the {integrator.name} integrator is implemented on numpy_ref, native "
+            "and julia "
             f"only, and backend {backend!r} would step the problem with its "
             "Runge-Kutta march; pass one of those or 'auto', or "
             "integrator=RungeKutta()"

@@ -5,7 +5,12 @@ The package and explicit setup commands are available on its implementation bran
 Numerical sessions and device qualification remain in progress; installing a device
 environment does not establish that its propagation kernels are qualified.
 
-The current internal integration supports scalar modal fields and envelopes in binary64
+Select the prepared CPU engine with `SimulationSettings(backend="julia", ...)`.
+`backend_options={"setup_id": identity}` selects an explicit published setup; omitting
+the identity requires exactly one compatible setup. Availability checks probe the
+bridge installation without importing Julia; the first preparation verifies setup.
+
+The current integration supports scalar modal fields and envelopes in binary64
 with Kerr, Raman and plasma responses and Runge–Kutta or exponential Adams stepping,
 including adaptive and fixed replay schedules. Fixed schedules also support the
 three-register low-storage RK4IP method, which records no embedded error estimate.
@@ -97,11 +102,8 @@ of committed steps and separately report `attempted_source_evaluations` and comp
 `norm_evaluations`. If an in-place trial fails, its attempted calls remain visible and
 its field is poisoned, so no field-export ticket is issued.
 
-This composition is being extended to the remaining accepted routes and session
-services before public backend selection is enabled.
-Unsupported combinations currently refuse by name at preparation. The standalone
-Statistics and temporal/transverse-monitor components have separate tests;
-their presence alone does not establish complete Python session support.
+Public CPU selection uses the same preparation and session contract as the other
+backends. Unsupported combinations refuse by name before session allocation.
 The current session supports in-stage and split temporal absorption. Transverse monitor
 attachment now uses the same event barriers as temporal monitoring. It retains original
 clean launch columns for noise-floor subtraction, restores per-face cumulative totals,
@@ -111,8 +113,21 @@ resumed field. Python formats the shared warnings and summaries from detached Ju
 readings; it does not recompute edge decisions. Vector
 polarisation, tensor Raman, general modal and planar routes, coupled flows, TDSE and
 dispersive Kerr remain outside SEP 48's admitted scope and refuse by name.
-An explicit node chunk bounds the source's physical-node scratch; memory-budget
-admission remains pending. These execution choices do not alter scientific identities.
+`SimulationSettings.node_budget` bounds the retained numerical array payload that grows
+with the source node chunk, population observations and transverse trace chunk together.
+The planner uses each actual prepared request, including statistics or monitors added
+after construction. Immutable numerical inputs remain shared; each prepared request
+keeps its own capacity. A budget smaller than one node refuses before Julia starts.
+The default budgets are 64 MiB for modal/radial work and 1 GiB for Cartesian/line work.
+The lower-level `ExecutionOptions.node_chunk` overrides the budget for controlled
+measurements, capped at the physical node count. These execution choices do not alter
+scientific identities.
+
+This is an array-payload budget, not a total process-memory limit. Metadata separately
+reports fixed and full-volume workspace arrays, the component inventory, opaque FFT
+plans and exclusions. Immutable preparation, state/history/export storage, bounded
+transport records, object overhead and temporary planning allocations remain outside
+the node budget. The complete retained-memory ledger remains available separately.
 
 The scalar statistics catalogue includes spectral centroids, energies and frequency
 windows, peak powers, temporal widths, material profiles and populations, and on-axis

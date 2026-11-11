@@ -1675,6 +1675,42 @@ and admitted statistics. This is an accuracy qualification, not a formal converg
 order measurement. CPU measurements and the remaining preparation integration still
 precede phase 2 completion.
 
+### Public CPU selection, node budgets and timing boundary — 2026-11-11
+
+The registry now selects `julia` lazily for the admitted scalar binary64 CPU routes.
+The bridge is checked by availability probing; explicit setup selection and numerical
+allocation occur during preparation. The existing default backend remains unchanged.
+Public settings admit the supported RK, exponential Adams and fixed low-storage methods.
+This CPU selection is brought forward from phase 4 so initial measurements can use the
+standard public benchmark harness. Device selection and binary32 remain separate gates.
+
+The Julia-specific node inventory bounds retained source, population-observation and
+transverse-trace array payloads together. It separately reports fixed/full-volume
+work, opaque FFT plans and storage outside the node budget. Plans bind to the actual
+prepared request, including statistics or monitors attached after owner construction.
+Cheap immutable preparation records share their scientific arrays while keeping each
+request's selected chunk. A one-node shortfall refuses before runtime initialization.
+The reviewed planner passes 23 pure and 38 managed inventory cases; four actual public
+integrator/request cases and 14 standalone binding assertions also pass. A public
+simulation and common benchmark smoke complete separately. The initial settings-test
+fixture omitted required settings; its corrected focused check passes.
+
+Ordinary benchmark windows now begin at the generic `prepared.start` return, labelled
+`prepared.start.return.v1`, for all owners. Preparation-inclusive `wall_seconds` is
+retained separately. Transparent proxies preserve session ownership, protocol members,
+metadata errors and closure; counters are read from the same session before release.
+Logical Adams charges do not substitute for unavailable actual invocation counts.
+The independently reviewed slice passes 106 typed tests and 23 affected session tests;
+actual reference/native smoke tests and the Julia integration smoke pass. These are
+functional checks, not quiet-machine performance measurements. Earlier load-boundary
+records use a different timing window and are not directly interchangeable.
+
+CI at `162da950` completed the coverage report successfully. Required failures remain
+visible: #699 addresses Windows collection of POSIX-only test constants, and #700
+tracks an asynchronous stop/resume test assumption. One macOS shard passed all 7,229
+tests but failed artifact upload after a DNS error. The next CI push must re-establish
+all gates; neither these corrections nor the CPU smoke complete phase 2 measurements.
+
 ## Part III — History
 
 - 2026-11-10: The maintainer accepted external hard-kill supervision for stalled Julia

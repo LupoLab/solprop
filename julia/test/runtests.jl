@@ -44,6 +44,7 @@ if group == "Core"
     include("spatial_composition.jl")
     include("observations.jl")
     include("node_memory.jl")
+    include("node_binding.jl")
     include("spatial_observations.jl")
     include("transverse_observations.jl")
     include("fft_plans.jl")

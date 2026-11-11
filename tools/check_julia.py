@@ -40,6 +40,8 @@ _RUNTIME_TESTS = (
     "tests/backends/julia/test_cpu_fft.py",
     "tests/backends/julia/test_cpu_provider.py",
     "tests/backends/julia/test_cpu_material_routes.py",
+    "tests/backends/julia/test_node_plan.py",
+    "tests/backends/julia/test_public_cpu.py",
     "tests/backends/julia/test_transfer_aliases.py",
     "tests/backends/julia/test_session_boundary.py",
     "tests/sessions/executors.py",

@@ -53,7 +53,11 @@ function _observation_temporal(transfer)
     return SolpropJulia.TemporalObservationData(lowered, weights)
 end
 
-function prepare_observations(modal::SolpropJulia._ProblemPreparation, transfer::Py)
+function prepare_observations(
+        original::SolpropJulia._ProblemPreparation, transfer::Py,
+        node_chunk::Int = original.node_chunk,
+    )
+    modal = SolpropJulia.with_node_chunk(original, node_chunk)
     execution = modal.execution
     grid = SolpropJulia.StatisticsGrid(
         copy_preparation(transfer.grid.omega), copy_preparation(transfer.grid.time),

@@ -19,6 +19,7 @@ from solprop.backends.julia._fft_cache import FFTCache, refresh_fft_cache
 from solprop.backends.julia._fft_runtime import load_planning_cache
 from solprop.backends.julia._group import JuliaGroupSession
 from solprop.backends.julia._lower import RunTransfer, lower_run
+from solprop.backends.julia._node_plan import JuliaNodePlan, plan_julia_nodes
 from solprop.backends.julia._noise import lower_input_noise
 from solprop.backends.julia._observations import ObservationTransfer, lower_observations
 from solprop.backends.julia._ownership import JuliaHandle, require_main_thread
@@ -93,6 +94,7 @@ class JuliaBackend:
         selected = ExecutionOptions() if options is None else options
         selected.check_backend_options(self.name, ("wide", "setup_id"))
         self._options = dict(selected.backend_options)
+        self._execution_options = selected
         wide = self._options.get("wide", "binary64")
         setup_id = self._options.get("setup_id")
         if not isinstance(wide, str) or wide not in ("binary64", "df32"):
@@ -107,10 +109,6 @@ class JuliaBackend:
             raise BackendError(
                 "this Julia binary64 composition requires wide='binary64'"
             )
-        if selected.budget is not None:
-            raise BackendError(
-                "this Julia composition does not yet implement node memory budgets"
-            )
         if request.integration.propagator_mode == "tabulate":
             raise BackendError(
                 "this Julia composition does not yet tabulate propagators"
@@ -121,10 +119,8 @@ class JuliaBackend:
         self._lowered = (
             lower_spatial(problem) if self._spatial else lower_modal(problem)
         )
-        self._node_chunk = min(
-            problem.transform.n_nodes,
-            problem.transform.n_nodes if selected.chunk is None else selected.chunk,
-        )
+        self._node_plan = plan_julia_nodes(problem, request, selected)
+        self._node_chunk = self._node_plan.plan.chunk
         lower_run(problem, request)
         self._observation = (
             lower_observations(
@@ -224,6 +220,11 @@ class JuliaBackend:
 
             check_derived_problem(self._problem, problem, self._request, request)
         transfer = lower_run(problem, request)
+        node_plan = (
+            self._node_plan
+            if request is self._request
+            else plan_julia_nodes(problem, request, self._execution_options)
+        )
         observation = (
             self._observation
             if request is self._request
@@ -233,7 +234,7 @@ class JuliaBackend:
                 grid=self._grid,
                 modes=self._modes,
                 profiles=self._profiles,
-                trace_chunk=self._node_chunk,
+                trace_chunk=node_plan.trace_chunk,
             )
             if request.observation.stats.names
             or request.boundary.monitor is not None
@@ -246,13 +247,19 @@ class JuliaBackend:
         if self._preparation is None:
             self._prepare_numerical()
         assert self._runtime is not None and self._preparation is not None
-        prepared = (
-            self._preparation
-            if observation is None
-            else self._runtime.own_call(
-                "prepare_observations", self._preparation, observation
+        if observation is not None:
+            prepared = self._runtime.own_call(
+                "prepare_observations",
+                self._preparation,
+                observation,
+                node_plan.plan.chunk,
             )
-        )
+        elif node_plan.plan.chunk != self._node_chunk:
+            prepared = self._runtime.own_call(
+                "with_node_chunk", self._preparation, node_plan.plan.chunk
+            )
+        else:
+            prepared = self._preparation
         return JuliaPrepared(
             self,
             self._runtime,
@@ -261,6 +268,7 @@ class JuliaBackend:
             problem.shape,
             problem=problem,
             observation=observation,
+            node_plan=node_plan,
             monitor=(
                 None
                 if request.boundary.monitor is None
@@ -329,7 +337,7 @@ class JuliaBackend:
             "wide": self._wide,
             "propagator_mode": "recompute",
             "backend_options": dict(self._options),
-            "node_chunk": self._node_chunk,
+            **_node_metadata(self._node_plan),
         }
         if runtime is not None:
             record.update(
@@ -586,6 +594,8 @@ class JuliaPrepared:
         descriptor by default. A derived input keeps its own draw without a draw cache.
     observation : ObservationTransfer or None, optional
         Request-specific immutable observation layout and represented inputs.
+    node_plan : JuliaNodePlan or None, optional
+        This request's retained node-array budget; the owner's initial plan by default.
     monitor : solprop.monitor.BoundaryCheck or None, optional
         Immutable temporal monitor policy for formatting Julia's records and notices.
     transverse : TransverseFormat or None, optional
@@ -602,6 +612,7 @@ class JuliaPrepared:
         *,
         problem: PropagationProblem | None = None,
         observation: ObservationTransfer | None = None,
+        node_plan: JuliaNodePlan | None = None,
         monitor: BoundaryCheck | None = None,
         transverse: TransverseFormat | None = None,
     ) -> None:
@@ -613,6 +624,7 @@ class JuliaPrepared:
         self._shape = shape
         self._problem = owner._problem if problem is None else problem
         self._observation = observation
+        self._node_plan = owner._node_plan if node_plan is None else node_plan
         self._monitor = monitor
         self._transverse = transverse
         self._owner._prepared.add(self)
@@ -671,10 +683,7 @@ class JuliaPrepared:
             start,
             self._shape,
             record=self.metadata(),
-            released=partial(
-                self._owner.release if self._observation is None else self._release,
-                owns=owns,
-            ),
+            released=partial(self._release, owns=owns),
             stop=stop,
             listener=listener,
             started=started,
@@ -712,6 +721,7 @@ class JuliaPrepared:
             Detached execution metadata.
         """
         record = self._owner.metadata()
+        record.update(_node_metadata(self._node_plan))
         if self._observation is not None:
             record["statistics_tables"] = self._observation.profiles.record()
         return record
@@ -729,3 +739,24 @@ class JuliaPrepared:
     def close(self) -> None:
         """Close this execution owner and its live sessions, idempotently."""
         self._owner.close()
+
+
+def _node_metadata(plan: JuliaNodePlan) -> dict[str, object]:
+    """Describe the request's node-array bound separately from total session memory."""
+    return {
+        **plan.plan.record(),
+        "node_chunk_array_bytes": plan.chunk_bytes,
+        "node_fixed_workspace_bytes": plan.fixed_workspace_bytes,
+        "node_full_volume_workspace_bytes": plan.full_volume_workspace_bytes,
+        "node_opaque_fft_plans": list(plan.opaque_fft_plans),
+        "node_budget_exclusions": list(plan.exclusions),
+        "node_array_inventory": [
+            {
+                "name": entry.name,
+                "per_node_bytes": entry.per_node_bytes,
+                "fixed_bytes": entry.fixed_bytes,
+                "full_volume_bytes": entry.full_volume_bytes,
+            }
+            for entry in plan.inventory
+        ],
+    }

@@ -62,6 +62,30 @@ pools are set in the environment before any scientific import. The worker:
    so it includes the plane observations, the statistics and the boundary checks: what
    a user's run costs.
 
+Ordinary single-run repetitions record
+`timing_boundary="prepared.start.return.v1"`. Their `seconds` window starts immediately
+after `backend.prepare(problem, request).start(...)` returns and ends when
+`run_problem(...)` returns. It includes launch and subsequent event servicing,
+observations, statistics, boundary checks, exports, output and session closure, plus
+the harness's initial and final execution-record reads. Preparation, launch loading
+and other work performed before the prepared start returns are outside this window.
+`wall_seconds` separately spans the entire `run_problem(...)` call, including preparation
+and start. Construction, translation, backend construction and warm-up remain separate.
+
+Reference, native and Julia CPU owners use this same protocol boundary; the harness
+no longer wraps legacy `set_initial`. Historical builds without prepared sessions
+refuse this timing mode. Records from the earlier load boundary use a different timing
+window. Repeated-input, scan and group workloads retain their whole-workload window,
+identified as `workload.call.v1`.
+
+Source-call evidence reads one actual counter before and after the same session.
+It prefers attempted invocations where low-storage sessions distinguish them from
+committed calls. Missing actual counters remain unavailable; Adams's logical
+`response_calls` ledger stays in metadata and does not stand in for invocations.
+Initial provenance stays lazy. A separate `prepared_runtime` snapshot and each
+repetition's final `execution` record retain the effective setup, provider, threads
+and plans available after preparation.
+
 The result is the median of the repeats, with the minimum and maximum beside it, the
 accepted and rejected steps, the source evaluations, the peak resident memory, and the
 integrator and tolerances the run actually used. Repeats of one configuration take the

@@ -3,6 +3,16 @@ versions, immutable source copies and verified offline artifact inventories, as 
 [SEP 48](docs/dev/seps/sep-0048-julia-backend.md). Its numerical sessions and device
 qualification remain in progress on the implementation branch.
 
+Enable `backend="julia"` for the admitted binary64 CPU routes. Node budgets account
+for source and observation array payloads together, bind to each actual run request,
+and report their fixed-storage and opaque-plan exclusions explicitly. Prepared requests
+share immutable numerical data while retaining independent chunk capacities.
+
+Use the common `prepared.start` return boundary for ordinary benchmark repetitions
+on every execution owner, with an explicit timing-boundary identifier and separate
+preparation-inclusive wall time. Actual source counters come from the same session;
+logical-only counts remain unavailable as invocation measurements.
+
 Add owned `SimulationSettings.backend_options`, forwarded through execution options
 and spawned workers without changing scientific hashes. Backends refuse unsupported
 option keys before workspace construction.

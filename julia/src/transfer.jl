@@ -10,6 +10,7 @@ public fail_session
 public session_execution, session_orders!, session_budget
 public restore_session_counts!
 public SessionPreparation, prepare_observations, session_observation_status
+public with_node_chunk
 public session_observations!
 public copy_session_observations!
 public copy_session_noise_phase!
@@ -52,6 +53,30 @@ struct SpatialPreparation{E, D, O, W} <: _ProblemPreparation
     node_chunk::Int
 end
 
+_prepared_nodes(data::ModalSourceData) = size(data.map.synthesis, 1)
+_prepared_nodes(data::RadialSourceData) = _prepared_nodes(data.modal)
+_prepared_nodes(data::CartesianSourceData) = prod(data.shape)
+
+"""
+    with_node_chunk(preparation, node_chunk::Int)
+
+Bind a request-specific node capacity while sharing immutable numerical inputs.
+
+Accept a `ModalPreparation` or `SpatialPreparation` and a positive capacity no greater
+than its physical node count. Return a new immutable record sharing the execution,
+source data, operator and power weight. No arrays or mutable session work are copied.
+Throw `ArgumentError` before construction for an out-of-range capacity.
+"""
+function with_node_chunk(preparation::_ProblemPreparation, node_chunk::Int)
+    1 <= node_chunk <= _prepared_nodes(preparation.data) ||
+        throw(ArgumentError("node chunk must fit the prepared physical node count"))
+    constructor = preparation isa ModalPreparation ? ModalPreparation : SpatialPreparation
+    return constructor(
+        preparation.execution, preparation.data, preparation.operator,
+        preparation.power_weight, node_chunk,
+    )
+end
+
 """
     prepare_spatial(transfer, threads, node_chunk)
 
@@ -86,12 +111,14 @@ struct SessionPreparation{M <: _ProblemPreparation, O <: SessionObservationPolic
 end
 
 """
-    prepare_observations(modal, transfer)
+    prepare_observations(modal, transfer, node_chunk=modal.node_chunk)
 
 Copy one request's observation transfer through the optional PythonCall extension.
 
 The resulting `SessionPreparation` retains no Python objects and shares only immutable
 numerical inputs with `modal`. No session or delivery cursor is constructed here.
+The optional positive `node_chunk` binds this request's jointly budgeted source and
+observation capacity without changing `modal` or another prepared request.
 """
 function prepare_observations end
 

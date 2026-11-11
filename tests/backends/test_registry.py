@@ -230,7 +230,7 @@ def test_an_unknown_name_lists_what_is_usable(linear_problem, narrow_grid):
 
 def test_the_table_holds_the_backends_that_exist():
     """The in-tree CUDA backend is gone, and mlx was retired in SEP 47."""
-    assert sorted(BACKENDS) == ["native", "numpy_ref"]
+    assert sorted(BACKENDS) == ["julia", "native", "numpy_ref"]
 
 
 # The tombstones: a removed backend's name is refused wherever a request is validated,
