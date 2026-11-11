@@ -87,7 +87,7 @@ end
         @test budget > 0
         @test maximum(abs.(Complex{BigFloat}.(field) - expected)) <= budget
         if T === Float32
-            @test work.damping == Float32.(exp.((-0.5 .* work.rate) .* 0.25))
+            @test work.damping == Float32.(expm1.((-0.5 .* work.rate) .* 0.25))
         end
         @test split_precision_allocated(field, work, execution) == 0
 
@@ -135,17 +135,18 @@ end
     arithmetic = SP.SourceArithmetic(Float32; state_exponent = -8)
     for (rate, dz) in (
             (2.0^500, 2.0^-500), (2.0^-500, 2.0^500),
-            (290log(2.0), 1.0), (400log(2.0), 1.0), (floatmax(Float64), 8.0),
+            (2.0^-144, 1.0), (290log(2.0), 1.0), (floatmax(Float64), 8.0),
         )
         work = SP.TemporalSplitWorkspace(execution, :envelope, fill(rate, 8), 1; arithmetic)
         field = zeros(ComplexF32, 8, 1)
         field[1] = 8
         SP.finish_temporal_split!(field, work, dz, execution)
-        expected = Float32(exp((-0.5 * rate) * dz))
+        expected = Float32(expm1((-0.5 * rate) * dz))
         @test all(==(expected), work.damping)
         # A DC-only constant sample and its length-eight transforms use exact
-        # powers of two. This structural witness also retains subnormal damping.
-        @test field[1] == 8expected
+        # powers of two. The protected correction is added to the initial state.
+        # The tiny-rate case retains a subnormal correction in numerical scratch.
+        @test field[1] == 8.0f0 + 8expected
         @test all(iszero, field[2:end])
         @test all(isfinite, field)
     end
@@ -161,6 +162,32 @@ end
             )
         end
         @test storage == saved
+    end
+end
+
+@testset "Binary32 tiny collars retain their spectrally resolved correction" begin
+    for kind in (:field, :envelope),
+            tasks in unique((1, min(2, Threads.nthreads(:default))))
+        execution = SP.KernelExecution(SP.KernelAbstractions.CPU(), tasks, true)
+        rate = zeros(8)
+        rate[2] = 2.0^-30
+        work = SP.TemporalSplitWorkspace(
+            execution, kind, rate, 1; arithmetic = SP.SourceArithmetic(Float32),
+        )
+        field = zeros(ComplexF32, kind == :field ? 5 : 8, 1)
+        field[1] = 8
+        expected = split_precision_reference(field, rate, 1.0, 8, kind)
+        @test all(==(1.0f0), Float32.(exp.(-0.5 .* rate)))
+        SP.finish_temporal_split!(field, work, 1.0, execution)
+        # Every compared bin starts at exact zero. Its contribution comes only
+        # from the tiny collar, so the FFT/product rounding budget scales with
+        # that correction rather than the unperturbed DC amplitude.
+        unit = BigFloat(eps(Float32)) / 2
+        budget = 256unit / (1 - 256unit) * abs(expm1(-big(0.5) * rate[2]))
+        @test budget > 0
+        @test all(!iszero, field[2:end])
+        @test maximum(abs.(Complex{BigFloat}.(field[2:end]) - expected[2:end])) <= budget
+        @test split_precision_allocated(field, work, execution) == 0
     end
 end
 

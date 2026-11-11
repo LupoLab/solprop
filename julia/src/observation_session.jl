@@ -18,8 +18,8 @@ in m⁻¹ and is a power-loss coefficient. Copy it into owned storage. `n_modes`
 positive. Real field samples have spectrum `(n_t÷2+1,n_modes)`; complex envelope
 samples have spectrum `(n_t,n_modes)`. Plans use the shared normalized inverse and
 raw forward transforms in `source_type(arithmetic)`. Binary32 retains one real
-damping vector: evaluate its factors in binary64 and narrow each factor once, without
-narrowing the rate or step first. Binary64 keeps its original scalar expression and
+damping-correction vector: evaluate `expm1` in binary64 and narrow each correction
+once, without narrowing the rate or step first. Binary64 keeps its original expression and
 allocates no damping vector. Samples remain in the state's stored units; this linear
 operator does not change either physical scale. Refuse non-CPU execution, invalid
 layouts or nonfinite rates.
@@ -65,7 +65,7 @@ end
 
 function _temporal_damping!(samples, rate, damping::Vector{Float32}, dz, execution)
     each!(execution, length(damping), 1) do row, column
-        damping[row] = Float32(exp((-0.5 * rate[row]) * dz))
+        damping[row] = Float32(expm1((-0.5 * rate[row]) * dz))
     end
     each!(execution, size(samples)...) do row, column
         samples[row, column] *= damping[row]
@@ -73,14 +73,27 @@ function _temporal_damping!(samples, rate, damping::Vector{Float32}, dz, executi
     return nothing
 end
 
+_temporal_split_result!(spectrum, candidate, ::Nothing, execution) = nothing
+function _temporal_split_result!(spectrum, candidate, ::Vector{Float32}, execution)
+    # SEP33 puts transform rounding on the collar correction alone. Form the
+    # final candidate in owned scratch so an overflowing addition cannot publish.
+    each!(execution, size(spectrum)...) do row, column
+        spectrum[row, column] = candidate[row, column] + spectrum[row, column]
+    end
+    return nothing
+end
+
 """
     finish_temporal_split!(candidate, work, dz, execution)
 
-Apply `F(F⁻¹(candidate) exp(-rate*dz/2))` to an accepted spectral candidate.
+Apply a temporal split absorber to an accepted spectral candidate.
 
 The complex matrix matches `work.spectrum` in shape and precision; `dz` is finite
 positive binary64 metres.
-The rate is a power coefficient, so its field exponent contains one half. This is the
+The binary64 graph is `F(F⁻¹(candidate) exp(-rate*dz/2))`. Binary32 uses the protected
+correction `candidate + F(F⁻¹(candidate) Float32(expm1(-rate*dz/2)))`, with the
+exponential correction evaluated wide before rounding. The rate is a power coefficient,
+so its field exponent contains one half. This is the
 same split operator as the NumPy reference's `apply_temporal_rate`: the initial and
 final active-band masks belong to the caller. Field DC and, for even `n_t`, Nyquist
 entries must be real before this call. No source evaluation or monitor decision occurs.
@@ -114,6 +127,7 @@ function finish_temporal_split!(candidate, work::TemporalSplitWorkspace, dz, exe
     temporal_inverse!(work.samples, work.transform, work.spectrum, execution)
     _temporal_damping!(work.samples, work.rate, work.damping, dz, execution)
     temporal_forward!(work.spectrum, work.transform, work.samples)
+    _temporal_split_result!(work.spectrum, candidate, work.damping, execution)
     all(isfinite, work.spectrum) ||
         throw(DomainError(dz, "temporal split produced a nonfinite spectrum"))
     copyto!(candidate, work.spectrum)

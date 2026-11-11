@@ -44,12 +44,14 @@ input noise remains refused; the binary64 noise path is unchanged.
 
 `TemporalSplitWorkspace` retains the same arithmetic record as the state. Its
 coarse-time samples, spectral scratch and FFT plans use state precision. Binary32
-adds one real damping vector of length `n_t`; the original binary64 rate remains
-owned and wide. Each factor evaluates `exp((-0.5*rate)*dz)` in binary64 before one
-rounding to binary32. Narrowing the rate or step first is invalid even when their
-product is moderate. A large negative exponent may saturate to zero, and a tiny
-positive factor may enter gradual underflow; neither changes the admitted state
-scales. The binary64 path retains its previous scalar expression and operation order.
+adds one real damping-correction vector of length `n_t`; the original binary64 rate
+remains owned and wide. Each correction evaluates `expm1((-0.5*rate)*dz)` in binary64
+before one rounding to binary32. Narrowing the rate or step first is invalid even
+when their product is moderate. Transform only the time-domain correction, then add
+the original spectrum in binary32. This is SEP33's existing NumPy-reference graph:
+small varying rates must survive even when the full exponential would round to one.
+Tiny corrections retain gradual underflow; large negative exponents saturate to
+minus one. The binary64 path retains its previous product and operation order.
 
 Cartesian/line splitting first performs the transverse inverse, then the real or
 complex temporal pair, then the transverse forward. A transverse spectral column
