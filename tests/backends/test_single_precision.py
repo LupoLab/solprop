@@ -233,12 +233,12 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
 
 @pytest.mark.parametrize("name", ["native"])
 def test_the_compiled_backends_refuse_a_single_precision_problem(name):
-    """The refusal is the backend's own too, not only the settings' (SEP 33 5.2)."""
+    """Registry admission also refuses a translated binary32 problem (SEP 33 5.2)."""
     if name not in available():
         pytest.skip(f"{name} is not installed")
     problem = gnlse("single").translate()
     run_request = gnlse("single")._run_request()
-    with pytest.raises(BackendError, match="binary64 only"):
+    with pytest.raises(BackendError, match="does not support precision='single'"):
         select(name, problem, run_request)
 
 

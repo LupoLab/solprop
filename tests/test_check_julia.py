@@ -250,6 +250,7 @@ def test_python_phase_runs_the_whole_adapter_directory(pinned_tree, monkeypatch)
                     "test_cpu_df32",
                     "test_cpu_df32_boundary",
                     "test_cpu_single_groups",
+                    "test_cpu_single_adams",
                     "test_cpu_observations",
                     "test_cpu_monitor",
                     "test_cpu_group",
