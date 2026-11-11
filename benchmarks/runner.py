@@ -157,6 +157,14 @@ def worker_calibration(environ: dict[str, str]) -> dict[str, str]:
     return {"SOLPROP_CALIBRATION": "off" if chosen == "off" else "use"}
 
 
+_LEVEL_FLAGS: dict[str, tuple[str, ...]] = {
+    "thorough": ("--thorough",),
+    "standard": (),
+    "quick": ("--quick",),
+}
+"""The ``solprop calibrate`` flags of each level: ``standard`` is its default."""
+
+
 def calibrate_builds(
     pythons: dict[str, str],
     level: str,
@@ -165,7 +173,8 @@ def calibrate_builds(
 ) -> Record:
     """Calibrate each distinct build at `level` before a series (SEP 46 section 6.13).
 
-    Each interpreter runs ``python -m solprop calibrate --LEVEL`` once, with its arm's
+    Each interpreter runs ``python -m solprop calibrate`` at the level once (no flag for
+    ``standard``, the command's default; ``--quick`` or ``--thorough``), with its arm's
     own variables, so that an A/B's two builds each get their own profile, as two
     releases would for a user; its report is kept under ``calibration/``. ``none``
     calibrates nothing and the series runs on whatever profiles exist; an arm under
@@ -186,7 +195,7 @@ def calibrate_builds(
             found[arm] = {"level": "off"}
             continue
         completed = subprocess.run(
-            [python, "-m", "solprop", "calibrate", f"--{level}"],
+            [python, "-m", "solprop", "calibrate", *_LEVEL_FLAGS[level]],
             capture_output=True,
             text=True,
             check=False,

@@ -309,6 +309,9 @@ def test_each_build_is_calibrated_once_unless_off(tmp_path, monkeypatch):
     assert held == {"baseline": {"level": "off"}}
     assert runner.calibrate_builds({"baseline": "/py/c"}, "none", tmp_path) == {}
     assert len(ran) == 1
+    # The command's default level takes no flag: it has no --standard.
+    runner.calibrate_builds({"baseline": "/py/d"}, "standard", tmp_path)
+    assert ran[-1][0] == ["/py/d", "-m", "solprop", "calibrate"]
     assert runner.worker_calibration({"SOLPROP_CALIBRATION": "OFF"}) == {
         "SOLPROP_CALIBRATION": "off"
     }
