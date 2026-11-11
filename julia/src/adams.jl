@@ -13,23 +13,25 @@ public adams_copy_history!, adams_copy_dense!
 end
 
 """
-    AdamsHistory(execution, state::AbstractMatrix{ComplexF64}, max_order;
+    AdamsHistory(execution, state::AbstractMatrix{Complex{T}}, max_order;
                  compensated=false)
 
-Prepare owned binary64 source history with `max_order+2` reusable slots.
+Prepare owned source history with `max_order+2` reusable slots.
 
 Each numerical array has spectral shape `(n_omega,n_columns,n_slots)`. The source is
 the untransported physical RHS evaluated at its actual predictor sample. Compensated
 history additionally retains that sampled state and the derivative of cumulative Phi
 there; it never replaces the predictor with a corrected accepted state. Uncompensated
 state/rate arrays have zero slots. Positions are metres, identities are caller-owned
-integers, and occupied flags are unpacked Booleans. Selection and eviction belong to
+integers, and occupied flags are unpacked Booleans. Sources and sampled states use
+binary32 or binary64 state precision; retained generators always use binary64.
+Selection and eviction belong to
 the session, not this storage record. Orders one through six are admitted.
 """
-struct AdamsHistory{A}
+struct AdamsHistory{A, W}
     source::A
     states::A
-    rates::A
+    rates::W
     positions::Vector{Float64}
     identities::Vector{Int}
     occupied::Vector{Bool}
@@ -38,17 +40,17 @@ struct AdamsHistory{A}
 end
 
 function AdamsHistory(
-        execution::KernelExecution, state::AbstractMatrix{ComplexF64}, max_order::Integer;
+        execution::KernelExecution, state::AbstractMatrix{Complex{T}}, max_order::Integer;
         compensated::Bool = false,
-    )
+    ) where {T <: Union{Float32, Float64}}
     maximum_order = _adams_capacity(max_order)
     isempty(state) && throw(ArgumentError("Adams state must be nonempty"))
     rows, columns = size(state)
     capacity = maximum_order + 2
     stored = compensated ? capacity : 0
     return AdamsHistory(
-        dzeros(execution, ComplexF64, rows, columns, capacity),
-        dzeros(execution, ComplexF64, rows, columns, stored),
+        dzeros(execution, Complex{T}, rows, columns, capacity),
+        dzeros(execution, Complex{T}, rows, columns, stored),
         dzeros(execution, ComplexF64, rows, columns, stored),
         zeros(capacity), zeros(Int, capacity), fill(false, capacity),
         maximum_order, compensated,
@@ -334,28 +336,32 @@ function prepare_adams_coefficients!(
 end
 
 """
-    AdamsWork(execution, state::AbstractMatrix{ComplexF64}, max_order;
+    AdamsWork(execution, state::AbstractMatrix{Complex{T}}, max_order;
               compensated=false)
 
-Allocate bounded binary64 buffers for exponential Adams prediction, correction and norms.
+Allocate bounded buffers for exponential Adams prediction, correction and norms.
 
 State-shaped matrices retain exponent, flow, predictor, newly sampled source, candidate
-and endpoint rate/compensation. Moments and carried history have `max_order+1` and
-`max_order` planes, and defects have three planes. Coefficients are generated in Julia.
+and endpoint rate/compensation. Exponents, moments and sampled rates use binary64;
+state products and accumulations use binary32 or binary64 state precision. Moments
+have `max_order+1` planes and defects have three. Binary64 compensated work carries
+`max_order` source increments; binary32 recomputes complete compensation factors,
+so its unused carried array has zero planes. Coefficients are generated in Julia.
 This workspace does not contain a controller, accepted-state owner or Python callback.
 """
-mutable struct AdamsWork{A, B, R}
-    exponent::A
+mutable struct AdamsWork{A, B, W, V, R, N}
+    exponent::W
     flow::A
     predictor::A
     source::A
     candidate::A
-    endpoint_rate::A
+    endpoint_rate::W
     endpoint_compensation::A
-    moments::B
+    moments::V
     carried::B
     defects::B
     norm_parts::R
+    norm_scale::N
     coefficients::AdamsCoefficients
     max_order::Int
     compensated::Bool
@@ -368,18 +374,25 @@ mutable struct AdamsWork{A, B, R}
 end
 
 function AdamsWork(
-        execution::KernelExecution, state::AbstractMatrix{ComplexF64}, max_order::Integer;
+        execution::KernelExecution, state::AbstractMatrix{Complex{T}}, max_order::Integer;
         compensated::Bool = false,
-    )
+    ) where {T <: Union{Float32, Float64}}
     maximum_order = _adams_capacity(max_order)
     isempty(state) && throw(ArgumentError("Adams state must be nonempty"))
     rows, columns = size(state)
-    matrices = ntuple(unused -> dzeros(execution, ComplexF64, rows, columns), 7)
+    norm_scale = _march_norm_scale(state)
+    wide = () -> dzeros(execution, ComplexF64, rows, columns)
+    narrow = () -> dzeros(execution, Complex{T}, rows, columns)
     return AdamsWork(
-        matrices..., dzeros(execution, ComplexF64, rows, columns, maximum_order + 1),
-        dzeros(execution, ComplexF64, rows, columns, compensated ? maximum_order : 0),
-        dzeros(execution, ComplexF64, rows, columns, 3),
-        dzeros(execution, Float64, 2, columns), AdamsCoefficients(maximum_order),
+        wide(), narrow(), narrow(), narrow(), narrow(), wide(), narrow(),
+        dzeros(execution, ComplexF64, rows, columns, maximum_order + 1),
+        dzeros(
+            execution, Complex{T}, rows, columns,
+            compensated && T === Float64 ? maximum_order : 0
+        ),
+        dzeros(execution, Complex{T}, rows, columns, 3),
+        dzeros(execution, T, T === Float32 ? 4 : 2, columns), norm_scale,
+        AdamsCoefficients(maximum_order),
         maximum_order, compensated, 0.0, 0.0, 0, 0, false, false,
     )
 end
@@ -393,6 +406,8 @@ end
     1 <= slot <= length(history.positions) || throw(ArgumentError("invalid Adams slot"))
     size(state) == (size(history.source, 1), size(history.source, 2)) ||
         throw(DimensionMismatch("Adams history and state shapes disagree"))
+    eltype(state) === eltype(history.source) ||
+        throw(ArgumentError("Adams history and state precisions disagree"))
     return nothing
 end
 
@@ -414,9 +429,13 @@ function adams_seed!(
         identity::Integer = slot, before::Bool = false, source_absent::Bool = false,
     )
     _adams_slot(history, slot, state)
+    eltype(state) === ComplexF32 && (position = Float64(position))
     isfinite(position) || throw(ArgumentError("Adams sample position must be finite"))
     source_absent && history.compensated &&
         throw(ArgumentError("structurally absent sources do not use compensation"))
+    if eltype(state) === ComplexF32
+        all(isfinite, state) || throw(ArgumentError("binary32 Adams seed is nonfinite"))
+    end
     history.occupied[slot] = false
     source = view(history.source, :, :, slot)
     if source_absent
@@ -424,9 +443,15 @@ function adams_seed!(
     else
         _adams_callback(source!(source, state, position))
     end
+    if eltype(state) === ComplexF32
+        all(isfinite, source) || throw(ArgumentError("binary32 Adams source is nonfinite"))
+    end
     if history.compensated
         rate = view(history.rates, :, :, slot)
         _adams_callback(rate!(rate, position, before))
+        if eltype(state) === ComplexF32
+            all(isfinite, rate) || throw(ArgumentError("binary32 Adams rate is nonfinite"))
+        end
         states = history.states
         each!(execution, size(state)...) do row, column
             states[row, column, slot] = state[row, column]
@@ -442,6 +467,8 @@ function _adams_trial_shapes(work, state, history, stencil)
     size(state) == size(work.candidate) ==
         (size(history.source, 1), size(history.source, 2)) ||
         throw(DimensionMismatch("Adams trial state shapes disagree"))
+    eltype(state) === eltype(work.candidate) === eltype(history.source) ||
+        throw(ArgumentError("Adams trial state precisions disagree"))
     work.max_order == history.max_order == stencil.max_order ||
         throw(DimensionMismatch("Adams trial capacities disagree"))
     work.compensated == history.compensated ||
@@ -458,7 +485,266 @@ function _adams_trial_shapes(work, state, history, stencil)
     return nothing
 end
 
+# A binary64 mantissa with an unbounded-for-this-graph binary exponent. Keeping the
+# exponent separate avoids narrowing or under/overflow before a complete factor.
+# This is ordinary binary64 arithmetic, not a double-float expansion or certificate.
+struct _AdamsWideFactor
+    mantissa::ComplexF64
+    exponent::Int
+end
+
+@inline function _adams_wide(value::ComplexF64, exponent::Int = 0)
+    largest = max(abs(real(value)), abs(imag(value)))
+    if iszero(largest) || !isfinite(largest)
+        return _AdamsWideFactor(value, 0)
+    end
+    _, shift = frexp(largest)
+    return _AdamsWideFactor(
+        complex(ldexp(real(value), -shift), ldexp(imag(value), -shift)),
+        exponent + shift,
+    )
+end
+@inline _adams_wide(value::Float64) = _adams_wide(complex(value))
+
+@inline function _adams_wide_add(first::_AdamsWideFactor, second::_AdamsWideFactor)
+    iszero(first.mantissa) && return second
+    iszero(second.mantissa) && return first
+    exponent = max(first.exponent, second.exponent)
+    a, b = first.mantissa, second.mantissa
+    left, right = first.exponent - exponent, second.exponent - exponent
+    return _adams_wide(
+        complex(
+            ldexp(real(a), left) + ldexp(real(b), right),
+            ldexp(imag(a), left) + ldexp(imag(b), right),
+        ), exponent,
+    )
+end
+
+@inline function _adams_wide_mul(first::_AdamsWideFactor, second::_AdamsWideFactor)
+    return _adams_wide(
+        first.mantissa * second.mantissa, first.exponent + second.exponent,
+    )
+end
+
+@inline function _adams_narrow(value::_AdamsWideFactor)
+    !isfinite(value.mantissa) && return ComplexF32(NaN32, NaN32)
+    iszero(value.mantissa) && return ComplexF32(value.mantissa)
+    value.exponent > 129 && return ComplexF32(NaN32, NaN32)
+    value.exponent < -150 && return zero(ComplexF32)
+    return ComplexF32(
+        ldexp(real(value.mantissa), value.exponent),
+        ldexp(imag(value.mantissa), value.exponent),
+    )
+end
+
+# These two numbers are RN64(log(2)) and RN64(log(2)-hi), respectively; the
+# independent 512-bit derivation and residual bound are in ADAMS_PRECISION.md.
+const _ADAMS_LN2_HI = 0x1.62e42fefa39efp-1
+const _ADAMS_LN2_LO = 0x1.abc9e3b39803fp-56
+
+@inline function _adams_transport_exp(argument::ComplexF64)
+    real_part = real(argument)
+    isfinite(imag(argument)) || return _adams_wide(ComplexF64(NaN, NaN))
+    # For this graph only, including at most seven dense powers, the remaining
+    # factors lie below 2^3100 and nonzero computed factors exceed 2^-32768.
+    real_part < -0x1p20 && return _adams_wide(0.0)
+    if real_part > 0x1p20 || !isfinite(argument)
+        return _adams_wide(ComplexF64(NaN, NaN))
+    end
+    turns = unsafe_trunc(Int, round(real_part / _ADAMS_LN2_HI))
+    residual = fma(-Float64(turns), _ADAMS_LN2_HI, real_part) -
+        Float64(turns) * _ADAMS_LN2_LO
+    return _adams_wide(exp(complex(residual, imag(argument))), turns)
+end
+
+@inline function _adams_compensation_factor(step, rate, phase, span, coefficient)
+    iszero(coefficient) && return zero(ComplexF32)
+    return _adams_compensation_factor(step, rate, phase, span, _adams_wide(coefficient))
+end
+
+@inline function _adams_compensation_factor(
+        step, rate, phase, span, coefficient::_AdamsWideFactor,
+    )
+    iszero(rate) && iszero(phase) && return zero(ComplexF32)
+    transported = _adams_transport_exp(span * phase)
+    isfinite(transported.mantissa) || return ComplexF32(NaN32, NaN32)
+    # The subtraction stays separate from the sampled state multiplication. In
+    # particular, do not form phase/step or an unscaled transported source first.
+    difference = _adams_wide_add(
+        _adams_wide_mul(_adams_wide(step), _adams_wide(rate)), _adams_wide(-phase),
+    )
+    iszero(difference.mantissa) && return zero(ComplexF32)
+    combined = _adams_wide_mul(
+        coefficient, _adams_wide_mul(transported, difference),
+    )
+    return _adams_narrow(combined)
+end
+
+@inline function _adams_dense_weight(coefficients, sample, count, fraction)
+    integral = _adams_wide(0.0)
+    upper = _adams_wide(fraction)
+    for power in count:-1:1
+        term = _adams_wide_mul(
+            _adams_wide(coefficients[sample, power]), _adams_wide(1.0 / power),
+        )
+        integral = _adams_wide_mul(_adams_wide_add(integral, term), upper)
+    end
+    return integral
+end
+
+@inline function _adams_source_factor(
+        moments, coefficients, row, column, sample,
+        count, step, exponent = 0
+    )
+    total = _adams_wide(0.0)
+    for power in 1:count
+        term = _adams_wide_mul(
+            _adams_wide(coefficients[sample, power]),
+            _adams_wide(moments[row, column, power]),
+        )
+        total = _adams_wide_add(total, term)
+    end
+    complete = _adams_wide_mul(total, _adams_wide(step))
+    return _adams_narrow(
+        _AdamsWideFactor(complete.mantissa, complete.exponent + exponent),
+    )
+end
+
+function _adams_predict32!(work, state, history, stencil, step, execution)
+    exponent, flow, moments, predictor =
+        work.exponent, work.flow, work.moments, work.predictor
+    source, states, rates = history.source, history.states, history.rates
+    slots, nodes = stencil.slots, stencil.nodes
+    coefficients, compensation =
+        work.coefficients.predictor, work.coefficients.compensation_predictor
+    order, compensated, width = stencil.order, work.compensated, size(moments, 3)
+    each!(execution, size(state)...) do row, column
+        phase = exponent[row, column]
+        linear = iszero(phase) ? one(ComplexF32) : ComplexF32(exp(phase))
+        flow[row, column] = linear
+        phi = _phi_values(phase, Val(8))
+        factorial = 1.0
+        for power in 1:width
+            moments[row, column, power] = factorial * phi[power + 1]
+            factorial *= power
+        end
+        increment = zero(ComplexF32)
+        for sample in 1:order
+            factor = _adams_source_factor(
+                moments, coefficients, row, column, sample, order, step,
+            )
+            increment += factor * source[row, column, slots[sample]]
+        end
+        if compensated
+            for sample in 1:order
+                slot = slots[sample]
+                factor = _adams_compensation_factor(
+                    step, rates[row, column, slot], phase, 1 - nodes[sample],
+                    compensation[sample],
+                )
+                increment += factor * states[row, column, slot]
+            end
+        end
+        baseline = iszero(phase) ? state[row, column] : linear * state[row, column]
+        predictor[row, column] = baseline + increment
+    end
+    return nothing
+end
+
+function _adams_correct32!(work, state, history, stencil, step, execution)
+    exponent, flow, moments, source, predictor, candidate =
+        work.exponent, work.flow, work.moments, work.source, work.predictor, work.candidate
+    store, slots, nodes, defects =
+        history.source, stencil.slots, stencil.nodes, work.defects
+    states, rates, endpoint_rate = history.states, history.rates, work.endpoint_rate
+    coefficients, compensation =
+        work.coefficients.corrector, work.coefficients.compensation_corrector
+    sample_weights, polynomial, compensation_defects =
+        work.coefficients.defect_samples, work.coefficients.defect_polynomial,
+        work.coefficients.compensation_defects
+    orders, order, n_orders = stencil.orders, stencil.order, stencil.n_orders
+    compensated = work.compensated
+    fill!(work.endpoint_compensation, 0)
+    each!(execution, size(state)...) do row, column
+        phase = exponent[row, column]
+        increment = zero(ComplexF32)
+        for sample in 1:(order + 1)
+            factor = _adams_source_factor(
+                moments, coefficients, row, column, sample, order + 1, step,
+            )
+            sampled = sample == 1 ? source[row, column] :
+                store[row, column, slots[sample - 1]]
+            increment += factor * sampled
+            if compensated
+                sampled_state = sample == 1 ? predictor[row, column] :
+                    states[row, column, slots[sample - 1]]
+                rate = sample == 1 ? endpoint_rate[row, column] :
+                    rates[row, column, slots[sample - 1]]
+                span = sample == 1 ? 0.0 : 1 - nodes[sample - 1]
+                correction = _adams_compensation_factor(
+                    step, rate, phase, span, compensation[sample],
+                )
+                increment += correction * sampled_state
+            end
+        end
+        baseline = iszero(phase) ? state[row, column] :
+            flow[row, column] * state[row, column]
+        candidate[row, column] = baseline + increment
+        for score in 1:3
+            defect = zero(ComplexF32)
+            if score <= n_orders
+                scored = orders[score]
+                largest = 0.0
+                for sample in 1:(scored + 1)
+                    largest = max(largest, abs(sample_weights[sample, score]))
+                end
+                _, weight_exponent = frexp(largest)
+                difference = zero(ComplexF32)
+                for sample in 1:(scored + 1)
+                    weight = Float32(ldexp(sample_weights[sample, score], -weight_exponent))
+                    sampled = sample == 1 ? source[row, column] :
+                        store[row, column, slots[sample - 1]]
+                    difference += weight * sampled
+                end
+                moment = _adams_wide(0.0)
+                for power in 1:(scored + 1)
+                    term = _adams_wide_mul(
+                        _adams_wide(polynomial[power, score]),
+                        _adams_wide(moments[row, column, power]),
+                    )
+                    moment = _adams_wide_add(moment, term)
+                end
+                complete = _adams_wide_mul(moment, _adams_wide(step))
+                factor = _adams_narrow(
+                    _AdamsWideFactor(
+                        complete.mantissa, complete.exponent + weight_exponent,
+                    )
+                )
+                defect = factor * difference
+                if compensated
+                    for sample in 1:(scored + 1)
+                        sampled = sample == 1 ? predictor[row, column] :
+                            states[row, column, slots[sample - 1]]
+                        rate = sample == 1 ? endpoint_rate[row, column] :
+                            rates[row, column, slots[sample - 1]]
+                        span = sample == 1 ? 0.0 : 1 - nodes[sample - 1]
+                        factor = _adams_compensation_factor(
+                            step, rate, phase, span, compensation_defects[sample, score],
+                        )
+                        defect += factor * sampled
+                    end
+                end
+            end
+            defects[row, column, score] = defect
+        end
+    end
+    return nothing
+end
+
 function _adams_predict!(work, state, history, stencil, step, execution)
+    if eltype(state) === ComplexF32
+        return _adams_predict32!(work, state, history, stencil, step, execution)
+    end
     exponent, flow, moments, predictor =
         work.exponent, work.flow, work.moments, work.predictor
     source, states, rates = history.source, history.states, history.rates
@@ -516,6 +802,9 @@ function _adams_predict!(work, state, history, stencil, step, execution)
 end
 
 function _adams_correct!(work, state, history, stencil, step, execution)
+    if eltype(state) === ComplexF32
+        return _adams_correct32!(work, state, history, stencil, step, execution)
+    end
     exponent, flow, moments, source, predictor, candidate =
         work.exponent, work.flow, work.moments, work.source, work.predictor, work.candidate
     store, slots, carried, defects =
@@ -588,7 +877,7 @@ function _adams_homogeneous!(work, state, execution)
         work.exponent, work.flow, work.predictor, work.candidate
     each!(execution, size(state)...) do row, column
         phase = exponent[row, column]
-        factor = iszero(phase) ? one(phase) : exp(phase)
+        factor = iszero(phase) ? one(eltype(state)) : eltype(state)(exp(phase))
         value = iszero(phase) ? state[row, column] : factor * state[row, column]
         flow[row, column] = factor
         predictor[row, column] = value
@@ -624,6 +913,9 @@ function adams_trial!(
     )
     work.ready = false
     _adams_trial_shapes(work, state, history, stencil)
+    if eltype(state) === ComplexF32
+        position, step = Float64(position), Float64(step)
+    end
     source_absent && work.compensated &&
         throw(ArgumentError("structurally absent sources do not use compensation"))
     prepare_adams_coefficients!(work.coefficients, stencil, history, position, step)
@@ -639,6 +931,10 @@ function adams_trial!(
         fill!(work.moments, 0)
     else
         _adams_predict!(work, state, history, stencil, step, execution)
+        if eltype(state) === ComplexF32
+            all(isfinite, work.flow) && all(isfinite, work.predictor) ||
+                throw(ArgumentError("binary32 Adams predictor is nonfinite"))
+        end
         _adams_callback(source!(work.source, work.predictor, position + step))
         if work.compensated
             _adams_callback(rate!(work.endpoint_rate, position + step, true))
@@ -646,6 +942,12 @@ function adams_trial!(
             fill!(work.endpoint_rate, 0)
         end
         _adams_correct!(work, state, history, stencil, step, execution)
+    end
+    if eltype(state) === ComplexF32
+        all(isfinite, state) && all(isfinite, work.flow) &&
+            all(isfinite, work.source) && all(isfinite, work.endpoint_rate) &&
+            all(isfinite, work.candidate) && all(isfinite, work.defects) ||
+            throw(ArgumentError("binary32 Adams complete factor or trial is nonfinite"))
     end
     work.position, work.step = position, step
     work.order, work.n_orders = stencil.order, stencil.n_orders
@@ -655,24 +957,25 @@ function adams_trial!(
 end
 
 """
-    AdamsDense(execution, state::AbstractMatrix{ComplexF64}, max_order;
+    AdamsDense(execution, state::AbstractMatrix{Complex{T}}, max_order;
                compensated=false)
 
 Prepare independently owned storage for one accepted exponential Adams dense step.
 
 The record retains both committed endpoints, cumulative exponent, corrector polynomial
 and actual source samples. Compensated storage additionally keeps the sampled states
-and represented rates. Retain before reusing history slots; observing calls no source
+and represented binary64 rates. State/source arrays use the state precision; exponents
+remain binary64. Retain before reusing history slots; observing calls no source
 and cannot change the march history. This numerical leaf does not admit additional
 user-facing plane policies or apply a mask/collar.
 """
-mutable struct AdamsDense{A, B}
+mutable struct AdamsDense{A, B, W, V}
     initial::A
     endpoint::A
-    exponent::A
+    exponent::W
     source::B
     states::B
-    rates::B
+    rates::V
     coefficients::Matrix{Float64}
     nodes::Vector{Float64}
     weights::Vector{Float64}
@@ -686,20 +989,20 @@ mutable struct AdamsDense{A, B}
 end
 
 function AdamsDense(
-        execution::KernelExecution, state::AbstractMatrix{ComplexF64}, max_order::Integer;
+        execution::KernelExecution, state::AbstractMatrix{Complex{T}}, max_order::Integer;
         compensated::Bool = false,
-    )
+    ) where {T <: Union{Float32, Float64}}
     maximum_order = _adams_capacity(max_order)
     isempty(state) && throw(ArgumentError("Adams dense state must be nonempty"))
     rows, columns = size(state)
     width = maximum_order + 1
     stored = compensated ? width : 0
     return AdamsDense(
+        dzeros(execution, Complex{T}, rows, columns),
+        dzeros(execution, Complex{T}, rows, columns),
         dzeros(execution, ComplexF64, rows, columns),
-        dzeros(execution, ComplexF64, rows, columns),
-        dzeros(execution, ComplexF64, rows, columns),
-        dzeros(execution, ComplexF64, rows, columns, width),
-        dzeros(execution, ComplexF64, rows, columns, stored),
+        dzeros(execution, Complex{T}, rows, columns, width),
+        dzeros(execution, Complex{T}, rows, columns, stored),
         dzeros(execution, ComplexF64, rows, columns, stored),
         zeros(width, width), zeros(width), zeros(width), maximum_order,
         compensated, false, 0.0, 0.0, 0, false,
@@ -727,6 +1030,9 @@ function adams_retain_dense!(
     size(dense.initial) == size(old_state) ==
         size(accepted_state) == size(work.candidate) ||
         throw(DimensionMismatch("Adams dense endpoint shapes disagree"))
+    eltype(dense.initial) === eltype(old_state) === eltype(accepted_state) ===
+        eltype(work.candidate) === eltype(history.source) ||
+        throw(ArgumentError("Adams dense endpoint precisions disagree"))
     stencil.order == work.order || throw(ArgumentError("Adams dense stencil changed"))
     for index in 1:work.order
         slot = stencil.slots[index]
@@ -750,7 +1056,7 @@ function adams_retain_dense!(
     each!(execution, size(old_state)...) do row, column
         for sample in 1:width
             value, sampled_state, sampled_rate = zero(eltype(output)),
-                zero(eltype(output)), zero(eltype(output))
+                zero(eltype(output)), zero(eltype(sample_rates))
             if sample == 1
                 value = newest[row, column]
                 if compensated
@@ -778,6 +1084,58 @@ function adams_retain_dense!(
     return nothing
 end
 
+function _adams_observe32!(output, dense, fraction, execution)
+    initial, exponent, source = dense.initial, dense.exponent, dense.source
+    states, rates, coefficients, nodes =
+        dense.states, dense.rates, dense.coefficients, dense.nodes
+    step, count = dense.step, dense.order + 1
+    compensated, source_absent = dense.compensated, dense.source_absent
+    each!(execution, size(output)...) do row, column
+        phase = exponent[row, column]
+        scaled = fraction * phase
+        linear = iszero(scaled) ? one(ComplexF32) : ComplexF32(exp(scaled))
+        baseline = iszero(scaled) ? initial[row, column] : linear * initial[row, column]
+        if source_absent || (compensated && real(phase) < -1)
+            output[row, column] = baseline
+        else
+            phi = _phi_values(scaled, Val(8))
+            increment = zero(ComplexF32)
+            for sample in 1:count
+                moment = _adams_wide(0.0)
+                power_of_fraction = _adams_wide(fraction)
+                factorial = 1.0
+                for power in 1:count
+                    term = _adams_wide_mul(
+                        _adams_wide(coefficients[sample, power]),
+                        _adams_wide_mul(
+                            _adams_wide(factorial * phi[power + 1]), power_of_fraction,
+                        ),
+                    )
+                    moment = _adams_wide_add(moment, term)
+                    factorial *= power
+                    power_of_fraction = _adams_wide_mul(
+                        power_of_fraction, _adams_wide(fraction),
+                    )
+                end
+                factor = _adams_narrow(_adams_wide_mul(moment, _adams_wide(step)))
+                increment += factor * source[row, column, sample]
+                if compensated
+                    weight = _adams_dense_weight(coefficients, sample, count, fraction)
+                    correction = _adams_compensation_factor(
+                        step, rates[row, column, sample], phase,
+                        fraction - nodes[sample], weight,
+                    )
+                    increment += correction * states[row, column, sample]
+                end
+            end
+            output[row, column] = baseline + increment
+        end
+    end
+    all(isfinite, output) ||
+        throw(ArgumentError("binary32 Adams dense complete factor or state is nonfinite"))
+    return output
+end
+
 """
     adams_observe!(output, dense, position, execution)
 
@@ -797,6 +1155,9 @@ function adams_observe!(
     dense.ready || throw(ArgumentError("no retained Adams dense step is available"))
     size(output) == size(dense.initial) ||
         throw(DimensionMismatch("Adams dense output has the wrong shape"))
+    eltype(output) === eltype(dense.initial) ||
+        throw(ArgumentError("Adams dense output has another state precision"))
+    eltype(output) === ComplexF32 && (position = Float64(position))
     isfinite(position) && dense.position <= position <= dense.position + dense.step ||
         throw(ArgumentError("Adams observation lies outside its retained step"))
     if Base.mightalias(output, dense.initial) || Base.mightalias(output, dense.endpoint) ||
@@ -815,6 +1176,12 @@ function adams_observe!(
     fraction = (position - dense.position) / dense.step
     count = dense.order + 1
     coefficients, weights, nodes = dense.coefficients, dense.weights, dense.nodes
+    if eltype(output) === ComplexF32
+        # Binary32 forms the complete ordinary integrals inside its wide graph;
+        # do not also evaluate unused, potentially overflowing scalar weights.
+        fill!(weights, 0)
+        return _adams_observe32!(output, dense, fraction, execution)
+    end
     for sample in eachindex(weights)
         weights[sample] = sample <= count ?
             _adams_integral(coefficients, sample, count, fraction) : 0.0
@@ -917,7 +1284,14 @@ function adams_error_norms!(
     size(state) == size(work.candidate) &&
         length(mask) == length(weights) == size(state, 1) ||
         throw(DimensionMismatch("Adams norm state and row inputs disagree"))
+    eltype(state) === eltype(work.candidate) ||
+        throw(ArgumentError("Adams norm state precision disagrees with its workspace"))
     fill!(output, 0)
+    if eltype(state) === ComplexF32
+        return _adams_error_norms32!(
+            output, work, state, mask, weights, rtol, atol, execution,
+        )
+    end
     parts, candidate, defects = work.norm_parts, work.candidate, work.defects
     rows, columns = size(state)
     each_column!(execution, columns) do column
@@ -978,6 +1352,28 @@ function adams_error_norms!(
     return output
 end
 
+function _adams_error_norms32!(output, work, state, mask, weights, rtol, atol, execution)
+    parts = work.norm_parts
+    _float32_state_parts!(parts, state, mask, 1, execution)
+    _float32_state_parts!(parts, work.candidate, mask, 3, execution)
+    magnitude = _float32_norm_value(parts, 1)
+    finite = isfinite(magnitude) && isfinite(_float32_norm_value(parts, 3))
+    if !finite ||
+            !_float32_norm_scale!(work.norm_scale, weights, mask, rtol * magnitude, atol)
+        for score in 1:work.n_orders
+            output[score] = Inf
+        end
+        return output
+    end
+    for score in 1:work.n_orders
+        _float32_defect_parts!(
+            parts, view(work.defects, :, :, score), mask, work.norm_scale, execution,
+        )
+        output[score] = _float32_norm_value(parts, 1)
+    end
+    return output
+end
+
 """
     adams_copy_history!(destination, source)
 
@@ -991,7 +1387,8 @@ or compensation policies throw before mutation.
 function adams_copy_history!(destination::AdamsHistory, source::AdamsHistory)
     destination.max_order == source.max_order &&
         destination.compensated == source.compensated &&
-        size(destination.source) == size(source.source) ||
+        size(destination.source) == size(source.source) &&
+        eltype(destination.source) === eltype(source.source) ||
         throw(ArgumentError("Adams history copy requires compatible prepared storage"))
     copyto!(destination.source, source.source)
     copyto!(destination.states, source.states)
@@ -1015,7 +1412,8 @@ The session owns snapshot format and admission. Return `nothing`.
 function adams_copy_dense!(destination::AdamsDense, source::AdamsDense)
     destination.max_order == source.max_order &&
         destination.compensated == source.compensated &&
-        size(destination.initial) == size(source.initial) ||
+        size(destination.initial) == size(source.initial) &&
+        eltype(destination.initial) === eltype(source.initial) ||
         throw(ArgumentError("Adams dense copy requires compatible prepared storage"))
     copyto!(destination.initial, source.initial)
     copyto!(destination.endpoint, source.endpoint)
