@@ -8,6 +8,8 @@ DerivePointerAlignment: false
 PointerAlignment: Left
 SortIncludes: CaseSensitive
 InsertNewlineAtEOF: true
+# A NOLINT comment is never reflowed: its reason must stay on the suppressing line.
+CommentPragmas: '^ (IWYU pragma:|NOLINT)'
 # No RemoveSemicolon: clang-format parses `const auto f = KOKKOS_LAMBDA(...) {...};` as a
 # function definition and removes the semicolon the declaration needs. Declaring the
 # macro (`Macros:`) fixes that but makes formatting general.cpp minutes slower.
