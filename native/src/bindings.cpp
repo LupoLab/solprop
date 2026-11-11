@@ -3435,44 +3435,6 @@ NB_MODULE(_core, module_) {
           "preionisation"_a.noconvert(), "raman_rates"_a.noconvert(),
           "material"_a = nb::none(), "prepare_only"_a = false)
       .def(
-          "adams_source",
-          [](BoundState& self, const ComplexInput input, const RealInput phi_delta,
-             const RealInput phi_at, const RealInput prefactor, const RealInput density,
-             const RealInput taper, const RealInput preionisation,
-             const RealInput raman_rates, const nb::dict material) {
-            // solprop's Adams source (SEP 14 phase 2): the trial's scalar layout, every
-            // stage's row the evaluation position's, of which stage zero is read.
-            auto scalars = trial_from(phi_delta, phi_at, prefactor, density, taper,
-                                      preionisation, raman_rates);
-            scalars.kerr_density =
-                real_vector(exact_array<RealInput>(material["kerr_density"]));
-            scalars.plasma_densities =
-                real_vector(exact_array<RealInput>(material["plasma_densities"]));
-            scalars.plasma_preionisation =
-                real_vector(exact_array<RealInput>(material["plasma_preionisation"]));
-            scalars.raman_densities =
-                real_vector(exact_array<RealInput>(material["raman_densities"]));
-            // A moving guide's maps are combined at the evaluation position, as a
-            // trial's stages are.
-            if (material.contains("transform_weights"))
-              scalars.transform_weights =
-                  real_vector(exact_array<RealInput>(material["transform_weights"]));
-            if (material.contains("dispersive_densities"))
-              scalars.dispersive_densities =
-                  real_vector(exact_array<RealInput>(material["dispersive_densities"]));
-            const auto held = complex_vector(input);
-            std::vector<native::Complex> values;
-            {
-              const nb::gil_scoped_release release;
-              values = self.adams_source(held, scalars);
-            }
-            return complex_output(values,
-                                  {self.columns(), values.size() / self.columns()});
-          },
-          "input"_a.noconvert(), "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(),
-          "prefactor"_a.noconvert(), "density"_a.noconvert(), "taper"_a.noconvert(),
-          "preionisation"_a.noconvert(), "raman_rates"_a.noconvert(), "material"_a)
-      .def(
           "adopt",
           [](BoundState& self, const ComplexInput field, const double dz) {
             const auto held = complex_vector(field);
@@ -3535,11 +3497,6 @@ NB_MODULE(_core, module_) {
           "slot"_a, "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(),
           "prefactor"_a.noconvert(), "density"_a.noconvert(), "taper"_a.noconvert(),
           "preionisation"_a.noconvert(), "raman_rates"_a.noconvert(), "material"_a)
-      .def("adams_magnitude",
-           [](BoundState& self) {
-             const nb::gil_scoped_release release;
-             return self.open_state().adams_magnitude();
-           })
       .def(
           "adams_scale",
           [](BoundState& self, const double rtol, const double atol,
@@ -3549,32 +3506,6 @@ NB_MODULE(_core, module_) {
             self.open_state().adams_scale(rtol, atol, values);
           },
           "rtol"_a, "atol"_a, "weights"_a.noconvert())
-      .def(
-          "adams_fused_trial",
-          [](BoundState& self, const double dz, const IndexInput slots,
-             const RealInput predictor, const RealInput corrector, const RealInput rows,
-             const RealInput divisor, const RealInput phi_delta, const RealInput phi_at,
-             const RealInput prefactor, const RealInput density, const RealInput taper,
-             const RealInput preionisation, const RealInput raman_rates,
-             const nb::dict material) {
-            const auto weights =
-                adams_weights(slots, predictor, corrector, rows, predictor.size());
-            const auto scale = real_vector(divisor);
-            const auto scalars =
-                adams_scalars(phi_delta, phi_at, prefactor, density, taper,
-                              preionisation, raman_rates, material);
-            std::vector<double> norms;
-            {
-              const nb::gil_scoped_release release;
-              norms = self.open_state().adams_fused_trial(dz, weights, scale, scalars);
-            }
-            return real_output(std::move(norms), 1);
-          },
-          "dz"_a, "slots"_a.noconvert(), "predictor"_a.noconvert(),
-          "corrector"_a.noconvert(), "rows"_a.noconvert(), "divisor"_a.noconvert(),
-          "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(), "prefactor"_a.noconvert(),
-          "density"_a.noconvert(), "taper"_a.noconvert(), "preionisation"_a.noconvert(),
-          "raman_rates"_a.noconvert(), "material"_a)
       .def(
           "adams_fused_accept",
           [](BoundState& self, const double dz, const IndexInput keep,
@@ -3702,11 +3633,10 @@ NB_MODULE(_core, module_) {
           "weights"_a.noconvert())
       .def(
           "adams_observe",
-          [](BoundState& self, const RealInput weights, const bool hermite,
-             const RealInput phi_delta, const RealInput phi_at,
-             const RealInput prefactor, const RealInput density, const RealInput taper,
-             const RealInput preionisation, const RealInput raman_rates,
-             const nb::dict material) {
+          [](BoundState& self, const RealInput weights, const RealInput phi_delta,
+             const RealInput phi_at, const RealInput prefactor, const RealInput density,
+             const RealInput taper, const RealInput preionisation,
+             const RealInput raman_rates, const nb::dict material) {
             native::AdamsWeights table;
             const auto values = real_vector(weights);
             if (values.size() > native::adams_max_samples)
@@ -3719,12 +3649,11 @@ NB_MODULE(_core, module_) {
                 adams_scalars(phi_delta, phi_at, prefactor, density, taper,
                               preionisation, raman_rates, material);
             const nb::gil_scoped_release release;
-            self.open_state().adams_observe(table, hermite, scalars);
+            self.open_state().adams_observe(table, scalars);
           },
-          "weights"_a.noconvert(), "hermite"_a, "phi_delta"_a.noconvert(),
-          "phi_at"_a.noconvert(), "prefactor"_a.noconvert(), "density"_a.noconvert(),
-          "taper"_a.noconvert(), "preionisation"_a.noconvert(),
-          "raman_rates"_a.noconvert(), "material"_a)
+          "weights"_a.noconvert(), "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(),
+          "prefactor"_a.noconvert(), "density"_a.noconvert(), "taper"_a.noconvert(),
+          "preionisation"_a.noconvert(), "raman_rates"_a.noconvert(), "material"_a)
       .def(
           "adams_exponential_trial",
           [](BoundState& self, const double dz, const IndexInput slots,
@@ -3867,11 +3796,10 @@ NB_MODULE(_core, module_) {
           [](BoundState& self, const double z, const double dz, const RealInput nodes,
              const IndexInput slots, const std::size_t order,
              const std::vector<std::size_t>& orders, const bool compensated,
-             const RealInput divisor, const RealInput carrier) {
+             const RealInput carrier) {
             auto weights =
                 exponential_weights_at(nodes, slots, order, orders, compensated);
             carrier_frame(weights, carrier, weights.width - 1);
-            const auto scale = real_vector(divisor);
             const double end = z + dz;
             auto trial = self.stage_trial(z, end);
             const auto rate =
@@ -3880,33 +3808,31 @@ NB_MODULE(_core, module_) {
             {
               const nb::gil_scoped_release release;
               norms = self.open_state().adams_exponential_trial(
-                  dz, weights, scale, trial.step, trial.sample, rate);
+                  dz, weights, {}, trial.step, trial.sample, rate);
             }
             return real_output(std::move(norms), 1);
           },
           "z"_a, "dz"_a, "nodes"_a.noconvert(), "slots"_a.noconvert(), "order"_a,
-          "orders"_a, "compensated"_a, "divisor"_a.noconvert(), "carrier"_a.noconvert())
+          "orders"_a, "compensated"_a, "carrier"_a.noconvert())
       .def(
           "adams_fused_trial_at",
           [](BoundState& self, const double z, const double dz, const RealInput nodes,
              const IndexInput slots, const std::size_t order,
-             const std::vector<std::size_t>& orders, const RealInput divisor) {
+             const std::vector<std::size_t>& orders) {
             const auto slot_values = index_vector(slots);
             const auto weights = native::stage::fused_weights(
                 nodes.data(), element_count(nodes), slot_values.data(),
                 slot_values.size(), order, orders.data(), orders.size());
-            const auto scale = real_vector(divisor);
             const auto trial = self.stage_trial(z, z + dz);
             std::vector<double> norms;
             {
               const nb::gil_scoped_release release;
-              norms =
-                  self.open_state().adams_fused_trial(dz, weights, scale, trial.step);
+              norms = self.open_state().adams_fused_trial(dz, weights, {}, trial.step);
             }
             return real_output(std::move(norms), 1);
           },
           "z"_a, "dz"_a, "nodes"_a.noconvert(), "slots"_a.noconvert(), "order"_a,
-          "orders"_a, "divisor"_a.noconvert())
+          "orders"_a)
       .def(
           "adams_stage_scalars",
           [](BoundState& self, const double z0, const double z1) {

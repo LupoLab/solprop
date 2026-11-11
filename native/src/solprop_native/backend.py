@@ -12,7 +12,6 @@ import logging
 import math
 import time
 import types
-import warnings
 import weakref
 from collections.abc import Callable, Mapping, Sequence
 from importlib.metadata import version
@@ -44,12 +43,9 @@ from solprop.backends.memory import (
 from solprop.backends.multistep import (
     AdamsKernels,
     AdamsMarch,
-    CoupledBlock,
     ExponentialKernels,
     _Derivative,  # pyright: ignore[reportPrivateUsage] - the march's history entries
-    fused_tables,
     source_absent,
-    trial_tables,
 )
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.numpy_ref import QUADRATURE_ALARM
@@ -83,7 +79,6 @@ from solprop.constants import EPS0, C
 from solprop.exceptions import (
     BackendError,
     ConvergenceError,
-    HostMarchWarning,
 )
 from solprop.grid import RadialGrid, TimeGrid
 from solprop.modes.protocol import Mode
@@ -151,10 +146,8 @@ from solprop.translate.run_request import RunRequest
 from solprop.translate.stage import (
     StageScalars,
     StageTerms,
-    combine,
     require_device_ready,
 )
-from solprop.translate.tdse import TDSEPurpose
 from solprop.transverse_monitor import (
     TransverseEdge,
     _EdgeReading,  # pyright: ignore[reportPrivateUsage] - released together
@@ -382,13 +375,11 @@ class NativeBackend(StepDriver[_core.State]):
         self._z_tables = None if problem.device_ready else _ZTables(problem, stepper)
         self._flow = _host_flow(problem)
         # solprop SEP 45 phase 2: the staged Runge-Kutta rows, decided on first use.
-        self._rk_staged: bool | None = None
+        self._rk_staged = False
         self._rk_nodes: list[float] = []
         # solprop SEP 45 phase 3: the native Runge-Kutta march, decided on first use.
-        self._rk_march_state: _NativeRungeKuttaMarch | Literal[False] | None = None
-        self._rk_refusal: str | None = None
+        self._rk_march_state: _NativeRungeKuttaMarch | None = None
         self._rk_weighted = False
-        self._flow_key: tuple[int, float] | None = None
         tables = problem.transform.modal_tables
         self._moving_maps = (
             tables is not None
@@ -498,8 +489,6 @@ class NativeBackend(StepDriver[_core.State]):
             if isinstance(integrator, Multistep)
             else None
         )
-        self._host_state: ComplexArray | None = None
-        self._adams_held: tuple[float, float, StageScalars, ComplexArray] | None = None
         # solprop's low-storage march (SEP 24 phase 3) steps through the resident
         # engine `_low_storage_engine` returns, built over the native state above.
         if isinstance(integrator, LowStorageRungeKutta):
@@ -557,93 +546,64 @@ class NativeBackend(StepDriver[_core.State]):
             counters.load("start", flat.nbytes)
         self._native_state.clear_fsal()
         if self._adams is not None:
-            # The host engine's copy of the accepted state; a resident march reads the
-            # native state when it is asked, and holds no such volume.
-            self._host_state = (
-                None
-                if self._resident is not None
-                else self._native_state.field_to_host().reshape(self._layout)
-            )
-            if self._host_state is not None and (
-                (counters := _counters.active) is not None
-            ):
-                counters.crossing("load", self._host_state.nbytes)
             self._adams.reset()
 
     def _march_to(self, target: float) -> None:
-        """Step to `target` with the Adams method when one is set, else Runge-Kutta."""
+        """Step to `target` with the native Adams march when one is set, else the
+        native Runge-Kutta march."""
         try:
             if self._adams is not None:
                 self._adams.march_to(target)
-            elif (march := self._rk_march()) is not None:
-                march.march_to(target)
             else:
-                super()._march_to(target)
+                self._rk_march().march_to(target)
         finally:
             self._check_quadrature(target)
 
     def _replay_to(self, schedule: FixedSchedule, target: float) -> None:
-        """Replay on the native Runge-Kutta march where it steps this run (SEP 45)."""
-        if (march := self._rk_march()) is not None:
-            march.replay_to(schedule, target)
-        else:
-            super()._replay_to(schedule, target)
+        """Replay on the native Runge-Kutta march (SEP 45)."""
+        self._rk_march().replay_to(schedule, target)
 
-    def _rk_march(self) -> _NativeRungeKuttaMarch | None:
-        """Return the native Runge-Kutta march when it steps this run (SEP 45).
+    def _rk_march(self) -> _NativeRungeKuttaMarch:
+        """Return the native Runge-Kutta march, built on first use (SEP 45).
 
-        Decided on the first march: a configuration it does not cover runs solprop's
-        loop with a ``HostMarchWarning`` naming the reason.
+        Its trials read the stage tables, uploaded then (`_staged_rows`).
         """
         if self._rk_march_state is None:
-            refusal, warn = _NativeRungeKuttaMarch.refusal(self)
-            self._rk_refusal = refusal
-            if refusal is None:
-                self._rk_march_state = _NativeRungeKuttaMarch(self)
-            else:
-                self._rk_march_state = False
-                if warn:
-                    warnings.warn(
-                        "solprop-native steps this RungeKutta run with solprop's "
-                        f"loop: {refusal}. The native march (SEP 45) covers adaptive "
-                        "runs on staged rows with PIController's weak norm",
-                        HostMarchWarning,
-                        stacklevel=5,
-                    )
-        return self._rk_march_state or None
+            self._staged_rows()
+            self._rk_march_state = _NativeRungeKuttaMarch(self)
+        return self._rk_march_state
 
     def _adams_state(self) -> ComplexArray:
         """Return the host copy of the accepted state the Adams march reads.
 
-        With the resident history (solprop SEP 16 phase 3b) the march reads it only to
-        report a stopped run, so it is copied from the engine when asked for.
+        The history is resident (solprop SEP 16 phase 3b): the march reads the state
+        only to report a stopped run, so it is copied from the engine when asked for.
         """
         self._require_state()
-        if self._resident is not None:
-            return self._native_state.field_to_host().reshape(self._layout)
-        return cast("ComplexArray", self._host_state)
+        return self._native_state.field_to_host().reshape(self._layout)
 
     def _adams_engine(
         self,
         method: Multistep,
         compensation: Literal["transported", "untransported"],
     ) -> object:
-        """Return the resident Adams history for the fused path (solprop SEP 16).
+        """Return the resident Adams history (solprop SEP 16).
 
-        The interaction formulation on the modal routes keeps its history, its step
-        arithmetic and its norms in the native state (solprop ADR-043); the other
-        paths take solprop's host engine over this backend's hooks.
+        Either formulation keeps its history, its step arithmetic and its norms in the
+        native state (solprop ADR-043), beside a coupled flow too (SEP 16 phase 6),
+        whose interaction formulation the admission refuses (`_refuse_adams`).
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            For the untransported compensation, a reference test witness that native
+            does not step.
         """
-        # Beside a coupled flow the exponential formulation's matrix passes are
-        # resident (solprop SEP 16 phase 6) except where `_flow_on_host` says
-        # otherwise; there solprop's host engine runs them over this backend's hooks.
-        flow = self._flow
-        if _flow_on_host(self._problem, method.formulation == "exponential"):
-            return None
         # A varying operator's exponential formulation carries the transported
         # compensation natively, as does a frozen-residual flow's residual, whatever
-        # the diagonal's representation; the untransported test witness stays on the
-        # host.
+        # the diagonal's representation; the untransported test witness is the
+        # reference's alone.
+        flow = self._flow
         linear = self._problem.linear
         residual = flow is not None and flow.residual_terms is not None
         compensated = method.formulation == "exponential" and (
@@ -654,14 +614,17 @@ class NativeBackend(StepDriver[_core.State]):
             )
         )
         if compensated and compensation != "transported":
-            return None
+            msg = (
+                "solprop-native steps the transported compensation only: the "
+                "untransported one is a test witness of backend='numpy_ref'"
+            )
+            raise BackendError(msg)
         self._resident = _ResidentAdams(
             native=self._native_state,
             method=method,
             controller=self._stepper.controller,
             n_omega=self._problem.grids.n_omega,
             arrays=self._resident_arrays,
-            sample=self._resident_sample,
             hoist=self._hoist,
             adopted=self._resident_adopted,
             rate=self._rate_weights,
@@ -671,14 +634,14 @@ class NativeBackend(StepDriver[_core.State]):
             interpolate=self._stepper.interpolate_planes,
             carrier=carrier_reference(self._problem, method),
         )
-        # solprop SEP 39 phases 1 and 3: where the trial's stage rows are one bundle
-        # repeated, the native state reads the scalar tables itself, uploaded once.
+        # solprop SEP 39 phases 1 and 3: the native state reads the scalar tables
+        # itself, uploaded once; the admission refused a problem whose rows they do not
+        # read (`host_rows_refusal`).
         tables = self._stage_tables()
-        if tables is not None:
-            self._native_state.adams_stage_tables(
-                tables | _chord_tables(self._resident.carrier)
-            )
-            self._resident.staged = True
+        assert tables is not None
+        self._native_state.adams_stage_tables(
+            tables | _chord_tables(self._resident.carrier)
+        )
         return self._resident
 
     def _stage_tables(self) -> dict[str, object] | None:
@@ -815,31 +778,6 @@ class NativeBackend(StepDriver[_core.State]):
             }
         return arrays, material
 
-    def _resident_sample(self, step: _TrialArrays, position: float) -> _TrialArrays:
-        """Return the arrays of a trial at `position`, from a step's that ends there.
-
-        An exponential trial evaluates its new sample at a trial anchored at the step's
-        end. That bundle reads every table at the same position as the step's own, by
-        the same evaluation, and its increment of ``Phi`` is a value less itself:
-        exactly zero, also for a z table's slots. So its arrays are the step's with the
-        increments zeroed, value for value, with no second evaluation of the tables.
-        Beside a coupled flow the section and weights follow the anchor, so the bundle
-        is formed.
-        """
-        if self._flow is not None:
-            return self._resident_arrays(position, position)
-        (phi_delta, *rows), material = step
-        phi_at, prefactor, density, taper, preionisation, raman_rates = rows
-        return (
-            np.zeros_like(phi_delta),
-            phi_at,
-            prefactor,
-            density,
-            taper,
-            preionisation,
-            raman_rates,
-        ), material
-
     def _repeated_arrays(self, bundle: StageScalars) -> _TrialArrays:
         """Return the trial arrays of a step whose every stage row is `bundle`.
 
@@ -876,52 +814,11 @@ class NativeBackend(StepDriver[_core.State]):
             "raman_densities": _repeated_row(bundle.raman_densities, stages),
         }
 
-    def _adams_block(self, z: float, dz: float) -> object:
-        """Return the frozen block of the section a step from `z` is anchored in.
-
-        The host-side factors this backend decomposed its flow into (``_HostFlow``),
-        and a frozen-residual flow's residual relative to the step's section, for
-        solprop's exponential formulation beside a coupled flow (SEP 16 phase 5).
-        """
-        flow = self._flow
-        if flow is None:
-            return None
-        bundle = self._stage_scalars(z, z + dz)
-        section = bundle.flow_section
-        assert section is not None
-        residual = None
-        if flow.residual_terms is not None:
-            residual = functools.partial(_host_residual, flow, section)
-        return CoupledBlock(
-            active=flow.active,
-            vectors=flow.vectors[section],
-            triangular=flow.triangular[section],
-            section=section,
-            end_weights=bundle.flow_weights,
-            residual=residual,
-            # The flow's own eigenbasis and route.
-            basis=(
-                flow.left[section],
-                flow.right[section],
-                flow.eigenvalues[section],
-                flow.route[section],
-            ),
-        )
-
     def _resident_adopted(self, z: float | None) -> None:
         """Make the native state the march's, at `z` when the march moved there."""
         self._state = self._native_state
         if z is not None:
             self._z = z
-
-    def _adams_adopt(self, advanced: ComplexArray, dz: float) -> ComplexArray:
-        """Adopt an Adams step through the native finish; keep its host copy."""
-        self._native_state.adopt(np.ascontiguousarray(advanced.reshape(-1)), dz)
-        self._state = self._native_state
-        self._host_state = self._native_state.field_to_host().reshape(self._layout)
-        if (counters := _counters.active) is not None:
-            counters.crossing("step", self._host_state.nbytes)
-        return self._host_state
 
     def _dense_stages(self) -> list[ComplexArray]:
         """Return the accepted trial's stage derivatives from the engine (SEP 14)."""
@@ -939,7 +836,6 @@ class NativeBackend(StepDriver[_core.State]):
         the field here, so that a restored march keeps adding it to its sources.
         """
         self._z = z
-        self._host_state = None if self._resident is not None else state
         self._native_state.set_initial(
             np.ascontiguousarray(state.reshape(-1)),
             np.empty(0, dtype=np.complex128)
@@ -950,137 +846,46 @@ class NativeBackend(StepDriver[_core.State]):
             counters.load("restore", state.nbytes)
         self._state = self._native_state
 
-    def _adams_propagator(self, anchor: float, position: float) -> ComplexArray:
-        """Return ``U(position, anchor)`` on the host, held for the step's source."""
-        bundle = self._stage_scalars(anchor, position)
-        propagator = np.exp(self._delta_phi(bundle))
-        self._adams_held = (anchor, position, bundle, propagator)
-        return propagator
-
-    def _adams_source(
-        self,
-        lab: ComplexArray,
-        anchor: float,
-        position: float,
-        *,
-        purpose: TDSEPurpose = "predictor",
-    ) -> tuple[ComplexArray, ComplexArray]:
-        """Evaluate the source once natively, at a lab-frame field.
-
-        The engine takes the field in the anchor's frame and evaluates stage zero of
-        a trial whose every stage row is the evaluation position's, which returns
-        ``U(anchor, position) N(lab, position)``. The shared march supplies a
-        purpose label; the admitted optical source requires no atomic accounting.
-        """
-        held = self._adams_held
-        if held is not None and held[0] == anchor and held[1] == position:
-            bundle, propagator = held[2], held[3]
-        else:
-            self._hoist(anchor)
-            bundle = self._stage_scalars(anchor, position)
-            propagator = np.exp(self._delta_phi(bundle))
-        self._adams_held = None
-        self._last_bundle = bundle
-        arrays, material = self._repeated_arrays(bundle)
-        with _envelope_errors():
-            source = self._native_state.adams_source(
-                np.ascontiguousarray((lab / propagator).reshape(-1)),
-                *arrays,
-                material,
-            )
-        return source.reshape(self._layout), propagator
-
-    def _adams_lab_source(
-        self,
-        lab: ComplexArray,
-        position: float,
-        *,
-        purpose: TDSEPurpose = "predictor",
-    ) -> ComplexArray:
-        """Evaluate the source once natively, untransported (solprop SEP 16).
-
-        The native stage-zero source with the anchor at the evaluation position, where
-        the flow over no distance is exactly one: the sample the exponential
-        formulation integrates against the linear flow.
-        """
-        self._hoist(position)
-        source, _ = self._adams_source(lab, position, position, purpose=purpose)
-        return source
-
     def _trial_step(self, z: float, dz: float) -> tuple[float, _core.State]:
         partials = self._prepare_trial(z, dz)
         return self._score_trial(partials), self._native_state
 
-    def _staged_rows(self) -> bool:
-        """Whether the native state forms a Runge-Kutta trial's stage rows itself.
+    def _staged_rows(self) -> None:
+        """Upload the stage tables a Runge-Kutta trial's rows are formed from, once.
 
-        solprop SEP 45 phase 2: where every row a trial reads is one of the uploaded
-        stage tables', the tables are uploaded once and the state evaluates each
-        stage's scalars at ``z + c_i dz`` natively, as `_trial_arrays` packs them from
-        `_stage_bundles`. Phase 4 adds the z table, whose positions the state loads
-        into the one slot cache stage by stage where the host loads a trial's
-        together: the slots differ, the values in them do not. Beside a coupled flow
-        the state also forms the step's flow actions behind `_flow_trial`'s guards,
-        transcribed with their constants.
+        solprop SEP 45 phase 2: every row a trial reads is one of the uploaded stage
+        tables', and the state evaluates each stage's scalars at ``z + c_i dz``
+        natively. Phase 4 adds the z table, whose positions the state loads into the
+        one slot cache stage by stage. Beside a coupled flow the state also forms the
+        step's flow actions behind its guards, transcribed with their constants. The
+        admission refuses a problem whose rows the tables do not read
+        (:func:`host_rows_refusal`), so the tables are always formed.
         """
-        staged = self._rk_staged
-        if staged is None:
-            tables = self._stage_tables()
-            if tables is not None:
-                self._native_state.adams_stage_tables(tables | _chord_tables(None))
-                self._rk_nodes = [float(node) for node in self._stepper.tableau.nodes]
-                flow = self._flow
-                if flow is not None:
-                    modes = int(flow.vectors.shape[-1])
-                    self._native_state.flow_guard_configure(
-                        [float(value) for value in flow.row_sum],
-                        [float(value) for value in np.ravel(flow.condition_bound)],
-                        _TAYLOR_SCALE,
-                        _MAX_FLOW_SQUARINGS,
-                        _flow_allowance(modes),
-                    )
-            staged = self._rk_staged = tables is not None
-        return staged
-
-    def _prepare_trial(
-        self, z: float, dz: float, *, defer_update: bool = False
-    ) -> RealArray:
-        """Prepare member stages, optionally deferring the shared accepted update."""
-        if self._staged_rows():
-            # The state's guard forms the flow's actions; the host's key is stale.
-            self._flow_key = None
-            with _envelope_errors():
-                return self._native_state.rk_trial(
-                    z, dz, self._rk_nodes, prepare_only=defer_update
-                )
-        self._hoist(z)
-        tableau = self._stepper.tableau
-        # Every stage's scalars and the whole step's, each table read once (solprop
-        # kernel schema 28).
-        *bundles, whole = self._stage_bundles(
-            z, [*(z + float(node) * dz for node in tableau.nodes), z + dz]
-        )
-        self._last_bundle = bundles[-1]
-        arrays, material = self._trial_arrays(bundles, whole)
-        phi_delta, phi_at, prefactor, density, taper, preionisation, raman_rates = (
-            arrays
-        )
-        if self._flow is not None:
-            material |= self._flow_trial(dz, whole, bundles)
-        with _envelope_errors():
-            partials = self._native_state.trial_step(
-                dz,
-                phi_delta,
-                phi_at,
-                prefactor,
-                density,
-                taper,
-                preionisation,
-                raman_rates,
-                material,
-                prepare_only=defer_update,
+        if self._rk_staged:
+            return
+        tables = self._stage_tables()
+        assert tables is not None  # `host_rows_refusal` admitted the problem
+        self._native_state.adams_stage_tables(tables | _chord_tables(None))
+        self._rk_nodes = [float(node) for node in self._stepper.tableau.nodes]
+        flow = self._flow
+        if flow is not None:
+            modes = int(flow.vectors.shape[-1])
+            self._native_state.flow_guard_configure(
+                [float(value) for value in flow.row_sum],
+                [float(value) for value in np.ravel(flow.condition_bound)],
+                _TAYLOR_SCALE,
+                _MAX_FLOW_SQUARINGS,
+                _flow_allowance(modes),
             )
-        return partials
+        self._rk_staged = True
+
+    def _prepare_trial(self, z: float, dz: float) -> RealArray:
+        """Prepare a Runge-Kutta trial's stages on the staged rows and score it."""
+        self._staged_rows()
+        with _envelope_errors():
+            return self._native_state.rk_trial(
+                z, dz, self._rk_nodes, prepare_only=False
+            )
 
     def _trial_arrays(
         self, bundles: Sequence[StageScalars], whole: StageScalars
@@ -1239,53 +1044,6 @@ class NativeBackend(StepDriver[_core.State]):
         if tables is not None and tables.phi:
             return np.imag(tables.values("phi", bundle.z1)).reshape(self._layout)
         return super()._unitary_phase(bundle)
-
-    def _flow_trial(
-        self, dz: float, whole: StageScalars, bundles: Sequence[StageScalars]
-    ) -> dict[str, npt.NDArray[np.float64] | int]:
-        """Form the step's flow actions natively if its section or length changed.
-
-        The generator is frozen across a step, so the actions depend on the section
-        and the stage lengths alone, and a fixed schedule or a repeated accepted
-        length reuses them: exactly one set is held, as in solprop's reference
-        backend, and a step crossing into the next section rebuilds, which is the
-        cache invalidation at a section edge. The engine forms them from the
-        section's eigenbasis (or by scaling and squaring where it is ill-conditioned)
-        and measures the whole step's conditioning; the host refuses a length whose
-        exponent needs too many squarings before, and checks the measurement against
-        the section's certificate after.
-        """
-        flow = self._flow
-        assert flow is not None
-        section = whole.flow_section
-        key = (section, float(dz))
-        if key != self._flow_key:
-            # Forgotten first: a refusal below leaves no set of actions behind a key.
-            self._flow_key = None
-            fractions = np.array(
-                [*(float(node) for node in self._stepper.tableau.nodes), 1.0],
-                dtype=np.float64,
-            )
-            for fraction in fractions:
-                if fraction != 0.0:
-                    _flow_squarings(
-                        float(fraction) * float(dz) * float(flow.row_sum[section])
-                    )
-            measured = self._native_state.form_flow_actions(
-                int(section), float(dz), fractions
-            )
-            _check_flow_conditioning(flow, section, measured[0], dz)
-            self._flow_key = key
-        if flow.residual_terms is None:
-            weights = np.empty(0, dtype=np.float64)
-        else:
-            weights = np.ascontiguousarray(
-                np.stack(
-                    [_required(one.flow_weights, "flow_weights") for one in bundles]
-                ),
-                dtype=np.float64,
-            )
-        return {"flow_section": section, "flow_weights": weights}
 
     def _score_trial(self, partials: RealArray) -> float:
         """Reduce one member's partials to the trial's scaled error norm.
@@ -1950,16 +1708,12 @@ class NativeBackend(StepDriver[_core.State]):
         work = super().metadata()
         if self._adams is None and self._low_storage is None:
             work["source_evaluations"] = self._native_state.rk_source_evaluations
-        march = self._adams
-        if isinstance(march, _NativeAdamsMarch):
-            # Which march stepped the run (solprop SEP 39 section 5): a timing or a
-            # rounding difference is traced to it.
-            work["adams_march"] = "native" if march.native else "host"
-        if self._adams is None and self._low_storage is None:
-            # Likewise the Runge-Kutta march (solprop SEP 45 section 5).
-            work["rk_march"] = (
-                "native" if self._rk_march_state else f"host: {self._rk_refusal}"
-            )
+        # Which march steps the run (solprop SEP 39 and 45 section 5): the native one,
+        # the only one since SEP 47 phase 5.
+        if self._adams is not None:
+            work["adams_march"] = "native"
+        elif self._low_storage is None:
+            work["rk_march"] = "native"
         if self._statistics_tables:
             # The profile statistics' tables and their measured errors (SEP 47 6.4).
             work["statistics_tables"] = dict(self._statistics_tables)
@@ -2048,16 +1802,13 @@ class NativeBackend(StepDriver[_core.State]):
     def memory_ledger(self) -> dict[str, int]:
         """Return every persistent native allocation's byte count by role.
 
-        The host engine's copy of the accepted state, which the Adams march keeps on the
-        host when its history is not resident, is listed beside them, and a
-        Runge-Kutta run's dense-output storage before a session allocates it.
+        A Runge-Kutta run's dense-output storage is listed beside them before a
+        session allocates it.
         """
         ledger = {
             str(name): int(value)
             for name, value in self._native_state.memory_ledger().items()
         }
-        held = self._host_state
-        ledger["adams_host_state"] = 0 if held is None else held.nbytes
         stepper = self._stepper
         if (
             stepper.interpolate_planes
@@ -2135,7 +1886,6 @@ class NativeBackend(StepDriver[_core.State]):
             _host_blas.release()
         self._state = None
         self._noise = None
-        self._host_state = None
         self._closed = True
 
 
@@ -2223,8 +1973,6 @@ class _ResidentAdams:
     n_omega: int
     arrays: Callable[[float, float], _TrialArrays]
     """``(anchor, position) -> trial arrays`` with every stage row at `position`."""
-    sample: Callable[[_TrialArrays, float], _TrialArrays]
-    """``(step arrays, end) -> trial arrays`` anchored at the step's end, `end`."""
     hoist: Callable[[float], None]
     adopted: Callable[[float | None], None]
     """Make the native state the backend's, at a new position when one is given."""
@@ -2240,9 +1988,6 @@ class _ResidentAdams:
     carrier: CarrierReference | None = None
     """The run's carrier frame (solprop SEP 35): its shift is formed on the host from
     the reference element's chord, one scalar a trial, and nothing is read back."""
-    staged: bool = False
-    """Whether the native state forms an exponential trial's tables, stage scalars
-    and rate itself, from tables uploaded once (solprop SEP 39 phase 1)."""
     dense: None = None
     _trial: tuple[float, float, list[float], npt.NDArray[np.int64], int] | None = None
     _step: tuple[float, float, npt.NDArray[np.float64]] | None = None
@@ -2440,40 +2185,17 @@ class _ResidentAdams:
     ) -> RealArray:
         """Form an interaction-formulation trial natively; return its scored norms.
 
-        A staged engine forms the tables and the stage scalars in the native state from
-        the nodes alone (solprop SEP 39 phase 3), by the same operations as the host's.
+        The native state forms the tables and the stage scalars from the nodes alone
+        (solprop SEP 39 phase 3), by the same operations as the host's.
         """
-        if self.staged:
-            with _envelope_errors():
-                norms = self.native.adams_fused_trial_at(
-                    z,
-                    dz,
-                    np.asarray(nodes, dtype=np.float64),
-                    np.ascontiguousarray(
-                        slots[: max(max(orders), order)], dtype=np.uint64
-                    ),
-                    order,
-                    list(orders),
-                    _NO_DIVISOR,
-                )
-            self._trial = (z, dz, nodes, slots, order)
-            return np.asarray(norms, dtype=np.float64).reshape(-1)
-        self.hoist(z)
-        predictor, corrector, rows = fused_tables(
-            nodes, order, orders, helpers=self.helpers
-        )
-        width = rows.shape[1]
-        arrays, material = self.arrays(z, z + dz)
         with _envelope_errors():
-            norms = self.native.adams_fused_trial(
+            norms = self.native.adams_fused_trial_at(
+                z,
                 dz,
-                np.ascontiguousarray(slots[: max(width - 1, order)], dtype=np.uint64),
-                np.ascontiguousarray(predictor, dtype=np.float64),
-                np.ascontiguousarray(corrector, dtype=np.float64),
-                np.ascontiguousarray(rows, dtype=np.float64).reshape(-1),
-                _NO_DIVISOR,
-                *arrays,
-                material,
+                np.asarray(nodes, dtype=np.float64),
+                np.ascontiguousarray(slots[: max(max(orders), order)], dtype=np.uint64),
+                order,
+                list(orders),
             )
         self._trial = (z, dz, nodes, slots, order)
         return np.asarray(norms, dtype=np.float64).reshape(-1)
@@ -2508,68 +2230,13 @@ class _ResidentAdams:
 
         The step's exponent, flow and moments come from the trial's own arrays; the
         predicted field's source is evaluated in the laboratory frame, at a trial
-        whose anchor is the step's end. A staged engine forms the tables, the stage
-        scalars and the rate in the native state from the nodes alone (solprop SEP 39
-        phase 1), by the same operations as the host's.
-        """
-        if self.staged:
-            return self._staged_trial(z, dz, nodes, slots, order, orders)
-        self.hoist(z)
-        # Every table in one call of the backend's helpers; each is a fresh
-        # C-contiguous float64 array, as the native call takes it.
-        predictor, corrector, rows, spans, carried, endpoint, defects = trial_tables(
-            nodes, order, orders, compensated=self.compensated, helpers=self.helpers
-        )
-        width = corrector.shape[0]
-        step, material = self.arrays(z, z + dz)
-        sample, sample_material = self.sample((step, material), z + dz)
-        rate = _NO_RATE
-        if self.compensated:
-            rate = np.ascontiguousarray(
-                self.rate(z + dz, before=True), dtype=np.float64
-            )
-        carrier = self._carrier(z, dz, nodes, width - 1)
-        with _envelope_errors():
-            norms = self.native.adams_exponential_trial(
-                dz,
-                np.ascontiguousarray(slots[: max(width - 1, order)], dtype=np.uint64),
-                predictor.reshape(-1),
-                corrector.reshape(-1),
-                rows.reshape(-1),
-                _NO_DIVISOR,
-                *step,
-                material,
-                *sample,
-                sample_material,
-                spans,
-                carried,
-                endpoint,
-                defects.reshape(-1),
-                rate,
-                carrier,
-            )
-        self._trial = (z, dz, nodes, slots, order)
-        self._trial_carrier = carrier
-        self._coefficients = corrector[: order + 1, : order + 1].copy()
-        self._dense_nodes = np.array([1.0, *nodes[:order]])
-        return np.asarray(norms, dtype=np.float64).reshape(-1)
-
-    def _staged_trial(
-        self,
-        z: float,
-        dz: float,
-        nodes: list[float],
-        slots: npt.NDArray[np.int64],
-        order: int,
-        orders: list[int],
-    ) -> RealArray:
-        """Form an exponential trial from its nodes alone; return its scored norms.
-
-        The native state forms the coefficient tables (``lagrange::trial_tables``),
-        the stage scalars and the rate from the tables uploaded once, and the divisor
-        as on the other path; the carrier frame's shift is the host's. A run that
-        interpolates its planes keeps the corrector's coefficients on the host for its
-        observations, from the same basis.
+        whose anchor is the step's end. The native state forms the tables, the stage
+        scalars and the rate from the nodes alone (solprop SEP 39 phase 1), by the
+        same operations as the host's: the coefficient tables
+        (``lagrange::trial_tables``), the stage scalars and the rate from the tables
+        uploaded once, and the divisor; the carrier frame's shift is the host's. A run
+        that interpolates its planes keeps the corrector's coefficients on the host for
+        its observations, from the same basis.
         """
         width = 1 + max(orders)
         carrier = self._carrier(z, dz, nodes, width - 1)
@@ -2582,7 +2249,6 @@ class _ResidentAdams:
                 order,
                 list(orders),
                 self.compensated,
-                _NO_DIVISOR,
                 carrier,
             )
         self._trial = (z, dz, nodes, slots, order)
@@ -2652,22 +2318,16 @@ class _ResidentAdams:
         )
         arrays, material = self.arrays(z, position)
         self.native.adams_observe(
-            np.ascontiguousarray(weights, dtype=np.float64), False, *arrays, material
+            np.ascontiguousarray(weights, dtype=np.float64), *arrays, material
         )
         return self.native
 
-
-_NO_DIVISOR = np.empty(0, dtype=np.float64)
-"""The empty divisor that asks the native trial to form the scale itself."""
 
 _NO_SCHEDULE = np.empty(0, dtype=np.float64)
 """The empty schedule of an adaptive march's configuration."""
 
 _NO_CARRIER = np.empty(0, dtype=np.float64)
 """The empty carrier frame: the native trial takes the unshifted arithmetic."""
-
-_NO_RATE = np.empty(0, dtype=np.float64)
-"""The empty endpoint rate of an uncompensated trial."""
 
 _NO_COEFFICIENTS = np.empty((0, 0), dtype=np.float64)
 """The corrector's coefficients a staged trial keeps when no plane is interpolated."""
@@ -2964,22 +2624,6 @@ def host_rows_refusal(problem: PropagationProblem) -> str | None:
     )
 
 
-def _flow_on_host(problem: PropagationProblem, exponential: bool) -> str | None:
-    """Return why solprop's host engine steps an Adams run beside a coupled flow.
-
-    The resident engine steps the exponential formulation beside a coupled flow
-    (solprop SEP 16 phase 6) at any width and whichever route each bin takes, the
-    eigenbasis or the augmented exponential, on a CPU and a device build alike (SEP 47
-    phase 4): only the interaction formulation takes the host engine. ``None`` without
-    a coupled flow or where the resident engine steps it.
-    """
-    if problem.linear.coupled_flow is None:
-        return None
-    if not exponential:
-        return "the host engine, which steps the interaction formulation beside a flow"
-    return None
-
-
 class _MarchRunner(Protocol):
     """What runs the native march: the native state, or a script in the tests."""
 
@@ -3094,8 +2738,9 @@ class _NativeAdamsMarch(AdamsMarch):
     native code cannot read, is polled before each call, not before each attempt: both
     a signal and a stop wait for the call in hand, at most its bound and one attempt.
 
-    A configuration the native march does not cover runs the Python march
-    (:attr:`refusal`), with a warning; no admitted configuration reaches it.
+    Every configuration the backend admits is one the native march steps; a carrier
+    frame on an operator with no chord, which the admission refuses
+    (``refuse_carrier_frame``), is refused here too, before anything is stepped.
     """
 
     MAX_ATTEMPTS: ClassVar[int] = 256
@@ -3113,10 +2758,15 @@ class _NativeAdamsMarch(AdamsMarch):
         kernels: AdamsKernels | None = None,
         exponential: ExponentialKernels | None = None,
     ) -> None:
-        """Build the Python march, then decide which march steps the run.
+        """Build the march's state over the resident engine.
 
         `runner`, the scripted march of the decision-trace tests, takes the native
         state's place; `kernels` and `exponential` are the Python march's own.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            For a carrier frame on an operator with no chord.
         """
         # solprop's signature names the driver unparameterised.
         super().__init__(backend, method, kernels, exponential)  # pyright: ignore[reportUnknownMemberType]
@@ -3126,51 +2776,18 @@ class _NativeAdamsMarch(AdamsMarch):
         self._driver: Any = backend
         self._runner = runner
         self._configured: tuple[float | None] | None = None
-        refusal, warn = self._native_refusal()
-        self.refusal = refusal
-        """Why the Python march steps the run, or ``None`` when the native one does."""
-        if refusal is not None and warn:
-            warnings.warn(
-                f"solprop-native steps this {method.name} run with solprop's Python "
-                f"march: {refusal}. The native march (SEP 39) covers Multistep() in "
-                "either formulation on every route with the resident engine",
-                HostMarchWarning,
-                stacklevel=4,
-            )
-
-    @property
-    def native(self) -> bool:
-        """Whether the native march steps the run."""
-        return self.refusal is None
-
-    def _native_refusal(self) -> tuple[str | None, bool]:
-        """Return why the native march does not step the run, and whether to warn."""
         engine = self._engine
-        if self._runner is not None:
-            return None, False
-        if not isinstance(engine, _ResidentAdams):
-            hosted = _flow_on_host(
-                self._driver._problem, self._method.formulation == "exponential"
-            )
-            return (
-                hosted or "the host engine, which steps the untransported compensation"
-            ), True
-        assert isinstance(engine, _ResidentAdams)
-        chord = None if engine.carrier is None else engine.carrier.chord
-        resident = (
-            (
-                not engine.staged,
-                "stage tables withheld by the test interface",
-            ),
-            (
-                self._policy.carrier and chord is None,
-                "the carrier frame on an operator with no chord",
-            ),
-        )
-        for failed, reason in resident:
-            if failed:
-                return reason, True
-        return None, False
+        # `_adams_engine` returns the resident history or refuses: the march has no
+        # host engine to step. A scripted runner's harness keeps its own.
+        if runner is None:
+            assert isinstance(engine, _ResidentAdams)
+            chord = None if engine.carrier is None else engine.carrier.chord
+            if self._policy.carrier and chord is None:
+                msg = (
+                    "solprop-native does not step the carrier frame on an operator "
+                    "with no chord"
+                )
+                raise BackendError(msg)
 
     def march_to(self, target: float) -> None:
         """Step the backend's state to `target`, natively when the march is admitted.
@@ -3188,9 +2805,6 @@ class _NativeAdamsMarch(AdamsMarch):
         ResponseBudgetError
             If the next trial would exceed the method's call budget.
         """
-        if not self.native:
-            super().march_to(target)
-            return
         backend = self._driver
         if self._ahead is not None:
             # The march is ahead of the last observation; resume it there.
@@ -3531,16 +3145,6 @@ class _NativeRungeKuttaMarch:
         self._configured: tuple[float | None] | None = None
         self._replaying: FixedSchedule | None = None
 
-    @staticmethod
-    def refusal(backend: NativeBackend) -> tuple[str | None, bool]:
-        """Return why the native march does not step a run, and whether to warn."""
-        # A controller that overrides a decision never reaches here: the backend
-        # refuses it where it is built (`_refuse_reference_only`).
-        driver: Any = backend
-        if not driver._staged_rows():
-            return "a trial whose stage rows the host forms", True
-        return None, False
-
     def _policy(self) -> dict[str, object]:
         """Return the run's controller and landing record (kernel contract 12)."""
         backend = self._driver
@@ -3751,8 +3355,6 @@ class _NativeRungeKuttaMarch:
         position = float(backend._z)
         with committing():
             result = self._native_run(self._state(watching), bounds)
-            # The state's guard formed the flow's actions; the host's key is stale.
-            backend._flow_key = None
             state = result["state"]
             backend._z = float(state["z"])
             backend._schedule_index = int(state["cursor"])
@@ -4481,25 +4083,6 @@ class _HostFlow:
     row_sum: RealArray
 
 
-def _host_residual(
-    flow: _HostFlow, section: int, state: ComplexArray, weights: RealArray
-) -> ComplexArray:
-    """Return ``R_s(z) state`` for the flow weights of a position (solprop SEP 16).
-
-    solprop's reference residual (``numpy_ref.backend._residual_action`` and
-    ``_residual_drive``): the terms combined over the weights less the step's section's
-    frozen block, applied on the active bins the error norm scores, zero elsewhere.
-    """
-    assert flow.residual_terms is not None
-    action = combine(weights, flow.residual_terms) - flow.frozen[section]
-    drive = np.zeros_like(state)
-    bins = np.flatnonzero(flow.active)[flow.scored]
-    drive[:, :, :, bins] = np.einsum(
-        "wij,bjpw->bipw", action[flow.scored], state[:, :, :, bins]
-    )
-    return drive
-
-
 _HOST_FLOWS: weakref.WeakKeyDictionary[PropagationProblem, _HostFlow | None] = (
     weakref.WeakKeyDictionary()
 )
@@ -4587,60 +4170,9 @@ _MAX_FLOW_SQUARINGS = 30
 """Largest number of squarings a flow action may need before it is refused."""
 
 
-def _flow_squarings(largest: float) -> None:
-    """Refuse a length whose exponent would need more squarings than admitted.
-
-    solprop's reference rule (``numpy_ref.backend._flow_squarings``), applied to
-    the section's largest row-sum norm times the length whichever route the engine
-    forms a bin by, so a step is refused here exactly where the reference refuses it,
-    to the rounding of one product.
-    """
-    squarings = 0
-    if largest > _TAYLOR_SCALE:
-        squarings = math.ceil(math.log2(largest / _TAYLOR_SCALE))
-    if squarings > _MAX_FLOW_SQUARINGS:
-        raise BackendError(
-            f"native cannot take a coupled flow action whose exponent has row-sum "
-            f"norm {largest:.4g}: it would need {squarings} squarings, above the "
-            f"{_MAX_FLOW_SQUARINGS} this backend admits. Cap dz_max"
-        )
-
-
 def _flow_allowance(modes: int) -> float:
     """Return the rounding allowance on two spectral norms of `modes` channels."""
     return 1.0 + 64.0 * modes * float(np.finfo(float).eps)
-
-
-def _check_flow_conditioning(
-    flow: _HostFlow,
-    section: int,
-    measured: RealArray,
-    dz: float,
-) -> None:
-    """Refuse a step whose measured ``norm(U) norm(U^-1)`` exceeds the certificate.
-
-    The certificate row ``exp(dz_max (mu_max - mu_min))`` is checked per step as the
-    reference checks it, with the same allowance for the rounding of two norms and
-    nothing more; the two spectral norms of the whole step's actions are measured by
-    the engine per bin, each an upper bound to the rounding of a Jacobi iteration on
-    its Gram matrix.
-    """
-    if not measured.size:
-        return
-    declared = flow.condition_bound[section]
-    allowance = _flow_allowance(int(flow.vectors.shape[-1]))
-    excess = measured / (declared * allowance)
-    worst = int(np.argmax(excess))
-    if excess[worst] > 1.0:
-        raise BackendError(
-            f"native measured a coupled flow conditioning of "
-            f"{float(measured[worst]):.12g} over a step of {dz:.4g} m, above the "
-            f"{float(declared[worst]):.12g} the certificate declares at "
-            f"active bin {worst} of section {section} -- exceeding it by a factor "
-            f"{float(excess[worst]):.12g} of the rounding allowance: the inverse "
-            "action carries the nonlinear source back by the measured factor. Lower "
-            "dz_max, which is what the bound was declared over"
-        )
 
 
 def _flow_payload(flow: _HostFlow | None) -> dict[str, object]:

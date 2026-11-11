@@ -345,30 +345,6 @@ def test_the_flow_ledger_counts_its_views() -> None:
     assert ledger["flow_slot"] == bins * 8
 
 
-def test_a_length_needing_too_many_squarings_is_refused_by_name() -> None:
-    """solprop's squaring limit, on the section's row-sum norm, before the engine runs.
-
-    A refused length leaves no key behind, so the next trial forms its actions.
-    """
-    case = CASES["scalar_wall"]()
-    problem = case.translate()
-    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
-    backend = NativeBackend(problem, run_request, grid=case.grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        whole = backend._stage_scalars(  # pyright: ignore[reportPrivateUsage]
-            0.0, LENGTH / STEPS
-        )
-        with pytest.raises(BackendError, match="native cannot take a coupled flow"):
-            backend._flow_trial(  # pyright: ignore[reportPrivateUsage]
-                1e30, whole, [whole]
-            )
-        assert backend._flow_key is None  # pyright: ignore[reportPrivateUsage]
-        backend.propagate_to(LENGTH)
-    finally:
-        backend.close()
-
-
 def test_the_engine_forms_the_reference_s_actions_within_the_formation_bound() -> None:
     """Every stage's native pair against solprop's reference, bound first.
 

@@ -399,20 +399,6 @@ def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_boun
         backend.close()
 
 
-def test_an_action_needing_too_many_squarings_is_refused_by_name_on_native():
-    """The reference's squaring limit, on the section's row-sum norm, in its words."""
-    case = scalar_wall()
-    backend = native_class()(case.problem, case.run_request, grid=case.grid)
-    try:
-        backend.set_initial(case.problem.initial.field0, None)
-        whole = backend._stage_scalars(0.0, case.length / STEPS)
-        with pytest.raises(BackendError, match="native cannot take a coupled flow"):
-            backend._flow_trial(1e30, whole, [whole])
-        assert backend._flow_key is None
-    finally:
-        backend.close()
-
-
 def test_a_step_longer_than_the_certificate_is_refused_by_name_on_native():
     """The whole step's conditioning is measured per step and checked, as there.
 

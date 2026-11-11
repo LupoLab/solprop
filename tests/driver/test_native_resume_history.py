@@ -221,46 +221,6 @@ def test_the_resident_history_is_restored_exactly_and_continued(build_simulation
 
 
 @quiet
-# The host engine runs solprop's march, with the warning the admission tests assert.
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
-@pytest.mark.parametrize("case", CASE_PARAMS)
-def test_the_host_engine_on_native_hooks_round_trips_too(
-    build_simulation, monkeypatch, case
-):
-    # Where the resident engine does not apply (a device build's block of more than
-    # sixteen channels or off the eigenbasis route, the untransported witness), the
-    # native backend runs solprop's host engine over its hooks; that history crosses a
-    # resume in the host engine's own rows.
-    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        NativeBackend,
-    )
-
-    monkeypatch.setattr(NativeBackend, "_adams_engine", lambda *_: None)
-    simulation = CASES[case](build_simulation, "native")()
-    problem, first = opened(simulation, "native")
-    try:
-        assert type(first._adams._engine).__name__ == "HostHistory"
-        first.propagate_to(float(simulation._run_request().stepper.save_planes[0]))
-        stored = first.march_snapshot()
-    finally:
-        first.close()
-    assert stored is not None
-    weights = {name for name in stored.rows if name.startswith("weights_")}
-    assert set(stored.rows) - weights == ROWS[case] - {"applied"}
-    assert bool(weights) == (case == "coupled")
-    _, second = opened(simulation, "native")
-    try:
-        second.set_initial(problem.initial.field0, None, z=stored.z)
-        starts = counted_starts(second)
-        assert second.restore_march(stored) is None
-        assert_same_snapshot(second.march_snapshot(), stored)
-        second.propagate_to(float(simulation._run_request().stepper.save_planes[1]))
-        assert starts() == 0
-    finally:
-        second.close()
-
-
-@quiet
 @pytest.mark.parametrize("case", ["compensated", "coupled"])
 def test_a_resume_without_the_snapshot_restarts_the_history(build_simulation, case):
     # The witness above is a real one: the same backend without the snapshot does

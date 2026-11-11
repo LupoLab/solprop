@@ -2230,8 +2230,7 @@ public:
                           const AdamsWeights& dense);
   void adams_hold();
   void adams_restore();
-  void adams_observe(const AdamsWeights& weights, bool hermite,
-                     const TrialScalars& scalars);
+  void adams_observe(const AdamsWeights& weights, const TrialScalars& scalars);
   std::vector<double>
   adams_exponential_trial(double dz, const ExponentialWeights& weights,
                           const std::vector<double>& divisor, const TrialScalars& step,
@@ -6945,11 +6944,10 @@ GeneralWorkspace::phase_sum_to_host(const std::vector<double>& weights) {
 
 // The field at a fraction of the last accepted step: the step's interpolant in its
 // anchor's frame -- the Adams corrector's (`weights.predictor` holds dz-scaled
-// integrated weights over the slopes) or the cubic Hermite one (`hermite`, the four
-// coefficients in `weights.corrector`) -- with a bin the step's flow changes by more
+// integrated weights over the slopes) -- with a bin the step's flow changes by more
 // than an e-fold taking the anchor's value, carried to the observation by the uploaded
 // trial's flow and masked into current_.
-void GeneralWorkspace::adams_observe(const AdamsWeights& weights, const bool hermite,
+void GeneralWorkspace::adams_observe(const AdamsWeights& weights,
                                      const TrialScalars& scalars) {
   require_adams();
   if (adams_dense_count_ == 0)
@@ -6961,7 +6959,6 @@ void GeneralWorkspace::adams_observe(const AdamsWeights& weights, const bool her
   const auto n = problem_.n_omega;
   const auto count = adams_dense_count_;
   const auto start = adams_dense_start_;
-  const auto end = adams_dense_end_;
   const auto exponent = adams_dense_exponent_;
   const auto slopes = adams_slopes_;
   const auto carry = adams_propagator_;
@@ -6969,18 +6966,10 @@ void GeneralWorkspace::adams_observe(const AdamsWeights& weights, const bool her
   launch::parallel_for(
       "solprop_native.adams.observe", Range2(execution_space_, {0, 0}, {columns, n}),
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-        Complex value;
-        if (hermite) {
-          value = weights.corrector[0] * start(column, index) +
-                  weights.corrector[1] * slopes(1, column, index) +
-                  weights.corrector[2] * end(column, index) +
-                  weights.corrector[3] * slopes(0, column, index);
-        } else {
-          Complex total{};
-          for (std::size_t t = 0; t < count; ++t)
-            total += weights.predictor[t] * slopes(t, column, index);
-          value = start(column, index) + total;
-        }
+        Complex total{};
+        for (std::size_t t = 0; t < count; ++t)
+          total += weights.predictor[t] * slopes(t, column, index);
+        Complex value = start(column, index) + total;
         if (Kokkos::abs(exponent(column, index).real()) > 1.0)
           value = start(column, index);
         current(column, index) = carry(column, index) * value;
@@ -17862,10 +17851,10 @@ void GeneralState::adams_rows_from_host(const std::string& name,
   const CpuTeamScope team(workspace_->cpu_team());
   workspace_->adams_rows_from_host(name, values);
 }
-void GeneralState::adams_observe(const AdamsWeights& weights, const bool hermite,
+void GeneralState::adams_observe(const AdamsWeights& weights,
                                  const TrialScalars& scalars) {
   const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->adams_observe(weights, hermite, scalars);
+  workspace_->adams_observe(weights, scalars);
 }
 std::vector<double> GeneralState::adams_exponential_trial(
     const double dz, const ExponentialWeights& weights,

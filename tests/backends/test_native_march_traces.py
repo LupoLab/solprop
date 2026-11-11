@@ -163,8 +163,6 @@ def run_native(scenario: Scenario, max_attempts: int) -> dict[str, Any]:
         exponential=ExponentialKernels(helpers=PLAIN),
     )
     harness.march = march
-    # Every scenario, a replay's too, runs on the native march.
-    assert march.native, march.refusal
     if scenario.targets is not None:
         targets = list(scenario.targets)
     elif scenario.interpolate or not scenario.save_planes:

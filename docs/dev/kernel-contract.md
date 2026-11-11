@@ -330,8 +330,11 @@ source, corrector and scored defect norms, the adoption and transport of an acce
 step, holding and restoring the accepted state around a dense observation, and the
 observation itself. Only scalars, the coefficient tables and the norms cross the
 interface. The default returns `None`, and the march uses `HostHistory`, the host
-engine, over the other Adams hooks; `native` returns one resident in its native state.
-The general path (PECE and the comparison variants) keeps host arrays.
+engine, over the other Adams hooks; `native` always returns one resident in its native
+state, and refuses the untransported compensation witness by name (SEP 47 phase 5
+deleted its host-engine fallback, and with it its `_adams_source`, `_adams_lab_source`,
+`_adams_propagator`, `_adams_block` and `_adams_adopt` overrides). The general path
+(PECE and the comparison variants) keeps host arrays.
 
 `StepDriver._adams_source(lab, anchor, position, *, purpose)` takes a
 `TDSEPurpose` label so startup, predictor, corrected-field and diagnostic

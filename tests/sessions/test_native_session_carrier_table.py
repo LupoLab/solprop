@@ -349,7 +349,7 @@ def test_the_chord_is_a_varying_table_the_session_admits():
     # The built native backend, whose march and tables the checks reach.
     backend: Any = select("native", problem, request, **_context(simulation))
     try:
-        assert backend._adams.native and backend._adams._policy.carrier
+        assert backend._adams._policy.carrier
         # The table is the chord's whole description: a chord of kind ``table``
         # without one is refused when the tables are uploaded.
         tables = backend._stage_tables()

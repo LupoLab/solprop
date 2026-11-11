@@ -853,8 +853,7 @@ public:
                           const AdamsWeights& dense);
   void adams_hold();
   void adams_restore();
-  void adams_observe(const AdamsWeights& weights, bool hermite,
-                     const TrialScalars& scalars);
+  void adams_observe(const AdamsWeights& weights, const TrialScalars& scalars);
   [[nodiscard]] std::vector<double>
   adams_exponential_trial(double dz, const ExponentialWeights& weights,
                           const std::vector<double>& divisor, const TrialScalars& step,
