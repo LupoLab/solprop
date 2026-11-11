@@ -9,11 +9,10 @@ device build runs today -- Adams and the embedded Runge-Kutta tableaux, adaptive
 replayed, the low-storage replay, dense output, the radial, Cartesian, line and planar
 spatial routes with their fluence widths, a free-space run's transverse edge and a
 collar's current, the input and modified noise models, a coupled flow wider than 16
-channels, and fixed-schedule groups (the native group session, one native session per
-member) -- instead of leaving them to the transitional bridge
-(:class:`~solprop.backends.driver_session.DriverSession` over the backend's own
-march), which phase 5 deletes. A coupled flow with bins off its eigenbasis route,
-which the device steps on solprop's host engine, is still the bridge's.
+channels or off its eigenbasis route, and fixed-schedule groups (the native group
+session, one native session per member) -- instead of leaving them to the transitional
+bridge (:class:`~solprop.backends.driver_session.DriverSession` over the backend's own
+march), which phase 5 deletes.
 
 Each feature runs on the same device in the native session and on the bridge, most
 through the production door (:func:`solprop.backends.sessions.start_session`) with
@@ -38,6 +37,7 @@ import pytest
 from backends.test_transverse_backends import radial_collar
 from sessions.executors import (
     CONSUMER,
+    COUPLED_KINDS,
     IDENTITY,
     STORED,
     Run,
@@ -385,14 +385,20 @@ def test_a_noisy_run_is_the_bridges_on_the_device(noise, march, monkeypatch):
 
 
 @pytest.mark.filterwarnings("ignore:the temporal absorber attenuates")
-def test_a_wide_coupled_flow_is_the_bridges_on_the_device(monkeypatch):
-    """A 17-channel coupled block, ten fixed exponential Adams steps on the resident
-    engine of the device, whose passes take a thread per (bin, channel) at any width:
-    the session's run is the bridge's over the same engine, bitwise. Its agreement
-    with ``numpy_ref`` and solprop's host engine within the ten-step bound is
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.GrazingIncidenceWarning")
+@pytest.mark.parametrize("kind", COUPLED_KINDS)
+def test_a_wide_or_off_route_coupled_flow_is_the_bridges_on_the_device(
+    kind, monkeypatch
+):
+    """A 17-channel coupled block, and a block with every bin off its eigenbasis route,
+    ten fixed exponential Adams steps on the resident engine of the device: its passes
+    take a thread per (bin, channel) at any width, and a thread per bin off the route
+    forms that bin's flow, moments and carries by the augmented exponential. The
+    session's run is the bridge's over the same engine, bitwise. Their agreement with
+    ``numpy_ref`` and solprop's host engine within the ten-step bounds is
     ``tests/driver/test_native_flow_session.py``'s."""
-    problem, request, context = coupled_flow("wide")
-    assert problem.shape[0] == 17
+    problem, request, context = coupled_flow(kind)
     assert native_session.refusal(problem, request) is None
     run = _door(problem, request, context, monkeypatch, bridge=False)
     baseline = _door(problem, request, context, monkeypatch, bridge=True)

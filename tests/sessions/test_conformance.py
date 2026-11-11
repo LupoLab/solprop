@@ -41,7 +41,6 @@ from sessions.executors import (
     ScriptedWarning,
     assert_same_run,
     coupled_flow,
-    device_build,
     drive,
     edged,
     soliton,
@@ -71,7 +70,6 @@ from solprop.backends.session import (
 from solprop.exceptions import (
     BackendError,
     BoundaryError,
-    HostMarchWarning,
     StopRequested,
 )
 from solprop.monitor import BoundaryCheck
@@ -639,8 +637,6 @@ def test_a_wide_or_off_route_coupled_flow_keeps_the_contract(start, executor, ki
     same to the bit where the executor is deterministic.
     """
     executor.require(COUPLED)
-    if kind == "off route" and executor.name == "native-session" and device_build():
-        pytest.skip("a device build steps a bin off the route on the host engine")
     problem, request, context = coupled_flow(kind)
     schedule = request.stepper.schedule
     assert schedule is not None
@@ -648,15 +644,10 @@ def test_a_wide_or_off_route_coupled_flow_keeps_the_contract(start, executor, ki
     # 17-channel block is long, and its repeatability is the suite's other tests'.
     repeated = executor.deterministic and executor.name.startswith("native")
     runs = []
-    with warnings.catch_warnings():
-        if device_build():
-            # A device build's bridge steps a flow off the route on solprop's host
-            # engine, and says so; a CPU build steps both natively, so the warning
-            # stays an error there.
-            warnings.simplefilter("ignore", HostMarchWarning)
-        for _ in range(2 if repeated else 1):
-            started = start(problem, request, context=context)
-            runs.append(drive(started, export=IDENTITY))
+    # Either build steps both natively, so a HostMarchWarning stays an error.
+    for _ in range(2 if repeated else 1):
+        started = start(problem, request, context=context)
+        runs.append(drive(started, export=IDENTITY))
     run = runs[0]
     assert run.terminal.outcome is Outcome.COMPLETED
     assert run.attempts == run.status.attempts == len(schedule.steps)
