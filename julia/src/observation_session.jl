@@ -287,6 +287,7 @@ mutable struct ObservationServices{W, S, R, Q, T}
     quadrature_work::Q
     periodic_pending::Bool
     resume_pending::Bool
+    transverse_restored::Bool
 
     function ObservationServices(
             work::W, transverse::T, split::S, row_slices::R,
@@ -300,7 +301,7 @@ mutable struct ObservationServices{W, S, R, Q, T}
             plane_values, false, NaN, fill(blank, 2), 0,
             MonitorNotices(1), nothing, ObservationNoBarrier, ObservationNoContinuation,
             NaN, (quiet = false, step_cap = Inf), false, false, false, 0, NaN, NaN,
-            quadrature_work, false, false,
+            quadrature_work, false, false, false,
         )
     end
 end

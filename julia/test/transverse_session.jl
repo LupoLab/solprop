@@ -327,6 +327,7 @@ end
         fresh, temporal_record, false, wrong,
     )
     @test isequal(before, SP.session_monitor_payload(fresh, 0))
+    @test !fresh.services.transverse_restored
     SP.restore_session_monitor!(fresh, temporal_record, false, edge_record)
     restored = SP.session_monitor_payload(fresh, 0)
     @test restored.record.resuming && restored.transverse.resumed
@@ -357,12 +358,43 @@ end
     SP.restore_session_monitor!(only_edge, nothing, false, nothing)
     restored = SP.session_monitor_payload(only_edge, 0)
     @test restored.resuming && isnan(restored.committed) && !restored.transverse.resumed
+    @test only_edge.services.transverse_restored
+    SP.restore_session_monitor!(only_edge, nothing, false, edge_record)
+    @test isequal(restored, SP.session_monitor_payload(only_edge, 0))
     report = SP.advance!(only_edge; deadline = 60.0)
     @test SP.session_monitor_payload(only_edge, report.generation).resuming
     SP.acknowledge!(only_edge, report.generation)
     report = SP.advance!(only_edge; work_limit = 1, deadline = 60.0)
     attached = SP.session_monitor_payload(only_edge, report.generation)
     @test !attached.resuming && attached.committed == only_edge.state.z
+
+    # A resumed lifecycle with no supplied record has not selected its later
+    # output fallback. Explicit restoration, including nothing, selects it once.
+    fallback, policy = transverse_session_case(; temporal = true)
+    preparation = SP.SessionPreparation(
+        SP.SpatialPreparation(
+            fallback.execution, nothing, fallback.flow.operator,
+            SP.ObservationWeight(fallback.execution, ones(size(fallback.field))), 3,
+        ), policy,
+    )
+    services = SP._launch_observation_services(
+        preparation, copy(fallback.field), nothing, fallback.norm.active, 0.0, true,
+    )
+    fallback = SP.RungeKuttaSession(
+        fallback.execution, fallback.field, 0.0, 0.01, fallback.tableau,
+        fallback.control, fallback.norm, fallback.schedule, fallback.source,
+        fallback.flow; services,
+    )
+    @test services.resume_pending && !services.transverse_restored
+    @test !services.transverse.state.resumed && !services.work.monitor.resuming
+    SP.restore_session_monitor!(fallback, temporal_record, false, edge_record)
+    resumed = SP.session_monitor_payload(fallback, 0)
+    @test services.transverse_restored && resumed.record.resuming &&
+        resumed.transverse.resumed
+    @test resumed.transverse.continuation.launch == edge_record.launch
+    @test resumed.transverse.continuation.current == edge_record.current
+    SP.restore_session_monitor!(fallback, nothing, true, nothing)
+    @test isequal(resumed, SP.session_monitor_payload(fallback, 0))
 end
 
 @testset "Launch noise ordering, optional clean data and complete retained ledger" begin

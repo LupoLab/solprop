@@ -171,9 +171,11 @@ execution with no previous record. The latter still suppresses fresh-launch judg
 `plane` says whether the resumed endpoint is a saved plane. Optional `transverse`
 is an already parsed `TransverseContinuation`; positive launch totals preserve the
 original edge baselines. Check its face count before changing either monitor. Open
-unmonitored sessions
-are unchanged; an already marked resumption keeps its first record. Attachment/lifetime
-checks run before either no-op, including while the initial launch receipt is pending.
+unmonitored sessions are unchanged; an explicit restoration keeps its first selection,
+including an absent record. Construction's resumed lifecycle flag does not select that
+record, so an unsupplied continuation may still use its first output fallback.
+Attachment/lifetime checks run before either no-op, including while the initial launch
+receipt is pending.
 Closed, ended or attached sessions refuse without mutation. Legacy scalar parsing,
 row history and textual metadata remain outside this numerical operation.
 """
@@ -190,7 +192,8 @@ function restore_session_monitor!(
         throw(ArgumentError("a monitor must be restored before attachment"))
     monitor = services.work.monitor
     edge = services.transverse
-    if edge !== nothing && !edge.state.resumed
+    restore_edge = edge !== nothing && !services.transverse_restored && !edge.state.resumed
+    if restore_edge
         !edge.started && isnan(edge.state.last_z) ||
             throw(ArgumentError("a transverse monitor must be restored before attachment"))
         if transverse !== nothing && transverse.launch > 0
@@ -200,7 +203,10 @@ function restore_session_monitor!(
     end
     monitor !== nothing && !monitor.resuming &&
         restore_temporal!(monitor, continuation; plane)
-    edge !== nothing && !edge.state.resumed && restore_transverse!(edge.state, transverse)
+    restore_edge && restore_transverse!(edge.state, transverse)
+    # Selection and positive old totals differ: the first explicit missing record
+    # must also remain selected, without freezing an unsupplied fallback (#693).
+    services.transverse_restored = true
     services.resume_pending = true
     return nothing
 end
