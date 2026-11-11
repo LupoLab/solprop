@@ -49,11 +49,42 @@ _FACTS = (
 
 
 def _runtime_facts(runtime: JuliaRuntime) -> dict[str, str]:
+    """Copy actual FFT provider identities without retaining Julia wrappers.
+
+    Parameters
+    ----------
+    runtime : JuliaRuntime
+        Initialized runtime, inside its guarded entry boundary.
+
+    Returns
+    -------
+    dict
+        Detached strings identifying the loaded provider and libraries.
+    """
     record = runtime.engine.fft_runtime_identity()
     return {name: str(getattr(record, name)) for name in _FACTS}
 
 
 def _package(dependencies: dict[str, object], name: str) -> dict[str, object]:
+    """Require one resolved dependency record for an FFT identity component.
+
+    Parameters
+    ----------
+    dependencies : dict
+        Parsed manifest dependency table.
+    name : str
+        Required package name.
+
+    Returns
+    -------
+    dict
+        The unique resolved package record.
+
+    Raises
+    ------
+    BackendError
+        If the package is absent or ambiguous.
+    """
     packages = table_list(dependencies, name)
     if len(packages) != 1:
         raise BackendError(f"Julia FFT identity needs one resolved {name} package")
@@ -61,6 +92,20 @@ def _package(dependencies: dict[str, object], name: str) -> dict[str, object]:
 
 
 def _preferences(setup: SetupRecord, provider: str) -> str:
+    """Hash selected project preferences together with the actual FFT provider.
+
+    Parameters
+    ----------
+    setup : SetupRecord
+        Verified installed project stack.
+    provider : str
+        Actual loaded FFT provider.
+
+    Returns
+    -------
+    str
+        SHA-256 of provider and each project's optional preference file digest.
+    """
     record = {
         "provider": provider,
         "projects": [
@@ -207,6 +252,20 @@ class FFTPlanRecord:
 
 
 def _planning_record(runtime: JuliaRuntime, handle: JuliaHandle) -> FFTPlanRecord:
+    """Detach successful planning facts before releasing their owned wisdom maps.
+
+    Parameters
+    ----------
+    runtime : JuliaRuntime
+        Initialized runtime, inside its guarded entry boundary.
+    handle : JuliaHandle
+        Owning planning context for this successful start.
+
+    Returns
+    -------
+    FFTPlanRecord
+        Owning strings for measured, applied, rejected and reused plans.
+    """
     raw = runtime.engine.fft_planning_transfer(handle.borrow())
     result = FFTPlanRecord(
         tuple((str(pair[0]), str(pair[1])) for pair in raw.measured),

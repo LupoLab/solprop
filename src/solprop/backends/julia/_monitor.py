@@ -435,6 +435,20 @@ class MonitorLog:
 
 
 def _read_transverse(runtime: JuliaRuntime, raw: Any) -> TransversePayload | None:
+    """Detach transverse continuation and readings inside guarded Julia entry.
+
+    Parameters
+    ----------
+    runtime : JuliaRuntime
+        Initialized runtime whose owner registry holds returned arrays.
+    raw : object or None
+        Temporary Julia record, used only within the guarded call.
+
+    Returns
+    -------
+    TransversePayload or None
+        Detached continuation and owned numerical readings, or no transverse data.
+    """
     # Dynamic PythonCall wrappers are confined to this guarded copy helper.
     if raw is None:
         return None

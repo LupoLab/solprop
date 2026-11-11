@@ -96,6 +96,22 @@ class TransverseContinuation:
 
 
 def _number(record: Mapping[str, object], name: str, default: float = 0.0) -> float:
+    """Read a legacy numeric field, keeping booleans outside its numeric domain.
+
+    Parameters
+    ----------
+    record : mapping
+        Detached legacy continuation.
+    name : str
+        Numeric field name.
+    default : float, optional
+        Value for an absent or nonnumeric field.
+
+    Returns
+    -------
+    float
+        Converted value or the supplied default.
+    """
     value = record.get(name)
     return (
         float(value)
@@ -107,6 +123,22 @@ def _number(record: Mapping[str, object], name: str, default: float = 0.0) -> fl
 def _faces(
     record: Mapping[str, object], name: str, count: int
 ) -> tuple[float, ...] | None:
+    """Copy a legacy per-face list only when its face count matches preparation.
+
+    Parameters
+    ----------
+    record : mapping
+        Detached legacy continuation.
+    name : str
+        Per-face field name.
+    count : int
+        Prepared number of faces.
+
+    Returns
+    -------
+    tuple of float or None
+        Owning numeric values, or no compatible list.
+    """
     value = record.get(name)
     if not isinstance(value, list) or len(value) != count:
         return None
