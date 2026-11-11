@@ -292,16 +292,22 @@ def test_runtime_wrappers_and_calls_refuse_workers_after_start(isolated_runtime)
     assert isolated_runtime.imports == ["juliacall"]
 
 
+@pytest.mark.parametrize("cleanup_registered", [False, True])
 def test_interrupted_shutdown_hook_registration_roots_and_poisons_startup(
-    isolated_runtime, monkeypatch
+    isolated_runtime, monkeypatch, cleanup_registered
 ):
-    def interrupted(_):
+    monkeypatch.setattr(_blas._CLEANUP, "registered", cleanup_registered)
+
+    def interrupted(callback):
+        if callback is _blas._release_pending:
+            return
         raise KeyboardInterrupt()
 
     monkeypatch.setattr(_runtime.atexit, "register", interrupted)
     with pytest.raises(KeyboardInterrupt) as captured:
         _runtime.get_runtime()
     assert captured.value.__context__ is None
+    assert isolated_runtime.imports == ["juliacall"]
     assert _runtime._STATE.runtime is not None
     assert isinstance(_runtime._STATE.failure, KeyboardInterrupt)
     with pytest.raises(BackendError, match="previously failed"):

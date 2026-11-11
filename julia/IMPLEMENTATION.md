@@ -7,13 +7,13 @@ The completed implementation is left ready for maintainer review, not auto-merge
 
 ## Current status
 
-Paused at the maintainer's request on 11 November 2026; resume only on their return.
+Resumed on 11 November 2026 after the maintainer's brief network pause.
 The latest local checkpoint contains unfinished binary32 physical-export and portable
 history attachment. It passes 80 pure Python tests, 2,535 affected Julia assertions
 and scoped types with no errors or warnings. It still needs binary32 Adams session
 composition, managed history/export tests and independent review. Public binary32
-selection remains closed. Existing remote CPU qualification and CI may finish while
-the development session is paused; all jobs retain their existing time limits.
+selection remains closed. All three implementation/review assignments have resumed;
+the existing remote CPU qualification retains its time limits.
 
 The binary64 CPU source/session/services path is integrated. Device-selection and
 execution-option transport are reviewed; actual device execution remains refused.
@@ -44,18 +44,26 @@ The corrected CPU campaign at `5fc63437` has passed 23 managed CPU/inventory smo
 checks and is running all twelve admitted standard short-window cases at one thread
 and the default CPU budget. Four earlier successful comparisons and their retained
 failures are documented in `docs/dev/benchmarks.md`; they are partial evidence.
-The current CI run is in progress. Its one documentation formatting failure is fixed
-locally; earlier fixture/supervisor corrections and the bounded two-hour Julia job
-allowance are in the pushed revision. No full qualification is claimed from targeted
-checks. No cloud resources have been rented; campaign spend remains zero.
+The current CI run finished with three stale fixture assumptions and one missing
+Windows skip declaration, tracked with #706. Both Julia lanes reached the same obsolete
+analytic-Kerr fixture; neither completed its gate. The documentation formatting failure
+is fixed locally. Corrected fixtures pass 57 Python tests and 105 Julia assertions,
+including the axis-observation record added after the pushed revision. All twelve
+CPU benchmark cases completed their first round at one and 64 threads; two further
+rounds remain. No full qualification is claimed from targeted checks. No cloud
+resources have been rented; campaign spend remains zero.
 
-At the pause, observation leaf `077211b5` remains unapproved: #715 tracks foreign
+Observation leaf `077211b5` remains unapproved: #715 tracks foreign
 monitor-scratch aliases, #716 lost dominant products under separate normalization,
 and #717 physical identity classification. The observation agent owns corrections;
 none is integrated as qualified. Adams session precision is checkpointed separately
 at `ad893886`: 6,177 affected assertions and package Aqua/JET pass, with a private
 concrete-analysis harness correction, one-thread repeat and independent review pending.
-On resume, inspect those handoffs and the current CI/CPU campaign before further work.
+The numerical author has resumed these checks. The observation correction retains a
+bounded integer exponent per spatial node, avoiding a new public range refusal while
+preserving weak terms before coordinate/quadrature weighting; its inventory counts
+that storage explicitly. The reviewer is also inspecting the master export/history
+checkpoint independently.
 
 | Phase | Status | Evidence or prerequisite |
 |---|---|---|

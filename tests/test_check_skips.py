@@ -79,6 +79,7 @@ def test_pytest_s_prefix_doesn_t_hide_a_reason(tmp_path):
 
 def test_platform_and_unsupported_session_cases_have_exact_reasons(tmp_path):
     reasons = (
+        "cross-process writer flock is POSIX",
         "creating symlinks needs Windows privileges",
         "CI change detection runs in Linux Bash",
         "the native-session-low-storage executor does not run a multistep march",

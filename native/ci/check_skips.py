@@ -31,6 +31,7 @@ EXPECTED: tuple[str, ...] = (
     r"POSIX process signal delivery",
     r"POSIX SIGKILL",
     r"POSIX shared locks",
+    r"cross-process writer flock is POSIX",
     r"Windows has no SIGKILL",
     r"a read-only directory mode is not enforced on Windows",
     r"Slurm is faked with POSIX shell scripts",

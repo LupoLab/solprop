@@ -236,19 +236,23 @@ def test_selecting_native_and_admitting_a_scan_ask_for_a_calibration(
     class StopError(Exception):
         pass
 
-    def stop(*args: object) -> None:
+    def stop(*args: object, **kwargs: object) -> None:
         raise StopError
 
-    monkeypatch.setattr(registry, "_check_required_device", stop)
+    monkeypatch.setattr(
+        registry, "_check_required_device", lambda *args: asked.append("device")
+    )
+    monkeypatch.setattr(registry, "_satisfied", lambda entry: True)
+    monkeypatch.setattr(registry, "_construct", stop)
     with pytest.raises(StopError):
         simulation = problems.build("gnlse")
         registry.select("native", simulation.translate(), simulation._run_request())
-    assert asked == ["ensure"]
+    assert asked == ["device", "ensure"]
     monkeypatch.setattr(first_use, "for_workers", lambda cpus: asked.append("workers"))
     monkeypatch.setattr(pool, "_spawn", stop)
     with pytest.raises(StopError):
         pool.Pool(threads=1)._admit(lambda: None, None)  # pyright: ignore[reportPrivateUsage]
-    assert asked == ["ensure", "workers"]
+    assert asked == ["device", "ensure", "workers"]
 
 
 def test_without_the_native_backend_first_use_does_nothing(

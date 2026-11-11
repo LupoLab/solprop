@@ -29,7 +29,8 @@ import SolpropJulia as SP
     invalid = SP.ObservationPreparation(
         valid.kind, valid.n_modes, valid.grid, valid.selection, valid.power_weight,
         valid.profiles, nothing, valid.taper, valid.intensity_factor,
-        valid.populations, valid.temporal, valid.needs, valid.periodic_needs,
+        valid.populations, valid.temporal, valid.axis_populations, valid.needs,
+        valid.periodic_needs,
     )
     before = copy(weight.data)
     message = "peak_intensity needs a separate coarse on-axis map"
@@ -88,7 +89,9 @@ end
     execution = SP.KernelExecution(SP.KernelAbstractions.CPU(), 1)
     data = (
         grid = (kind = :field,),
-        kerr = (coefficients = SP.KerrCoefficients(1.0, :analytic; take_real = true),),
+        kerr = SP.ModalKerr(
+            SP.KerrCoefficients(1.0, :analytic; take_real = true), SP.SourceProfile(1.0)
+        ),
     )
     source = (
         data = data, execution = execution, nodes = ones(8, 1),
