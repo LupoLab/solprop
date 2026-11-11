@@ -33,6 +33,7 @@ from solprop import _helpers
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.grid import EnvelopeGrid
+from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, RungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate import chebyshev
@@ -115,14 +116,13 @@ def propagate(backend_class, prepared):
     """Construct the backend on a translated problem and run its session's two steps."""
     simulation, problem, run_request = prepared
     backend = backend_class(
-        problem,
-        run_request,
-        grid=simulation.grid,
-        modes=simulation.modes,
-        profiles=simulation.profiles,
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        assert np.all(np.isfinite(last_field(session_run(backend, problem))))
+        # The march alone, as the step driver's was: no plane statistic, whose
+        # profiles are evaluated on the host.
+        result = session_run(backend, problem, run_request.for_run(stats=StatsSpec()))
+        assert np.all(np.isfinite(last_field(result)))
     finally:
         backend.close()
 
