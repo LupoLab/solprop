@@ -13,11 +13,15 @@ import h5py
 import numpy as np
 import pytest
 
+from _session_probe_rest import bare
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_in_envelope, assert_matched, march_bound
-from solprop.backends.driver import StepDriver
+from sessions.executors import IDENTITY
+from solprop.backends.events import ObservationReady
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.registry import select
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.exceptions import BackendError, DriverError, OutputError
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
@@ -331,27 +335,24 @@ def test_an_interior_launch_plane_resumes_without_a_second_draw(
     )
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_the_input_draw_is_added_at_a_launch_and_not_to_a_resumed_state(
-    build_simulation, backend
+    build_simulation,
 ):
     """Once at the launch; never to a stored state, with the floor kept either way."""
-    if backend == "native":
-        pytest.importorskip("solprop_native")
-    simulation = scheduled(build_simulation, noise="input", seed=17, backend=backend)
+    simulation = scheduled(build_simulation, noise="input", seed=17)
     problem = simulation.translate()
     run_request = simulation._run_request()
     draw = problem.initial.noise0
     assert draw is not None
     engine = select(
-        backend,
+        "numpy_ref",
         problem,
         run_request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
-    assert isinstance(engine, (StepDriver, HostDriver))
+    assert isinstance(engine, HostDriver)
     try:
         engine.set_initial(problem.initial.field0, None)
         launched = engine.observe().require_field().copy()
@@ -372,6 +373,48 @@ def test_the_input_draw_is_added_at_a_launch_and_not_to_a_resumed_state(
         assert engine._input_floor.base is draw
     finally:
         engine.close()
+
+
+def test_the_native_session_adds_the_input_draw_at_a_launch_alone(build_simulation):
+    """The same on the native session: its launch plane carries the draw, and a start
+    from a stored state at the launch (``resume``) observes that state unchanged."""
+    pytest.importorskip("solprop_native")
+    simulation = scheduled(build_simulation, noise="input", seed=17, backend="native")
+    problem = simulation.translate()
+    run_request = simulation._run_request()
+    draw = problem.initial.noise0
+    assert draw is not None
+    context = {
+        "grid": simulation.grid,
+        "modes": simulation.modes,
+        "profiles": simulation.profiles,
+    }
+
+    def launch_plane(start: Start) -> np.ndarray:
+        engine = select("native", problem, run_request, **context)
+        session = start_session(engine, problem, bare(run_request), start)
+        try:
+            while True:
+                batch = session.advance()
+                for event in batch.events:
+                    if isinstance(event, ObservationReady):
+                        assert event.z == 0.0
+                        return np.array(session.export(event.ticket, IDENTITY))
+                session.acknowledge(batch.receipt)
+        finally:
+            session.close()
+
+    launched = launch_plane(Start.entrance(problem))
+    # In band: the load masks the launch, whose pulse has tails outside it.
+    active = problem.grids.active_mask
+    np.testing.assert_allclose(
+        (launched - problem.initial.field0)[..., active],
+        draw[..., active],
+        rtol=0.0,
+        atol=1e-12 * np.linalg.norm(draw),
+    )
+    resumed = launch_plane(Start(field=launched.copy(), z=0.0, resume=True))
+    np.testing.assert_array_equal(resumed, launched)
 
 
 def test_a_default_noise_run_without_a_seed_resumes_from_the_seed_it_recorded(
@@ -497,8 +540,7 @@ def test_a_run_interrupted_before_its_first_plane_resumes_without_a_second_entra
         return advance(self, **bounds)
 
     with monkeypatch.context() as patch:
-        for driver in (StepDriver, HostDriver):
-            patch.setattr(driver, "propagate_to", fail_before_first_step)
+        patch.setattr(HostDriver, "propagate_to", fail_before_first_step)
         if native is not None:
             advance = native.NativeSession.advance
             patch.setattr(native.NativeSession, "advance", fail_first_march)
