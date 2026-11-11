@@ -166,6 +166,8 @@ jobs:
         run: |
           cmake --preset cpu-tidy -DCMAKE_CXX_COMPILER="$(command -v g++-14)" \
             -DPython_EXECUTABLE="$GITHUB_WORKSPACE/.venv/bin/python"
+          # SLEEF's header comes from its own build.
+          cmake --build --preset cpu-tidy --target solprop_native_sleef_build
       - name: misc-include-cleaner
         run: |
           build=native/build/presets/cpu-tidy
