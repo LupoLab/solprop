@@ -473,11 +473,13 @@ def test_a_threaded_accept_reduces_the_state_it_wrote(tmp_path):
     ("mode", "threads"), [("tabulate", 2), ("tabulate", 4), ("recompute", 4)]
 )
 def test_the_low_storage_folds_agree_across_threads(tmp_path, mode, threads):
-    """``numba_cpu``'s ``test_the_parallel_kernels_agree_with_...``, through a run.
+    """``numba_cpu``'s ``test_the_parallel_kernels_agree_with_...``, step by step.
 
     With no response a pass is its fold alone, with no transform, so its rounding is
-    what is compared: the retired ``4 eps`` per fold over the run's four folds a step,
-    and the engine's squared norm per step to ``n_columns eps``. Weaker in that the
+    what is compared: the retired ``4 eps`` per fold over the march's four folds a
+    step, and the squared norm the resident engine's threaded reduction returns each
+    step to ``n_columns eps``. The steps are the engine's own on the native state
+    (``forced_thread_cases.folds``), the march's step and finish. Weaker in that the
     retired test drove every fold mode and flow treatment on random registers, each at
     once; here the march chooses them, on a beam, and there is no source to fold.
     """

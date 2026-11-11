@@ -11,6 +11,7 @@ tests so that a probe does not import a pytest module with its fixtures.
 """
 
 import dataclasses
+import itertools
 import warnings
 from typing import Any, cast
 
@@ -441,28 +442,34 @@ def linear_cartesian(mode: str):
 
 
 def folds(mode: str):
-    """March the linear beam, saving every step's squared norm over the norm mask.
+    """March the linear beam on the resident engine, saving every step's squared norm.
 
-    Each step's end is observed (``step_planes=1``), which changes no step, and its
-    norm reduced from the exported state on the host, the same arithmetic at every
-    thread width: what differs is the state the march's folds left.
+    Each step is the resident low-storage engine's on the backend's native state, as
+    ``test_native_synthetic_operator.py``'s ``resident_step`` takes one, followed by the
+    state's finish, as the march accepts a step. The squared norm over the norm mask is
+    the one the engine's threaded reduction hands the accept, so a width's norms test
+    that reduction's order, and its state the folds.
     """
-    from backends.test_low_storage import CARTESIAN_CHUNK  # noqa: PLC0415
+    # Optional wheel: absent from the base environment.
+    from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        _ResidentLowStorage,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    from backends.test_low_storage import CARTESIAN_CHUNK, MARCH  # noqa: PLC0415
 
     problem, run_request, grid = linear_cartesian(mode)
-    observed = run_request.with_stepper(
-        dataclasses.replace(run_request.stepper, step_planes=1)
-    )
-    backend = _native()(problem, observed, grid=grid, options=CARTESIAN_CHUNK)
+    edges = np.asarray(run_request.stepper.schedule.edges)  # pyright: ignore[reportOptionalMemberAccess]
+    backend = _native()(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
     try:
-        result = run(backend, problem)
-        mask = np.asarray(problem.grids.norm_mask)
-        # Every observation after the launch ends one step.
-        norms = [
-            float(np.sum(np.abs(field) ** 2 * mask)) for field in result.fields[1:]
-        ]
-        assert len(norms) == run_request.stepper.schedule.n_steps  # pyright: ignore[reportOptionalMemberAccess]
-        return {"field": last_field(result), "norms": np.array(norms)}, _sizing(backend)
+        state = launched_state(backend, problem.initial.field0)
+        engine = _ResidentLowStorage(backend, MARCH)
+        norms = []
+        for z, end in itertools.pairwise(edges):
+            dz = float(end - z)
+            norms.append(engine.step(float(z), dz))
+            state.finish(dz)
+        field = np.asarray(state.field_to_host()).reshape(problem.shape).copy()
+        return {"field": field, "norms": np.array(norms)}, _sizing(backend)
     finally:
         backend.close()
 
