@@ -252,6 +252,7 @@ _march_observed_position(session) = session.state.z
 _march_pending_dense(session::_MarchSession) = false
 _march_defer_periodic(session) = false
 _march_dense_services(services) = nothing
+_march_landing_target(session) = session.schedule.planes[session.state.plane]
 function _march_plane_selected(session)
     state = session.state
     return state.pending ? state.pending_kind === :plane : state.observation_kind === :plane
@@ -259,7 +260,7 @@ end
 
 """
     RungeKuttaSession(execution, state, z, proposal, tableau, control, norm, schedule,
-                      source, flow; stop=StopFlag(), capacity=256)
+                      source, flow; stop=StopFlag(), capacity=256, dense_weights=nothing)
 
 Own a complete binary64 Runge–Kutta march and its bounded delivery state.
 
@@ -271,10 +272,14 @@ accepted field, counters, cursors and attempt buffers. No Python callback runs i
 
 The first event observes launch before any step. Every event must be acknowledged
 before advancing again; export generations expire on acknowledgment. This first march
-composition supports landed planes and field restarts; other methods/services attach
-through their own typed compositions without changing its transport contract.
+composition supports landed planes and field restarts. Supplying the translated
+`dense_weights` enables the existing DOPRI5 continuous extension, with a separate
+owned observation field and one retained accepted window. The caller selects the
+compatible tableau/extension; stage count alone never selects a method. Dense planes
+require adaptive CPU binary64 `LinearFlow` and refuse per-step split finishing.
+They change no source-call count, accepted field, controller history or receipt rule.
 """
-struct RungeKuttaSession{E, A, T, W, N, S, F, B, O, X} <: _MarchSession
+struct RungeKuttaSession{E, A, T, W, N, S, F, B, O, X, D} <: _MarchSession
     execution::E
     field::A
     tableau::T
@@ -290,6 +295,7 @@ struct RungeKuttaSession{E, A, T, W, N, S, F, B, O, X} <: _MarchSession
     state::_MarchState
     services::O
     exports::X
+    observation::D
 end
 
 function RungeKuttaSession(
@@ -299,14 +305,34 @@ function RungeKuttaSession(
         services = _NoSessionServices(), exports = nothing,
         plane_index::Union{Nothing, Int} = nothing,
         plane_pending::Bool = true,
+        dense_weights = nothing,
     )
+    if dense_weights !== nothing
+        oncpu(execution) ||
+            throw(ArgumentError("Runge-Kutta dense observation currently requires CPU"))
+        isempty(schedule.replay_steps) ||
+            throw(ArgumentError("interpolated planes require adaptive RK; replay lands"))
+        flow isa LinearFlow ||
+            throw(ArgumentError("Runge-Kutta dense observation requires LinearFlow"))
+        size(flow.exponent) == size(state) ||
+            throw(DimensionMismatch("Runge-Kutta linear flow and state shapes disagree"))
+        _march_dense_services(services)
+    end
     owned, progress = _prepare_march(
         execution, state, z, proposal, norm, schedule; plane_index, plane_pending,
     )
+    # The numerical dense leaf is included after this session type. No extension
+    # coefficients are selected in Julia: preparation supplies the shared weights.
+    observation = dense_weights === nothing ? nothing : _RungeKuttaSessionObservation(
+            RungeKuttaObservationWork(
+                execution, owned, tableau, dense_weights, flow.operator,
+            ),
+            NaN, false,
+        )
     return RungeKuttaSession(
         execution, owned, tableau, RungeKuttaWork(owned, tableau), control,
         NormHistory(control), norm, schedule, source, flow, stop, AttemptBuffer(capacity),
-        progress, services, exports,
+        progress, services, exports, observation,
     )
 end
 
@@ -366,7 +392,7 @@ end
 function _march_landing(session)
     state, schedule = session.state, session.schedule
     z = state.z
-    target = schedule.planes[state.plane]
+    target = _march_landing_target(session)
     if !isempty(schedule.replay_steps)
         state.replay <= length(schedule.replay_steps) ||
             throw(ArgumentError("the fixed itinerary ended before the requested plane"))
@@ -529,6 +555,15 @@ function _march_trial!(session::RungeKuttaSession, began)
         _session_finish_candidate!(session.services, session, candidate, dz, destination)
         all(isfinite, candidate) ||
             throw(DomainError(NaN, "the finished Runge-Kutta candidate is nonfinite"))
+        if session.observation !== nothing
+            session.observation.selected = false
+            if !_march_reached(session.schedule.planes[state.plane], destination)
+                retain_runge_kutta_observation!(
+                    session.observation.work, session.field, candidate, session.work.stages,
+                    state.z, dz, destination, session.execution,
+                )
+            end
+        end
         state.in_flight = true
         rk_commit!(session.field, session.work, norm.active, session.execution)
         state.z = destination
