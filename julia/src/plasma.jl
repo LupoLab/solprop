@@ -24,21 +24,24 @@ Retain a translated instantaneous ionisation-rate spline with explicit clipping.
 
 # Returns
 An immutable numerical table. No rate model, species object or Python value is retained.
+Scalar clipping/log-grid metadata remains binary64 at preparation. Each call shifts
+it to the stored field scale and rounds once before entering its response-precision
+kernel; the coefficient matrix already has that kernel precision.
 
 # Throws
 - `ArgumentError`: If shape, finiteness, clipping bounds or spacing are invalid.
 """
 struct IonisationRateTable{T <: AbstractFloat, A <: AbstractMatrix{T}}
     coefficients::A
-    field_min::T
-    field_max::T
-    rate_max::T
-    log_field_min::T
-    d_log_field::T
+    field_min::Float64
+    field_max::Float64
+    rate_max::Float64
+    log_field_min::Float64
+    d_log_field::Float64
 
     function IonisationRateTable(
-            coefficients::A, field_min::T, field_max::T, rate_max::T,
-            log_field_min::T, d_log_field::T,
+            coefficients::A, field_min::Real, field_max::Real, rate_max::Real,
+            log_field_min::Real, d_log_field::Real,
         ) where {T <: AbstractFloat, A <: AbstractMatrix{T}}
         size(coefficients, 1) == 4 && size(coefficients, 2) > 0 &&
             all(isfinite, coefficients) ||
@@ -46,9 +49,10 @@ struct IonisationRateTable{T <: AbstractFloat, A <: AbstractMatrix{T}}
         all(isfinite, (field_min, field_max, rate_max, log_field_min, d_log_field)) &&
             0 < field_min < field_max && rate_max >= 0 && d_log_field > 0 ||
             throw(ArgumentError("invalid ionisation table bounds or logarithmic grid"))
-        return new{T, A}(
-            coefficients, field_min, field_max, rate_max, log_field_min, d_log_field
-        )
+        scalars = map(Float64, (field_min, field_max, rate_max, log_field_min, d_log_field))
+        all(isfinite, scalars) ||
+            throw(ArgumentError("ionisation table host scalars must fit binary64"))
+        return new{T, A}(coefficients, scalars...)
     end
 end
 
@@ -63,7 +67,8 @@ Bind one independent electron population to its translated rate and material con
 - `ionisation_potential`: Finite positive energy per electron freed, in joules.
 
 # Returns
-An immutable channel. Stage density (m⁻³) and preionisation (dimensionless) remain
+An immutable channel with binary64 host material constants. Stage density (m⁻³)
+and preionisation (dimensionless) remain
 independent inputs to every evaluation; a mixture evaluates each channel separately.
 
 # Throws
@@ -71,16 +76,20 @@ independent inputs to every evaluation; a mixture evaluates each channel separat
 """
 struct PlasmaChannel{T <: AbstractFloat, R}
     rate::R
-    charge_mass_ratio::T
-    ionisation_potential::T
+    charge_mass_ratio::Float64
+    ionisation_potential::Float64
 
     function PlasmaChannel(
-            rate::IonisationRateTable{T}, charge_mass_ratio::T, ionisation_potential::T,
+            rate::IonisationRateTable{T}, charge_mass_ratio::Real,
+            ionisation_potential::Real,
         ) where {T}
         constants = (charge_mass_ratio, ionisation_potential)
         all(value -> isfinite(value) && value > 0, constants) ||
             throw(ArgumentError("plasma material constants must be finite and positive"))
-        return new{T, typeof(rate)}(rate, charge_mass_ratio, ionisation_potential)
+        charge, potential = Float64(charge_mass_ratio), Float64(ionisation_potential)
+        isfinite(charge) && isfinite(potential) && charge > 0 && potential > 0 ||
+            throw(ArgumentError("plasma material constants must fit positive binary64"))
+        return new{T, typeof(rate)}(rate, charge, potential)
     end
 end
 
@@ -216,11 +225,59 @@ function FieldPlasmaWorkspace(
     )
 end
 
-@inline function _rate_parameters(table)
+@inline function _rate_parameters(table::IonisationRateTable{Float64}, exponent::Int = 0)
+    iszero(exponent) || return _scaled_rate_parameters(table, exponent)
     return (
         table.coefficients, table.field_min, table.field_max, table.rate_max,
         table.log_field_min, table.d_log_field,
     )
+end
+
+@inline _rate_parameters(table::IonisationRateTable{Float32}, exponent::Int = 0) =
+    _scaled_rate_parameters(table, exponent)
+
+function _scaled_rate_parameters(table::IonisationRateTable{T}, exponent::Int) where {T}
+    -1074 <= exponent <= 1023 ||
+        throw(ArgumentError("plasma field exponent must be a finite binary64 power"))
+    arithmetic = SourceArithmetic(T)
+    lower = source_coefficient(
+        arithmetic, :plasma_lower_field, table.field_min;
+        exponent = -exponent
+    )
+    upper = source_coefficient(
+        arithmetic, :plasma_upper_field, table.field_max;
+        exponent = -exponent
+    )
+    # Ceil the clipping endpoints: comparisons against representable stored real
+    # magnitudes then retain the original threshold side after an exact power scale.
+    lower_exact = ldexp(table.field_min, -exponent)
+    upper_exact = ldexp(table.field_max, -exponent)
+    lower = lower < lower_exact ? nextfloat(lower) : lower
+    upper = upper < upper_exact ? nextfloat(upper) : upper
+    lower < upper && isfinite(upper) || throw(
+        ArgumentError("plasma scaled clipping interval collapses at source precision")
+    )
+    cap = source_coefficient(arithmetic, :plasma_rate_ceiling, table.rate_max)
+    origin = T(table.log_field_min - exponent * log(2.0))
+    spacing = source_coefficient(arithmetic, :plasma_log_spacing, table.d_log_field)
+    isfinite(origin) || throw(ArgumentError("plasma scaled logarithmic origin overflows"))
+    return table.coefficients, lower, upper, cap, origin, spacing
+end
+
+function _plasma_coefficients(channel::PlasmaChannel{T}, density, exponent::Int) where {T}
+    if T === Float64 && iszero(exponent)
+        return channel.charge_mass_ratio, channel.ionisation_potential, T(density)
+    end
+    arithmetic = SourceArithmetic(T)
+    charge = source_coefficient(
+        arithmetic, :plasma_free_current,
+        density, channel.charge_mass_ratio
+    )
+    loss = source_coefficient(
+        arithmetic, :plasma_ionisation_loss,
+        density, channel.ionisation_potential; exponent = -2exponent
+    )
+    return charge, loss, one(T)
 end
 
 @inline function _ionisation_rate(magnitude, parameters)
@@ -257,12 +314,48 @@ end
         end
         filtered[row, node] = value
     end
+    if eltype(output) === Float32
+        output[1, node] = 0
+        for row in 2:n_time
+            output[row, node] = (filtered[row - 1, node] + filtered[row, node]) * (dt / 2)
+        end
+        _plasma_prefix!(output, node)
+        return nothing
+    end
     total = zero(dt)
     output[1, node] = total
     for row in 2:n_time
         total += (filtered[row - 1, node] + filtered[row, node]) * (dt / 2)
         output[row, node] = total
     end
+    return nothing
+end
+
+@inline function _plasma_prefix!(output, node)
+    # Reverse traversal retains the previous level without extra storage. Each
+    # prefix has at most ceil(log2(n)) rounded additions, matching the protected
+    # Hillis--Steele graph of translate.precision.prefix_sum, not sequential cumsum.
+    stride, count = 1, size(output, 1)
+    while stride < count
+        for row in count:-1:(stride + 1)
+            output[row, node] += output[row - stride, node]
+        end
+        stride > count ÷ 2 && break
+        stride *= 2
+    end
+    return nothing
+end
+
+@inline function _envelope_exposure!(exposure, rate, node, spacing)
+    T = eltype(exposure)
+    exposure[1, node] = zero(T)
+    total = zero(T)
+    for row in 2:size(rate, 1)
+        increment = (rate[row - 1, node] / 2 + rate[row, node] / 2) * spacing
+        total = T === Float32 ? increment : total + increment
+        exposure[row, node] = total
+    end
+    T === Float32 && _plasma_prefix!(exposure, node)
     return nothing
 end
 
@@ -304,14 +397,15 @@ end
 """
     field_plasma!(gated, edge, samples, channel, rule, workspace, execution;
                   density, preionisation, window=nothing, derivative=nothing,
-                  count=workspace.layout.n_nodes, add=false)
+                  count=workspace.layout.n_nodes, add=false, field_exponent=0)
 
 Evaluate one independent field-plasma population and its two gated current streams.
 
 # Arguments
 - `gated`, `edge`: Caller-owned real matrices with the workspace layout. Receive
   `window * J` in A/m² and `window_derivative * J` in A/(m² s), respectively.
-- `samples`: Physical real field in V/m, with the same `(n_time, n_nodes)` layout.
+- `samples`: Stored real field, with the same `(n_time, n_nodes)` layout. Its
+  physical value in V/m is `samples * 2^field_exponent`.
 - `channel`: Prepared `PlasmaChannel`; constants have not absorbed any stage profile.
 - `rule`: Prepared `RunningIntegralRule`. Its FIR radius must be smaller than `n_time`.
 - `workspace`: `FieldPlasmaWorkspace`, reusable between channels and calls.
@@ -322,6 +416,9 @@ Evaluate one independent field-plasma population and its two gated current strea
   in s⁻¹, each length `n_time`. Defaults are one and zero, respectively.
 - `count`: Active node count. Inactive work and output columns are fully zeroed.
 - `add`: Add this channel's active streams to an earlier channel's streams.
+- `field_exponent`: Integer physical field scale. Outputs are the physical currents
+  divided by the same power. Rate lookup shifts the table coordinates on the host;
+  charge/density and loss/density/inverse-square powers combine before one rounding.
 
 # Returns
 `nothing`. Read `plasma_failure(workspace.status)` before consuming the output.
@@ -344,6 +441,7 @@ function field_plasma!(
         workspace::FieldPlasmaWorkspace{T}, execution;
         density, preionisation, window = nothing, derivative = nothing,
         count::Int = workspace.layout.n_nodes, add::Bool = false,
+        field_exponent::Int = 0,
     ) where {T}
     layout = workspace.layout
     _response_matrix(gated, layout)
@@ -353,11 +451,12 @@ function field_plasma!(
     length(rule.taps) <= layout.n_time ||
         throw(ArgumentError("plasma FIR support exceeds the temporal grid"))
     _plasma_stage(layout, density, preionisation, count, window, derivative)
-    parameters = _rate_parameters(channel.rate)
+    parameters = _rate_parameters(channel.rate, field_exponent)
     buffers = _field_plasma_buffers(workspace)
-    charge, potential = channel.charge_mass_ratio, channel.ionisation_potential
+    charge, potential, stage_density =
+        _plasma_coefficients(channel, density, field_exponent)
     taps, dt, floor_exposure = rule.taps, rule.dt, rule.floor_exposure
-    stage_density, initial = T(density), T(preionisation)
+    initial, keep = T(preionisation), T(1 - Float64(preionisation))
     each_column!(execution, layout.n_nodes) do node
         invalid = false
         for row in axes(samples, 1)
@@ -391,8 +490,8 @@ function field_plasma!(
             end
             exposure = floor_exposure ? max(buffers.exposure[row, node], zero(T)) :
                 buffers.exposure[row, node]
-            survival = (1 - initial) * exp(-exposure)
-            fraction = initial + (1 - initial) * -expm1(-exposure)
+            survival = keep * exp(-exposure)
+            fraction = initial + keep * -expm1(-exposure)
             buffers.survival[row, node] = survival
             buffers.fraction[row, node] = fraction
             buffers.integrand[row, node] = (charge * fraction) * samples[row, node]
@@ -608,14 +707,15 @@ end
 """
     envelope_plasma!(drive, loss, samples, channel, quadrature, workspace, execution;
                      density, preionisation, dt, window=nothing,
-                     count=workspace.layout.n_nodes, add=false)
+                     count=workspace.layout.n_nodes, add=false, field_exponent=0)
 
 Evaluate one scalar envelope-plasma population and its Drude-drive/loss-current streams.
 
 # Arguments
 - `drive`, `loss`: Caller-owned complex matrices with the workspace layout, receiving
   the Drude drive in A/(m² s) and the ionisation-loss current in A/m².
-- `samples`: Physical complex envelope in V/m, shape `(n_time, n_nodes)`.
+- `samples`: Stored complex envelope, shape `(n_time, n_nodes)`. Its physical value
+  in V/m is `samples * 2^field_exponent`.
 - `channel`: Prepared `PlasmaChannel` with an instantaneous isotropic rate table.
 - `quadrature`: Translated `CycleQuadrature`; both directional moments are refined.
 - `workspace`: Caller-owned `EnvelopePlasmaWorkspace`, including numerical status.
@@ -626,6 +726,8 @@ Evaluate one scalar envelope-plasma population and its Drude-drive/loss-current 
 - `window`: Optional dimensionless temporal source gate, applied to both streams.
 - `count`: Active node count; every inactive work/output cell is cleared.
 - `add`: Add active streams to previously evaluated channels instead of replacing them.
+- `field_exponent`: Integer physical field scale; outputs have the same inverse
+  scale. Table coordinates and the loss coefficient absorb it outside the kernel.
 
 # Returns
 `nothing`. Read `plasma_failure(workspace.status)` before using the streams. A rule
@@ -650,6 +752,7 @@ function envelope_plasma!(
         workspace::EnvelopePlasmaWorkspace{T}, execution;
         density, preionisation, dt, window = nothing,
         count::Int = workspace.layout.n_nodes, add::Bool = false,
+        field_exponent::Int = 0,
     ) where {T}
     layout = workspace.layout
     _response_matrix(drive, layout)
@@ -661,12 +764,14 @@ function envelope_plasma!(
     spacing = T(dt)
     isfinite(spacing) && spacing > 0 ||
         throw(ArgumentError("envelope plasma dt must be finite and positive"))
-    parameters, rules = _rate_parameters(channel.rate), _cycle_parameters(quadrature)
+    parameters = _rate_parameters(channel.rate, field_exponent)
+    rules = _cycle_parameters(quadrature)
     rate, exposure = workspace.rate, workspace.exposure
     fraction, survival = workspace.fraction, workspace.survival
     moment, status = workspace.loss_moment, workspace.status
-    charge, potential = channel.charge_mass_ratio, channel.ionisation_potential
-    stage_density, initial = T(density), T(preionisation)
+    charge, potential, stage_density =
+        _plasma_coefficients(channel, density, field_exponent)
+    initial, keep = T(preionisation), T(1 - Float64(preionisation))
     each!(execution, layout.n_time, layout.n_nodes; heavy = true) do row, node
         sample = node <= count ? samples[row, node] : zero(eltype(samples))
         major = abs(sample)
@@ -697,21 +802,23 @@ function envelope_plasma!(
             end
             return nothing
         end
-        total = zero(T)
+        _envelope_exposure!(exposure, rate, node, spacing)
         for row in axes(samples, 1)
-            if row > 1
-                total += (rate[row - 1, node] / 2 + rate[row, node] / 2) * spacing
-            end
-            exposure[row, node] = total
-            neutral = (1 - initial) * exp(-total)
-            ionised = initial + (1 - initial) * -expm1(-total)
+            total = exposure[row, node]
+            neutral = keep * exp(-total)
+            ionised = initial + keep * -expm1(-total)
             survival[row, node], fraction[row, node] = neutral, ionised
             weight = _response_weight(window, row, stage_density)
             first = weight * (charge * stage_density * ionised) * samples[row, node]
             second = weight * (potential * stage_density * neutral) * moment[row, node]
             first = add ? drive[row, node] + first : first
             second = add ? loss[row, node] + second : second
-            if !(isfinite(first) && isfinite(second))
+            # Saturation can make both currents finite despite infinite exposure
+            # (for example at zero density). Do not hide that failed integral (#701).
+            if !(
+                    isfinite(total) && isfinite(neutral) && isfinite(ionised) &&
+                        isfinite(first) && isfinite(second)
+                )
                 status[row, node] = UInt8(PlasmaNonfiniteResult)
                 first, second = zero(eltype(drive)), zero(eltype(loss))
             end
@@ -808,20 +915,21 @@ end
     return nothing
 end
 
-@inline function _population_pair(exposure, initial)
-    neutral = (1 - initial) * exp(-exposure)
-    fraction = initial + (1 - initial) * -expm1(-exposure)
+@inline function _population_pair(exposure, initial, keep)
+    neutral = keep * exp(-exposure)
+    fraction = initial + keep * -expm1(-exposure)
     valid = isfinite(exposure) && isfinite(neutral) && isfinite(fraction)
     return fraction, neutral, valid
 end
 
 """
     field_populations!(samples, rate, rule, workspace, execution;
-                       preionisation, count=workspace.layout.n_nodes)
+                       preionisation, count=workspace.layout.n_nodes, field_exponent=0)
 
 Evaluate fresh scalar field rates and populations without constructing a current.
 
-`samples` is a real `(n_time,n_nodes)` electric field in V/m. `rate` is its
+`samples` is a real `(n_time,n_nodes)` electric field whose physical value in V/m
+is `samples * 2^field_exponent`. `rate` is its
 `IonisationRateTable`, `rule` its `RunningIntegralRule`, and `workspace` an owned
 `PopulationWorkspace`, all in the same real precision. `preionisation` lies in
 `[0,1]`; `count` is the active node count. The complete rate/FIR/prefix footprint is
@@ -837,7 +945,7 @@ formula as `field_plasma!`; density, charge and ionisation potential do not ente
 function field_populations!(
         samples, table::IonisationRateTable{T},
         rule::RunningIntegralRule{T}, work::PopulationWorkspace{T}, execution;
-        preionisation, count::Int = work.layout.n_nodes
+        preionisation, count::Int = work.layout.n_nodes, field_exponent::Int = 0,
     ) where {T}
     eltype(samples) === T ||
         throw(ArgumentError("field populations require matching real field precision"))
@@ -845,9 +953,9 @@ function field_populations!(
         throw(ArgumentError("population FIR support exceeds the temporal grid"))
     _population_admit(work, samples, (table.coefficients, rule.taps), preionisation, count)
     rate, exposure, fraction, survival, filtered, status = _population_arrays(work)
-    parameters = _rate_parameters(table)
+    parameters = _rate_parameters(table, field_exponent)
     taps, dt, floor_exposure = rule.taps, rule.dt, rule.floor_exposure
-    initial = T(preionisation)
+    initial, keep = T(preionisation), T(1 - Float64(preionisation))
     each_column!(execution, work.layout.n_nodes) do node
         invalid = false
         for row in axes(samples, 1)
@@ -873,7 +981,7 @@ function field_populations!(
                 continue
             end
             value = floor_exposure ? max(exposure[row, node], zero(T)) : exposure[row, node]
-            ionised, neutral, valid = _population_pair(value, initial)
+            ionised, neutral, valid = _population_pair(value, initial, keep)
             fraction[row, node], survival[row, node] = valid ?
                 (ionised, neutral) : (zero(T), zero(T))
             valid || (status[row, node] = UInt8(PlasmaNonfiniteResult))
@@ -889,11 +997,13 @@ end
 
 """
     envelope_populations!(samples, rate, quadrature, workspace, execution;
-                          preionisation, dt, count=workspace.layout.n_nodes)
+                          preionisation, dt, count=workspace.layout.n_nodes,
+                          field_exponent=0)
 
 Evaluate fresh scalar envelope rates and populations without loss/current algebra.
 
-`samples` is a complex `(n_time,n_nodes)` envelope in V/m. `rate` is the instantaneous
+`samples` is a complex `(n_time,n_nodes)` envelope whose physical value in V/m is
+`samples * 2^field_exponent`. `rate` is the instantaneous
 `IonisationRateTable`, `quadrature` its translated `CycleQuadrature`, and `workspace`
 an independent `PopulationWorkspace` in the matching real precision. `dt` is positive
 in s; `preionisation` lies in `[0,1]` and `count` bounds active nodes. Both directional
@@ -909,7 +1019,7 @@ status codes. Warm evaluation allocates nothing and reads no current coefficient
 function envelope_populations!(
         samples, table::IonisationRateTable{T},
         quadrature::CycleQuadrature{T}, work::PopulationWorkspace{T}, execution;
-        preionisation, dt, count::Int = work.layout.n_nodes
+        preionisation, dt, count::Int = work.layout.n_nodes, field_exponent::Int = 0,
     ) where {T}
     eltype(samples) === Complex{T} ||
         throw(ArgumentError("envelope populations require matching complex precision"))
@@ -921,8 +1031,9 @@ function envelope_populations!(
         (table.coefficients, quadrature.nodes, quadrature.weights), preionisation, count
     )
     rate, exposure, fraction, survival, filtered, status = _population_arrays(work)
-    parameters, rules, initial = _rate_parameters(table), _cycle_parameters(quadrature),
-        T(preionisation)
+    parameters = _rate_parameters(table, field_exponent)
+    rules = _cycle_parameters(quadrature)
+    initial, keep = T(preionisation), T(1 - Float64(preionisation))
     each!(execution, work.layout.n_time, work.layout.n_nodes; heavy = true) do row, node
         sample = node <= count ? samples[row, node] : zero(eltype(samples))
         major = abs(sample)
@@ -942,13 +1053,11 @@ function envelope_populations!(
             _clear_population_column!(rate, exposure, fraction, survival, filtered, node)
             return nothing
         end
-        total = zero(T)
+        _envelope_exposure!(exposure, rate, node, spacing)
         for row in axes(samples, 1)
-            if row > 1
-                total += (rate[row - 1, node] / 2 + rate[row, node] / 2) * spacing
-            end
-            exposure[row, node], filtered[row, node] = total, zero(T)
-            ionised, neutral, valid = _population_pair(total, initial)
+            total = exposure[row, node]
+            filtered[row, node] = zero(T)
+            ionised, neutral, valid = _population_pair(total, initial, keep)
             fraction[row, node], survival[row, node] = valid ?
                 (ionised, neutral) : (zero(T), zero(T))
             valid || (status[row, node] = UInt8(PlasmaNonfiniteResult))

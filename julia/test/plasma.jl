@@ -460,3 +460,25 @@ end
     @test SolpropJulia.plasma_failure(work.status).code == SolpropJulia.PlasmaSuccess
     @test all(==(0.25), work.fraction)
 end
+
+@testset "Finite envelope currents cannot hide an overflowing exposure" begin
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 2, true)
+    layout = SolpropJulia.ResponseLayout(4, 1, 1)
+    rate = SolpropJulia.IonisationRateTable(
+        zeros(4, 1), 0.25, 4.0, 1.0, log(0.25), log(16.0)
+    )
+    channel = SolpropJulia.PlasmaChannel(rate, 1.0, 1.0)
+    work = SolpropJulia.EnvelopePlasmaWorkspace(execution, Float64, layout)
+    first, second = zeros(ComplexF64, 4, 1), zeros(ComplexF64, 4, 1)
+    # Zero density leaves both currents exactly zero. Saturation of exp(-Inf)
+    # must still report the raw integral overflow, rather than success (#701).
+    SolpropJulia.envelope_plasma!(
+        first, second, ones(ComplexF64, 4, 1), channel,
+        _cycle_test_rules((64, 128)), work, execution;
+        density = 0.0, preionisation = 0.0, dt = floatmax(Float64)
+    )
+    @test SolpropJulia.plasma_failure(work.status).code ==
+        SolpropJulia.PlasmaNonfiniteResult
+    @test any(!isfinite, work.exposure)
+    @test all(iszero, first) && all(iszero, second)
+end
