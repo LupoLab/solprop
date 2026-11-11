@@ -984,7 +984,15 @@ def _open_run(
     CheckpointOutput or None
         The handler's checkpoint interface, or ``None`` for a handler without one.
     """
-    executed = backend.metadata()
+    # A session that holds its monitor from the start (the native session) reports
+    # the launch's zeros here. The execution record carries the monitor instead
+    # (`_record_execution`), as a group's points do (`_scan_batch`); a scan writes the
+    # opening record into every point's metadata.
+    executed = {
+        name: value
+        for name, value in backend.metadata().items()
+        if name != "boundary_monitor"
+    }
     if binding is not None:
         executed = {**executed, "tdse": dict(binding.metadata())}
     output.open(metadata.with_backend(BackendRecord.from_metadata(executed)))
