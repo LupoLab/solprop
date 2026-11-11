@@ -33,7 +33,7 @@ from solprop.backends.exponential import (
     refuse_carrier_frame,
     refuse_formulation,
 )
-from solprop.backends.low_storage import LowStorageMarch, schedule_key, table_steps
+from solprop.backends.low_storage import schedule_key, table_steps
 from solprop.backends.memory import (
     LOCAL_FLUX_STATISTICS,
     low_storage_flows,
@@ -42,9 +42,11 @@ from solprop.backends.memory import (
 )
 from solprop.backends.multistep import (
     AdamsKernels,
-    AdamsMarch,
+    CallLedger,
     ExponentialKernels,
+    HostHistory,
     _Derivative,  # pyright: ignore[reportPrivateUsage] - the march's history entries
+    budget_error,
     source_absent,
 )
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
@@ -62,11 +64,12 @@ from solprop.backends.populations import (
     axis_row_matrix,
     axis_row_populations,
 )
-from solprop.backends.protocol import Backend
+from solprop.backends.protocol import Backend, TimingProbe
 from solprop.backends.session import (
     ExecutionOptions,
     PreparedExecution,
     PreparedGroup,
+    Start,
     statistics_unavailable,
 )
 from solprop.backends.spatial import (
@@ -79,6 +82,7 @@ from solprop.constants import EPS0, C
 from solprop.exceptions import (
     BackendError,
     ConvergenceError,
+    ResponseBudgetError,
 )
 from solprop.grid import RadialGrid, TimeGrid
 from solprop.modes.protocol import Mode
@@ -89,6 +93,7 @@ from solprop.output.capability import (
     refusal_for,
     withheld_accessors,
 )
+from solprop.output.schema import MarchSnapshot
 from solprop.profiles import ZProfile
 from solprop.spatial import (
     ABSORBED_CHANNELS,
@@ -107,9 +112,11 @@ from solprop.stepper.controller import START_GROWTH, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import (
     ComparisonMultistep,
+    MarchPolicy,
     Multistep,
     integrated_weights,
     lagrange_coefficients,
+    march_policy,
 )
 from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule
 from solprop.translate.chebyshev import (
@@ -124,9 +131,15 @@ from solprop.translate.coupled import (
     schur_blocks,
     schur_eigenbasis,
 )
-from solprop.translate.linop import power_weight_at, rate_weights
+from solprop.translate.linop import (
+    delta_phi,
+    power_weight_at,
+    rate_weights,
+    unitary_phase,
+)
 from solprop.translate.plasma_source import (
     _BENCHMARK_GATED,  # pyright: ignore[reportPrivateUsage] - refuse the private NumPy benchmark hook
+    plasma_source_record,
 )
 from solprop.translate.problem import (
     PropagationProblem,
@@ -146,7 +159,9 @@ from solprop.translate.run_request import RunRequest
 from solprop.translate.stage import (
     StageScalars,
     StageTerms,
+    combine,
     require_device_ready,
+    terms,
 )
 from solprop.transverse_monitor import (
     TransverseEdge,
@@ -173,6 +188,8 @@ from . import (
 )
 from ._execution import ExecutionRecord
 from ._helpers import NATIVE
+from ._load import Loaded, StageCache, collar_rests, load, propagator_mode
+from ._probe import NativeProbe
 from ._statistics import (
     NODE_POPULATIONS,
     StatisticsLowering,
@@ -359,9 +376,27 @@ class NativeBackend(StepDriver[_core.State]):
         refused = host_rows_refusal(problem)
         if refused is not None:
             raise BackendError(refused)
-        super().__init__(
-            problem, request, grid=grid, modes=modes, profiles=profiles, options=options
-        )
+        self._problem = problem
+        self._request = request
+        # The stepping policy as one record (`RunRequest.stepper`).
+        self._stepper = stepper
+        # SEP 47 section 6.5: the node chunk is an execution choice, planned from the
+        # problem and the options, and lowered for this build below.
+        self._options = ExecutionOptions() if options is None else options
+        self._chunk_plan: NodeChunkPlan = plan_node_chunk(problem, self._options)
+        # The fixed arrays of the stage seam, held for the backend's life; the weights
+        # that multiply them are a bundle of host floats per stage (`_stages`).
+        self._terms = terms(problem)
+        self._stages = StageCache(problem, self.helpers)
+        self._grid = grid
+        self._modes = modes
+        self._profiles = profiles
+        self._closed = False
+        # The start the native state was last loaded with (`_load`).
+        self._loaded: Loaded | None = None
+        # Bridge only: the legacy direct API's march bookkeeping (solprop's
+        # `StepDriver`), removed with the inheritance (SEP 47 phase 5).
+        self._init_march()
         # solprop SEP 47 section 6.5: this backend's lowering of the host plan, and
         # the general route's own chunk at the plan's budget.
         self._node_chunk = native_node_chunk(
@@ -479,20 +514,24 @@ class NativeBackend(StepDriver[_core.State]):
         self._to_upload: ComplexArray | None = None
         self._alarm = math.nan
         self._alarm_reported = False
-        # solprop's Adams march (SEP 14 phase 2) steps on host arrays, with one native
-        # source evaluation a step; the accepted state is kept on the host beside the
-        # native one, which the statistics and observations read.
+        # The native Adams march's record (SEP 39): its policy, ledger and history,
+        # over the resident history the native state keeps (`_adams_engine`).
         integrator = stepper.integrator
         self._resident: _ResidentAdams | None = None
-        self._adams = (
+        self._adams: _NativeAdamsMarch | None = (
             _NativeAdamsMarch(self, integrator)
             if isinstance(integrator, Multistep)
             else None
         )
-        # solprop's low-storage march (SEP 24 phase 3) steps through the resident
-        # engine `_low_storage_engine` returns, built over the native state above.
-        if isinstance(integrator, LowStorageRungeKutta):
-            self._low_storage = LowStorageMarch(self, integrator)
+        # The low-storage march (SEP 24) is the native session's; its resident
+        # registers' step is a timing probe's trial (`timing_probe`), and the
+        # evaluations the probe makes are counted for the metadata.
+        self._resident_low_storage = (
+            _ResidentLowStorage(self, integrator)
+            if isinstance(integrator, LowStorageRungeKutta)
+            else None
+        )
+        self._low_storage_evaluations = 0
         # NumPy's own BLAS pool would spin beside the native one while this backend
         # lives; it is held to one thread until the last native backend closes.
         self._host_blas = _host_blas.hold(
@@ -500,6 +539,40 @@ class NativeBackend(StepDriver[_core.State]):
             THREAD_BUDGET.threads,
             acquire=acquire_host_blas,
         )
+
+    @property
+    def request(self) -> RunRequest:
+        """Return the run request this backend was built for (solprop SEP 47 5.2).
+
+        Returns
+        -------
+        solprop.translate.run_request.RunRequest
+            Its method, error control, itinerary, planes and statistics; a run adapts
+            it with :meth:`~solprop.translate.run_request.RunRequest.for_run`.
+        """
+        return self._request
+
+    @property
+    def chunk_plan(self) -> NodeChunkPlan:
+        """Return the host rule's node-chunk plan, made at construction (SEP 47 6.5).
+
+        Returns
+        -------
+        solprop.backends.node_chunk.NodeChunkPlan
+            The plan, which :attr:`node_chunk` lowers for this build.
+        """
+        return self._chunk_plan
+
+    @property
+    def closed(self) -> bool:
+        """Return whether the backend has released its buffers.
+
+        Returns
+        -------
+        bool
+            ``True`` once :meth:`close` ran: it can run no other input.
+        """
+        return self._closed
 
     @property
     def _layout(self) -> tuple[int, int, int, int]:
@@ -519,6 +592,126 @@ class NativeBackend(StepDriver[_core.State]):
             self._native_state.set_initial(flat, np.empty(0, dtype=np.complex128))
         return self._native_state
 
+    def _load(
+        self,
+        field: ComplexArray,
+        noise: NoiseRealisation | None,
+        *,
+        z: float,
+        resume: bool,
+    ) -> Loaded:
+        """Load a start into the native state, as a fresh backend's (SEP 22 4.7).
+
+        The field and the noise realisation (:func:`solprop_native._load.load`), the
+        stages' collar back in and the recycled stage dropped, no monitor bound, and
+        the Adams record's history and accounting started afresh; a session or a
+        timing probe goes on from here.
+
+        Parameters
+        ----------
+        field : numpy.ndarray
+            The state, ``complex128`` of shape ``(n_modes, n_pol, n_omega)``, of any
+            strides.
+        noise : solprop.noise.NoiseRealisation or None
+            The realisation, or ``None`` for the problem's own.
+        z : float
+            Where the state belongs, m.
+        resume : bool
+            Whether the state came back from a saved plane, taking no ``input`` draw.
+
+        Returns
+        -------
+        solprop_native._load.Loaded
+            The load, kept as the backend's (`_loaded`).
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            If the backend is closed, or the start does not fit the problem.
+        """
+        if self._closed:
+            raise BackendError("this backend is closed; its buffers were released")
+        _require_initial_array(field, self._problem.shape)
+        loaded = load(self._problem, self._stepper, field, noise, z=z, resume=resume)
+        self._native_state.unbind_monitor()
+        self._native_state.set_initial(loaded.field, loaded.native_noise())
+        if (counters := _counters.active) is not None:
+            counters.load("start", loaded.field.nbytes)
+        # A collar an earlier run rested goes back into the stages (SEP 21).
+        self._native_state.set_absorber_quiet(False)
+        self._native_state.clear_fsal()
+        if self._adams is not None:
+            self._adams.reset()
+            self._adams.begin_run()
+        if self._resident_low_storage is not None:
+            self._resident_low_storage.reset()
+        self._low_storage_evaluations = 0
+        self._loaded = loaded
+        return loaded
+
+    def _install(self, field: ComplexArray) -> None:
+        """Load a resumed history's own state, with the loaded noise realisation.
+
+        Parameters
+        ----------
+        field : numpy.ndarray
+            The state as the interrupted run held it, contiguous.
+        """
+        loaded = self._loaded
+        self._native_state.set_initial(
+            np.ascontiguousarray(field.reshape(-1)),
+            _EMPTY if loaded is None else loaded.native_noise(),
+        )
+        if (counters := _counters.active) is not None:
+            counters.load("restore", field.nbytes)
+
+    def _restore(self, start: Start, loaded: Loaded) -> tuple[str | None, float]:
+        """Restore a resumed start's ledgers and method history after its load.
+
+        Parameters
+        ----------
+        start : solprop.backends.session.Start
+            The start, with any persisted ledgers and snapshot.
+        loaded : solprop_native._load.Loaded
+            Its load.
+
+        Returns
+        -------
+        tuple
+            Why the snapshot's history was not installed (``None`` when it was or none
+            was given), and the next step's proposal, m: the snapshot's when its
+            history continues, else ``dz_init``.
+        """
+        adams = self._adams
+        proposal = float(self._stepper.dz_init)
+        if start.ledgers is not None:
+            atomic = start.ledgers.get("atomic", {})
+            if atomic:
+                raise BackendError(
+                    f"{self.name} does not restore atomic response call ledgers"
+                )
+            if adams is not None:
+                adams.restore_ledger(
+                    cast("Mapping[str, object]", start.ledgers.get("logical", {}))
+                )
+        snapshot = start.march
+        if snapshot is None:
+            return None, proposal
+        if adams is None:
+            march = (
+                "low-storage"
+                if self._resident_low_storage is not None
+                else "Runge-Kutta"
+            )
+            return f"the run steps with the {march} march, which keeps no history", (
+                proposal
+            )
+        reason = adams.resume(snapshot, loaded.z)
+        if reason is not None:
+            return reason, proposal
+        self._install(np.array(snapshot.state, copy=True)[None])
+        return None, float(snapshot.proposal)
+
     def set_initial(
         self,
         field: ComplexArray,
@@ -527,30 +720,48 @@ class NativeBackend(StepDriver[_core.State]):
         z: float = 0.0,
         resume: bool = False,
     ) -> None:
-        """Load a host `complex128` state, of any strides, and optional noise."""
-        _require_initial_array(field, self._problem.shape)
-        self._loading = True
-        try:
-            super().set_initial(field, noise, z=z, resume=resume)
-            flat = cast("ComplexArray", self._to_upload)
-        finally:
-            self._loading = False
-            self._to_upload = None
-        native_noise = (
-            np.empty(0, dtype=np.complex128)
-            if self._noise is None
-            else np.ascontiguousarray(self._noise.reshape(-1))
-        )
-        self._native_state.set_initial(flat, native_noise)
-        if (counters := _counters.active) is not None:
-            counters.load("start", flat.nbytes)
-        self._native_state.clear_fsal()
-        if self._adams is not None:
-            self._adams.reset()
+        """Load a host `complex128` state and optional noise (the legacy direct API).
+
+        Bridge only: the native load (`_load`) and the legacy march's bookkeeping,
+        removed with the ``StepDriver`` inheritance (SEP 47 phase 5).
+        """
+        loaded = self._load(field, noise, z=z, resume=resume)
+        self._state = self._native_state
+        self._noise = loaded.noise
+        self._input_floor = loaded.floor
+        self._clean_columns = loaded.clean_columns
+        self._begin_load(loaded.z)
+
+    def restore_march(self, snapshot: MarchSnapshot) -> str | None:
+        """Continue the Adams march from a snapshot (the legacy direct API).
+
+        Bridge only, removed with the ``StepDriver`` inheritance (SEP 47 phase 5): a
+        session restores through `_restore`.
+
+        Parameters
+        ----------
+        snapshot : solprop.output.schema.MarchSnapshot
+            The snapshot a file holds.
+
+        Returns
+        -------
+        str or None
+            ``None`` when the history was continued, otherwise why the march starts
+            afresh.
+        """
+        if self._adams is None:
+            march = (
+                "low-storage"
+                if self._resident_low_storage is not None
+                else "Runge-Kutta"
+            )
+            return f"the run steps with the {march} march, which keeps no history"
+        return self._adams.load(snapshot)
 
     def _march_to(self, target: float) -> None:
         """Step to `target` with the native Adams march when one is set, else the
-        native Runge-Kutta march."""
+        native Runge-Kutta march (the legacy direct API)."""
+        self._refuse_low_storage()
         try:
             if self._adams is not None:
                 self._adams.march_to(target)
@@ -560,8 +771,24 @@ class NativeBackend(StepDriver[_core.State]):
             self._check_quadrature(target)
 
     def _replay_to(self, schedule: FixedSchedule, target: float) -> None:
-        """Replay on the native Runge-Kutta march (SEP 45)."""
+        """Replay on the native Runge-Kutta march (SEP 45; the legacy direct API)."""
+        self._refuse_low_storage()
         self._rk_march().replay_to(schedule, target)
+
+    def _refuse_low_storage(self) -> None:
+        """Refuse the legacy direct API a low-storage run: the session marches it.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            For a low-storage run (SEP 24), which the native session replays.
+        """
+        if self._resident_low_storage is not None:
+            raise BackendError(
+                "native steps the low-storage march in its session alone (solprop "
+                "SEP 47 section 6.8): start it with backend.prepare(problem, "
+                "request).start(start), or solprop.backends.sessions.start_session"
+            )
 
     def _rk_march(self) -> _NativeRungeKuttaMarch:
         """Return the native Runge-Kutta march, built on first use (SEP 45).
@@ -733,14 +960,6 @@ class NativeBackend(StepDriver[_core.State]):
             residual=self._flow is not None and self._flow.residual_terms is not None,
         )
 
-    def _low_storage_engine(self, method: LowStorageRungeKutta) -> object:
-        """Return the resident low-storage engine (solprop SEP 24 section 6.7).
-
-        Its step is one native call: four register passes accepted in place in the
-        native state, which holds the registers and the flows (`_ResidentLowStorage`).
-        """
-        return _ResidentLowStorage(self, method)
-
     @property
     def _propagator_mode(self) -> PropagatorMode:
         """Return the flow treatment this run uses, ``"auto"`` resolved.
@@ -750,12 +969,7 @@ class NativeBackend(StepDriver[_core.State]):
         device build forms its flows per element under ``"auto"``: there an extra field
         read costs more than the exponential (SEP 24 section 4.3).
         """
-        if not isinstance(self._stepper.integrator, LowStorageRungeKutta):
-            return "recompute"
-        asked = self._stepper.propagator_mode
-        if asked == "auto" and self._low_storage is not None and _on_device():
-            return "recompute"
-        return super()._propagator_mode
+        return propagator_mode(self._problem, self._stepper, device=_on_device())
 
     def _resident_arrays(self, anchor: float, position: float) -> _TrialArrays:
         """Return a resident trial's arrays, every stage row at `position`."""
@@ -829,21 +1043,14 @@ class NativeBackend(StepDriver[_core.State]):
         ]
 
     def _adams_restore(self, z: float, state: ComplexArray) -> None:
-        """Resume the Adams march after a dense observation or a resume reloaded it.
+        """Resume the bridge's Adams march after a dense observation or a resume.
 
-        The modified noise model's realisation is part of the native state, and
-        `_apply_mask` reloads the field alone, which clears it; it is reloaded with
-        the field here, so that a restored march keeps adding it to its sources.
+        The modified noise model's realisation is part of the native state and is
+        loaded with the field (`_install`), so that a restored march keeps adding it
+        to its sources.
         """
         self._z = z
-        self._native_state.set_initial(
-            np.ascontiguousarray(state.reshape(-1)),
-            np.empty(0, dtype=np.complex128)
-            if self._noise is None
-            else np.ascontiguousarray(self._noise.reshape(-1)),
-        )
-        if (counters := _counters.active) is not None:
-            counters.load("restore", state.nbytes)
+        self._install(state)
         self._state = self._native_state
 
     def _trial_step(self, z: float, dz: float) -> tuple[float, _core.State]:
@@ -1036,14 +1243,38 @@ class NativeBackend(StepDriver[_core.State]):
             here = tables.values("phi", bundle.z1)
             anchored = tables.values("phi", bundle.z0)
             return (here - anchored).reshape(self._layout)
-        return super()._delta_phi(bundle)
+        if bundle.phi_delta is None or self._terms.phi is None:
+            return delta_phi(
+                self._problem.linear, bundle.z0, bundle.z1, helpers=self.helpers
+            )
+        return combine(bundle.phi_delta, self._terms.phi)
 
     def _unitary_phase(self, bundle: StageScalars) -> RealArray:
-        """Return ``Im Phi`` at the stage's position, a z table's from its slot."""
+        """Return ``Im Phi`` at the stage's position, a z table's from its slot.
+
+        An expansion of ``Phi`` is cumulative and vanishes at the start of the range,
+        so its value at a position is the bundle's ``phi_at`` against the same terms.
+        """
         tables = self._z_tables
         if tables is not None and tables.phi:
             return np.imag(tables.values("phi", bundle.z1)).reshape(self._layout)
-        return super()._unitary_phase(bundle)
+        if bundle.phi_at is None or self._terms.phi is None:
+            return unitary_phase(self._problem.linear, bundle.z1)
+        return np.imag(combine(bundle.phi_at, self._terms.phi))
+
+    def _hoist(self, z0: float) -> None:
+        """Hoist a step's anchor in the stage cache (`_load.StageCache.hoist`)."""
+        self._stages.hoist(z0)
+
+    def _stage_bundles(
+        self, z0: float, positions: Sequence[float]
+    ) -> tuple[StageScalars, ...]:
+        """Return several stages' scalars taken together (`StageCache.bundles`)."""
+        return self._stages.bundles(z0, positions)
+
+    def _stage_scalars(self, z0: float, z1: float) -> StageScalars:
+        """Return one stage's scalars (`StageCache.scalars`)."""
+        return self._stages.scalars(z0, z1)
 
     def _score_trial(self, partials: RealArray) -> float:
         """Reduce one member's partials to the trial's scaled error norm.
@@ -1082,7 +1313,6 @@ class NativeBackend(StepDriver[_core.State]):
         From here on the engine's finish adds a split-step collar's removal at every
         accepted step, on every march, and :meth:`_boundary_energies` reads it.
         """
-        super()._bind_monitor(monitor)
         if monitor is None:
             self._native_state.unbind_monitor()
             return
@@ -1306,6 +1536,65 @@ class NativeBackend(StepDriver[_core.State]):
         """
         self._native_state.set_absorber_quiet(self._collar_quiet)
         self._native_state.clear_fsal()
+
+    def _collar_rests(self) -> bool:
+        """Return whether this run's stages may leave a quiet collar out (SEP 21)."""
+        return collar_rests(self._problem, self._stepper)
+
+    def _launch_clean_columns(self, edge: TransverseEdge) -> RealArray | None:
+        """Return each column's launched energy without the input draw, or ``None``.
+
+        What the transverse edge's safety ramp is judged on (SEP 40), so a run with no
+        ramp needs none. Formed where the load held both parts (`_load`), which needs
+        no state on the host; only a launch that resumed without its edge's record has
+        none, and then the loaded state crosses once.
+
+        Parameters
+        ----------
+        edge : solprop.transverse_monitor.TransverseEdge
+            The run's edge.
+
+        Returns
+        -------
+        numpy.ndarray or None
+            The unweighted energies, or ``None`` with no draw, no ramp or on a resumed
+            launch.
+        """
+        loaded = self._loaded
+        floor = None if loaded is None else loaded.floor
+        if loaded is None or floor is None or edge.resumed or edge.design is None:
+            return None
+        if loaded.clean_columns is not None:
+            return loaded.clean_columns
+        state = np.asarray(self._observed_field(self._native_state)[0])
+        return edge.reduction.column_power(state - np.asarray(floor[0]))
+
+    def timing_probe(self, start: Start) -> TimingProbe:
+        """Load a start and return single trials of this run's march from it.
+
+        The start's field, noise, position and resume flag are loaded as a session
+        loads them (`_load`); its method history, ledgers and monitor continuation are
+        not read. A Runge-Kutta trial (``rk_trial``) leaves the loaded state alone; the
+        low-storage march's step advances the discarded registers in place, so a
+        backend probed so is closed afterwards (solprop SEP 47 section 6.6).
+
+        Parameters
+        ----------
+        start : solprop.backends.session.Start
+            Where the trials start; its field is taken.
+
+        Returns
+        -------
+        solprop.backends.protocol.TimingProbe
+            The probe (:class:`solprop_native._probe.NativeProbe`).
+        """
+        loaded = self._load(
+            np.asarray(start.take_field()),
+            start.noise,
+            z=float(start.z),
+            resume=start.resume,
+        )
+        return NativeProbe(self, loaded, start.noise)
 
     def _observed_field(self, state: _core.State) -> ComplexArray:
         if state is not self._native_state:
@@ -1705,14 +1994,31 @@ class NativeBackend(StepDriver[_core.State]):
         (:func:`_build_facts`); the native state's counters are read at every call.
         """
         facts = _build_facts()
-        work = super().metadata()
-        if self._adams is None and self._low_storage is None:
+        work: dict[str, object] = {
+            "backend": self.name,
+            "propagator_mode": self._propagator_mode,
+            # SEP 47 section 4.3: execution metadata, outside the resume key.
+            **self._chunk_plan.record(),
+            "node_chunk": self.node_chunk,
+        }
+        if self._problem.responses.plasma_channels:
+            work["plasma_source"] = plasma_source_record(self._problem.grids)
+        # The evaluations this backend made: the Adams ledger's logical calls, the
+        # low-storage march's physical ones (SEP 24 section 5), or the native
+        # Runge-Kutta trials' dispatches (SEP 30); a session states its own run's.
+        if self._adams is not None:
+            work["response_calls"] = self._adams.ledger.to_record()
+        elif self._resident_low_storage is not None:
+            work["source_evaluations"] = self._low_storage_evaluations
+        else:
             work["source_evaluations"] = self._native_state.rk_source_evaluations
+        if self._monitor is not None:  # bridge only: the legacy API's monitor
+            work["boundary_monitor"] = self._monitor.summary()
         # Which march steps the run (solprop SEP 39 and 45 section 5): the native one,
         # the only one since SEP 47 phase 5.
         if self._adams is not None:
             work["adams_march"] = "native"
-        elif self._low_storage is None:
+        elif self._resident_low_storage is None:
             work["rk_march"] = "native"
         if self._statistics_tables:
             # The profile statistics' tables and their measured errors (SEP 47 6.4).
@@ -1959,7 +2265,7 @@ type _TrialArrays = tuple[
 class _ResidentAdams:
     """solprop's Adams history kept in the native state (solprop SEP 16 phase 3b).
 
-    An engine for solprop's ``AdamsMarch`` (``solprop.backends.multistep.AdamsEngine``):
+    The native Adams march's engine (``solprop.backends.multistep.AdamsEngine``):
     the history's rows, a trial's predictor, its source, the corrected field and the
     defect norms, the adoption and transport of an accepted step and dense observation
     run in the engine, with only the trial's scalars, coefficient tables and norms
@@ -2322,6 +2628,9 @@ class _ResidentAdams:
         )
         return self.native
 
+
+_EMPTY = np.empty(0, dtype=np.complex128)
+"""No modified-noise realisation: the native state adds none."""
 
 _NO_SCHEDULE = np.empty(0, dtype=np.float64)
 """The empty schedule of an adaptive march's configuration."""
@@ -2742,27 +3051,42 @@ def _verify_watch_of(monitor: BoundaryMonitor, result: dict[str, Any]) -> None:
         )
 
 
-class _NativeAdamsMarch(AdamsMarch):
-    """solprop's exponential Adams march, executed natively (solprop SEP 39 phase 2).
+class _NativeAdamsMarch:
+    """The native Adams march's record: its policy, ledger and history (SEP 39, 47).
 
-    The algorithm is ``AdamsMarch``'s, which stays the reference; the native march
-    performs it on the resident engine for a run of attempts and returns only at a host
-    event: the target reached or crossed, an accepted step on which the driver has work
-    (a statistics row, a natural stop, a monitor check), the call's bound, the budget,
-    the floor or a native error. Between calls the march's state is this object's, as
-    the Python march keeps it, so a snapshot, a load, a new run and a reset are the
-    reference's own; each call takes the state and hands it back. Where a call returns
-    is therefore not a decision of the march's, and its bound depends on the wall clock
-    without moving a number.
+    The native state steps solprop's exponential Adams march (solprop SEP 39 phase 2):
+    the controller, the history, the landings and the call ledger's counts advance
+    natively, from one policy record (:func:`~solprop.stepper.multistep.march_policy`).
+    This record is what the run starts from: the policy, the history's entries
+    (position, identity and engine row), the order, the rejection flags and the
+    :class:`~solprop.backends.multistep.CallLedger`, each fresh at a load
+    (:meth:`reset`, :meth:`begin_run`) or restored from a resume's snapshot and ledger
+    (:meth:`resume`, :meth:`restore_ledger`). A native session hands it to the native
+    state once (:meth:`start_state`, :meth:`_configure`) and holds the march's state
+    there from then on (solprop SEP 47 section 5.2).
 
-    One ``committing()`` spans each call, the state's synchronisation and the step
-    history's rows, so a signal arriving meanwhile is raised with the host's records in
-    step with the native state. The progress callbacks, the debug lines and the event
-    step's work run after it, and an error is raised last. A run's stop flag, which
-    native code cannot read, is polled before each call, not before each attempt: both
-    a signal and a stop wait for the call in hand, at most its bound and one attempt.
+    The bridge (removed with the native backend's ``StepDriver`` inheritance, SEP 47
+    phase 5) also drives the native march from here, a call of attempts at a time,
+    for the legacy direct API (:meth:`march_to`): between calls the march's state is
+    this object's, and each call takes it and hands it back. One ``committing()``
+    spans each call, the state's synchronisation and the step history's rows, so a
+    signal arriving meanwhile is raised with the host's records in step with the
+    native state. A run's stop flag, which native code cannot read, is polled before
+    each call, not before each attempt: both a signal and a stop wait for the call in
+    hand, at most its bound and one attempt.
 
-    Every configuration the backend admits is one the native march steps.
+    Parameters
+    ----------
+    backend : NativeBackend
+        The backend, whose resident history (``_adams_engine``) the march keeps.
+    method : solprop.stepper.multistep.Multistep
+        The method.
+    runner : object, optional
+        The scripted march of the decision-trace tests, in the native state's place.
+    kernels, exponential : object, optional
+        A scripted harness's host field arithmetic, for a host history
+        (:class:`~solprop.backends.multistep.HostHistory`) where its backend keeps
+        none resident.
     """
 
     MAX_ATTEMPTS: ClassVar[int] = 256
@@ -2773,38 +3097,405 @@ class _NativeAdamsMarch(AdamsMarch):
 
     def __init__(
         self,
-        backend: StepDriver[Any],
+        backend: Any,
         method: Multistep,
         *,
         runner: _MarchRunner | None = None,
         kernels: AdamsKernels | None = None,
         exponential: ExponentialKernels | None = None,
     ) -> None:
-        """Build the march's state over the resident engine.
-
-        `runner`, the scripted march of the decision-trace tests, takes the native
-        state's place; `kernels` and `exponential` are the Python march's own.
-        """
-        # solprop's signature names the driver unparameterised.
-        super().__init__(backend, method, kernels, exponential)  # pyright: ignore[reportUnknownMemberType]
-        # The driver's protected bookkeeping, which this march books into exactly as
-        # solprop's does (``DRIVER_SURFACE``): held untyped, since it is the driver's
-        # own surface the march reaches, as `AdamsMarch` itself reaches it.
+        """Build the record over the backend's resident history, with no history."""
+        self._backend = backend
+        # The backend's protected bookkeeping the bridge's march books into, held
+        # untyped: a scripted harness stands in for it in the decision-trace tests.
         self._driver: Any = backend
         self._runner = runner
         self._configured: tuple[float | None] | None = None
-        engine = self._engine
-        # `_adams_engine` returns the resident history or refuses: the march has no
-        # host engine to step. A scripted runner's harness keeps its own.
+        self._method = method
+        stepper = backend._stepper
+        problem = backend._problem
+        # Whether the run interpolates its planes (ADR-036, ADR-039).
+        self._interpolate = bool(stepper.interpolate_planes)
+        exponential_form = method.formulation == "exponential"
+        # The selected method's family, one-order-higher PEC, takes the fused path;
+        # the comparison variants' general path is the reference's alone (SEP 47
+        # section 6.3), refused at admission.
+        self._fused = (
+            not exponential_form
+            and method.corrector == "pec"
+            and all(
+                method.corrector_nodes(order) == order + 1
+                for order in range(1, method.order + 1)
+            )
+        )
+        assert self._fused or exponential_form
+        resident = backend._adams_engine(method, "transported")
+        if resident is None:
+            # A scripted harness's host history; the native backend's is resident.
+            helpers = backend.helpers
+            self._engine: Any = HostHistory(
+                backend,
+                method,
+                AdamsKernels(helpers=helpers) if kernels is None else kernels,
+                (
+                    (
+                        ExponentialKernels(helpers=helpers)
+                        if exponential is None
+                        else exponential
+                    )
+                    if exponential_form
+                    else None
+                ),
+                "transported",
+            )
+        else:
+            self._engine = resident
+        self._history: list[_Derivative] = []
+        self._rejections = 0
+        self._last_rejected = False
+        self._order = 1 if method.variable_order else method.order
+        self._ahead: tuple[float, object] | None = None
+        self.ledger = CallLedger()
+        # An in-stage temporal collar's largest rate bounds each order's stable step
+        # in the exponential formulation (`adams_core`'s order choice).
+        responses = problem.responses
+        collar = responses.temporal_absorber
+        collar_rate = (
+            0.5 * float(np.max(collar))
+            if collar is not None
+            and responses.absorber_scheme == "nonlinear"
+            and exponential_form
+            else 0.0
+        )
+        linear = problem.linear
+        carrier = getattr(self._engine, "carrier", None)
+        # Every number the native controller and landings read (SEP 39 section 4.2).
+        self._policy: MarchPolicy = march_policy(
+            method,
+            dz_min=stepper.dz_min,
+            dz_max=stepper.dz_max,
+            stretch=stepper.stretch,
+            z_end=stepper.z_end,
+            save_planes=np.asarray(stepper.save_planes, dtype=np.float64).tolist(),
+            hard_kinks=np.asarray(linear.hard_kinks, dtype=np.float64).tolist(),
+            breakpoints=np.asarray(linear.phi_breakpoints, dtype=np.float64).tolist(),
+            interpolate=self._interpolate,
+            collar_rate=collar_rate,
+            carrier=isinstance(carrier, CarrierReference) and carrier.active,
+        )
+        # Whether the stages left a quiet collar out at the last attempt.
+        self._collar_was_quiet = False
         # The admission refuses a carrier frame on an operator with no chord
-        # (``refuse_carrier_frame``).
+        # (``refuse_carrier_frame``); a scripted harness keeps its own engine.
         assert runner is not None or (
-            isinstance(engine, _ResidentAdams)
+            isinstance(self._engine, _ResidentAdams)
             and not (
                 self._policy.carrier
-                and engine.carrier is not None
-                and engine.carrier.chord is None
+                and self._engine.carrier is not None
+                and self._engine.carrier.chord is None
             )
+        )
+
+    # -- the record ------------------------------------------------------------------
+
+    def reset(self) -> None:
+        """Forget the history: the state was loaded outside the march."""
+        self._history = []
+        self._rejections = 0
+        self._engine.reset()
+        self._ahead = None
+
+    def begin_run(self) -> None:
+        """Start a run's accounting afresh: the ledger and the last attempt's flags.
+
+        A backend loaded for another run counts that run's calls alone and chooses its
+        first order and step as a fresh backend would (SEP 22 section 4.7, SEP 39 R9).
+        A resume restores its persisted ledger and flags afterwards.
+        """
+        self.ledger = CallLedger()
+        self._last_rejected = False
+        self._collar_was_quiet = False
+
+    def restore_ledger(
+        self, logical: Mapping[str, object], atomic: Mapping[str, object] | None = None
+    ) -> None:
+        """Restore a resumed run's logical call counts, not its history.
+
+        Parameters
+        ----------
+        logical : collections.abc.Mapping
+            The persisted logical counts; empty installs nothing.
+        atomic : collections.abc.Mapping or None, optional
+            Persisted atomic counts, which only the TDSE reference keeps.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            If atomic counts are given.
+        """
+        if atomic:
+            raise BackendError("native does not restore atomic response call ledgers")
+        if logical:
+            self.ledger = CallLedger.from_record(logical)
+
+    def resume(self, snapshot: MarchSnapshot, z: float) -> str | None:
+        """Install a snapshot's history taken where the run resumes, at `z`.
+
+        The history's rows go to the resident engine and its entries, order and flags
+        to this record; the snapshot's state and proposal are the caller's to load. A
+        snapshot that cannot continue the march changes nothing.
+
+        Parameters
+        ----------
+        snapshot : solprop.output.schema.MarchSnapshot
+            The snapshot a file holds.
+        z : float
+            The loaded position, m.
+
+        Returns
+        -------
+        str or None
+            ``None`` when the history was installed, otherwise why the march starts
+            afresh, as a resume did before snapshots were kept.
+        """
+        reason = self._refusal(snapshot, z)
+        if reason is not None:
+            return reason
+        # The rows keep the engine's layout, a leading axis of one beside their own
+        # (the snapshot's disk format, SEP 47 section 6.7).
+        try:
+            self._engine.load_rows(snapshot.rows, (1, *self._backend._problem.shape))
+        except BackendError as error:
+            return str(error)
+        self._history = [
+            _Derivative(float(z), self._engine.value(int(slot)), identity, int(slot))
+            for z, identity, slot in zip(
+                snapshot.positions, snapshot.identities, snapshot.slots, strict=True
+            )
+        ]
+        self._order = snapshot.order
+        self._rejections = snapshot.rejections
+        self._last_rejected = snapshot.last_rejected
+        self._collar_was_quiet = snapshot.collar_was_quiet
+        self._ahead = None
+        return None
+
+    def _refusal(self, snapshot: MarchSnapshot, z: float) -> str | None:
+        """Return why a snapshot cannot continue this march at `z`, or ``None``."""
+        shape = tuple(self._backend._problem.shape)
+        checks = (
+            (snapshot.history_key is None, "the snapshot names no history key"),
+            (
+                snapshot.history_key != self._method.history_key,
+                f"the snapshot's history was kept by {snapshot.history_key}, and "
+                f"this run steps with {self._method.history_key}",
+            ),
+            (
+                snapshot.z != z,
+                f"the snapshot is at z = {snapshot.z!r} m and the run resumes at "
+                f"z = {z!r} m",
+            ),
+            (
+                snapshot.state.shape != shape,
+                f"the snapshot's state has shape {snapshot.state.shape}",
+            ),
+            (
+                # A landing snaps to its plane, a rounding from the step's z + dz.
+                not math.isclose(
+                    float(snapshot.positions[-1]), snapshot.z, rel_tol=1e-12
+                ),
+                "the snapshot's newest sample is not at its position",
+            ),
+            (
+                bool(
+                    np.any(
+                        (snapshot.slots < 0) | (snapshot.slots >= self._engine.n_slots)
+                    )
+                ),
+                "the snapshot's history names no row of this engine",
+            ),
+        )
+        return next((reason for failed, reason in checks if failed), None)
+
+    def start_state(self, z: float, proposal: float, cursor: int) -> dict[str, object]:
+        """Return the march's state at a start, as the native call takes it.
+
+        Parameters
+        ----------
+        z : float
+            The loaded position, m.
+        proposal : float
+            The next step's proposal, m: ``dz_init``, or a resumed snapshot's.
+        cursor : int
+            The replayed schedule's edge index at `z`.
+
+        Returns
+        -------
+        dict
+            The position, the proposal, the order, the rejection flags, the cursor, the
+            history's entries and the ledger's counts.
+        """
+        ledger = self.ledger
+        return {
+            "z": float(z),
+            "proposal": float(proposal),
+            "order": self._order,
+            "rejections": self._rejections,
+            "last_rejected": self._last_rejected,
+            "collar_was_quiet": self._collar_was_quiet,
+            "cursor": int(cursor),
+            "history": [
+                (entry.z, entry.identity == "predicted", entry.slot)
+                for entry in self._history
+            ],
+            "ledger": {name: getattr(ledger, name) for name in _MARCH_COUNTERS},
+        }
+
+    def _configure(self, interval: float | None = None) -> None:
+        """Hand the native state the run's policy, again when `interval` changed.
+
+        Parameters
+        ----------
+        interval : float or None, optional
+            The boundary monitor's quiet interval (``BoundaryMonitor.interval``) for
+            the bridge's march, which judges the collar on the host; ``None`` for a
+            session, whose native monitor holds its own.
+        """
+        if self._configured == (interval,):
+            return
+        policy = dataclasses.replace(self._policy, quiet_interval=interval)
+        if self._runner is None:
+            backend = self._backend
+            engine = cast("_ResidentAdams", self._engine)
+            schedule = backend._stepper.schedule
+            steps = edges = _NO_SCHEDULE
+            if schedule is not None:
+                steps = np.ascontiguousarray(schedule.steps, dtype=np.float64)
+                edges = np.ascontiguousarray(schedule.edges, dtype=np.float64)
+            backend._native_state.adams_march_configure(
+                dataclasses.asdict(policy),
+                self._fused,
+                engine.compensated,
+                engine.interpolate,
+                steps,
+                edges,
+            )
+        self._configured = (interval,)
+
+    def _raise(self, reason: int, result: dict[str, Any]) -> None:
+        """Raise the error a native call returned with, if any.
+
+        Raises
+        ------
+        solprop.exceptions.ResponseBudgetError
+            For the bridge's march at the call budget.
+        solprop.exceptions.ConvergenceError
+            At the step floor, for a diverged replay or a native refinement.
+        """
+        if reason == _BUDGET:
+            raise self._budget_error(int(result["cost"]))
+        if reason == _FLOOR:
+            proposed = float(result["floor_proposal"])
+            msg = (
+                f"step control asked for {proposed:.3e} m, below the floor dz_min ="
+                f" {self._policy.dz_min:.3e} m; the tolerance cannot be met here"
+            )
+            raise ConvergenceError(msg)
+        if reason == _DIVERGED:
+            dz, end = float(result["replay_dz"]), float(result["replay_end"])
+            norm = float(result["replay_norm"])
+            msg = (
+                f"{self._driver.name}: a replayed {self._method.name} step of "
+                f"{dz:.4g} m ending at z = {end:.6g} m has a non-finite error norm "
+                f"({norm!r}): the field has diverged. A replayed schedule takes "
+                "its steps as given and cannot reject one, so a step beyond an "
+                "explicit stability limit -- the in-stage temporal collar's or a "
+                "coupled flow's advisory step -- grows until it overflows; the "
+                "translation refuses a declared step past the collar's limit and "
+                "warns on one past the flow's. Take shorter steps, or let the "
+                "controller choose them"
+            )
+            raise ConvergenceError(msg)
+        if reason == _ERROR:
+            _raise_native(result)
+
+    # -- the bridge's march (the legacy direct API; removed with the inheritance) ----
+
+    def snapshot(self) -> MarchSnapshot | None:
+        """Return the bridge march's state at its accepted position, for a resume.
+
+        Returns
+        -------
+        solprop.output.schema.MarchSnapshot or None
+            ``None`` with no history yet or the march ahead of an interpolated plane.
+        """
+        if not self._history or self._ahead is not None:
+            return None
+        backend = self._driver
+        return MarchSnapshot(
+            z=float(backend._z),
+            state=np.array(backend._adams_state()[0], dtype=np.complex128, copy=True),
+            proposal=float(backend._proposal),
+            method=repr(self._method),
+            order=int(self._order),
+            rejections=int(self._rejections),
+            last_rejected=bool(self._last_rejected),
+            positions=np.array([entry.z for entry in self._history], dtype=np.float64),
+            identities=tuple(entry.identity for entry in self._history),
+            slots=np.array([entry.slot for entry in self._history], dtype=np.int64),
+            rows=self._engine.snapshot_rows(),
+            collar_was_quiet=self._collar_was_quiet,
+            history_key=self._method.history_key,
+        )
+
+    def snapshot_nbytes(self) -> int | None:
+        """Return the bytes :meth:`snapshot` would copy, copying nothing.
+
+        Returns
+        -------
+        int or None
+            The state and every engine row, or ``None`` where :meth:`snapshot` is.
+        """
+        if not self._history or self._ahead is not None:
+            return None
+        state = math.prod(self._backend._problem.shape) * 16
+        return state + int(self._engine.snapshot_nbytes())
+
+    def load(self, snapshot: MarchSnapshot) -> str | None:
+        """Continue the bridge's march from a snapshot at the loaded position.
+
+        Parameters
+        ----------
+        snapshot : solprop.output.schema.MarchSnapshot
+            The snapshot.
+
+        Returns
+        -------
+        str or None
+            ``None`` when continued, otherwise why the march starts afresh.
+        """
+        backend = self._driver
+        reason = self.resume(snapshot, float(backend._z))
+        if reason is None:
+            backend._adams_restore(
+                snapshot.z, np.array(snapshot.state, copy=True)[None]
+            )
+            backend._proposal = snapshot.proposal
+        return reason
+
+    def _observe(self, position: float) -> object:
+        """Return the field at `position` inside the last accepted step."""
+        return self._engine.observe(position)
+
+    def _budget_error(self, cost: int) -> ResponseBudgetError:
+        """Return the error of a trial the call budget cannot pay for."""
+        backend = self._driver
+        return budget_error(
+            self._policy.max_calls,
+            self.ledger.total,
+            backend._z,
+            cost,
+            backend._adams_state()[0].copy(),
         )
 
     def march_to(self, target: float) -> None:
@@ -2830,10 +3521,11 @@ class _NativeAdamsMarch(AdamsMarch):
             self._ahead = None
         if backend._natural_stop_due(target):
             return
-        self._configure()
+        monitor = backend._monitor
+        self._configure(None if monitor is None else float(monitor.interval))
         schedule = backend._stepper.schedule
         if schedule is not None:
-            # A replay takes the schedule's steps as given (`AdamsMarch._replay_to`).
+            # A replay takes the schedule's steps as given.
             slack = replay_tolerance(schedule, target)
             while (
                 backend._schedule_index < schedule.n_steps
@@ -2856,31 +3548,6 @@ class _NativeAdamsMarch(AdamsMarch):
             backend._state = cast("Any", self._observe(target))
             backend._z = target
             self.ledger.dense_observations += 1
-
-    def _configure(self) -> None:
-        """Hand the native state the run's policy, again when the monitor changed."""
-        monitor = self._driver._monitor
-        interval = None if monitor is None else float(monitor.interval)
-        if self._configured == (interval,):
-            return
-        policy = dataclasses.replace(self._policy, quiet_interval=interval)
-        if self._runner is None:
-            backend = self._driver
-            engine = cast("_ResidentAdams", self._engine)
-            schedule = backend._stepper.schedule
-            steps = edges = _NO_SCHEDULE
-            if schedule is not None:
-                steps = np.ascontiguousarray(schedule.steps, dtype=np.float64)
-                edges = np.ascontiguousarray(schedule.edges, dtype=np.float64)
-            backend._native_state.adams_march_configure(
-                dataclasses.asdict(policy),
-                self._fused,
-                engine.compensated,
-                engine.interpolate,
-                steps,
-                edges,
-            )
-        self._configured = (interval,)
 
     def _watching(self) -> bool:
         """Whether the march takes the boundary checks itself (solprop SEP 45 4.8).
@@ -2950,22 +3617,9 @@ class _NativeAdamsMarch(AdamsMarch):
         }
 
     def _state(self, watching: bool = False) -> dict[str, object]:
-        """Return the march's state as the native call takes it."""
-        backend, ledger = self._driver, self.ledger
-        state: dict[str, object] = {
-            "z": float(backend._z),
-            "proposal": float(backend._proposal),
-            "order": self._order,
-            "rejections": self._rejections,
-            "last_rejected": self._last_rejected,
-            "collar_was_quiet": self._collar_was_quiet,
-            "cursor": backend._schedule_index,
-            "history": [
-                (entry.z, entry.identity == "predicted", entry.slot)
-                for entry in self._history
-            ],
-            "ledger": {name: getattr(ledger, name) for name in _MARCH_COUNTERS},
-        }
+        """Return the bridge march's state as the native call takes it."""
+        backend = self._driver
+        state = self.start_state(backend._z, backend._proposal, backend._schedule_index)
         if watching:
             state["watch"] = backend._monitor.watch_state()
         return state
@@ -3102,43 +3756,6 @@ class _NativeAdamsMarch(AdamsMarch):
                 step, fused=self._fused, carrier=list(result["step_carrier"])
             )
 
-    def _raise(self, reason: int, result: dict[str, Any]) -> None:
-        """Raise the error a call returned with, if any."""
-        if reason == _BUDGET:
-            raise self._budget_error(int(result["cost"]))
-        if reason == _FLOOR:
-            proposed = float(result["floor_proposal"])
-            msg = (
-                f"step control asked for {proposed:.3e} m, below the floor dz_min ="
-                f" {self._policy.dz_min:.3e} m; the tolerance cannot be met here"
-            )
-            raise ConvergenceError(msg)
-        if reason == _DIVERGED:
-            dz, end = float(result["replay_dz"]), float(result["replay_end"])
-            norm = float(result["replay_norm"])
-            msg = (
-                f"{self._driver.name}: a replayed {self._method.name} step of "
-                f"{dz:.4g} m ending at z = {end:.6g} m has a non-finite error norm "
-                f"({norm!r}): the field has diverged. A replayed schedule takes "
-                "its steps as given and cannot reject one, so a step beyond an "
-                "explicit stability limit -- the in-stage temporal collar's or a "
-                "coupled flow's advisory step -- grows until it overflows; the "
-                "translation refuses a declared step past the collar's limit and "
-                "warns on one past the flow's. Take shorter steps, or let the "
-                "controller choose them"
-            )
-            raise ConvergenceError(msg)
-        if reason == _ERROR:
-            message = str(result["message"])
-            category = int(result["category"])
-            if category == _CONVERGENCE:
-                raise ConvergenceError(message)
-            if category == _VALUE:
-                raise ValueError(message)
-            if category == _REFUSED:
-                raise BackendError(message)
-            raise RuntimeError(message)
-
 
 class _NativeRungeKuttaMarch:
     """The Runge-Kutta march stepped by the native state (solprop SEP 45 phase 3).
@@ -3155,13 +3772,22 @@ class _NativeRungeKuttaMarch:
     MAX_ATTEMPTS = 256
     MAX_SECONDS = 0.1
 
-    def __init__(self, backend: NativeBackend, runner: Any = None) -> None:
+    def __init__(
+        self, backend: NativeBackend, runner: Any = None, *, monitored: bool = True
+    ) -> None:
         # `runner`, the scripted march of the decision-trace tests, takes the native
-        # state's place.
+        # state's place. A session's march is not `monitored`: its native monitor holds
+        # the quiet interval, and the policy carries none (SEP 47 section 6.4).
         self._driver: Any = backend
         self._runner = runner
+        self._monitored = monitored
         self._configured: tuple[float | None] | None = None
         self._replaying: FixedSchedule | None = None
+
+    def _interval(self) -> float | None:
+        """Return the bridge's monitor's quiet interval, ``None`` for a session."""
+        monitor = self._driver._monitor if self._monitored else None
+        return None if monitor is None else float(monitor.interval)
 
     def _policy(self) -> dict[str, object]:
         """Return the run's controller and landing record (kernel contract 12)."""
@@ -3171,7 +3797,7 @@ class _NativeRungeKuttaMarch:
         breakpoints = np.asarray(backend._problem.linear.phi_breakpoints, np.float64)
         if not stepper.interval_cap:
             breakpoints = breakpoints[[0, -1]]
-        monitor = backend._monitor
+        interval = self._interval()
         return {
             "dz_min": float(stepper.dz_min),
             "dz_max": float(stepper.dz_max),
@@ -3185,7 +3811,7 @@ class _NativeRungeKuttaMarch:
             "hard_kinks": [float(z) for z in backend._problem.linear.hard_kinks],
             "breakpoints": [float(z) for z in breakpoints],
             "landing_ulps": LANDING_ULPS,
-            "quiet_interval": None if monitor is None else float(monitor.interval),
+            "quiet_interval": interval,
             "safety": float(controller.safety),
             "beta1": float(controller.beta1),
             "beta2": float(controller.beta2),
@@ -3202,8 +3828,7 @@ class _NativeRungeKuttaMarch:
     def _configure(self) -> None:
         """Hand the native state the run's policy, again when the monitor changed."""
         backend = self._driver
-        monitor = backend._monitor
-        interval = None if monitor is None else float(monitor.interval)
+        interval = self._interval()
         if self._configured == (interval,) or self._runner is not None:
             return
         stepper = backend._stepper
@@ -3472,41 +4097,92 @@ class _NativeRungeKuttaMarch:
 
     def _raise(self, reason: int, result: dict[str, Any]) -> None:
         """Raise the error a call returned with, if any."""
-        if reason == _DIVERGED:
-            backend = self._driver
-            schedule = self._replaying
-            n_steps = 0 if schedule is None else schedule.n_steps
-            dz, norm = float(result["replay_dz"]), float(result["replay_norm"])
-            msg = (
-                f"{backend.name}: replayed step {backend._schedule_index + 1} of "
-                f"{n_steps}, {dz:.4g} m from z = {backend._z:.6g} m, has a "
-                f"non-finite error norm ({norm!r}): the field has diverged. A "
-                "replayed schedule takes its steps as given and cannot reject "
-                "one, so a step beyond an explicit stability limit -- the "
-                "in-stage temporal collar's or a coupled flow's advisory step -- "
-                "grows until it overflows; the translation refuses a declared step "
-                "past the collar's limit and warns on one past the flow's. Take "
-                "shorter steps, or let the controller choose them"
-            )
-            raise ConvergenceError(msg)
-        if reason == _FLOOR:
-            proposed = float(result["floor_proposal"])
-            dz_min = float(self._driver._stepper.dz_min)
-            msg = (
-                f"step control asked for {proposed:.3e} m, below the floor dz_min ="
-                f" {dz_min:.3e} m; the tolerance cannot be met here"
-            )
-            raise ConvergenceError(msg)
-        if reason == _ERROR:
-            message = str(result["message"])
-            category = int(result["category"])
-            if category == _CONVERGENCE:
-                raise ConvergenceError(message)
-            if category == _VALUE:
-                raise ValueError(message)
-            if category == _REFUSED:
-                raise BackendError(message)
-            raise RuntimeError(message)
+        backend = self._driver
+        schedule = self._replaying
+        _raise_rk(
+            reason,
+            result,
+            name=backend.name,
+            dz_min=float(backend._stepper.dz_min),
+            at=(float(backend._z), int(backend._schedule_index)),
+            n_steps=0 if schedule is None else schedule.n_steps,
+        )
+
+
+def _raise_rk(
+    reason: int,
+    result: Mapping[str, Any],
+    *,
+    name: str,
+    dz_min: float,
+    at: tuple[float, int],
+    n_steps: int,
+) -> None:
+    """Raise the error a native Runge-Kutta march returned with, if any.
+
+    Parameters
+    ----------
+    reason : int
+        The call's return reason.
+    result : collections.abc.Mapping
+        Its result: the diverged replay's step and norm, the floor's proposal, or a
+        native error's message and category.
+    name : str
+        The backend's name, for a diverged replay's message.
+    dz_min : float
+        The step floor, m.
+    at : tuple of float and int
+        The position, m, and the replay's cursor the diverged step started from.
+    n_steps : int
+        The replayed schedule's steps.
+
+    Raises
+    ------
+    solprop.exceptions.ConvergenceError
+        For a diverged replay, the step floor or a native convergence failure.
+    """
+    if reason == _DIVERGED:
+        z, cursor = at
+        dz, norm = float(result["replay_dz"]), float(result["replay_norm"])
+        msg = (
+            f"{name}: replayed step {cursor + 1} of {n_steps}, {dz:.4g} m from "
+            f"z = {z:.6g} m, has a non-finite error norm ({norm!r}): the field has "
+            "diverged. A replayed schedule takes its steps as given and cannot "
+            "reject one, so a step beyond an explicit stability limit -- the "
+            "in-stage temporal collar's or a coupled flow's advisory step -- grows "
+            "until it overflows; the translation refuses a declared step past the "
+            "collar's limit and warns on one past the flow's. Take shorter steps, or "
+            "let the controller choose them"
+        )
+        raise ConvergenceError(msg)
+    if reason == _FLOOR:
+        proposed = float(result["floor_proposal"])
+        msg = (
+            f"step control asked for {proposed:.3e} m, below the floor dz_min ="
+            f" {dz_min:.3e} m; the tolerance cannot be met here"
+        )
+        raise ConvergenceError(msg)
+    if reason == _ERROR:
+        _raise_native(result)
+
+
+def _raise_native(result: Mapping[str, Any]) -> None:
+    """Raise a native march's error as the exception class its category names.
+
+    Raises
+    ------
+    solprop.exceptions.ConvergenceError, ValueError, BackendError, RuntimeError
+        By the result's category.
+    """
+    message = str(result["message"])
+    category = int(result["category"])
+    if category == _CONVERGENCE:
+        raise ConvergenceError(message)
+    if category == _VALUE:
+        raise ValueError(message)
+    if category == _REFUSED:
+        raise BackendError(message)
+    raise RuntimeError(message)
 
 
 class _ResidentLowStorage:

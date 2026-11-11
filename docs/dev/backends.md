@@ -58,7 +58,7 @@ class Backend(Protocol):
     def available_device_memory(self) -> int | None: ...
     def close(self) -> None: ...  # idempotent
 
-    # What the run layer asks beside those; StepDriver gives each its default.
+    # What the run layer asks beside those.
     def set_stop(self, flag: StopFlag | None) -> None: ...  # polled between trials
     def set_held_plane(self, held: bool) -> None: ...  # the low-storage march's hold
     def attach_monitor(self, monitor: BoundaryMonitor) -> None: ...
@@ -229,7 +229,7 @@ the steps to one of these loops:
 | `StepDriver._replay_to` | Runge-Kutta on a fixed schedule | the backend's `_trial_step` |
 | `AdamsMarch.march_to`, in `backends/multistep.py` | adaptive Adams | an `AdamsEngine`: `HostHistory`, or `native`'s resident `_ResidentAdams` |
 | `AdamsMarch._replay_to` | Adams on a fixed schedule | the same engines |
-| `LowStorageMarch.replay_to`, in `backends/low_storage.py` | low-storage, always on a schedule | a `LowStorageEngine`: `HostLowStorage`, or `native`'s `_ResidentLowStorage`, whose step is one native call |
+| `LowStorageMarch.replay_to`, in `backends/low_storage.py` | low-storage, always on a schedule | a `LowStorageEngine`: `HostLowStorage`; `native` refuses it, its session replays the march natively |
 | `_NativeAdamsMarch.march_to`, with `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine; it returns to Python only at a host event |
 | `_NativeRungeKuttaMarch.march_to`, with `native/src/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm; it returns to Python only at a host event |
 
@@ -1437,7 +1437,10 @@ The backend depends on solprop's seam: the `PropagationProblem`, the protected s
 and the stage bundles, all frozen by `tests/backends/test_driver.py`. A change to any of them
 rewrites those tables in the same commit and adds a release-note fragment. The two packages are
 released together, and solprop's metadata pins this one to its own version. `check_build` looks
-the driver members, bundle fields and contract tuples the adapter relies on up by name. In an editable
+the driver members, bundle fields and contract tuples the adapter relies on up by name. Since SEP
+47 phase 5 the native backend lowers the problem, loads a start (`solprop_native._load`), keeps
+its Adams march's record and times its trials (`timing_probe`, `solprop_native._probe`) itself;
+it inherits `StepDriver` only for the legacy direct API, which that phase removes. In an editable
 checkout it also recomputes the digest of `native/CMakeLists.txt` and the C++ under `native/src`
 and `native/include`, once per process, and refuses an extension built from anything else
 (`BuildInfo.source_digest`, ADR-068), which catches a C++-only change too. It records the repository

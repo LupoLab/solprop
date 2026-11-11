@@ -315,8 +315,10 @@ DRIVER_SURFACE: tuple[str, ...] = (
     "_watched_step",
     "available_device_memory",
     "metadata",
+    "restore_march",
     "set_initial",
     "stats",
+    "timing_probe",
 )
 """Every ``StepDriver`` method this backend overrides or calls.
 

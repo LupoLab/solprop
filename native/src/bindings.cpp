@@ -2456,6 +2456,17 @@ public:
       return nb::none();
     return watch_record_to(*record);
   }
+  // The split collar's crossing cap the monitor holds, m, or None; takes the lock.
+  nb::object monitor_cap() {
+    std::optional<double> cap;
+    {
+      const nb::gil_scoped_release release;
+      cap = session_->monitor_cap();
+    }
+    if (!cap)
+      return nb::none();
+    return nb::float_(*cap);
+  }
   // solprop SEP 47 section 5.5: the Adams march's state with the orders of its
   // accepted steps from `since` (the call ledger), or None for a Runge-Kutta march;
   // read under the session's lock, between advances.
@@ -4374,6 +4385,7 @@ NB_MODULE(_core, module_) {
       .def("status", &BoundSession::status)
       .def_prop_ro("elements", &BoundSession::elements)
       .def("monitor_record", &BoundSession::monitor_record)
+      .def("monitor_cap", &BoundSession::monitor_cap)
       .def("continue_monitor", &BoundSession::continue_monitor, "record"_a, "plane"_a,
            "unwatched"_a, "edge_record"_a)
       .def("edge_record", &BoundSession::edge_record)

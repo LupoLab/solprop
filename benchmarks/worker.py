@@ -200,8 +200,10 @@ class _Loaded:
     resets the backend's counters and masks and uploads the state. The timed window
     and the counted evaluations start where they always did: once the state is
     loaded, before the output opens and the launch plane is saved. Within the block
-    the backend's ``set_initial`` is wrapped to read the clock and the counter as it
-    returns; it is restored on exit.
+    the backend's load is wrapped to read the clock and the counter as it returns; it
+    is restored on exit. The load is the native backend's own ``_load`` where it has
+    one (SEP 47 phase 5), else ``set_initial``, the reference's and an earlier
+    native build's.
 
     Attributes
     ----------
@@ -213,20 +215,28 @@ class _Loaded:
 
     def __init__(self, engine: Backend) -> None:
         self._engine = engine
+        self._name = (
+            "_load"
+            if callable(getattr(type(engine), "_load", None))
+            else ("set_initial")
+        )
         self.ended = 0
         self.calls: int | None = None
 
-    def _load(self, *args: object, **keywords: object) -> None:
-        type(self._engine).set_initial(self._engine, *args, **keywords)  # pyright: ignore[reportArgumentType]
+    def _load(self, *args: object, **keywords: object) -> object:
+        loaded = getattr(type(self._engine), self._name)(
+            self._engine, *args, **keywords
+        )
         self.calls = source_calls(self._engine)
         self.ended = time.perf_counter_ns()
+        return loaded
 
     def __enter__(self) -> _Loaded:
-        self._engine.set_initial = self._load  # type: ignore[method-assign]  # pyright: ignore[reportAttributeAccessIssue]
+        setattr(self._engine, self._name, self._load)
         return self
 
     def __exit__(self, kind: type[BaseException] | None, *rest: object) -> None:
-        del self._engine.set_initial  # pyright: ignore[reportAttributeAccessIssue]
+        delattr(self._engine, self._name)
         if kind is None and not self.ended:
             msg = "the run never loaded its backend, so nothing was timed"
             raise SuiteError(msg)

@@ -786,8 +786,9 @@ otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native 
 - The Cartesian and planar collar diagnostic reconstructs the physical field by block of
   frequency, at most a node chunk's worth of samples at a time, never the whole volume.
 - A `SimulationRunner` keeps one backend's buffers and plans across many inputs, and is
-  admitted once; `StepDriver.set_initial` restores everything a march reads, so a reused
-  backend repeats a fresh one's run. An input array of more than 2²⁰ elements is
+  admitted once; each session's load restores everything a march reads (the native
+  backend's `_load`, the reference's `HostDriver.set_initial`), so a reused backend
+  repeats a fresh one's run. An input array of more than 2²⁰ elements is
   recorded by its SHA-256 digest, not inline, so the run record stays small; the runner
   reads such an array in place and marches on a problem without it, so no input outlives
   its load. A caller that identifies its input states that instead (`StatedInput`), and
