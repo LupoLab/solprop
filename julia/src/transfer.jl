@@ -668,10 +668,17 @@ end
 
 @inline function _transfer_arrays_alias(destination, span, value::AbstractArray)
     (isempty(destination) || isempty(value) || span === nothing) && return false
-    Base.mightalias(destination, value) && return true
+    destination_space = _transfer_storage_space(destination)
+    value_space = _transfer_storage_space(value)
     other = _transfer_storage_span(value)
     other === nothing && return false
-    return (span[1] < other[2] && other[1] < span[2]) ||
+    same_space = destination_space == value_space
+    return (
+        same_space && (
+            Base.mightalias(destination, value) ||
+                (span[1] < other[2] && other[1] < span[2])
+        )
+    ) ||
         _transfer_dependency_alias(destination, span, value)
 end
 
@@ -755,13 +762,13 @@ function _retained_alias_expression(type::Type, path)
     elseif !isconcretetype(type)
         return :(_retained_alias(destination, span, $path))
     end
-    return :(false)
+    return :(_retained_alias(destination, span, _retained_storage($path)))
 end
 
 @generated function _retained_alias(destination::D, span::S, value::T) where {D, S, T}
     # Expand the concrete engine owner graph once. A reflective runtime traversal
     # boxes heterogeneous records even when individual field indices are constant.
-    # Opaque vendor plans keep their numerical arrays in explicit engine-owned fields.
+    # Opaque vendor owners expose only explicitly qualified numerical storage.
     result = _retained_alias_expression(T, :value)
     return quote
         $(Expr(:meta, :inline))
@@ -922,13 +929,10 @@ function _memory_arrays!(ledger, seen, path, value)
     if value === nothing || isbitstype(typeof(value)) || value isa String
         return nothing
     elseif value isa AbstractArray
-        owner = parent(value)
-        if owner !== value
-            return _memory_arrays!(ledger, seen, path, owner)
-        end
+        owner, bytes = _memory_array_owner(value)
         if !haskey(seen, owner)
             seen[owner] = true
-            ledger[Symbol(path)] = sizeof(owner)
+            ledger[Symbol(path)] = bytes
         end
     elseif value isa Tuple
         for (index, item) in enumerate(value)

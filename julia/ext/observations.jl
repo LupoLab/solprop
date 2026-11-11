@@ -150,6 +150,8 @@ end
 # ownership of a foreign interior view. PythonCall 0.9.37 retains byte strides;
 # Base.strides refuses foreign steps not divisible by the item size.
 # Keep bytes here so partial-item overlap is diagnosed before any destination write.
+SolpropJulia._transfer_storage_space(::PyArray) = SolpropJulia._HostStorageSpace()
+
 function SolpropJulia._transfer_storage_span(
         array::PyArray{T, N, M, L, T},
     ) where {T, N, M, L}

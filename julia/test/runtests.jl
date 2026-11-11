@@ -18,6 +18,8 @@ if group == "Core"
     include("cancellation.jl")
     include("cpu_blas.jl")
     include("execution.jl")
+    include("device_storage.jl")
+    include("device_readback.jl")
     include("precision.jl")
     include("state_scaling.jl")
     include("double_float.jl")

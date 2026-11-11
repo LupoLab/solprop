@@ -10,5 +10,6 @@ import SolpropJulia
 
 include("cuda_execution.jl")
 include("cuda_transforms.jl")
+include("cuda_storage.jl")
 
 end
