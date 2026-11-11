@@ -55,11 +55,12 @@ requests and starts before anything is allocated, and :class:`NativePreparedGrou
 native backend's prepared group (``NativeBackend.prepare_group``, which solprop's
 ``start_group`` calls), refuses it by name: a group is a shared fixed schedule (SEP 47
 section 6.7), so an adaptive member and members that do not share the schedule are
-refused, as the lockstep group this replaced refused them, and so are a coupled flow,
-which that group refused by name and SEP 47 section 6.3 keeps refused, and step planes,
-which the group's save-plane windows do not observe. A batched scan never forms such a
-group: it requires a fixed schedule, refuses step planes and groups only points of one
-execution layout.
+refused, as the lockstep group this replaced refused them, and so are step planes,
+which the group's save-plane windows do not observe. A coupled flow is admitted: each
+member's flow action and explicit residual are its own session's, so nothing of the
+member's step is shared or fused. A batched scan never forms a refused group: it
+requires a fixed schedule, refuses step planes and groups only points of one execution
+layout.
 """
 
 from __future__ import annotations
@@ -156,7 +157,7 @@ def refusal(
         zip(problems, requests, starts, strict=True)
     ):
         refused = member_session_refusal(problem, request, start) or _member_refusal(
-            problem, request
+            request
         )
         if refused is not None:
             return f"{refused} (member {index})"
@@ -286,13 +287,11 @@ class NativePreparedGroup:
         )
 
 
-def _member_refusal(problem: PropagationProblem, request: RunRequest) -> str | None:
-    """Return why one member falls outside a group, or ``None``.
+def _member_refusal(request: RunRequest) -> str | None:
+    """Return why one member's request falls outside a group's windows, or ``None``.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The member's problem.
     request : solprop.translate.run_request.RunRequest
         The member's run request.
 
@@ -301,12 +300,9 @@ def _member_refusal(problem: PropagationProblem, request: RunRequest) -> str | N
     str or None
         The reason, or ``None``.
     """
-    if problem.linear.coupled_flow is not None:
-        # SEP 47 section 6.3 keeps the coupled-batch refusal the lockstep group made.
-        return (
-            "a coupled flow: coupled-flow groups remain refused (solprop SEP 47 "
-            "section 6.3); run each member on its own with Local or Pool"
-        )
+    # A coupled flow is admitted: the lockstep batch this replaced refused one because
+    # its fused accepted update applied no flow action, and a native group fuses
+    # nothing -- each member's session carries its own flow (SEP 47 section 6.7).
     if request.replay is None:
         return "an adaptive march: a group replays one common fixed schedule"
     if request.observation.step_planes:

@@ -40,6 +40,7 @@ from driver.test_native_coupled_flow import (
 )
 from flow_parity import (
     CASES,
+    LENGTH,
     UNIT,
     adams_formation_bound,
     build,
@@ -51,6 +52,7 @@ from flow_parity import (
 from sessions.executors import IDENTITY, Started, drive, entrance
 from solprop.backends.events import Outcome
 from solprop.backends.exponential import carrier_reference
+from solprop.backends.multistep import CoupledBlock, coupled_moments, trial_tables
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
 from solprop.driver import Simulation
@@ -472,6 +474,157 @@ def test_a_bin_off_the_route_past_thirty_squarings_is_refused_by_name(
         run(NativeBackend, fast, simulation._run_request(), simulation.grid)
 
 
+# --- The assembled block functions, one trial at a time -----------------------------
+
+
+def _resident(simulation: Simulation, problem: Any, request: Any) -> Any:
+    """Return a native backend whose resident Adams engine can take a trial directly.
+
+    The engine's trial (``_ResidentAdams.exponential_trial``) is called with no march
+    around it, as solprop's host march called it before SEP 47 phase 5 retired that
+    march: the state is the launch, loaded into the native state, and every history
+    row holds the launch's sample (the engine's own ``start``), so a trial of any
+    order reads a full, finite history. A trial's flow and moments depend on its
+    step, its width and the operator alone, not on the history it reads.
+    """
+    backend = NativeBackend(
+        problem,
+        request,
+        grid=simulation.grid,
+        profiles=simulation.profiles,
+        modes=simulation.modes,
+    )
+    engine = backend._resident
+    assert type(engine).__name__ == "_ResidentAdams"
+    field = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
+    backend._native_state.set_initial(
+        field.reshape(-1), np.empty(0, dtype=np.complex128)
+    )
+    engine.start(0.0, stored=True)
+    rows = {
+        name: np.broadcast_to(row[:1], row.shape).copy()
+        for name, row in engine.snapshot_rows().items()
+    }
+    engine.load_rows(rows, engine.shape)
+    return backend
+
+
+def _stencil(order: int) -> tuple[list[float], np.ndarray]:
+    """Return a trial's nodes and rows over `order` samples, newest first.
+
+    ``adams_core.stencil``'s for a history taken at whole steps before the anchor.
+    """
+    nodes = [-float(index) for index in range(order)]
+    return nodes, np.arange(order, dtype=np.int64)[::-1].copy()
+
+
+def _block_departure(  # noqa: PLR0913 - one trial's every input, by name
+    backend: Any,
+    block: Any,
+    shape: tuple[int, ...],
+    z: float,
+    dz: float,
+    order: int,
+    *,
+    carrier: bool,
+) -> tuple[int, float]:
+    """Take one resident trial of `order`; return its count and its block's departure.
+
+    The departure is the largest of each assembled matrix's 2-norm error against
+    ``coupled_moments`` on the engine's own exponent and carrier shift, relative to
+    that matrix's 2-norm, at least one.
+    """
+    engine, state = backend._resident, backend._native_state
+    nodes, slots = _stencil(order)
+    norms = engine.exponential_trial(z, dz, nodes, slots, order, [order])
+    assert np.all(np.isfinite(norms))
+    count = trial_tables(
+        nodes, order, [order], compensated=engine.compensated, helpers=engine.helpers
+    )[1].shape[0]
+    shift = engine._trial_carrier
+    assert bool(shift.size) is carrier
+    expected = coupled_moments(
+        state.adams_exponent_to_host().reshape(1, *shape),
+        count,
+        block,
+        dz,
+        carrier=np.full((1, 1, 1, 1), 1j * float(shift[0])) if carrier else None,
+    )
+    active = int(np.count_nonzero(block.active))
+    native = state.adams_block_to_host().reshape(-1, active, shape[0], shape[0])
+    pairs = [(native[0], expected.flow_matrix)] + [
+        (native[k + 1], expected.matrices[k]) for k in range(count)
+    ]
+    worst = 0.0
+    for got, want in pairs:
+        error = np.linalg.norm(got - want, ord=2, axis=(-2, -1))
+        scale = np.maximum(np.linalg.norm(want, ord=2, axis=(-2, -1)), 1.0)
+        worst = max(worst, float(np.max(error / scale)))
+    return count, worst
+
+
+@pytest.mark.parametrize("carrier", [False, True], ids=["plain", "carrier"])
+def test_the_off_route_block_functions_are_the_reference_s(
+    parity_cases, carrier, monkeypatch
+):
+    """Each trial's assembled flow and moments off the route, against the reference.
+
+    ``Z R_k Z^H`` with the ``(k - 1)!`` scale and, under a carrier frame, the
+    ``exp(i sigma)`` on the flow, as the resident engine leaves them in its block after
+    a trial (:func:`_resident`) -- of orders one to six at two positions and two
+    steps, so counts two to seven -- against ``multistep.coupled_moments`` on the
+    engine's own exponent: within 1e-12 of each matrix's 2-norm (at least one), which
+    is ``adams_formation_bound``'s share at the case's step, about 1e-11 for both
+    evaluations together, with the margin of its norm-wise slack.
+    """
+    if carrier and DEVICE:
+        pytest.skip("device builds refuse the carrier frame by name")
+    step = LENGTH / 40
+    simulation = build(
+        "te_tm",
+        schedule=FixedSchedule(np.full(40, step)),
+        dz_max=step,
+        dz_init=step,
+    )
+    problem = simulation.translate()
+    request = simulation._run_request()
+    # A fixed sixth order, so that the trials reach seven moments.
+    method = Multistep(
+        order=6, variable_order=False, carrier_frame="scalar" if carrier else "off"
+    )
+    request = request.with_stepper(
+        dataclasses.replace(request.stepper, integrator=method)
+    )
+    off_route(monkeypatch, "off")
+    _assert_routed(problem, "off")
+    held = backend_module._host_flow(problem)
+    assert held is not None
+    # One constant section, which every trial reads.
+    assert held.vectors.shape[0] == 1
+    block = CoupledBlock(
+        active=held.active,
+        vectors=held.vectors[0],
+        triangular=held.triangular[0],
+        section=0,
+    )
+    backend = _resident(simulation, problem, request)
+    counts: set[int] = set()
+    worst = 0.0
+    try:
+        for z in (0.0, 0.4 * LENGTH):
+            for order in range(1, 7):
+                for dz in (step, step / 2):
+                    count, departure = _block_departure(
+                        backend, block, problem.shape, z, dz, order, carrier=carrier
+                    )
+                    counts.add(count)
+                    worst = max(worst, departure)
+    finally:
+        backend.close()
+    assert counts == set(range(2, 8))
+    assert worst <= 1e-12
+
+
 # --- Refusals: the moments, a carry, a non-finite exponent --------------------------
 
 
@@ -498,7 +651,8 @@ def test_a_carry_past_thirty_squarings_is_refused_and_keeps_the_state(
     parity_cases, monkeypatch
 ):
     """A compensated trial's carry is counted too, refused by name before the state
-    moves, and the session stays usable at the committed state."""
+    moves: the session ends failed at the committed state, and the resident engine's
+    refused trial leaves the state and its history untouched."""
     simulation, problem = parity_cases("taper")
     request, grid = simulation._run_request(), simulation.grid
     off_route(monkeypatch, "off")
@@ -527,6 +681,26 @@ def test_a_carry_past_thirty_squarings_is_refused_and_keeps_the_state(
         assert all(np.all(np.isfinite(field)) for field in result.fields)
     finally:
         session.close()
+    # The resident engine's own trial (:func:`_resident`): the refused trial, whose
+    # second sample carries over two steps, leaves the state and every history row as
+    # it met them, and a trial over one step then forms.
+    backend = _resident(simulation, problem, request)
+    try:
+        engine, state = backend._resident, backend._native_state
+        assert engine.compensated
+        dz = float(steps[0])
+        field, rows = state.field_to_host().copy(), engine.snapshot_rows()
+        nodes, slots = _stencil(2)
+        with pytest.raises(BackendError, match="a history sample's carry"):
+            engine.exponential_trial(dz, dz, nodes, slots, 2, [2])
+        assert state.field_to_host().tobytes() == field.tobytes()
+        for name, row in engine.snapshot_rows().items():
+            assert row.tobytes() == rows[name].tobytes(), name
+        nodes, slots = _stencil(1)
+        norms = engine.exponential_trial(dz, dz, nodes, slots, 1, [1])
+        assert np.all(np.isfinite(norms))
+    finally:
+        backend.close()
 
 
 # --- More shapes of a flow off the route ---------------------------------------------

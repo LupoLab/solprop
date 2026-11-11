@@ -210,7 +210,8 @@ repeatability tests pass on a data-centre NVIDIA GPU (CUDA) and an AMD Instinct 
 | a planar guide resolved in y (`PlanarGrid`) | yes | yes | not qualified |
 | a frequency-dependent electronic response, `MaterialSelection(electronic="symmetric-kerr")` or `"gas-polynomial"` ([model](../media/dispersive-kerr.md)), on every route but the GNLSE | yes | yes | qualified |
 | the `input` noise model beside a coupled flow (a coherent wall, the taper coupling, a split block, a moving guide) | yes | admitted, not yet qualified | not qualified |
-| the `modified` noise model beside a coupled flow; a coupled flow in a lockstep batch | refused | refused | refused |
+| the `modified` noise model beside a coupled flow | refused | refused | refused |
+| a coupled flow in a fixed-schedule `Batch` group | refused (the lockstep batch) | yes: each member in its own native session | as the session admits each member; not qualified |
 
 `backend="auto"`, the default, is `native`, and it **never falls back**: it refuses if the
 native package is missing or the processor is below its minimum, and a problem the native

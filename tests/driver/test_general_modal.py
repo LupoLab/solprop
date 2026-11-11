@@ -23,10 +23,12 @@ and the envelope run has nothing of the sort. The collar's own effect is measure
 and recorded beside the comparison rather than folded into it.
 """
 
+import copy
 import dataclasses
 import inspect
 from collections.abc import Mapping
 from contextlib import ExitStack
+from types import SimpleNamespace
 from typing import Any, cast
 
 import numpy as np
@@ -49,7 +51,7 @@ from modal_provider_cases import (
 )
 from solprop import fourier
 from solprop.backends import select
-from solprop.backends.host.group import HostGroup
+from solprop.backends.host.group import HostGroup, _general_leaves
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_group
@@ -1363,6 +1365,40 @@ def test_the_native_group_refuses_two_guides_too(guide, grid):
                 requests,
                 [Start.entrance(problem) for problem in problems],
             )
+
+
+def _with_flow(problem, flow):
+    """Return the problem with a stand-in coupled flow, past the operator's checks."""
+    linear = copy.copy(problem.linear)
+    object.__setattr__(linear, "coupled_flow", flow)
+    return dataclasses.replace(problem, linear=linear)
+
+
+def test_the_native_group_compares_a_guide_s_flow_as_the_reference(guide, grid):
+    """The native group admits coupled flows, so its guide check's flow component is
+    live: it reads the reference group's leaves (``_general_leaves``), the flow's
+    gauge, certificate and section methods included, and compares flows by value."""
+    group = pytest.importorskip("solprop_native.group")
+    problem = batched_run(guide, grid).translate()
+    assert problem.transform.modal_tables is not None
+    one, same, other = (
+        _with_flow(
+            problem,
+            SimpleNamespace(
+                gauge_id="lab", certificate_id=certificate, section_methods=methods
+            ),
+        )
+        for certificate, methods in (
+            ("one", ("constant_schur",)),
+            ("one", ("constant_schur",)),
+            ("one", ("frozen_residual",)),
+        )
+    )
+    for candidate in (problem, one, same, other):
+        assert group._guide(candidate) == _general_leaves(candidate)
+    assert group._guide(one) == group._guide(same)
+    assert group._guide(one) != group._guide(other)
+    assert group._guide(one) != group._guide(problem)
 
 
 def test_the_driver_refuses_a_mixed_group_before_a_backend_is_reached(

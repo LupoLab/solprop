@@ -50,7 +50,12 @@ def test_batch_registry_has_no_native_runner_and_imports_nothing(monkeypatch):
     with ExitStack() as cleanup:
         owner = fixtures.loaded(fixtures.simulation(0, "numpy_ref"), cleanup)
         monkeypatch.setattr(owner, "name", "native")
-        with pytest.raises(BackendError, match="no runner for backend 'native'"):
+        with pytest.raises(
+            BackendError,
+            match=r"no runner for backend 'native': .* its own prepared group, which "
+            r"solprop\.backends\.sessions\.start_group starts, as native's group "
+            r"session does",
+        ):
             select_batch(cast(Sequence[Backend], [owner]))
         assert owner.observe().z == 0.0
     assert "solprop_native.batch" not in sys.modules

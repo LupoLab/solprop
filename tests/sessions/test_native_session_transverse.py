@@ -8,11 +8,14 @@ SEP 47 section 6.4: the native session owns a free-space run's transverse edge (
 section 5.3) as it owns the temporal monitor, and Python only formats what it reports.
 Here an edged run goes through the native session and through the NumPy reference's
 session, whose solprop edge judges the same problem. The two backends round
-differently and so take different steps (SEP 25), and the edge reads on its own
-spacing from their states: the two are held to the same decisions -- the same
-warnings in order and in kind, the same outcome and failure, the same planes, their
-statistics and positions to :data:`PLANE_RTOL`, and the same record layout -- and the
-native session, on one thread, to its own run bit for bit. Both sides make the same
+differently, so their steps' lengths and the edge's read positions differ by rounding
+(SEP 25), but the controllers' error norms are the truncation's and both take the same
+decisions: the two are held to the same warnings in order and in kind, the same
+outcome and failure, the same planes, their statistics and positions to
+:data:`PLANE_RTOL`, and the same record (:func:`_compare`) -- its step counts and
+reads exactly, each count also the native run's own trace, and its energies and
+positions to :data:`~sessions.executors.RECORD_RTOL` -- and the native session, on one
+thread, to its own run bit for bit. Both sides make the same
 scalar decisions on the same readings, which the recorded-readings harness
 (``tests/backends/test_transverse_owner.py``) holds apart from any run, with the three
 reductions that are each backend's reading (``transverse.hpp``) to their bound there.
@@ -32,10 +35,10 @@ import pytest
 from backends.test_transverse_backends import radial_collar
 from sessions.executors import (
     assert_close_trace,
-    device_build,
+    assert_record_close,
+    committed_steps,
     masked,
     one_thread,
-    record_layout,
     trace,
 )
 from sessions.test_native_session_monitor import IDENTITY, Served, _serve
@@ -113,41 +116,28 @@ PLANE_RTOL = 1e-6
 reference's, each backend taking its own steps under the controller's tolerance."""
 
 
-def _samples(simulation: Simulation) -> int:
-    """Return the monitor's time samples, the split floor's sums' length."""
-    monitor = simulation._boundary_monitor()
-    assert monitor is not None
-    return int(monitor.weights.shape[1])
+def _compare(reference: Served, native: Served) -> None:
+    """Require the reference's decisions, outcome, planes and record.
 
-
-def _compare(
-    reference: Served, native: Served, columns: int, *, samples: int | None = None
-) -> None:
-    """Require the reference's decisions, outcome, planes and record layout.
-
-    `columns` and `samples` are the edge's and the monitor's sum lengths, which bound
-    the readings each backend reduces in its own order when both take the same steps
-    (``tests/backends/test_transverse_owner.py``); against the reference, which takes
-    its own, the readings are not compared.
+    The record, the edge's included, to the reference's
+    (:func:`~sessions.executors.assert_record_close`): its step counts, reads and
+    every other integer exactly, and its energies, fractions, gaps and positions to
+    :data:`~sessions.executors.RECORD_RTOL`, the reductions that are each backend's
+    own reading (``transverse.hpp``) among them; and a fresh run's checked and skipped
+    steps add up to the accepted steps of its own trace.
     """
-    del columns, samples
     assert [(one[0], masked(str(one[1]))) for one in native.warnings] == [
         (one[0], masked(str(one[1]))) for one in reference.warnings
     ]
     assert_close_trace(native.run, reference.run, rtol=PLANE_RTOL)
     assert native.record is not None and reference.record is not None
-    assert record_layout(native.record) == record_layout(reference.record)
-    edge, expected = native.record["transverse"], reference.record["transverse"]
-    assert (edge["reads"] > 0) is (expected["reads"] > 0)
-    for name in ("noise_allowance", "launch_energy"):
-        assert edge[name] == pytest.approx(expected[name], rel=PLANE_RTOL), name
-
-
-def _columns(simulation: Simulation) -> int:
-    """Return the run's transverse columns, the ramp's sums' length."""
-    monitor = simulation._boundary_monitor()
-    assert monitor is not None and monitor.transverse is not None
-    return int(np.asarray(monitor.transverse.space.spectral_weights).size)
+    assert_record_close(native.record, reference.record)
+    assert (native.record["transverse"]["reads"] > 0) is (
+        reference.record["transverse"]["reads"] > 0
+    )
+    if not native.record["resumed_at"]:
+        counted = native.record["steps"] + native.record["skipped"]
+        assert counted == committed_steps(native.run) > 0
 
 
 @pytest.mark.parametrize("march", sorted(MARCHES))
@@ -156,7 +146,7 @@ def test_the_packet_stops_where_the_reference_stops_it(march):
         return packet_run(REREVIEW, integrator=MARCHES[march](), backend="native")
 
     reference, native = _both(simulation)
-    _compare(reference, native, _columns(simulation()))
+    _compare(reference, native)
     terminal = native.run.terminal
     assert terminal.outcome is Outcome.FAILED
     assert isinstance(terminal.error, BoundaryError)
@@ -178,7 +168,7 @@ def test_a_relaxed_packet_is_read_on_the_reference_s_spacing(march):
         )
 
     reference, native = _both(simulation)
-    _compare(reference, native, _columns(simulation()))
+    _compare(reference, native)
     assert native.run.terminal.outcome is Outcome.COMPLETED
     assert native.record is not None
     edge = native.record["transverse"]
@@ -203,7 +193,7 @@ def test_a_replay_is_coarse_and_read_at_its_own_steps():
         )
 
     reference, native = _both(simulation)
-    _compare(reference, native, _columns(simulation()))
+    _compare(reference, native)
     assert native.record is not None
     assert native.record["transverse"]["transverse_status"] == "coarse"
     first = native.warning_events[0]
@@ -214,7 +204,7 @@ def test_a_replay_is_coarse_and_read_at_its_own_steps():
 @pytest.mark.parametrize("march", sorted(MARCHES))
 def test_a_requested_collar_s_current_is_taken_natively_at_every_step(march):
     reference, native = _both(lambda: radial_collar("native", MARCHES[march]()))
-    _compare(reference, native, 48)
+    _compare(reference, native)
     assert native.record is not None
     edge = native.record["transverse"]
     assert edge["spatial_removed"] > 0.0
@@ -236,8 +226,7 @@ def test_the_input_noise_beside_a_collar_is_judged_as_the_reference_judges_it(ma
     assert problem.initial.noise_model == "input"
     assert native_session.refusal(problem, request) is None
     reference, native = _both(simulation)
-    samples = _samples(simulation()) if device_build() else None
-    _compare(reference, native, 48, samples=samples)
+    _compare(reference, native)
     assert native.record is not None
     edge = native.record["transverse"]
     assert edge["noise_allowance"] > 0.0
@@ -262,7 +251,7 @@ def test_a_noisy_packet_is_read_as_the_reference_reads_it(march):
         )
 
     reference, native = _both(simulation)
-    _compare(reference, native, _columns(simulation()), samples=_samples(simulation()))
+    _compare(reference, native)
     assert native.run.terminal.outcome is reference.run.terminal.outcome
     assert native.record is not None
     assert native.record["transverse"]["noise_allowance"] > 0.0
@@ -403,8 +392,7 @@ def test_a_resumed_edge_continues_the_reference_s_record(noise, continued):
         assert crossings[1] == {}
     else:
         assert sum(crossings[1].values()) == 1, crossings[1]
-    samples = None if noise is None else _samples(simulation())
-    _compare(reference, native, _columns(simulation()), samples=samples)
+    _compare(reference, native)
     assert native.record is not None
     edge = native.record["transverse"]
     if continued:
