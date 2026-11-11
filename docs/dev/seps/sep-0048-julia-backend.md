@@ -1861,6 +1861,33 @@ The maintainer also directed that new issues track only work the implementation 
 will leave unresolved. In-PR defects and their corrections belong in its working
 record and review, rather than separate issues.
 
+### Binary64 CPU checkpoint and implementation pause — 2026-11-11
+
+The maintainer requested a recoverable pause after narrowing completion to binary64
+CPU and CUDA. Public CPU selection is usable for the admitted scalar modal/spatial
+session catalogue. Package/runtime, session and service implementations are retained;
+final full qualification, isolated startup/worker measurements and the required CI
+gates remain outstanding. No phase is declared Final at this checkpoint.
+
+The reviewed CUDA source, RK/low-storage, storage, export and selected-execution bridge
+work is integrated. Raman/plasma factories and RK dense observations retain the shared
+CPU/device numerical recipes. Device Adams is frozen pending independent review;
+statistics/temporal construction is an unfinished draft, and spatial attachment has
+not started. The maintainer reaffirmed one numerical implementation with backend
+allocation, launch, transform and transfer primitives; the Julia working rules now
+make that boundary explicit. Metal, ROCm/HIP and unfinished binary32/DF32 qualification
+remain deferred under the preceding amendment.
+
+Actual A40 qualification of a fixed intermediate source snapshot reports 2,663 passes,
+nine retained-payload assertion failures and three private-runner import errors.
+The march, modal source and export leaves pass their executed numerical checks.
+Independent review verifies the test correction for pinned CUDA allocation padding;
+its hardware rerun remains pending. Unfiltered vendor JET still fails and blocks
+qualification. The latest inspected CI passes static checks but Linux package-install
+DNS failures still prevent required gates from running. No failed or unrun check is
+claimed green. The current plan, integrated milestones, evidence and exact remaining
+work are in `julia/IMPLEMENTATION.md`; this pause leaves PR 611 in draft.
+
 ## Part III — History
 
 - 2026-11-11: The maintainer selected binary64 CPU/CUDA as the completion baseline,

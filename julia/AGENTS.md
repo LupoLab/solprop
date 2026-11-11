@@ -28,6 +28,12 @@ rules apply to every implementing and reviewing agent in this directory.
 - Use explicit imports, concrete or parametric struct fields, and small functions.
   Kernel bodies capture only values and arrays and are generic over the admitted
   scalar and array types. Keep CPU and device behavior in one numerical implementation.
+- Keep one numerical routine and operation sequence for each feature on CPU and GPU.
+  Specialize allocation, launches, transforms, copies and compact readback in the
+  execution layer; do not add parallel device versions of source, method or statistic
+  recipes. Shared arithmetic helpers alone are insufficient if the surrounding
+  numerical dispatch and ordering are duplicated. Precision-specific algorithms and
+  measured vendor optimizations need their own explicit numerical justification.
 - Qualify the actual Polyester loop forms at one and multiple threads. Its pinned
   macro can confuse locals with Base constants (`values` is one); use unambiguous
   local names or a verified singleton callback. Issue #621 records the reproducer.
