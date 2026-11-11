@@ -638,6 +638,16 @@ function advance!(
                     )
                 end
             end
+            # Several distinct requested coordinates can already be reached by one
+            # accepted endpoint under the shared landing slack. Drain their own
+            # observations before a snapshot or trial, without repeating endpoint
+            # services. Interior dense planes were drained while the latch was set.
+            if state.plane <= length(session.schedule.planes) &&
+                    _session_reached(session, session.schedule.planes[state.plane])
+                return _march_observation!(
+                    session, :plane, state.plane - 1, began, previous_work,
+                )
+            end
             if state.snapshot && state.accepted > 0
                 state.snapshot = false
                 return _march_timed_issue!(session, :snapshot, began, previous_work)

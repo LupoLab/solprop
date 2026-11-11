@@ -14,7 +14,7 @@ function march_fixture(;
         replay = false, capacity = 256, step_planes = 0, control = march_control(),
         n_steps = 8, z = 0.0, plane_index = nothing, plane_pending = true,
         initial_field = nothing, active = fill(true, 8), prepared_exports = false,
-        stop = SolpropJulia.StopFlag(),
+        stop = SolpropJulia.StopFlag(), planes = [0.1, 0.2],
     )
     execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 1)
     data = source_data_fixture(
@@ -37,7 +37,7 @@ function march_fixture(;
         execution, active, fill(true, 8), ones(8), 1.0e-4, 0.0,
     )
     schedule = SolpropJulia.MarchSchedule(;
-        planes = [0.1, 0.2], breakpoints = [0.0, 0.2], hard_kinks = Float64[],
+        planes, breakpoints = [0.0, 0.2], hard_kinks = Float64[],
         stretch = 1.1, step_planes,
         replay_steps = replay ? fill(0.2 / n_steps, n_steps) : Float64[],
         replay_edges = replay ? [0.0; cumsum(fill(0.2 / n_steps, n_steps))] : Float64[],
@@ -49,6 +49,31 @@ function march_fixture(;
         execution, initial, z, 0.05, tableau, control, norm, schedule, source, flow;
         capacity, plane_index, plane_pending, exports, stop,
     )
+end
+
+@testset "Already-reached planes precede snapshots without another trial" begin
+    for replay in (false, true)
+        session = march_fixture(; replay, planes = [0.1, nextfloat(0.1), 0.2])
+        SolpropJulia.acknowledge!(session, SolpropJulia.advance!(session).generation)
+        first_plane = SolpropJulia.advance!(session; deadline = 60.0)
+        @test first_plane.kind == SolpropJulia.SESSION_PLANE
+        @test first_plane.plane == 0 && first_plane.z == 0.1
+        calls, attempts = session.source.calls, session.state.attempts
+        field = copy(session.field)
+        SolpropJulia.request_snapshot!(session)
+        SolpropJulia.acknowledge!(session, first_plane.generation)
+        second_plane = SolpropJulia.advance!(session)
+        @test second_plane.kind == SolpropJulia.SESSION_PLANE
+        @test second_plane.plane == 1 && second_plane.z == 0.1
+        @test session.source.calls == calls && session.state.attempts == attempts
+        @test session.attempts.count == 0 && session.field == field
+        SolpropJulia.acknowledge!(session, second_plane.generation)
+        snapshot = SolpropJulia.advance!(session)
+        @test snapshot.kind == SolpropJulia.SESSION_SNAPSHOT && snapshot.z == 0.1
+        @test session.source.calls == calls && session.state.attempts == attempts
+        @test session.field == field
+        SolpropJulia.close_session!(session)
+    end
 end
 
 function collect_march(session; work_limit = 256, deadline = 60.0)
