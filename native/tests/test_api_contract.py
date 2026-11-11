@@ -26,6 +26,9 @@ import numpy as np
 import pytest
 from bounds import assert_within, step_bound
 from conftest import ComplexArray, PhaseACase
+from session_runs import IDENTITY, finish, launch, loaded_state, native_trial
+from solprop.backends.events import ObservationReady
+from solprop.backends.session import Start
 from solprop.exceptions import BackendError
 from solprop.stepper import FixedSchedule
 from thread_sizing import Sizing, assert_threaded
@@ -648,45 +651,67 @@ def test_the_process_pool_follows_the_affinity_mask(
 def test_initial_array_contract(
     phase_a_case: PhaseACase, writable_initial: ComplexArray
 ) -> None:
+    """A session's start is loaded as a complex128 array of the problem's rank.
+
+    The native session hands the backend its start's field as an array, so the
+    backend's own refusals are of its dtype and rank.
+    """
     problem, run_request, grid = phase_a_case
-    backend = native.NativeBackend(problem, run_request, grid=grid)
-    try:
-        with pytest.raises(TypeError, match="NumPy ndarray"):
-            backend.set_initial(cast(ComplexArray, writable_initial.tolist()), None)
-        with pytest.raises(TypeError, match="complex128"):
-            backend.set_initial(
-                cast(ComplexArray, writable_initial.astype(np.complex64)), None
-            )
-        with pytest.raises(ValueError, match="rank 3"):
-            backend.set_initial(writable_initial.reshape(-1), None)
-        # Any strides load as their contiguous copy, bit for bit: the load copies.
-        strided = writable_initial[..., ::-1]
-        backend.set_initial(strided, None)
-        loaded = backend.observe().require_field()
-        backend.set_initial(np.ascontiguousarray(strided), None)
-        np.testing.assert_array_equal(loaded, backend.observe().require_field())
-        read_only = writable_initial.copy()
-        read_only.setflags(write=False)
-        backend.set_initial(read_only, None)
-    finally:
-        backend.close()
+
+    def started(field: ComplexArray) -> dict[str, object]:
+        backend = native.NativeBackend(problem, run_request, grid=grid)
+        try:
+            return launch(backend, problem, run_request, Start(field=field, z=0.0))
+        finally:
+            backend.close()
+
+    with pytest.raises(TypeError, match="complex128"):
+        started(cast(ComplexArray, writable_initial.astype(np.complex64)))
+    with pytest.raises(ValueError, match="rank 3"):
+        started(writable_initial.reshape(-1))
+    # Any strides load as their contiguous copy, bit for bit: the load copies.
+    strided = writable_initial[..., ::-1]
+    loaded = cast(ComplexArray, started(strided)["field"])
+    contiguous = cast(ComplexArray, started(np.ascontiguousarray(strided))["field"])
+    np.testing.assert_array_equal(loaded, contiguous)
+    read_only = writable_initial.copy()
+    read_only.setflags(write=False)
+    started(read_only)
 
 
 def test_observation_owns_host_storage(
     phase_a_case: PhaseACase, writable_initial: ComplexArray
 ) -> None:
+    """A native session's export is a host copy that outlives the session.
+
+    The launch plane's field is exported and the session closed, which closes the
+    backend.
+    """
     problem, run_request, grid = phase_a_case
     backend = native.NativeBackend(problem, run_request, grid=grid)
-    backend.set_initial(writable_initial, None)
-    first = backend.observe().require_field()
+    session = backend.prepare(problem, run_request).start(
+        Start(field=writable_initial, z=0.0)
+    )
+    first: ComplexArray | None = None
+    try:
+        while first is None:
+            batch = session.advance()
+            for event in batch.events:
+                if isinstance(event, ObservationReady):
+                    exported = session.export(event.ticket, IDENTITY)
+                    first = cast(ComplexArray, exported)
+                    break
+            session.acknowledge(batch.receipt)
+    finally:
+        session.close()
+    assert session.closed
     expected = first.copy()
     del writable_initial
-    backend.close()
     gc.collect()
-    # A lossless host copy: the observation's own storage outlives the backend.
+    # A lossless host copy: the export's own storage outlives the backend.
     np.testing.assert_array_equal(first, expected)
     assert first.flags.c_contiguous
-    assert not first.flags.writeable
+    assert first.flags.owndata
 
 
 def test_repeated_and_concurrent_instances_are_independent(
@@ -709,12 +734,10 @@ def test_repeated_and_concurrent_instances_are_independent(
 
     def run() -> ComplexArray:
         backend = native.NativeBackend(problem, run_request, grid=grid)
-        try:
-            backend.set_initial(writable_initial, None)
-            backend.propagate_to(1e-3)
-            return backend.observe().require_field()
-        finally:
-            backend.close()
+        start = Start(field=writable_initial, z=0.0)
+        planes = finish(backend, problem, run_request, start).planes
+        assert planes[-1]["z"] == 1e-3
+        return cast(ComplexArray, planes[-1]["field"])
 
     expected = run()
 
@@ -751,7 +774,7 @@ def test_substantial_native_trial_releases_the_gil(
     """
     problem, run_request, grid = phase_a_case
     backend = native.NativeBackend(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
+    state = loaded_state(backend, problem.initial.field0)
     active = threading.Event()
     finished = threading.Event()
     stamps: list[float] = []
@@ -769,8 +792,8 @@ def test_substantial_native_trial_releases_the_gil(
     try:
         for _ in range(200):
             start = time.perf_counter()
-            # This contract test deliberately exercises the protected one-call seam.
-            backend._trial_step(0.0, 1e-4)  # pyright: ignore[reportPrivateUsage]
+            # The native state's own trial: one call into the native layer.
+            native_trial(backend, state, 0.0, 1e-4)
             end = time.perf_counter()
             # The observer only appends, in clock order, so the stamps so far are read
             # once each.
@@ -793,7 +816,7 @@ def test_close_is_idempotent_and_guards_use(phase_a_case: PhaseACase) -> None:
     backend.close()
     backend.close()
     with pytest.raises(Exception, match="closed"):
-        backend.set_initial(problem.initial.field0, None)
+        backend.prepare(problem, run_request).start(Start.entrance(problem))
 
 
 def test_import_and_shutdown_in_a_fresh_process() -> None:

@@ -21,10 +21,11 @@ import solprop_native
 import numpy as np
 
 from solprop.exceptions import MaterialRangeWarning
+from session_runs import finish, joined, steps
 from test_envelope_plasma import NAMES, ROUTES, envelope_case, envelope_options
 
 arrays: dict[str, np.ndarray] = {}
-steps: list[int] = []
+counts: list[int] = []
 sizings: list[object] = []
 for route in ROUTES:
     with warnings.catch_warnings():
@@ -34,16 +35,15 @@ for route in ROUTES:
         problem, run_request, grid=grid, options=envelope_options(route)
     )
     try:
-        owner.set_initial(problem.initial.field0, None)
-        summary = owner.propagate_to(grid.length)
-        observation = owner.observe()
-        values = owner.stats(run_request.observation.stats)
-        arrays[f"{route}_field"] = observation.require_field()
+        planes = finish(owner, problem, run_request, owns=False).planes
+        assert planes[-1]["z"] == grid.length
+        arrays[f"{route}_field"] = planes[-1]["field"]
         for name in NAMES:
-            arrays[f"{route}_plane_{name}"] = np.asarray(values[name])
+            arrays[f"{route}_plane_{name}"] = planes[-1]["stats"][name]
+        _, rows = joined(planes)
         for name in run_request.observation.stats.periodic:
-            arrays[f"{route}_rows_{name}"] = observation.step_stats.values[name]
-        steps.append(summary.n_steps)
+            arrays[f"{route}_rows_{name}"] = rows[name]
+        counts.append(steps(planes)[0])
         sizings.append(owner.metadata()["execution_sizing"])
     finally:
         owner.close()
@@ -53,7 +53,7 @@ print(
     json.dumps(
         {
             "threads": solprop_native.build_info().thread_count,
-            "steps": steps,
+            "steps": counts,
             "sizing": sizings,
         }
     )

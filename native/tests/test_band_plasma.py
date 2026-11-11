@@ -29,6 +29,7 @@ import subprocess
 import sys
 import warnings
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, cast
 
 import solprop_native
@@ -37,6 +38,8 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 from thread_sizing import assert_threaded
+from session_runs import finish, loaded_state, native_trial
+from solprop.backends.session import Start
 from solprop.backends.session import ExecutionOptions
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
@@ -258,17 +261,23 @@ def march(
     run_request: RunRequest,
     grid: FieldGrid,
     options: ExecutionOptions | None = None,
+    *,
+    record: list[Mapping[str, object]] | None = None,
 ) -> tuple[ComplexArray, dict[str, np.ndarray]]:
-    """Return the field and the statistics after the problem's fixed steps."""
+    """Return the field and the statistics after the problem's fixed steps.
+
+    The run is the backend's session; `record`, when given, receives the backend's
+    metadata after it.
+    """
     backend = implementation(problem, run_request, grid=grid, options=options)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-        return backend.observe().require_field().copy(), backend.stats(
-            run_request.observation.stats
-        )
+        planes = finish(backend, problem, run_request, owns=False).planes
+        if record is not None:
+            record.append(backend.metadata())
     finally:
         backend.close()
+    assert planes[-1]["z"] == float(run_request.stepper.save_planes[-1])
+    return planes[-1]["field"], planes[-1]["stats"]
 
 
 def assert_statistics_agree(
@@ -328,10 +337,8 @@ def test_response_column_boundary_preserves_full_and_tail_windows(chunk: int) ->
             if columns < 40 and not full_team
             else INFO.thread_count
         )
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-        actual = backend.observe().require_field()
-        actual_stats = backend.stats(run_request.observation.stats)
+        planes = finish(backend, problem, run_request, owns=False).planes
+        actual, actual_stats = planes[-1]["field"], planes[-1]["stats"]
         scale = float(np.max(np.abs(expected)))
         assert scale > 0.0
         assert float(np.max(np.abs(actual - expected))) <= bound * scale
@@ -432,12 +439,10 @@ def test_one_evaluation_matches_the_reference() -> None:
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
+        state = loaded_state(backend, problem.initial.field0)
         # A zero-length trial exposes the first stage, N(E, z = 0).
-        backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
-        actual = np.asarray(
-            backend._native_state.stage_to_host(0)  # pyright: ignore[reportPrivateUsage]
-        ).reshape(problem.shape)
+        native_trial(backend, state, 0.0, 0.0)
+        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
     finally:
         backend.close()
     scale = float(np.max(np.abs(expected)))
@@ -483,12 +488,11 @@ def test_every_stage_of_a_trial_matches_the_reference(
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
+        state = loaded_state(backend, problem.initial.field0)
         if averaged and not DEVICE_BUILD:
             assert backend.metadata()["synthesis_provider"] == "folded"
             assert backend.metadata()["projection_provider"] == "folded"
-        backend._trial_step(0.0, dz)  # pyright: ignore[reportPrivateUsage]
-        state = backend._native_state  # pyright: ignore[reportPrivateUsage]
+        native_trial(backend, state, 0.0, dz)
         actual = [
             np.asarray(state.stage_to_host(stage)).reshape(problem.shape)
             for stage in range(len(expected))
@@ -547,69 +551,81 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
     The norm difference divided by the fine norm takes at most eight source
     rounding budgets when both projection norms are comparable. Accumulate the
     existing seven-stage, two-step plasma budget before either backend runs.
+
+    Both backends' sessions observe each of the two steps' planes. The native state
+    then holds the second step's score; a trial it never accepts, made on the state
+    itself, leaves the stored score and the accepted field; and a second session's
+    load resets the score and repeats the first step.
     """
     grid, problem, run_request = modal(kind)
+    dz = float(run_request.stepper.save_planes[-1]) / STEPS
+    specification = StatsSpec(names=("quadrature_error", "electron_density"))
     run_request = run_request.with_stepper(
-        dataclasses.replace(run_request.stepper, integrator=None)
-    )
+        dataclasses.replace(
+            run_request.stepper, integrator=None, save_planes=(dz, 2 * dz)
+        )
+    ).for_run(stats=specification)
     options = ExecutionOptions(node_chunk=chunk)
     bound = march_bound(problem, run_request, grid, STEPS)
     score_bound = 8 * bound
     assert bound > 0.0
-    specification = StatsSpec(names=("quadrature_error", "electron_density"))
-    reference = NumpyRefBackend(problem, run_request, grid=grid, options=options)
+    reference = finish(
+        NumpyRefBackend(problem, run_request, grid=grid, options=options),
+        problem,
+        run_request,
+    ).planes
     backend = NativeBackend(problem, run_request, grid=grid, options=options)
     state = backend._native_state  # pyright: ignore[reportPrivateUsage] - score lifetime
-    dz = float(run_request.stepper.save_planes[-1]) / STEPS
     try:
-        for engine in (reference, backend):
-            engine.set_initial(problem.initial.field0, None)
-            engine.propagate_to(dz)
-        accepted = backend.observe().require_field().copy()
-        score = state.quadrature_error
-        assert math.isfinite(score)
-        assert state.quadrature_peak() == score  # One accepted step since the reset.
-        assert math.isnan(state.quadrature_peak())
-        expected = reference.stats(specification)["quadrature_error"]
-        np.testing.assert_allclose(score, expected, rtol=0.0, atol=score_bound)
-
-        # Leave an unaccepted trial in scratch, then observe the accepted field and
-        # plasma statistics before the next trial replaces that scratch again.
-        backend._trial_step(dz, 0.5 * dz)  # pyright: ignore[reportPrivateUsage] - rejected trial
-        observed = backend.stats(specification)
-        assert state.quadrature_error == score  # Stored accepted value, no arithmetic.
-        assert math.isnan(state.quadrature_peak())
-        np.testing.assert_array_equal(backend.observe().require_field(), accepted)
-        np.testing.assert_allclose(
-            observed["quadrature_error"], expected, rtol=0.0, atol=score_bound
-        )
-        for engine in (reference, backend):
-            engine.propagate_to(2 * dz)
-        want = reference.observe().require_field()
-        got = backend.observe().require_field()
+        planes = finish(backend, problem, run_request, owns=False).planes
+        assert [plane["z"] for plane in planes] == [0.0, dz, 2 * dz]
+        for plane, want in zip(planes[1:], reference[1:], strict=True):
+            np.testing.assert_allclose(
+                plane["stats"]["quadrature_error"],
+                want["stats"]["quadrature_error"],
+                rtol=0.0,
+                atol=score_bound,
+            )
+        accepted, got, want = planes[1]["field"], planes[-1]["field"], reference[-1]
         assert np.isfinite(got).all()
         np.testing.assert_allclose(
-            got, want, rtol=0.0, atol=bound * float(np.max(np.abs(want)))
-        )
-        np.testing.assert_allclose(
-            state.quadrature_error,
-            reference.stats(specification)["quadrature_error"],
+            got,
+            want["field"],
             rtol=0.0,
-            atol=score_bound,
+            atol=bound * float(np.max(np.abs(want["field"]))),
         )
-        backend.set_initial(problem.initial.field0, None)
+        score = state.quadrature_error
+        assert math.isfinite(score)
+        np.testing.assert_allclose(
+            score, want["stats"]["quadrature_error"], rtol=0.0, atol=score_bound
+        )
+        state.quadrature_peak()  # drained: no step is accepted below
+        assert math.isnan(state.quadrature_peak())
+
+        # Leave an unaccepted trial in scratch: the stored score and the accepted
+        # field stay. (Its positions are the first step's, inside the problem's
+        # tables, which end at the second plane.)
+        native_trial(backend, state, dz, 0.5 * dz)
+        assert state.quadrature_error == score  # Stored accepted value, no arithmetic.
+        assert math.isnan(state.quadrature_peak())
+        np.testing.assert_array_equal(state.field_to_host().reshape(got.shape), got)
+
+        # A second run's load resets the score (read once the session, closed before
+        # its first step, returns the state); its first step repeats the first's.
+        backend.prepare(problem, run_request).start(
+            Start.entrance(problem), owns=False
+        ).close()
         assert math.isnan(state.quadrature_error)
         assert math.isnan(state.quadrature_peak())
-        backend.propagate_to(dz)
+        again = finish(backend, problem, run_request, owns=False).planes
         np.testing.assert_allclose(
-            backend.observe().require_field(),
+            again[1]["field"],
             accepted,
             rtol=0.0,
             atol=bound * float(np.max(np.abs(accepted))),
         )
     finally:
         backend.close()
-        reference.close()
 
 
 @pytest.mark.gpu
@@ -754,9 +770,9 @@ def test_the_diagnostics_need_a_field_plasma_column(phase_a_case: PhaseACase) ->
     problem, run_request, grid = phase_a_case
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
+        asked = run_request.for_run(stats=StatsSpec(names=("plasma_undershoot",)))
         with pytest.raises(BackendError, match="field-grid plasma column"):
-            backend.stats(StatsSpec(names=("plasma_undershoot",)))
+            backend.prepare(problem, asked)
     finally:
         backend.close()
 

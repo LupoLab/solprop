@@ -18,10 +18,20 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 from legacy_geometry import LEGACY_GRID
-from session_runs import alone, assert_same, grouped, one_thread
+from session_runs import (
+    alone,
+    assert_same,
+    drain,
+    finish,
+    grouped,
+    loaded_state,
+    native_trial,
+    one_thread,
+)
+from solprop.backends.events import Outcome
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.session import ExecutionOptions
+from solprop.backends.session import ExecutionOptions, Start
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
 from solprop.modes import MarcatiliMode, ModeCollection, transverse_quadrature
@@ -176,17 +186,15 @@ def test_envelope_current_streams_use_large_radial_projection() -> None:
         NativeBackend(problem, run_request, grid=grid),
     )
     try:
-        for owner in (reference, actual):
-            owner.set_initial(problem.initial.field0, None)
+        reference.set_initial(problem.initial.field0, None)
         expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
             problem.initial.field0[None],
             reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
             np.ones((1, *problem.shape), complex),
         )[0]
-        actual._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
-        observed = np.asarray(
-            actual._native_state.stage_to_host(0)  # pyright: ignore[reportPrivateUsage]
-        ).reshape(problem.shape)
+        state = loaded_state(actual, problem.initial.field0)
+        native_trial(actual, state, 0.0, 0.0)
+        observed = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
         info = build_info()
         if info.device_backend == "none" and info.gemm_provider in {
             "HYBRID",
@@ -307,6 +315,10 @@ def test_envelope_currents_steps_statistics_and_repeatability(
     route: str, n_pol: int
 ) -> None:
     problem, run_request, grid = envelope_case(route, n_pol)
+    # The launch, the first of the eight prescribed steps and the end.
+    run_request = run_request.with_stepper(
+        replace(run_request.stepper, save_planes=(grid.length / 8, grid.length))
+    )
     options = envelope_options(route)
     reference, actual = (
         NumpyRefBackend(problem, run_request, grid=grid, options=options),
@@ -314,16 +326,15 @@ def test_envelope_currents_steps_statistics_and_repeatability(
     )
     repeat = NativeBackend(problem, run_request, grid=grid, options=options)
     try:
-        for owner in (reference, actual, repeat):
-            owner.set_initial(problem.initial.field0, None)
-        for target in (0.0, grid.length / 8, grid.length):
-            if target:
-                for owner in (reference, actual, repeat):
-                    owner.propagate_to(target)
-            expected, got = (
-                reference.observe().require_field(),
-                actual.observe().require_field(),
-            )
+        wanted_run, got_run, repeat_run = (
+            finish(owner, problem, run_request, owns=False).planes
+            for owner in (reference, actual, repeat)
+        )
+        targets = [0.0, grid.length / 8, grid.length]
+        assert [plane["z"] for plane in got_run] == targets
+        assert [plane["z"] for plane in wanted_run] == targets
+        for want, have, again in zip(wanted_run, got_run, repeat_run, strict=True):
+            expected, got = want["field"], have["field"]
             # The shared-vs-SVD cycle oracle allows 2e-10; eight seven-stage
             # steps also sum node projections and temporal/spatial transforms.
             bound = (
@@ -336,15 +347,12 @@ def test_envelope_currents_steps_statistics_and_repeatability(
             # A repeat is the same discrete computation: rounding only.
             repeat_bound = native_bound(problem, grid)
             np.testing.assert_allclose(
-                repeat.observe().require_field(),
+                again["field"],
                 got,
                 rtol=repeat_bound,
                 atol=repeat_bound * np.max(np.abs(got)),
             )
-            wanted, observed = (
-                reference.stats(run_request.observation.stats),
-                actual.stats(run_request.observation.stats),
-            )
+            wanted, observed = want["stats"], have["stats"]
             for name in NAMES:
                 np.testing.assert_allclose(
                     observed[name], wanted[name], rtol=bound, atol=1e-30
@@ -411,6 +419,9 @@ def test_envelope_angular_failure_is_a_solprop_convergence_error(
     import solprop_native.backend as adapter
 
     problem, run_request, grid = envelope_case(geometry, n_pol, mixture=False)
+    # No statistics: the failure is the first step's, inside the native march, as the
+    # driver's was (the launch plane's populations would meet the bad rule first).
+    run_request = run_request.for_run(stats=StatsSpec())
     payload = _native_problem(
         problem,
         run_request,
@@ -435,17 +446,23 @@ def test_envelope_angular_failure_is_a_solprop_convergence_error(
     try:
         # Spatial pulses need enough local field to enter the angular rule; a
         # below-threshold sample correctly bypasses refinement even with bad nodes.
-        owner.set_initial(
-            np.asarray(10.0 * problem.initial.field0, dtype=np.complex128), None
+        loud = np.asarray(10.0 * problem.initial.field0, dtype=np.complex128)
+        session = owner.prepare(problem, run_request).start(
+            Start(field=loud, z=0.0), owns=False
         )
-        with pytest.raises(ConvergenceError, match="angular refinement"):
-            owner.propagate_to(grid.length / 8)
-        assert owner.observe().z == 0.0
+        try:
+            terminal = drain(session)
+        finally:
+            session.close()
+        assert terminal.outcome is Outcome.FAILED
+        assert isinstance(terminal.error, ConvergenceError)
+        assert "angular refinement" in str(terminal.error)
+        assert terminal.z == 0.0
         # Reusing the same allocation must reset a failed device reduction to
         # its success identity when every new sample lies below threshold.
-        owner.set_initial(np.zeros_like(problem.initial.field0), None)
-        owner.propagate_to(grid.length / 8)
-        assert owner.observe().z == grid.length / 8
+        quiet = Start(field=np.zeros_like(problem.initial.field0), z=0.0)
+        planes = finish(owner, problem, run_request, quiet, owns=False).planes
+        assert planes[-1]["z"] == grid.length
     finally:
         owner.close()
 
@@ -459,7 +476,6 @@ def test_envelope_native_group_keeps_noisy_members_and_statistics_independent() 
     :func:`native_bound` (solprop SEP 25), with the schedule's row positions exact.
     Every step's periodic row is compared, and the plane statistics at the end.
     """
-    from solprop.backends.session import Start
     from solprop.noise import modified_noise
 
     problem, run_request, grid = envelope_case("modal", 2)

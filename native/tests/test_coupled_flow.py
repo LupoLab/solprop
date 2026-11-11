@@ -28,7 +28,7 @@ from typing import cast
 import numpy as np
 import numpy.typing as npt
 import pytest
-from session_runs import alone, assert_same, grouped, one_thread
+from session_runs import alone, assert_same, finish, grouped, one_thread
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.backend import (
     _coupled_flow_maps,  # pyright: ignore[reportPrivateUsage]
@@ -41,6 +41,7 @@ from solprop.exceptions import BackendError
 from solprop.grid import FieldGrid
 from solprop.modes import CoherentWall
 from solprop.profiles import PiecewiseLinear
+from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
@@ -130,13 +131,14 @@ def run(
     field0: ComplexArray | None = None,
 ) -> ComplexArray:
     """Propagate one problem to the end of the window and return the state."""
+    # The comparison is the field's: the case's default statistics, which read the
+    # mode set and the profiles, are not asked for.
+    run_request = run_request.for_run(stats=StatsSpec())
     driver = backend(problem, run_request, grid=grid)
-    try:
-        driver.set_initial(problem.initial.field0 if field0 is None else field0, None)
-        driver.propagate_to(LENGTH)
-        return np.asarray(driver.observe().require_field(), dtype=np.complex128).copy()
-    finally:
-        driver.close()
+    start = Start(field=problem.initial.field0 if field0 is None else field0, z=0.0)
+    planes = finish(driver, problem, run_request, start).planes
+    assert planes[-1]["z"] == pytest.approx(LENGTH)
+    return np.asarray(planes[-1]["field"], dtype=np.complex128)
 
 
 def _formation_bound(
@@ -371,14 +373,10 @@ def test_a_step_beyond_the_certificate_is_refused_by_name() -> None:
     )
     run_request = run_request.with_stepper(
         dataclasses.replace(run_request.stepper, integrator=None)
-    )
+    ).for_run(stats=StatsSpec())
     backend = NativeBackend(spoiled, run_request, grid=case.grid)
-    try:
-        backend.set_initial(spoiled.initial.field0, None)
-        with pytest.raises(BackendError, match="native measured a coupled flow"):
-            backend.propagate_to(LENGTH)
-    finally:
-        backend.close()
+    with pytest.raises(BackendError, match="native measured a coupled flow"):
+        finish(backend, spoiled, run_request)
 
 
 def test_the_flow_ledger_counts_its_views() -> None:

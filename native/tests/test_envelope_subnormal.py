@@ -31,6 +31,7 @@ import solprop_native
 import numpy as np
 import numpy.typing as npt
 import pytest
+from session_runs import launch, loaded_state, native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid
@@ -104,18 +105,23 @@ def evaluate(
     run_request: RunRequest,
     grid: EnvelopeGrid,
 ) -> tuple[npt.NDArray[np.complex128], dict[str, np.ndarray]]:
-    """Return the first stage on the launch and the launch's statistics."""
+    """Return the first stage on the launch and the launch's statistics.
+
+    The statistics are the launch plane's, from the backend's session; the stage is
+    native's zero-length trial on its state, or the reference's evaluation.
+    """
+    statistics = launch(
+        implementation(problem, run_request, grid=grid), problem, run_request
+    )["stats"]
     backend = implementation(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        statistics = backend.stats(run_request.observation.stats)
-        if implementation is NativeBackend:
+        if isinstance(backend, NativeBackend):
             # A zero-length trial exposes the first stage, N(E, z = 0).
-            backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
-            stage = np.asarray(
-                backend._native_state.stage_to_host(0)  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage, reportUnknownArgumentType, reportUnknownMemberType]
-            ).reshape(problem.shape)
+            state = loaded_state(backend, problem.initial.field0)
+            native_trial(backend, state, 0.0, 0.0)
+            stage = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
         else:
+            backend.set_initial(problem.initial.field0, None)
             backend._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
             stage = backend._nonlinear(  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage, reportUnknownMemberType, reportUnknownVariableType]
                 backend._require_state(),  # pyright: ignore[reportArgumentType, reportPrivateUsage]
