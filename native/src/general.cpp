@@ -2230,8 +2230,7 @@ public:
                           const AdamsWeights& dense);
   void adams_hold();
   void adams_restore();
-  void adams_observe(const AdamsWeights& weights, bool hermite,
-                     const TrialScalars& scalars);
+  void adams_observe(const AdamsWeights& weights, const TrialScalars& scalars);
   std::vector<double>
   adams_exponential_trial(double dz, const ExponentialWeights& weights,
                           const std::vector<double>& divisor, const TrialScalars& step,
@@ -2796,7 +2795,6 @@ public:
   // `set_initial` and `close`): a step that reuses a table never built refuses.
   bool table_ready_{};
   bool stages_ready_{};
-  bool batch_prepared_{};
   bool has_noise_{};
   bool has_recycled_{};
   std::size_t rk_source_evaluations_{};
@@ -3557,139 +3555,6 @@ std::size_t GeneralWorkspace::response_team_size() const noexcept {
 #endif
   return configured;
 }
-
-class GeneralBatchWorkspace {
-public:
-  explicit GeneralBatchWorkspace(std::vector<std::shared_ptr<GeneralState>> members)
-      : members_(std::move(members)) {
-    if (members_.empty())
-      throw std::invalid_argument("a native batch needs at least one member");
-    for (const auto& state : members_) {
-      if (!state || state->closed())
-        throw std::invalid_argument("native batch members must be open");
-      const auto& one = *state->workspace_;
-      if (!one.initialized_)
-        throw std::invalid_argument("native batch members must be loaded");
-      if (one.flow_)
-        throw std::invalid_argument(
-            "a native batch member carries a coupled flow, which runs one member at "
-            "a time");
-      if (columns_ == 0) {
-        columns_ = one.problem_.n_columns();
-        omega_ = one.problem_.n_omega;
-      }
-      if (one.problem_.n_columns() != columns_ || one.problem_.n_omega != omega_)
-        throw std::invalid_argument("native batch member layouts differ");
-      // The batch's updates run on one team for every member (solprop SEP 46).
-      if (one.problem_.cpu_execution != kernel_pool_.execution())
-        throw std::invalid_argument(
-            "native batch members' CPU execution records differ");
-    }
-    const auto count = checked_product(columns_, members_.size(), "batch columns");
-    // The batch's updates take its members' team.
-    if (compact_problem(members_.front()->workspace_->problem_))
-      kernel_pool_.compact();
-    execution_ = kernel_pool_.get(CpuOperation::stage,
-                                  checked_product(count, omega_, "batch elements"));
-    if (count > static_cast<std::size_t>(std::numeric_limits<int>::max()))
-      throw std::length_error("native batch league exceeds int extent");
-    require_allocation(count, sizeof(UpdateColumn), "batch descriptors");
-    descriptors_ = Descriptors("solprop_native.batch.update_descriptors", count);
-    host_ = Kokkos::create_mirror(descriptors_);
-  }
-
-  std::vector<double> accept(const double dz) {
-    if (closed_)
-      throw std::logic_error("native batch is closed");
-    if (!std::isfinite(dz) || dz <= 0.0)
-      throw std::invalid_argument("native batch step must be positive and finite");
-    for (std::size_t member = 0; member < members_.size(); ++member) {
-      auto& one = *members_[member]->workspace_;
-      one.require_open();
-      if (!one.batch_prepared_)
-        throw std::logic_error("every native batch member must prepare this trial");
-      for (std::size_t column = 0; column < columns_; ++column) {
-        host_(member * columns_ + column) = {
-            one.current_.data() + column * one.current_.stride(0),
-            one.solution_.data() + column * one.solution_.stride(0),
-            one.error_.data() + column * one.error_.stride(0),
-            one.whole_propagator_.data() + column * one.whole_propagator_.stride(0),
-            one.advanced_.data() + column * one.advanced_.stride(0),
-            one.residual_.data() + column * one.residual_.stride(0),
-            one.norm_mask_.data(),
-            one.partials_.data() + column * one.reduction_slots_,
-            one.partials_.data() + one.partials_.stride(0) +
-                column * one.reduction_slots_,
-            one.partials_.data() + 2 * one.partials_.stride(0) +
-                column * one.reduction_slots_,
-            one.current_.data() + column * one.current_.stride(0)};
-      }
-    }
-    graph::deep_copy(execution_, descriptors_, host_);
-    const auto descriptors = descriptors_;
-    // The members' own split: a member sums its norms as its solo run does.
-    const auto slots = members_.front()->workspace_->reduction_slots_;
-    accept_update(
-        execution_, descriptors.extent(0), omega_, dz,
-        KOKKOS_LAMBDA(const std::size_t column) { return descriptors(column); },
-        "solprop_native.batch.accept_error_partials", slots);
-    execution_.fence("solprop_native batch update boundary");
-    std::vector<double> result;
-    result.reserve(members_.size() * 3 * columns_ * slots);
-    for (const auto& member : members_) {
-      const auto partials = member->workspace_->collect_trial();
-      result.insert(result.end(), partials.begin(), partials.end());
-    }
-    return result;
-  }
-
-  std::map<std::string, std::size_t> memory_ledger() const {
-    if (closed_)
-      return {};
-    return {{"update_descriptors", descriptors_.span() * sizeof(UpdateColumn)},
-            {"host_update_descriptors", host_.span() * sizeof(UpdateColumn)}};
-  }
-
-  CpuSizing execution_sizing() const { return kernel_pool_.sizing(); }
-  /** Its members' team (`GeneralWorkspace::cpu_team`), or the batch's own update
-      width if wider. */
-  [[nodiscard]] int cpu_team() const noexcept {
-    const int members = members_.empty() ? 0 : members_.front()->workspace_->cpu_team();
-    return members == 0 ? 0 : std::max(members, kernel_pool_.widest());
-  }
-
-  void close() noexcept {
-    if (closed_)
-      return;
-    execution_.fence();
-    descriptors_ = {};
-    host_ = {};
-    members_.clear();
-    execution_ = ExecutionSpace();
-    kernel_pool_.clear();
-    closed_ = true;
-  }
-
-private:
-  using Descriptors = Kokkos::View<UpdateColumn*, Layout, MemorySpace>;
-  // The first member's record, which every member must share; read before the
-  // constructor's checks, so it refuses an empty or unloaded batch itself.
-  static const CpuExecution&
-  first_execution(const std::vector<std::shared_ptr<GeneralState>>& members) {
-    if (members.empty())
-      throw std::invalid_argument("a native batch needs at least one member");
-    if (!members.front() || members.front()->closed())
-      throw std::invalid_argument("native batch members must be open");
-    return members.front()->workspace_->problem_.cpu_execution;
-  }
-  std::vector<std::shared_ptr<GeneralState>> members_;
-  CpuExecutionPool kernel_pool_{CpuPool::kernels, first_execution(members_)};
-  ExecutionSpace execution_;
-  std::size_t columns_{}, omega_{};
-  Descriptors descriptors_;
-  Descriptors::host_mirror_type host_;
-  bool closed_{};
-};
 
 void GeneralWorkspace::allocate() {
   if (problem_.low_storage
@@ -5538,8 +5403,6 @@ void GeneralWorkspace::prepare_trial(const double dz, const TrialScalars& scalar
   if (finish_pending_)
     throw std::logic_error("a deferred stage finish was never run");
   stages_ready_ = true;
-
-  batch_prepared_ = true;
 }
 
 std::vector<double> GeneralWorkspace::trial_step(const double dz,
@@ -7081,11 +6944,10 @@ GeneralWorkspace::phase_sum_to_host(const std::vector<double>& weights) {
 
 // The field at a fraction of the last accepted step: the step's interpolant in its
 // anchor's frame -- the Adams corrector's (`weights.predictor` holds dz-scaled
-// integrated weights over the slopes) or the cubic Hermite one (`hermite`, the four
-// coefficients in `weights.corrector`) -- with a bin the step's flow changes by more
+// integrated weights over the slopes) -- with a bin the step's flow changes by more
 // than an e-fold taking the anchor's value, carried to the observation by the uploaded
 // trial's flow and masked into current_.
-void GeneralWorkspace::adams_observe(const AdamsWeights& weights, const bool hermite,
+void GeneralWorkspace::adams_observe(const AdamsWeights& weights,
                                      const TrialScalars& scalars) {
   require_adams();
   if (adams_dense_count_ == 0)
@@ -7097,7 +6959,6 @@ void GeneralWorkspace::adams_observe(const AdamsWeights& weights, const bool her
   const auto n = problem_.n_omega;
   const auto count = adams_dense_count_;
   const auto start = adams_dense_start_;
-  const auto end = adams_dense_end_;
   const auto exponent = adams_dense_exponent_;
   const auto slopes = adams_slopes_;
   const auto carry = adams_propagator_;
@@ -7105,18 +6966,10 @@ void GeneralWorkspace::adams_observe(const AdamsWeights& weights, const bool her
   launch::parallel_for(
       "solprop_native.adams.observe", Range2(execution_space_, {0, 0}, {columns, n}),
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-        Complex value;
-        if (hermite) {
-          value = weights.corrector[0] * start(column, index) +
-                  weights.corrector[1] * slopes(1, column, index) +
-                  weights.corrector[2] * end(column, index) +
-                  weights.corrector[3] * slopes(0, column, index);
-        } else {
-          Complex total{};
-          for (std::size_t t = 0; t < count; ++t)
-            total += weights.predictor[t] * slopes(t, column, index);
-          value = start(column, index) + total;
-        }
+        Complex total{};
+        for (std::size_t t = 0; t < count; ++t)
+          total += weights.predictor[t] * slopes(t, column, index);
+        Complex value = start(column, index) + total;
         if (Kokkos::abs(exponent(column, index).real()) > 1.0)
           value = start(column, index);
         current(column, index) = carry(column, index) * value;
@@ -9774,7 +9627,6 @@ void GeneralWorkspace::rk_dense_release() noexcept {
 }
 
 std::vector<double> GeneralWorkspace::collect_trial() {
-  batch_prepared_ = false;
   // A coupled flow's last stage is carried back by the step's own inverse action, so
   // it is not the next step's first stage; solprop's reference takes no FSAL there.
   pending_fsal_ =
@@ -18000,10 +17852,10 @@ void GeneralState::adams_rows_from_host(const std::string& name,
   const CpuTeamScope team(workspace_->cpu_team());
   workspace_->adams_rows_from_host(name, values);
 }
-void GeneralState::adams_observe(const AdamsWeights& weights, const bool hermite,
+void GeneralState::adams_observe(const AdamsWeights& weights,
                                  const TrialScalars& scalars) {
   const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->adams_observe(weights, hermite, scalars);
+  workspace_->adams_observe(weights, scalars);
 }
 std::vector<double> GeneralState::adams_exponential_trial(
     const double dz, const ExponentialWeights& weights,
@@ -18279,26 +18131,6 @@ bool GeneralState::closed() const noexcept {
 void GeneralState::close() noexcept {
   if (workspace_)
     workspace_->close();
-}
-
-GeneralBatch::GeneralBatch(std::vector<std::shared_ptr<GeneralState>> members)
-    : workspace_(std::make_unique<GeneralBatchWorkspace>(std::move(members))) {}
-GeneralBatch::~GeneralBatch() { close(); }
-std::vector<double> GeneralBatch::accept(const double dz) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->accept(dz);
-}
-std::map<std::string, std::size_t> GeneralBatch::memory_ledger() const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->memory_ledger();
-}
-CpuSizing GeneralBatch::execution_sizing() const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->execution_sizing();
-}
-void GeneralBatch::close() noexcept {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->close();
 }
 
 } // namespace solprop_native

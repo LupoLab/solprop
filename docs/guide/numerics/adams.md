@@ -664,10 +664,8 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
   the AMD CDNA 3 and NVIDIA Hopper devices SEP 16 qualified, beside a coupled flow too:
   at any width and whichever route each bin takes. On the CPU build the
   march itself runs natively too, for `Multistep()` in either formulation, adaptive or
-  replayed, on every route; a coupled flow whose matrix passes run on the host steps
-  solprop's march on the same engine, with a
-  {py:class}`~solprop.exceptions.HostMarchWarning` that names the reason. Either march
-  takes the same steps.
+  replayed, on every route it admits, and what it does not step is refused by name
+  before the run starts. It takes the same steps as solprop's reference march.
 - **Resume across backends.** A frozen-residual coupled flow's history is kept in a
   native form on `native` and as per-sample weights on the host engines, so its snapshot
   continues only on a backend of the same kind; a resume elsewhere starts the history

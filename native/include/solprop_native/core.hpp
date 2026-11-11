@@ -810,7 +810,6 @@ enum class TableKind { phi, prefactor, rate, flux };
 [[nodiscard]] bool compact_problem(const Problem& problem) noexcept;
 
 class GeneralWorkspace;
-class GeneralBatchWorkspace;
 
 /** Multicolumn general state with batched FFTs and chunked node transforms. */
 class GeneralState {
@@ -854,8 +853,7 @@ public:
                           const AdamsWeights& dense);
   void adams_hold();
   void adams_restore();
-  void adams_observe(const AdamsWeights& weights, bool hermite,
-                     const TrialScalars& scalars);
+  void adams_observe(const AdamsWeights& weights, const TrialScalars& scalars);
   [[nodiscard]] std::vector<double>
   adams_exponential_trial(double dz, const ExponentialWeights& weights,
                           const std::vector<double>& divisor, const TrialScalars& step,
@@ -1086,26 +1084,7 @@ public:
   void close() noexcept;
 
 private:
-  friend class GeneralBatchWorkspace;
   std::unique_ptr<GeneralWorkspace> workspace_;
-};
-
-/** Shared update dispatch over independently owned native parameter workspaces. */
-class GeneralBatch {
-public:
-  explicit GeneralBatch(std::vector<std::shared_ptr<GeneralState>> members);
-  ~GeneralBatch();
-  GeneralBatch(const GeneralBatch&) = delete;
-  GeneralBatch& operator=(const GeneralBatch&) = delete;
-  GeneralBatch(GeneralBatch&&) = delete;
-  GeneralBatch& operator=(GeneralBatch&&) = delete;
-  [[nodiscard]] std::vector<double> accept(double dz);
-  [[nodiscard]] std::map<std::string, std::size_t> memory_ledger() const;
-  [[nodiscard]] CpuSizing execution_sizing() const;
-  void close() noexcept;
-
-private:
-  std::unique_ptr<GeneralBatchWorkspace> workspace_;
 };
 
 void fft(const ExecutionSpace& execution_space, ComplexView input, ComplexView output);

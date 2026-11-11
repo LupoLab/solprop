@@ -13,10 +13,8 @@ pieces of state a load restores (section 4.7) are structural and compared exactl
 import copy
 import dataclasses
 import gc
-import math
 import threading
 import types
-import warnings
 import weakref
 from typing import cast
 
@@ -33,7 +31,7 @@ from solprop.backends.registry import available, select
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationRunner
 from solprop.driver.simulation import check_derived_problem
-from solprop.exceptions import DriverError, SolpropWarning, TranslationError
+from solprop.exceptions import DriverError, TranslationError
 from solprop.log import NullReporter
 from solprop.noise import NoiseRealisation, spatial_noise
 from solprop.output import MemoryOutput, open_file
@@ -593,49 +591,12 @@ def test_a_resident_adams_march_holds_no_host_copy_of_the_state(route):
         backend = cast("StepDriver", runner.backend)
         assert getattr(backend, "_resident", None) is not None
         output = stored(runner.run(np.array(simulation._field0), progress="none"))
-        assert getattr(backend, "_host_state", ...) is None
-        assert runner.backend.memory_ledger()["adams_host_state"] == 0
+        assert "adams_host_state" not in runner.backend.memory_ledger()
         # What a budget stop reports is the engine's: the state, read when it is asked.
         assert np.array_equal(
             backend._adams_state(), backend._observed_field(backend._require_state())
         )
     assert output.n_saved > 1
-    assert getattr(backend, "_host_state", ...) is None
-
-
-def test_a_host_adams_march_lists_its_copy_of_the_state_and_closes_it(monkeypatch):
-    """Solprop's host engine reads the state on the host, one volume in the ledger.
-
-    A coupled flow the host engine steps (``_flow_on_host``: on a device build off
-    the eigenbasis route) is what takes that engine
-    (``_adams_engine``); the test asks for it on any build.
-    """
-    pytest.importorskip("solprop_native")
-    flow_parity = pytest.importorskip("flow_parity")
-    monkeypatch.setattr(
-        "solprop_native.backend._flow_on_host", lambda *_: "the test's host engine"
-    )
-    with warnings.catch_warnings():
-        for category in (*flow_parity.QUIET, SolpropWarning):
-            warnings.simplefilter("ignore", category)
-        simulation = flow_parity.build("scalar", schedule=None)
-        simulation.settings = dataclasses.replace(
-            simulation.settings, integrator=Multistep(), backend="native"
-        )
-        problem = simulation.translate()
-        run_request = simulation._run_request()
-        backend = select(
-            "native", problem, run_request, grid=simulation.grid, modes=simulation.modes
-        )
-    try:
-        assert getattr(backend, "_resident", ...) is None
-        assert backend.memory_ledger()["adams_host_state"] == 0
-        backend.set_initial(problem.initial.field0, None)
-        volume = 16 * math.prod(problem.shape)
-        assert backend.memory_ledger()["adams_host_state"] == volume
-    finally:
-        backend.close()
-    assert getattr(backend, "_host_state", ...) is None
 
 
 @pytest.mark.medium

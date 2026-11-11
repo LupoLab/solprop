@@ -337,7 +337,7 @@ the harness) holds:
   `monitor` (the check by steps), `transverse` (a collar's per-step current) or
   `transverse_read`, joined with `+` when several fall due together; then
   `host_attempt` for each attempt solprop's own loop steps, `low_storage_step` for the
-  low-storage march and `group_step` for a group's common step.
+  low-storage march.
   A native session returns once per `advance`, by its batch's event:
   `session_observation`, `session_snapshot` (a requested snapshot serviced),
   `session_warning`, `session_terminal`, or `session_progress` with its cause,

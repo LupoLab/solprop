@@ -101,18 +101,6 @@ class State:
         channel_preionisation: npt.NDArray[np.float64] | None = None,
         power_weight: npt.NDArray[np.float64] | None = None,
     ) -> npt.NDArray[np.float64]: ...
-    def adams_source(
-        self,
-        input: npt.NDArray[np.complex128],
-        phi_delta: npt.NDArray[np.float64],
-        phi_at: npt.NDArray[np.float64],
-        prefactor: npt.NDArray[np.float64],
-        density: npt.NDArray[np.float64],
-        taper: npt.NDArray[np.float64],
-        preionisation: npt.NDArray[np.float64],
-        raman_rates: npt.NDArray[np.float64],
-        material: dict[str, npt.NDArray[np.float64] | int],
-    ) -> npt.NDArray[np.complex128]: ...
     def adopt(self, field: npt.NDArray[np.complex128], dz: float) -> None: ...
     def low_storage_step(
         self,
@@ -145,27 +133,9 @@ class State:
         raman_rates: npt.NDArray[np.float64],
         material: dict[str, npt.NDArray[np.float64] | int],
     ) -> None: ...
-    def adams_magnitude(self) -> float: ...
     def adams_scale(
         self, rtol: float, atol: float, weights: npt.NDArray[np.float64]
     ) -> None: ...
-    def adams_fused_trial(
-        self,
-        dz: float,
-        slots: npt.NDArray[np.uint64],
-        predictor: npt.NDArray[np.float64],
-        corrector: npt.NDArray[np.float64],
-        rows: npt.NDArray[np.float64],
-        divisor: npt.NDArray[np.float64],
-        phi_delta: npt.NDArray[np.float64],
-        phi_at: npt.NDArray[np.float64],
-        prefactor: npt.NDArray[np.float64],
-        density: npt.NDArray[np.float64],
-        taper: npt.NDArray[np.float64],
-        preionisation: npt.NDArray[np.float64],
-        raman_rates: npt.NDArray[np.float64],
-        material: dict[str, npt.NDArray[np.float64] | int],
-    ) -> npt.NDArray[np.float64]: ...
     def adams_fused_accept(
         self,
         dz: float,
@@ -216,7 +186,6 @@ class State:
         order: int,
         orders: list[int],
         compensated: bool,
-        divisor: npt.NDArray[np.float64],
         carrier: npt.NDArray[np.float64],
     ) -> npt.NDArray[np.float64]: ...
     def adams_stage_scalars(self, z0: float, z1: float) -> dict[str, list[float]]: ...
@@ -237,7 +206,6 @@ class State:
         slots: npt.NDArray[np.uint64],
         order: int,
         orders: list[int],
-        divisor: npt.NDArray[np.float64],
     ) -> npt.NDArray[np.float64]: ...
     def adams_march_run(
         self, state: dict[str, object], bounds: dict[str, object]
@@ -320,7 +288,6 @@ class State:
     def adams_observe(
         self,
         weights: npt.NDArray[np.float64],
-        hermite: bool,
         phi_delta: npt.NDArray[np.float64],
         phi_at: npt.NDArray[np.float64],
         prefactor: npt.NDArray[np.float64],
@@ -519,15 +486,6 @@ def vector_exp_complex(
     real: npt.NDArray[np.float64],
     imag: npt.NDArray[np.float64],
 ) -> None: ...
-
-class BatchState:
-    def __init__(self, members: list[State]) -> None: ...
-    def accept(self, dz: float) -> npt.NDArray[np.float64]: ...
-    def memory_ledger(self) -> dict[str, int]: ...
-    @property
-    def execution_sizing(self) -> dict[str, dict[str, int]]: ...
-    def close(self) -> None: ...
-
 def available_device_memory() -> int | None: ...
 
 class EnvelopeConvergenceError(RuntimeError): ...

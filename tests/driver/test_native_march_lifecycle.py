@@ -100,8 +100,7 @@ def test_a_native_failure_raises_its_class_at_the_last_accepted_step(
     armed = with_fault(monkeypatch, stage, 0 if stage == "startup" else 30, category)
     with pytest.raises(raised, match="an injected native failure"):
         build().run(part, progress="none")
-    (march,) = armed
-    assert march.native
+    assert len(armed) == 1
     ledger = ledger_of(part)
     if stage == "startup":
         # The startup sample was charged before it failed, and nothing was accepted:
@@ -419,8 +418,7 @@ def two_marches(make, monkeypatch, part) -> dict[str, Any]:
                 # The message names the backend; the rest is the march's.
                 error = (type(stopped), str(stopped).replace(backend, "BACKEND"))
         if backend == "native":
-            (taken,) = marches
-            assert taken.native
+            assert len(marches) == 1
             assert served == ["NativeSession"]
         else:
             assert marches == []

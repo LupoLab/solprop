@@ -5,13 +5,10 @@
 """SEP 45 phase 2: a Runge-Kutta trial's stage rows and its norm formed natively.
 
 Where every row a trial reads is one of the uploaded stage tables', the native state
-evaluates each stage's scalars at ``z + c_i dz`` itself (``stage::rows``), as
-``_trial_arrays`` packs the bundles of ``_stage_bundles``: the trial's partials are the
-host-packed trial's bit for bit. The host-packed trial is reached by a probe local to
-the test (the backend's ``_staged_rows`` answering no on one instance), an
-identical-input control: the module switch that selected host rows was retired with
-the transitional bridge (SEP 47 section 6.3), and the host-packed path goes with the
-inherited driver in phase 5's next step. The norm is reduced natively for solprop's own
+evaluates each stage's scalars at ``z + c_i dz`` itself (``stage::rows``); the
+host-packed trial it was measured against bit for bit was deleted in SEP 47's phase 5,
+and the stage scalars are held to solprop's bundle in ``test_native_stage_tables.py``.
+The norm is reduced natively for solprop's own
 weak scale, its sums in order (Q1), and for a weighted one (phase 4): each agrees with
 the host's NumPy reduction to rounding.
 """
@@ -24,6 +21,7 @@ import numpy as np
 import pytest
 
 from capability_routes import ROUTES
+from native_flow_guards import check_flow_conditioning, flow_squarings
 from solprop.backends import available
 from solprop.exceptions import BackendError
 from solprop.stepper.controller import PIController
@@ -98,23 +96,6 @@ def steps(problem, run_request) -> list[tuple[float, float]]:
     return [(z, min(0.05 * span, end - z)) for z in anchors if z < end]
 
 
-@pytest.mark.parametrize("route", ROWS)
-def test_a_staged_trial_is_the_host_packed_trial(route, monkeypatch):
-    backend, problem = runge_kutta(route)
-    try:
-        assert backend._staged_rows()
-        for z, dz in steps(problem, backend.request):
-            staged = np.asarray(backend._prepare_trial(z, dz))
-            with monkeypatch.context() as patch:
-                # The identical-input control: this instance packs its rows on the
-                # host, the stage tables staying uploaded.
-                patch.setattr(backend, "_staged_rows", lambda: False)
-                packed = np.asarray(backend._prepare_trial(z, dz))
-            assert np.array_equal(staged, packed), (z, dz)
-    finally:
-        backend.close()
-
-
 def _refusal(call) -> str:
     with pytest.raises(BackendError) as caught:
         call()
@@ -130,7 +111,7 @@ def test_the_native_flow_guards_refuse_as_the_host_s(route, monkeypatch):
     """
     backend, problem = runge_kutta(route)
     try:
-        assert backend._staged_rows()
+        backend._staged_rows()
         flow = backend._flow
         state = backend._native_state
         z, dz = steps(problem, backend.request)[0]
@@ -143,8 +124,8 @@ def test_the_native_flow_guards_refuse_as_the_host_s(route, monkeypatch):
         if measured.size:
             halved = dataclasses.replace(flow, condition_bound=flow.condition_bound / 2)
             expected = _refusal(
-                lambda: backend_module._check_flow_conditioning(
-                    halved, section, measured, dz
+                lambda: check_flow_conditioning(
+                    backend_module, halved, section, measured, dz
                 )
             )
             state.flow_guard_configure(
@@ -161,7 +142,7 @@ def test_the_native_flow_guards_refuse_as_the_host_s(route, monkeypatch):
             float(f) * dz * float(flow.row_sum[section]) for f in fractions if f
         )
         monkeypatch.setattr(backend_module, "_TAYLOR_SCALE", tiny)
-        expected = _refusal(lambda: backend_module._flow_squarings(first))
+        expected = _refusal(lambda: flow_squarings(backend_module, first))
         state.flow_guard_configure(
             [float(v) for v in flow.row_sum],
             [float(v) for v in np.ravel(flow.condition_bound)],

@@ -585,12 +585,6 @@ class NativeSession:
         -------
         tuple
             The march's kind and its state at the start, as the native call takes it.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            If the backend would step the march on the host, which its admission
-            refuses where it is built; a defence, reached by no admitted run.
         """
         driver = self._driver(backend)
         integrator = self._stepper.integrator
@@ -614,22 +608,13 @@ class NativeSession:
             self._march_refusal = driver.restore_march(start.march)
         if isinstance(integrator, Multistep):
             march = driver._adams
-            refused = march.refusal
         elif isinstance(integrator, LowStorageRungeKutta):
             # The replay is the native Runge-Kutta march's, over the stage tables the
             # state reads each step's scalars from (SEP 47 section 6.3).
-            refused = None if driver._staged_rows() else "stage rows the host forms"
+            driver._staged_rows()
             march = _NativeRungeKuttaMarch(backend)
         else:
-            refused, _ = _NativeRungeKuttaMarch.refusal(backend)
-            march = None if refused is not None else driver._rk_march()
-        if refused is not None:
-            msg = (
-                f"the native backend steps this run's march on the host ({refused}), "
-                "which the native session's admission did not foresee"
-            )
-            raise BackendError(msg)
-        assert march is not None
+            march = driver._rk_march()
         march._configure()  # pyright: ignore[reportPrivateUsage]
         kind = "runge_kutta"
         if isinstance(integrator, Multistep):

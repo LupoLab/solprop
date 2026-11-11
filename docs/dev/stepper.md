@@ -422,7 +422,7 @@ decision), the adoption and transport of an accepted step, holding the accepted 
 across a dense observation, and the observation. `HostHistory` is the host engine,
 whose passes are the kernels above; a backend may return its own from the hook
 `_adams_engine`, as `native` does to keep the history resident in its
-native state -- beside a coupled flow too, whose block functions, coupled predictor,
+native state, always -- beside a coupled flow too, whose block functions, coupled predictor,
 corrector, carry and defect norms are native passes over its resident eigenbasis, a
 frozen-residual flow's generator applied once per sample. The general
 path (PECE and the comparison variants) keeps host arrays.
@@ -463,10 +463,10 @@ and a signal's handler runs after it, so the call's bound, 256 attempts or 0.1 s
 what either waits for. The driver books the call's attempts through
 `_record_attempt` and `_account_step`, inside one commit, replaying each buffered
 reading through the monitor at its own step. The Python march is the reference --
-`HostAdamsMarch` for `numpy_ref` -- and its bridge copy `AdamsMarch` steps every
-configuration the native march does not cover (a coupled flow on the host engine, beside
-the interaction formulation), with a
-`HostMarchWarning` naming the reason. The comparison methods
+`HostAdamsMarch` for `numpy_ref`; native steps every configuration it admits with the
+native march and has no Python march to fall back on (SEP 47 phase 5): the interaction
+formulation beside a coupled flow, a representation its stage tables do not read and
+the untransported compensation witness are refused by name. The comparison methods
 (`ComparisonMultistep`, the one-order-higher PEC variant among them) and a controller that
 overrides a decision are refused by name at admission (SEP 47 §6.3). A z table's carrier frame steps natively: the stage tables carry the imaginary
 part of the table's reference element as a scalar table, read by the Clenshaw helper

@@ -2,18 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Native groups against their members alone, and the batch state's lifecycle.
+"""Native groups against their members alone.
 
 A native group (solprop SEP 47 section 6.7) runs each member in its own native session;
-the transitional lockstep batch it replaced was deleted in SEP 47's phase 5. The fused
-batch update state (``_core.BatchState``) keeps its own lifecycle refusals.
+the transitional lockstep batch it replaced was deleted in SEP 47's phase 5, with the
+fused batch update state it stepped.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import math
-from contextlib import ExitStack
 
 import numpy as np
 import pytest
@@ -24,10 +23,7 @@ from solprop.backends.session import Start
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
 
-from solprop_native import (
-    NativeBackend,
-    _core,  # pyright: ignore[reportPrivateUsage]
-)
+from solprop_native import NativeBackend
 
 
 @pytest.mark.parametrize("count", [1, 3])
@@ -110,24 +106,3 @@ def test_group_members_match_their_lone_sessions(
                 assert_within(actual["rows"][name], values, statistic_bound, what=name)
             for name, value in expected["stats"].items():
                 assert_within(actual["stats"][name], value, statistic_bound, what=name)
-
-
-def test_native_batch_rejects_unprepared_and_closed_members(
-    phase_a_case: PhaseACase,
-) -> None:
-    problem, run_request, grid = phase_a_case
-    with ExitStack() as cleanup:
-        owner = NativeBackend(problem, run_request, grid=grid)
-        cleanup.callback(owner.close)
-        owner.set_initial(problem.initial.field0, None)
-        state = owner._native_state  # pyright: ignore[reportPrivateUsage]
-        batch = _core.BatchState([state])
-        cleanup.callback(batch.close)
-        with pytest.raises(RuntimeError, match="prepare this trial"):
-            batch.accept(1e-4)
-        owner.close()
-        with pytest.raises(RuntimeError, match="closed"):
-            batch.accept(1e-4)
-        batch.close()
-        with pytest.raises(RuntimeError, match="closed"):
-            batch.accept(1e-4)

@@ -274,13 +274,8 @@ _core.register_host_blas()
 
 DRIVER_SURFACE: tuple[str, ...] = (
     "_account_step",
-    "_adams_adopt",
-    "_adams_block",
     "_adams_engine",
-    "_adams_lab_source",
-    "_adams_propagator",
     "_adams_restore",
-    "_adams_source",
     "_adams_state",
     "_apply_mask",
     "_axis_row_populations",

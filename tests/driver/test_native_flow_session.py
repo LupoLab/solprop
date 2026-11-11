@@ -7,19 +7,20 @@
 solprop SEP 47 phase 4 (section 6.3, the coupled-flow row): a coupled block wider than
 16 channels, and a block with bins off its flow's eigenbasis route, step on the
 resident Adams engine of a CPU or a device build, and the native session serves them,
-where solprop's host engine stepped them over the backend's hooks before.
+where solprop's host engine stepped them over the backend's hooks before (that engine
+was deleted with the inherited driver's fallbacks in phase 5).
 
 The wide cases are lossless helium tapers with taper coupling and every bin on the
 route, over ten fixed steps short enough that the formation bound of
 ``tests/flow_parity.py`` stays far below one; the resident engine is held to
-``numpy_ref`` and to solprop's host engine on the same backend within the ten-step
-bound of ``tests/driver/test_native_coupled_flow.py`` (``parity_bound``). The cases off
+``numpy_ref`` within the ten-step bound of ``tests/driver/test_native_coupled_flow.py``
+(``parity_bound``). The cases off
 the route are ``flow_parity``'s eight, every bin or every other one routed to the
-augmented exponential, held to ``numpy_ref``, the host engine and the same backend on
-the eigenbasis route within ``flow_parity.ten_step_bound`` at
+augmented exponential, held to ``numpy_ref`` and the same backend on the eigenbasis
+route within ``flow_parity.ten_step_bound`` at
 ``adams_formation_bound``. Every bound is written before any measurement; the session
-is held to ``numpy_ref`` and to the host engine within the same bound, and is the same
-run twice to the bit on one thread.
+is held to ``numpy_ref`` within the same bound, and is the same run twice to the bit on
+one thread.
 """
 
 import dataclasses
@@ -163,13 +164,6 @@ def cases():
     return get
 
 
-def on_host_engine(monkeypatch) -> None:
-    """Make the backend step every coupled flow on solprop's host engine."""
-    monkeypatch.setattr(
-        backend_module, "_flow_on_host", lambda *_: "the test's host engine"
-    )
-
-
 def _scale(case: Case) -> float:
     return float(np.max(np.abs(case.problem.initial.field0)))
 
@@ -187,8 +181,6 @@ def test_a_wide_flow_takes_the_resident_engine_and_the_session(cases, modes):
     backend = NativeBackend(problem, request, grid=case.grid)
     try:
         assert type(backend._adams._engine).__name__ == "_ResidentAdams"
-        assert backend._adams.native
-        assert backend._adams.refusal is None
         # A CPU build's host passes' channel rows: one per bin, nine samples of every
         # channel; a device's passes hold none.
         if not DEVICE:
@@ -198,9 +190,6 @@ def test_a_wide_flow_takes_the_resident_engine_and_the_session(cases, modes):
         backend.close()
 
 
-# The host engine runs solprop's march, with the warning
-# tests/backends/test_native_march_admission.py asserts (SEP 39).
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize(
     "modes",
     [
@@ -208,35 +197,26 @@ def test_a_wide_flow_takes_the_resident_engine_and_the_session(cases, modes):
         pytest.param(24, marks=pytest.mark.slow),
     ],
 )
-def test_ten_wide_steps_are_the_reference_s_and_the_host_engine_s(
-    cases, modes, monkeypatch, record_property
-):
-    """The resident engine against ``numpy_ref`` and the host engine, within the bound.
+def test_ten_wide_steps_are_the_reference_s(cases, modes, record_property):
+    """The resident engine against ``numpy_ref``, within the bound.
 
     The bound (``parity_bound``), stated first: the flow's formation bound ``eps_form``
     at the case's step, the carries' ``2 n kappa u + kappa eps_form`` and the shared
-    work's rounding, per step and per stage, over ten steps. The host engine runs on
-    the same backend's hooks, so it differs from the resident engine by no more than
-    either differs from ``numpy_ref``: the same bound holds both.
+    work's rounding, per step and per stage, over ten steps.
     """
     case = cases(modes)
     expected = propagate(case, NumpyRefBackend)
     linear = 1e3 * propagate(case, NumpyRefBackend, case.problem.initial.field0 * 1e-3)
     bound = parity_bound(case, expected, linear)
     resident = propagate(case, NativeBackend)
-    on_host_engine(monkeypatch)
-    host = propagate(case, NativeBackend)
     scale = _scale(case)
     rho = float(np.max(np.abs(expected - linear))) / scale / STEPS
     assert rho > 1e-5, "the nonlinear half must be exercised through the flow"
     reference = float(np.max(np.abs(resident - expected)))
-    engine = float(np.max(np.abs(resident - host)))
     record_property("bound", bound / scale)
     record_property("reference", reference / scale)
-    record_property("host_engine", engine / scale)
     assert 0.0 < bound < 1e-6 * scale
     assert reference <= bound
-    assert engine <= bound
 
 
 def _one_thread() -> bool:
@@ -272,17 +252,14 @@ def session_run(
     return run.fields[-1].reshape(case.problem.shape), run.status
 
 
-# The host engine runs solprop's march, with the warning
-# tests/backends/test_native_march_admission.py asserts (SEP 39).
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.medium
 @pytest.mark.parametrize("modes", WIDE)
-def test_the_session_runs_a_wide_flow_within_the_bound(cases, modes, monkeypatch):
-    """The session is ``numpy_ref``'s and the host engine's in bound, and repeatable.
+def test_the_session_runs_a_wide_flow_within_the_bound(cases, modes):
+    """The session is ``numpy_ref``'s in bound, and repeatable.
 
     SEP 47's phase 4 evidence, kept past the bridge: the session is held to
-    ``parity_bound`` against ``numpy_ref`` and against solprop's host engine on the
-    same backend, and two sessions are the same run to the bit on one thread.
+    ``parity_bound`` against ``numpy_ref``, and two sessions are the same run to the
+    bit on one thread.
     """
     case = cases(modes)
     session, status = session_run(case)
@@ -290,15 +267,11 @@ def test_the_session_runs_a_wide_flow_within_the_bound(cases, modes, monkeypatch
     expected = propagate(case, NumpyRefBackend)
     linear = 1e3 * propagate(case, NumpyRefBackend, case.problem.initial.field0 * 1e-3)
     bound = parity_bound(case, expected, linear)
-    with monkeypatch.context() as patched:
-        on_host_engine(patched)
-        host = propagate(case, NativeBackend)
     assert status.attempts == repeated.attempts == STEPS
     if _one_thread():
         np.testing.assert_array_equal(session, again)
     assert 0.0 < bound < 1e-6 * _scale(case)
     assert float(np.max(np.abs(session - expected))) <= bound
-    assert float(np.max(np.abs(session - host))) <= bound
 
 
 # --- Bins off the flow's eigenbasis route ------------------------------------------
@@ -366,10 +339,9 @@ def _assert_routed(problem, route: str) -> None:
 
 
 @pytest.mark.medium
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize("route", ROUTES)
 @pytest.mark.parametrize("name", CASES)
-def test_bins_off_the_route_are_the_reference_s_and_the_host_engine_s(
+def test_bins_off_the_route_are_the_reference_s(
     parity_cases, name, route, monkeypatch, record_property
 ):
     """Ten fixed Adams steps with bins off the route, within ``B_10``.
@@ -377,9 +349,8 @@ def test_bins_off_the_route_are_the_reference_s_and_the_host_engine_s(
     The bound, stated first: ``flow_parity.ten_step_bound`` with its formation bound
     the larger of the actions' and the augmented exponential's
     (``adams_formation_bound``), against ``numpy_ref`` (SciPy's ``expm`` on every
-    bin), against solprop's host engine on the same backend (the eigenbasis on the
-    route's bins, ``expm`` off it), and against the resident engine with every bin on
-    the eigenbasis route, each a pair of implementations of the same ten steps.
+    bin) and against the resident engine with every bin on the eigenbasis route, each
+    a pair of implementations of the same ten steps.
     """
     simulation, problem = parity_cases(name)
     request, grid = on_adams(simulation._run_request()), simulation.grid
@@ -393,15 +364,11 @@ def test_bins_off_the_route_are_the_reference_s_and_the_host_engine_s(
     finally:
         backend.close()
     resident = run(NativeBackend, problem, request, grid)
-    with monkeypatch.context() as patched:
-        on_host_engine(patched)
-        host = run(NativeBackend, problem, request, grid)
     scales = flow_scales(problem, request, grid, expected)
     formation = max(scales.formation, adams_formation_bound(problem, request, grid))
     bound = ten_step_bound(dataclasses.replace(scales, formation=formation))
     measured = {
         "reference": departure(resident, expected),
-        "host_engine": departure(resident, host),
         "eigenbasis": departure(resident, on),
     }
     record_property("bound", bound)
@@ -419,16 +386,15 @@ def test_bins_off_the_route_are_the_reference_s_and_the_host_engine_s(
 
 
 @pytest.mark.medium
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize("route", ROUTES)
 def test_the_session_runs_bins_off_the_route_within_the_bound(
     parity_cases, route, monkeypatch
 ):
     """The session admits the taper off the route, held to the reference's bound.
 
-    ``numpy_ref`` and the host engine within the bound of
-    :func:`test_bins_off_the_route_are_the_reference_s_and_the_host_engine_s`, and the
-    same run twice to the bit on one thread.
+    ``numpy_ref`` within the bound of
+    :func:`test_bins_off_the_route_are_the_reference_s`, and the same run twice to the
+    bit on one thread.
     """
     simulation, problem = parity_cases("taper")
     request, grid = simulation._run_request(), simulation.grid
@@ -440,9 +406,6 @@ def test_the_session_runs_bins_off_the_route_within_the_bound(
     context = {"profiles": simulation.profiles, "modes": simulation.modes}
     session, status = session_run(case, context)
     again, repeated = session_run(case, context)
-    with monkeypatch.context() as patched:
-        on_host_engine(patched)
-        host = run(NativeBackend, problem, request, grid)
     scales = flow_scales(problem, request, grid, expected)
     formation = max(scales.formation, adams_formation_bound(problem, request, grid))
     bound = ten_step_bound(dataclasses.replace(scales, formation=formation))
@@ -450,7 +413,6 @@ def test_the_session_runs_bins_off_the_route_within_the_bound(
     if _one_thread():
         np.testing.assert_array_equal(session, again)
     assert departure(session, expected) <= bound
-    assert departure(session, host) <= bound
 
 
 def test_a_bin_off_the_route_past_thirty_squarings_is_refused_by_name(
@@ -723,7 +685,7 @@ class _Sections:
 
 
 def _held_to_the_bound(setup, runs, carrier=0.0):
-    """Assert a run off the route against the reference, the host engine and the route.
+    """Assert a run off the route against the reference and the route.
 
     `setup` is the problem, request and grid; `runs` the final states by name.
     ``flow_parity.ten_step_bound`` at ``adams_formation_bound``, and the eigenbasis
@@ -731,7 +693,7 @@ def _held_to_the_bound(setup, runs, carrier=0.0):
     """
     problem, request, grid = setup
     expected, routed = runs["expected"], runs["routed"]
-    on, host = runs["on"], runs["host"]
+    on = runs["on"]
     scales = flow_scales(problem, request, grid, expected)
     formation = max(
         scales.formation, adams_formation_bound(problem, request, grid, carrier)
@@ -739,12 +701,10 @@ def _held_to_the_bound(setup, runs, carrier=0.0):
     bound = ten_step_bound(dataclasses.replace(scales, formation=formation))
     assert 0.0 < bound < 1e-8
     assert departure(routed, expected) <= bound
-    assert departure(routed, host) <= bound
     assert departure(routed, on) <= 8 * max(departure(on, expected), 32 * UNIT)
 
 
 @pytest.mark.medium
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize("name", ["taper", "lossless", "gradient"])
 def test_sections_on_and_off_the_route_in_one_run(parity_cases, name, monkeypatch):
     """A flow whose sections alternate: every bin off the route, then every bin on."""
@@ -762,17 +722,13 @@ def test_sections_on_and_off_the_route_in_one_run(parity_cases, name, monkeypatc
     assert np.any(per_section) and not np.all(per_section)
     assert np.array_equal(per_section, ~np.any(~held.route, axis=1))
     routed = run(NativeBackend, problem, request, grid)
-    with monkeypatch.context() as patched:
-        on_host_engine(patched)
-        host = run(NativeBackend, problem, request, grid)
     _held_to_the_bound(
         (problem, request, grid),
-        {"expected": expected, "routed": routed, "on": on, "host": host},
+        {"expected": expected, "routed": routed, "on": on},
     )
 
 
 @pytest.mark.medium
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 def test_a_carrier_frame_off_the_route(parity_cases, monkeypatch):
     """The carrier frame's shifted moments and ``exp(sigma)`` flow off the route."""
     if DEVICE:
@@ -798,40 +754,31 @@ def test_a_carrier_frame_off_the_route(parity_cases, monkeypatch):
     off_route(monkeypatch, "off")
     _assert_routed(problem, "off")
     routed = run(NativeBackend, problem, request, grid)
-    with monkeypatch.context() as patched:
-        on_host_engine(patched)
-        host = run(NativeBackend, problem, request, grid)
     _held_to_the_bound(
         (problem, request, grid),
-        {"expected": expected, "routed": routed, "on": on, "host": host},
+        {"expected": expected, "routed": routed, "on": on},
         carrier,
     )
 
 
 @pytest.mark.medium
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 def test_a_wide_flow_off_the_route(cases, monkeypatch):
     """17 channels, every other bin off the route: wide rows and augmented bins."""
     case = cases(17)
     problem, request = case.problem, case.run_request
     on = propagate(case, NativeBackend)
-    with monkeypatch.context() as patched:
-        on_host_engine(patched)
-        host_on = propagate(case, NativeBackend)
+    expected = propagate(case, NumpyRefBackend)
     off_route(monkeypatch, "mixed")
     _assert_routed(problem, "mixed")
     routed = propagate(case, NativeBackend)
-    with monkeypatch.context() as patched:
-        on_host_engine(patched)
-        host = propagate(case, NativeBackend)
-    linear = 1e3 * propagate(case, NativeBackend, problem.initial.field0 * 1e-3)
+    linear = 1e3 * propagate(case, NumpyRefBackend, problem.initial.field0 * 1e-3)
     formation = adams_formation_bound(problem, request, case.grid)
-    bound = parity_bound(case, host, linear, formation=formation)
+    bound = parity_bound(case, expected, linear, formation=formation)
     scale = _scale(case)
     assert 0.0 < bound < 1e-6 * scale
-    assert float(np.max(np.abs(routed - host))) <= bound
+    assert float(np.max(np.abs(routed - expected))) <= bound
     assert float(np.max(np.abs(routed - on))) <= bound
-    floor = max(float(np.max(np.abs(on - host_on))), 32 * UNIT * scale)
+    floor = max(float(np.max(np.abs(on - expected))), 32 * UNIT * scale)
     assert float(np.max(np.abs(routed - on))) <= 8 * floor
 
 

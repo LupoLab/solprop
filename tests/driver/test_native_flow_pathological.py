@@ -31,6 +31,7 @@ import pytest
 
 import flow_parity
 from flow_parity import QUIET, STEPS, UNIT, build, reference_formation_bound
+from native_flow_guards import check_flow_conditioning as check_native
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref import passes as reference_passes
 from solprop.backends.numpy_ref.backend import (
@@ -142,7 +143,7 @@ def test_an_empty_measurement_is_not_refused():
     problem, _, _ = scalar_case()
     dz = flow_parity.LENGTH / STEPS
     held = native_backend._host_flow(problem)
-    native_backend._check_flow_conditioning(held, 0, np.empty(0), dz)
+    check_native(native_backend, held, 0, np.empty(0), dz)
     reference = _coupled_flow_maps(problem)
     assert reference is not None
     channels = problem.shape[0]
@@ -151,7 +152,7 @@ def test_an_empty_measurement_is_not_refused():
     # The guard is live: one bin over its declared row is refused, on either.
     over = np.array(held.condition_bound[0]) * 2.0
     with pytest.raises(BackendError, match="above"):
-        native_backend._check_flow_conditioning(held, 0, over, dz)
+        check_native(native_backend, held, 0, over, dz)
 
 
 def test_the_spectral_norm_bounds_the_singular_value_to_its_rounding(monkeypatch):

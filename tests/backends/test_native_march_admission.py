@@ -5,11 +5,9 @@
 """Which march steps a native Adams run (solprop SEP 39 section 6.6).
 
 The native march steps ``Multistep()`` in either formulation, adaptive or replayed, on
-the routes whose trial is one bundle of stage rows; any other configuration runs
-solprop's Python march on the same resident engine, with a ``HostMarchWarning`` that
-names the reason, and the run's metadata records which march stepped it. No switch
-selects the Python march any more (solprop SEP 47 section 6.3 retired the test
-interface with the transitional bridge). The comparison family,
+every route the backend admits: since solprop SEP 47's phase 5 there is no Python march
+to fall back on, and what the native march does not step is refused by name before
+anything is allocated. The comparison family,
 ``ComparisonMultistep``, is benchmark-only and the reference's alone (solprop SEP 47
 section 6.3): the backend refuses every variant by name before it allocates anything.
 """
@@ -68,7 +66,6 @@ def test_the_default_march_is_native_without_a_warning(route):
         warnings.simplefilter("error", HostMarchWarning)
         backend = built(on_route(route, Multistep()))
     try:
-        assert backend._adams.native
         assert backend.metadata()["adams_march"] == "native"
     finally:
         backend.close()
@@ -79,7 +76,7 @@ def test_the_fused_method_is_native():
         warnings.simplefilter("error", HostMarchWarning)
         backend = built(on_route("gnlse", Multistep(formulation="interaction")))
     try:
-        assert backend._adams.native
+        assert backend.metadata()["adams_march"] == "native"
     finally:
         backend.close()
 
@@ -99,7 +96,7 @@ def test_a_replayed_schedule_is_native():
         warnings.simplefilter("error", HostMarchWarning)
         backend = built(simulation)
     try:
-        assert backend._adams.native
+        assert backend.metadata()["adams_march"] == "native"
     finally:
         backend.close()
 
@@ -191,20 +188,18 @@ def test_moving_maps_and_coupled_flows_are_native(route):
         warnings.simplefilter("error", HostMarchWarning)
         backend = built(on_route(route, Multistep()))
     try:
-        assert backend._adams.native
+        assert backend.metadata()["adams_march"] == "native"
     finally:
         backend.close()
 
 
-def test_the_host_engine_takes_the_host_march(monkeypatch):
-    # A coupled flow the host engine steps (beside the interaction formulation, and on
-    # a device build off the eigenbasis route or wider than sixteen channels) keeps it
-    # (ADR-044), whose history the native march cannot reach.
-    monkeypatch.setattr(NativeBackend, "_adams_engine", lambda *_: None)
-    with pytest.warns(HostMarchWarning, match="the host engine"):
-        backend = built(on_route("capillary (coherent wall)", Multistep()))
+def test_the_untransported_witness_is_refused():
+    # The untransported compensation is the reference's test witness (SEP 16 Q8):
+    # native steps the transported one and refuses the witness by name.
+    backend = built(on_route("capillary (pressure gradient)", Multistep()))
     try:
-        assert not backend._adams.native
+        with pytest.raises(BackendError, match="untransported"):
+            backend._adams_engine(Multistep(), "untransported")
     finally:
         backend.close()
 
@@ -225,7 +220,7 @@ def test_the_carrier_frame_is_native():
         warnings.simplefilter("error", HostMarchWarning)
         backend = built(capillary(SCALAR))
     try:
-        assert backend._adams.native
+        assert backend.metadata()["adams_march"] == "native"
         assert backend._adams._policy.carrier
     finally:
         backend.close()
