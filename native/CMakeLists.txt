@@ -353,10 +353,18 @@ if(SOLPROP_NATIVE_ENABLE_COVERAGE)
 endif()
 
 if(SOLPROP_NATIVE_ENABLE_CLANG_TIDY)
+  # The development group's pinned clang-tidy, in the environment beside the Python
+  # this build uses, before any machine's LLVM: each LLVM release adds checks.
+  get_filename_component(_python_bin "${Python_EXECUTABLE}" DIRECTORY)
   find_program(SOLPROP_NATIVE_CLANG_TIDY clang-tidy
-               HINTS /opt/homebrew/opt/llvm/bin
+               HINTS "${_python_bin}"
+                     /opt/homebrew/opt/llvm/bin
                      /usr/local/opt/llvm/bin
                REQUIRED)
+  execute_process(COMMAND "${SOLPROP_NATIVE_CLANG_TIDY}" --version
+                  OUTPUT_VARIABLE _clang_tidy_version OUTPUT_STRIP_TRAILING_WHITESPACE)
+  string(REGEX MATCH "version [0-9.]+" _clang_tidy_version "${_clang_tidy_version}")
+  message(STATUS "clang-tidy: ${SOLPROP_NATIVE_CLANG_TIDY} (${_clang_tidy_version})")
   set(SOLPROP_NATIVE_CLANG_TIDY_COMMAND
       "${SOLPROP_NATIVE_CLANG_TIDY}"
       "--config-file=${PROJECT_SOURCE_DIR}/.clang-tidy"
@@ -384,6 +392,22 @@ if(SOLPROP_NATIVE_ENABLE_CLANG_TIDY)
            "--extra-arg=-D__malloc__(...)=__malloc__")
     endif()
   endif()
+  if(APPLE)
+    # Homebrew's Clang finds the macOS SDK from its own configuration file, which the
+    # PyPI clang-tidy does not read.
+    set(_tidy_sysroot "${CMAKE_OSX_SYSROOT}")
+    if(NOT _tidy_sysroot)
+      execute_process(COMMAND xcrun --show-sdk-path OUTPUT_VARIABLE _tidy_sysroot
+                      OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    endif()
+    list(APPEND SOLPROP_NATIVE_CLANG_TIDY_COMMAND "--extra-arg=-isysroot${_tidy_sysroot}")
+  endif()
+  # The parser arguments beyond the compile commands, one per line, for
+  # native/scripts/tidy.sh (`poe tidy-native`).
+  set(_tidy_arguments "${SOLPROP_NATIVE_CLANG_TIDY_COMMAND}")
+  list(FILTER _tidy_arguments INCLUDE REGEX "^--extra-arg")
+  list(JOIN _tidy_arguments "\n" _tidy_arguments)
+  file(WRITE "${PROJECT_BINARY_DIR}/clang_tidy_arguments.txt" "${_tidy_arguments}\n")
 endif()
 
 function(solprop_native_configure_project_target target)

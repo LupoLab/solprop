@@ -81,11 +81,14 @@ dev = [
     "drawsvg>=2.4",
     "ruff>=0.16.6",
     "psutil>=7.1.0",
-    # The native gate (native/scripts/check.sh). The C++ formatter is pinned so the check
-    # does not depend on the machine's LLVM (Ubuntu's 18 and Homebrew's 23 format
-    # native/src/general.cpp differently); the build tools let it build the editable
-    # package and the distribution wheel without isolation.
+    # The native gate (native/scripts/check.sh). The C++ formatter and clang-tidy are
+    # pinned so the check does not depend on the machine's LLVM (Ubuntu's 18 and
+    # Homebrew's 23 format native/src/general.cpp differently, and each LLVM release
+    # adds checks); clang-tidy's PyPI wheels start at 23.1.3, the nearest to the
+    # formatter's 23.1.0. The build tools let it build the editable package and the
+    # distribution wheel without isolation.
     "clang-format==23.1.0",
+    "clang-tidy==23.1.4",
     "nanobind>=2.9",
     "scikit-build-core>=0.11",
     "setuptools-scm>=9",
@@ -450,6 +453,12 @@ help = "The native package's gate (C++ and its Python adapter)."
 shell = "git ls-files -z -- 'native/*.cpp' 'native/*.hpp' 'native/*.h' | xargs -0 clang-format -i"
 interpreter = "bash"
 help = "Format every tracked native C++ file with the pinned clang-format."
+
+# The pinned clang-tidy over the given native C++ files, or those that differ from main,
+# with the cpu-tidy preset's compile commands (native/scripts/tidy.sh).
+[tool.poe.tasks.tidy-native]
+cmd = "bash native/scripts/tidy.sh"
+help = "clang-tidy on the given native C++ files, or on those changed from main."
 
 [tool.poe.tasks.fetch-wheel]
 cmd = "python native/scripts/fetch_wheel.py"

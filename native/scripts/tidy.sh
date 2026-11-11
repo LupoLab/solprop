@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Run the pinned clang-tidy over some native C++ files (`poe tidy-native [FILE...]` from
+# the repository root), with the compile commands of the cpu-tidy preset, which this
+# configures when they are missing. With no files it checks the C++ files under native/
+# that differ from main (committed, staged or not) and the untracked ones. Paths are
+# relative to the repository root or absolute. The full check, every file as it
+# compiles, is the gate's tidy stage.
+
+set -euo pipefail
+
+native=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+root=$(cd "$native/.." && pwd)
+build="$native/build/presets/cpu-tidy"
+cd "$root"
+
+files=()
+if [[ $# -gt 0 ]]; then
+  files=("$@")
+else
+  base=$(git merge-base "${SOLPROP_TIDY_BASE:-origin/main}" HEAD)
+  while IFS= read -r -d '' file; do
+    [[ -f $file ]] && files+=("$file")
+  done < <({ git diff -z --name-only "$base" -- 'native/*.cpp' 'native/*.hpp' 'native/*.h'
+             git ls-files -z --others --exclude-standard -- 'native/*.cpp' 'native/*.hpp' 'native/*.h'; } |
+           sort -zu)
+fi
+if [[ ${#files[@]} -eq 0 ]]; then
+  echo "tidy-native: no C++ files to check"
+  exit 0
+fi
+
+if [[ ! -f "$build/compile_commands.json" ]]; then
+  # The compiler check.sh uses: CXX (GCC 14 or newer) on Linux, Homebrew's Clang on
+  # macOS.
+  if [[ $(uname -s) == Linux ]]; then
+    cxx_compiler=$(command -v "${CXX:-g++}")
+  elif [[ -x /opt/homebrew/opt/llvm/bin/clang++ ]]; then
+    cxx_compiler=/opt/homebrew/opt/llvm/bin/clang++
+  else
+    cxx_compiler=$(command -v clang++)
+  fi
+  raman_provider=KOKKOSFFT
+  [[ $(uname -s) == Darwin ]] && raman_provider=ACCELERATE
+  mkdir -p "$native/build"
+  log="$native/build/tidy-configure.log"
+  echo "tidy-native: configuring the cpu-tidy preset (log: $log)"
+  if ! (cd "$native" && cmake --preset cpu-tidy -DCMAKE_CXX_COMPILER="$cxx_compiler" \
+          -DSOLPROP_NATIVE_RAMAN_FFT_PROVIDER="$raman_provider" \
+          -DPython_EXECUTABLE="$root/.venv/bin/python") >"$log" 2>&1; then
+    tail -n 30 "$log" >&2
+    exit 1
+  fi
+fi
+
+# The parser arguments CMake gives clang-tidy beyond the compile commands (GCC's own
+# headers on Linux).
+extra=()
+while IFS= read -r argument; do
+  [[ -n $argument ]] && extra+=("$argument")
+done < "$build/clang_tidy_arguments.txt"
+# A header is checked with the commands of a source file near it (clang-tidy
+# interpolates them), and through the sources that include it.
+printf '%s\0' "${files[@]}" |
+  xargs -0 -n 1 -P "$(getconf _NPROCESSORS_ONLN)" clang-tidy --quiet -p "$build" \
+    --config-file="$native/.clang-tidy" \
+    "--header-filter=^$native/(include|src|tests)/.*" ${extra[@]+"${extra[@]}"}
