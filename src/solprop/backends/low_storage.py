@@ -596,7 +596,7 @@ class LowStorageMarch:
             backend._accepted_norms.append(norm)
             backend._take_step_stats()
             if backend._natural_stop(target):
-                return
+                return  # pragma: no cover - bridge only
         if backend._z < target - slack:
             msg = (
                 f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "

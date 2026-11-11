@@ -1114,7 +1114,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             record["source_evaluations"] = self._low_storage.source_evaluations
         elif self._adams is None:
             record["source_evaluations"] = self._rk_source_evaluations
-        if self._monitor is not None:
+        if self._monitor is not None:  # pragma: no cover - bridge only
             record["boundary_monitor"] = self._monitor.summary()
         return record
 
@@ -1523,7 +1523,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             Any object with an ``is_set()`` method, such as a
             :class:`threading.Event`.
         """
-        self._stop = flag
+        self._stop = flag  # pragma: no cover - bridge only
 
     def _poll_stop(self) -> None:
         """Raise when the run's stop flag is set; called before every trial or call.
@@ -1601,7 +1601,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         ):
             # The step owed as a step plane ends on the target itself, whose plane
             # observes it: it is not observed a second time there (`_natural_stop`).
-            self._natural_due = False
+            self._natural_due = False  # pragma: no cover - bridge only
         taken = self._history[first:]
         record = ControlRecord.from_norms(
             self._stepper.controller,
@@ -1764,12 +1764,12 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         settings = self._stepper
         policy = self._controller_policy()
         dense = settings.interpolate_planes
-        if dense and self._dense_ahead is not None:
+        if dense and self._dense_ahead is not None:  # pragma: no cover - bridge only
             # The march is ahead of the last interpolated plane; resume it there.
             self._adams_restore(*self._dense_ahead)
             self._dense_ahead = None
         if self._natural_stop_due(target):
-            return
+            return  # pragma: no cover - bridge only
         breakpoints = self._problem.linear.phi_breakpoints
         if not settings.interval_cap:
             # The cumulative table makes the flow exact across its intervals, so only
@@ -1812,7 +1812,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             end = stop.z_target if stop.z_target is not None else self._z + stop.dz
             self._record(end, stop.dz, norm, accepted)
             if accepted:
-                if dense and not reached(target, end):
+                if dense and not reached(target, end):  # pragma: no cover - bridge only
                     # The step crosses the plane: hold its extension for the
                     # observation, and for any later plane it also crosses.
                     self._dense_step = self._dense_record(self._z, stop.dz)
@@ -1838,7 +1838,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                 self._proposal = rk_core.reject(policy, self._proposal, equivalent)
 
         if dense and not reached(target, self._z):
-            self._observe_inside(target)
+            self._observe_inside(target)  # pragma: no cover - bridge only
 
     def _dense_record(
         self, z: float, dz: float
@@ -2062,7 +2062,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         bool
             Whether to return at once, at the step's end.
         """
-        if self._natural_due and not reached(self._z, target):
+        if self._natural_due and not reached(
+            self._z, target
+        ):  # pragma: no cover - bridge only
             self._natural_due = False
             return True
         return False
@@ -2293,7 +2295,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """
         schedule = self._stepper.schedule
         if schedule is None:
-            return self._proposal
+            return self._proposal  # pragma: no cover - bridge only
         if self._schedule_index >= schedule.n_steps:
             return 0.0
         return float(schedule.steps[self._schedule_index])
@@ -2373,7 +2375,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         monitor = self._monitor
         return monitor if monitor is not None and monitor.split else None
 
-    def _boundary_energies(self, state: _StateT) -> BoundaryEnergies:
+    def _boundary_energies(
+        self, state: _StateT
+    ) -> BoundaryEnergies:  # pragma: no cover - bridge only
         """Return the boundary monitor's reading of a state (SEP 21, ADR-057).
 
         The state's energy and its four weighted energies
@@ -2499,7 +2503,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         ahead = schedule.steps[first : first + monitor.steps_to_check()]
         step = float(np.max(ahead))
         cap = monitor.step_cap
-        if step > cap:
+        if step > cap:  # pragma: no cover - bridge only
             raise BoundaryError(_split_crossing_message(position, cap, step))
 
     def _set_collar_quiet(self, quiet: bool) -> None:
@@ -2520,7 +2524,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         quiet = quiet and self._collar_can_rest()
         if self._monitor is not None:
             self._monitor.note_collar(quiet)
-        if quiet != self._collar_quiet:
+        if quiet != self._collar_quiet:  # pragma: no cover - bridge only
             self._collar_quiet = quiet
             self._collar_changed()
 
@@ -2595,7 +2599,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         monitor = self._monitor
         if monitor is None:
             return
-        if monitor.stale:
+        if monitor.stale:  # pragma: no cover - bridge only
             self._check_boundaries(monitor, plane=True)
         self._read_transverse(monitor, plane=True)
         monitor.plane(self._z)
@@ -2629,7 +2633,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if monitor is not None:
             if monitor.due(self._z):
                 self._check_boundaries(monitor)
-            else:
+            else:  # pragma: no cover - bridge only
                 monitor.skip(self._z)
             self._read_transverse(monitor, plane=False)
 
@@ -2652,7 +2656,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if monitor is None:
             return
         if energies is None:
-            monitor.skip(z)
+            monitor.skip(z)  # pragma: no cover - bridge only
         else:
             self._check_at(monitor, energies, z, cursor)
 

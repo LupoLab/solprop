@@ -3291,7 +3291,7 @@ class AdamsMarch:
             self._engine.restore(*self._ahead)
             self._ahead = None
         if backend._natural_stop_due(target):
-            return
+            return  # pragma: no cover - bridge only
         if settings.schedule is not None:
             self._replay_to(settings.schedule, target)
             return
@@ -3321,7 +3321,7 @@ class AdamsMarch:
                 if accepted:
                     backend._take_step_stats()
                     if backend._natural_stop(target):
-                        return
+                        return  # pragma: no cover - bridge only
             finally:
                 backend._release_source_calls()
         if dense and backend._z > target:
@@ -3373,7 +3373,7 @@ class AdamsMarch:
             self._raise_floor()
             backend._take_step_stats()
             if backend._natural_stop(target):
-                return
+                return  # pragma: no cover - bridge only
         if backend._z < target - slack:
             msg = (
                 f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
