@@ -1257,10 +1257,7 @@ class BoundaryMonitor:
         """
 
         def _finite(value: float) -> float | None:
-            """Return `value`, or ``None`` when it was never measured (not finite).
-
-            - Returns: the value, or ``None``.
-            """
+            """Return `value`, or ``None`` when it was never measured (not finite)."""
             return value if math.isfinite(value) else None
 
         record: dict[str, object] = {

@@ -528,7 +528,6 @@ def _spawn(
     """Set the child environment before interpreter startup.
 
     - ``cpus``: allocated logical CPU identifiers; empty leaves affinity unchanged.
-    - Returns: worker process and controller pipe.
     """
     context = mp.get_context("spawn")
     parent, child = context.Pipe()

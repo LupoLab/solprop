@@ -4271,7 +4271,6 @@ class Simulation(Displayed):
           backend. Absolute tolerance has the input spectrum's units.
         - ``frame``: moving frame. None uses the declared responses' THG choice.
         - ``seed``: random generator seed; None draws and records system entropy.
-        - Returns: cached translation and the ordinary resumable execution interface.
         """
         chosen_frame = frame
         if chosen_frame is None:
@@ -6085,7 +6084,6 @@ class Simulation(Displayed):
           way to reach ``dt``, ``ffac`` or the transform size.
         - ``fwhm``: pulse duration at half maximum, s.
         - ``width``: natural width of a sech pulse, s; give this or `fwhm`.
-        - ``shape``: Transform-limited shape of the input.
         - ``energy``: pulse energy, J. Give this or `peak_power`.
         - ``peak_power``: peak power, W, realised after the spectral phases.
         - ``phases``: Taylor spectral phases about `wavelength`, optics convention: CEP
@@ -8065,8 +8063,6 @@ def _open_output(
 
     The resume gate (ADR-066): the file's configuration hash must equal `metadata`'s.
     Whether work is left is decided by :func:`_continues`.
-
-    - Returns: the handler, and the state to resume from or ``None``.
     """
     if resume and metadata.configuration.get("_benchmark_plasma_source"):
         raise DriverError("gated plasma benchmark output cannot be resumed")
@@ -8457,7 +8453,6 @@ def _scheme(settings: SimulationSettings) -> AbsorberScheme:
 def _spatial_settings(settings: SimulationSettings, route: str) -> SimulationSettings:
     """Give a spatial run's settings the route's defaults (SEP 37, SEP 21).
 
-    - ``route``: the interface they are for.
     - Returns: `settings`, reading the route's row of
       :data:`~solprop.driver.defaults.ROUTE_DEFAULTS` for whatever the caller left: the
       controller (:data:`~solprop.driver.defaults.SPATIAL_RTOL` for radial and planar

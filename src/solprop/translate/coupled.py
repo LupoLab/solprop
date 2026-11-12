@@ -2171,7 +2171,6 @@ def _residual_enclosure(
     samples included, which a sampled maximum is not.
 
     - ``frozen``: the generator frozen at that section's midpoint, 1/m.
-    - ``connection``: the whole connection block, or ``None``.
     - Returns: the bound in 1/m per frequency, shape ``(n_omega,)``.
     """
     terms = coefficients.copy()

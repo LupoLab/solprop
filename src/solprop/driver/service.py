@@ -384,7 +384,6 @@ def _prepare_plane(
     has one (SEP 47 section 5.4), and the plane carries none; any other output is
     given the consumer field on the plane (:func:`_save_plane`).
 
-    - ``attempts``: its history and rows.
     - ``shape``: ``(n_modes, n_pol, n_omega)`` of the field.
     - Returns: the plane and, where its field was exported into a plane store, the
       stored field (``None`` otherwise).
@@ -402,10 +401,7 @@ def _prepare_plane(
 
 
 def _save_plane(output: Output, plane: SavedPlane, stored: StoredField | None) -> None:
-    """Hand a prepared plane to the output (:func:`_prepare_plane`).
-
-    - ``stored``: its field exported into the plane store's stored form, or ``None``.
-    """
+    """Hand a prepared plane to the output (:func:`_prepare_plane`)."""
     if stored is None:
         output.save(plane)
     else:

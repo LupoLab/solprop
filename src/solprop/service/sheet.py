@@ -199,7 +199,6 @@ def _shortest_wave(
     - ``peak_power``: the peak power, W.
     - ``gamma``: the nonlinear coefficient, 1/(W m).
     - ``fwhm``: the duration, s.
-    - ``shape``: the pulse's shape.
     - ``limits``: the range to search, m; ``None`` takes the tool's.
     - Returns: the wavelength, m; ``None`` when none is, as a pump in normal dispersion
       launches no soliton.

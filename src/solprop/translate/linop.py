@@ -1889,7 +1889,6 @@ def _operator_sampler(  # noqa: PLR0917 - called positionally
 ) -> _OperatorAt:
     """Return a callable giving ``D`` in the canonical layout at one position.
 
-    - ``absorber_rate``: the spectral absorber rate, or ``None``.
     - Returns: ``z -> D`` of shape ``(1, n_modes, n_pol, n_omega)``.
     """
 
@@ -1933,7 +1932,6 @@ def _operator_of_parameters(  # noqa: PLR0917 - called positionally
     - ``frame``: its ``beta_0`` and ``beta_1`` follow the frozen reference mode, so the
       frame subtraction is a function of the same parameters and needs no dimension
       of its own.
-    - ``absorber_rate``: the spectral absorber rate, or ``None``.
     - Returns: ``values -> D`` of shape ``(1, n_modes, n_pol, n_omega)``.
     """
     parameterised = [one for one in modes if isinstance(one, ParameterisedMode)]

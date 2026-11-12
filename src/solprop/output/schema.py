@@ -540,8 +540,6 @@ def _array_name(digest: ArrayDigest) -> str:
     The layout is part of the name because the digest covers only the bytes: arrays of
     equal bytes and different dtypes or shapes are different arrays, and one must not
     take the other's place in the store.
-
-    - ``digest``: the array's digest, dtype and shape.
     """
     shape = "x".join(str(size) for size in digest.shape)
     return f"{digest.sha256}-{digest.dtype}-{shape}"
@@ -2396,10 +2394,7 @@ def _prepend_checkpoint_history(
 def _differences(
     left: JsonValue, right: JsonValue, path: str, found: list[str]
 ) -> None:
-    """Collect the dotted paths at which two serialised structures differ.
-
-    - ``right``: the second.
-    """
+    """Collect the dotted paths at which two serialised structures differ."""
     if isinstance(left, dict) and isinstance(right, dict):
         if _RECORD_ARRAY in left and _RECORD_ARRAY in right:
             # One entry, whatever changed in it: the array has no text to walk.
@@ -2425,10 +2420,7 @@ def _differences(
 
 
 def _optional_text(value: JsonValue) -> str | None:
-    """Return a stored optional string, ``None`` when null.
-
-    - Returns: the string, or ``None``.
-    """
+    """Return a stored optional string, ``None`` when null."""
     return None if value is None else str(value)
 
 

@@ -1030,8 +1030,6 @@ class PropagationProblem:
 
         Each variant checks its own fields (``validate``, also run on construction);
         what spans groups is checked here, one variant at a time (SEP 47 section 6.2).
-
-        - ``run``: the run's stepper section and statistics, or ``None``.
         """
         # Again here, as every group's own checks are: a problem may hold a route
         # that was changed after it was built.

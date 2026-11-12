@@ -280,10 +280,7 @@ class NativePreparedGroup:
 
 
 def _member_refusal(request: RunRequest) -> str | None:
-    """Return why one member's request falls outside a group's windows, or ``None``.
-
-    - Returns: the reason, or ``None``.
-    """
+    """Return why one member's request falls outside a group's windows, or ``None``."""
     # A coupled flow is admitted: the lockstep batch this replaced refused one because
     # its fused accepted update applied no flow action, and a native group fuses
     # nothing -- each member's session carries its own flow (SEP 47 section 6.7).
@@ -354,10 +351,7 @@ class _Window:
         self.event: Event | None = None
 
     def joined(self) -> tuple[BackendHistory, StepStats]:
-        """Return the window's attempts and rows so far, as one record.
-
-        - Returns: the joined history and rows.
-        """
+        """Return the window's attempts and rows so far, as one record."""
         return join_attempts(self.chunks)
 
 

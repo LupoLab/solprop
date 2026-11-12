@@ -295,8 +295,6 @@ def _statistics_refusal(problem: PropagationProblem, spec: StatsSpec) -> str | N
     (:func:`solprop.backends.session.statistics_unavailable`, which every executor
     refuses before it starts, and
     :func:`solprop.backends.populations.axis_refusal`), are refused by name.
-
-    - Returns: the reason, or ``None``.
     """
     names = tuple(spec.names)
     if not names:

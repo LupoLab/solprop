@@ -2504,7 +2504,6 @@ def _compile_dispersive_components(
 
     - ``densities``: density tables in m^-3, keyed by component label.
     - ``build``: grid, span in m, interpolation tolerance and ionisation field range.
-    - ``regional``: a general modal guide's compiled gas channels, or ``None``.
     - Returns: the compiled leaf, channels in species order, or ``None`` with none
       declared.
     """
