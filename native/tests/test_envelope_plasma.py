@@ -196,10 +196,7 @@ def test_envelope_current_streams_use_large_radial_projection() -> None:
         native_trial(actual, 0.0, 0.0)
         observed = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
         info = build_info()
-        if info.device_backend == "none" and info.gemm_provider in {
-            "HYBRID",
-            "KOKKOSBLAS_TPL",
-        }:
+        if info.device_backend == "none":
             assert str(actual.metadata()["projection_provider"]).endswith(
                 "-packed-real"
             )

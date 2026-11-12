@@ -2,11 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "execution.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/coupled_flow.hpp"
 #include "solprop_native/flow_functions.hpp"
-
-#include "execution.hpp"
 
 #include <gtest/gtest.h>
 
@@ -44,7 +43,7 @@ double fill(const std::size_t index, const double scale) {
 }
 
 // Bins 1 and 3 carry the block; 0 and 2 have none, and the action is the identity.
-const std::vector<std::size_t> kSlot{0, 1, 0, 2};
+constexpr std::array<std::size_t, 4> kSlot{0, 1, 0, 2};
 constexpr std::size_t kActive = 2;
 
 std::size_t block(const std::size_t count) { return count * kActive * kModes * kModes; }
@@ -84,7 +83,7 @@ native::Problem flow_problem(const bool residual) {
   problem.coupled_flow = true;
   problem.flow_active = kActive;
   problem.flow_sections = kSections;
-  problem.flow_slot = kSlot;
+  problem.flow_slot.assign(kSlot.begin(), kSlot.end());
   if (residual) {
     problem.flow_terms = kTerms;
     for (std::size_t index = 0; index < block(kSections); ++index)
@@ -114,21 +113,21 @@ Actions actions() {
 
 native::TrialScalars scalars(const bool residual, const std::size_t section) {
   native::TrialScalars result{
-      std::vector<double>((kStages + 1), kStep),
-      std::vector<double>(kStages, kStep),
-      std::vector<double>(kStages, 1.0),
-      std::vector<double>(kStages, 1.0),
-      std::vector<double>(kStages, 1.0),
-      {},
-      {},
-      {},
-      {},
-      {},
-      {},
-      section,
-      {},
-      {},
-      {},
+      .phi_delta = std::vector<double>((kStages + 1), kStep),
+      .phi_at = std::vector<double>(kStages, kStep),
+      .prefactor = std::vector<double>(kStages, 1.0),
+      .density = std::vector<double>(kStages, 1.0),
+      .taper = std::vector<double>(kStages, 1.0),
+      .preionisation = {},
+      .raman_rates = {},
+      .kerr_density = {},
+      .plasma_densities = {},
+      .plasma_preionisation = {},
+      .raman_densities = {},
+      .flow_section = section,
+      .flow_weights = {},
+      .transform_weights = {},
+      .dispersive_densities = {},
   };
   if (residual)
     for (std::size_t index = 0; index < kStages * kTerms; ++index)
@@ -138,6 +137,7 @@ native::TrialScalars scalars(const bool residual, const std::size_t section) {
 
 std::vector<Complex> initial() {
   std::vector<Complex> field;
+  field.reserve(kModes * kOmega);
   for (std::size_t index = 0; index < kModes * kOmega; ++index)
     field.emplace_back(fill(index + 41, 1.0), fill(index + 43, 1.0));
   return field;
@@ -578,7 +578,7 @@ native::Problem forming_problem(const bool fallback) {
 }
 
 // Distinct lengths, a zero one and a repeated whole one.
-const std::vector<double> kFractions{0.0, 0.5, 1.0, 1.0};
+std::vector<double> fractions() { return {0.0, 0.5, 1.0, 1.0}; }
 constexpr double kLength = 0.02; // |l lambda| up to 1.9: the squarings are exercised
 
 struct Formed {
@@ -589,7 +589,7 @@ struct Formed {
 Formed form(const native::Problem& problem, const std::size_t section) {
   native::GeneralState state(problem);
   Formed result;
-  result.measured = state.form_flow_actions(section, kLength, kFractions);
+  result.measured = state.form_flow_actions(section, kLength, fractions());
   result.forward = state.flow_actions_to_host(false);
   result.inverse = state.flow_actions_to_host(true);
   return result;
@@ -620,7 +620,7 @@ TEST(CoupledFlowFormation, BothRoutesFormTheSameActions) {
   for (const std::size_t section : {std::size_t{0}, std::size_t{1}}) {
     const auto eigen = form(forming_problem(false), section);
     const auto squared = form(forming_problem(true), section);
-    for (std::size_t slot = 1; slot < kFractions.size(); ++slot)
+    for (std::size_t slot = 1; slot < fractions().size(); ++slot)
       for (std::size_t bin = 0; bin < kActive; ++bin) {
         const auto forward = block_at(eigen.forward, slot, bin);
         const auto inverse = block_at(eigen.inverse, slot, bin);
@@ -673,7 +673,7 @@ TEST(CoupledFlowFormation, FormedActionsCarryATrialAsLoadedOnesDo) {
   const auto trial = scalars(false, 1);
   native::GeneralState state(problem);
   state.set_initial(initial(), {});
-  static_cast<void>(state.form_flow_actions(1, kLength, kFractions));
+  static_cast<void>(state.form_flow_actions(1, kLength, fractions()));
   static_cast<void>(state.trial_step(kStep, trial));
   state.finish(kStep);
   // The same trial on the same actions, formed here and loaded there: rounding only.
@@ -685,16 +685,16 @@ TEST(CoupledFlowFormation, FormedActionsCarryATrialAsLoadedOnesDo) {
 
 TEST(CoupledFlowFormation, FormationAndItsDataAreChecked) {
   native::GeneralState plain(flow_problem(false));
-  EXPECT_THROW(static_cast<void>(plain.form_flow_actions(0, kLength, kFractions)),
+  EXPECT_THROW(static_cast<void>(plain.form_flow_actions(0, kLength, fractions())),
                std::logic_error);
   EXPECT_THROW(static_cast<void>(plain.flow_actions_to_host(false)), std::logic_error);
   native::GeneralState state(forming_problem(false));
   EXPECT_THROW(
-      static_cast<void>(state.form_flow_actions(kSections, kLength, kFractions)),
+      static_cast<void>(state.form_flow_actions(kSections, kLength, fractions())),
       std::invalid_argument);
   EXPECT_THROW(static_cast<void>(state.form_flow_actions(0, kLength, {0.0, 1.0})),
                std::invalid_argument);
-  EXPECT_THROW(static_cast<void>(state.form_flow_actions(0, -kLength, kFractions)),
+  EXPECT_THROW(static_cast<void>(state.form_flow_actions(0, -kLength, fractions())),
                std::invalid_argument);
   EXPECT_THROW(
       static_cast<void>(state.form_flow_actions(0, kLength, {0.0, 0.5, 2.0, 1.0})),

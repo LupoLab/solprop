@@ -77,6 +77,8 @@ The native gate runs from the repository root:
 ```console
 uv run poe check-native   # native/scripts/check.sh
 uv run poe check-all      # solprop's gate (poe check), then the native gate
+uv run poe fmt-native     # clang-format every tracked C++ file in place
+uv run poe tidy-native    # clang-tidy the C++ files changed from main (or those named)
 ```
 
 `check-native` covers this package's Python format, lint and strict typing, C++ format,
@@ -94,8 +96,16 @@ wheel on Linux, macOS and Windows, cached under a hash of `native/`, and solprop
 default lane runs on it on macOS and Windows with the native backend selected, and in
 the coverage lane on Linux. The `device-compile` lanes compile the CUDA and HIP targets, tests included, on a change to
 `native/`, with no device. Running on one stays by hand
-(`.github/workflows/cuda.yml` on a self-hosted runner, or `pytest -m gpu` on a machine
-with a device).
+(`.github/workflows/cuda.yml` on a self-hosted runner, with compute-sanitizer's four
+tools, or `pytest -m gpu` on a machine with a device). `.github/workflows/native-deep.yml`
+runs weekly and reports without gating: source coverage over the native tests, the
+extension under ASan and UBSan through the native pytest suite, and
+`misc-include-cleaner`. The tools adopted, scheduled and rejected are in
+`docs/dev/tooling.md`, "Native C++ tooling".
+
+Formatting and clang-tidy are pinned in the `dev` group (LLVM 23.1); `.clang-tidy`
+enables whole check families with each exclusion stated. A `NOLINT` names its check
+and gives its reason on the same line.
 
 New behaviour needs a test; a bug fix needs a regression test. Never disable a test,
 widen a tolerance after seeing a failure, lower warnings or hide a diagnostic to pass
@@ -127,8 +137,8 @@ the gate.
   contracts (lossless copies, integer accounting, identity metadata, hard-mask zeros,
   explicit no-ops) stay exact.
 - Kernels may reorder, vectorise, thread and contract. Contraction is on by default
-  (`-ffp-contract=fast` for GCC, `-ffp-contract=fast-honor-pragmas` for Clang and
-  `icpx`: plain `fast` makes Clang ignore the pragmas). A protected block (a stable
+  (`-ffp-contract=fast` for GCC, `-ffp-contract=fast-honor-pragmas` for Clang: plain
+  `fast` makes Clang ignore the pragmas). A protected block (a stable
   increment, a small-argument function, a defect or a compensated sum) stays strict
   with `SOLPROP_NATIVE_STRICT_FUNCTION` and `SOLPROP_NATIVE_STRICT_BLOCK`
   (`include/solprop_native/fp.hpp`; GCC ignores `#pragma STDC FP_CONTRACT`) and spells

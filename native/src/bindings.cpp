@@ -20,13 +20,14 @@
 
 #include <Kokkos_Core.hpp>
 
+#include <algorithm>
 #include <cmath>
 
 // `available_device_memory` calls the vendor runtime directly. Kokkos pulls
 // these headers in transitively today; declaring them here is what makes the
 // probe's own dependency explicit rather than a property of a Kokkos version.
 // The guards resolve only after Kokkos_Core.hpp has defined them.
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
 #include <cuda_runtime.h>
 #elif defined(KOKKOS_ENABLE_HIP)
 #include <hip/hip_runtime.h>
@@ -40,13 +41,12 @@
 #include <nanobind/stl/unique_ptr.h>
 #include <nanobind/stl/vector.h>
 
-#if defined(_WIN32)
+#ifdef _WIN32
 #include <windows.h>
 #else
 #include <dlfcn.h>
 #endif
 
-#include <algorithm>
 #include <array>
 #include <complex>
 #include <csignal>
@@ -208,8 +208,9 @@ native::CpuExecution cpu_execution_from(const nb::dict& values) {
   try {
     for (std::size_t index = 0; index < native::cpu_operation_count; ++index) {
       const std::string name = cpu_operation_names[index];
-      result.grain[index] = {nb::cast<std::size_t>(field(name + "_threshold")),
-                             nb::cast<std::size_t>(field(name + "_full"))};
+      result.grain[index] = {.threshold =
+                                 nb::cast<std::size_t>(field(name + "_threshold")),
+                             .full = nb::cast<std::size_t>(field(name + "_full"))};
     }
     result.response_full_samples =
         nb::cast<std::size_t>(field("response_full_samples"));
@@ -721,21 +722,21 @@ native::TrialScalars trial_from(const RealInput phi_delta, const RealInput phi_a
                                 const RealInput prefactor, const RealInput density,
                                 const RealInput taper, const RealInput preionisation,
                                 const RealInput raman_rates) {
-  return {real_vector(phi_delta),
-          real_vector(phi_at),
-          real_vector(prefactor),
-          real_vector(density),
-          real_vector(taper),
-          real_vector(preionisation),
-          real_vector(raman_rates),
-          {},
-          {},
-          {},
-          {},
-          0,
-          {},
-          {},
-          {}};
+  return {.phi_delta = real_vector(phi_delta),
+          .phi_at = real_vector(phi_at),
+          .prefactor = real_vector(prefactor),
+          .density = real_vector(density),
+          .taper = real_vector(taper),
+          .preionisation = real_vector(preionisation),
+          .raman_rates = real_vector(raman_rates),
+          .kerr_density = {},
+          .plasma_densities = {},
+          .plasma_preionisation = {},
+          .raman_densities = {},
+          .flow_section = 0,
+          .flow_weights = {},
+          .transform_weights = {},
+          .dispersive_densities = {}};
 }
 
 // A trial's scalars with its material rows, as the Adams entry points take them.
@@ -874,6 +875,7 @@ native::stage::Tables stage_tables_from(const nb::dict values) {
       (tables.flow.present() && tables.flow.edges.size() < 2) ||
       (tables.transform.present() && tables.transform.edges.size() < 2))
     throw std::invalid_argument("the stage tables are inconsistent");
+  native::stage::require_scalar_tables(tables);
   return tables;
 }
 
@@ -956,8 +958,8 @@ ComplexOutput complex_output(const std::vector<native::Complex>& values,
   nb::capsule owner(pointer, [](void* value) noexcept {
     const std::unique_ptr<ComplexStorage> held(static_cast<ComplexStorage*>(value));
   });
-  storage.release();
-  return ComplexOutput(pointer->data(), shape.size(), shape.data(), owner);
+  static_cast<void>(storage.release()); // the capsule owns it now
+  return {pointer->data(), shape.size(), shape.data(), owner};
 }
 
 /** A complex array owning `storage`. */
@@ -967,8 +969,8 @@ ComplexOutput owned_complex(std::unique_ptr<ComplexStorage> storage,
   nb::capsule owner(pointer, [](void* value) noexcept {
     const std::unique_ptr<ComplexStorage> held(static_cast<ComplexStorage*>(value));
   });
-  storage.release();
-  return ComplexOutput(pointer->data(), shape.size(), shape.data(), owner);
+  static_cast<void>(storage.release()); // the capsule owns it now
+  return {pointer->data(), shape.size(), shape.data(), owner};
 }
 
 /** A complex array owning `storage`, uninitialised doubles a native copy filled. */
@@ -978,8 +980,8 @@ ComplexOutput complex_buffer_output(native::crossing::HostBuffer storage,
   nb::capsule owner(pointer, [](void* value) noexcept {
     const native::crossing::HostBuffer held(static_cast<double*>(value));
   });
-  return ComplexOutput(reinterpret_cast<std::complex<double>*>(pointer), shape.size(),
-                       shape.data(), owner);
+  return {reinterpret_cast<std::complex<double>*>(pointer), shape.size(), shape.data(),
+          owner};
 }
 
 RealOutput real_output(std::vector<double> values, const std::size_t rows) {
@@ -990,9 +992,9 @@ RealOutput real_output(std::vector<double> values, const std::size_t rows) {
   nb::capsule owner(pointer, [](void* value) noexcept {
     const std::unique_ptr<RealStorage> held(static_cast<RealStorage*>(value));
   });
-  storage.release();
+  static_cast<void>(storage.release()); // the capsule owns it now
   const std::array<std::size_t, 2> shape{rows, pointer->size() / rows};
-  return RealOutput(pointer->data(), shape.size(), shape.data(), owner);
+  return {pointer->data(), shape.size(), shape.data(), owner};
 }
 
 void initialize_kokkos(const int threads, const int kernels, const int fft,
@@ -1012,8 +1014,11 @@ void initialize_kokkos(const int threads, const int kernels, const int fft,
     throw std::runtime_error(
         "Kokkos was already initialized with another thread count");
   }
-  native::configure_thread_policy(
-      {kernels, fft, raman_fft, raman_tail_fft, band_tiles});
+  native::configure_thread_policy({.kernels = kernels,
+                                   .fft = fft,
+                                   .raman_fft = raman_fft,
+                                   .raman_tail_fft = raman_tail_fft,
+                                   .band_tiles = band_tiles});
 }
 
 // ------------------------------------------------------------- the native Adams march
@@ -1400,10 +1405,11 @@ march::State march_state_from(const nb::dict values) {
     state.cursor = nb::cast<std::size_t>(values["cursor"]);
     for (const auto entry : nb::cast<nb::list>(values["history"])) {
       const auto parts = nb::cast<nb::tuple>(entry);
-      state.history.push_back({nb::cast<double>(parts[0]),
-                               nb::cast<bool>(parts[1]) ? march::Identity::predicted
-                                                        : march::Identity::accepted,
-                               nb::cast<std::size_t>(parts[2])});
+      state.history.push_back({.z = nb::cast<double>(parts[0]),
+                               .identity = nb::cast<bool>(parts[1])
+                                               ? march::Identity::predicted
+                                               : march::Identity::accepted,
+                               .row = nb::cast<std::size_t>(parts[2])});
     }
     const auto ledger = nb::cast<nb::dict>(values["ledger"]);
     state.ledger.startup = nb::cast<std::uint64_t>(ledger["startup"]);
@@ -1530,7 +1536,8 @@ public:
   ScriptedMarch(const nb::dict policy, const RealInput norms, const double carrier_rate,
                 const RealInput steps, const RealInput edges)
       : policy_(march_policy_from(policy)), norms_(real_vector(norms)),
-        carrier_rate_(carrier_rate), schedule_{real_vector(steps), real_vector(edges)} {
+        carrier_rate_(carrier_rate),
+        schedule_{.steps = real_vector(steps), .edges = real_vector(edges)} {
     if (norms_.size() % 3 != 0)
       throw std::invalid_argument("a script of norms is (attempts, 3)");
   }
@@ -1546,7 +1553,7 @@ public:
   }
   // What the march asked, one dict an entry: a startup's position, or a trial's
   // position, step, nodes, rows and orders with the row its accept freed.
-  nb::list log() const {
+  [[nodiscard]] nb::list log() const {
     nb::list out;
     for (const auto& entry : log_) {
       nb::dict event;
@@ -1582,7 +1589,7 @@ public:
   ScriptedRkMarch(const nb::dict policy, const RealInput norms, const double h0,
                   const RealInput steps, const RealInput edges)
       : policy_(rk_policy_from(policy)), norms_(real_vector(norms)), h0_(h0),
-        schedule_{real_vector(steps), real_vector(edges)} {}
+        schedule_{.steps = real_vector(steps), .edges = real_vector(edges)} {}
   nb::dict run(const nb::dict state_values, const nb::dict bounds_values) {
     auto state = rk_state_from(state_values);
     const auto bounds = march_bounds_from(bounds_values);
@@ -1591,7 +1598,7 @@ public:
     return rk_result_to(result, state);
   }
   // Each trial's position and step, one dict a trial.
-  nb::list log() const {
+  [[nodiscard]] nb::list log() const {
     nb::list out;
     for (const auto& entry : log_) {
       nb::dict event;
@@ -1626,13 +1633,15 @@ public:
   ~BoundState() {
     close();
     const std::scoped_lock lock(runtime_state.mutex);
-    const auto found =
-        std::find(runtime_state.states.begin(), runtime_state.states.end(), this);
+    const auto found = std::ranges::find(runtime_state.states, this);
     if (found != runtime_state.states.end())
       runtime_state.states.erase(found);
   }
   BoundState(const BoundState&) = delete;
   BoundState& operator=(const BoundState&) = delete;
+  // The runtime's list of live states holds this address.
+  BoundState(BoundState&&) = delete;
+  BoundState& operator=(BoundState&&) = delete;
 
   void set_initial(const std::span<const native::Complex> field,
                    const std::span<const native::Complex> noise) {
@@ -1680,8 +1689,11 @@ public:
     const std::size_t sections = row_sum.size();
     if (sections == 0 || condition_bound.size() % sections != 0)
       throw std::invalid_argument("the flow guard's certificate is one row a section");
-    flow_guard_ = FlowGuard{std::move(row_sum), std::move(condition_bound),
-                            taylor_scale, max_squarings, allowance};
+    flow_guard_ = FlowGuard{.row_sum = std::move(row_sum),
+                            .condition_bound = std::move(condition_bound),
+                            .taylor_scale = taylor_scale,
+                            .max_squarings = max_squarings,
+                            .allowance = allowance};
     flow_key_.reset();
   }
   void guarded_flow_actions(const std::size_t section, const double dz,
@@ -1756,7 +1768,7 @@ public:
     rk_nodes_ = std::move(nodes);
     rk_rtol_ = rtol;
     rk_atol_ = atol;
-    rk_schedule_ = {std::move(steps), std::move(edges)};
+    rk_schedule_ = {.steps = std::move(steps), .edges = std::move(edges)};
   }
   nb::dict rk_march_run(const nb::dict state_values, const nb::dict bounds_values) {
     require_unleased();
@@ -1774,7 +1786,7 @@ public:
     native::rk::Result result;
     {
       const nb::gil_scoped_release release;
-      result = native::rk::run(*rk_policy_, state, engine, bounds, rk_schedule_);
+      result = native::rk::run(rk_policy_.value(), state, engine, bounds, rk_schedule_);
     }
     return rk_result_to(result, state);
   }
@@ -1823,7 +1835,8 @@ public:
     open_state();
     if (flows > 2)
       throw std::invalid_argument("the low-storage march holds at most two flows");
-    low_storage_ = native::rk::low_storage::Config{flows, separable, origin};
+    low_storage_ = native::rk::low_storage::Config{
+        .flows = flows, .separable = separable, .origin = origin};
   }
   // solprop SEP 45 phase 4: a weighted controller's weights, and its norm from a
   // trial's partials, for both Runge-Kutta loops.
@@ -1916,7 +1929,7 @@ public:
     general_state_->field_to_host(destination);
   }
   /** The state's element count, `columns * n_omega`. */
-  std::size_t elements() const noexcept { return elements_; }
+  [[nodiscard]] std::size_t elements() const noexcept { return elements_; }
   std::vector<native::Complex> adams_source(const std::vector<native::Complex>& input,
                                             const native::TrialScalars& scalars) {
     require_open();
@@ -1973,9 +1986,9 @@ public:
     const auto row = native::stage::row(*stage_tables_, stage_anchor_, z0, z1);
     auto step = native::stage::trial(*stage_tables_, row);
     auto sample = native::stage::sample(*stage_tables_, stage_anchor_, step, z1);
-    return {std::move(step), std::move(sample)};
+    return {.step = std::move(step), .sample = std::move(sample)};
   }
-  std::vector<double> stage_rate(const double z) const {
+  [[nodiscard]] std::vector<double> stage_rate(const double z) const {
     require_open();
     if (!stage_tables_)
       throw std::logic_error("no stage tables were uploaded");
@@ -2002,13 +2015,14 @@ public:
     auto state = march_state_from(state_values);
     const auto bounds = march_bounds_from(bounds_values);
     auto& general = open_state();
-    native::engines::ResidentEngine engine(general, *stage_tables_, stage_anchor_,
-                                           march_fused_, march_compensated_,
-                                           march_interpolate_, march_fault_);
+    native::engines::ResidentEngine engine(
+        general, stage_tables_.value(), stage_anchor_, march_fused_, march_compensated_,
+        march_interpolate_, march_fault_);
     march::Result result;
     {
       const nb::gil_scoped_release release;
-      result = march::run(*march_policy_, state, engine, bounds, march_schedule_);
+      result =
+          march::run(march_policy_.value(), state, engine, bounds, march_schedule_);
     }
     return march_result_to(result, state);
   }
@@ -2050,7 +2064,7 @@ public:
     return general_state_->projected_to_host(coarse);
   }
   // Not `require_open`: a closed state, whose pointer is null, reads as having none.
-  std::map<std::string, bool> dispersive_path() const {
+  [[nodiscard]] std::map<std::string, bool> dispersive_path() const {
     return general_state_ ? general_state_->dispersive_path()
                           : std::map<std::string, bool>{};
   }
@@ -2094,51 +2108,51 @@ public:
     require_built();
     return general_state_->memory_ledger();
   }
-  native::CpuSizing execution_sizing() const {
+  [[nodiscard]] native::CpuSizing execution_sizing() const {
     require_built();
     return general_state_->execution_sizing();
   }
-  nb::dict cpu_execution() const {
+  [[nodiscard]] nb::dict cpu_execution() const {
     require_built();
     return cpu_execution_dict(general_state_->cpu_execution());
   }
-  nb::dict fft_planning() const {
+  [[nodiscard]] nb::dict fft_planning() const {
     require_built();
     return fft_planning_dict(general_state_->fft_planning());
   }
-  double planning_seconds() const {
+  [[nodiscard]] double planning_seconds() const {
     require_built();
     return general_state_->planning_seconds();
   }
-  double raman_planning_seconds() const {
+  [[nodiscard]] double raman_planning_seconds() const {
     require_built();
     return general_state_->raman_planning_seconds();
   }
-  std::string raman_fft_provider() const {
+  [[nodiscard]] std::string raman_fft_provider() const {
     require_built();
     return general_state_->raman_fft_provider();
   }
-  std::map<std::string, int> raman_fft_tasks() const {
+  [[nodiscard]] std::map<std::string, int> raman_fft_tasks() const {
     require_built();
     return general_state_->raman_fft_tasks();
   }
-  std::size_t raman_kernel_transforms() const {
+  [[nodiscard]] std::size_t raman_kernel_transforms() const {
     require_built();
     return general_state_->raman_kernel_transforms();
   }
-  bool fsal_ready() const {
+  [[nodiscard]] bool fsal_ready() const {
     require_built();
     return general_state_->fsal_ready();
   }
-  std::size_t rk_source_evaluations() const {
+  [[nodiscard]] std::size_t rk_source_evaluations() const {
     require_built();
     return general_state_->rk_source_evaluations();
   }
-  std::size_t axis_scans() const {
+  [[nodiscard]] std::size_t axis_scans() const {
     require_built();
     return general_state_->axis_scans();
   }
-  double quadrature_error() const {
+  [[nodiscard]] double quadrature_error() const {
     require_open();
     return general_state_->quadrature_error();
   }
@@ -2146,27 +2160,29 @@ public:
     require_open();
     return general_state_->quadrature_peak();
   }
-  std::string synthesis_provider() const {
+  [[nodiscard]] std::string synthesis_provider() const {
     require_built();
     return general_state_->synthesis_provider();
   }
-  std::string projection_provider() const {
+  [[nodiscard]] std::string projection_provider() const {
     require_built();
     return general_state_->projection_provider();
   }
-  std::string gemm_shape_policy() const {
+  [[nodiscard]] std::string gemm_shape_policy() const {
     require_built();
     return general_state_->gemm_shape_policy();
   }
-  std::size_t response_team_size() const {
+  [[nodiscard]] std::size_t response_team_size() const {
     require_built();
     return general_state_->response_team_size();
   }
-  std::size_t columns() const noexcept { return columns_; }
-  std::size_t stages() const noexcept { return stages_; }
-  std::size_t raman_terms() const noexcept { return raman_terms_; }
-  bool raman() const noexcept { return raman_; }
-  bool closed() const noexcept { return !general_state_ || general_state_->closed(); }
+  [[nodiscard]] std::size_t columns() const noexcept { return columns_; }
+  [[nodiscard]] std::size_t stages() const noexcept { return stages_; }
+  [[nodiscard]] std::size_t raman_terms() const noexcept { return raman_terms_; }
+  [[nodiscard]] bool raman() const noexcept { return raman_; }
+  [[nodiscard]] bool closed() const noexcept {
+    return !general_state_ || general_state_->closed();
+  }
   // Closes a session that leases this state first (below, after its class).
   void close() noexcept;
 
@@ -2245,7 +2261,7 @@ public:
       return method;
     }
     throw std::invalid_argument(
-        "a session's march is \"adams\", \"runge_kutta\" or \"low_storage\"");
+        R"(a session's march is "adams", "runge_kutta" or "low_storage")");
   }
   // The state's field and statistics, as a session reads them.
   std::unique_ptr<native::session::Resident> session_resident() {
@@ -2292,7 +2308,7 @@ private:
     if (closed())
       throw std::logic_error("native state is closed");
   }
-  native::GeneralState& built_state() const {
+  [[nodiscard]] native::GeneralState& built_state() const {
     require_built();
     return *general_state_;
   }
@@ -2350,7 +2366,7 @@ moved_array(std::vector<T>&& values, const std::size_t rows,
   nb::capsule owner(pointer, [](void* value) noexcept {
     const std::unique_ptr<std::vector<T>> held(static_cast<std::vector<T>*>(value));
   });
-  storage.release();
+  static_cast<void>(storage.release()); // the capsule owns it now
   const std::array<std::size_t, 2> shape{rows, columns};
   return {pointer->data(), shape.size(), shape.data(), owner};
 }
@@ -2390,6 +2406,8 @@ public:
   ~BoundSession() { close(); }
   BoundSession(const BoundSession&) = delete;
   BoundSession& operator=(const BoundSession&) = delete;
+  BoundSession(BoundSession&&) = delete;
+  BoundSession& operator=(BoundSession&&) = delete;
 
   // The advance runs without the interpreter lock; its batch becomes a record with it.
   BatchRecord advance(const std::size_t work_limit, const double deadline) {
@@ -2426,8 +2444,10 @@ public:
     const auto receipt = session_->request_snapshot();
     return nb::make_tuple(receipt.request, receipt.coalesced);
   }
-  native::session::Status status() const noexcept { return session_->status(); }
-  std::size_t elements() const { return session_->elements(); }
+  [[nodiscard]] native::session::Status status() const noexcept {
+    return session_->status();
+  }
+  [[nodiscard]] std::size_t elements() const { return session_->elements(); }
   // Continue a resumed run's monitor record; takes the session's lock.
   void continue_monitor(const nb::dict record, const bool plane,
                         const nb::handle unwatched, const nb::dict edge_record) {
@@ -2823,7 +2843,7 @@ std::string decode_record_text(std::string value) {
   return value;
 }
 
-#if defined(_WIN32)
+#ifdef _WIN32
 // Windows looks a symbol up in one module only, so the search walks the modules this
 // extension imports (its FFT, BLAS and threading libraries, under whatever names the
 // wheel repair gave them), as dlsym on the extension's own handle does on POSIX.
@@ -2966,8 +2986,8 @@ nb::dict build_record() {
   result["kokkos_fft_version"] = SOLPROP_NATIVE_KOKKOSFFT_VERSION;
   result["kokkos_kernels_version"] = SOLPROP_NATIVE_KOKKOSKERNELS_VERSION;
   result["nanobind_version"] = SOLPROP_NATIVE_NANOBIND_VERSION;
-  result["gemm_provider"] = SOLPROP_NATIVE_GEMM_PROVIDER;
-  result["tpl_blas_enabled"] = static_cast<bool>(SOLPROP_NATIVE_TPL_BLAS_ENABLED);
+  result["gemm_provider"] = "HYBRID";
+  result["tpl_blas_enabled"] = (SOLPROP_NATIVE_TPL_BLAS_ENABLED != 0);
   result["blas_backend"] = SOLPROP_NATIVE_BLAS_BACKEND;
   result["blas_thread_policy"] = decode_record_text(SOLPROP_NATIVE_BLAS_THREAD_POLICY);
   result["blas_selection"] = decode_record_text(SOLPROP_NATIVE_BLAS_SELECTION);
@@ -3000,7 +3020,7 @@ nb::dict build_record() {
   result["blas_threads"] = blas_threads;
   result["blas_threading"] = blas_threading;
   result["execution_space"] = native::ExecutionSpace::name();
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
   result["fft_backend"] = "cuFFT";
   result["fft_library"] = loaded_library("cufftExecZ2Z");
   result["blas_library"] = loaded_library("cublasDgemm_v2");
@@ -3030,7 +3050,7 @@ nb::dict build_record() {
   result["device_count"] = 0;
 #endif
   result["raman_fft_option"] = SOLPROP_NATIVE_RAMAN_FFT_PROVIDER;
-#if defined(SOLPROP_NATIVE_RAMAN_ACCELERATE)
+#ifdef SOLPROP_NATIVE_RAMAN_ACCELERATE
   result["raman_fft_library"] = loaded_library("vDSP_fftm_zropD");
 #else
   result["raman_fft_library"] = result["fft_library"];
@@ -3038,7 +3058,7 @@ nb::dict build_record() {
   result["openmp_library"] = loaded_library("omp_get_num_threads");
   result["device_team_size"] = SOLPROP_NATIVE_DEVICE_TEAM_SIZE_RECORD;
   result["device_reduction_size"] = SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE_RECORD;
-#if defined(KOKKOS_ENABLE_OPENMP)
+#ifdef KOKKOS_ENABLE_OPENMP
   result["openmp_enabled"] = true;
 #else
   result["openmp_enabled"] = false;
@@ -3065,12 +3085,11 @@ nb::dict build_record() {
   result["compiler"] = __VERSION__;
   result["compiler_flags"] = decode_record_text(SOLPROP_NATIVE_COMPILER_FLAGS);
   result["build_type"] = SOLPROP_NATIVE_BUILD_TYPE;
-  result["coverage_instrumented"] =
-      static_cast<bool>(SOLPROP_NATIVE_COVERAGE_INSTRUMENTED);
+  result["coverage_instrumented"] = (SOLPROP_NATIVE_COVERAGE_INSTRUMENTED != 0);
   result["coverage_source_hash"] = SOLPROP_NATIVE_COVERAGE_SOURCE_HASH;
   result["precision"] = "complex128";
   result["fft_normalization"] = "none (explicit inverse scaling)";
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
   result["fft_planner"] = "Kokkos-FFT persistent Plan / cuFFT";
 #elif defined(KOKKOS_ENABLE_HIP)
   result["fft_planner"] = "Kokkos-FFT persistent Plan / rocFFT";
@@ -3082,10 +3101,10 @@ nb::dict build_record() {
                           "SOLPROP_FFTW_PLAN overrides";
 #endif
   result["layout"] = "LayoutRight";
-  result["native_arch_enabled"] = static_cast<bool>(SOLPROP_NATIVE_HOST_ARCH_ENABLED);
+  result["native_arch_enabled"] = (SOLPROP_NATIVE_HOST_ARCH_ENABLED != 0);
   result["aggressive_vectorization_enabled"] =
-      static_cast<bool>(SOLPROP_NATIVE_AGGRESSIVE_VECTORIZATION_ENABLED);
-  result["ipo_enabled"] = static_cast<bool>(SOLPROP_NATIVE_IPO_ENABLED);
+      (SOLPROP_NATIVE_AGGRESSIVE_VECTORIZATION_ENABLED != 0);
+  result["ipo_enabled"] = (SOLPROP_NATIVE_IPO_ENABLED != 0);
   const std::string cpu_baseline = SOLPROP_NATIVE_CPU_BASELINE;
   const std::string architecture_policy =
       SOLPROP_NATIVE_HOST_ARCH_ENABLED ? "native architecture"
@@ -3106,15 +3125,13 @@ nb::dict build_record() {
                                   "; no fast-math; " + contraction_policy + "; " +
                                   architecture_policy + "; " + ipo_policy + "; " +
                                   vectorization_policy;
-#if defined(__FAST_MATH__)
+#ifdef __FAST_MATH__
   result["fast_math_enabled"] = true;
 #else
   result["fast_math_enabled"] = false;
 #endif
-#if defined(__apple_build_version__)
+#ifdef __apple_build_version__
   result["compiler_family"] = "AppleClang";
-#elif defined(__INTEL_LLVM_COMPILER)
-  result["compiler_family"] = "IntelLLVM";
 #elif defined(__clang__)
   result["compiler_family"] = "Clang";
 #elif defined(__GNUC__)
@@ -3129,8 +3146,11 @@ nb::dict build_record() {
 } // namespace
 
 NB_MODULE(_core, module_) {
-  nb::exception<native::EnvelopeConvergenceError>(module_, "EnvelopeConvergenceError");
-  nb::exception<native::BackendRefusal>(module_, "BackendRefusal");
+  // Each registration makes the Python exception type; the handle need not outlive it.
+  const nb::exception<native::EnvelopeConvergenceError> envelope_convergence_error(
+      module_, "EnvelopeConvergenceError");
+  const nb::exception<native::BackendRefusal> backend_refusal(module_,
+                                                              "BackendRefusal");
   module_.doc() = "Private nanobind seam for solprop-native";
   module_.def("initialize_runtime", &initialize_kokkos, "threads"_a, "kernels"_a = 0,
               "fft"_a = 0, "raman_fft"_a = 0, "raman_tail_fft"_a = 0,
@@ -3253,7 +3273,7 @@ NB_MODULE(_core, module_) {
       },
       "policy"_a, "occupancy"_a);
   module_.def("available_device_memory", []() -> nb::object {
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
     std::size_t free_bytes = 0;
     std::size_t total_bytes = 0;
     if (cudaMemGetInfo(&free_bytes, &total_bytes) != cudaSuccess)
@@ -3530,7 +3550,7 @@ NB_MODULE(_core, module_) {
               const std::unique_ptr<ComplexStorage> held(
                   static_cast<ComplexStorage*>(value));
             });
-            storage.release();
+            static_cast<void>(storage.release()); // the capsule owns it now
             const std::array<std::size_t, 3> shape{extents[0], extents[1], extents[2]};
             return ComplexOutput(pointer->data(), shape.size(), shape.data(), owner);
           },
@@ -3743,8 +3763,9 @@ NB_MODULE(_core, module_) {
           [](BoundState& self, const nb::dict policy, const bool fused,
              const bool compensated, const bool interpolate, const RealInput steps,
              const RealInput edges) {
-            self.march_configure(march_policy_from(policy), fused, compensated,
-                                 interpolate, {real_vector(steps), real_vector(edges)});
+            self.march_configure(
+                march_policy_from(policy), fused, compensated, interpolate,
+                {.steps = real_vector(steps), .edges = real_vector(edges)});
           },
           "policy"_a, "fused"_a, "compensated"_a, "interpolate"_a,
           "steps"_a.noconvert(), "edges"_a.noconvert())
@@ -4280,8 +4301,8 @@ NB_MODULE(_core, module_) {
       .def_prop_ro("closed", &BoundState::closed)
       .def("close", &BoundState::close, nb::call_guard<nb::gil_scoped_release>());
   // solprop SEP 47: the native execution session and its compact event records.
-  nb::exception<native::session::LifecycleError>(module_, "SessionLifecycleError",
-                                                 PyExc_RuntimeError);
+  const nb::exception<native::session::LifecycleError> lifecycle_error(
+      module_, "SessionLifecycleError", PyExc_RuntimeError);
   nb::class_<native::session::Event>(module_, "SessionEvent")
       .def_prop_ro("kind",
                    [](const native::session::Event& event) {

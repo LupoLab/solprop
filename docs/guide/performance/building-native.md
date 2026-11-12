@@ -26,11 +26,11 @@ the arithmetic is double precision throughout, and no build enables fast-math.
 | CMake | 3.23 or newer (with build isolation, scikit-build-core fetches one from PyPI if none is found) |
 | build tool | Ninja is recommended; scikit-build-core uses it when available |
 | C++20 compiler, macOS | Clang 14 or newer; Homebrew LLVM is recommended and selected by default |
-| C++20 compiler, Linux CPU | GCC 14 or newer, IntelLLVM (`icpx`) 2022 or newer, or Clang 14 or newer / AMD AOCC |
+| C++20 compiler, Linux CPU | GCC 14 or newer, or Clang 14 or newer / AMD AOCC |
 | C++20 compiler, CUDA | GCC 14 or newer as the host compiler, with `nvcc` from CUDA 12.8 or newer (qualified on CUDA 13) |
 | C++20 compiler, HIP | ROCm's Clang (`hipcc` or `amdclang++`) |
 | OpenMP (CPU builds) | the compiler's runtime; on macOS Homebrew's `libomp` |
-| FFT (CPU builds) | FFTW 3 with its threaded libraries, in double and single precision (or MKL's FFTW interface) |
+| FFT (CPU builds) | FFTW 3 in double precision with its threaded libraries (or MKL's FFTW interface); the build needs no single-precision FFTW |
 | BLAS (CPU builds) | optional but recommended: Accelerate (macOS), OpenBLAS, MKL or another LP64 BLAS |
 | GPU libraries | cuFFT and cuBLAS (CUDA), or rocFFT and rocBLAS (HIP) |
 | network | configuring fetches the pinned dependencies below from GitHub (see [offline builds](#offline-builds)) |
@@ -49,8 +49,7 @@ them:
 
 The Python build requirements are scikit-build-core 0.11 and nanobind 2.9 or newer. CPU
 builds contract multiply-adds (`-ffp-contract=fast` with GCC,
-`-ffp-contract=fast-honor-pragmas` with Clang and `icpx`, after `-fno-fast-math` and
-`-fp-model=precise`) except in a few protected blocks, as
+`-ffp-contract=fast-honor-pragmas` with Clang, after `-fno-fast-math`) except in a few protected blocks, as
 [SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md) sets out;
 `build_info().compiler_flags` and `optimization_policy` record the setting. GPU builds
 follow their compilers' defaults throughout ([GPU builds](#gpu-builds)).
@@ -82,7 +81,7 @@ export CMAKE_ARGS="-DCMAKE_OSX_SYSROOT=$SDKROOT"
 ```
 
 For an Apple silicon performance build, the pinned dependency recipe enables FFTW
-3.3.11's NEON codelets in **both precisions**. Compiling scalar code with `-mcpu`
+3.3.11's NEON codelets. Compiling scalar code with `-mcpu`
 does not enable those codelets. The recipe also retains the Arm cycle counter needed
 by measured planning, the Apple M1 distribution baseline and the macOS 14 deployment
 target. Its FFTW threading libraries and the native extension share one source-built
@@ -101,9 +100,8 @@ uv run --no-sync python -m solprop_native
 
 Check the reported `fft_library` and `openmp_library` before benchmarking. The
 [pinned upstream configuration](https://github.com/FFTW/fftw3/blob/fftw-3.3.11/configure.ac)
-supports `--enable-neon` for double and single precision on AArch64. The installed
-libraries identify their codelet family in `fftw_version` and `fftwf_version`, which
-both end in `-neon` for this recipe. Keep these prefixes separate from a comparison's
+supports `--enable-neon` on AArch64. The installed library identifies its codelet family
+in `fftw_version`, which ends in `-neon` for this recipe. Keep these prefixes separate from a comparison's
 baseline libraries. See [OpenMP runtimes](#openmp-runtimes) below for the limits of mixing
 independently bundled wheels.
 
@@ -124,7 +122,7 @@ cd solprop
 CXX=g++-14 uv pip install --python /path/to/env/bin/python . ./native
 ```
 
-`libfftw3-dev` provides the OpenMP and pthreads FFTW libraries in both precisions. For
+`libfftw3-dev` provides the OpenMP and pthreads FFTW libraries. For
 MKL instead of OpenBLAS, source oneAPI first (`source /opt/intel/oneapi/setvars.sh`): a
 set `MKLROOT` makes the automatic search choose MKL. Other compilers and libraries are
 in [Linux compilers and libraries](#linux-compilers-and-libraries).
@@ -226,7 +224,7 @@ hand through `CXXFLAGS` appear in `compiler_flags`.
 sources under `native/` are not the ones the extension was compiled from (it names
 `uv sync`; a wheel skips this); when the installed solprop lacks a driver member or bundle
 field the build relies on (it names them); when the build enables fast-math; when the execution-space record is inconsistent; when a GPU build sees no
-device; when the GEMM provider is unknown or its BLAS is missing or unidentified; when
+device; when the GEMM provider is unknown or its BLAS is unidentified; when
 a reference build carries a vendor BLAS or machine-specific code, or a distribution
 build carries native code or no BLAS; and when a GPU build's BLAS is not the device's.
 Then, in solprop:
@@ -305,7 +303,7 @@ order. Keep each profile in its own build directory; switching the profile in on
 rebuilds everything. Configuring prints one summary line, for example
 
 ```text
--- solprop-native build profile: local; BLAS Accelerate (automatic: Accelerate (macOS)); GEMM provider HYBRID; native architecture ON; CPU baseline none; IPO ON (Release builds)
+-- solprop-native build profile: local; BLAS Accelerate (automatic: Accelerate (macOS)); native architecture ON; CPU baseline none; IPO ON (Release builds)
 ```
 
 and `build_info()` reports the same choice in `build_profile`, `cpu_baseline`,
@@ -356,7 +354,6 @@ The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.
 | option | default | values and effect |
 |---|---|---|
 | `SOLPROP_NATIVE_ENABLE_OPENMP` | `ON` | the OpenMP host execution space and threaded FFTW. `OFF` in GPU builds, whose host space is Serial |
-| `SOLPROP_NATIVE_ENABLE_THREADS` | `OFF` | the Kokkos Threads (C++ threads) host space with FFTW's threads library, for a build that adds no OpenMP runtime (a fallback for Windows builds); requires `SOLPROP_NATIVE_ENABLE_OPENMP=OFF`. Kernels then run at the runtime's thread count, without per-operation sizing |
 | `SOLPROP_NATIVE_ENABLE_CUDA` | `OFF` | the CUDA execution space with cuFFT (Linux, GNU host compiler) |
 | `SOLPROP_NATIVE_ENABLE_HIP` | `OFF` | the HIP execution space with rocFFT (Linux, ROCm Clang); exclusive with CUDA |
 | `SOLPROP_NATIVE_CUDA_ARCH` | `HOPPER90` | the Kokkos architecture suffix, `Kokkos_ARCH_<value>` ([CUDA](#cuda)) |
@@ -377,14 +374,13 @@ The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.
 | `SOLPROP_NATIVE_BLAS_ROOT` | empty | a prefix searched first for the BLAS |
 | `SOLPROP_NATIVE_BLAS_LIBRARIES` | empty | an explicit `;`-separated library list (not together with `SOLPROP_NATIVE_BLAS_VENDOR`) |
 | `SOLPROP_NATIVE_MKL_ROOT` | `$MKLROOT` | where the LP64 MKL libraries are looked for |
-| `SOLPROP_NATIVE_GEMM_PROVIDER` | `HYBRID` | `HYBRID` (vendor GEMM for eligible transforms, custom kernels for the rest), `KOKKOSBLAS_TPL` (requires a BLAS), `KOKKOSBLAS_NATIVE` or `CUSTOM`; the alternatives are for comparison and validation |
 
 **FFT**
 
 | option | default | values and effect |
 |---|---|---|
 | `SOLPROP_NATIVE_FFT_PROVIDER` | `FFTW` | `FFTW`, or `MKL_FFTW` (MKL's FFTW3 interface, Linux). Host builds only |
-| `SOLPROP_NATIVE_FFTW_THREADING` | `OPENMP` | `OPENMP` (`libfftw3_omp`) or `PTHREADS` (`libfftw3_threads`); IntelLLVM with FFTW requires `PTHREADS` |
+| `SOLPROP_NATIVE_FFTW_THREADING` | `OPENMP` | `OPENMP` (`libfftw3_omp`) or `PTHREADS` (`libfftw3_threads`) |
 | `SOLPROP_NATIVE_RAMAN_FFT_PROVIDER` | `ACCELERATE` on macOS CPU builds, else `KOKKOSFFT` | construction-time Raman selection: with NEON FFTW, vDSP handles short parallel power-of-two rows (up to 16,384 samples); serial and longer rows use Kokkos-FFT. Without NEON, only short serial rows use Kokkos-FFT. `KOKKOSFFT` forces that provider; `ACCELERATE` is macOS CPU only |
 | `FFTW_ROOT` | the Homebrew prefix on macOS | a non-default FFTW installation |
 
@@ -396,7 +392,6 @@ The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.
 | `SOLPROP_NATIVE_WARNINGS_AS_ERRORS` | as `BUILD_TESTING`: `OFF` in pip and uv builds, `ON` in the presets | `-Werror` on the package's own sources. Continuous integration turns it on for its wheels too |
 | `SOLPROP_NATIVE_ENABLE_CLANG_TIDY` | `OFF` | runs clang-tidy while compiling the package's sources |
 | `SOLPROP_NATIVE_ENABLE_SANITIZERS` | `OFF` | AddressSanitizer and UBSan on the package's targets; CPU builds only |
-| `SOLPROP_NATIVE_BUILD_BENCHMARKS` | `OFF` | builds the `solprop_native_gemm_benchmark` microbenchmark (never installed) |
 | `SOLPROP_NATIVE_BUNDLED_LICENCES` | the environment variable of that name | a directory of `LICENSE-*.txt` files, installed beside the extension: the licences of the libraries a wheel repair copies in (FFTW, the OpenMP runtime) |
 
 The installed module of a local build keeps the directories of a BLAS it linked outside
@@ -407,11 +402,12 @@ OpenBLAS is.
 ### Presets
 
 `native/CMakePresets.json` defines development builds, all with `BUILD_TESTING=ON`:
-`cpu-debug`, `cpu-tidy` and `cpu-sanitize` (reference profile, Debug), `cpu-benchmark`
-(local, Release, IPO and benchmarks), the CUDA builds `cuda` (hybrid GEMM with cuBLAS),
-`cuda-tpl`, `cuda-native` and `cuda-custom` (the other GEMM providers, for comparison),
-and `hip`. The presets do not choose a compiler: pass `-DCMAKE_CXX_COMPILER=...` (on
-macOS, Homebrew's `clang++`) and `-DPython_EXECUTABLE=...`.
+`cpu-debug`, `cpu-tidy` and `cpu-sanitize` (reference profile, Debug; `cpu-sanitize`
+adds ASan, UBSan that stops at its first report, and Kokkos's view bounds checks),
+`cpu-benchmark` (local, Release, IPO), `cuda` (with cuBLAS) and `hip`. Dense transforms
+take the vendor GEMM where a transform is eligible and the package's own kernels for the
+rest, in every build. The presets do not choose a compiler: pass
+`-DCMAKE_CXX_COMPILER=...` (on macOS, Homebrew's `clang++`) and `-DPython_EXECUTABLE=...`.
 
 ### Offline builds
 
@@ -461,22 +457,20 @@ pinned whichever is used.
 | compiler | notes |
 |---|---|
 | GCC 14 or newer | the reference route, with GNU OpenMP (`libgomp`). GCC 13 is refused: it compiles the strict floating-point helpers through the stack, and coupled Multistep steps took 1.25 to 1.45 times as long as with GCC 14 |
-| IntelLLVM (`icpx`) 2022 or newer | compiled with `-fp-model=precise` (its default is fast floating point) and then `-ffp-contract=fast-honor-pragmas`; requires `SOLPROP_NATIVE_FFTW_THREADING=PTHREADS` with FFTW, because distribution OpenMP FFTW libraries link GNU OpenMP; uses the compiler's own archiver for LTO |
 | Clang 14 or newer, AMD AOCC | compiled with `-fno-fast-math`, then `-ffp-contract=fast-honor-pragmas` |
 
 | provider | how to select it |
 |---|---|
 | OpenBLAS | the automatic choice when MKL is not configured; `-DSOLPROP_NATIVE_BLAS_VENDOR=OPENBLAS` forces it, and `-DBLAS_openblas_LIBRARY=/path/to/libopenblas.so` names a specific library |
-| MKL BLAS | `source /opt/intel/oneapi/setvars.sh` (sets `MKLROOT`), `-DSOLPROP_NATIVE_MKL_ROOT=...` or `-DSOLPROP_NATIVE_BLAS_VENDOR=MKL`. LP64 interface; GCC links MKL's GNU threading layer, IntelLLVM its Intel layer |
+| MKL BLAS | `source /opt/intel/oneapi/setvars.sh` (sets `MKLROOT`), `-DSOLPROP_NATIVE_MKL_ROOT=...` or `-DSOLPROP_NATIVE_BLAS_VENDOR=MKL`. LP64 interface, with MKL's GNU threading layer |
 | AOCL-BLIS and other BLAS | `-DSOLPROP_NATIVE_BLAS_LIBRARIES="/path/libblis-mt.so;/path/libflame.so"` (BLIS alone lacks complex rotations that Kokkos Kernels' BLAS layer links; AOCL's LP64 libFLAME supplies them and needs `libaoclutils` on the loader path) |
 | FFTW | the default; `-DFFTW_ROOT=...` for a non-system installation, such as AOCL's FFTW |
 | MKL FFT | `-DSOLPROP_NATIVE_FFT_PROVIDER=MKL_FFTW`: MKL's FFTW3 interface, independent of the BLAS choice. MKL ignores FFTW's planning flags. Sourcing oneAPI never selects it by itself |
 
 **FFTW threading.** `OPENMP` links FFTW's OpenMP library, which must use the same OpenMP
 runtime as the rest of the build: GNU `libgomp` for distribution packages built with
-GCC. `PTHREADS` links FFTW's pthreads library instead; it is required for IntelLLVM and
-is the safer choice whenever a second OpenMP runtime could otherwise be loaded. With
-pthreads FFTW, start with `OMP_PROC_BIND=false`: a bound OpenMP main thread can confine
+GCC. `PTHREADS` links FFTW's pthreads library instead; it is the safer choice whenever
+a second OpenMP runtime could otherwise be loaded. With pthreads FFTW, start with `OMP_PROC_BIND=false`: a bound OpenMP main thread can confine
 the FFTW worker threads it creates to its own core.
 
 **OpenBLAS threading.** A pthreads OpenBLAS (the Debian and Ubuntu default) keeps its own
@@ -537,8 +531,8 @@ export CMAKE_ARGS="-DSOLPROP_NATIVE_ENABLE_CUDA=ON -DSOLPROP_NATIVE_ENABLE_OPENM
 uv pip install --python /path/to/env/bin/python . ./native
 ```
 
-The `cuda` preset configures the same build for development, with the native tests and
-the GEMM benchmark (`cmake --preset cuda -DPython_EXECUTABLE=... -DCUDA_ROOT=...`, from
+The `cuda` preset configures the same build for development, with the native tests
+(`cmake --preset cuda -DPython_EXECUTABLE=... -DCUDA_ROOT=...`, from
 `native/`).
 
 ### HIP

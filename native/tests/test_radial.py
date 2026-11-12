@@ -36,7 +36,7 @@ def test_radial_short_envelope_uses_device_blas(
     n_r: int, n_pol: int, chunk: int, eligible: bool
 ) -> None:
     info = build_info()
-    if info.device_backend == "none" or info.gemm_provider != "HYBRID":
+    if info.device_backend == "none":
         pytest.skip("default device HYBRID dispatch qualification")
     if not info.tpl_blas_enabled:
         pytest.skip("device vendor BLAS is disabled")
@@ -123,7 +123,7 @@ def test_radial_partial_chunks_preserve_the_reference_source(
         # An analytic field synthesises the retained spectrum, on a host and on a
         # device; the others keep their time-domain products.
         info = build_info()
-        retained = family == "analytic" and info.gemm_provider != "CUSTOM"
+        retained = family == "analytic"
         assert info.device_backend in {"none", "cuda", "hip"}
         assert (
             str(backend.metadata()["synthesis_provider"]).endswith(
