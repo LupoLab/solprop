@@ -9,11 +9,13 @@ import dataclasses
 import numpy as np
 import pytest
 
+from backends.host_cases_envelope_plasma import build_envelope_mixture, geometry_case
 from backends.test_band_plasma_parity import CASES, bound, case, march, options_for
 from backends.test_radial_nonlinear import derivative
 from gated_source import _gated_source
 from sessions.runs import native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.exceptions import BackendError
 from solprop.profiles import Constant
 from solprop.stepper import FixedSchedule
 from solprop.translate.linop import profile_table
@@ -174,6 +176,16 @@ def test_the_gated_benchmark_names_itself_and_holds_no_held_streams():
         assert ledger["gated_current_prefix"] > 0
     finally:
         backend.close()
+
+
+def test_the_gated_benchmark_is_refused_by_name_on_an_envelope_plasma():
+    """The gated form is a field column's: native names the refusal before it builds."""
+    problem, run_request, grid = geometry_case(build_envelope_mixture(), "modal", 1)
+    with (
+        _gated_source(),
+        pytest.raises(BackendError, match=r"gated plasma benchmark.*envelope plasma"),
+    ):
+        native.NativeBackend(problem, run_request, grid=grid)
 
 
 @pytest.mark.gpu
