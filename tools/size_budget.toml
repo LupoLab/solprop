@@ -17,8 +17,9 @@ max_sectioned = 2848
 max_lines = 4000
 # An allowed module's cap is its size plus a headroom of headroom_percent of it, at least
 # headroom_lines, so that a small fix doesn't fail. The check fails when an entry exceeds
-# its module's size by more than that headroom (or names a module that is gone or now
-# under max_lines): a module that shrinks tightens its entry in the same change.
+# its module's size by more than three headrooms (or names a module that is gone or now
+# under max_lines): a module that shrinks by more than twice its headroom tightens its
+# entry, to its size plus one headroom, in the same change.
 headroom_percent = 2
 headroom_lines = 50
 

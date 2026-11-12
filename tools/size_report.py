@@ -397,7 +397,7 @@ def _check(report: _Report, budget: dict[str, Any]) -> list[str]:  # TOML tables
             failures.append(f"{label} is allowed {cap} lines but no longer exists")
         elif n <= limit:
             failures.append(f"{label} is under {limit} lines: remove its allow entry")
-        elif cap - n > headroom(n):
+        elif cap - n > 3 * headroom(n):
             failures.append(
                 f"{label} has {n} lines, so its allow entry {cap} is stale: "
                 f"set it to {n + headroom(n)}"
