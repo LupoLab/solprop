@@ -237,6 +237,8 @@ class _FlowGas:
     def of(cls, gas: Composition | Mixture, temperature: float) -> "_FlowGas":
         """Evaluate the properties of a gas or a shared mixture fill.
 
+        A mixture with independent populations is refused: it is not one flow.
+
         - ``temperature``: temperature in K.
         """
         composition = _as_composition(gas)

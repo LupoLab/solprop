@@ -2733,6 +2733,9 @@ def _aperture_weight(
 
     - ``k_x``, ``k_y``: the chunk's stored transverse wavevectors in rad/m, shape
       ``(n_chunk,)``.
+    - Returns: ``W_a`` of the column's image, exactly zero at and below zero frequency
+      and wherever the image lies at or beyond the mask plane's distance from the origin
+      (SEP 23 sections 4.2 and 4.10), shape ``(n_chunk, n_omega)``.
     """
     scale = tables.scale[index]
     across, along = mask_plane_offsets(scale, k_x, k_y, tables.centres[index])
@@ -3339,9 +3342,12 @@ def _line_fluence_widths(
 def _beam_widths(spectrum: np.ndarray, flux: SpatialFlux) -> tuple[float, float, float]:
     """Reduce the signed fluence profile with its spatial measure.
 
+    A fluence negative beyond its rounding budget is refused: a width needs a
+    nonnegative profile, and a signed axial flux is not clipped.
+
     - ``spectrum``: internal radial spectrum in V m or Cartesian spectrum in V/m, shape
       ``(n_modes, n_pol, n_omega)``.
-    - Returns: Second-moment radius, central 1/e^2 radius and FWHM in m.
+    - Returns: second-moment radius, central 1/e^2 radius and FWHM in m.
     """
     _check_flux(spectrum, flux, planar=False)
     fluence, budget = _signed_fluence(spectrum, flux)

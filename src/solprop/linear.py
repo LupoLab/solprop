@@ -464,6 +464,9 @@ def _check_absorber(
 ) -> Float[np.ndarray, " n_omega"]:
     """Validate a spectral absorber rate against the grid it belongs to.
 
+    A negative rate anywhere is refused: an absorber removes energy, and a negative
+    rate is gain wearing a boundary's clothes.
+
     - ``grid``: the grid it must match.
     """
     values = np.asarray(absorber_rate, dtype=float)

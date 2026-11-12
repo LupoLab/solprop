@@ -538,7 +538,10 @@ def _scattering_angle(
 
 
 def _gaussian_eigenvalue(order: float) -> float:
-    """Solve the half-line scattering problem for the largest Gaussian eigenvalue."""
+    """Solve the half-line scattering problem for the largest Gaussian eigenvalue.
+
+    - ``order``: conventional soliton order, above the first Gaussian threshold.
+    """
     # The omitted field area is <= 1e-13. Moving the boundary with the amplitude
     # avoids assuming that the Gaussian tail is negligible for every input N.
     extent = math.sqrt(2.0) * float(erfcinv(1e-13 / (order * math.sqrt(math.pi / 2.0))))

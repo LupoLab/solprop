@@ -2501,7 +2501,12 @@ def _check_names(names: Sequence[str]) -> None:
 
 
 def _check_between_planes(names: Sequence[str]) -> None:
-    """Check that every periodic statistic is one a backend evaluates between planes."""
+    """Check that every periodic statistic is one a backend evaluates between planes.
+
+    The refusal is by name and at construction because evaluating them anyway can cost
+    a fifth of a step: ``zdw`` is a root search per mode and does not belong on every
+    accepted step.
+    """
     refused = sorted(name for name in names if not CATALOGUE[name].between_planes)
     if refused:
         available = sorted(

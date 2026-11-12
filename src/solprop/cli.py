@@ -134,6 +134,8 @@ def _stopped(received: list[int], output: Path) -> int:
     """Report how a run ended and return the exit status.
 
     - ``received``: the signals that stopped it; empty when it completed.
+    - Returns: zero, or ``128`` plus the first signal's number. A signal that came too
+      late to stop anything, since the file says the run completed, gives zero too.
     """
     if not received:
         return 0

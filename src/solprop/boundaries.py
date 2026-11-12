@@ -518,6 +518,10 @@ def _reference_length(
 ) -> float:
     """Return the absorber reference length in metres.
 
+    The result is checked positive and finite here, so that every caller is covered: a
+    zero length makes the rate ``0/0`` in the interior and fills the grid with NaN, and
+    a negative one inverts the clamp, so the absorber amplifies everywhere.
+
     - ``boundary_length``: an explicit reference length in metres, which wins if given.
     """
     if boundary_length is not None:

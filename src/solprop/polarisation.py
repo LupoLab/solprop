@@ -88,7 +88,7 @@ def _complex_array(
 def _stokes_vector(value: ArrayLike) -> Float[np.ndarray, " 4"]:
     """Validate the Stokes cone with arithmetic roundoff at the surface.
 
-    - ``value``: stokes vector of shape ``(4,)`` in squared field units.
+    - ``value``: Stokes vector of shape ``(4,)`` in squared field units.
     """
     array = np.asarray(value)
     if np.iscomplexobj(array) or array.shape != (4,) or not np.all(np.isfinite(array)):

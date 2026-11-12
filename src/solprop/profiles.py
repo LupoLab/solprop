@@ -3425,7 +3425,11 @@ of the float64 bytes instead, which separates them exactly.
 
 
 def _number_identity(value: float) -> str:
-    """Return the exact hexadecimal literal of a double."""
+    """Return the exact hexadecimal literal of a double.
+
+    ``float.hex`` is exact, round-trips, and is independent of
+    ``numpy.set_printoptions``.
+    """
     return float(value).hex()
 
 

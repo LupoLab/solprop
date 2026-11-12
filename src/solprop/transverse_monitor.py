@@ -680,7 +680,12 @@ class _HostEdgeReduction:
         *,
         full: bool = True,
     ) -> Float[np.ndarray, " n_nodes"]:
-        """Return each physical node's (or row's) energy, over pol and frequency."""
+        """Return each physical node's (or row's) energy, over pol and frequency.
+
+        - ``full``: whether every node is wanted. Otherwise, radially, the rows a read
+          doesn't use are not synthesised and are zero: a read happens many times a
+          run, and the full synthesis is an ``n_r``-square product per frequency.
+        """
         space = self.space
         flat = state.reshape(state.shape[0], -1)
         if isinstance(space, RadialGrid):

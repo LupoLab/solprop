@@ -737,6 +737,9 @@ class _Aligner:
     ) -> "_Aligner | None":
         """Return a beam's aligner, refusing what the launch cannot carry.
 
+        Refused: a radial grid, a y component on a line grid, a tilt outside the grid's
+        band, and a pulse-front delay longer than the time window.
+
         - ``at``: where the medium is evaluated, m.
         - Returns: ``None`` for a beam neither displaced nor tilted.
         """
@@ -1397,6 +1400,8 @@ def _normalised(  # noqa: PLR0917 - called positionally
 def _frozen_phase(phase: Sequence[float] | np.ndarray) -> Float[np.ndarray, " n_deg"]:
     """Return the Taylor coefficients as a validated read-only array.
 
+    - ``phase``: coefficients about the centre frequency, rad for order 0 and
+      ``s**n`` for order ``n`` thereafter.
     - Returns: a read-only copy, shape ``(n_deg,)``.
     """
     coefficients = np.array(phase, dtype=np.float64).reshape(-1)
