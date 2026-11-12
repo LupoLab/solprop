@@ -2687,7 +2687,7 @@ def test_the_m2_case_is_first_order_and_the_two_reasons_are_known(request):
     constant fill, no plasma         6.21
     constant fill, plasma            5.95
     vacuum gradient, no plasma       1.42
-    vacuum gradient, plasma          1.59
+    vacuum gradient, plasma          1.51
     ==============================  =====
 
     **It is the vacuum end, alone.** A fill that reaches a true vacuum has ``dp/dz``
@@ -2740,7 +2740,7 @@ def test_the_other_two_switches_of_the_order_study(request):
     constant fill, no plasma         6.21
     constant fill, plasma            5.95
     vacuum gradient, no plasma       1.42
-    vacuum gradient, plasma          1.59
+    vacuum gradient, plasma          1.51
     ==============================  =====
 
     **The vacuum end is the whole of it, and the plasma costs nothing.** The coarser

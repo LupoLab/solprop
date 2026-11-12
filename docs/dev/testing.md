@@ -70,8 +70,8 @@ instead of a tier marker:
   pull request or the release record.**
 - `benchmark` is run by **no lane at all**. It is where a study goes whose numbers are
   recorded in its docstring and on which nothing in the default configuration depends —
-  the full-size CtC case, the gigabyte Φ table, the polarisation taper's recurrence
-  floor. Each says in its own docstring how to run it by hand; the benchmarks
+  the full-size M2 witness and its historical wall time, and the M2 order study's two
+  middle switches. Each says in its own docstring how to run it by hand; the benchmarks
   (`poe bench`) are a separate program and do not reach them.
 
 ### The lanes

@@ -33,7 +33,7 @@ on the reduced CtC one.
 | Chebyshev builds | exact on polynomials; error bound met on the ladder of tolerances; array-valued build equals per-column scalar builds | `tests/translate/test_chebyshev.py` |
 | cumulative operator Φ against `quad_vec` | 4.8e-12 for the expansion and 2.5e-12 for the z table on the RDW gradient capillary; on the acceptance test's own 0.2 m gradient fixture (optmat's helium), **4.6e-11** and **1.4e-10** over twenty random intervals, each asserted below its interval's bound: the tolerance the table is built to, `ROUNDOFF_SAFETY` times the measured floor (2.8e-8 here), carried through the integral, plus the oracle's own error estimate | `tests/translate/test_linop.py` |
 | the round-off floor of one evaluation of `D` | ~1e-11 relative, the frame's own cancellation of eight digits; measured per element in the acceptance test's norm (2.27e-7 on the M2 capillary with its absorber) and applied as `ROUNDOFF_SAFETY = 100` times the floor | `tests/translate/test_linop.py` |
-| the parameter expansion against the z table | 9.8e-10 on the RDW capillary, 4.9e-9 on the reduced M2 case, 5.0e-9 at the CtC size, every one two orders inside the tolerance both are built to | `tests/translate/test_linop.py` |
+| the parameter expansion against the z table | 9.8e-10 on the RDW capillary and 4.9e-9 on the reduced M2 case, each two orders inside the tolerance both are built to | `tests/translate/test_linop.py` |
 | ionisation rate tables | relative error falls at fourth order as the knots double; 1e-6 relative at 257 knots for optmat's PPT form of every noble gas | `tests/translate/test_ionisation_tables.py` |
 | the plasma column's cumulative trapezoid | second order in the sample spacing on a constant field: 9.9e-5 at 8193 samples, falling by four at each doubling; a pre-ionised tone has the Drude susceptibility times the two integrals' multiplier, $((\theta/2)\cot(\theta/2))^2$, to round-off — 3.7e-8 short of it at $\theta = 4.7\times10^{-4}$, 0.8225 of it at the default grid's $\omega_{\max}$ and 0.7866 at $1.1\,\omega_{\max}$ (below) | `tests/nonlinear/test_plasma.py` |
 | the plasma column's band rule ([SEP 18](seps/archive/sep-0018-band-exact-plasma-integrals.md)) | the composite multiplier within a certified $10^{-5}$ of one across the active band; on ionising fields $\le 6.5\times10^{-6}$ per band against an independent reference, and over ten propagation steps $\le 4.2\times10^{-6}$ (below) | `tests/nonlinear/test_plasma_band*.py`, `tests/driver/test_plasma_band_propagation.py` |
@@ -495,9 +495,6 @@ field's contraction pragma removed
   solprop takes 58 % fewer steps than Luna on the M2 case at the same nominal tolerance,
   because the two norms mean different things. On the reduced CtC case (one mode, 2 ps)
   it takes 3163 accepted steps to Luna's 205; that gap is recorded and not yet explained.
-- **The spatial witnesses** (§10) are diagnostics, not bounds: full Cartesian agreement
-  is close, the modal-prefactor difference explains most of the elliptical-envelope and
-  circular-plasma differences, and radial on-axis and elliptical-field residuals remain.
 - **Not yet measured at all**: a Luna comparison above six modes.
 
 ## 9. Regenerating the numbers
