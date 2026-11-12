@@ -59,7 +59,6 @@ from solprop.output.serialisation import (
     _ArrayReference,
     _rebuild,
     _resolved,
-    _stored_entry,
     serialise,
 )
 from solprop.physdata.selection import MaterialManifest, hashed_document
@@ -180,25 +179,6 @@ def _refuse_schema(declared: object) -> None:
     raise OutputError(msg)
 
 
-_HASHED_KEYS: tuple[str, ...] = (
-    "schema_version",
-    "simulation_kind",
-    "grid",
-    "modes",
-    "configuration",
-    "noise",
-    "stepper",
-    "spatial",
-    "power_convention",
-    "modal",
-    "materials",
-    "initial_z",
-    "tdse",
-    "quadrature",
-)
-"""The entries of :meth:`RunMetadata.hashed`, in the order it builds them."""
-
-
 def _stored_hashed(document: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
     """Return the hashed part of a stored record, as the stored text holds it.
 
@@ -208,7 +188,7 @@ def _stored_hashed(document: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
     (:func:`solprop.physdata.selection.hashed_document`). An entry the document lacks
     stays absent, so the record digests to the stamp its writer computed.
     """
-    hashed = {name: document[name] for name in _HASHED_KEYS if name in document}
+    hashed = {name: document[name] for name in _HASHED_ENTRIES if name in document}
     modal = hashed.get("modal")
     if isinstance(modal, dict):
         hashed["modal"] = {
@@ -412,6 +392,27 @@ def _material_rows(manifest: MaterialManifest) -> list[tuple[str, object]]:
     return [("materials", f"optmat {manifest.optmat_version}: {names}")]
 
 
+def _optional[T](build: type[T], *path: str) -> Callable[[object], T | None]:
+    """Return the reader of an optional stored record: ``None`` stays ``None``."""
+    return lambda value: (
+        None
+        if value is None
+        else _rebuild(build, cast("Mapping[str, object]", value), path)
+    )
+
+
+def _modes(value: object) -> tuple[ModeRecord, ...]:
+    """Read the stored mode records, each named by its index in a refusal."""
+    return tuple(
+        _rebuild(ModeRecord, one, ("modes", index))
+        for index, one in enumerate(cast("list[Mapping[str, object]]", value))
+    )
+
+
+_HASHED = {"hashed": True}
+"""A :class:`RunMetadata` field the resume key covers, serialised as stored."""
+
+
 @dataclass(frozen=True, eq=False, kw_only=True)
 class RunMetadata(Displayed):
     """Everything needed to say what produced a file, and to refuse a wrong resume.
@@ -543,29 +544,86 @@ class RunMetadata(Displayed):
     'optics'
     """
 
-    grid: GridRecord
-    modes: tuple[ModeRecord, ...]
-    simulation_kind: SimulationKind
-    configuration: Mapping[str, object]
-    stepper: StepperRecord
-    noise: NoiseRecord | None = None
-    backend: BackendRecord | None = None
-    versions: Mapping[str, str] = dataclasses.field(default_factory=package_versions)
-    git: GitProvenance | None = dataclasses.field(default_factory=GitProvenance.detect)
-    created: str = ""
-    schema_version: int = SCHEMA_VERSION
-    spectral_convention: str = SPECTRAL_CONVENTION
-    field_layout: str = FIELD_LAYOUT
-    spatial: Mapping[str, object] | None = None
-    modal: Mapping[str, object] | None = None
-    materials: MaterialManifest = dataclasses.field(default_factory=MaterialManifest)
-    initial_z: float = 0.0
-    tdse: Mapping[str, object] | None = None
-    quadrature: Mapping[str, object] | None = None
+    # Each field is stored under its own name, serialised (to_json); `hashed` puts it
+    # in the resume key, `key` gives it a hashed form of its own and `store` a stored
+    # one, `read` rebuilds it from the stored form (from_json), and `absent` is what a
+    # record written without it reads as, where that is not the field's default. A
+    # field without a default is required in a stored record.
+    grid: GridRecord = dataclasses.field(
+        metadata={
+            **_HASHED,
+            "read": lambda value: _rebuild(GridRecord, value, ("grid",)),
+        }
+    )
+    modes: tuple[ModeRecord, ...] = dataclasses.field(
+        metadata={**_HASHED, "read": _modes}
+    )
+    simulation_kind: SimulationKind = dataclasses.field(metadata=_HASHED)
+    configuration: Mapping[str, object] = dataclasses.field(metadata=_HASHED)
+    stepper: StepperRecord = dataclasses.field(
+        metadata={**_HASHED, "read": StepperRecord.from_record}
+    )
+    noise: NoiseRecord | None = dataclasses.field(
+        default=None, metadata={**_HASHED, "read": _optional(NoiseRecord, "noise")}
+    )
+    backend: BackendRecord | None = dataclasses.field(
+        default=None, metadata={"read": _optional(BackendRecord)}
+    )
+    versions: Mapping[str, str] = dataclasses.field(
+        default_factory=package_versions, metadata={"absent": {}}
+    )
+    git: GitProvenance | None = dataclasses.field(
+        default_factory=GitProvenance.detect,
+        metadata={"absent": None, "read": _optional(GitProvenance)},
+    )
+    created: str = dataclasses.field(default="", metadata={"read": str})
+    schema_version: int = dataclasses.field(default=SCHEMA_VERSION, metadata=_HASHED)
+    spectral_convention: str = dataclasses.field(
+        default=SPECTRAL_CONVENTION, metadata={"read": str}
+    )
+    field_layout: str = dataclasses.field(default=FIELD_LAYOUT, metadata={"read": str})
+    spatial: Mapping[str, object] | None = dataclasses.field(
+        default=None, metadata=_HASHED
+    )
+    # The whole identity is stored; the key leaves out the accessor list, which is
+    # the build's capability and not the run's description (_hashed_modal).
+    modal: Mapping[str, object] | None = dataclasses.field(
+        default=None, metadata={**_HASHED, "key": _hashed_modal}
+    )
+    # The whole manifest, measurements included, is stored; the key takes its
+    # identities and policies, and a run of solprop's own materials keys on `None`.
+    materials: MaterialManifest = dataclasses.field(
+        default_factory=MaterialManifest,
+        metadata={
+            **_HASHED,
+            "key": lambda manifest: serialise(manifest.hashed()),
+            "store": lambda manifest: serialise(manifest.to_dict()),
+            "absent": None,
+            "read": MaterialManifest.from_dict,
+        },
+    )
+    initial_z: float = dataclasses.field(default=0.0, metadata=_HASHED)
+    tdse: Mapping[str, object] | None = dataclasses.field(
+        default=None, metadata=_HASHED
+    )
+    quadrature: Mapping[str, object] | None = dataclasses.field(
+        default=None, metadata=_HASHED
+    )
+    # Derived from the hashed problem, so stored beside the key, not in it: a resume
+    # on another build may evaluate the frame to a different last bit.
     reference: Mapping[str, object] | None = None
+    # The transverse boundary's derived values (SEP 40), from a root-finder: beside
+    # the key, so that a resume on another build is not refused.
     transverse: Mapping[str, object] | None = None
-    noise_resolution: NoiseResolution | None = None
-    defaults: DefaultsResolution | None = None
+    # How the model was chosen, beside the key: the resolved model is in the hashed
+    # noise record already, and a request is not part of the physics.
+    noise_resolution: NoiseResolution | None = dataclasses.field(
+        default=None, metadata={"read": _optional(NoiseResolution)}
+    )
+    # Which numerics took the route's default, beside the key for the same reason.
+    defaults: DefaultsResolution | None = dataclasses.field(
+        default=None, metadata={"read": _optional(DefaultsResolution)}
+    )
     _stored: dict[str, JsonValue] | None = dataclasses.field(
         default=None, init=False, repr=False, compare=False, metadata={"record": False}
     )
@@ -741,26 +799,13 @@ class RunMetadata(Displayed):
         """
         if self._stored is not None:
             return self._stored
-        return {
-            "schema_version": self.schema_version,
-            "simulation_kind": self.simulation_kind,
-            "grid": serialise(self.grid),
-            "modes": serialise(list(self.modes)),
-            "configuration": serialise(dict(self.configuration)),
-            "noise": serialise(self.noise),
-            "stepper": serialise(self.stepper),
-            "spatial": serialise(self.spatial),
-            "power_convention": self.power_convention,
-            # All of the general-guide identity but the accessor list, which is the
-            # build's capability and not the run's description (_hashed_modal).
-            "modal": _hashed_modal(self.modal),
-            # The material manifest's identities and policies; a run of solprop's
-            # own materials keys on `None`.
-            "materials": serialise(self.materials.hashed()),
-            "initial_z": self.initial_z,
-            "tdse": serialise(self.tdse),
-            "quadrature": serialise(self.quadrature),
+        record: dict[str, JsonValue] = {
+            entry.name: entry.metadata.get("key", serialise)(getattr(self, entry.name))
+            for entry in dataclasses.fields(self)
+            if entry.metadata.get("hashed")
         }
+        record["power_convention"] = self.power_convention
+        return record
 
     def configuration_hash(self) -> str:
         """Return the resume key: a digest of everything that was computed.
@@ -1002,30 +1047,15 @@ class RunMetadata(Displayed):
         - Returns: the hashed part and what is stored beside it, JSON-ready.
         """
         document = self.hashed()
-        # The whole identity, including the accessor list `hashed` leaves out: what a
-        # file records and what its resume key is taken over are two different
-        # questions, and the published accessors answer only the first
-        # (:func:`_hashed_modal`).
-        document["modal"] = serialise(self.modal)
-        # The whole manifest, measurements included, beside its hashed part.
-        document["materials"] = serialise(self.materials.to_dict())
-        # Derived from the hashed problem, so stored beside the key, not in it: a
-        # resume on another build may evaluate the frame to a different last bit.
-        document["reference"] = serialise(self.reference)
-        # The transverse boundary's derived values (SEP 40), from a root-finder:
-        # beside the key, so that a resume on another build is not refused.
-        document["transverse"] = serialise(self.transverse)
-        # How the model was chosen, beside the key: the resolved model is in the
-        # hashed noise record already, and a request is not part of the physics.
-        document["noise_resolution"] = serialise(self.noise_resolution)
-        # Which numerics took the route's default, beside the key for the same reason.
-        document["defaults"] = serialise(self.defaults)
-        document["spectral_convention"] = self.spectral_convention
-        document["field_layout"] = self.field_layout
-        document["backend"] = serialise(self.backend)
-        document["versions"] = serialise(dict(self.versions))
-        document["git"] = serialise(self.git)
-        document["created"] = self.created
+        # A hashed field is stored as hashed unless the key takes a form of its own:
+        # what a file records and what its resume key is taken over are two
+        # different questions.
+        for entry in dataclasses.fields(self):
+            if entry.init and (
+                not entry.metadata.get("hashed") or "key" in entry.metadata
+            ):
+                store = entry.metadata.get("store", serialise)
+                document[entry.name] = store(getattr(self, entry.name))
         return document
 
     @classmethod
@@ -1085,54 +1115,24 @@ class RunMetadata(Displayed):
         held: dict[str, np.ndarray] = {}
         document = cast("dict[str, Any]", _resolved(document, arrays or {}, held))
 
-        # Another build of this schema may lack a top-level entry.
-        stored = cast(
-            "Callable[..., Any]", functools.partial(_stored_entry, document, path=())
-        )
-
         try:
-            noise = stored("noise")
-            resolution = stored("noise_resolution")
-            # Absent from a record written before the defaults were recorded.
-            defaults = stored("defaults")
-            git = stored("git")
-            backend = stored("backend")
-            metadata = cls(
-                grid=_rebuild(GridRecord, document["grid"], ("grid",)),
-                modes=tuple(
-                    _rebuild(ModeRecord, one, ("modes", index))
-                    for index, one in enumerate(document["modes"])
-                ),
-                simulation_kind=document["simulation_kind"],
-                configuration=document["configuration"],
-                stepper=StepperRecord.from_record(document["stepper"]),
-                noise=None
-                if noise is None
-                else _rebuild(NoiseRecord, noise, ("noise",)),
-                backend=None if backend is None else _rebuild(BackendRecord, backend),
-                versions=cast("Mapping[str, str]", stored("versions", default={})),
-                git=None if git is None else _rebuild(GitProvenance, git),
-                created=str(stored("created", default="")),
-                schema_version=document["schema_version"],
-                spectral_convention=str(
-                    stored("spectral_convention", default=SPECTRAL_CONVENTION)
-                ),
-                field_layout=str(stored("field_layout", default=FIELD_LAYOUT)),
-                spatial=stored("spatial"),
-                modal=stored("modal"),
-                materials=MaterialManifest.from_dict(stored("materials")),
-                initial_z=stored("initial_z", default=0.0),
-                tdse=stored("tdse"),
-                quadrature=stored("quadrature"),
-                reference=stored("reference"),
-                transverse=stored("transverse"),
-                noise_resolution=None
-                if resolution is None
-                else _rebuild(NoiseResolution, resolution),
-                defaults=None
-                if defaults is None
-                else _rebuild(DefaultsResolution, defaults),
-            )
+            values = {}
+            for entry in dataclasses.fields(cls):
+                if not entry.init:
+                    continue
+                if entry.name in document:
+                    value = document[entry.name]
+                elif (
+                    entry.default is dataclasses.MISSING
+                    and entry.default_factory is dataclasses.MISSING
+                ):
+                    raise KeyError(entry.name)
+                else:
+                    # Another build of this schema may lack a top-level entry.
+                    value = entry.metadata.get("absent", entry.default)
+                read = entry.metadata.get("read")
+                values[entry.name] = value if read is None else read(value)
+            metadata = cls(**values)
         except (KeyError, TypeError, MaterialError) as error:
             msg = f"stored metadata is missing or malformed: {error}"
             raise OutputError(msg) from error
@@ -1141,6 +1141,17 @@ class RunMetadata(Displayed):
         object.__setattr__(metadata, "_stored", _stored_hashed(written))
         object.__setattr__(metadata, "_stored_arrays", held)
         return metadata
+
+
+_HASHED_ENTRIES = (
+    *(
+        entry.name
+        for entry in dataclasses.fields(RunMetadata)
+        if entry.metadata.get("hashed")
+    ),
+    "power_convention",
+)
+"""The entries of :meth:`RunMetadata.hashed`."""
 
 
 def _example_metadata() -> RunMetadata:
