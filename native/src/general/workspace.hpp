@@ -24,6 +24,13 @@ inline constexpr std::size_t plane_moment_slots = 8;
 class GeneralWorkspace {
 public:
   explicit GeneralWorkspace(Problem problem);
+  // Every view, plan and execution instance is a member, released by destruction once
+  // the queued work has finished (state.cpp).
+  ~GeneralWorkspace();
+  GeneralWorkspace(const GeneralWorkspace&) = delete;
+  GeneralWorkspace& operator=(const GeneralWorkspace&) = delete;
+  GeneralWorkspace(GeneralWorkspace&&) = delete;
+  GeneralWorkspace& operator=(GeneralWorkspace&&) = delete;
 
   void set_initial(std::span<const Complex> field, std::span<const Complex> noise);
   std::vector<double> trial_step(double dz, const TrialScalars& scalars);
@@ -156,7 +163,6 @@ public:
   std::vector<Complex> field_to_host() const;
   void field_to_host(std::span<Complex> destination) const;
   const Complex* host_field() const {
-    require_open();
     if (!initialized_)
       throw std::logic_error("no initial field has been loaded");
     if constexpr (!static_cast<bool>(
@@ -241,8 +247,6 @@ public:
   bool fsal_ready() const noexcept { return has_recycled_; }
   std::size_t rk_source_evaluations() const noexcept { return rk_source_evaluations_; }
   std::size_t axis_scans() const noexcept { return axis_scans_; }
-  bool closed() const noexcept { return closed_; }
-  void close() noexcept;
 
   // NVCC extended device lambdas require their enclosing member to be public.
   // GeneralWorkspace is private to src/general/, so this does not widen the API.
@@ -253,10 +257,6 @@ public:
   std::size_t projected_spectrum_size() const {
     return problem_.dims.family == FieldFamily::envelope ? problem_.dims.n_to
                                                          : problem_.dims.n_to / 2 + 1;
-  }
-  void require_open() const {
-    if (closed_)
-      throw std::logic_error("native state is closed");
   }
   void require_trial_scalars(const TrialScalars& scalars) const;
   void require_adams() const;
@@ -625,7 +625,6 @@ public:
     return nodes == problem_.dims.node_chunk ? transform_execution_space_
                                              : transform_tail_execution_space_;
   }
-  bool closed_{};
   bool initialized_{};
   // A constant operator's low-storage table is built (set on a rebuild, cleared by
   // `set_initial` and `close`): a step that reuses a table never built refuses.

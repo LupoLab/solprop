@@ -87,7 +87,6 @@ std::vector<double> GeneralWorkspace::statistics(
     const double preionisation, const double intensity_factor,
     const std::vector<double>& channel_preionisation,
     const std::vector<double>& power_weight) {
-  require_open();
   const auto& selected_weight =
       power_weight.empty() ? problem_.grid.power_weight : power_weight;
   statistics_unit_weight_ =
@@ -654,7 +653,6 @@ std::vector<double> GeneralWorkspace::whitened_statistics(
     const std::vector<Complex>& root, const std::uint64_t flags,
     const std::vector<double>& windows, const double intensity_factor,
     const bool spectral) {
-  require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
   constexpr std::uint64_t admitted = statistics_omega0 | statistics_energy |
@@ -1161,7 +1159,6 @@ std::vector<double> GeneralWorkspace::plane_fluence_trace(
     const double center_x, const double center_y, const double dx, const double dy,
     const double extent, const double spacing, const std::size_t n_radii,
     const std::vector<double>& cosines, const std::vector<double>& sines) {
-  require_open();
   if (!plane_fluence_held_)
     throw std::logic_error("a plane's fluence trace follows the call that holds it");
   plane_fluence_held_ = false;
@@ -1252,7 +1249,6 @@ std::vector<double> GeneralWorkspace::plane_fluence_trace(
 // native session scans it in place (`axis_populations`).
 std::vector<Complex>
 GeneralWorkspace::axis_spectrum(const std::vector<double>& matrix) {
-  require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
   if (problem_.separable_geometry() || matrix.empty() ||
@@ -1345,7 +1341,6 @@ void GeneralWorkspace::statistics_modal_time() {
 std::vector<double>
 GeneralWorkspace::axis_populations(const std::vector<double>& matrix,
                                    const std::vector<double>& channel_preionisation) {
-  require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
   if (!problem_.plasma.enabled || problem_.plasma.n_channels == 0)
@@ -1481,7 +1476,6 @@ GeneralWorkspace::axis_populations(const std::vector<double>& matrix,
 std::vector<double> GeneralWorkspace::aperture_statistics(
     const std::uint64_t flags, const std::vector<double>& apertures, const int exponent,
     const std::vector<double>& regions, const double intensity_factor) {
-  require_open();
   if (!initialized_ || !far_field_)
     throw std::logic_error(
         "far-field statistics need an initial field on a Cartesian or line grid");
@@ -1507,7 +1501,6 @@ FarFieldPass::Inputs GeneralWorkspace::far_field_inputs() const {
 std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t flags,
                                                          const double intensity_factor,
                                                          const double z) {
-  require_open();
   if (!initialized_ || spatial_spectral_weights_.empty())
     throw std::logic_error(
         "spatial statistics need an initial field and spatial geometry");
@@ -1795,7 +1788,6 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
 // allocated at the first bind and kept; the split's accumulator starts at zero.
 void GeneralWorkspace::bind_monitor(const std::vector<double>& weights,
                                     const std::vector<double>& column_weights) {
-  require_open();
   const auto n_t = problem_.dims.n_t;
   const auto columns = problem_.n_columns();
   require_extent(weights.size(), 4 * n_t, "monitor weights");
@@ -2004,7 +1996,6 @@ void GeneralWorkspace::bind_edge(const std::vector<double>& faces,
                                  const std::vector<double>& totals,
                                  const std::vector<double>& synthesis,
                                  const std::size_t first_row) {
-  require_open();
   const auto nodes = faces.size() / 4;
   require_extent(faces.size(), 4 * nodes, "edge faces");
   require_extent(clip.size(), 4 * nodes, "edge clip");
@@ -2044,7 +2035,6 @@ void GeneralWorkspace::bind_edge(const std::vector<double>& faces,
 // nodes, windows, inward bins and onsets. A batch of one shape serves every line that
 // has it.
 void GeneralWorkspace::bind_edge_lines(const EdgeLines& lines) {
-  require_open();
   const auto n_lines = lines.axes.size();
   require_extent(lines.counts.size(), n_lines, "edge line counts");
   require_extent(lines.inward.size(), 2 * n_lines, "edge line bins");
@@ -2158,7 +2148,6 @@ void GeneralWorkspace::bind_edge_lines(const EdgeLines& lines) {
 EdgeNumbers GeneralWorkspace::edge_reading(const bool faces, const bool whole,
                                            const bool totals, const bool strip,
                                            const bool want_current) {
-  require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
   if (edge_faces_.extent(0) == 0)
@@ -2318,7 +2307,6 @@ EdgeNumbers GeneralWorkspace::edge_reading(const bool faces, const bool whole,
 }
 
 std::vector<double> GeneralWorkspace::monitor_reading() {
-  require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
   if (!monitor_bound_)
@@ -2438,7 +2426,6 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
 // The table is allocated at the first bind and kept.
 void GeneralWorkspace::bind_occupancy(const std::vector<unsigned char>& buckets,
                                       const std::size_t count) {
-  require_open();
   require_extent(buckets.size(), problem_.dims.n_modes * problem_.dims.n_omega,
                  "occupancy buckets");
   if (count == 0 || count > occupancy_bucket_limit)

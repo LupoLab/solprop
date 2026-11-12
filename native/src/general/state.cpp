@@ -33,7 +33,6 @@ void GeneralWorkspace::cross_to_host(const ComplexView2& source,
 }
 
 void GeneralWorkspace::field_to_host(const std::span<Complex> destination) const {
-  require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
   require_extent(destination.size(), problem_.n_columns() * problem_.dims.n_omega,
@@ -50,7 +49,6 @@ std::vector<Complex> GeneralWorkspace::stage_to_host(const std::size_t stage) co
 
 void GeneralWorkspace::stage_to_host(const std::size_t stage,
                                      const std::span<Complex> destination) const {
-  require_open();
   if (!stages_ready_)
     throw std::logic_error("no trial stages have been evaluated");
   if (stage >= problem_.stepper.n_stages)
@@ -72,7 +70,6 @@ void GeneralWorkspace::stage_to_host(const std::size_t stage,
 }
 
 std::vector<Complex> GeneralWorkspace::projected_to_host(const bool coarse) {
-  require_open();
   if (!stages_ready_)
     throw std::logic_error("no trial stages have been evaluated");
   if (coarse && projected_coarse_spectrum_.extent(0) == 0)
@@ -102,351 +99,16 @@ std::map<std::string, bool> GeneralWorkspace::dispersive_path() const {
           {"borrowed", dispersive_->borrowed()}};
 }
 
-void GeneralWorkspace::close() noexcept {
-  if (closed_)
-    return;
-  execution_space_.fence();
-  if (general_)
-    general_->close();
-  general_.reset();
-  if (flow_)
-    flow_->close();
-  flow_.reset();
-  if (dispersive_)
-    dispersive_->close();
-  dispersive_.reset();
-  if (far_field_)
-    far_field_->close();
-  far_field_.reset();
-  if (separable_dispersive_)
-    separable_dispersive_->close();
-  separable_dispersive_.reset();
-  for (auto& stream : held_streams_) {
-    stream.forward.reset();
-    stream.coarse_forward.reset();
-    stream = {};
-  }
-  held_pack_forward_.reset();
-  held_pack_ = {};
-  held_pack_spectrum_ = {};
-  forward_pack_plan_.reset();
-  forward_pack_tail_plan_.reset();
-  forward_pack_fine_plan_.reset();
-  forward_pack_fine_tail_plan_.reset();
-  forward_pack_coarse_plan_.reset();
-  forward_pack_fine_ = {};
-  forward_pack_fine_tail_ = {};
-  forward_pack_coarse_ = {};
-  forward_pack_fine_spectrum_ = {};
-  forward_pack_fine_tail_spectrum_ = {};
-  forward_pack_coarse_spectrum_ = {};
-  forward_pack_ = {};
-  forward_pack_tail_ = {};
-  forward_pack_spectrum_ = {};
-  forward_pack_tail_spectrum_ = {};
-  held_current_ = {};
-  gated_prefix_ = {};
-  gated_filtered_ = {};
-  held_projection_ = {};
-  held_nodal_spectrum_ = {};
-  held_projected_spectrum_ = {};
-  held_derivative_ = {};
-  held_inverse_ = {};
-  for (auto& stream : envelope_streams_)
-    stream = {};
-  envelope_rule_nodes_ = {};
-  envelope_rule_weights_ = {};
-  envelope_moments_ = {};
-  envelope_rates_ = {};
-  envelope_exposure_ = {};
-  envelope_drude_factor_ = {};
-  envelope_loss_factor_ = {};
-  envelope_failures_ = {};
-  envelope_status_ = {};
-  envelope_host_status_ = {};
-  radial_blas_input_ = {};
-  radial_blas_output_ = {};
-  transverse_forward_.reset();
-  transverse_inverse_.reset();
-  volume_forward_.reset();
-  volume_inverse_.reset();
-  volume_scratch_ = {};
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  transform_work_ = {};
-#endif
-  slab_forward_.reset();
-  slab_inverse_.reset();
-  transverse_ = {};
-  spatial_ = {};
-  flux_ = {};
-  flux_table_ = {};
-  flux_transverse_ = {};
-  statistics_magnitude_ = {};
-  temporal_tail_inverse_real_.clear();
-  temporal_tail_inverse_complex_.clear();
-  temporal_tail_forward_real_.clear();
-  temporal_tail_forward_complex_.clear();
-  coarse_tail_inverse_real_.clear();
-  coarse_tail_inverse_complex_.clear();
-  coarse_tail_forward_real_.clear();
-  coarse_tail_forward_complex_.clear();
-  inverse_real_plan_.reset();
-  inverse_complex_plan_.reset();
-  forward_real_plan_.reset();
-  forward_complex_plan_.reset();
-  forward_coarse_real_plan_.reset();
-  forward_coarse_complex_plan_.reset();
-  statistics_inverse_plan_.reset();
-  absorber_real_plan_.reset();
-  absorber_complex_plan_.reset();
-  coarse_inverse_real_plan_.reset();
-  split_inverse_plan_.reset();
-  split_forward_plan_.reset();
-  split_tail_inverse_plan_.reset();
-  split_tail_forward_plan_.reset();
-  coarse_inverse_complex_plan_.reset();
-  coarse_forward_real_plan_.reset();
-  coarse_forward_complex_plan_.reset();
-  raman_drive_forward_plan_.reset();
-  raman_convolution_inverse_plan_.reset();
-  raman_tail_forward_plan_.reset();
-  raman_tail_inverse_plan_.reset();
-  raman_tail_drive_ = {};
-  raman_tail_spectrum_ = {};
-  raman_tail_convolved_ = {};
-  retained_inverse_plan_.reset();
-  retained_tail_inverse_plan_.reset();
-  retained_modal_ = {};
-  retained_node_ = {};
-  raman_product_forward_plan_.reset();
-  raman_product_inverse_plan_.reset();
-  raman_product_drive_ = {};
-  raman_product_spectrum_ = {};
-  raman_kernel_forward_plan_.reset();
-  current_ = {};
-  register_accumulator_ = {};
-  register_stage_ = {};
-  low_storage_flows_ = {};
-  advanced_ = {};
-  stages_ = {};
-  solution_ = {};
-  error_ = {};
-  residual_ = {};
-  recycled_ = {};
-  noise_ = {};
-  whole_propagator_ = {};
-  stage_phase_ = {};
-  stage_inverse_ = {};
-  adams_store_ = {};
-  adams_slopes_ = {};
-  adams_moments_ = {};
-  adams_source_ = {};
-  adams_propagator_ = {};
-  adams_exponent_ = {};
-  adams_saved_ = {};
-  adams_held_ = {};
-  adams_dense_start_ = {};
-  adams_dense_end_ = {};
-  adams_dense_exponent_ = {};
-  adams_divisor_ = {};
-  adams_norms_ = {};
-  adams_source_graph_.reset();
-  adams_states_ = {};
-  adams_rates_ = {};
-  adams_carried_ = {};
-  adams_dense_terms_ = {};
-  adams_lab_ = {};
-  adams_endpoint_ = {};
-  adams_endpoint_rate_ = {};
-  adams_rate_weights_ = {};
-  adams_block_ = {};
-  adams_channels_ = {};
-  adams_fallback_ = {};
-  adams_applied_ = {};
-  adams_end_applied_ = {};
-  adams_end_weights_ = {};
-  fine_spectrum_ = {};
-  projected_spectrum_ = {};
-  projected_coarse_spectrum_ = {};
-  absorber_spectrum_ = {};
-  statistics_spectrum_ = {};
-  statistics_time_ = {};
-  statistics_weighted_time_ = {};
-  statistics_power_weight_ = {};
-  modal_complex_ = {};
-  node_complex_ = {};
-  polarisation_complex_ = {};
-  projected_complex_ = {};
-  projected_coarse_complex_ = {};
-  absorber_complex_ = {};
-  coarse_spectrum_ = {};
-  split_factor_ = {};
-  coarse_time_complex_ = {};
-  scaled_synthesis_complex_ = {};
-  scaled_projection_complex_ = {};
-  scaled_projection_coarse_complex_ = {};
-  scaled_projection_stacked_complex_ = {};
-  projected_stacked_complex_ = {};
-  chunk_synthesis_complex_ = {};
-  tail_synthesis_complex_ = {};
-  chunk_projection_complex_ = {};
-  tail_projection_complex_ = {};
-  chunk_projection_stacked_complex_ = {};
-  tail_projection_stacked_complex_ = {};
-  node_raman_spectrum_ = {};
-  raman_kernel_spectrum_ = {};
-  modal_real_ = {};
-  node_real_ = {};
-  polarisation_real_ = {};
-  projected_real_ = {};
-  projected_coarse_real_ = {};
-  projected_stacked_real_ = {};
-  absorber_real_ = {};
-  coarse_time_real_ = {};
-  node_raman_drive_ = {};
-  node_raman_convolved_ = {};
-  raman_undamped_ = {};
-  raman_tensor_weights_ = {};
-  raman_kernel_time_ = {};
-  stage_raman_rates_ = {};
-  synthesis_ = {};
-  projection_ = {};
-  projection_coarse_ = {};
-  scaled_synthesis_ = {};
-  scaled_projection_ = {};
-  scaled_projection_coarse_ = {};
-  scaled_projection_stacked_ = {};
-  chunk_synthesis_ = {};
-  tail_synthesis_ = {};
-  chunk_projection_ = {};
-  tail_projection_ = {};
-  chunk_projection_stacked_ = {};
-  tail_projection_stacked_ = {};
-  partials_ = {};
-  pinned_partials_ = {};
-  quadrature_partials_ = {};
-  weighted_scale_ = {};
-  weighted_partials_ = {};
-  stash_candidate_ = {};
-  stash_current_ = {};
-  statistics_power_ = {};
-  plasma_statistics_scratch_ = {};
-  plasma_rate_ = {};
-  plasma_exposure_ = {};
-  plasma_fraction_ = {};
-  plasma_current_integrand_ = {};
-  plasma_free_current_ = {};
-  plasma_outer_current_ = {};
-  band_tile_totals_ = {};
-  plasma_tile_totals_ = {};
-  spatial_spectral_weights_ = {};
-  spatial_on_axis_ = {};
-  spatial_statistics_partials_ = {};
-  statistics_total_power_ = {};
-  statistics_on_axis_ = {};
-  statistics_packed_ = {};
-  statistics_axis_row_ = {};
-  monitor_bound_ = false;
-  monitor_weights_ = {};
-  monitor_column_weights_ = {};
-  monitor_share_ = {};
-  monitor_half_ = {};
-  monitor_removed_ = {};
-  monitor_split_sum_ = {};
-  monitor_found_ = {};
-  occupancy_buckets_ = {};
-  occupancy_count_ = 0;
-  crossing_ring_.release();
-  edge_batches_.clear();
-  edge_strip_ = {};
-  edge_lines_.clear();
-  edge_scale_ = {};
-  edge_faces_ = {};
-  edge_clip_ = {};
-  edge_totals_ = {};
-  edge_synthesis_ = {};
-  edge_columns_ = {};
-  tableau_ = {};
-  omega_window_ = {};
-  omega_ = {};
-  time_window_ = {};
-  absorber_fine_ = {};
-  absorber_coarse_ = {};
-  spatial_absorber_real_ = {};
-  spatial_absorber_complex_ = {};
-  stage_phi_delta_ = {};
-  stage_scalars_ = {};
-  stage_rate_weights_ = {};
-  stage_staging_.clear();
-  stage_phi_at_ = {};
-  stage_prefactor_ = {};
-  stage_density_ = {};
-  stage_taper_ = {};
-  stage_preionisation_ = {};
-  rate_coefficients_ = {};
-  channel_parameters_ = {};
-  channel_coefficients_ = {};
-  channel_scratch_ = {};
-  plasma_taps_ = {};
-  plasma_diagnostics_ = {};
-  stage_channel_density_ = {};
-  stage_channel_preionisation_ = {};
-  stage_kerr_density_ = {};
-  stage_plasma_density_ = {};
-  stage_raman_density_ = {};
-  stage_raman_densities_ = {};
-  raman_row_component_ = {};
-  raman_component_fraction_ = {};
-  cached_raman_densities_.clear();
-  carrier_ = {};
-  active_mask_ = {};
-  norm_mask_ = {};
-  crop_index_ = {};
-  fine_gaps_ = {};
-  separable_gaps_ = {};
-  // FFT plans must release their execution instances before runtime shutdown.
-  raman_tail_execution_space_ = ExecutionSpace();
-  raman_execution_space_ = ExecutionSpace();
-  raman_kernel_execution_space_ = ExecutionSpace();
-  raman_product_execution_space_ = ExecutionSpace();
-  raman_product_space_ = ExecutionSpace();
-  temporal_execution_space_ = ExecutionSpace();
-  flow_execution_space_ = ExecutionSpace();
-  absorber_execution_space_ = ExecutionSpace();
-  adams_execution_space_ = ExecutionSpace();
-  adams_copy_space_ = ExecutionSpace();
-  raman_multiply_space_ = ExecutionSpace();
-  raman_tail_multiply_space_ = ExecutionSpace();
-  raman_rebuild_space_ = ExecutionSpace();
-  raman_scale_space_ = ExecutionSpace();
-  response_execution_space_ = ExecutionSpace();
-  response_tail_execution_space_ = ExecutionSpace();
-  transform_execution_space_ = ExecutionSpace();
-  transform_tail_execution_space_ = ExecutionSpace();
-  matrix_copy_space_ = ExecutionSpace();
-  tail_matrix_copy_space_ = ExecutionSpace();
-  stacked_matrix_copy_space_ = ExecutionSpace();
-  tail_stacked_matrix_copy_space_ = ExecutionSpace();
-  node_spectral_space_ = ExecutionSpace();
-  kernel_pool_.clear();
-  fft_pool_.clear();
-  raman_pool_.clear();
-  raman_tail_pool_.clear();
-  fft_execution_space_ = ExecutionSpace();
-  execution_space_ = ExecutionSpace();
-  closed_ = true;
-  initialized_ = false;
-  table_ready_ = false;
-  has_recycled_ = false;
-  pending_fsal_ = false;
-  coarse_pending_ = false;
-  stash_is_current_ = false;
-  raman_kernel_ready_ = false;
-}
+// Members are destroyed in reverse order of declaration: each plan before the views
+// declared ahead of it, the execution instances before the pools that partition them,
+// and every one before an owned Kokkos finalisation (native/AGENTS.md).
+GeneralWorkspace::~GeneralWorkspace() { execution_space_.fence(); }
 
 template <class Function, class... Arguments>
 decltype(auto) GeneralState::with_team(Function function,
                                        Arguments&&... arguments) const {
+  if (!workspace_)
+    throw std::logic_error("native state is closed");
   const CpuTeamScope team(workspace_->cpu_team());
   // NOLINTNEXTLINE(readability-avoid-return-with-void-value): returns what the member returns, void included
   return std::invoke(function, *workspace_, std::forward<Arguments>(arguments)...);
@@ -454,7 +116,7 @@ decltype(auto) GeneralState::with_team(Function function,
 
 GeneralState::GeneralState(Problem problem)
     : workspace_(std::make_unique<GeneralWorkspace>(std::move(problem))) {}
-GeneralState::~GeneralState() { close(); }
+GeneralState::~GeneralState() = default;
 void GeneralState::set_initial(const std::span<const Complex> field,
                                const std::span<const Complex> noise) {
   with_team(&GeneralWorkspace::set_initial, field, noise);
@@ -680,7 +342,7 @@ void GeneralState::bind_edge(const std::vector<double>& faces,
   with_team(&GeneralWorkspace::bind_edge, faces, clip, totals, synthesis, first_row);
 }
 CrossedBytes GeneralState::crossed_bytes() const noexcept {
-  return workspace_->crossed_bytes();
+  return workspace_ ? workspace_->crossed_bytes() : CrossedBytes{};
 }
 void GeneralState::bind_edge_lines(const EdgeLines& lines) {
   with_team(&GeneralWorkspace::bind_edge_lines, lines);
@@ -715,8 +377,9 @@ std::string GeneralState::projection_provider() const {
   return workspace_ ? workspace_->projection_provider() : "closed";
 }
 std::string GeneralState::gemm_shape_policy() const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return std::string(GeneralWorkspace::gemm_shape_policy());
+  return with_team([](const GeneralWorkspace& /*workspace*/) {
+    return std::string(GeneralWorkspace::gemm_shape_policy());
+  });
 }
 std::size_t GeneralState::response_team_size() const noexcept {
   return workspace_ ? workspace_->response_team_size() : 0;
@@ -736,7 +399,8 @@ const Complex* GeneralState::host_field() const {
   return with_team(&GeneralWorkspace::host_field);
 }
 void GeneralState::count_to_host(const std::size_t bytes) const noexcept {
-  workspace_->count_to_host(bytes);
+  if (workspace_)
+    workspace_->count_to_host(bytes);
 }
 void GeneralState::stage_to_host(const std::size_t stage,
                                  const std::span<Complex> destination) const {
@@ -761,10 +425,12 @@ CpuSizing GeneralState::execution_sizing() const {
   return with_team(&GeneralWorkspace::execution_sizing);
 }
 const CpuExecution& GeneralState::cpu_execution() const {
-  return workspace_->cpu_execution();
+  return with_team(&GeneralWorkspace::cpu_execution);
 }
 const FftPlanning& GeneralState::fft_planning() const {
-  return workspace_->problem_.fft_planning;
+  return with_team([](const GeneralWorkspace& workspace) -> const FftPlanning& {
+    return workspace.problem_.fft_planning;
+  });
 }
 double GeneralState::planning_seconds() const noexcept {
   return workspace_ ? workspace_->planning_seconds() : 0.0;
@@ -790,12 +456,7 @@ std::size_t GeneralState::rk_source_evaluations() const noexcept {
 std::size_t GeneralState::axis_scans() const noexcept {
   return workspace_ ? workspace_->axis_scans() : 0;
 }
-bool GeneralState::closed() const noexcept {
-  return !workspace_ || workspace_->closed();
-}
-void GeneralState::close() noexcept {
-  if (workspace_)
-    workspace_->close();
-}
+bool GeneralState::closed() const noexcept { return !workspace_; }
+void GeneralState::close() noexcept { workspace_.reset(); }
 
 } // namespace solprop_native

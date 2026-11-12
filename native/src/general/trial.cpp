@@ -343,7 +343,6 @@ const ExecutionSpace& GeneralWorkspace::fft_space_for(const std::size_t samples,
 
 void GeneralWorkspace::set_initial(const std::span<const Complex> field,
                                    const std::span<const Complex> noise) {
-  require_open();
   require_extent(field.size(), problem_.n_columns() * problem_.dims.n_omega,
                  "initial field");
   if (!noise.empty())
@@ -521,7 +520,6 @@ void GeneralWorkspace::use_uploaded_sample(const TrialScalars& sample) {
 
 void GeneralWorkspace::prepare_raman(const std::vector<double>& rates,
                                      const std::vector<double>& densities) {
-  require_open();
   if (!problem_.raman.enabled)
     throw std::logic_error("this state has no Raman workspace");
   require_extent(rates.size(), problem_.raman.n_terms, "Raman decay rates");
@@ -632,7 +630,6 @@ void GeneralWorkspace::prepare_raman_stage(const std::size_t stage, const double
 }
 
 void GeneralWorkspace::prepare_trial(const double dz, const TrialScalars& scalars) {
-  require_open();
   if (problem_.stepper.low_storage)
     refuse<std::logic_error>("trial_step: a low-storage state of ", current_.extent(0),
                              " x ", current_.extent(1),
@@ -733,7 +730,6 @@ std::vector<double> GeneralWorkspace::trial_step(const double dz,
 // place.
 std::vector<Complex> GeneralWorkspace::adams_source(const std::vector<Complex>& input,
                                                     const TrialScalars& scalars) {
-  require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
   // Every route's stage source serves the Adams march (solprop SEP 16 phase 3): the
@@ -775,7 +771,6 @@ std::vector<Complex> GeneralWorkspace::adams_source(const std::vector<Complex>& 
 // Adopt an Adams step's end state, given on the host before its boundary treatments:
 // the shared finish masks it, or applies the split-step absorber, and makes it current.
 void GeneralWorkspace::adopt(const std::vector<Complex>& field, const double dz) {
-  require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
   require_extent(field.size(), problem_.n_columns() * problem_.dims.n_omega,
@@ -951,7 +946,6 @@ void register_traversal(const char* label, const ExecutionSpace& execution,
 
 double GeneralWorkspace::low_storage_step(const double dz, const TrialScalars& scalars,
                                           const bool rebuild_table) {
-  require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
   if (!problem_.stepper.low_storage)
@@ -1503,7 +1497,6 @@ void GeneralWorkspace::low_storage_modal_input(const std::size_t pass) {
 
 void GeneralWorkspace::adams_allocate(const std::size_t slots, const bool compensated,
                                       const bool interpolate) {
-  require_open();
   if (slots == 0 || slots > adams_max_samples)
     throw std::invalid_argument("the Adams history needs 1 to 8 rows");
   if (compensated && problem_.separable_geometry())
@@ -1615,7 +1608,6 @@ void GeneralWorkspace::adams_allocate(const std::size_t slots, const bool compen
 }
 
 void GeneralWorkspace::require_adams() const {
-  require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
   if (adams_store_.extent(0) == 0)
@@ -1744,7 +1736,6 @@ void GeneralWorkspace::adams_start(const std::size_t slot,
 
 void GeneralWorkspace::adams_scale(const double rtol, const double atol,
                                    const std::vector<double>& weights) {
-  require_open();
   if (!weights.empty())
     require_extent(weights.size(), problem_.dims.n_omega, "Adams scale weights");
   adams_rtol_ = rtol;
@@ -2096,7 +2087,6 @@ void GeneralWorkspace::table_upload(const TableKind kind, std::vector<double> ed
                                     const std::size_t n_intervals,
                                     const std::size_t n_terms,
                                     const std::size_t n_values) {
-  require_open();
   const bool prefactor = kind == TableKind::prefactor;
   const bool flux = kind == TableKind::flux;
   if (flux
@@ -2150,7 +2140,6 @@ void GeneralWorkspace::table_upload(const TableKind kind, std::vector<double> ed
 // prefactor's, each a pass over its coefficients for every position at once.
 void GeneralWorkspace::table_evaluate(const std::vector<std::size_t>& slots,
                                       const std::vector<double>& positions) {
-  require_open();
   if (!phi_table_.present() && !prefactor_table_.present())
     throw std::logic_error("no z table has been uploaded");
   for (const auto slot : slots) {
@@ -2184,7 +2173,6 @@ void GeneralWorkspace::flux_at(const double z) {
 // interior breakpoint `before` asks for (solprop's `phi_rate`).
 void GeneralWorkspace::table_rate(const std::size_t slot, const double z,
                                   const bool before) {
-  require_open();
   if (!rate_table_.present())
     throw std::logic_error("no rate table has been uploaded");
   if (slot >= problem_.linear.n_phi_terms)
@@ -2197,7 +2185,6 @@ void GeneralWorkspace::table_rate(const std::size_t slot, const double z,
 std::vector<Complex>
 GeneralWorkspace::table_terms_to_host(const TableKind kind,
                                       const std::size_t slot) const {
-  require_open();
   const auto& terms = kind == TableKind::prefactor ? prefactor_terms_ : phi_terms_;
   if (slot >= terms.extent(0))
     refuse<std::out_of_range>("term slot ", slot, " is not a term of this problem");
@@ -2215,7 +2202,6 @@ GeneralWorkspace::table_terms_to_host(const TableKind kind,
 // row of weights, into a fresh host array: a diagnostic, outside any trial.
 std::vector<Complex>
 GeneralWorkspace::phase_sum_to_host(const std::vector<double>& weights) {
-  require_open();
   if (problem_.separable_geometry())
     throw std::logic_error("a separable operator has no Phi terms");
   require_extent(weights.size(), problem_.linear.n_phi_terms, "phase weights");
@@ -4763,7 +4749,6 @@ struct StepExponent {
 } // namespace
 
 void GeneralWorkspace::rk_dense_allocate(const std::vector<double>& weights) {
-  require_open();
   if (problem_.stepper.low_storage || stages_.extent(0) == 0)
     throw std::logic_error("Runge-Kutta dense output needs the Runge-Kutta stages");
   if (weights.size() != problem_.stepper.n_stages ||
@@ -4783,7 +4768,6 @@ void GeneralWorkspace::rk_dense_allocate(const std::vector<double>& weights) {
 }
 
 void GeneralWorkspace::rk_dense_hold(const double dz) {
-  require_open();
   if (rk_dense_coefficients_.extent(0) == 0)
     throw std::logic_error("Runge-Kutta dense output storage is not allocated");
   if (!stages_ready_)
@@ -4839,7 +4823,6 @@ void GeneralWorkspace::rk_dense_hold(const double dz) {
 }
 
 void GeneralWorkspace::rk_dense_observe(const double theta, const TrialScalars& carry) {
-  require_open();
   if (!rk_dense_ready_)
     throw std::logic_error("no Runge-Kutta step is held for a dense observation");
   require_trial_scalars(carry);
@@ -4886,7 +4869,6 @@ void GeneralWorkspace::rk_dense_observe(const double theta, const TrialScalars& 
 }
 
 void GeneralWorkspace::rk_dense_restore() {
-  require_open();
   if (rk_dense_held_.extent(0) == 0)
     throw std::logic_error("Runge-Kutta dense output storage is not allocated");
   graph::deep_copy(execution_space_, current_, rk_dense_held_);
@@ -9087,7 +9069,6 @@ void GeneralWorkspace::finish_stage(const std::size_t stage) {
 void GeneralWorkspace::set_flow_actions(const std::vector<Complex>& forward,
                                         const std::vector<Complex>& inverse,
                                         const std::vector<unsigned char>& identity) {
-  require_open();
   if (!flow_)
     throw std::logic_error("this state carries no coupled flow");
   flow_->set_actions(forward, inverse, identity);
@@ -9114,7 +9095,6 @@ std::vector<Complex> GeneralWorkspace::adams_exponent_to_host() const {
 }
 
 std::vector<Complex> GeneralWorkspace::flow_actions_to_host(const bool inverse) const {
-  require_open();
   if (!flow_)
     throw std::logic_error("this state carries no coupled flow");
   return flow_->actions_to_host(inverse);
@@ -9123,14 +9103,12 @@ std::vector<Complex> GeneralWorkspace::flow_actions_to_host(const bool inverse) 
 std::vector<double>
 GeneralWorkspace::form_flow_actions(const std::size_t section, const double dz,
                                     const std::vector<double>& fractions) {
-  require_open();
   if (!flow_)
     throw std::logic_error("this state carries no coupled flow");
   return flow_->form_actions(section, dz, fractions);
 }
 
 std::vector<double> GeneralWorkspace::weighted_error(const std::vector<double>& scale) {
-  require_open();
   if (!problem_.stepper.weighted_controller)
     throw std::logic_error("this state has no weighted controller workspace");
   require_extent(scale.size(), problem_.dims.n_omega, "weighted controller scale");
@@ -9350,7 +9328,6 @@ void GeneralWorkspace::scan_plasma_statistics(const std::size_t first_node,
 }
 
 void GeneralWorkspace::finish(const double dz) {
-  require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
   if (problem_.stepper.low_storage) {
@@ -9525,7 +9502,6 @@ double GeneralWorkspace::quadrature_peak() {
 }
 
 void GeneralWorkspace::promote_fsal() {
-  require_open();
   score_quadrature();
   if (!pending_fsal_)
     return;
