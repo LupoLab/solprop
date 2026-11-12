@@ -9,6 +9,9 @@ exactly what it built before; a builder that assembles a problem or a simulation
 pinned, when it was migrated, by the configuration hash of what the old copies built.
 """
 
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -18,7 +21,7 @@ from solprop.grid import TimeGrid
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
-__all__ = ["launch_derivative", "numpy_ref_launch_derivative"]
+__all__ = ["launch_derivative", "numpy_ref_launch_derivative", "run_python"]
 
 
 def launch_derivative(backend: NumpyRefBackend, problem: PropagationProblem) -> Any:
@@ -46,3 +49,20 @@ def numpy_ref_launch_derivative(
         return launch_derivative(backend, problem)
     finally:
         backend.close()
+
+
+def run_python(path: Path) -> "subprocess.CompletedProcess[str]":
+    """Run a written script with this interpreter in its own folder, as a person would.
+
+    A fresh process, so without the tests' type hook; asserts it exits cleanly, showing
+    its standard error if not, and returns the completed process.
+    """
+    result = subprocess.run(
+        [sys.executable, str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=path.parent,
+    )
+    assert result.returncode == 0, result.stderr
+    return result
