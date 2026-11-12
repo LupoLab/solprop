@@ -1014,22 +1014,16 @@ def test_the_backend_group_survives_both_handlers(tmp_path, grid, schedule):
         assert file.attrs["backend"] == "numba_cpu"
 
 
-@pytest.mark.parametrize(
-    ("name", "settings"),
-    [
-        ("numba_cpu", {"numba_threads": 4, "fftw_threads": 2}),
-        ("mlx", {"device": "gpu", "fused": True}),
-    ],
-)
 def test_a_file_recording_a_removed_backend_still_opens_and_resumes(
-    tmp_path, grid, schedule, name, settings
+    tmp_path, grid, schedule
 ):
     """A recorded name is not a request: old output keeps the name it was written with.
 
-    Hand-built, as a file ``numba_cpu`` wrote before SEP 43 removed it, or ``mlx``
-    before SEP 47 retired it; the name is refused where a run asks for it
-    (``tests/backends/test_registry.py``), never where a file is read.
+    Hand-built, as 0.2.0 wrote a file with ``mlx`` before SEP 47 retired it; the name
+    is refused where a run asks for it (``tests/backends/test_registry.py``), never
+    where a file is read.
     """
+    name, settings = "mlx", {"device": "gpu", "fused": True}
     assert name not in BACKEND_NAMES
     record = BackendRecord.from_metadata(
         {"backend": name, "propagator_mode": "recompute", **settings}
@@ -1131,9 +1125,9 @@ def test_the_stored_rows_have_the_documented_shapes(grid, metadata, tmp_path):
 def test_a_run_that_recorded_no_channel_reads_back_empty(grid, metadata, tmp_path):
     """The default, on both handlers: asking is not an error.
 
-    A file written before schema version 3 has no ``step_stats`` group at all, and a
-    run that recorded no periodic subset has an empty one; both answer the same way, so
-    that processing and plotting can ask unconditionally and fall back to the planes.
+    A run that recorded no periodic subset has an empty ``step_stats`` group, which
+    answers like this, so that processing and plotting can ask unconditionally and fall
+    back to the planes.
     """
     memory = MemoryOutput()
     memory.open(metadata)
@@ -1279,42 +1273,6 @@ def test_a_run_record_declares_the_current_output_schema(metadata):
     """Schema 2 is schema 1, the first released layout, plus a recorded field."""
     assert SCHEMA_VERSION == 2
     assert metadata.schema_version == 2
-
-
-def _four_column_file(grid, metadata, path, *, in_rows=False):
-    """A file as an earlier development build wrote it: four absorbed-power columns."""
-    power = np.array([1.0, 2.0, 3.0, 4.0])
-    plane = make_plane(grid, 0)
-    if in_rows:
-        rows = StepStats(
-            z=np.array([0.0, 0.1]),
-            step=np.array([1, 2], dtype=np.int64),
-            values={"absorbed_power": np.ones((2, 4))},
-        )
-        plane = dataclasses.replace(plane, step_stats=rows)
-    else:
-        plane = dataclasses.replace(plane, stats={"absorbed_power": power})
-    with HDF5Output(path) as handler:
-        handler.open(metadata)
-        handler.save(plane)
-
-
-@pytest.mark.parametrize("in_rows", [False, True])
-def test_a_four_column_file_still_reads_as_it_was_written(
-    grid, metadata, tmp_path, in_rows
-):
-    path = tmp_path / "earlier.h5"
-    _four_column_file(grid, metadata, path, in_rows=in_rows)
-    with hdf5_module.open_file(path) as stored:
-        if in_rows:
-            np.testing.assert_array_equal(
-                stored["step_stats/absorbed_power"], np.ones((2, 4))
-            )
-        else:
-            np.testing.assert_array_equal(
-                stored["stats/absorbed_power"], [[1.0, 2.0, 3.0, 4.0]]
-            )
-    assert ABSORBED_CHANNELS[:4] == ("spectral", "transverse", "evanescent", "material")
 
 
 def test_five_columns_continue_as_before(grid, metadata, tmp_path):

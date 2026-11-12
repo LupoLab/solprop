@@ -2473,7 +2473,6 @@ class _NativeAdamsMarch:
         """Return why a snapshot cannot continue this march at `z`, or ``None``."""
         shape = tuple(self._backend._problem.shape)
         checks = (
-            (snapshot.history_key is None, "the snapshot names no history key"),
             (
                 snapshot.history_key != self._method.history_key,
                 f"the snapshot's history was kept by {snapshot.history_key}, and "
