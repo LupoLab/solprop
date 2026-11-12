@@ -458,47 +458,6 @@ planar compressor.
 
     </div>
 
-Performance
------------
-
-Running the same physics in less memory: single precision on the reference backend,
-compared with binary64.
-
-
-.. raw:: html
-
-  <div id='sg-tag-list' class='sphx-glr-tag-list'></div>
-
-
-.. raw:: html
-
-    <div class="sphx-glr-thumbnails">
-
-.. thumbnail-parent-div-open
-
-.. raw:: html
-
-    <div class="sphx-glr-thumbcontainer" tooltip="A run can hold its field and evaluate its nonlinear response in binary32 with precision=&quot;single&quot;, which halves the memory of every field-sized buffer. Whether a problem keeps its accuracy in binary32 is a property of the problem, so this example runs two of them both ways and compares: the photoionisation blue shift of /auto_examples/processes/plot_06_ionisation_blue_shift, here over its first 0.2 m, and a short radial argon filament, both on field grids with the field-grid plasma. Each runs in binary64 on the default backend, native, and in binary32 on the reference backend, numpy_ref, which is named explicitly: it is the backend that runs single precision.">
-
-.. only:: html
-
-  .. image:: /auto_examples/performance/images/thumb/sphx_glr_plot_01_single_precision_thumb.png
-    :alt:
-
-  :doc:`/auto_examples/performance/plot_01_single_precision`
-
-.. raw:: html
-
-      <div class="sphx-glr-thumbnail-title">Single precision</div>
-    </div>
-
-
-.. thumbnail-parent-div-close
-
-.. raw:: html
-
-    </div>
-
 
 .. toctree::
    :hidden:
@@ -508,5 +467,4 @@ compared with binary64.
    /auto_examples/processes/index.rst
    /auto_examples/supercontinuum/index.rst
    /auto_examples/waveguides/index.rst
-   /auto_examples/performance/index.rst
 
