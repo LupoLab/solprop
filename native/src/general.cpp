@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "solprop_native/adams_phi.hpp"
+#include "solprop_native/build.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/coupled_flow.hpp"
 #include "solprop_native/crossing.hpp"
@@ -2520,11 +2521,7 @@ public:
                                                        .plane = plane};
   }
   RegisterIndex register_index() const noexcept {
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-    constexpr bool plane = false;
-#else
-    constexpr bool plane = true;
-#endif
+    constexpr bool plane = build::host;
     return {.layout = transverse_layout(),
             .n_pol = problem_.n_pol_state,
             .n = problem_.n_omega,
@@ -2719,16 +2716,14 @@ public:
   void held_transform(bool coarse_only = false, bool transformed = false);
   void finish_quadrature();
   bool deferred_quadrature_eligible() const noexcept {
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-    return false;
-#else
+    if constexpr (build::device)
+      return false;
     // The validated seven-stage FSAL tableau identifies the ordinary DOPRI5
     // route without another seam field. Other consumers retain eager spectra.
     return problem_.first_same_as_last && problem_.n_stages == 7 &&
            !problem_.low_storage && !problem_.separable_geometry() && !general_ &&
            !flow_ && !dispersive_ && !problem_.envelope_plasma && !held_radial() &&
            !problem_.projection_coarse_matrix.empty();
-#endif
   }
   void held_radial_projection(std::size_t first_node, std::size_t node_count);
   void envelope_cycle(std::size_t channel, std::size_t node_count,
@@ -3272,17 +3267,13 @@ public:
 // 36 nodes, 10240 samples) took 71 us in cuBLAS and its synthesis 27 us; at 256
 // radial modes the vendor GEMM runs near the FP64 peak.
 bool GeneralWorkspace::hybrid_shape_eligible() const noexcept {
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  return problem_.n_modes >= 8 && problem_.n_nodes >= 8 && problem_.n_to >= 1024;
-#else
-  return true;
-#endif
+  return build::host ||
+         (problem_.n_modes >= 8 && problem_.n_nodes >= 8 && problem_.n_to >= 1024);
 }
 
 bool GeneralWorkspace::use_packed_radial_blas() const noexcept {
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  return false;
-#else
+  if constexpr (build::device)
+    return false;
   // Two packed work arrays add two complex-equivalent time columns to the
   // shared conservative twenty-column inventory. Decide before allocation.
   constexpr std::size_t max_samples =
@@ -3293,7 +3284,6 @@ bool GeneralWorkspace::use_packed_radial_blas() const noexcept {
          problem_.n_pol_transform == 1 && problem_.family == FieldFamily::envelope &&
          problem_.projection_coarse_matrix.empty() && problem_.n_nodes >= 256 &&
          problem_.n_to >= 256 && problem_.n_nodes <= max_samples / problem_.n_to;
-#endif
 }
 
 // The retained-spectrum radial synthesis, on a host and a device. A real static
@@ -3509,16 +3499,14 @@ bool GeneralWorkspace::use_chunked_blas_for_synthesis() const noexcept {
 // `(s * taper) * x` and `(p / taper) * y`.
 // The host's columns only: a device keeps its own column kernels.
 bool GeneralWorkspace::folds_single_node() const noexcept {
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  return false;
-#else
+  if constexpr (build::device)
+    return false;
   return !general_ && !dispersive_ && !held_radial() && !gated_plasma() &&
          !problem_.separable_geometry() && problem_.n_modes == 1 &&
          problem_.n_nodes == 1 && problem_.node_chunk == 1 &&
          problem_.n_pol_state == 1 && problem_.n_pol_transform == 1 &&
          problem_.projection_coarse_matrix.empty() && !problem_.raman &&
          !problem_.envelope_plasma && radial_blas_input_.empty();
-#endif
 }
 
 bool GeneralWorkspace::use_chunked_blas_for_projection() const noexcept {
@@ -3965,11 +3953,7 @@ void GeneralWorkspace::allocate() {
   const auto pack_slice = [&](const std::size_t first, const std::size_t count) {
     return std::pair<std::size_t, std::size_t>(first, first + count);
   };
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  constexpr bool host_pack_layout = false;
-#else
-  constexpr bool host_pack_layout = true;
-#endif
+  constexpr bool host_pack_layout = build::host;
   // A host's pack: [absorber | fine | held fine x2 | coarse | held coarse x2]; a
   // device's: [absorber | fine | coarse | (held fine, held coarse) x2].
   const std::size_t held_fine_rows = held_plasma() ? 2 * temporal_columns : 0;
@@ -7489,11 +7473,7 @@ namespace {
 // runs its loops over the block, so that what one loop writes the next reads from
 // cache, and a strict loop is one call a block on a compiler that keeps strict
 // functions out of line; a device takes a thread an element.
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-constexpr std::size_t adams_block = 1;
-#else
-constexpr std::size_t adams_block = adams_lane_width;
-#endif
+constexpr std::size_t adams_block = build::device ? 1 : adams_lane_width;
 
 // The host blocks run as lanes where the vector maths forms their exponentials in
 // passes (`vmath::vectorised`); elsewhere (devices, the system libm on Arm) each
@@ -9448,9 +9428,8 @@ void GeneralWorkspace::adams_exponential_accept(const double dz, const std::size
 // tables while the device finishes the step (on an AMD Instinct MI325X a trial's
 // kernels take a few microseconds each, so the wait was a visible part of a trial).
 void GeneralWorkspace::adams_accepted_boundary() const {
-#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-  execution_space_.fence("solprop_native Adams accepted-step boundary");
-#endif
+  if constexpr (build::host)
+    execution_space_.fence("solprop_native Adams accepted-step boundary");
 }
 
 // The field at the fraction `xi` of the last accepted step: the accepted corrector's
@@ -11801,11 +11780,7 @@ int GeneralWorkspace::band_host_team_size(const std::size_t node_count) const {
 }
 
 std::size_t GeneralWorkspace::band_league(const std::size_t node_count) const {
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  return node_count;
-#else
-  return std::min(node_count, band_slots_);
-#endif
+  return build::device ? node_count : std::min(node_count, band_slots_);
 }
 
 template <class Functor>

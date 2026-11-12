@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "solprop_native/build.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/dispersive.hpp"
 #include "solprop_native/raman_fft.hpp"
@@ -67,11 +68,7 @@ constexpr std::size_t general_projection_lanes(const std::size_t modes,
  * (exactly, a power of two): half the inverse transform's work and half the field's
  * memory traffic. Host builds only; device builds keep the complex transform.
  */
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-inline constexpr bool general_real_signal_enabled = false;
-#else
-inline constexpr bool general_real_signal_enabled = true;
-#endif
+inline constexpr bool general_real_signal_enabled = build::host;
 
 /**
  * Refuse a general modal problem whose extents or data this source cannot execute.
