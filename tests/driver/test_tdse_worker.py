@@ -34,8 +34,6 @@ from solprop.exceptions import (
 from solprop.nonlinear.tdse import TDSEExecution
 from solprop.output import open_file, resume
 
-pytestmark = pytest.mark.medium
-
 DEADLINE = 10.0
 """A test-harness bound on a cancellation; the production code has none."""
 
@@ -86,9 +84,20 @@ def _plain(record):
     return json.loads(json.dumps(record, allow_nan=False))
 
 
+@pytest.mark.medium
 def test_evaluations_through_the_worker_equal_the_provider_called_directly(workers):
     descriptor = _descriptor(preset_basis(1))
-    through, worker_binding = _evaluate_once(descriptor)
+    provider_modules = ("pyroraptor", "source_adapters")
+    with pytest.MonkeyPatch.context() as isolated:
+        # Another test of this process may have loaded a provider module (a fake
+        # one, in-process): set them aside, so that what follows shows what this
+        # run imports, whatever ran before it.
+        for name in [n for n in sys.modules if n.split(".")[0] in provider_modules]:
+            isolated.delitem(sys.modules, name)
+        through, worker_binding = _evaluate_once(descriptor)
+        # The provider lived in the worker alone.
+        loaded = [n for n in sys.modules if n.split(".")[0] in provider_modules]
+        assert not loaded
     with pytest.MonkeyPatch.context() as patch:
         fake = source_channel.install(patch, FakeHaccProvider())
         fake.response = alpha_law(1.02, lambda5=2.0**-200)
@@ -99,11 +108,10 @@ def test_evaluations_through_the_worker_equal_the_provider_called_directly(worke
     assert through.outcomes_json == direct.outcomes_json
     assert worker_binding.ledger == direct_binding.ledger
     assert _plain(worker_binding.metadata()) == _plain(direct_binding.metadata())
-    # The provider lived in the worker alone.
-    assert "pyroraptor" not in sys.modules and "source_adapters" not in sys.modules
     assert len(workers) == 1 and not workers[0].alive
 
 
+@pytest.mark.medium
 def test_the_handshake_refuses_another_execution_space_by_name(monkeypatch, workers):
     monkeypatch.setattr(tdse, "_ADAPTER", "source_adapters:cuda_tdse")
     with pytest.raises(BackendError, match="native build uses"):
@@ -111,6 +119,7 @@ def test_the_handshake_refuses_another_execution_space_by_name(monkeypatch, work
     assert len(workers) == 1 and not workers[0].alive
 
 
+@pytest.mark.medium
 def test_the_handshake_records_another_provider_revision(monkeypatch, workers):
     monkeypatch.setattr(tdse, "_ADAPTER", "source_adapters:stale_tdse")
     binding = _bind(_descriptor(preset_basis(1)))
@@ -121,6 +130,7 @@ def test_the_handshake_records_another_provider_revision(monkeypatch, workers):
         binding.close()
 
 
+@pytest.mark.medium
 def test_a_failure_in_preparation_is_named_and_ends_the_worker(workers):
     with pytest.raises(BackendError, match="no complement option") as raised:
         _bind(
@@ -131,6 +141,7 @@ def test_a_failure_in_preparation_is_named_and_ends_the_worker(workers):
     assert len(workers) == 1 and not workers[0].alive
 
 
+@pytest.mark.medium
 def test_the_transport_copies_are_in_the_ledger_and_admitted_before_start(workers):
     descriptor = _descriptor(preset_basis(1))
     execution = TDSEExecution(max_batch_rows=2)
@@ -150,6 +161,7 @@ def test_the_transport_copies_are_in_the_ledger_and_admitted_before_start(worker
     assert len(workers) == 1
 
 
+@pytest.mark.medium
 def test_a_stop_during_an_atomic_call_kills_the_worker_and_keeps_the_charge(
     monkeypatch, workers
 ):
@@ -166,6 +178,7 @@ def test_a_stop_during_an_atomic_call_kills_the_worker_and_keeps_the_charge(
     binding.close()
 
 
+@pytest.mark.medium
 def test_after_a_provider_exception_the_retry_gets_a_fresh_worker(
     monkeypatch, workers, tmp_path
 ):

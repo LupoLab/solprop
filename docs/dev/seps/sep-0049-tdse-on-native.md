@@ -1210,12 +1210,16 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
     it either way.
   - §7.3 item 1 reads each engine's history row zero after the first attempt, not
     the stage output alone: native has no stage output outside a run. Without the
-    in-stage absorber the initial step is accepted on both, and the row, the startup
-    output carried to the step's end in the interaction formulation, is equal bit for
-    bit; with it, the collar rejects the initial step, the row is the startup output,
-    and it is within one transform's bound, peak-normalised.
+    in-stage absorber the initial step is accepted on both. In the exponential
+    formulation the row is the startup output, equal bit for bit. In the interaction
+    formulation it is that output carried to the step's end, by each engine's own
+    complex product, so it is within 4 eps of each value: bit for bit in CI's macOS,
+    Linux and Windows x86-64 lanes, one ulp apart on Windows on Arm.
+    With the absorber, the collar rejects the initial step, the row is the startup
+    output, and it is within one transform's bound, peak-normalised.
   - Item 4 is two runs: eight steps of 2^-27 m without the in-stage absorber (cap and
-    length binary-exact, so no final step is split), within the eight-step 128 eps; and, with the absorber, whose collar holds the steps to about a
+    length binary-exact, so no final step is split), within the eight-step 128 eps;
+    and, with the absorber, whose collar holds the steps to about a
     two-hundredth of the run, 0.2 um in some four hundred attempts within the
     attempts times the one-step 16 eps. Each checks that the source moves its field a
     millionfold beyond the budget.

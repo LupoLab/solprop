@@ -397,8 +397,10 @@ def test_the_startup_evaluation_is_the_reference_s(
     formulation, kerr_model, noise, monkeypatch
 ):
     """Item 1: the field the engine gathers and ``F`` bit for bit, through the C++
-    gather and the binding; the history's first row after the first attempt bit for
-    bit without the in-stage absorber, within one transform's bound with it."""
+    gather and the binding; the history's first row after the first attempt, without
+    the in-stage absorber, bit for bit where it is the startup output itself and
+    within one complex product where the interaction formulation transported it; with
+    the absorber, within one transform's bound."""
     for absorber in (False, True):
         changes: dict[str, Any] = {} if absorber else {"absorber": None}
         case = _case(formulation, kerr_model, noise=noise, **changes)
@@ -418,7 +420,18 @@ def test_the_startup_evaluation_is_the_reference_s(
             assert ours["position"] == expected["position"] > 0
             if formulation == "exponential":
                 np.testing.assert_array_equal(expected["after"], expected["row"])
-            np.testing.assert_array_equal(ours["row"], expected["after"])
+                np.testing.assert_array_equal(ours["row"], expected["after"])
+            else:
+                # The transport is each engine's own complex product, which a
+                # compiler may fuse (MSVC on Arm64 does): within its rounding, a few
+                # eps of each value, not bits.
+                assert_within(
+                    ours["row"],
+                    expected["after"],
+                    4 * EPS * np.abs(expected["after"]),
+                    elementwise=True,
+                    what="transported startup row",
+                )
         else:
             # The collar rejects the initial step: row zero is the startup output.
             assert ours["position"] == case[0].initial.z

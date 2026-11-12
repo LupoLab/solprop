@@ -42,8 +42,6 @@ from solprop.driver._source_worker import (
 )
 from solprop.exceptions import RunTerminated, StopRequested
 
-pytestmark = pytest.mark.medium
-
 # How long a cancellation may take before the test calls it broken: the poll interval
 # and a kill, with room for a loaded machine.
 DEADLINE = 10.0
@@ -78,6 +76,7 @@ class _Pair:
     right: object
 
 
+@pytest.mark.medium
 def test_the_codec_round_trips_values_and_records_without_pickle():
     value = {
         "arrays": [
@@ -108,6 +107,7 @@ def test_the_codec_round_trips_values_and_records_without_pickle():
     assert back["opaque"].type_name == "builtins.object"
 
 
+@pytest.mark.medium
 def test_a_record_s_computed_values_read_as_attributes_but_are_not_fields():
     tree, arrays = encode(_Pair(1, 2), lambda value: {"ok": True})
     record: Any = decode(tree, arrays)
@@ -117,6 +117,7 @@ def test_a_record_s_computed_values_read_as_attributes_but_are_not_fields():
         record.missing  # noqa: B018 - the attribute access is the test
 
 
+@pytest.mark.medium
 def test_the_worker_environment_drops_native_s_own_wait_settings_only():
     native = {
         "SOLPROP_NATIVE_WAIT": "spin",
@@ -138,6 +139,7 @@ def test_the_worker_environment_drops_native_s_own_wait_settings_only():
     assert kept["GOMP_SPINCOUNT"] == "5" and "KMP_BLOCKTIME" not in kept
 
 
+@pytest.mark.medium
 def test_the_native_wait_settings_are_solprop_native_s_own(monkeypatch):
     """The worker removes exactly what solprop-native sets (ADR-071)."""
     spec = importlib.util.find_spec("solprop_native")
@@ -155,11 +157,13 @@ def test_the_native_wait_settings_are_solprop_native_s_own(monkeypatch):
     assert _source_worker._NATIVE_WAIT_SETTINGS == module._SETTINGS
 
 
+@pytest.mark.medium
 def test_the_worker_environment_keeps_blas_idle():
     environment = worker_environment({}, {})
     assert "OPENBLAS_THREAD_TIMEOUT" in environment
 
 
+@pytest.mark.medium
 def test_values_cross_a_real_worker_bit_for_bit(worker):
     rng = np.random.default_rng(49)
     sent = {"field": rng.standard_normal((3, 257)), "labels": (1, 3), "z": 0.25}
@@ -171,11 +175,13 @@ def test_values_cross_a_real_worker_bit_for_bit(worker):
     assert worker.pid == worker.identity["pid"] != os.getpid()
 
 
+@pytest.mark.medium
 def test_the_provider_s_printing_never_corrupts_a_frame(worker):
     assert worker.request("print") == "printed"
     assert worker.request("echo", [1, 2]) == [1, 2]
 
 
+@pytest.mark.medium
 def test_a_provider_exception_is_reported_by_name_and_ends_the_worker(worker):
     with pytest.raises(RemoteError) as raised:
         worker.request("raise")
@@ -188,6 +194,7 @@ def test_a_provider_exception_is_reported_by_name_and_ends_the_worker(worker):
     _assert_ended(worker)
 
 
+@pytest.mark.medium
 def test_a_worker_that_exits_is_a_named_failure_with_its_status_and_stderr(worker):
     with pytest.raises(WorkerError, match="exit status 7") as raised:
         worker.request("exit")
@@ -204,12 +211,14 @@ def test_a_worker_that_exits_is_a_named_failure_with_its_status_and_stderr(worke
         ("malformed", "malformed worker message"),
     ],
 )
+@pytest.mark.medium
 def test_a_closed_pipe_or_a_malformed_frame_ends_the_worker(worker, kind, message):
     with pytest.raises(WorkerError, match=message):
         worker.request(kind)
     _assert_ended(worker)
 
 
+@pytest.mark.medium
 def test_an_oversized_frame_is_refused_before_it_is_read():
     worker = _worker(limit=4096)
     with pytest.raises(WorkerError, match="over its bound of 4096"):
@@ -217,6 +226,7 @@ def test_an_oversized_frame_is_refused_before_it_is_read():
     _assert_ended(worker)
 
 
+@pytest.mark.medium
 def test_a_failure_while_starting_is_reported_by_name():
     worker = Worker(
         "source_adapters:failing_adapter",
@@ -227,6 +237,7 @@ def test_a_failure_while_starting_is_reported_by_name():
     _assert_ended(worker)
 
 
+@pytest.mark.medium
 def test_a_protocol_mismatch_is_refused_before_any_request(monkeypatch):
     monkeypatch.setattr(_source_worker, "PROTOCOL_VERSION", 99)
     worker = Worker("source_adapters", environment=worker_environment(os.environ, {}))
@@ -240,6 +251,7 @@ def test_a_protocol_mismatch_is_refused_before_any_request(monkeypatch):
     ['{"$d": []}', "[" * 100_000 + "]" * 100_000],
     ids=["bad tag", "too deep"],
 )
+@pytest.mark.medium
 def test_a_message_this_side_cannot_decode_is_a_protocol_error(body):
     control = f'{{"kind": "reply", "body": {body}, "arrays": []}}'.encode()
     stream = io.BytesIO(_source_worker._HEADER.pack(len(control)) + control)
@@ -247,6 +259,7 @@ def test_a_message_this_side_cannot_decode_is_a_protocol_error(body):
         _source_worker.read_message(stream.read, len(control))
 
 
+@pytest.mark.medium
 @POSIX
 def test_a_worker_that_died_between_calls_is_a_named_failure(worker):
     assert worker._process is not None
@@ -257,6 +270,7 @@ def test_a_worker_that_died_between_calls_is_a_named_failure(worker):
     _assert_ended(worker)
 
 
+@pytest.mark.medium
 def test_an_interruption_during_close_still_ends_the_worker(worker, monkeypatch):
     process = worker._process
     assert process is not None
@@ -273,6 +287,7 @@ def test_an_interruption_during_close_still_ends_the_worker(worker, monkeypatch)
     assert process.returncode is not None and not worker.alive
 
 
+@pytest.mark.medium
 def test_a_worker_its_owner_forgets_is_ended_when_collected():
     worker = _worker()
     process = worker._process
@@ -282,6 +297,7 @@ def test_a_worker_its_owner_forgets_is_ended_when_collected():
     assert process.returncode is not None
 
 
+@pytest.mark.medium
 def test_close_between_calls_ends_the_worker_in_order(worker):
     worker.close()
     _assert_ended(worker)
@@ -297,6 +313,7 @@ def _timed(worker, kind, expected):
     return elapsed
 
 
+@pytest.mark.medium
 def test_a_stop_flag_cancels_a_hanging_call_at_the_next_poll(worker):
     flag = threading.Event()
     worker.stop = flag
@@ -309,6 +326,7 @@ def test_a_stop_flag_cancels_a_hanging_call_at_the_next_poll(worker):
     ("number", "expected"),
     [(signal.SIGINT, KeyboardInterrupt), (signal.SIGTERM, RunTerminated)],
 )
+@pytest.mark.medium
 def test_a_signal_cancels_a_hanging_call(worker, number, expected):
     defaults = {
         signal.SIGTERM: signal.SIG_DFL,
@@ -321,6 +339,7 @@ def test_a_signal_cancels_a_hanging_call(worker, number, expected):
         assert _timed(worker, "hang", expected) < DEADLINE
 
 
+@pytest.mark.medium
 @POSIX
 def test_a_signal_held_by_a_commit_is_taken_by_an_interruptible_wait(worker):
     """Native's ``advance`` waits inside ``committing``: the loop raises the signal."""
@@ -335,6 +354,7 @@ def test_a_signal_held_by_a_commit_is_taken_by_an_interruptible_wait(worker):
     _assert_ended(worker)
 
 
+@pytest.mark.medium
 @POSIX
 def test_outside_an_interruptible_scope_the_commit_keeps_the_signal(worker):
     """The stop flag ends the wait; the signal stays held, dropped with the stop."""
@@ -350,6 +370,7 @@ def test_outside_an_interruptible_scope_the_commit_keeps_the_signal(worker):
     _assert_ended(worker)
 
 
+@pytest.mark.medium
 def test_the_worker_imports_neither_backend_nor_the_parent_s_main(worker):
     loaded = worker.request("modules")
     names = loaded["modules"]

@@ -124,8 +124,11 @@ def test_several_tdse_snapshots_keep_the_same_plans_and_all_calls(
                 id(backend),
                 id(backend._adams),
                 id(backend._tdse_binding),
-                id(binding._hacc.model),
-                tuple(id(plan) for plan in binding._plans.values()),
+                # The model and its plans live behind the provider's worker (SEP 49):
+                # the same worker, the same view of the model and the same plans.
+                id(binding._worker),
+                id(binding._hacc),
+                tuple(sorted(binding._plan_records)),
             )
         )
         before = (len(fake.calls), len(fake.prepared), len(fake.plan_arguments))
@@ -153,6 +156,7 @@ def test_several_tdse_snapshots_keep_the_same_plans_and_all_calls(
     assert controller.last_result.bytes_copied > 0
     assert len(built) == 3 and all(item == built[0] for item in built)
     assert len(live) == 1 and all(item == identities[0] for item in identities)
+    assert identities[0][-1]  # the plans were built before the snapshots
     assert len(fake.prepared) == 1
     assert output.outcome is not None
     assert_no_extra_call(output.outcome)

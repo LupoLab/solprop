@@ -29,6 +29,7 @@ EXPECTED: tuple[str, ...] = (
     r"the Slurm \(and its Queue\) executor is POSIX only and refuses Windows",
     r"the Queue and Slurm executors are POSIX only",
     r"POSIX process signal delivery",
+    r"POSIX signals and groups",
     r"POSIX SIGKILL",
     r"POSIX shared locks",
     r"Windows has no SIGKILL",
