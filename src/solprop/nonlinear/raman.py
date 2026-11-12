@@ -1104,6 +1104,7 @@ def _quadratic_tensor(
     """Form the real molecular drive, retaining delayed off-diagonal coherence.
 
     - ``values``: local field in V/m, shape ``(n_pol, n_to)``.
+    - ``thg``: keep the instantaneous real-field drive; ignored for envelopes.
     - Returns: real symmetric quadratic tensor in V^2/m^2, shape ``(n_pol, n_pol,
       n_to)``.
     """
@@ -2521,7 +2522,10 @@ def _supplied_response(  # noqa: PLR0917 - called positionally
     selection: MaterialSelection | None,
     density: float | None,
 ) -> RamanResponse:
-    """Build a caller's species' Raman response from its own molecular constants."""
+    """Build a caller's species' Raman response from its own molecular constants.
+
+    A supplied species is never matched to a built-in gas by its name.
+    """
     if selection is not None or density is not None:
         msg = (
             f"{material.name} is a caller's species: its Raman response is built from "

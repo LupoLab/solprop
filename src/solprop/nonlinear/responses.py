@@ -181,6 +181,8 @@ def _check_evaluate(
 
     - ``carrier``: the carrier passed by the caller, if any.
     - ``needs_carrier``: whether this response and layout require one.
+    - ``max_pol``: the most field components the response takes: two for a transverse
+      field, three for the general modal route's full vector field.
     """
     if kind not in ("field", "envelope"):
         msg = f"kind must be 'field' or 'envelope', got {kind!r}"
@@ -475,6 +477,9 @@ def _product_spectrum(
 
     - ``positive``: ``Pi_+`` on the transform's spectral layout.
     - ``kind``: the layout.
+    - ``sector``: which quartets are kept.
+    - ``carrier``: ``exp(2 i omega0 t)``, required for the full sector on an envelope
+      grid.
     - ``window``: the temporal collar, multiplying the product in time before its
       transform, ahead of ``Pi_+`` and every output multiplier; ``None`` is a unit
       collar.

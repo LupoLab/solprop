@@ -88,6 +88,9 @@ def _component_raman(
 ) -> RamanResponse | None:
     """Select available terms by default and honour explicit per-term requests.
 
+    - ``mixture``: its temperature (for a temperature path, the reference
+      :func:`raman_temperature` takes) sets the rotational populations.
+    - ``explicit``: whether absence of the selected response is an error.
     - ``length``: the run's length in m, over which a temperature path is averaged.
     - Returns: selected component terms, or None for an allowed omission.
     """
@@ -361,6 +364,7 @@ def _composition_at(
     """Place a composition's one response at the label its leaf carries.
 
     - ``composition``: the composition's response, if any.
+    - Returns: the response at its leaf's label, and None at the others.
     """
     if composition is None:
         return None

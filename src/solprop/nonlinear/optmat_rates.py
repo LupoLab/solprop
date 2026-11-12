@@ -157,7 +157,10 @@ def _is_rate_model(value: object) -> bool:
 def _resolve(name: str, wavelength: float, form: str) -> object:
     """Resolve a species name and a model name to optmat's rate model.
 
+    - ``name``: an atom of ``ionisation_rate_model`` or a molecule of
+      ``molecular_rate_model``.
     - ``wavelength``: vacuum carrier wavelength in m.
+    - ``form``: ``"recommended"`` or a model name of the species' registry.
     """
     from optmat.exceptions import OptmatError  # noqa: PLC0415 - optmat is lazy
     from optmat.gas.ionisation_rates import (  # noqa: PLC0415 - optmat is lazy
@@ -218,7 +221,11 @@ def _resolve(name: str, wavelength: float, form: str) -> object:
 
 @contextmanager
 def _quiet(*, reemit: bool) -> Iterator[list[warnings.WarningMessage]]:
-    """Evaluate optmat with its range warnings captured, and pass on any other."""
+    """Evaluate optmat with its range warnings captured, and pass on any other.
+
+    - ``reemit``: the caller handles the captured range warnings itself (the yielded
+      list) rather than dropping them.
+    """
     from optmat.exceptions import ModelRangeWarning  # noqa: PLC0415 - optmat is lazy
 
     ranged: list[warnings.WarningMessage] = []

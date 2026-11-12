@@ -907,6 +907,7 @@ def _terms(
     anisotropic ones to the rank-two term unchanged. An all-zero row is dropped.
 
     - ``response``: their response, for the width laws in Hz.
+    - Returns: the terms in group order, isotropic before rank-two within a group.
     """
     terms = []
     for group in groups:
@@ -932,7 +933,13 @@ def _terms(
 def _assemble(
     request: _Request, *, thg: bool, labels: tuple[str, ...], leaf: str | None
 ) -> OptmatRamanResponse:
-    """Build, check and map one optmat response onto solprop's terms."""
+    """Build, check and map one optmat response onto solprop's terms.
+
+    - ``labels``: the labels whose summed density drives the response.
+    - ``leaf``: the label the compiled leaf carries.
+    - Warns once per run each if the temperature or a declared density is outside the
+      response's validated range, and once per run for an admitted provisional response.
+    """
     built, caught = _build(request)
     response = _with_dephasing(built, request)
     entry = _optmat.record(response)
@@ -1206,6 +1213,7 @@ def _keep(
 ) -> tuple[dict[str, MolecularOptions], dict[str, Dephasing]]:
     """Return the species whose lines are kept, their flags and supplied laws.
 
+    - ``explicit``: the labels were named, so one without a response is refused.
     - Returns: species to options, and species to a supplied dephasing.
     """
     keep: dict[str, MolecularOptions] = {}
