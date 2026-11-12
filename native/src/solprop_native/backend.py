@@ -88,6 +88,7 @@ from solprop.translate.chebyshev import (
     PiecewiseChebyshev,
 )
 from solprop.translate.coupled import (
+    CoupledFlowFactors,
     CoupledFlowTables,
     coupled_flow_factors,
     flow_edge_slack,
@@ -3028,10 +3029,10 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
 
 
 @dataclasses.dataclass(frozen=True)
-class _HostFlow:
+class _HostFlow(CoupledFlowFactors):
     """A coupled flow's Schur factors per section on its active bins, host-side.
 
-    solprop's shared factors (``solprop.translate.coupled.coupled_flow_factors``), which
+    solprop's shared factors (``solprop.translate.coupled.CoupledFlowFactors``), which
     the reference executes too: the frozen block of each section read out of the leaf,
     decomposed per active bin, the declared conditioning row, and a frozen-residual
     flow's terms; with each
@@ -3045,13 +3046,7 @@ class _HostFlow:
     (``residual_bins``).
     """
 
-    active: npt.NDArray[np.bool_]
     scored: npt.NDArray[np.bool_]
-    vectors: ComplexArray
-    triangular: ComplexArray
-    frozen: ComplexArray
-    condition_bound: RealArray
-    residual_terms: ComplexArray | None
     left: ComplexArray
     right: ComplexArray
     eigenvalues: ComplexArray
@@ -3091,13 +3086,8 @@ def _decomposed_flow(problem: PropagationProblem) -> _HostFlow | None:
         for vectors, triangular in zip(factors.vectors, factors.triangular, strict=True)
     ]
     return _HostFlow(
-        active=active,
+        **vars(factors),
         scored=np.ascontiguousarray(problem.grids.inband_mask[active], dtype=np.bool_),
-        vectors=factors.vectors,
-        triangular=factors.triangular,
-        frozen=factors.frozen,
-        condition_bound=factors.condition_bound,
-        residual_terms=factors.residual_terms,
         left=np.ascontiguousarray(np.stack([basis[0] for basis in bases])),
         right=np.ascontiguousarray(np.stack([basis[1] for basis in bases])),
         eigenvalues=np.ascontiguousarray(np.stack([basis[2] for basis in bases])),

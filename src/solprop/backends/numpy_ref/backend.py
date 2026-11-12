@@ -94,6 +94,7 @@ from solprop.stats import (
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate.coupled import (
+    CoupledFlowFactors,
     coupled_flow_factors,
     metric_at,
 )
@@ -2581,15 +2582,13 @@ def _general_maps(
 
 
 @dataclass(frozen=True)
-class _CoupledFlow:
+class _CoupledFlow(CoupledFlowFactors):
     """What ``numpy_ref`` holds to execute one coherent block, frozen per section.
 
-    The Schur factors are the backend's own: they are computed here from the leaf's
-    generator rather than carried across the seam, because a decomposition is not a
-    contract row and no schema has one for it. The
-    **section** axis leads them and the frequency axis follows, and only the bins the
-    generator is non-zero at are held: the rest of the band has an identity action and
-    the state is masked to zero there anyway.
+    The shared factors (:class:`~solprop.translate.coupled.CoupledFlowFactors`, which
+    native reads too), with the section axis leading and only the bins the generator
+    is non-zero at held: the rest of the band has an identity action and the state is
+    masked to zero there anyway.
 
     A ``"constant_schur"`` leaf is the one-section case with no residual at all, and
     goes through exactly the constant-section arithmetic. A ``"frozen_residual"`` leaf
@@ -2604,40 +2603,16 @@ class _CoupledFlow:
 
     Attributes
     ----------
-    active : numpy.ndarray
-        Which bins carry a block, bool, shape ``(n_omega,)``.
     residual_bins : numpy.ndarray
         Which bins the explicit residual is applied at, bool, shape ``(n_omega,)``:
         `active` and the problem's ``grids.inband_mask``, the requested band: in the
         collar beyond it the wall model is outside its validity, and the residual is
         left out whether or not the error norm scores there.
-    vectors, triangular : numpy.ndarray
-        ``Z`` and ``T`` of ``G_s = Z T Z^H`` per section, shape
-        ``(n_sections, n_active, n_modes, n_modes)``.
-    frozen : numpy.ndarray
-        The frozen generator of each section in 1/m, same layout.
-    condition_bound : numpy.ndarray
-        The leaf's declared ``norm(U) norm(U^-1)`` per section and active bin,
-        dimensionless, shape ``(n_sections, n_active)``.
-    residual_terms : numpy.ndarray or None
-        The coefficients of ``G(z) - C(z)`` in 1/m, shape
-        ``(n_intervals * n_deg, n_active, n_modes, n_modes)``; ``None`` for a leaf with
-        no explicit residual.
     n_modes : int
         Channels the block couples.
     """
 
-    active: Bool[np.ndarray, " n_omega_flow"]
     residual_bins: Bool[np.ndarray, " n_omega_scored"]
-    vectors: Complex[np.ndarray, "n_sections_v n_active_v n_modes_v_out n_modes_v_in"]
-    triangular: Complex[
-        np.ndarray, "n_sections_t n_active_t n_modes_t_out n_modes_t_in"
-    ]
-    frozen: Complex[np.ndarray, "n_sections_f n_active_f n_modes_f_out n_modes_f_in"]
-    condition_bound: Float[np.ndarray, "n_sections_c n_active_c"]
-    residual_terms: (
-        Complex[np.ndarray, "n_terms_r n_active_r n_modes_r_out n_modes_r_in"] | None
-    )
     n_modes: int
 
 
@@ -2954,13 +2929,8 @@ def _coupled_flow_maps(problem: PropagationProblem) -> _CoupledFlow | None:
     active, residual = factors.active, factors.residual_terms
     sections = len(flow.section_methods)
     held = _CoupledFlow(
-        active=active,
+        **vars(factors),
         residual_bins=active & problem.grids.inband_mask,
-        vectors=factors.vectors,
-        triangular=factors.triangular,
-        frozen=factors.frozen,
-        condition_bound=factors.condition_bound,
-        residual_terms=residual,
         n_modes=flow.n_modes,
     )
     logger.debug(
