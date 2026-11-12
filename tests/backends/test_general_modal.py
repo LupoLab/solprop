@@ -1339,14 +1339,16 @@ def pre_c2b_review_source(state, synthesis, maps, crop_index, *, n_to, pad_scale
 
 
 def test_the_reference_refuses_a_general_route_on_an_envelope_grid(strand):
-    """A leaf is tabulated on the canonical coarse grid, which is increasing.
-
-    An envelope grid's spectra are not the leaf's, so its structure refuses it first.
-    """
+    """A leaf is tabulated on a field grid's increasing coarse axis: refused by name."""
     _, state = continuous_wave(strand, [1.0])
     problem, run_request = general_problem(strand, state)
     spoiled = dataclasses.replace(problem, grid_kind="envelope")
-    with pytest.raises(TranslationError, match=r"transform\.modal_tables\.omega_fine"):
+    with pytest.raises(
+        TranslationError,
+        match=r"^solprop executes a general modal guide \(transform\.modal_tables\) on "
+        r"a field grid, whose canonical axis is increasing, and this problem is "
+        r"envelope$",
+    ):
         NumpyRefBackend(spoiled, run_request, grid=strand.grid)
 
 

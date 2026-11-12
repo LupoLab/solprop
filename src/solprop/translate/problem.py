@@ -1910,6 +1910,15 @@ class PropagationProblem:
         - ``run``: the run's stepper section and statistics, whose last plane the leaves
           must reach; ``None`` checks the axes alone.
         """
+        if self.transform.modal_tables is not None and self.grid_kind != "field":
+            # Named first: every leaf below is tabulated on the increasing coarse axis
+            # of a field grid, so on another grid its axis checks would misname this.
+            msg = (
+                "solprop executes a general modal guide (transform.modal_tables) on a "
+                "field grid, whose canonical axis is increasing, and this problem is "
+                f"{self.grid_kind}"
+            )
+            raise TranslationError(msg)
         omega = self.grids.omega
         z_end = None if run is None else run.stepper.z_end
         for name, leaf in (
