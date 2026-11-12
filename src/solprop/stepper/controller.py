@@ -357,9 +357,8 @@ class PIController:  # numpydoc ignore=PR02
     estimator_order: int = 4
     region: Literal["active", "band"] = "active"
 
-    def __init_subclass__(cls, **kwargs: object) -> None:
+    def __init_subclass__(cls) -> None:
         """Refuse a subclass: native implements these decisions itself."""
-        super().__init_subclass__(**kwargs)
         msg = (
             f"PIController is final: {cls.__name__} cannot subclass it. Both backends "
             "implement its decisions and norm themselves; set its fields instead"
