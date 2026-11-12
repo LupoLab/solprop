@@ -1119,10 +1119,12 @@ bool Session::close() noexcept {
     runge_kutta->dense.reset();
   }
   resident_.reset();
-  history_ = {};
-  row_z_ = {};
-  row_step_ = {};
-  row_values_ = {};
+  // Move-assigning an empty vector releases the storage and cannot throw; assigning
+  // `{}` goes through the initializer-list assignment, which may.
+  history_ = std::vector<double>();
+  row_z_ = std::vector<double>();
+  row_step_ = std::vector<std::int64_t>();
+  row_values_ = std::vector<double>();
   return true;
 }
 
