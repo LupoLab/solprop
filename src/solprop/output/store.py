@@ -63,7 +63,7 @@ FieldsChoice = Literal["none", "planes", "all"]
 def field_retention_refusal(fields: object, field_planes: object) -> str | None:
     """Say what is wrong with a field-retention request, or that nothing is.
 
-    The one validator behind :class:`solprop.driver.simulation.SimulationSettings`,
+    The one validator behind :class:`solprop.driver.settings.SimulationSettings`,
     :func:`solprop.driver.run.run_problem`, :func:`solprop.driver.scan.run_scan` and
     :class:`FieldRetention`; each door raises its own layer's error with the message.
 
@@ -426,7 +426,7 @@ class RetainingOutput(Protocol):
     optional: a handler that stores every field need not implement it, and a run that
     keeps fewer than every field refuses a handler that does not
     (``fields="planes"`` and ``fields="none"``,
-    :class:`~solprop.driver.simulation.SimulationSettings`). On a plane that keeps no
+    :class:`~solprop.driver.settings.SimulationSettings`). On a plane that keeps no
     field, :meth:`Output.save` is given ``field=None`` and ``noise_phase=None``.
 
     Examples

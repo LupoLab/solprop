@@ -737,7 +737,7 @@ _MINIMUM_X_NODES: Final = 32
 """Floor on a planar grid's default x node count.
 
 The same floor, and the same eight nodes per mode, as the modal route's
-``solprop.driver.simulation.default_radial_order`` gives a slab set, so that the
+``solprop.driver.routes.hollow.default_radial_order`` gives a slab set, so that the
 hybrid transform and ``from_waveguide`` sample the plates on the same default rule;
 a test holds the two equal.
 """

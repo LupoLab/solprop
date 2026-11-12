@@ -56,7 +56,7 @@ class CallbackOutput:
     stores, in a second volume.
 
     The run's ``fields`` setting
-    (:class:`~solprop.driver.simulation.SimulationSettings`) decides what a plane
+    (:class:`~solprop.driver.settings.SimulationSettings`) decides what a plane
     carries. With ``fields="none"``, what a reduction of statistics wants, every plane
     has ``field=None`` and ``noise_phase=None`` beside its position, its statistics and
     its step history, and no field leaves the backend. With ``fields="planes"`` the
