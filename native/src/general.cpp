@@ -15252,8 +15252,8 @@ std::vector<double> GeneralWorkspace::plane_fluence_trace(
         update += samples(node, 0) * (x * x + y * y);
       },
       Kokkos::Sum<double>(second));
-  const double last_x = static_cast<double>(n_x - 1);
-  const double last_y = static_cast<double>(n_y - 1);
+  const auto last_x = static_cast<double>(n_x - 1);
+  const auto last_y = static_cast<double>(n_y - 1);
   // One thread per ring: a ring's samples are few, and a thread's sum needs no
   // reduction.
   launch::parallel_for(

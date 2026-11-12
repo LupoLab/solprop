@@ -1847,7 +1847,7 @@ std::vector<double> filter_tolerance(const std::vector<double>& row,
              std::abs(row[static_cast<std::size_t>(2 * last - index)]);
     return std::abs(row[static_cast<std::size_t>(index)]);
   };
-  const double operations = static_cast<double>(2 * half + 3);
+  const auto operations = static_cast<double>(2 * half + 3);
   const double gamma = operations * kEpsilon / (1.0 - operations * kEpsilon);
   std::vector<double> tolerance(row.size());
   for (std::ptrdiff_t index = 0; index < samples; ++index) {

@@ -467,7 +467,7 @@ void FarFieldPass::finish(const FarFieldLayout& layout, const std::size_t n_band
   const double density = envelope ? dt_ * dt_ / (2.0 * std::numbers::pi)
                                   : 2.0 * (dt_ * dt_) / std::numbers::pi;
   const double energy = dt_ / static_cast<double>(n_t_);
-  const std::size_t leading = static_cast<std::size_t>(layout.beam >= 0);
+  const auto leading = static_cast<std::size_t>(layout.beam >= 0);
   const std::size_t absorbed = layout.absorbed >= 0 ? far_field_absorbed_channels : 0;
   const std::size_t spectral = (packed_size - absorbed) / n;
   const std::size_t regions = layout.regions >= 0 ? n_regions : 0;

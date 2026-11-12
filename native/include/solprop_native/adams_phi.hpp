@@ -257,13 +257,10 @@ inline void adams_lanes_classify(AdamsLanes& lanes, const ExponentialWeights& we
     const double square = rr + ii;
     const std::int64_t zero = static_cast<std::int64_t>(lanes.ar[b] == 0.0) &
                               static_cast<std::int64_t>(lanes.ai[b] == 0.0);
-    const std::int64_t large = static_cast<std::int64_t>(std::isgreater(square, 9.0));
-    const std::int64_t above_quarter =
-        static_cast<std::int64_t>(std::isgreater(square, 0.25));
-    const std::int64_t above_one =
-        static_cast<std::int64_t>(std::isgreater(square, 1.0));
-    const std::int64_t above_four =
-        static_cast<std::int64_t>(std::isgreater(square, 4.0));
+    const auto large = static_cast<std::int64_t>(std::isgreater(square, 9.0));
+    const auto above_quarter = static_cast<std::int64_t>(std::isgreater(square, 0.25));
+    const auto above_one = static_cast<std::int64_t>(std::isgreater(square, 1.0));
+    const auto above_four = static_cast<std::int64_t>(std::isgreater(square, 4.0));
     const std::int64_t uncertain =
         static_cast<std::int64_t>(!std::islessequal(square, finite)) |
         static_cast<std::int64_t>(
@@ -279,7 +276,7 @@ inline void adams_lanes_classify(AdamsLanes& lanes, const ExponentialWeights& we
     // zero 0, large 1, series 2, and 2^-squarings, each factor exact; spelt as
     // arithmetic and selections of bits, which every x86-64 target vectorises.
     const std::int64_t branch = (1 - zero) * (2 - large);
-    const std::int64_t series = static_cast<std::int64_t>(branch == adams_lane_series);
+    const auto series = static_cast<std::int64_t>(branch == adams_lane_series);
     lanes.branch[b] = branch;
     lanes.squarings[b] = series * (above_quarter + above_one + above_four);
     scale[b] = adams_lane_select(above_quarter != 0, 0.5, 1.0) *
