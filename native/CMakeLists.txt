@@ -415,12 +415,10 @@ if(SOLPROP_NATIVE_ENABLE_CLANG_TIDY)
     endif()
     list(APPEND SOLPROP_NATIVE_CLANG_TIDY_COMMAND "--extra-arg=-isysroot${_tidy_sysroot}")
   endif()
-  # The parser arguments beyond the compile commands, one per line, for
-  # native/scripts/tidy.sh (`poe tidy-native`).
-  set(_tidy_arguments "${SOLPROP_NATIVE_CLANG_TIDY_COMMAND}")
-  list(FILTER _tidy_arguments INCLUDE REGEX "^--extra-arg")
-  list(JOIN _tidy_arguments "\n" _tidy_arguments)
-  file(WRITE "${PROJECT_BINARY_DIR}/clang_tidy_arguments.txt" "${_tidy_arguments}\n")
+  # The command the build runs, the resolved binary first, one argument per line, for
+  # native/scripts/tidy.sh (`poe tidy-native`) and the weekly include-cleaner report.
+  list(JOIN SOLPROP_NATIVE_CLANG_TIDY_COMMAND "\n" _tidy_command)
+  file(WRITE "${PROJECT_BINARY_DIR}/clang_tidy_command.txt" "${_tidy_command}\n")
 endif()
 
 function(solprop_native_configure_project_target target)

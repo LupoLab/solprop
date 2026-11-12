@@ -6,7 +6,7 @@
 
 # Run the pinned clang-tidy over some native C++ files (`poe tidy-native [FILE...]` from
 # the repository root), with the compile commands of the cpu-tidy preset, which this
-# configures when they are missing. With no files it checks the C++ files under native/
+# configures when they are missing or stale, and the clang-tidy command it resolved. With no files it checks the C++ files under native/
 # that differ from main (committed, staged or not) and the untracked ones. Paths are
 # relative to the repository root or absolute. The full check, every file as it
 # compiles, is the gate's tidy stage.
@@ -34,23 +34,19 @@ if [[ ${#files[@]} -eq 0 ]]; then
   exit 0
 fi
 
-if [[ ! -f "$build/compile_commands.json" ]]; then
-  # The compiler check.sh uses: CXX (GCC 14 or newer) on Linux, Homebrew's Clang on
-  # macOS.
-  if [[ $(uname -s) == Linux ]]; then
-    cxx_compiler=$(command -v "${CXX:-g++}")
-  elif [[ -x /opt/homebrew/opt/llvm/bin/clang++ ]]; then
-    cxx_compiler=/opt/homebrew/opt/llvm/bin/clang++
-  else
-    cxx_compiler=$(command -v clang++)
-  fi
-  raman_provider=KOKKOSFFT
-  [[ $(uname -s) == Darwin ]] && raman_provider=ACCELERATE
+# shellcheck source=native/scripts/compiler.sh
+source "$native/scripts/compiler.sh"
+command_file="$build/clang_tidy_command.txt"
+# Configure the cpu-tidy preset when its compile commands or clang-tidy command are
+# missing or older than the build configuration.
+if [[ ! -f "$build/compile_commands.json" || ! -f "$command_file" ||
+      "$native/CMakeLists.txt" -nt "$build/compile_commands.json" ||
+      "$native/CMakeLists.txt" -nt "$command_file" ]]; then
   mkdir -p "$native/build"
   log="$native/build/tidy-configure.log"
   echo "tidy-native: configuring the cpu-tidy preset (log: $log)"
-  if ! (cd "$native" && cmake --preset cpu-tidy -DCMAKE_CXX_COMPILER="$cxx_compiler" \
-          -DSOLPROP_NATIVE_RAMAN_FFT_PROVIDER="$raman_provider" \
+  if ! (cd "$native" && cmake --preset cpu-tidy -DCMAKE_CXX_COMPILER="$(native_cxx_compiler)" \
+          -DSOLPROP_NATIVE_RAMAN_FFT_PROVIDER="$(native_raman_provider)" \
           -DPython_EXECUTABLE="$root/.venv/bin/python") >"$log" 2>&1; then
     tail -n 30 "$log" >&2
     exit 1
@@ -62,15 +58,20 @@ if [[ -d "$build/_sleef" && ! -f "$build/_sleef/include/sleef.h" ]]; then
   cmake --build "$build" --target solprop_native_sleef_build >"$native/build/tidy-sleef.log" 2>&1
 fi
 
-# The parser arguments CMake gives clang-tidy beyond the compile commands (GCC's own
-# headers on Linux).
-extra=()
+# The command the build runs: the clang-tidy CMake resolved, its configuration and
+# header filter, and the parser arguments beyond the compile commands.
+tidy_command=()
 while IFS= read -r argument; do
-  [[ -n $argument ]] && extra+=("$argument")
-done < "$build/clang_tidy_arguments.txt"
+  [[ -n $argument ]] && tidy_command+=("$argument")
+done < "$command_file"
+pinned=$(sed -n 's/.*"clang-tidy==\([0-9.]*\).*/\1/p' "$root/pyproject.toml")
+found=$("${tidy_command[0]}" --version | sed -n 's/.*LLVM version \([0-9.]*\).*/\1/p')
+if [[ -z $pinned || $found != "$pinned" ]]; then
+  echo "tidy-native: ${tidy_command[0]} is clang-tidy ${found:-of unknown version}, not the" \
+    "pinned ${pinned:-?}; run uv sync, then remove $build to reconfigure" >&2
+  exit 1
+fi
 # A header is checked with the commands of a source file near it (clang-tidy
 # interpolates them), and through the sources that include it.
 printf '%s\0' "${files[@]}" |
-  xargs -0 -n 1 -P "$(getconf _NPROCESSORS_ONLN)" clang-tidy --quiet -p "$build" \
-    --config-file="$native/.clang-tidy" \
-    "--header-filter=^$native/(include|src|tests)/.*" ${extra[@]+"${extra[@]}"}
+  xargs -0 -n 1 -P "$(getconf _NPROCESSORS_ONLN)" "${tidy_command[@]}" --quiet -p "$build"

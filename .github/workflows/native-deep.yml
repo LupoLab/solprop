@@ -171,12 +171,12 @@ jobs:
       - name: misc-include-cleaner
         run: |
           build=native/build/presets/cpu-tidy
-          mapfile -t extra < "$build/clang_tidy_arguments.txt"
+          # The pinned clang-tidy and the arguments the build gives it.
+          mapfile -t tidy < "$build/clang_tidy_command.txt"
           git ls-files -z -- 'native/src/*.cpp' 'native/tests/native/*.cpp' |
-            xargs -0 -n 1 -P "$(nproc)" .venv/bin/clang-tidy --quiet -p "$build" \
+            xargs -0 -n 1 -P "$(nproc)" "${tidy[@]}" --quiet -p "$build" \
               --checks='-*,misc-include-cleaner' --warnings-as-errors='' \
-              "--header-filter=^$GITHUB_WORKSPACE/native/(include|src|tests)/.*" \
-              "${extra[@]}" > include-cleaner.txt 2>&1 || true
+              > include-cleaner.txt 2>&1 || true
           findings=$(grep -c 'misc-include-cleaner' include-cleaner.txt || true)
           echo "## misc-include-cleaner: ${findings} findings" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

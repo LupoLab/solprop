@@ -13,23 +13,11 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 workspace_root=$(cd "$repo_root/.." && pwd)
 cd "$repo_root"
-raman_default=KOKKOSFFT
-if [[ $(uname -s) == Darwin ]]; then
-  raman_default=ACCELERATE
-fi
-raman_provider=${SOLPROP_NATIVE_CHECK_RAMAN_FFT_PROVIDER:-$raman_default}
+# shellcheck source=native/scripts/compiler.sh
+source "$repo_root/scripts/compiler.sh"
+raman_provider=${SOLPROP_NATIVE_CHECK_RAMAN_FFT_PROVIDER:-$(native_raman_provider)}
 export CMAKE_ARGS="${CMAKE_ARGS:-} -DSOLPROP_NATIVE_RAMAN_FFT_PROVIDER=$raman_provider"
-
-if [[ $(uname -s) == "Linux" ]]; then
-  # CXX when set (Linux CPU builds need GCC 14 or newer; Ubuntu 24.04's g++ is 13).
-  cxx_compiler=$(command -v "${CXX:-g++}")
-elif [[ -x /opt/homebrew/opt/llvm/bin/clang++ ]]; then
-  cxx_compiler=/opt/homebrew/opt/llvm/bin/clang++
-elif [[ -x /usr/local/opt/llvm/bin/clang++ ]]; then
-  cxx_compiler=/usr/local/opt/llvm/bin/clang++
-else
-  cxx_compiler=$(command -v clang++)
-fi
+cxx_compiler=$(native_cxx_compiler)
 # Every tracked C++ file, so that none can drop out of the format check.
 cpp_sources=()
 while IFS= read -r -d '' cpp_source; do
