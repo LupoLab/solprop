@@ -195,7 +195,8 @@ the gate.
 - Release the GIL around long native work and hold it while touching Python objects.
   Never call Python from a Kokkos or OpenMP worker, or during teardown.
 - Public Python has complete annotations, NumPy-style docstrings, `__all__`, `py.typed`
-  and a complete stub for the private extension. Install a `NullHandler`; never
+  and a complete stub for the private extension; its bound problem's part is generated
+  (`scripts/problem_stub.py`, checked in the lint stage). Install a `NullHandler`; never
   configure the root logger or print diagnostics from library code.
 - Thread settings are read once, at import. Never change process thread settings (or
   a BLAS thread pool) after import.
