@@ -22,18 +22,18 @@ from solprop import fourier
 from solprop.exceptions import DriverError, OutputError
 from solprop.output import HDF5Output, MemoryOutput, Output, open_file
 from solprop.output.hdf5 import resume
-from solprop.output.schema import (
+from solprop.output.metadata import _example_metadata
+from solprop.output.records import RunOutcome, SavedPlane, TerminalCheckpoint
+from solprop.output.serialisation import (
     INLINE_ARRAY_LIMIT,
     ArrayDigest,
-    FieldRetention,
-    RetainingOutput,
-    RunOutcome,
-    SavedPlane,
-    TerminalCheckpoint,
-    _example_metadata,
-    field_retention_refusal,
     recorded_input,
     serialise,
+)
+from solprop.output.store import (
+    FieldRetention,
+    RetainingOutput,
+    field_retention_refusal,
 )
 from solprop.stats import collect, default_spec
 
@@ -380,7 +380,7 @@ def test_an_array_above_the_inline_limit_is_recorded_by_its_digest():
     assert ArrayDigest.of(numbers.astype(">f8")) == ArrayDigest.of(numbers)
     record = serialise(digest)
     assert isinstance(record, dict)
-    assert record["__class__"] == "solprop.output.schema.ArrayDigest"
+    assert record["__class__"] == "solprop.output.serialisation.ArrayDigest"
     assert len(json.dumps(record)) < 300
 
 

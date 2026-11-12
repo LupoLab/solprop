@@ -126,7 +126,7 @@ protect nothing. The package versions and the git provenance are outside the dig
 the same reason, so that a resume survives an unrelated commit or a NumPy upgrade.
 
 What *did* execute the run is recorded beside the digest rather than inside it, in the
-`backend` group of {py:class}`~solprop.output.schema.RunMetadata`: the backend's name,
+`backend` group of {py:class}`~solprop.output.metadata.RunMetadata`: the backend's name,
 the propagator mode it resolved, and whatever else it reports — for `native` the
 thread counts, the sizes chosen per operation, the build record and the FFTW wisdom digest. The
 thread configuration alone has been measured to change the time of one step by a factor
@@ -151,5 +151,5 @@ continues the uninterrupted run's computation, agreeing with it to rounding whil
 For a resume to work in a *new process*, everything in the configuration has to hash the
 same way twice. Objects that carry their data — the pulses, the profiles, the responses,
 the dispersion-specified mode — do. A configuration holding a bare callable does not:
-{py:func}`~solprop.output.schema.serialise` records one as its `repr`, which carries a
+{py:func}`~solprop.output.serialisation.serialise` records one as its `repr`, which carries a
 memory address. Prefer a specification over a closure wherever there is a choice.

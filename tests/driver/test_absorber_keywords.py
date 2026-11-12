@@ -21,7 +21,7 @@ import pytest
 
 from solprop.boundaries import absorber, custom_absorber, no_absorber
 from solprop.driver import Simulation, SimulationSettings
-from solprop.driver.simulation import _spatial_default, _with_boundary
+from solprop.driver.settings import _spatial_default
 from solprop.exceptions import DriverError
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import PlanarGrid, SlabMode
@@ -118,7 +118,7 @@ def _settings(grid: FieldGrid | EnvelopeGrid, **keywords: Any) -> SimulationSett
 def test_spatial_absorber_false_keeps_the_lengths(grid: FieldGrid) -> None:
     """``False`` zeroes the settings' collar's rates and keeps its lengths."""
     collar = dataclasses.replace(absorber(grid), collar_length=0.02)
-    settings = _with_boundary(_settings(grid, absorber=collar), grid, False, None)
+    settings = _settings(grid, absorber=collar).with_boundaries(grid, absorber=False)
     off = settings.absorber
     assert off is not None
     assert not np.any(off.spectral_rate)
@@ -126,7 +126,7 @@ def test_spatial_absorber_false_keeps_the_lengths(grid: FieldGrid) -> None:
     assert off.in_stage_length == collar.in_stage_length
     assert off.reference_length == collar.reference_length
     # The settings carry none: the hard mask alone.
-    bare = _with_boundary(_settings(grid), grid, False, None).absorber
+    bare = _settings(grid).with_boundaries(grid, absorber=False).absorber
     assert bare is not None
     assert not np.any(bare.spectral_rate)
     assert not np.any(bare.temporal_rate)
@@ -135,7 +135,7 @@ def test_spatial_absorber_false_keeps_the_lengths(grid: FieldGrid) -> None:
 
 
 def _radial(grid: EnvelopeGrid, **keywords: Any) -> Simulation:
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid, RadialGrid(radius=600e-6, n_r=16), SpatialMedium(), [], _beam(),
         noise=None, **keywords,
     )  # fmt: skip
@@ -189,16 +189,20 @@ def test_spatial_builders_take_the_absorber_keywords(
 def test_spatial_keywords_refuse_a_contradiction(grid: FieldGrid) -> None:
     """A keyword may fill in the settings, never overrule them."""
     with pytest.raises(DriverError, match="already declare an absorber"):
-        _with_boundary(
-            _settings(grid, absorber=absorber(grid)), grid, absorber(grid), None
+        _settings(grid, absorber=absorber(grid)).with_boundaries(
+            grid, absorber=absorber(grid)
         )
     with pytest.raises(DriverError, match="absorber_scheme"):
-        _with_boundary(
-            _settings(grid, absorber_scheme="split_step"), grid, None, "nonlinear"
+        _settings(grid, absorber_scheme="split_step").with_boundaries(
+            grid, absorber_scheme="nonlinear"
         )
     with pytest.raises(DriverError, match="absorber_scheme"):
-        _with_boundary(_settings(grid), grid, False, "split_step")
-    same = _with_boundary(_settings(grid), grid, absorber(grid), "split_step")
+        _settings(grid).with_boundaries(
+            grid, absorber=False, absorber_scheme="split_step"
+        )
+    same = _settings(grid).with_boundaries(
+        grid, absorber=absorber(grid), absorber_scheme="split_step"
+    )
     assert same.absorber_scheme == "split_step"
     assert same.absorber is not None
 
@@ -253,7 +257,7 @@ def test_spatial_defaults_give_the_default_temporal_collar() -> None:
 def test_the_modal_interfaces_take_the_boundary_check() -> None:
     """``boundary_check=None`` on ``prop_gnlse`` runs with nothing watched (SEP 21)."""
     from solprop.driver import prop_gnlse  # noqa: PLC0415
-    from solprop.output.schema import PlaneStore  # noqa: PLC0415
+    from solprop.output.store import PlaneStore  # noqa: PLC0415
 
     run = prop_gnlse(
         0.1, 0.01, [0.0, 0.0, -1e-26], wavelength=1e-6, fwhm=100e-15, peak_power=1.0,
@@ -283,7 +287,7 @@ def test_absorber_false_clears_a_custom_rate_with_the_total():
         controller=PIController(rtol=1e-6, atol=1e-12),
         absorber=custom_absorber(grid, 3.0),
     )
-    cleared = _with_boundary(settings, grid, absorber=False, scheme=None)
+    cleared = settings.with_boundaries(grid, absorber=False)
     assert cleared.absorber is not None
     assert cleared.absorber.user_rate is None
     assert not np.any(cleared.absorber.spectral_rate)

@@ -19,7 +19,7 @@ import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_points_matched
-from solprop.driver import Simulation, _scan_batch, _scan_run, simulation
+from solprop.driver import Simulation, _scan_batch, _scan_run, runner, simulation
 from solprop.driver.executors import Local, Pool
 from solprop.driver.scan import Scan, run_scan
 from solprop.grid import EnvelopeGrid
@@ -93,7 +93,8 @@ def made(monkeypatch):
         backends.append(original(*arguments, **keywords))
         return backends[-1]
 
-    monkeypatch.setattr(simulation, "select", watched)
+    for module in (simulation, runner):
+        monkeypatch.setattr(module, "select", watched)
     return backends
 
 

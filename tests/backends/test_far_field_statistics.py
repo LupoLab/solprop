@@ -216,7 +216,7 @@ def test_the_bands_follow_the_shapes_and_the_budget(monkeypatch):
 
 
 def test_a_radial_problem_takes_no_partials(grid):
-    radial = Simulation.from_radial(
+    radial = Simulation.from_free(
         grid,
         RadialGrid(3e-4, 8),
         SpatialMedium(),
@@ -670,7 +670,7 @@ def test_the_operator_refuses_a_share_above_the_total(grid, lossy_launch):
 )
 def test_radial_and_planar_geometry_are_refused_before_any_step(grid):
     spec = StatsSpec(names=("energy", "beam_spectrum"))
-    radial = Simulation.from_radial(
+    radial = Simulation.from_free(
         grid,
         RadialGrid(3e-4, 16),
         SpatialMedium(),

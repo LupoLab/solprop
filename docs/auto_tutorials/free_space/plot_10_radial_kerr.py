@@ -10,7 +10,7 @@ A collimated 800 nm, 30 fs beam of 1 mm waist and 0.2 mJ, in 1 bar of argon, on 
 radial (Hankel) grid, below the critical power for self-focusing. Over 50 cm the Kerr
 lens offsets about half of the beam's diffraction: its second-moment radius grows by
 0.45 %, where diffraction alone (a Rayleigh length of 3.9 m) gives 0.81 %. The run is a
-plain :func:`~solprop.driver.interface.prop_radial`, every argument an object a recipe
+plain :func:`~solprop.driver.interface.prop_free`, every argument an object a recipe
 writes as a table, and it is the call the radial route's example recipe mirrors
 (``Recipe.example("radial_kerr")``).
 
@@ -22,7 +22,7 @@ from time import perf_counter
 import matplotlib.pyplot as plt
 import numpy as np
 
-from solprop.driver import SimulationSettings, prop_radial
+from solprop.driver import SimulationSettings, prop_free
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.nonlinear.responses import KerrResponse
 from solprop.physdata import gamma3
@@ -51,7 +51,7 @@ settings = SimulationSettings(
     dz_max=0.05,
     stats=StatsSpec(names=("energy", "beam_radius")),
 )
-result = prop_radial(
+result = prop_free(
     grid,
     space,
     argon,

@@ -183,7 +183,7 @@ def test_radial_update_shares_covered_operator_terms_and_input(source, constant)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-9), 80e-6
     )
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         source.grid,
         space,
         SpatialMedium(material),
@@ -222,7 +222,7 @@ def test_radial_update_shares_covered_operator_terms_and_input(source, constant)
 def test_uncovered_constant_update_falls_back_to_constant_operator(source, geometry):
     material = source.modes[0].mixture
     if geometry == "radial":
-        source = Simulation.from_radial(
+        source = Simulation.from_free(
             source.grid,
             RadialGrid(6e-4, 8, collar_fraction=0.0),
             SpatialMedium(material),

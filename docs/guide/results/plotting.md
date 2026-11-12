@@ -175,7 +175,8 @@ axis and the values, per unit of that axis, with the same gate and a `bandpass=`
    import numpy as np
    from solprop.grid import EnvelopeGrid
    from solprop.output import MemoryOutput
-   from solprop.output.schema import GridRecord, RunMetadata, SavedPlane, StepperRecord
+   from solprop.output.metadata import RunMetadata
+   from solprop.output.records import GridRecord, SavedPlane, StepperRecord
    from solprop.plotting import spectrogram
    from solprop.pulses import GaussianPulse
 

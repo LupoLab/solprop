@@ -46,7 +46,6 @@ from solprop.constants import EPS0, C
 from solprop.driver import Simulation, prop_capillary, prop_gnlse
 from solprop.driver.executors import Batch, Local
 from solprop.driver.scan import Scan, run_scan
-from solprop.driver.simulation import Pressure
 from solprop.exceptions import (
     AdiabaticTaperWarning,
     BackendError,
@@ -74,6 +73,7 @@ from solprop.output.capability import capability_of
 from solprop.output.hdf5 import open_file
 from solprop.output.memory import MemoryOutput
 from solprop.physdata.glasses import fused_silica
+from solprop.physdata.mixtures import Pressure
 from solprop.physdata.sellmeier import gamma as gas_law
 from solprop.profiles import FromCallable, Linear, PiecewiseLinear, ZProfile
 from solprop.pulses import GaussianPulse, SpatialPulse
@@ -809,7 +809,7 @@ def test_a_wall_declared_on_another_route_is_refused_by_name():
     constructors and the attribute `from_capillary` sets -- rather than through a
     hand-built assembly, because that is the path the leak was on.
     """
-    spatial = Simulation.from_radial(
+    spatial = Simulation.from_free(
         capillary().grid,
         RadialGrid(0.6e-3, 8),
         SpatialMedium(),

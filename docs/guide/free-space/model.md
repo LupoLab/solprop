@@ -15,7 +15,7 @@ grids:
 
 | grid | columns | assumes | medium | entry point |
 |---|---|---|---|---|
-| {py:class}`~solprop.grid.RadialGrid` | Hankel frequencies $k_r$ of the order-zero [Hankel transform](hankel.md) | each Cartesian polarisation component cylindrically symmetric | constant, or a gas whose pressure varies along z within the [adiabatic certificate](flux.md#the-adiabatic-certificate) | `prop_radial`, `Simulation.from_radial` |
+| {py:class}`~solprop.grid.RadialGrid` | Hankel frequencies $k_r$ of the order-zero [Hankel transform](hankel.md) | each Cartesian polarisation component cylindrically symmetric | constant, or a gas whose pressure varies along z within the [adiabatic certificate](flux.md#the-adiabatic-certificate) | `prop_free`, `Simulation.from_free` |
 | {py:class}`~solprop.grid.FreeGrid` | 2-D Fourier frequencies $(k_x, k_y)$, x fastest ([Cartesian free space](cartesian.md)) | nothing: periodic box | constant | `prop_free`, `Simulation.from_free` |
 | {py:class}`~solprop.grid.LineGrid` | $k_x$ alone | uniform in y ([the line](#the-line-uniform-in-y)) | constant | `prop_free`, `Simulation.from_free` |
 
@@ -222,7 +222,7 @@ products at an angle, conical emission -- asks for a real-space collar in the gr
 from solprop.boundaries import SpatialAbsorber
 
 space = RadialGrid(300e-6, 230, collar_fraction=2.6)
-prop_radial(
+prop_free(
     grid,
     space,
     medium,
@@ -323,9 +323,9 @@ transmission and by the change of obliquity.
 
 ## Construct and run a beam
 
-The how-to builds and runs beams with `prop_radial` and `prop_free`
+The how-to builds and runs beams with `prop_free`
 ([beams in bulk media](beams.md#a-beam-in-argon)), which combine construction and
-execution. `Simulation.from_radial` and `Simulation.from_free` take the same arguments and
+execution, on whichever grid it is given. `Simulation.from_free` takes the same arguments and
 separate the two:
 
 ```{code-block} python
@@ -349,7 +349,7 @@ settings = SimulationSettings(
     dz_max=5e-4,
     stats=default_spec("radial"),
 )
-simulation = Simulation.from_radial(
+simulation = Simulation.from_free(
     grid,
     space,
     SpatialMedium(),

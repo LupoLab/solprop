@@ -26,7 +26,7 @@ from solprop.modes import (
 )
 from solprop.output.hdf5 import open_file
 from solprop.output.memory import MemoryOutput
-from solprop.output.schema import SavedPlane, StepHistory
+from solprop.output.records import SavedPlane, StepHistory
 from solprop.processing import (
     electric_field,
     field_plane,
@@ -88,7 +88,7 @@ def spatial(
     )
     medium = SpatialMedium("Ar", pressure)
     if isinstance(space, RadialGrid):
-        return Simulation.from_radial(
+        return Simulation.from_free(
             grid, space, medium, [], pulse, settings=settings, noise=None
         )
     return Simulation.from_free(

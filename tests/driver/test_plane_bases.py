@@ -12,7 +12,7 @@ step-index fibre took about 95 s before the first step. A guide whose every mode
 
 import pytest
 
-from solprop.driver import simulation
+from solprop.driver import metadata, simulation
 from solprop.recipe import Recipe
 
 
@@ -24,7 +24,9 @@ def _counted(monkeypatch: pytest.MonkeyPatch) -> list[float]:
         planes.append(z)
         return real(modes, grid, z)
 
-    monkeypatch.setattr(simulation, "modal_basis_identity", counting)
+    # Both modules that evaluate a basis: the run's record and its modal identity.
+    for module in (metadata, simulation):
+        monkeypatch.setattr(module, "modal_basis_identity", counting)
     return planes
 
 

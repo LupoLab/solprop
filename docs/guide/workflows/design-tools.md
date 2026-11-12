@@ -44,15 +44,15 @@ The natural width $\tau_0$ and the peak power $P_0$ depend on the pulse shape:
      - :math:`E/(\sqrt\pi\,\tau_0)`
 ```
 
-One shape is used through the whole chain ({py:func}`~solprop.tools.pulse_width`,
-{py:func}`~solprop.tools.pulse_peak_power`,
-{py:func}`~solprop.tools.dispersion_length`,
-{py:func}`~solprop.tools.soliton_order`, {py:func}`~solprop.tools.fission_length`), so a
+One shape is used through the whole chain ({py:func}`~solprop.tools.pulse.pulse_width`,
+{py:func}`~solprop.tools.pulse.pulse_peak_power`,
+{py:func}`~solprop.tools.soliton.dispersion_length`,
+{py:func}`~solprop.tools.soliton.soliton_order`, {py:func}`~solprop.tools.soliton.fission_length`), so a
 Gaussian's soliton order is computed from the Gaussian width and the Gaussian peak power
 throughout.
 
-{py:func}`~solprop.tools.soliton_params` collects all of it for any mode and any fill,
-and {py:func}`~solprop.tools.capillary_params` builds the capillary mode for you, exactly
+{py:func}`~solprop.tools.capillary.soliton_params` collects all of it for any mode and any fill,
+and {py:func}`~solprop.tools.capillary.capillary_params` builds the capillary mode for you, exactly
 as {py:func}`~solprop.driver.interface.prop_capillary` would for the same arguments:
 
 ```{code-block} python
@@ -83,7 +83,7 @@ CONSTITUENTS (unchirped NLSE):
 ```
 
 The result is a frozen
-{py:class}`~solprop.tools.SolitonParams` whose fields are SI and spelled out
+{py:class}`~solprop.tools.capillary.SolitonParams` whose fields are SI and spelled out
 (`soliton_order`, `fission_length`, `critical_power`, ...).
 
 Three of its entries need a word of explanation.
@@ -111,13 +111,13 @@ xenon — reads as no zero, and the search raises. Use the design tools' search 
 case.
 ```
 
-**The critical power** is {py:func}`~solprop.tools.self_focusing_power`,
+**The critical power** is {py:func}`~solprop.tools.beam.self_focusing_power`,
 $P_{\rm cr}=1.86226\,\lambda^2/(4\pi n_0n_2)$ (Fibich and Gaeta, Opt. Lett. **25**, 335
 (2000)). It is {py:func}`solprop.spatial.critical_power` evaluated at `index=n0`: both
 measure the physical axial power in the medium, and the package has one Townes
 constant.
 
-{py:func}`~solprop.tools.gas_ratio` compares two gases at one wavelength, pressure and
+{py:func}`~solprop.tools.capillary.gas_ratio` compares two gases at one wavelength, pressure and
 temperature — the ratio of their bulk dispersions and of their Kerr responses, by name —
 for the "what pressure of argon matches this helium" question.
 
@@ -126,7 +126,7 @@ for the "what pressure of argon matches this helium" question.
 The conventional $N=\sqrt{L_D/L_{NL}}$ is a continuous measure of nonlinearity.
 It is not generally the number of discrete solitons. In particular, a Gaussian
 with conventional $N=1$ is not a fundamental sech soliton.
-{py:func}`~solprop.tools.soliton_content` calculates the count and the largest
+{py:func}`~solprop.tools.soliton.soliton_content` calculates the count and the largest
 constituent for an **unchirped** sech or Gaussian input in anomalous dispersion.
 `SolitonParams.soliton_content` exposes the same result; in normal dispersion it
 is `None`, while the conventional design numbers remain available.
@@ -209,10 +209,10 @@ $$
  - \beta_{1,\rm s}(\omega_0)(\omega-\omega_0) - \tfrac12\gamma P_0 = 0 .
 $$
 
-{py:func}`~solprop.tools.phase_mismatch` is this function.
-{py:func}`~solprop.tools.lambda_rdw` finds its longest root inside a wavelength window —
+{py:func}`~solprop.tools.phase_matching.phase_mismatch` is this function.
+{py:func}`~solprop.tools.phase_matching.lambda_rdw` finds its longest root inside a wavelength window —
 by default 100 nm to 0.9 of the pump wavelength, where that is the short-wavelength wave
-nearest the pump — and {py:func}`~solprop.tools.lambda_rdw_all` every root.
+nearest the pump — and {py:func}`~solprop.tools.phase_matching.lambda_rdw_all` every root.
 
 With pulse data, the default `nonlinear_phase="largest"` uses the phase of the
 largest constituent calculated above: supply input `peak_power`, `gamma`, `fwhm`
@@ -272,9 +272,9 @@ estimate with the linear condition.
 
 Two details of the search. The mismatch is sampled on 2048 frequencies across the
 window and every sign change is refined with Brent's method, so
-{py:func}`~solprop.tools.lambda_rdw_all` returns every root in the window in order — a
+{py:func}`~solprop.tools.phase_matching.lambda_rdw_all` returns every root in the window in order — a
 mode with two zero-dispersion points has a dispersive wave on each side of the pump, and
-a window that reaches to the red finds both — while {py:func}`~solprop.tools.lambda_rdw`
+a window that reaches to the red finds both — while {py:func}`~solprop.tools.phase_matching.lambda_rdw`
 returns the longest of them, which on the default window is the short-wavelength wave
 nearest the pump. And a window with no root **raises**
 {py:class}`~solprop.exceptions.ToolsError`, naming the window and the sign of the mismatch
@@ -291,10 +291,10 @@ rests on an extrapolated cladding index.
 
 ## The pressure that tunes it
 
-{py:func}`~solprop.tools.pressure_rdw` inverts the calculation: the pressure at which
+{py:func}`~solprop.tools.design.pressure_rdw` inverts the calculation: the pressure at which
 the dispersive wave is phase matched at a target wavelength, by Brent's method between
 $10^{-6}$ bar and `pressure_max`. With `peak_power` the nonlinear coefficient follows the
-pressure inside the search. {py:func}`~solprop.tools.pressure_zdw` does the same for the
+pressure inside the search. {py:func}`~solprop.tools.design.pressure_zdw` does the same for the
 zero-dispersion wavelength. The capillary is built once and re-evaluated at each density
 through its parameterised form, rather than rebuilt with its equation of state at every
 step, so a search costs milliseconds.
@@ -322,8 +322,8 @@ can be missed; narrowing the bracket improves their resolution.
 
 The usual question runs the other way round: given a core radius, a gas and a pulse,
 what pressure and energy give a chosen zero-dispersion wavelength and a chosen soliton?
-{py:func}`~solprop.tools.capillary_design` answers it in two steps. The pressure
-places the zero ({py:func}`~solprop.tools.pressure_zdw`) and does not depend on the
+{py:func}`~solprop.tools.capillary.capillary_design` answers it in two steps. The pressure
+places the zero ({py:func}`~solprop.tools.design.pressure_zdw`) and does not depend on the
 energy. At that pressure $\beta_2$ and $\gamma$ are fixed, and
 $N^2=\gamma P_0\tau_0^2/|\beta_2|$ is linear in the peak power, so the energy follows in
 closed form:
@@ -369,8 +369,8 @@ its own natural width.
 'N = 1.5491, eta = 1.000000'
 ```
 
-The result is the {py:class}`~solprop.tools.SolitonParams` of
-{py:func}`~solprop.tools.capillary_params` at the designed pressure and energy, with
+The result is the {py:class}`~solprop.tools.capillary.SolitonParams` of
+{py:func}`~solprop.tools.capillary.capillary_params` at the designed pressure and energy, with
 the mode. `pressure_zdw` sets the limits: a single built-in gas, the `HE_1m` mode.
 
 ## Antiresonant fibres from measured geometry
@@ -424,7 +424,7 @@ window when close resonances cannot be resolved by the 2048-point sampling.
 
 ## Any guide, any parameter
 
-The pressure tools are written for the capillary. {py:func}`~solprop.tools.solve_parameter`
+The pressure tools are written for the capillary. {py:func}`~solprop.tools.design.solve_parameter`
 is their general form: it takes a **builder**, a function that returns the mode at a
 trial value of any parameter (a radius, a pressure, a core size, a wall thickness), a
 search range, and a target, and returns every value in the range that meets the target.
@@ -442,7 +442,7 @@ search range, and a target, and returns every value in the range that meets the 
 ['89.49 um']
 ```
 
-{py:func}`~solprop.tools.radius_zdw` is this search for the capillary, the radius
+{py:func}`~solprop.tools.design.radius_zdw` is this search for the capillary, the radius
 counterpart of `pressure_zdw`, with the same keywords and `materials=`:
 `radius_zdw("He", 1.0, 400e-9, cladding=1.45)` is the same 89.49 µm.
 
@@ -456,21 +456,21 @@ There are three targets, each a frozen dataclass whose residual the search brack
    * - target
      - residual on the trial mode
      - the builder returns
-   * - :py:class:`~solprop.tools.ZDW` ``(wavelength)``
+   * - :py:class:`~solprop.tools.design.ZDW` ``(wavelength)``
      - :math:`\beta_2` at the wavelength
      - the mode
-   * - :py:class:`~solprop.tools.RDW` ``(pump, rdw, peak_power, fwhm, shape, nonlinear_phase)``
+   * - :py:class:`~solprop.tools.design.RDW` ``(pump, rdw, peak_power, fwhm, shape, nonlinear_phase)``
      - the phase mismatch at ``rdw``, exactly as ``pressure_rdw`` evaluates it; none
        where the largest constituent does not exist
      - the mode, or ``(mode, gamma)`` with a ``peak_power``
-   * - :py:class:`~solprop.tools.SolitonOrder` ``(order, pulse)``
+   * - :py:class:`~solprop.tools.design.SolitonOrder` ``(order, pulse)``
      - the pulse's soliton order less ``order``, at the pulse's wavelength
      - ``(mode, gamma)``
 ```
 
 A mode need not know its fill's Kerr response, so a target that needs the nonlinear
 coefficient asks the builder for it beside the mode, from
-{py:func}`~solprop.tools.nonlinear_coefficient`; a builder that returns one serves a
+{py:func}`~solprop.tools.soliton.nonlinear_coefficient`; a builder that returns one serves a
 linear target too, which ignores it. The search evaluates each mode at the launch
 position `z` (zero by default).
 
@@ -487,7 +487,7 @@ refinements, so a builder that re-evaluates one mode, as above, costs millisecon
 value, while one that constructs a new capillary costs about 20 ms, and an antiresonant
 or tabulated guide more.
 
-**Every root.** The result is a {py:class}`~solprop.tools.DesignRoots`: the roots in
+**Every root.** The result is a {py:class}`~solprop.tools.design.DesignRoots`: the roots in
 ascending order, the range, the target and the number of builds. A design can have
 more than one answer. The soliton order of a fixed pulse diverges at the pressure that
 puts the zero dispersion at the pump, and is the conventional measure on both sides of
@@ -538,8 +538,8 @@ refusal says the quantity is undefined across the range.
 
 **The pulse for an order.** The other soliton design holds the mode and asks for the
 pulse. $N^2=\gamma P_0\tau_0^2/|\beta_2|$ is linear in the peak power, so
-{py:func}`~solprop.tools.soliton_peak_power` is closed form, and
-{py:func}`~solprop.tools.pulse_energy` turns the peak power into an energy, as
+{py:func}`~solprop.tools.soliton.soliton_peak_power` is closed form, and
+{py:func}`~solprop.tools.pulse.pulse_energy` turns the peak power into an energy, as
 `capillary_design` does at its designed pressure:
 
 ```{code-block} python
@@ -561,10 +561,10 @@ default; a design computed from other data would name a pressure the run does no
 reproduce. Every design tool that computes a gas or wall index or a Kerr coefficient
 from a name therefore takes the same `materials=` keyword, with the same default,
 `MaterialSelection()` —
-{py:func}`~solprop.tools.soliton_params`, {py:func}`~solprop.tools.capillary_params`,
-{py:func}`~solprop.tools.capillary_design`,
-{py:func}`~solprop.tools.gas_ratio`, {py:func}`~solprop.tools.pressure_zdw`,
-{py:func}`~solprop.tools.pressure_rdw` and {py:func}`~solprop.tools.radius_zdw` — and
+{py:func}`~solprop.tools.capillary.soliton_params`, {py:func}`~solprop.tools.capillary.capillary_params`,
+{py:func}`~solprop.tools.capillary.capillary_design`,
+{py:func}`~solprop.tools.capillary.gas_ratio`, {py:func}`~solprop.tools.design.pressure_zdw`,
+{py:func}`~solprop.tools.design.pressure_rdw` and {py:func}`~solprop.tools.design.radius_zdw` — and
 resolves exactly as the capillary driver
 does: a name, a fraction mapping and `"air"` (nitrogen and oxygen) through the
 selection, the Kerr coefficient at the tool's pump wavelength (a selection naming

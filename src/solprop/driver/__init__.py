@@ -19,21 +19,18 @@ from solprop.driver.interface import (
     prop_free,
     prop_gnlse,
     prop_planar,
-    prop_radial,
     prop_waveguide,
 )
+from solprop.driver.metadata import metadata_for
 from solprop.driver.run import (
     LogReporter,
     ProgressReporter,
     plane_from_observation,
     run_problem,
 )
-from solprop.driver.simulation import (
-    Simulation,
-    SimulationRunner,
-    SimulationSettings,
-    metadata_for,
-)
+from solprop.driver.runner import SimulationRunner
+from solprop.driver.settings import SimulationSettings
+from solprop.driver.simulation import Simulation
 from solprop.driver.tdse import HaccPreset, hacc_basis, hacc_preset
 from solprop.driver.tdse_consistency import ConsistencyResult, check_consistency
 
@@ -54,7 +51,6 @@ __all__ = [
     "prop_free",
     "prop_gnlse",
     "prop_planar",
-    "prop_radial",
     "prop_waveguide",
     "run_problem",
 ]

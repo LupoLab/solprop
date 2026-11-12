@@ -12,10 +12,11 @@ import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.adiabatic import AdiabaticAccuracy
-from solprop.driver.simulation import Simulation, SimulationSettings
+from solprop.driver.settings import SimulationSettings
+from solprop.driver.simulation import Simulation
 from solprop.exceptions import MaterialError, TranslationError
 from solprop.grid import EnvelopeGrid, RadialGrid
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.profiles import FromCallable, Linear
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy
@@ -60,7 +61,7 @@ def _case(
         adiabatic_accuracy=accuracy,
         absorber=bare_absorber(grid),
     )
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid, RadialGrid(6e-4, 16), medium, [], pulse, settings=settings, noise=None
     )
 

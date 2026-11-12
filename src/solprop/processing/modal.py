@@ -58,7 +58,9 @@ from solprop.modes.guide import ModalGuide
 from solprop.modes.protocol import ChannelLabel
 from solprop.modes.vector import ModalNodeRule
 from solprop.output.capability import capability_of, refusal_for, withheld_from
-from solprop.output.schema import Convention, Output, RunMetadata
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import Convention
+from solprop.output.store import Output
 from solprop.processing.axes import _plane_field, grid_of
 from solprop.translate.chebyshev import _EDGE_SLACK_FRACTION
 from solprop.translate.general import guide_identity
@@ -442,7 +444,7 @@ def channel_labels(output: Output) -> tuple[ChannelLabel, ...]:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
 
     Returns
@@ -502,7 +504,7 @@ def electric_field(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding a general modal run.
     tables : solprop.translate.modal_tables.ModalTransformTables
         The run's own reference, rebuilt from the guide the record names; its
@@ -562,7 +564,7 @@ def magnetic_field(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding a general modal run.
     tables : solprop.translate.modal_tables.ModalTransformTables
         The run's own reference; its identity is checked against the file's.
@@ -645,7 +647,7 @@ def reconstructed_flux(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding a general modal run.
     tables : solprop.translate.modal_tables.ModalTransformTables
         The run's own reference; its identity is checked against the file's.
@@ -722,7 +724,7 @@ def instantaneous_flux(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding a general modal run.
     tables : solprop.translate.modal_tables.ModalTransformTables
         The run's own reference; its identity is checked against the file's.
@@ -784,7 +786,7 @@ def coordinate_intensity(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding a general modal run.
     tables : solprop.translate.modal_tables.ModalTransformTables
         The run's own reference; its identity is checked against the file's.
@@ -847,7 +849,7 @@ def plane_nodes(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding a general modal run.
     tables : solprop.translate.modal_tables.ModalTransformTables
         The run's own reference; its identity is checked against the file's.
@@ -917,7 +919,7 @@ def physical_energy(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding a general modal run.
     plane : int or None, optional
         Index of the plane wanted, negative from the end; with neither `plane` nor

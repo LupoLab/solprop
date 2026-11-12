@@ -24,7 +24,7 @@ from solprop.tools import (
     pulse_peak_power,
     soliton_order,
 )
-from solprop.tools import _fill_n2 as fill_n2
+from solprop.tools.waveguide import _fill_n2 as fill_n2
 
 ZDW_PIN = {
     "target": "zdw",

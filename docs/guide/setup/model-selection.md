@@ -41,7 +41,7 @@ each assumes and when it stops being valid.
 **Where the interfaces' keywords differ.** The keyword interfaces share their grid,
 pulse, noise and output keywords; these differ, by interface:
 
-| keyword | `prop_gnlse` | `prop_capillary` | `prop_waveguide` | `prop_radial`, `prop_free`, `prop_planar` |
+| keyword | `prop_gnlse` | `prop_capillary` | `prop_waveguide` | `prop_free`, `prop_planar` |
 |---|---|---|---|---|
 | `noise`, `seed` | yes | yes | yes | yes, except `prop_planar`, whose grid carries no noise model |
 | `rtol`, `atol`, `backend` | yes; `atol` 1e-14 √W | yes; `atol` 1e-10 √W | yes; `atol` 1e-10 √W | in the `settings` they require |

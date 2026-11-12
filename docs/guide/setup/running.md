@@ -29,8 +29,7 @@ There are three ways in, and they are the same machinery underneath:
   physics objects directly.
 
 Free-space and planar propagation have entry points of their own,
-{py:func}`~solprop.driver.interface.prop_radial`,
-{py:func}`~solprop.driver.interface.prop_free` and
+{py:func}`~solprop.driver.interface.prop_free` (radial or Cartesian) and
 {py:func}`~solprop.driver.interface.prop_planar`, described on
 [the free-space chapter](../free-space/model.md). They use the same output,
 continuation, progress and resource controls linked above.
@@ -89,7 +88,7 @@ output = prop_gnlse(
 That builds an envelope grid, maps `gamma` onto a third-order susceptibility, wraps the
 Taylor coefficients in a dispersion-specified mode
 ({py:class}`~solprop.nonlinear.gnlse.SpecifiedMode`), builds the input pulse, selects the backend, propagates the pulse and stores 201 planes. It
-returns the {py:class}`~solprop.output.schema.Output` it wrote — here a
+returns the {py:class}`~solprop.output.store.Output` it wrote — here a
 {py:class}`~solprop.output.memory.MemoryOutput`, because no `output` was given.
 
 Units are SI throughout ([conventions.md §1](../../dev/conventions.md)), with one exception
@@ -250,7 +249,7 @@ Gauss or Gauss–Kronrod rule integrates Kerr and Raman overlaps accurately when
 its order resolves the mode profiles, converges spectrally for a smooth ionisation rate, and costs the same on every
 step, where an adaptive cubature's cost depends on the field and its error estimate can be
 far too optimistic with a kinked rate. Its radial order `n_r` defaults to
-{py:func}`~solprop.driver.simulation.default_radial_order` of the mode count -- 32 up to
+{py:func}`~solprop.driver.routes.hollow.default_radial_order` of the mode count -- 32 up to
 four modes, eight nodes per mode above that. `radial_rule="gauss_kronrod"`, the default, makes the rule
 the Kronrod extension of the half-order Gauss rule, whose embedded Gauss subset costs
 nothing and gives the run an error estimate (the quadrature alarm, below). `n_theta` is
@@ -340,7 +339,7 @@ runs default to no plasma. The span of the table comes from the input's own peak
 field, over the axis and the run's transverse nodes (the axis for an `HE_1m` launch, the
 nodes for a `TE_0m` or `TM_0m` one, whose field vanishes on the axis), unless
 `ionisation_field_range` gives one --
-{py:func}`~solprop.driver.simulation.default_field_range` explains the two factors. Above
+{py:func}`~solprop.driver.inputs.default_field_range` explains the two factors. Above
 the upper limit the table holds its last value, so one set too low is a silent clip of
 the rate exactly where ionisation matters; below the lower one the rate is zero, which is
 where every rate in this package already is.
@@ -411,7 +410,7 @@ memory = simulation.run()             # into memory
 simulation.run("run.h5")              # and again, into a file, without translating twice
 ```
 
-{py:class}`~solprop.driver.simulation.SimulationSettings` holds everything numerical:
+{py:class}`~solprop.driver.settings.SimulationSettings` holds everything numerical:
 the controller and its tolerances, the save planes, the step limits, a fixed schedule,
 the tableau, the absorber and how it is applied, the transverse quadrature, the
 statistics and the backend.
@@ -449,7 +448,7 @@ state are allocated and first touched, and the transforms are planned. A delay s
 sweep of the input runs the same translated problem for hundreds of inputs, and need pay
 that once. {py:meth}`~solprop.driver.simulation.Simulation.runner` translates (or reuses
 the cached translation) and constructs one backend; each
-{py:meth}`~solprop.driver.simulation.SimulationRunner.run` then loads one input into it
+{py:meth}`~solprop.driver.runner.SimulationRunner.run` then loads one input into it
 and runs the save-plane loop
 ([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §5.2):
 
@@ -522,7 +521,7 @@ hashing per input rather than gigabytes of JSON.
 
 A caller that already knows what its input is need not pay even that. Both `with_input`
 and `SimulationRunner.run` take `input_identity=`, a string the record then holds with the
-array's dtype and shape ({py:class}`~solprop.output.schema.StatedInput`) in place of the
+array's dtype and shape ({py:class}`~solprop.output.serialisation.StatedInput`) in place of the
 array's own record, without reading its bytes, so the run's hash follows the string:
 
 ```{code-block} python
@@ -560,7 +559,7 @@ no setting keeps one without the other, so settle the window on one input with t
 
 A scan whose result is a few numbers per input has no use for a store.
 {py:class}`~solprop.output.callback.CallbackOutput` is a handler built from a callable: it
-gives each {py:class}`~solprop.output.schema.SavedPlane` to the callable, the entrance
+gives each {py:class}`~solprop.output.records.SavedPlane` to the callable, the entrance
 first, and keeps nothing, so the body of a hand loop over the backend moves into a few
 lines. Most reductions want statistics and no field, which is a run with `fields="none"`
 and the statistics it names:

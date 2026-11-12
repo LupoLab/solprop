@@ -396,55 +396,55 @@
    "name": "int"
   }
  ],
- "Simulation.from_radial": [
+ "Simulation.from_free": [
   {
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.driver.simulation",
    "module_short": "solprop.driver",
-   "name": "Simulation.from_radial"
+   "name": "Simulation.from_free"
   },
   {
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.driver",
    "module_short": "solprop.driver",
-   "name": "Simulation.from_radial"
+   "name": "Simulation.from_free"
   },
   {
    "is_class": true,
    "is_explicit": false,
    "module": "solprop",
    "module_short": "solprop",
-   "name": "Simulation.from_radial"
+   "name": "Simulation.from_free"
   },
   {
    "is_class": true,
    "is_explicit": false,
    "module": "solprop._display",
    "module_short": "solprop._display",
-   "name": "Displayed.from_radial"
+   "name": "Displayed.from_free"
   },
   {
    "is_class": true,
    "is_explicit": false,
    "module": "solprop",
    "module_short": "solprop",
-   "name": "Displayed.from_radial"
+   "name": "Displayed.from_free"
   },
   {
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.driver.Simulation",
    "module_short": "solprop.driver.Simulation",
-   "name": "from_radial"
+   "name": "from_free"
   }
  ],
  "SimulationSettings": [
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "solprop.driver.simulation",
+   "module": "solprop.driver.settings",
    "module_short": "solprop.driver",
    "name": "SimulationSettings"
   },

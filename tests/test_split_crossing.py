@@ -95,7 +95,7 @@ def _gnlse(
 def _radial(backend: str) -> Simulation:
     """Return a 1 pJ pulse at 1150 nm in 60 bar of argon on a 400 fs window."""
     grid = FieldGrid.from_limits(1.0, 800e-9, (500e-9, 1.3e-6), 400e-15)
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(1.2e-2, 16),
         SpatialMedium("Ar", 60.0),
@@ -221,7 +221,7 @@ def _beam(backend: str, nodes: int, trange: float, fraction: float) -> Simulatio
     index = float(np.real(medium.index(np.array([2 * math.pi * C / 800e-9]))[0]))
     power = fraction * critical_power(800e-9, chi3 * density, index=index)
     energy = power * 50e-15 * math.sqrt(math.pi / (4 * math.log(2)))
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(1e-3, nodes),
         medium,

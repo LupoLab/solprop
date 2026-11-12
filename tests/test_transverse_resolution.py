@@ -48,7 +48,7 @@ def suite(
         if energy > 0
         else np.zeros((space.n_r, 1, grid.n_omega), dtype=complex)
     )
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         space,
         SpatialMedium("Ar", 1.0),
@@ -209,7 +209,7 @@ def test_the_keyword_and_the_settings_cannot_both_name_a_boundary() -> None:
         simulation.settings, spatial_absorber=SpatialAbsorber(kappa=2e5)
     )
     with pytest.raises(DriverError, match="not both"):
-        Simulation.from_radial(
+        Simulation.from_free(
             simulation.grid,
             simulation.spatial_grid,  # pyright: ignore[reportArgumentType]
             simulation.medium,  # pyright: ignore[reportArgumentType]

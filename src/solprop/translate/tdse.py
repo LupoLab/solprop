@@ -20,6 +20,7 @@ from typing import Any, Literal, Protocol, cast, runtime_checkable
 import numpy as np
 from jaxtyping import Bool, Float
 
+from solprop._identity import canonical_json, text_digest
 from solprop._ownership import frozen_copy, hold
 from solprop.exceptions import (
     BackendError,
@@ -483,8 +484,7 @@ class TDSEDescriptor:
 
     def __post_init__(self) -> None:
         """Protect the seam identity against independently modified scalar fields."""
-        digest = hashlib.sha256(self.configuration_json.encode()).hexdigest()
-        if digest != self.identity:
+        if text_digest(self.configuration_json) != self.identity:
             raise TranslationError(
                 "TDSE descriptor identity does not match its configuration"
             )
@@ -711,12 +711,10 @@ class TDSEDescriptor:
             "shadow_order": order,
             "outputs": outputs,
         }
-        encoded = json.dumps(
-            specification, sort_keys=True, separators=(",", ":"), allow_nan=False
-        )
+        encoded = canonical_json(specification, finite=True)
         return cls(
             configuration_json=encoded,
-            identity=hashlib.sha256(encoded.encode()).hexdigest(),
+            identity=text_digest(encoded),
             kerr_model=response.kerr_model,
             remainder_scale=response.remainder_scale,
             cubic_scale=response.cubic_scale,

@@ -24,7 +24,7 @@ import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import KW_ONLY, dataclass, field, replace
 from types import MappingProxyType
-from typing import Literal, cast
+from typing import ClassVar, Literal, cast
 
 import numpy as np
 from jaxtyping import Complex, Float, Inexact
@@ -33,7 +33,12 @@ from solprop._display import engineering, line
 from solprop.constants import EPS0, C
 from solprop.exceptions import GrazingIncidenceWarning, ModeError
 from solprop.modes.fill import GasFillMixin, LossSpec, _sqrt1p_minus_one
-from solprop.modes.protocol import ChannelLabel, CrossSection, PolarisationComponent
+from solprop.modes.protocol import (
+    ChannelLabel,
+    CrossSection,
+    ParameterisedMode,
+    PolarisationComponent,
+)
 from solprop.physdata.gases import Gas
 from solprop.physdata.glasses import GlassIndex, fused_silica
 from solprop.physdata.mixtures import Mixture
@@ -111,8 +116,40 @@ class _WallPairFill(GasFillMixin):
     concrete frozen dataclass declares ``cladding_index`` beside the fill fields.
     """
 
+    cladding: GlassIndex | complex | None
     cladding_index: GlassIndex | complex
     _validity_warned: list[bool]
+    _MODEL: ClassVar[str]
+    """The model's name in a refusal: ``"rectangular"`` or ``"the slab"``."""
+
+    def _walls(self, z: float) -> tuple[tuple[float, int, Literal["te", "tm"]], ...]:
+        """Return each wall pair's half-width in m, mode order and reflection at z."""
+        raise NotImplementedError
+
+    def _resolve_walls(self, *geometry: ZProfile) -> None:
+        """Resolve the fill and the wall material, and check the geometry at its kinks.
+
+        The second half of a concrete mode's ``__post_init__``, after its own fields
+        and its geometry paths are set. The once-per-mode validity flag is an
+        attribute rather than a field, so the declared fields stay what they were,
+        and a list so that the shallow copies ``at_parameters`` makes share it
+        (:meth:`_warn_validity`).
+        """
+        object.__setattr__(self, "_validity_warned", [False])
+        self._resolve_fill()
+        object.__setattr__(
+            self,
+            "cladding_index",
+            fused_silica() if self.cladding is None else self.cladding,
+        )
+        for path in geometry:
+            positions = np.unique(
+                np.concatenate((path.breakpoints, np.asarray(path.z_span), [0.0]))
+            )
+            for position in positions:
+                if math.isfinite(float(position)):
+                    self._walls(float(position))
+        self._warn_loss_derivative()
 
     def _warn_validity(
         self, terms: _RectTerms, pairs: Sequence[tuple[float, int, Literal["te", "tm"]]]
@@ -250,6 +287,124 @@ class _WallPairFill(GasFillMixin):
         """
         return 1.0 + terms.chi, terms.dchi
 
+    def _model_values(
+        self,
+        terms: _RectTerms,
+        walls: tuple[tuple[float, int, Literal["te", "tm"]], ...],
+    ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
+        """Evaluate the reflection model before the shared loss policy.
+
+        - ``walls``: what :meth:`_walls` returns.
+        - Returns: refractivity and its frequency derivative in s/rad.
+        """
+        te, dte, tm, dtm = self._wall_coefficients(terms)
+        argument, dargument = terms.chi, terms.dchi
+        for half_width, order, reflection in walls:
+            q, dq = (te, dte) if reflection == "te" else (tm, dtm)
+            decrement, ddecrement = _transverse_term(
+                terms.omega, half_width, order, q, dq
+            )
+            argument = argument - decrement
+            dargument = dargument - ddecrement
+        # The rationalised sqrt(1 + argument) - 1 the Marcatili model shares: it
+        # keeps every digit in the large-guide limit, where the argument is tiny.
+        refractivity = _sqrt1p_minus_one(argument)
+        derivative = dargument / (2 * (1 + refractivity))
+        if not (np.all(np.isfinite(refractivity)) and np.all(np.isfinite(derivative))):
+            raise ModeError(f"{self._MODEL} model produced non-finite values")
+        return np.asarray(refractivity), np.asarray(derivative)
+
+    def _values(
+        self, omega: Float[np.ndarray, " n_omega"], z: float
+    ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
+        """Apply the shared loss policy and floor to the local model.
+
+        - ``omega``: positive frequencies in rad/s.
+        - ``z``: position in m.
+        - Returns: refractivity and its derivative in s/rad after loss and floor
+          policies.
+        """
+        walls = self._walls(z)
+        terms = self._terms(omega, z)
+        values, derivative = self._model_values(terms, walls)
+        self._warn_validity(terms, walls)
+        return self._floored(*self._apply_loss(omega, values, derivative))
+
+    @property
+    def z_constant(self) -> bool:
+        """Whether the geometry and every material path are constant."""
+        return all(
+            path.is_constant
+            for path in cast("ParameterisedMode", self).parameter_paths.values()
+        )
+
+    @property
+    def polarisation_degenerate(self) -> bool:
+        """False: the two polarisations take different wall coefficients.
+
+        So they are distinct modes, each with its own operator row.
+        """
+        return False
+
+    def neff(
+        self, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
+    ) -> Complex[np.ndarray, " n_omega"]:
+        """Return the effective index with positive imaginary part for attenuation.
+
+        Parameters
+        ----------
+        omega : numpy.ndarray
+            Positive frequencies in rad/s, shape ``(n_omega,)``.
+        z : float, optional
+            Position in m.
+
+        Returns
+        -------
+        numpy.ndarray
+            Complex effective index, dimensionless, shape ``(n_omega,)``.
+        """
+        return 1 + self._values(omega, z)[0]
+
+    def neff_minus_one(
+        self, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
+    ) -> Complex[np.ndarray, " n_omega"]:
+        """Return the refractivity directly from the small square-root argument.
+
+        Parameters
+        ----------
+        omega : numpy.ndarray
+            Positive frequencies in rad/s, shape ``(n_omega,)``.
+        z : float, optional
+            Position in m.
+
+        Returns
+        -------
+        numpy.ndarray
+            Complex ``n_eff - 1``, dimensionless, shape ``(n_omega,)``, without
+            subtracting unity from the index.
+        """
+        return self._values(omega, z)[0]
+
+    def dneff_domega(
+        self, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
+    ) -> Complex[np.ndarray, " n_omega"]:
+        """Return the analytic derivative including core and wall material slopes.
+
+        Parameters
+        ----------
+        omega : numpy.ndarray
+            Positive frequencies in rad/s, shape ``(n_omega,)``.
+        z : float, optional
+            Position in m.
+
+        Returns
+        -------
+        numpy.ndarray
+            Complex index derivative in s/rad, shape ``(n_omega,)``; only a
+            slope-free loss callable uses the shared numerical loss derivative.
+        """
+        return self._values(omega, z)[1]
+
 
 @dataclass(frozen=True, eq=False)
 class RectMode(_WallPairFill):
@@ -326,6 +481,13 @@ class RectMode(_WallPairFill):
     cladding_index: GlassIndex | complex = field(init=False, repr=False)
     model: Literal["full", "reduced"] = field(init=False, default="full", repr=False)
     _gain_warned: bool = field(init=False, default=False, repr=False)
+    _MODEL: ClassVar[str] = "rectangular"
+
+    # The index methods are the shared wall-pair base's; named here, so that the API
+    # reference documents them on this class, as it documents no private base.
+    neff = _WallPairFill.neff
+    neff_minus_one = _WallPairFill.neff_minus_one
+    dneff_domega = _WallPairFill.dneff_domega
 
     def __post_init__(self) -> None:
         """Validate the mode and resolve geometry and material paths.
@@ -335,10 +497,6 @@ class RectMode(_WallPairFill):
         ModeError
             If half-widths, indices, polarisation or fill declarations are invalid.
         """
-        # The once-per-mode validity flag: an attribute rather than a field, so the
-        # declared fields stay what they were, and a list so that the shallow copies
-        # `at_parameters` makes share it (`_WallPairFill._warn_validity`).
-        object.__setattr__(self, "_validity_warned", [False])
         if self.n < 1 or self.m < 1:
             raise ModeError("rectangular mode indices n and m must be positive")
         if self.polarisation not in ("x", "y"):
@@ -346,20 +504,7 @@ class RectMode(_WallPairFill):
         self._check_fill_arguments()
         object.__setattr__(self, "width_x", as_profile(self.half_width_x))
         object.__setattr__(self, "width_y", as_profile(self.half_width_y))
-        self._resolve_fill()
-        object.__setattr__(
-            self,
-            "cladding_index",
-            fused_silica() if self.cladding is None else self.cladding,
-        )
-        for path in (self.width_x, self.width_y):
-            positions = np.unique(
-                np.concatenate((path.breakpoints, np.asarray(path.z_span), [0.0]))
-            )
-            for position in positions:
-                if math.isfinite(float(position)):
-                    self._widths(float(position))
-        self._warn_loss_derivative()
+        self._resolve_walls(self.width_x, self.width_y)
 
     def _widths(self, z: float) -> tuple[float, float]:
         """Return the positive half-widths at one longitudinal position.
@@ -372,6 +517,16 @@ class RectMode(_WallPairFill):
         if not (math.isfinite(a) and math.isfinite(b) and a > 0 and b > 0):
             raise ModeError("rectangular half-widths must be positive and finite")
         return a, b
+
+    def _walls(self, z: float) -> tuple[tuple[float, int, Literal["te", "tm"]], ...]:
+        """Return the x and y wall pairs at z.
+
+        The x walls see the TM-like reflection when E is along x, normal to them.
+        """
+        a, b = self._widths(z)
+        x_wall: Literal["te", "tm"] = "tm" if self.polarisation == "x" else "te"
+        y_wall: Literal["te", "tm"] = "te" if x_wall == "tm" else "tm"
+        return (a, self.m, x_wall), (b, self.n, y_wall)
 
     @property
     def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
@@ -423,11 +578,6 @@ class RectMode(_WallPairFill):
         return frozen
 
     @property
-    def z_constant(self) -> bool:  # numpydoc ignore=RT01
-        """Whether every geometry and material path is constant."""
-        return all(path.is_constant for path in self.parameter_paths.values())
-
-    @property
     def radius_is_constant(self) -> bool:  # numpydoc ignore=RT01
         """The transform's geometry-constant trait for the rectangle.
 
@@ -443,16 +593,6 @@ class RectMode(_WallPairFill):
         True for constant half-widths or the same path object on both axes.
         """
         return self.radius_is_constant or self.width_x is self.width_y
-
-    @property
-    def polarisation_degenerate(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the two polarisations share one effective index.
-
-        False: the x- and y-polarised modes of one (n, m) take the TE-like
-        and TM-like coefficients on opposite wall pairs, so they are
-        distinct modes and need a row each.
-        """
-        return False
 
     @property
     def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
@@ -513,105 +653,6 @@ class RectMode(_WallPairFill):
         It requires its own operator row; it is not a duplicated scalar index.
         """
         return replace(self, polarisation="y" if self.polarisation == "x" else "x")
-
-    def _model_values(
-        self, terms: _RectTerms, a: float, b: float
-    ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
-        """Evaluate the complex reflection model before the shared loss policy.
-
-        - ``a``, ``b``: positive half-widths in m.
-        - Returns: refractivity and its frequency derivative in s/rad.
-        """
-        te, dte, tm, dtm = self._wall_coefficients(terms)
-        x, dx = (tm, dtm) if self.polarisation == "x" else (te, dte)
-        y, dy = (te, dte) if self.polarisation == "x" else (tm, dtm)
-        first, dfirst = _transverse_term(terms.omega, a, self.m, x, dx)
-        second, dsecond = _transverse_term(terms.omega, b, self.n, y, dy)
-        argument = terms.chi - first - second
-        # The rationalised sqrt(1 + argument) - 1 the Marcatili model shares: it
-        # keeps every digit in the large-guide limit, where the argument is tiny.
-        refractivity = _sqrt1p_minus_one(argument)
-        derivative = (terms.dchi - dfirst - dsecond) / (2 * (1 + refractivity))
-        if not (np.all(np.isfinite(refractivity)) and np.all(np.isfinite(derivative))):
-            raise ModeError("rectangular model produced non-finite values")
-        return np.asarray(refractivity), np.asarray(derivative)
-
-    def _values(
-        self, omega: Float[np.ndarray, " n_omega"], z: float
-    ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
-        """Apply the shared loss policy and floor to the local model.
-
-        - ``omega``: positive frequencies in rad/s.
-        - ``z``: position in m.
-        - Returns: refractivity and its derivative in s/rad after loss and floor
-          policies.
-        """
-        a, b = self._widths(z)
-        terms = self._terms(omega, z)
-        values, derivative = self._model_values(terms, a, b)
-        # The x walls see the TM-like reflection when E is along x, normal to them.
-        x_wall: Literal["te", "tm"] = "tm" if self.polarisation == "x" else "te"
-        y_wall: Literal["te", "tm"] = "te" if x_wall == "tm" else "tm"
-        self._warn_validity(terms, ((a, self.m, x_wall), (b, self.n, y_wall)))
-        return self._floored(*self._apply_loss(omega, values, derivative))
-
-    def neff(
-        self, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
-    ) -> Complex[np.ndarray, " n_omega"]:
-        """Return the effective index with positive imaginary part for attenuation.
-
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Positive frequencies in rad/s.
-        z : float, optional
-            Position in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Complex effective index, shape (n_omega,).
-        """
-        return 1 + self._values(omega, z)[0]
-
-    def neff_minus_one(
-        self, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
-    ) -> Complex[np.ndarray, " n_omega"]:
-        """Return refractivity directly from the small square-root argument.
-
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Positive frequencies in rad/s.
-        z : float, optional
-            Position in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Complex n_eff - 1, without subtracting unity from the returned index.
-        """
-        return self._values(omega, z)[0]
-
-    def dneff_domega(
-        self, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
-    ) -> Complex[np.ndarray, " n_omega"]:
-        """Return the analytic derivative including core and wall material slopes.
-
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Positive frequencies in rad/s.
-        z : float, optional
-            Position in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Complex index derivative in s/rad; only a slope-free loss callable
-            uses the shared numerical loss derivative.
-        """
-        return self._values(omega, z)[1]
 
     def aeff(self, z: float = 0.0) -> float:
         """Return the closed-form effective area.

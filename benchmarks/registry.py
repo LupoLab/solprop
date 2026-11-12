@@ -69,7 +69,9 @@ class Case:
     sets : tuple of str
         Selection groups; ``tracking`` puts the case in the default run.
     interface : str
-        The ``prop_*`` interface whose defaults the case runs with.
+        The ``prop_*`` interface whose defaults the case runs with. ``"prop_radial"``
+        is ``prop_free`` on a radial grid: the label the tracked definitions were
+        recorded with, kept so that their digests do not change.
     builder : str
         Builder family in ``benchmarks.builders``.
     length : float

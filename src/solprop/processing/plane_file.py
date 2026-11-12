@@ -40,7 +40,7 @@ from solprop.coupling import (
 )
 from solprop.coupling.plane import AnalyticRecord
 from solprop.exceptions import OutputError, ProcessingError
-from solprop.output.schema import GridRecord
+from solprop.output.records import GridRecord
 from solprop.processing.axes import _space_from_record, grid_from_record
 from solprop.translate.flux import _admission, admission_record
 

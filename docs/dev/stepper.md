@@ -304,7 +304,7 @@ a Cartesian Kerr beam, `tests/backends/test_low_storage.py`).
 ### Low-call Adams methods
 
 `stepper/multistep.py` and `backends/numpy_ref/multistep.py` hold the Adams integrator, the default
-of `prop_capillary`, `prop_radial` and `prop_planar` (ADR-037, ADR-045, ADR-055;
+of `prop_capillary`, `prop_free` on a radial grid and `prop_planar` (ADR-037, ADR-045, ADR-055;
 `stepper/runge_kutta.py`'s `RungeKutta` names the tableau's march, the default of
 `prop_gnlse`, `prop_waveguide` and `prop_free`).
 `Multistep` is an Adams march with a derivative history, in the exponential formulation

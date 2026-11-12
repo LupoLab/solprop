@@ -27,7 +27,7 @@ from former_raman import (
 from solprop import fourier
 from solprop.constants import EPS0
 from solprop.nonlinear.raman import MolecularOptions, RamanResponse
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.physdata import MolecularRaman
 from vector_raman_declaration import Declaration, Term
 from vector_raman_tensor_oracle import (

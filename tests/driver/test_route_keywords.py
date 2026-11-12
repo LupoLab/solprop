@@ -11,7 +11,10 @@ defaults to ``None``, which behaves as its ``0`` did. Nothing is renamed and no 
 changes behaviour.
 """
 
+import annotationlib
 import inspect
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -21,10 +24,14 @@ from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop.driver import (
     Simulation,
     prop_capillary,
+    prop_free,
     prop_gnlse,
+    prop_planar,
     prop_waveguide,
 )
+from solprop.driver import interface as interface_module
 from solprop.modes import MarcatiliMode
+from solprop.output.memory import MemoryOutput
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
@@ -108,6 +115,72 @@ def test_each_interface_takes_the_keywords_with_its_constructor_s_defaults(
         assert build[name].default == defaults.get(name, False), name
 
 
+RUN_CONTROLS = ("output", "snapshots", "resume", "progress", "progress_period")
+INTERFACES = [
+    (prop_free, Simulation.from_free, RUN_CONTROLS),
+    (prop_planar, Simulation.from_planar, RUN_CONTROLS),
+    (prop_gnlse, Simulation.from_gnlse, RUN_CONTROLS),
+    (prop_capillary, Simulation.from_capillary, (*RUN_CONTROLS, "tdse_archive")),
+    (prop_waveguide, Simulation.from_waveguide, RUN_CONTROLS),
+]
+# The checks `poe docstrings` applies (pyproject.toml, [tool.numpydoc_validation]).
+UNCHECKED = {"ES01", "SA01", "EX01", "GL01", "GL02"}
+
+
+def _signature(function):
+    # Annotations as written, so that two spellings of one jaxtyping type compare.
+    return inspect.signature(function, annotation_format=annotationlib.Format.STRING)
+
+
+@pytest.mark.parametrize(("interface", "constructor", "controls"), INTERFACES)
+def test_each_interface_is_its_constructor_and_the_run_controls(
+    interface, constructor, controls
+):
+    build = _signature(constructor)
+    run = _signature(Simulation.run).parameters
+    expected = build.replace(
+        parameters=[
+            *build.parameters.values(),
+            *(
+                run[name].replace(kind=inspect.Parameter.KEYWORD_ONLY)
+                for name in controls
+            ),
+        ],
+        return_annotation="Output",
+    )
+    assert _signature(interface) == expected
+    # Signature equality ignores the order of keyword-only parameters; the
+    # documentation's order follows the signature's, so it is checked too.
+    assert list(_signature(interface).parameters) == list(expected.parameters)
+
+
+@pytest.mark.parametrize(("interface", "constructor", "controls"), INTERFACES)
+def test_each_interface_s_composed_docstring_is_valid(interface, constructor, controls):
+    # The lowest-dependencies lane installs no docs tooling; the default lanes run this.
+    docscrape = pytest.importorskip("numpydoc.docscrape")
+    validate = pytest.importorskip("numpydoc.validate").validate
+    name = f"{interface.__module__}.{interface.__name__}"
+    errors = [code for code, _ in validate(name)["errors"] if code not in UNCHECKED]
+    assert errors == []
+    documented = [
+        name
+        for entry in docscrape.FunctionDoc(interface)["Parameters"]
+        for name in entry.name.split(", ")
+    ]
+    assert documented == [*inspect.signature(constructor).parameters, *controls]
+
+
+def test_the_interface_imports_with_its_docstrings_stripped():
+    # Under -OO every __doc__ is None: the composition is skipped, not an error.
+    result = subprocess.run(
+        [sys.executable, "-OO", "-c", "import solprop.driver.interface"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 # ------------------------------------------------------------------ the planes
 
 
@@ -171,3 +244,17 @@ def test_polarisation_taper_reaches_the_collar_of_every_modal_route(route, guide
         tapered.translate().grids.omega_window, tapered.grid.omega_window
     )
     assert np.any(tapered.grid.omega_window < 1.0)
+
+
+def test_a_constructor_without_a_parameters_section_is_refused():
+    with pytest.raises(AssertionError, match="no Parameters section"):
+        interface_module._parameters("Summary.\n\nReturns\n-------\nint\n    One.\n")
+
+
+def test_a_run_without_a_docstring_is_left_as_it_is():
+    # As under -OO, in process: the composition has nothing to compose.
+    def run() -> MemoryOutput:
+        return MemoryOutput()
+
+    assert interface_module._propagates(Simulation.from_gnlse)(run) is run
+    assert run.__doc__ is None

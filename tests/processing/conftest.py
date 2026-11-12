@@ -17,13 +17,8 @@ import pytest
 
 from solprop.grid import EnvelopeGrid, FieldGrid, TimeGrid
 from solprop.output import HDF5Output, MemoryOutput, open_file
-from solprop.output.schema import (
-    GridRecord,
-    ModeRecord,
-    RunMetadata,
-    SavedPlane,
-    StepperRecord,
-)
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import GridRecord, ModeRecord, SavedPlane, StepperRecord
 from solprop.pulses import GaussianPulse
 from solprop.stats import collect, default_spec
 

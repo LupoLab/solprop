@@ -73,8 +73,8 @@ points by the same hash ([scans](../workflows/scans.md)).
 ### The resume key
 
 The hash a resume compares is
-{py:meth}`~solprop.output.schema.RunMetadata.configuration_hash`, the digest of the hashed
-part of the run record, {py:meth}`~solprop.output.schema.RunMetadata.hashed`. It is stamped
+{py:meth}`~solprop.output.metadata.RunMetadata.configuration_hash`, the digest of the hashed
+part of the run record, {py:meth}`~solprop.output.metadata.RunMetadata.hashed`. It is stamped
 in every file; the stamp tells whether the file is intact, and a suspended writer, a
 snapshot and a scan row compare it too.
 
@@ -131,7 +131,7 @@ A call without `seed=` draws fresh operating-system entropy each time it is buil
 with `resume=True` continues its own file, a realisation the constructor drew without a
 seed is drawn again from the seed the file recorded before the hashes are compared,
 and the run logs that it did. This covers the default noise of `prop_gnlse`,
-`prop_capillary`, `prop_waveguide` and `prop_radial` and an explicit `noise="input"` or
+`prop_capillary`, `prop_waveguide` and `prop_free` on a radial grid, and an explicit `noise="input"` or
 `"modified"` given without a seed. A seed the call gives, or a realisation it passes in,
 is never replaced: a resume that differs in it is refused, and the refusal names the
 seed the file was drawn from (`pass seed=17 to draw it again`).
@@ -212,8 +212,8 @@ handler only then.
 ## Completion status and terminal checkpoints
 
 Both standard handlers implement the optional
-{py:class}`~solprop.output.schema.CheckpointOutput` capability. Their `outcome`
-property is a {py:class}`~solprop.output.schema.RunOutcome`: `running`, `complete`,
+{py:class}`~solprop.output.store.CheckpointOutput` capability. Their `outcome`
+property is a {py:class}`~solprop.output.records.RunOutcome`: `running`, `complete`,
 `budget_exhausted` or `failed`, together with the actual position, a stop message,
 cumulative logical and atomic call ledgers, and the latest execution facts. The
 `previous_executions` records retain earlier runs of the same resumed file. These
@@ -221,7 +221,7 @@ records are outside the scientific configuration hash. A budget stop is unfinish
 it never becomes a successful result by changing the requested end position.
 
 An ordinary exception or a call-budget stop also writes a
-{py:class}`~solprop.output.schema.TerminalCheckpoint` at the last available finite
+{py:class}`~solprop.output.records.TerminalCheckpoint` at the last available finite
 field. Normally this is an accepted step endpoint. A failure while processing a
 dense observation can instead retain that interpolated field. It is separate from the regular observations: `n_saved`, `handler["z"]`,
 `handler["field"]` and the per-plane statistics keep their original meanings.
@@ -332,7 +332,7 @@ last plane
 A finished field-free file resumes as finished, running nothing. A run continuing a file
 keeps its fields by the file's rule, and is refused if it asks for another.
 
-Custom handlers implementing only {py:class}`~solprop.output.schema.Output` remain
+Custom handlers implementing only {py:class}`~solprop.output.store.Output` remain
 usable for ordinary propagation, keeping every field; a field-free run needs a handler
 that can hold field-free planes (`retain`), as both standard handlers do. TDSE requires the checkpoint capability and
 refuses an incompatible handler before native preparation.

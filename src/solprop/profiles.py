@@ -335,6 +335,11 @@ class ZProfile(Protocol):
     Implementations are frozen dataclasses. Every one is callable on an array of
     positions and returns an array of the same shape, so that it can be handed
     straight to :func:`solprop.translate.chebyshev.build_from_paths` as a path.
+
+    A class that subclasses it explicitly takes the defaults of a continuous path
+    with an exact derivative, monotone between its breakpoints: no :attr:`jumps`,
+    :attr:`derivative_is_analytic` ``True`` and the :meth:`variation` of those
+    monotone pieces. A path that is not one overrides them.
     """
 
     @property
@@ -347,7 +352,7 @@ class ZProfile(Protocol):
     @property
     def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
         """Declared discontinuities in m, a subset of the breakpoints."""
-        ...
+        return np.empty(0, dtype=float)
 
     @property
     def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
@@ -367,12 +372,12 @@ class ZProfile(Protocol):
         PathVariation
             Pieces on which the path's values and variation are enclosed.
         """
-        ...
+        return _continuous_monotone(self, _interval_knots(start, end, self.breakpoints))
 
     @property
     def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
         """Whether :meth:`derivative` is exact rather than a finite difference."""
-        ...
+        return True
 
     @property
     def is_constant(self) -> bool:  # numpydoc ignore=RT01
@@ -599,7 +604,7 @@ def _mapped_variation(
 
 
 @dataclass(frozen=True, eq=False)
-class Constant:
+class Constant(ZProfile):
     """A path that does not vary along z.
 
     Attributes
@@ -640,37 +645,9 @@ class Constant:
         return self.span
 
     @property
-    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the derivative is exact.
-
-        Always ``True``: the derivative is identically zero.
-        """
-        return True
-
-    @property
     def is_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the path is the same everywhere."""
         return True
-
-    @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
-        """Declared discontinuities, m, which for a constant are none."""
-        return np.empty(0, dtype=float)
-
-    def variation(self, start: float, end: float) -> PathVariation:
-        """Return the exact variation, which is zero.
-
-        Parameters
-        ----------
-        start, end : float
-            The closed interval in m, finite with ``start < end``.
-
-        Returns
-        -------
-        PathVariation
-            One flat piece.
-        """
-        return _continuous_monotone(self, _interval_knots(start, end, np.empty(0)))
 
     def __call__(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Return the constant value at each position.
@@ -704,7 +681,7 @@ class Constant:
 
 
 @dataclass(frozen=True, eq=False)
-class PiecewiseLinear(Displayed):
+class PiecewiseLinear(Displayed, ZProfile):
     """A path linear between given positions and constant outside them.
 
     Every position is a breakpoint, because the slope jumps there. Clamping outside the
@@ -827,35 +804,9 @@ class PiecewiseLinear(Displayed):
         return float(self.positions[0]), float(self.positions[-1])
 
     @property
-    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the derivative is exact."""
-        return True
-
-    @property
     def is_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether every stage carries the same value."""
         return bool(np.all(self.values == self.values[0]))
-
-    @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
-        """Declared discontinuities, m, none for a continuous interpolant."""
-        return np.empty(0, dtype=float)
-
-    def variation(self, start: float, end: float) -> PathVariation:
-        """Return the exact variation: the path is monotone between its stages.
-
-        Parameters
-        ----------
-        start, end : float
-            The closed interval in m, finite with ``start < end``.
-
-        Returns
-        -------
-        PathVariation
-            One monotone piece per stage inside the interval, and flat pieces outside
-            the declared range.
-        """
-        return _continuous_monotone(self, _interval_knots(start, end, self.positions))
 
     def __call__(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Return the interpolated value at each position.
@@ -901,7 +852,7 @@ class PiecewiseLinear(Displayed):
 
 
 @dataclass(frozen=True, eq=False)
-class Linear(Displayed):
+class Linear(Displayed, ZProfile):
     """A path varying linearly between two ends and constant outside them.
 
     A two-stage :class:`PiecewiseLinear`, named for the common case of a taper.
@@ -972,22 +923,12 @@ class Linear(Displayed):
         return self._stages.z_span
 
     @property
-    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the derivative is exact."""
-        return True
-
-    @property
     def is_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the two ends carry the same value.
 
         ``True`` when ``start == end``.
         """
         return self._stages.is_constant
-
-    @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
-        """Declared discontinuities, m, which for a linear path are none."""
-        return np.empty(0, dtype=float)
 
     def variation(self, start: float, end: float) -> PathVariation:
         """Return the exact variation of the two-stage table.
@@ -1356,7 +1297,7 @@ def hydraulic_integral(
 
 
 @dataclass(frozen=True, eq=False)
-class PressureGradient(Displayed):
+class PressureGradient(Displayed, ZProfile):
     r"""A steady-flow pressure fill, in bar, with every stage boundary a breakpoint.
 
     Laminar flow of a compressible gas through a narrow tube of constant bore makes
@@ -1684,19 +1625,9 @@ class PressureGradient(Displayed):
         return float(self.positions[0]), float(self.positions[-1])
 
     @property
-    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the derivative is exact."""
-        return True
-
-    @property
     def is_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether every stage carries the same pressure."""
         return bool(np.all(self.pressures == self.pressures[0]))
-
-    @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
-        """Declared discontinuities, m, which for a steady-flow fill are none."""
-        return np.empty(0, dtype=float)
 
     def variation(self, start: float, end: float) -> PathVariation:
         """Return the exact variation: the fill is monotone on every stage.

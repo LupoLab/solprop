@@ -338,7 +338,7 @@ definition, and no view asks which class it is drawing. The first four classes:
 | Class | solprop route | Notes |
 |---|---|---|
 | Capillary | `prop_capillary` | Mode-averaged, or multimode through the sheet's Modes field, so one tile covers both. A full-transverse rule and a coherent wall are under Advanced. |
-| Radial filament | `prop_radial` | Needs a filament example (21.2). |
+| Radial filament | `prop_free` | Needs a filament example (21.2). |
 | Solid-core fibre | `prop_gnlse` | Taylor dispersion, then step-index and tables as recipes allow them (#472, #473). |
 | Antiresonant fibre | `prop_capillary(lattice=TubeLattice(...))` | Adds the lattice to the sheet and a loss readout. |
 

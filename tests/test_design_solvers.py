@@ -26,6 +26,9 @@ from solprop.tools import (
     radius_zdw,
     solve_parameter,
 )
+from solprop.tools import design as tools_design
+from solprop.tools import pulse as tools_pulse
+from solprop.tools import waveguide as tools_waveguide
 
 PUMP = 800e-9
 OMEGA0 = 2.0 * math.pi * C / PUMP
@@ -36,7 +39,7 @@ GLASS = 1.45
 
 def capillary(gas, radius=125e-6):
     """The capillary pressure_zdw and pressure_rdw re-evaluate at each pressure."""
-    return tools._design_capillary(
+    return tools_design._design_capillary(
         radius,
         gas,
         temperature=293.15,
@@ -53,9 +56,9 @@ def pressure_builder(gas):
     fill = capillary(gas)
 
     def build(pressure):
-        mode = tools._capillary_at(fill, pressure)
+        mode = tools_design._capillary_at(fill, pressure)
         assert mode.mixture is not None  # _design_capillary builds on a mixture.
-        n2 = tools._fill_n2(mode.mixture, PUMP)[0]
+        n2 = tools_waveguide._fill_n2(mode.mixture, PUMP)[0]
         return mode, tools.nonlinear_coefficient(mode, n2, PUMP)
 
     return build
@@ -94,7 +97,9 @@ def test_the_zdw_target_reproduces_pressure_zdw_where_it_has_one_root():
     expected = tools.pressure_zdw(125e-6, "Ar", 500e-9, cladding=GLASS)
     fill = capillary("Ar")
     roots = solve_parameter(
-        lambda pressure: tools._capillary_at(fill, pressure), (1e-6, 100.0), ZDW(500e-9)
+        lambda pressure: tools_design._capillary_at(fill, pressure),
+        (1e-6, 100.0),
+        ZDW(500e-9),
     )
     assert len(roots) == 1
     # pressure_zdw brackets once and stops at xtol = 2e-12 bar, this search refines
@@ -169,7 +174,9 @@ def test_the_pulse_for_an_order_is_closed_form():
     [
         (sech(peak_power=1e9), "sech", 1e9),
         (
-            SechPulse(wavelength=PUMP, width=10e-15 / tools._SECH_WIDTH, energy=1e-5),
+            SechPulse(
+                wavelength=PUMP, width=10e-15 / tools_pulse._SECH_WIDTH, energy=1e-5
+            ),
             "sech",
             tools.pulse_peak_power(1e-5, 10e-15, "sech"),
         ),
@@ -258,7 +265,7 @@ def test_an_index_model_short_of_the_window_leaves_the_range_undefined(monkeypat
     def short(*arguments, **keywords):
         raise ToolsError("the phase mismatch is not finite")
 
-    monkeypatch.setattr(tools, "lambda_rdw_all", short)
+    monkeypatch.setattr(tools_design, "lambda_rdw_all", short)
     roots = solve_parameter(pressure_builder("He"), (1.0, 2.0), RDW(PUMP, 120e-9))
     assert roots.attainable is None
 
@@ -267,7 +274,9 @@ def test_an_index_model_short_of_the_window_leaves_the_range_undefined(monkeypat
 def test_an_unreachable_zero_reports_the_zeros_it_reaches():
     fill = capillary("He")
     roots = solve_parameter(
-        lambda pressure: tools._capillary_at(fill, pressure), (0.1, 2.0), ZDW(250e-9)
+        lambda pressure: tools_design._capillary_at(fill, pressure),
+        (0.1, 2.0),
+        ZDW(250e-9),
     )
     assert roots.attainable is not None
     # The helium capillary's zero moves from the blue towards 560 nm as the pressure
@@ -301,7 +310,7 @@ def test_a_resonance_gives_both_of_its_roots():
 @pytest.mark.medium
 def test_a_wall_resonance_gives_a_zero_on_each_side():
     radius = 15e-6
-    fill = tools._resolve_fill("He", 1.0, 293.15, MaterialSelection())
+    fill = tools_waveguide._resolve_fill("He", 1.0, 293.15, MaterialSelection())
 
     def build(wall):
         # Two terms of the fits keep the first resonance and cost a quarter of eight.
@@ -320,7 +329,7 @@ def test_a_wall_resonance_gives_a_zero_on_each_side():
     assert roots.pick("lowest") < resonance < roots.pick("highest")
     for wall in (roots.pick("lowest"), roots.pick("highest")):
         # Brent stops at 2e-12 of the wall; beta2 is good to 5e-9 (modes.base).
-        assert tools._zdw_near(build(wall), OMEGA0, 0.0) == pytest.approx(
+        assert tools_waveguide._zdw_near(build(wall), OMEGA0, 0.0) == pytest.approx(
             PUMP, rel=1e-6
         )
     # Between consecutive roots the sign alternates: none was dropped between two.

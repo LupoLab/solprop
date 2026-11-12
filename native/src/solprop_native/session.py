@@ -55,7 +55,7 @@ following and refuses every other feature by name before allocating anything
   the march goes on; a latched snapshot waits for the next accepted endpoint, every
   plane its step crossed observed first (SEP 47 sections 5.3 and 5.5);
 - resumed runs: a field restart, restored call ledgers and the Adams method history
-  (:class:`~solprop.output.schema.MarchSnapshot`), which the session exports at every
+  (:class:`~solprop.output.records.MarchSnapshot`), which the session exports at every
   accepted endpoint a ticket names and installs from its start, as the backend's own
   march does;
 - the input and modified noise models, the input draw's vacuum floor read by the
@@ -123,7 +123,7 @@ from solprop.output.capability import (
     refusal_for,
     withheld_accessors,
 )
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.stats import weight_refusal_for
 from solprop.stepper.controller import START_GROWTH, ControlRecord
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -1155,7 +1155,7 @@ class NativeSession:
 
         Returns
         -------
-        solprop.output.schema.MarchSnapshot or None
+        solprop.output.records.MarchSnapshot or None
             The snapshot, or ``None`` for a Runge-Kutta march, which keeps no history,
             and before the Adams march holds any.
 

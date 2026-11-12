@@ -12,7 +12,8 @@ from solprop.exceptions import GridError
 from solprop.fourier import power_amplitude
 from solprop.output import HDF5Output
 from solprop.output.hdf5 import check_cache, resume
-from solprop.output.schema import SavedPlane, _example_metadata
+from solprop.output.metadata import _example_metadata
+from solprop.output.records import SavedPlane
 
 
 def test_the_hash_and_field_attribute_record_the_power_convention(tmp_path):

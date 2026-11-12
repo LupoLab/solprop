@@ -34,13 +34,13 @@ __all__ = [
 ]
 
 # This module owns the package's structural JSON value domain, because it is the
-# leaf both the modes package and `solprop.output.schema` can import: the schema
-# imports `solprop.modes.protocol`, so defining the alias there instead would
-# close an import cycle through the output layer.
+# leaf both the modes package and `solprop.output` can import: the output records
+# import `solprop.modes.protocol`, so defining the alias there instead would close
+# an import cycle through the output layer.
 type JsonValue = (
     bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
 )
-"""Anything :func:`solprop.output.schema.serialise` may return, and therefore
+"""Anything :func:`solprop.output.serialisation.serialise` may return, and therefore
 anything JSON can carry. Re-exported by that module, which owns the file format."""
 
 MEASURED_DIGITS = 6

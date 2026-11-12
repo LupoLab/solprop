@@ -21,9 +21,9 @@ from solprop.driver import Simulation
 from solprop.driver.executors import Local
 from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import DriverError, OutputError
-from solprop.output import open_file
-from solprop.output import schema as output_schema
-from solprop.output.schema import ArrayDigest, StatedInput, _example_metadata
+from solprop.output import open_file, serialisation
+from solprop.output.metadata import _example_metadata
+from solprop.output.serialisation import ArrayDigest, StatedInput
 from solprop.physdata import Mixture
 from solprop.pulses import GaussianPulse
 
@@ -36,8 +36,8 @@ def no_digest(monkeypatch):
         msg = f"a digest of {values.shape} was taken"
         raise AssertionError(msg)
 
-    monkeypatch.setattr(output_schema.ArrayDigest, "of", refuse)
-    monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", 0)
+    monkeypatch.setattr(serialisation.ArrayDigest, "of", refuse)
+    monkeypatch.setattr(serialisation, "INLINE_ARRAY_LIMIT", 0)
 
 
 @pytest.mark.usefixtures("no_digest")
@@ -69,7 +69,7 @@ def test_the_hash_follows_the_statement_and_not_the_bytes():
 def test_without_a_statement_a_large_array_is_digested_as_ever(monkeypatch):
     simulation = capillary("numpy_ref")
     field = inputs(simulation)[0]
-    monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", 0)
+    monkeypatch.setattr(serialisation, "INLINE_ARRAY_LIMIT", 0)
     recorded = simulation.with_input(field).metadata().configuration["initial"]
     assert recorded == ArrayDigest.of(field)
 
@@ -116,7 +116,7 @@ def test_a_runner_digests_each_input_once_and_never_its_parent(monkeypatch):
     """Without a statement: a parent's digest would read a placeholder at full size."""
     simulation = capillary("numpy_ref")
     fields = inputs(simulation)
-    monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", 0)
+    monkeypatch.setattr(serialisation, "INLINE_ARRAY_LIMIT", 0)
     digest = ArrayDigest.of
     digested: list[tuple[int, ...]] = []
 
@@ -124,7 +124,7 @@ def test_a_runner_digests_each_input_once_and_never_its_parent(monkeypatch):
         digested.append(values.shape)
         return digest(values)
 
-    monkeypatch.setattr(output_schema.ArrayDigest, "of", counting)
+    monkeypatch.setattr(serialisation.ArrayDigest, "of", counting)
     with simulation.runner() as runner:
         for index, field in enumerate(fields):
             runner.run(field, configuration={"point": index}, progress="none")
