@@ -2731,7 +2731,7 @@ public:
                               const RealView2& output, bool diagnose = false,
                               double preionisation = 0.0);
   void form_absorber();
-  void split_step(double dz, const ComplexView2& values);
+  void split_step(double dz, const ComplexView2& advanced);
   void form_split_factor(double dz);
   void split_columns(double dz, std::size_t active_rows = 0, double parseval = 0.0,
                      std::size_t first_column = 0);
@@ -2741,7 +2741,7 @@ public:
                          double power_scale);
   void separable_to_time(const TransverseChunk& chunk);
   void separable_to_frequency(const TransverseChunk& chunk);
-  void separable_split_step(double dz, const ComplexView2& values);
+  void separable_split_step(double dz, const ComplexView2& advanced);
   void mask(const ComplexView2& values);
   bool use_packed_radial_blas() const noexcept;
   // A square radial analytic map synthesises the retained spectrum, before padding,
