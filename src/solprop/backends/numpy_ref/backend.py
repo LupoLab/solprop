@@ -35,11 +35,12 @@ from solprop.backends.exponential import refuse_carrier_frame, refuse_formulatio
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.memory import adams_memory, reference_base_memory
-from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
-from solprop.backends.numpy_ref import passes
-from solprop.backends.numpy_ref.admission import (
-    refuse_general_route,
+from solprop.backends.node_chunk import (
+    NodeChunkPlan,
+    general_planned_chunk,
+    plan_node_chunk,
 )
+from solprop.backends.numpy_ref import passes
 from solprop.backends.numpy_ref.envelope_plasma import (
     envelope_populations,
     envelope_sources,
@@ -47,11 +48,7 @@ from solprop.backends.numpy_ref.envelope_plasma import (
 from solprop.backends.numpy_ref.general_modal import (
     GeneralMaps,
     general_memory,
-    general_planned_chunk,
     general_source,
-    node_delayed_maps,
-    node_kerr_form,
-    node_kerr_tensor,
 )
 from solprop.backends.numpy_ref.tdse import (
     atomic_edge_source,
@@ -100,6 +97,11 @@ from solprop.translate.coupled import (
     frozen_generator,
     metric_at,
     schur_blocks,
+)
+from solprop.translate.general import (
+    node_delayed_maps,
+    node_kerr_form,
+    node_kerr_tensor,
 )
 from solprop.translate.linop import power_weight_at
 from solprop.translate.modal import QUADRATURE_ALARM, warn_quadrature
@@ -2441,9 +2443,6 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
             msg = f"numpy_ref does not execute the {route_name(route)} route"
             raise BackendError(msg)
     _refuse_adams(problem, stepper)
-    # One list for every backend: the coupled flow first, then the
-    # general modal route, each refusal naming this backend.
-    refuse_general_route(problem, backend="numpy_ref", moving_maps=True)
     if (
         problem.flags.has_raman
         and problem.transform.n_pol * problem.shape[1] > 1

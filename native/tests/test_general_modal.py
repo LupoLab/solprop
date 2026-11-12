@@ -30,15 +30,15 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 from session_runs import alone, assert_same, grouped, launch, one_thread, run
-from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
+from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET, general_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.general_modal import (
-    general_node_chunk,
-    node_kerr_tensor,
-)
 from solprop.backends.session import Start
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError, GeneralModalBasisWarning
+from solprop.exceptions import (
+    BackendError,
+    GeneralModalBasisWarning,
+    TranslationError,
+)
 from solprop.grid import FieldGrid
 from solprop.modes import (
     GradedIndexProvider,
@@ -58,6 +58,7 @@ from solprop.profiles import Linear
 from solprop.stats import StatsSpec
 from solprop.stepper import Multistep
 from solprop.stepper.schedule import FixedSchedule
+from solprop.translate.general import node_kerr_tensor
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 from thread_sizing import Sizing, assert_threaded
@@ -429,7 +430,7 @@ def _replaced(
     )
 
 
-def test_every_combination_the_reference_refuses_is_refused_by_name() -> None:
+def test_every_combination_solprop_refuses_is_refused_by_name() -> None:
     case = CASES["delayed_tensor"]()
     problem = case.problem
     tables = problem.transform.modal_tables
@@ -474,7 +475,7 @@ def test_every_combination_the_reference_refuses_is_refused_by_name() -> None:
         ),
     }
     for match, one in spoiled.items():
-        with pytest.raises(BackendError, match=match):
+        with pytest.raises(TranslationError, match=match):
             NativeBackend(one, case.run_request, grid=case.simulation.grid)
 
 
@@ -774,13 +775,12 @@ def test_a_moving_guide_runs_ten_steps_as_the_reference_does() -> None:
 
 
 def test_moving_maps_without_their_connection_are_refused_by_name() -> None:
-    """The shared admission list admits moving maps only beside their connection.
+    """Moving maps are admitted only beside their connection.
 
-    Solprop's one list (``refuse_general_route``, run under this backend's name)
-    refuses moving maps carried with no coupled flow -- modes that change shape and
-    exchange no power -- as ``numpy_ref`` does. The maps are spoiled to two
-    coefficients on a copy, set with ``object.__setattr__`` so that solprop's own
-    validation is not what refuses them.
+    Solprop's problem validation (``check_general_route``), which this backend runs
+    where it is built, refuses moving maps carried with no coupled flow -- modes that
+    change shape and exchange no power. The maps are spoiled to two coefficients on a
+    copy, set with ``object.__setattr__`` past the transform's own check.
     """
     case = CASES["strand_real"]()
     problem = case.problem
@@ -795,7 +795,6 @@ def test_moving_maps_without_their_connection_are_refused_by_name() -> None:
     route = copy.copy(spoiled.route)
     object.__setattr__(route, "transform", transform)
     object.__setattr__(spoiled, "route", route)
-    with pytest.raises(
-        BackendError, match=r"native executes a moving guide.s maps.*no coupled flow"
-    ):
+    expected = r"solprop executes a moving guide.s maps.*no coupled flow"
+    with pytest.raises(TranslationError, match=expected):
         NativeBackend(spoiled, case.run_request, grid=case.simulation.grid)

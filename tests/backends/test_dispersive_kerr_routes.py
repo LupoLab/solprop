@@ -40,6 +40,7 @@ from bounds import assert_within
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from modal_provider_cases import GENERAL_Z_END, WAVELENGTH, general_grid
 from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
+from solprop.backends import node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend, general_modal, passes
 from solprop.backends.numpy_ref.backend import _general_maps
 from solprop.boundaries import Absorber
@@ -784,19 +785,19 @@ def test_the_general_chunk_counts_the_dispersive_buffers(guide, policy, buffers)
     """
     _, (problem, _) = general_problem(guide, policy, "real")
     leaf = problem.responses.dispersive_kerr
-    assert general_modal.general_dispersive_buffers(leaf) == buffers
-    assert general_modal.general_dispersive_buffers(None) == 0
+    assert node_chunk.general_dispersive_buffers(leaf) == buffers
+    assert node_chunk.general_dispersive_buffers(None) == 0
     grid = general_grid()
     n_to, n_fine = grid.n_to, int(grid.omega_fine.size)
     per_node = (
         (
-            (general_modal.BUFFERS_PER_GENERAL_NODE + buffers) * 3
-            + general_modal.PAIR_BUFFERS_PER_GENERAL_NODE * 9
+            (node_chunk.BUFFERS_PER_GENERAL_NODE + buffers) * 3
+            + node_chunk.PAIR_BUFFERS_PER_GENERAL_NODE * 9
         )
         * max(n_to, n_fine)
         * 16
     )
-    chunk = general_modal.general_node_chunk
+    chunk = node_chunk.general_node_chunk
     assert chunk(3, n_to, n_fine, 2 * per_node, dispersive=buffers) == 2
     assert chunk(3, n_to, n_fine, 2 * per_node - 1, dispersive=buffers) == 1
     # Without the response the same bytes hold more nodes.

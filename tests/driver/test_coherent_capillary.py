@@ -37,7 +37,6 @@ from march_bounds import FIXED_ORDER, assert_points_matched
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.admission import refuse_coupled_flow
 from solprop.backends.numpy_ref.backend import (
     _MAX_FLOW_SQUARINGS,
     _triangular_exponential,
@@ -81,6 +80,7 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import DOPRI5, FixedSchedule, RungeKutta
+from solprop.translate.admission import check_general_route
 from solprop.translate.coupled import (
     SECTION_TOL,
     advisory_step,
@@ -865,15 +865,15 @@ def test_the_reference_refuses_every_coupled_flow_it_does_not_execute():
         )
 
     # Refused by the Adams path's check or the Runge-Kutta march's, by name either way.
-    with pytest.raises(BackendError, match=r"'diagonal'"):
+    with pytest.raises(TranslationError, match=r"'diagonal'"):
         NumpyRefBackend(spoiled(section_methods=("diagonal",)), run_request, grid=grid)
-    with pytest.raises(BackendError, match="executes no taper connection"):
+    with pytest.raises(TranslationError, match="executes no taper connection"):
         NumpyRefBackend(
             spoiled(connection=np.zeros((1, 1, 3, 3, grid.n_omega), dtype=complex)),
             run_request,
             grid=grid,
         )
-    with pytest.raises(BackendError, match="no explicit"):
+    with pytest.raises(TranslationError, match="no explicit"):
         NumpyRefBackend(
             spoiled(residual_norm_bound=np.ones((1, grid.n_omega))),
             run_request,
@@ -881,7 +881,7 @@ def test_the_reference_refuses_every_coupled_flow_it_does_not_execute():
         )
     assert flow.generator is not None
     doubled = np.concatenate([flow.generator, flow.generator], axis=1)
-    with pytest.raises(BackendError, match="Chebyshev degrees along z"):
+    with pytest.raises(TranslationError, match="Chebyshev degrees along z"):
         NumpyRefBackend(spoiled(generator=doubled), run_request, grid=grid)
     factored = replace(
         problem,
@@ -897,7 +897,7 @@ def test_the_reference_refuses_every_coupled_flow_it_does_not_execute():
             ),
         ),
     )
-    with pytest.raises(BackendError, match="dense generator"):
+    with pytest.raises(TranslationError, match="dense generator"):
         NumpyRefBackend(factored, run_request, grid=grid)
 
 
@@ -911,7 +911,7 @@ def test_the_reference_refuses_a_problem_the_flow_cannot_sit_beside():
     assert constant is not None
     varied = constant.copy()
     varied[0, 1] *= 1.0000001
-    with pytest.raises(BackendError, match="mode-independent Phi"):
+    with pytest.raises(TranslationError, match="mode-independent Phi"):
         NumpyRefBackend(
             replace(problem, linear=replace(problem.linear, phi_constant=varied)),
             run_request,
@@ -924,7 +924,7 @@ def test_the_reference_refuses_a_problem_the_flow_cannot_sit_beside():
         gauge_id="lab",
         certificate_id="sampled-gram",
     )
-    with pytest.raises(BackendError, match="no explicit metric"):
+    with pytest.raises(TranslationError, match="no explicit metric"):
         NumpyRefBackend(
             replace(problem, linear=replace(problem.linear, modal_metric=metric)),
             run_request,
@@ -934,11 +934,11 @@ def test_the_reference_refuses_a_problem_the_flow_cannot_sit_beside():
     # second polarisation would be mixed by it as though it described both. The
     # refusal is taken on the check itself, because a state whose polarisation axis
     # disagrees with the rest of the problem is refused by `PropagationProblem.validate`
-    # before any backend sees it -- which is exactly why this one is defence in
-    # depth rather than the only door.
+    # for its shape as well -- which is exactly why this one is defence in depth
+    # rather than the only door.
     channels, _, bins = problem.shape
-    with pytest.raises(BackendError, match="only for a scalar state") as refused:
-        refuse_coupled_flow(replace(problem, shape=(channels, 2, bins)))
+    with pytest.raises(TranslationError, match="only for a scalar state") as refused:
+        check_general_route(replace(problem, shape=(channels, 2, bins)))
     assert "not the state's polarisation axis" in str(refused.value)
     # It names the state's two components, the product route, and not the
     # synthesis, which may resolve two.
@@ -992,7 +992,7 @@ def test_the_reference_refuses_a_flow_beside_a_varying_phi():
         dz_max=run_request.stepper.dz_max,
         edges=edges,
     )
-    with pytest.raises(BackendError, match="exact constant representation"):
+    with pytest.raises(TranslationError, match="exact constant representation"):
         NumpyRefBackend(spoiled, run_request, grid=simulation.grid)
 
 
@@ -1011,7 +1011,7 @@ def test_the_reference_refuses_a_noise_draw_beside_a_flow():
         ),
     )
     with pytest.raises(
-        BackendError, match="no 'modified' noise model beside a coupled flow"
+        TranslationError, match="no 'modified' noise model beside a coupled flow"
     ):
         NumpyRefBackend(noisy, run_request, grid=grid)
 
@@ -2137,11 +2137,11 @@ def test_a_frozen_residual_flow_is_refused_beside_a_carrier_it_cannot_share(
     """
     problem = varying(wall=CoherentWall()).translate()
     monkeypatch.setattr(type(problem), "device_ready", property(lambda self: False))
-    with pytest.raises(BackendError, match="took the z table"):
-        refuse_coupled_flow(problem)
+    with pytest.raises(TranslationError, match="took the z table"):
+        check_general_route(problem)
     constant = capillary(wall=CoherentWall()).translate()
-    with pytest.raises(BackendError, match="exact constant representation"):
-        refuse_coupled_flow(
+    with pytest.raises(TranslationError, match="exact constant representation"):
+        check_general_route(
             replace(
                 problem,
                 linear=replace(

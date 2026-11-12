@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from typing import Final, cast
 
 import numpy as np
-from jaxtyping import Bool, Complex, Float
+from jaxtyping import Bool, Complex, Float, Int32
 
 from solprop import fourier
 from solprop._display import Displayed, line
@@ -75,6 +75,8 @@ from solprop.translate.modal_tables import (
     sample_modal_table,
 )
 from solprop.translate.responses import (
+    KERR_MODEL_FORMS,
+    MODEL_ID_SEPARATOR,
     DispersiveKerrTerms,
     KerrForm,
     RegionalResponseTables,
@@ -93,6 +95,9 @@ __all__ = [
     "interpolated_gram",
     "metric_departure",
     "modal_identity",
+    "node_delayed_maps",
+    "node_kerr_form",
+    "node_kerr_tensor",
     "occupancy_weight",
 ]
 
@@ -2110,3 +2115,116 @@ def check_noise_basis(metric: ModalMetricTables | None, *, has_noise: bool) -> N
         "derived. Run without noise, or in a certified orthonormal basis"
     )
     raise TranslationError(msg)
+
+
+def node_kerr_tensor(
+    tables: ModalTransformTables, regional: RegionalResponseTables | None
+) -> Float[np.ndarray, "n_nodes 3 3 3 3"]:
+    """Sum each node's material responses into one susceptibility tensor.
+
+    A response acts in one material region and a node belongs to exactly one, so the
+    tensor a node sees is ``sum_r chi3_r T_r`` over the responses of its region. Two
+    responses in one region add, which is what superposed instantaneous
+    susceptibilities do; a region no response names contributes nothing, which is how
+    a linear cladding is declared.
+
+    ``chi3`` is stored as Chebyshev coefficients along z. This route propagates
+    constant geometry, so one interval of degree zero is required and the single
+    coefficient is the value.
+
+    Parameters
+    ----------
+    tables : solprop.translate.modal_tables.ModalTransformTables
+        The guide's reference, whose ``region_index`` owns each node's region.
+    regional : solprop.translate.responses.RegionalResponseTables or None
+        The compiled per-region responses, or ``None`` for a linear guide.
+
+    Returns
+    -------
+    numpy.ndarray
+        The per-node tensor, float64, shape ``(n_nodes, 3, 3, 3, 3)``, in m²/V².
+    """
+    nodes = int(tables.region_index.size)
+    components = int(tables.electric.shape[2])
+    summed = np.zeros((nodes, *(components,) * 4))
+    if regional is None:
+        return summed
+    for index, region in enumerate(regional.response_region):
+        rows = tables.region_index == region
+        chi3 = float(regional.chi3[0, 0, index])
+        summed[rows] += chi3 * regional.instantaneous_tensor[index]
+    return summed
+
+
+def node_kerr_form(regional: RegionalResponseTables | None) -> KerrForm:
+    """Return which cubic a compiled per-region record declares.
+
+    The form is a physical-model choice and travels in ``model_id``, which is a
+    representation tag inside the resume identity already; it is **not** a leaf
+    field, because adding one would move a contract row for a string the record can
+    carry.
+
+    Parameters
+    ----------
+    regional : solprop.translate.responses.RegionalResponseTables or None
+        The compiled per-region responses, or ``None`` for a linear guide, whose
+        zero tensor makes the form immaterial.
+
+    Returns
+    -------
+    {'analytic', 'real'}
+        The declared form; ``"analytic"`` for a linear guide.
+    """
+    if regional is None:
+        return "analytic"
+    return cast(
+        "KerrForm", KERR_MODEL_FORMS[regional.model_id.split(MODEL_ID_SEPARATOR)[0]]
+    )
+
+
+def node_delayed_maps(
+    tables: ModalTransformTables, regional: RegionalResponseTables | None
+) -> tuple[
+    Int32[np.ndarray, " n_nodes"],
+    Float[np.ndarray, "n_responses n_terms 3 3 3 3"] | None,
+    Complex[np.ndarray, "n_responses n_terms n_rfft"] | None,
+]:
+    """Derive the delayed response's per-node ownership, tensors and kernel spectra.
+
+    A delayed response has **memory**, so unlike the instantaneous tensor it cannot
+    be summed into one per-node array: two regions may declare different kernels and
+    a convolution is not linear in the kernel's owner. What is derived instead is
+    the response each node belongs to, each response's ``chi3_r D[term]``, and each
+    kernel's transform on the doubled fine axis, already scaled by the temporal
+    quadrature weight so that the transform product is the causal integral.
+
+    Parameters
+    ----------
+    tables : solprop.translate.modal_tables.ModalTransformTables
+        The guide's reference, whose ``region_index`` owns each node's region.
+    regional : solprop.translate.responses.RegionalResponseTables or None
+        The compiled per-region responses, or ``None`` for a linear guide.
+
+    Returns
+    -------
+    tuple
+        The per-node response index (``-1`` where a node's region declares none),
+        the scaled delayed tensors and the kernel spectra, the last two ``None``
+        when no region declares a delayed response.
+    """
+    nodes = int(tables.region_index.size)
+    owner = np.full(nodes, -1, dtype=np.int32)
+    if regional is None:
+        return owner, None, None
+    for index, region in enumerate(regional.response_region):
+        owner[tables.region_index == region] = index
+    if not regional.n_terms:
+        return owner, None, None
+    n_to = int(regional.temporal_weight.size)
+    scaled = (
+        regional.delayed_tensor * regional.chi3[0, 0][:, None, None, None, None, None]
+    )
+    spectra = np.fft.rfft(regional.delayed_kernel[0, 0], n=2 * n_to, axis=-1) * float(
+        regional.temporal_weight[0]
+    )
+    return owner, scaled, spectra

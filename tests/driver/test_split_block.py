@@ -389,8 +389,8 @@ def test_the_modified_noise_model_is_refused_beside_a_coupled_flow(rotated, grid
     ):
         build(rotated, grid, noise="modified", seed=17).translate()
     assert build(rotated, grid, noise="input", seed=17).translate() is not None
-    # The backend names it too, for a problem that reaches it by hand: the
-    # translation layer refuses first, so the draw is spoofed onto a clean problem.
+    # The problem's own validation names it too, for a problem that reaches a backend
+    # by hand: the assembly refuses first, so the draw is spoofed onto a clean problem.
     simulation = build(rotated, grid)
     problem, run_request = simulation.translate(), simulation._run_request()
     initial = problem.initial
@@ -401,7 +401,7 @@ def test_the_modified_noise_model_is_refused_beside_a_coupled_flow(rotated, grid
         ),
     )
     with pytest.raises(
-        BackendError, match="'modified' noise model beside a coupled flow"
+        TranslationError, match="'modified' noise model beside a coupled flow"
     ):
         NumpyRefBackend(
             spoofed,

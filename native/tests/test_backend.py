@@ -26,7 +26,7 @@ from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, TranslationError
 from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
 from solprop.noise import NoiseModel
 from solprop.nonlinear.responses import DispersiveKerrResponse, KerrResponse
@@ -516,17 +516,15 @@ def test_every_schema_14_general_modal_leaf_is_refused_by_name(
 
     The version check cannot catch these: this wheel and the problem both declare 14.
     All four leaves are executed (the general modal route and the coupled flow), in
-    the combinations solprop's one
-    admission list admits, which this adapter runs under its own name. A lone table,
-    metric or response is refused by that list before anything is allocated; the
-    coupled flow is a real leaf here, a constant-Schur section carrying two
-    Chebyshev degrees, which the list refuses as the reference does.
+    the combinations solprop's problem validation admits, which this adapter runs
+    where it is built. A lone table, metric or response is refused there before
+    anything is allocated; the coupled flow is a real leaf here, a constant-Schur
+    section carrying two Chebyshev degrees, which the list refuses.
 
     The sentinel is set with ``object.__setattr__`` on a copy rather than through
     ``dataclasses.replace``, which re-runs the group's own validation: solprop's
     ``Transform`` refuses a ``modal_tables`` record beside the static matrices that
-    record replaces, so a ``replace`` never reaches this adapter at all. What is
-    under test here is the adapter's refusal, not solprop's.
+    record replaces, so a ``replace`` never reaches this adapter at all.
     """
     problem, run_request, grid = phase_a_case
     assert getattr(getattr(problem, group), leaf) is None
@@ -542,17 +540,17 @@ def test_every_schema_14_general_modal_leaf_is_refused_by_name(
     else:
         spoiled = dataclasses.replace(problem, **{group: spoiled_group})
     expected = {
-        "coupled_flow": r"native executes a constant-Schur coupled flow",
-        "modal_metric": r"native executes linear\.modal_metric",
-        "modal_tables": r"native executes a general modal guide",
-        "regional_responses": r"native executes responses\.regional_responses",
+        "coupled_flow": r"solprop executes a constant-Schur coupled flow",
+        "modal_metric": r"solprop executes linear\.modal_metric",
+        "modal_tables": r"solprop executes a general modal guide",
+        "regional_responses": r"transform\.modal_tables, which is absent",
     }[leaf]
-    with pytest.raises(BackendError, match=expected):
+    with pytest.raises(TranslationError, match=expected):
         NativeBackend(spoiled, run_request, grid=grid)
 
 
 def _leaf_value(problem: PropagationProblem, leaf: str) -> object:
-    """Return a leaf the shared admission list refuses on this problem."""
+    """Return a leaf the problem's validation refuses on this problem."""
     if leaf != "coupled_flow":
         return object()
     n_omega = problem.shape[-1]

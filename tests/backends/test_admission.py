@@ -4,9 +4,8 @@
 
 """The one admission list of the general modal route and the coupled flow.
 
-Every backend runs
-:func:`solprop.backends.numpy_ref.admission.refuse_general_route` under its own name,
-so a combination is admitted or refused once, and each refusal names the caller.
+:func:`solprop.translate.admission.check_general_route` runs in the problem's own
+validation, so a combination is admitted or refused once, for both backends.
 """
 
 import copy
@@ -17,15 +16,13 @@ import pytest
 from driver.test_coherent_capillary import varying
 from driver.test_split_block import build
 from modal_provider_cases import general_grid, split_guide
-from solprop.backends.numpy_ref.admission import (
-    refuse_general_route,
-)
 from solprop.exceptions import (
-    BackendError,
     GrazingIncidenceWarning,
     MaterialRangeWarning,
+    TranslationError,
 )
 from solprop.modes import CoherentWall
+from solprop.translate.admission import check_general_route
 
 pytestmark = [
     pytest.mark.filterwarnings(
@@ -51,17 +48,13 @@ def frozen_problem():
     return varying(wall=CoherentWall()).translate()
 
 
-def test_the_reference_admits_every_flow_method_it_executes(
-    split_problem, frozen_problem
-):
-    assert refuse_general_route(split_problem) is None
-    assert refuse_general_route(frozen_problem, backend="numpy_ref") is None
+def test_every_flow_method_executed_is_admitted(split_problem, frozen_problem):
+    assert check_general_route(split_problem) is None
+    assert check_general_route(frozen_problem) is None
 
 
 @pytest.mark.parametrize("name", ["kerr_coefficients", "raman_terms"])
-def test_a_legacy_response_beside_a_general_guide_is_refused_by_every_caller(
-    split_problem, name
-):
+def test_a_legacy_response_beside_a_general_guide_is_refused(split_problem, name):
     """The route's source replaces the node pipeline that would read it.
 
     The field is set on a copy past the group's own validation: what is under test
@@ -72,8 +65,7 @@ def test_a_legacy_response_beside_a_general_guide_is_refused_by_every_caller(
         responses, name, object() if name == "kerr_coefficients" else (object(),)
     )
     spoiled = dataclasses.replace(split_problem, responses=responses)
-    for backend in ("numpy_ref", "native"):
-        with pytest.raises(
-            BackendError, match=rf"^{backend} executes .*responses\.{name}"
-        ):
-            refuse_general_route(spoiled, backend=backend)
+    with pytest.raises(
+        TranslationError, match=rf"^solprop executes .*responses\.{name}"
+    ):
+        check_general_route(spoiled)

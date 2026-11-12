@@ -40,7 +40,6 @@ from modal_provider_cases import (
     make_provider,
 )
 from solprop.backends import select
-from solprop.backends.numpy_ref.admission import refuse_general_route
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.constants import C
@@ -79,6 +78,7 @@ from solprop.processing.modal import (
 from solprop.profiles import Linear, PiecewiseLinear, ZProfile
 from solprop.stats import analytic_field
 from solprop.stepper import FixedSchedule, RungeKutta
+from solprop.translate.admission import check_general_route
 from solprop.translate.coupled import flow_weights, residual_truncation
 from solprop.translate.general import general_modal_route
 from solprop.translate.modal_path import path_rule, path_snapshot
@@ -266,18 +266,10 @@ def test_a_moving_guide_runs_ten_steps_end_to_end_and_records_its_path(
     )
 
 
-def test_every_compiled_backend_admits_moving_maps_and_a_new_one_refuses_them(
-    kinked_problem,
-):
-    """The compiled backend admits the moving maps; the default refuses them by name.
-
-    A backend that calls the shared admission without declaring ``moving_maps``
-    has not built the per-stage combination, and is refused by name.
-    """
+def test_both_backends_admit_moving_maps(kinked_problem):
+    """The moving maps beside their connection pass the problem's own validation."""
     simulation, problem = kinked_problem
-    refuse_general_route(problem, backend="numpy_ref", moving_maps=True)
-    with pytest.raises(BackendError, match=r"new executes .*moving maps.*not build"):
-        refuse_general_route(problem, backend="new")
+    check_general_route(problem)
     pytest.importorskip("solprop_native")
     run_request = simulation._run_request()
     select("native", problem, run_request, grid=simulation.grid).close()

@@ -101,6 +101,7 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import DOPRI5, Tableau, continuous_extension
+from solprop.translate.admission import check_general_route
 from solprop.translate.chebyshev import DEFAULT_TOL, PiecewiseChebyshev
 from solprop.translate.coupled import (
     CoupledFlowTables,
@@ -953,7 +954,9 @@ class PropagationProblem:
         the same range and, for the prefactor, carrying the state's value shape; a
         constant prefactor, when present, standing in for a table that is one interval
         of degree zero and agreeing with it; the hard kinks interval edges; the Raman
-        rows agreeing with the fine grid and with each other. What depends on the
+        rows agreeing with the fine grid and with each other; the general modal route
+        and the coupled flow ones solprop executes
+        (:func:`solprop.translate.admission.check_general_route`). What depends on the
         method, the step limits, the schedule, the planes or the statistics -- the
         tables covering the run, the schedule landing on its targets, the collar's
         stability, the exponent budget, the split collar's crossing and the method's
@@ -999,6 +1002,9 @@ class PropagationProblem:
         - ``run``: the run's stepper section and statistics, or ``None`` for the checks
           the problem makes alone.
         """
+        # The general route's and the coupled flow's policy first, as a backend read it
+        # before anything else.
+        check_general_route(self)
         if run is not None:
             self._check_integrator(run.stepper)
         self._check_route(run)

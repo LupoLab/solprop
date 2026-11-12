@@ -41,13 +41,10 @@ from solprop.backends.multistep import (
     _Derivative,  # pyright: ignore[reportPrivateUsage] - the march's history entries
     source_absent,
 )
-from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
-from solprop.backends.numpy_ref.admission import refuse_general_route
-from solprop.backends.numpy_ref.general_modal import (
+from solprop.backends.node_chunk import (
+    NodeChunkPlan,
     general_planned_chunk,
-    node_delayed_maps,
-    node_kerr_form,
-    node_kerr_tensor,
+    plan_node_chunk,
 )
 from solprop.backends.protocol import Backend, TimingProbe
 from solprop.backends.session import (
@@ -100,6 +97,11 @@ from solprop.translate.coupled import (
     frozen_generator,
     schur_blocks,
     schur_eigenbasis,
+)
+from solprop.translate.general import (
+    node_delayed_maps,
+    node_kerr_form,
+    node_kerr_tensor,
 )
 from solprop.translate.linop import (
     delta_phi,
@@ -3016,12 +3018,6 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
     # pipeline; elsewhere it is refused by name rather than stepped by this backend's
     # Runge-Kutta march, which would silently be a different method.
     _refuse_adams(problem, stepper)
-    # One list for every backend: the general modal route and the coupled flow, each
-    # refusal naming this backend.
-    # A moving guide's synthesis and projection, combined per stage over schema 14's
-    # `StageScalars.transform_weights`, run here beside the frozen-residual flow that
-    # carries their connection.
-    refuse_general_route(problem, backend="native", moving_maps=True)
     flags = problem.flags
     if problem.transform.n_pol * problem.shape[1] > 2:
         raise BackendError(
@@ -3833,14 +3829,13 @@ def _slab_payload(problem: PropagationProblem) -> dict[str, object]:
 def _general_payload(
     problem: PropagationProblem, chunk: int | None
 ) -> dict[str, object]:
-    """Pack the general modal route's maps, derived as ``numpy_ref`` derives them.
+    """Pack the general modal route's maps, derived as the reference derives them.
 
     The per-node tensor, the form and the delayed maps come from solprop's own
-    public derivations (``solprop.backends.numpy_ref.general_modal``), so this
-    backend executes exactly the arrays the reference executes; the chunk is the
-    reference's own memory strategy at the same budget
-    (:func:`solprop.backends.numpy_ref.general_modal.general_planned_chunk`), given as
-    `chunk`. Nothing is packed for a problem without ``transform.modal_tables``.
+    derivations (``solprop.translate.general``), so both backends execute the same
+    arrays; the chunk is the route's own at the same budget
+    (:func:`solprop.backends.node_chunk.general_planned_chunk`), given as `chunk`.
+    Nothing is packed for a problem without ``transform.modal_tables``.
     """
     tables = problem.transform.modal_tables
     if tables is None:
