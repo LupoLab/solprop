@@ -48,6 +48,9 @@ from solprop.physdata.species import OptmatGas
 from solprop.spatial import critical_power
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
+from solprop.tools import design as tools_design
+from solprop.tools import soliton as tools_soliton
+from solprop.tools import waveguide as tools_waveguide
 
 PUMP = 800e-9
 OMEGA0 = 2.0 * math.pi * C / PUMP
@@ -742,13 +745,15 @@ def test_a_largest_eigenvalue_is_met(shape, eigenvalue):
 
 def test_the_gaussian_inverse_returns_the_documented_unit_order():
     # docs/guide/workflows/design-tools.md: a Gaussian with N = 1 has eta = 0.4207333.
-    assert tools._gaussian_order(0.4207333062232459) == pytest.approx(1.0, abs=1e-9)
+    assert tools_soliton._gaussian_order(0.4207333062232459) == pytest.approx(
+        1.0, abs=1e-9
+    )
 
 
 def test_a_gaussian_inverse_without_a_root_in_its_bracket_is_refused(monkeypatch):
-    monkeypatch.setattr(tools, "_gaussian_eigenvalue", lambda order: 0.0)
+    monkeypatch.setattr(tools_soliton, "_gaussian_eigenvalue", lambda order: 0.0)
     with pytest.raises(ToolsError, match="no Gaussian soliton order"):
-        tools._gaussian_order(1.0)
+        tools_soliton._gaussian_order(1.0)
 
 
 def test_a_conventional_order_in_normal_dispersion_is_designed():
@@ -826,7 +831,7 @@ def pole_mode(pole, strength=1e-12):
 def test_a_sign_change_through_a_pole_is_not_a_zero_dispersion_point():
     # Placed off the sample grid, so that no sample lands on the singularity itself.
     pole = 2.0 * math.pi * C / 431.7e-9
-    assert math.isnan(tools._zdw_near(pole_mode(pole), OMEGA0, 0.0))
+    assert math.isnan(tools_waveguide._zdw_near(pole_mode(pole), OMEGA0, 0.0))
 
 
 def test_a_sign_change_across_samples_that_are_not_finite_is_not_a_zero():
@@ -834,9 +839,9 @@ def test_a_sign_change_across_samples_that_are_not_finite_is_not_a_zero():
     # samples of the first search: they bracket the only sign change, and every round
     # of the refinement finds samples that are not finite between the two signs.
     grid = np.linspace(
-        2.0 * math.pi * C / tools._ZDW_RANGE[1],
-        2.0 * math.pi * C / tools._ZDW_RANGE[0],
-        tools._ZDW_SAMPLES,
+        2.0 * math.pi * C / tools_waveguide._ZDW_RANGE[1],
+        2.0 * math.pi * C / tools_waveguide._ZDW_RANGE[0],
+        tools_waveguide._ZDW_SAMPLES,
     )
     centre = 0.5 * (grid[20] + grid[21])
 
@@ -852,7 +857,7 @@ def test_a_sign_change_across_samples_that_are_not_finite_is_not_a_zero():
         effective_area=1.0,
     )
     assert np.all(np.isfinite(base.beta2(mode, grid)))
-    assert math.isnan(tools._zdw_near(mode, OMEGA0, 0.0))
+    assert math.isnan(tools_waveguide._zdw_near(mode, OMEGA0, 0.0))
 
 
 @pytest.mark.parametrize(
@@ -880,7 +885,7 @@ def test_the_array_refinement_of_a_zero_agrees_with_a_brent_search(
             2.0 * math.pi * C / 3e-6,
             2.0 * math.pi * C / 200e-9,
         )
-        wavelength = tools._zdw_near(mode, OMEGA0, 0.0)
+        wavelength = tools_waveguide._zdw_near(mode, OMEGA0, 0.0)
     # beta2 is a difference, good to about 5e-9 (modes.base); both stop on that noise.
     assert wavelength == pytest.approx(2.0 * math.pi * C / reference, rel=1e-8)
 
@@ -991,7 +996,7 @@ def test_an_antiresonant_fibre_s_resonances_are_skipped_not_raised():
 
 def test_a_residual_that_is_not_a_number_is_a_tools_error():
     with pytest.raises(ToolsError, match="not finite at the ends"):
-        tools._pressure_root(lambda pressure: math.nan, 10.0, "anything")
+        tools_design._pressure_root(lambda pressure: math.nan, 10.0, "anything")
 
 
 def test_the_tools_build_the_capillary_the_run_interface_builds():
@@ -1196,7 +1201,7 @@ def test_air_and_a_tube_lattice_design_under_a_selection():
     assert air == quiet(tools.pressure_zdw, 125e-6, "Air", 600e-9)
     assert 0 < air < math.inf
     # A tube lattice is built as prop_capillary builds it under the selection.
-    tubes = tools._design_capillary(
+    tubes = tools_design._design_capillary(
         15e-6,
         "Ar",
         temperature=294.0,
@@ -1217,7 +1222,7 @@ def test_the_nearest_zero_is_found_without_refining_every_resonance(monkeypatch)
 
     mode = Recipe.example("antiresonant_fibre").build().modes[0]
     pump = 2.0 * math.pi * C / 800e-9
-    refine = tools._refine_zero
+    refine = tools_waveguide._refine_zero
     calls = []
 
     def counted(*args):
@@ -1225,16 +1230,16 @@ def test_the_nearest_zero_is_found_without_refining_every_resonance(monkeypatch)
         calls.append(root)
         return root
 
-    monkeypatch.setattr(tools, "_refine_zero", counted)
-    found = tools._zdw_near(mode, pump, 0.0)
+    monkeypatch.setattr(tools_waveguide, "_refine_zero", counted)
+    found = tools_waveguide._zdw_near(mode, pump, 0.0)
     assert len(calls) <= 4
     # What refining every change would have reported.
     grid = np.linspace(
-        2.0 * math.pi * C / tools._ZDW_RANGE[1],
-        2.0 * math.pi * C / tools._ZDW_RANGE[0],
-        tools._ZDW_SAMPLES,
+        2.0 * math.pi * C / tools_waveguide._ZDW_RANGE[1],
+        2.0 * math.pi * C / tools_waveguide._ZDW_RANGE[0],
+        tools_waveguide._ZDW_SAMPLES,
     )
-    with tools._probing(), np.errstate(divide="ignore", invalid="ignore"):
+    with tools_waveguide._probing(), np.errstate(divide="ignore", invalid="ignore"):
         sampled = base.beta2(mode, grid, 0.0)
     changes = np.flatnonzero(np.sign(sampled[:-1]) * np.sign(sampled[1:]) < 0.0)
     assert changes.size > 10

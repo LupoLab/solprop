@@ -597,7 +597,18 @@ MODULES = {
         Module("transverse_monitor.py"),
         Module("polarisation.py"),
         Module("optics.py"),
-        Module("tools.py"),
+        Module(
+            "tools/",
+            (
+                "pulse",
+                "soliton",
+                "beam",
+                "waveguide",
+                "phase_matching",
+                "design",
+                "capillary",
+            ),
+        ),
         Module(
             "coupling/",
             (

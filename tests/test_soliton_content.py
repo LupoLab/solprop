@@ -24,6 +24,8 @@ from solprop.modes import MarcatiliMode, TubeLattice, VincettiMode
 from solprop.nonlinear.gnlse import SpecifiedMode
 from solprop.physdata import n2
 from solprop.physdata.selection import MaterialSelection
+from solprop.tools import design as tools_design
+from solprop.tools import soliton as tools_soliton
 
 PUMP = 800e-9
 OMEGA = 2 * math.pi * C / PUMP
@@ -282,13 +284,15 @@ def test_pressure_search_inverts_constituent_phase_for_both_modes(shape, vincett
 
 def test_pressure_search_rejects_ambiguous_or_inadmissible_roots():
     with pytest.raises(ToolsError, match=r"2 roots, at 2, 3 bar"):
-        tools._rdw_pressure_root(lambda p: (p - 2) * (p - 3), (1, 4))
+        tools_design._rdw_pressure_root(lambda p: (p - 2) * (p - 3), (1, 4))
     with pytest.raises(ToolsError, match="no pressure"):
-        tools._rdw_pressure_root(lambda p: None if 2 < p < 3 else p - 2.5, (1, 4))
+        tools_design._rdw_pressure_root(
+            lambda p: None if 2 < p < 3 else p - 2.5, (1, 4)
+        )
     with pytest.raises(ToolsError, match="not finite"):
-        tools._rdw_pressure_root(lambda p: math.nan, (1, 4))
+        tools_design._rdw_pressure_root(lambda p: math.nan, (1, 4))
     with pytest.raises(ToolsError, match="ordered"):
-        tools._rdw_pressure_root(lambda p: p, (4, 1))
+        tools_design._rdw_pressure_root(lambda p: p, (4, 1))
 
 
 def test_params_report_constituents_and_normal_dispersion_unavailability():
@@ -304,14 +308,14 @@ def test_params_report_constituents_and_normal_dispersion_unavailability():
 
 
 def test_wavelength_search_computes_gaussian_scattering_only_once(monkeypatch):
-    original = tools._gaussian_eigenvalue
+    original = tools_soliton._gaussian_eigenvalue
     calls = []
 
     def counted(order):
         calls.append(order)
         return original(order)
 
-    monkeypatch.setattr(tools, "_gaussian_eigenvalue", counted)
+    monkeypatch.setattr(tools_soliton, "_gaussian_eigenvalue", counted)
     mode = SpecifiedMode.from_taylor([0, 0, -1e-26, 5e-41], OMEGA)
     tools.lambda_rdw(
         mode, PUMP, peak_power=2e4, gamma=1e-3, fwhm=100e-15, shape="gauss"
@@ -343,7 +347,7 @@ def test_pressure_constituent_search_rejects_subthreshold_pulses():
 
 def test_failed_scattering_integration_is_reported(monkeypatch):
     monkeypatch.setattr(
-        tools,
+        tools_soliton,
         "solve_ivp",
         lambda *args, **kwargs: SimpleNamespace(
             success=False, message="test integration failure"
@@ -357,7 +361,7 @@ def test_failed_eigenvalue_bracket_is_reported(monkeypatch):
     def failed(*args, **kwargs):
         raise ValueError("test bracket failure")
 
-    monkeypatch.setattr(tools, "brentq", failed)
+    monkeypatch.setattr(tools_soliton, "brentq", failed)
     with pytest.raises(ToolsError, match="eigenvalue refinement failed"):
         content(1, "gauss")
 
@@ -376,7 +380,7 @@ def test_unresolved_positive_eigenvalue_is_rejected():
 def test_pressure_refinement_refuses_an_unresolved_no_soliton_gap():
     root = 2.123456
     with pytest.raises(ToolsError, match="crossed a no-soliton region"):
-        tools._rdw_pressure_root(
+        tools_design._rdw_pressure_root(
             lambda p: None if abs(p - root) < 1e-5 else p - root, (1.0, 4.0)
         )
 
@@ -385,7 +389,7 @@ def test_pressure_search_requires_a_nonempty_bracket():
     with pytest.raises(ToolsError, match="pressure_max must exceed"):
         tools.pressure_rdw(125e-6, "He", 200e-9, PUMP, pressure_max=1e-7)
     with pytest.raises(ToolsError, match="no pressure between"):
-        tools._pressure_root(lambda p: 1.0, 100.0, "an unreachable target")
+        tools_design._pressure_root(lambda p: 1.0, 100.0, "an unreachable target")
 
 
 @pytest.mark.parametrize(
@@ -395,7 +399,9 @@ def test_pressure_search_requires_a_nonempty_bracket():
 def test_pressure_search_rejects_invalid_pump_dispersion(
     monkeypatch, dispersion, message
 ):
-    monkeypatch.setattr(tools.base, "beta2", lambda *args: np.array([dispersion]))
+    monkeypatch.setattr(
+        tools_design.base, "beta2", lambda *args: np.array([dispersion])
+    )
     with pytest.raises(ToolsError, match=message):
         tools.pressure_rdw(
             125e-6, "He", 200e-9, PUMP, peak_power=1e9, fwhm=30e-15, cladding=1.45

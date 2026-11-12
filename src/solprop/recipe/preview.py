@@ -297,10 +297,10 @@ def _pump(  # noqa: PLR0911 - one return per case of the linear condition
     from solprop.recipe.pins import _route_pulse  # noqa: PLC0415
     from solprop.tools import (  # noqa: PLC0415
         SolitonOrder,
-        _fill_n2,
         nonlinear_coefficient,
         phase_mismatch,
     )
+    from solprop.tools.waveguide import _fill_n2  # noqa: PLC0415
 
     wavelength = keywords.get("wavelength")
     if not isinstance(wavelength, int | float) or soliton is None:
@@ -398,7 +398,7 @@ def _gamma(
     - Returns: ``gamma`` in rad/(W m); ``None`` without a fill or its Kerr data.
     """
     from solprop.physdata.mixtures import Mixture  # noqa: PLC0415
-    from solprop.tools import _fill_n2  # noqa: PLC0415 - the tools' own n2
+    from solprop.tools.waveguide import _fill_n2  # noqa: PLC0415 - the tools' own n2
 
     mixture = getattr(mode, "mixture", None)
     if not isinstance(mixture, Mixture):

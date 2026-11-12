@@ -603,7 +603,7 @@ def _at(mode: "Mode", parameter: str, value: float) -> "Mode":
     - ``parameter``: ``"pressure"`` (bar) or a mode parameter such as ``"core_radius"``
       (m).
     """
-    from solprop.tools import _capillary_at  # noqa: PLC0415 - the tools' own re-fill
+    from solprop.tools.design import _capillary_at  # noqa: PLC0415 - the re-fill
 
     if parameter == "pressure":
         return _capillary_at(cast("object", mode), value)  # type: ignore[arg-type]
@@ -616,7 +616,8 @@ def _gamma(mode: "Mode", wavelength: float) -> float:
     - ``wavelength``: the pump wavelength, m.
     - Returns: ``gamma`` in rad/(W m).
     """
-    from solprop.tools import _fill_n2, nonlinear_coefficient  # noqa: PLC0415
+    from solprop.tools import nonlinear_coefficient  # noqa: PLC0415
+    from solprop.tools.waveguide import _fill_n2  # noqa: PLC0415
 
     # The capillary and waveguide routes bind every mode to their fill.
     mixture = cast("Mixture", getattr(mode, "mixture", None))
