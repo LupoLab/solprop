@@ -102,6 +102,7 @@ from solprop.translate.coupled import (
     schur_blocks,
 )
 from solprop.translate.linop import power_weight_at
+from solprop.translate.modal import QUADRATURE_ALARM, warn_quadrature
 from solprop.translate.plasma_source import _BENCHMARK_GATED
 from solprop.translate.problem import (
     MAX_N_POL,
@@ -128,21 +129,9 @@ from solprop.translate.tdse_source import (
     steady_current_certificate,
 )
 
-__all__ = ["QUADRATURE_ALARM", "BlockResidual", "NumpyRefBackend", "SourceTables"]
+__all__ = ["BlockResidual", "NumpyRefBackend", "SourceTables"]
 
 logger = logging.getLogger(__name__)
-
-QUADRATURE_ALARM = 1e-6
-"""Relative quadrature error above which the alarm is logged, once per plane.
-
-The fixed rule integrates the Kerr quartic of a mode set to the reference's own
-rounding -- 2e-14 at ``n_r = 32`` for four HE_1m modes
-(``docs/guide/waveguides/mode-sets.md``) -- so
-anything a millionth of the polarisation is not the rule converging slowly but the
-integrand being unresolved, which no step size can fix. It also sits at the loose end
-of the tolerances a run asks the controller for, so an alarm means the quadrature has
-become the largest error in the step. The number is a judgement, not a measurement.
-"""
 
 
 class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]]):
@@ -1600,15 +1589,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         )
         if self._alarm > QUADRATURE_ALARM and not self._alarm_reported:
             self._alarm_reported = True
-            logger.warning(
-                "the transverse quadrature reproduces the nonlinear polarisation to "
-                "only %.2e at z = %.6g m, above the %.0e alarm; the integrand is not "
-                "resolved by this rule (a kinked ionisation rate, or too few nodes for "
-                "the mode set) and no step size can fix it",
-                self._alarm,
-                self._last_bundle.z1,
-                QUADRATURE_ALARM,
-            )
+            warn_quadrature(self._alarm, self._last_bundle.z1)
 
     def _nonlinear(
         self,

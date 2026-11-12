@@ -19,10 +19,7 @@ kinks, the shot-noise field and the hard band mask.
 
 from collections.abc import Mapping, Sequence
 
-from solprop.backends.numpy_ref.backend import (
-    QUADRATURE_ALARM,
-    NumpyRefBackend,
-)
+from solprop.backends.numpy_ref.backend import NumpyRefBackend
 from solprop.backends.numpy_ref.passes import (
     accept_step,
     accumulate,
@@ -52,7 +49,6 @@ from solprop.translate.run_request import RunRequest
 from solprop.translate.tdse import TDSEBinding
 
 __all__ = [
-    "QUADRATURE_ALARM",
     "NumpyRefBackend",
     "accept_step",
     "accumulate",

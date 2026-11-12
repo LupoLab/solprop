@@ -365,7 +365,7 @@ z-profiles, a capillary run records the electron density, the peak ionisation ra
 peak on-axis intensity and the **quadrature error** -- the difference between the fixed
 rule's projection and its embedded coarse one. That last is an *alarm*, never a
 controller input: above
-{py:data}`~solprop.backends.numpy_ref.backend.QUADRATURE_ALARM` ($10^{-6}$) the backend
+{py:data}`~solprop.translate.modal.QUADRATURE_ALARM` ($10^{-6}$) the backend
 logs once per plane and the run continues, because a rule that cannot resolve the
 integrand is not something a smaller step can fix; raise `n_r` instead. On four HE₁ₘ
 modes at the default order its largest value in the RDW case is 1.0×10⁻⁶. See [statistics](../results/statistics-catalogue.md#backend-statistics).

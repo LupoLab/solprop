@@ -388,7 +388,7 @@ def test_the_alarm_fires_on_a_rule_too_coarse_for_the_field(
     modes = modes_of(capillary, 3)
     rule = transverse_quadrature(modes, n_r=8, radial_rule="gauss_kronrod")
     problem, run_request = build(grid, modes, pulse(grid, 3), quadrature=rule)
-    with caplog.at_level(logging.WARNING, logger="solprop.backends.numpy_ref.backend"):
+    with caplog.at_level(logging.WARNING, logger="solprop.translate.modal"):
         plane, _ = propagate(backend_class, problem, run_request, grid, stats=ALARM)
     # Measured 2.4e-1: nine radial nodes cannot integrate the quartic of three Bessel
     # profiles, and no step size can fix that.
@@ -406,7 +406,7 @@ def test_the_alarm_is_silent_on_a_rule_that_resolves_the_field(
         modes, n_r=CONVERGED_N_R_SET, radial_rule="gauss_kronrod"
     )
     problem, run_request = build(grid, modes, pulse(grid, 3), quadrature=rule)
-    with caplog.at_level(logging.WARNING, logger="solprop.backends.numpy_ref.backend"):
+    with caplog.at_level(logging.WARNING, logger="solprop.translate.modal"):
         plane, _ = propagate(backend_class, problem, run_request, grid, stats=ALARM)
     # Measured 1.8e-8, two orders below the alarm and falling by three orders for every
     # eight nodes added.
@@ -501,7 +501,7 @@ def test_a_rule_with_no_embedded_pair_reports_nothing_rather_than_zero(
     modes = modes_of(capillary, 2)
     rule = transverse_quadrature(modes, n_r=8, radial_rule="gauss")
     problem, run_request = build(grid, modes, pulse(grid, 2), quadrature=rule)
-    with caplog.at_level(logging.WARNING, logger="solprop.backends.numpy_ref.backend"):
+    with caplog.at_level(logging.WARNING, logger="solprop.translate.modal"):
         plane, _ = propagate(backend_class, problem, run_request, grid, stats=ALARM)
     assert math.isnan(quadrature_alarm(plane))
     assert not caplog.records

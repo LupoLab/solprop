@@ -62,7 +62,7 @@ from sessions.runs import run as run_session
 from sessions.runs import to_planes
 from solprop import tools
 from solprop.backends.events import ObservationReady, join_attempts
-from solprop.backends.numpy_ref import QUADRATURE_ALARM, NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -109,6 +109,7 @@ from solprop.profiles import Constant, DensityPath, Linear, PressureGradient, ZP
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec, analytic_field, energy
 from solprop.stepper import FixedSchedule, RungeKutta, observed_order
+from solprop.translate.modal import QUADRATURE_ALARM
 from solprop.translate.responses import KerrCoefficients, ResponseStage
 
 # A millimetre of capillary on a small grid: the surface is what is measured, not the
