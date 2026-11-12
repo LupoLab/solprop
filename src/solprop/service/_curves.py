@@ -128,24 +128,14 @@ def shortest_wave(
     """
     if beta2 >= 0:
         return None
-    roots = (
-        lambda_rdw_all(
-            mode,  # pyright: ignore[reportArgumentType]
-            wavelength,
-            peak_power=peak_power,
-            gamma=gamma,
-            fwhm=fwhm,
-            shape=shape,  # pyright: ignore[reportArgumentType]
-        )
-        if limits is None
-        else lambda_rdw_all(
-            mode,  # pyright: ignore[reportArgumentType]
-            wavelength,
-            peak_power=peak_power,
-            gamma=gamma,
-            fwhm=fwhm,
-            shape=shape,  # pyright: ignore[reportArgumentType]
-            wavelength_limits=limits,
-        )
+    # The tool's own range is its default, so `limits=None` passes through.
+    roots = lambda_rdw_all(
+        mode,  # pyright: ignore[reportArgumentType]
+        wavelength,
+        peak_power=peak_power,
+        gamma=gamma,
+        fwhm=fwhm,
+        shape=shape,  # pyright: ignore[reportArgumentType]
+        wavelength_limits=limits,
     )
     return float(roots[0]) if len(roots) else None
