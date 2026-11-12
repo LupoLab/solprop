@@ -395,7 +395,7 @@ class GradedIndexProvider(Displayed):
         """
         return {"core_radius": as_profile(self.radius)}
 
-    def at_parameters(self, values: Mapping[str, float]) -> "GradedIndexProvider":  # noqa: UP037 - runtime hook evaluates class annotations eagerly
+    def at_parameters(self, values: Mapping[str, float]) -> "GradedIndexProvider":
         """Freeze the declared radius path at explicit parameter values.
 
         Parameters

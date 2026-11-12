@@ -46,7 +46,7 @@ _PLAIN: Final = (bool, int, float, str)
 """The scalar values a default written back may be."""
 
 
-def _stats_table(stats: "StatsSpec") -> dict[str, object] | None:  # noqa: UP037
+def _stats_table(stats: "StatsSpec") -> dict[str, object] | None:
     """Return a statistics selection as its registered table, if it has one.
 
     Parameters
@@ -75,8 +75,8 @@ def _stats_table(stats: "StatsSpec") -> dict[str, object] | None:  # noqa: UP037
 
 
 def _used(
-    recipe: "Recipe",  # noqa: UP037 - checked at run time
-    simulation: "Simulation",  # noqa: UP037 - checked at run time
+    recipe: "Recipe",
+    simulation: "Simulation",
 ) -> dict[str, object]:
     """Return the value the build used for each resolvable keyword it can name.
 
@@ -143,8 +143,8 @@ def _used(
 
 
 def resolved_document(
-    recipe: "Recipe",  # noqa: UP037 - checked at run time
-    simulation: "Simulation",  # noqa: UP037 - checked at run time
+    recipe: "Recipe",
+    simulation: "Simulation",
 ) -> Document:
     """Return the recipe that rebuilds a run, as its tables.
 
@@ -210,7 +210,7 @@ def _references(value: object) -> Iterator[Mapping[str, object]]:
 
 
 def _files(
-    recipe: "Recipe",  # noqa: UP037 - checked at run time
+    recipe: "Recipe",
     base: Path | None,
     *,
     allow_outside: bool,
@@ -249,8 +249,8 @@ def _files(
 
 
 def record(
-    recipe: "Recipe",  # noqa: UP037 - checked at run time
-    simulation: "Simulation",  # noqa: UP037 - checked at run time
+    recipe: "Recipe",
+    simulation: "Simulation",
     *,
     base: Path | None = None,
     allow_outside: bool = False,

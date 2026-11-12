@@ -92,7 +92,7 @@ SLICE_QUANTITIES: tuple[SliceQuantity, ...] = ("power", "field", "field_squared"
 _DB_FLOOR_MARGIN = 10.0
 
 
-def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scale
+def prop_2d(
     output: Output,
     axis: SpectralAxis = "f",
     *,
@@ -226,7 +226,7 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
     return figures
 
 
-def time_1d(  # noqa: PLR0913 - the planes, the quantity, the window and the axis
+def time_1d(
     output: Output,
     z: float | Sequence[float] | None = None,
     *,
@@ -344,7 +344,7 @@ def time_1d(  # noqa: PLR0913 - the planes, the quantity, the window and the axi
     return _figure_of(ax)
 
 
-def spec_1d(  # noqa: PLR0913 - the planes, the abscissa, the range and the scale
+def spec_1d(
     output: Output,
     z: float | Sequence[float] | None = None,
     axis: SpectralAxis = "wavelength",
@@ -687,7 +687,7 @@ def _density_label(axis: SpectralAxis, width: str = "") -> str:
     return f"Spectral energy density ({units[axis]}{per_y})"
 
 
-def _spectral_map(  # noqa: PLR0913 - an axis, two axes of data, and the colour scale
+def _spectral_map(
     ax: Axes,
     x: Float[np.ndarray, " n_x"],
     z: Float[np.ndarray, " n_z"],

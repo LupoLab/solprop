@@ -1091,7 +1091,7 @@ class TransverseQuadrature:
         return np.asarray(np.outer(radial, second).ravel(order="F"))
 
 
-def _check_request(
+def _check_request(  # noqa: PLR0917 - called positionally
     kind: str,
     full: bool,
     n_r: object,
@@ -1468,7 +1468,7 @@ class ModeMatrices:
     n_nodes: int
     n_pol: int
 
-    def rescaled(self, scale: float) -> "ModeMatrices":  # noqa: UP037 - bound after the class body
+    def rescaled(self, scale: float) -> "ModeMatrices":
         """Return the matrices for a scale-invariant mode set at a new core radius.
 
         Parameters
@@ -1509,7 +1509,7 @@ class ModeMatrices:
         )
 
 
-def on_axis_rule(kind: CrossSection) -> "TransverseQuadrature":  # noqa: UP037 - bound after the class body
+def on_axis_rule(kind: CrossSection) -> "TransverseQuadrature":
     """Return a one-node rule at the transverse origin of a waveguide.
 
     The axis is not a quadrature node -- a Gauss rule on ``(0, 1)`` never places one

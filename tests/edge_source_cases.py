@@ -125,7 +125,7 @@ class EdgeCase:
         return np.fft.rfft(values)[self.problem.grids.crop_index]
 
 
-def make_case(  # noqa: PLR0913 - one keyword per lattice choice of the fixture.
+def make_case(
     *,
     window: TDSEAtomicWindow | None = None,
     trange: float = 60e-15,

@@ -38,7 +38,8 @@ A documentation-only change needs only the
 [documentation checks](testing.md#documentation-only-changes).
 
 Runs, in order: `ruff check --fix .` → `ruff format .` → `ruff check .` → `basedpyright` →
-`numpydoc lint` (on `src/solprop` and the two figure scripts) → `codespell` → `reuse lint` → `poe test`
+`numpydoc lint` (on `src/solprop` and the figure scripts) → `codespell` → `reuse lint` →
+`poe changelog-check` → `poe size-check` → `poe test`
 (fast and medium tiers, doctests included, under xdist) →
 `sphinx-build -b html -W -n --keep-going docs docs/_build/html`. CI runs exactly the same
 sequence plus `poe test-slow` and the CPU coverage lane; keep the two identical.
@@ -64,15 +65,17 @@ documentation trees. Rule families:
 pycodestyle, pyflakes, isort, pep8-naming, pydocstyle (numpy convention), annotations,
 pyupgrade, bugbear, simplify, comprehensions, pathlib, no-print, tidy-imports (absolute only),
 return, unused-arguments, PGH (no blanket `noqa`), NumPy (no legacy random), pylint subset
-(`max-args = 6`), ruff-specific (stale `noqa`). Ignored: `PLR2004` (magic values in numerics),
-`ANN401` (a commented, confined `Any`), `F722` (pyflakes reads jaxtyping shape strings such as
-`" n_omega"` as broken forward annotations; jaxtyping's own documentation asks for this
-ignore). One pyupgrade hazard is *not* ignored but avoided: `UP037` unquotes a shape string
-that looks like a quoted annotation — `"..."` becomes a bare `Ellipsis`, which jaxtyping
-rejects — so shape strings are written with names (`"*shape"`, `" n_omega"`), never as
-`"..."`, and forward references under `TYPE_CHECKING` are kept out of quoted form.
-Per-file: tests drop docstring, annotation, magic-value and unused-argument rules (dummies
-implement protocols with unused arguments); the independent oracles under
+(`max-positional-args = 5`: past five positional parameters a signature is keyword-only,
+`PLR0917`), ruff-specific (stale `noqa`). Ignored: `PLR2004` (magic values in numerics),
+`PLR0913` (the parameter count: keyword-only parameters read well at every call site, so
+`PLR0917` counts the positional ones), `ANN401` (a commented, confined `Any`), `F722`
+(pyflakes reads jaxtyping shape strings such as `" n_omega"` as broken forward annotations;
+jaxtyping's own documentation asks for this ignore) and `UP037` (quoted annotations: the
+jaxtyping/beartype hook evaluates annotations before a class body or a `TYPE_CHECKING`
+import binds the name, so the quotes it would remove are needed; see below).
+Per-file: tests drop docstring, annotation, magic-value, unused-argument and
+positional-count rules (dummies implement protocols with unused arguments, and pytest
+passes fixtures and parameters by name); the independent oracles under
 `tests/oracles/` are held to the benchmark rules;
 `docs/conf.py` drops docstring and annotation rules; gallery scripts and worked examples
 drop them too and allow `print` and cell-style imports; benchmarks allow `print`.
@@ -116,8 +119,11 @@ The `[tool.coverage]` tables in `pyproject.toml` are the shared defaults. The la
 
 `[tool.numpydoc_validation] checks = ["all", "ES01", "SA01", "EX01", "GL01", "GL02"]` ("all"
 minus extended summary, see-also and examples being mandatory, and minus the two quote-placement
-rules that conflict with ruff's numpy docstring style), excluding `__init__` and test functions;
-run by `numpydoc lint` in the gate and by the pre-commit hook. Sphinx renders docstrings with
+rules that conflict with ruff's numpy docstring style), excluding `__init__`, test functions
+and private names: any dotted name with a single-underscore component (`(^|\.)_[^_]`, so a
+private module, class or function and everything inside it), which keep a short docstring
+instead (`AGENTS.md`, "Docstrings and comments"). The same exclusions hold for the front end in
+`gui/pyproject.toml`. It is run by `numpydoc lint` in the gate and by the pre-commit hook. Sphinx renders docstrings with
 the `numpydoc` extension alone (napoleon is not loaded: the two conflict).
 
 ## jaxtyping + beartype
@@ -137,8 +143,8 @@ What the hook means for annotations:
 - A plain `float` or an empty tuple is *not* an `ArrayLike` under beartype: annotate such
   parameters `ArrayLike | float` or `Sequence[float] | np.ndarray`.
 - An `int` is accepted where a `float` is annotated (the PEP 484 numeric tower above).
-- A return annotation that names the enclosing class is quoted (`-> "Grid"`, with
-  `# noqa: UP037`): the hook evaluates it while the class body is still running.
+- A return annotation that names the enclosing class is quoted (`-> "Grid"`): the hook
+  evaluates it while the class body is still running (`UP037` is ignored for this).
 - `numpy.typing.NDArray` cannot be used: beartype cannot interpret NumPy's generic alias.
   Use jaxtyping, the one array-annotation style.
 - A dataclass whose `__post_init__` validates shape agreement between its fields gives
@@ -169,6 +175,36 @@ missing references are warnings (`-W -n`). `docs/dev/` is included in the manual
 "Development". Intersphinx inventories are fetched from each project's site
 first and read from the vendored copies under `docs/_inventories/` when that fails, so the
 build works offline and survives a flaky mirror; refresh the copies occasionally.
+
+## Size
+
+`poe size` (`tools/size_report.py`, standard library only) reports where the Python lines
+go, per top-level package of `src/solprop` (`--all` adds the native adapter and the front
+end, `--json` prints JSON): code, public and private docstring, comment and blank lines;
+private docstrings with numpydoc sections and docstrings longer than their body; the largest
+files and functions; `noqa` comments by rule; private names imported across packages;
+`__all__` lines; cloned code (windows of 50 tokens seen twice, with names renamed and as
+written) with the file pairs that share most; and ruff's complexity counts. A name is
+private by exactly the rule numpydoc's validation excludes (a single-underscore component
+of `module.qualname`), so the report and `poe docstrings` agree; a nested function is private
+when its name starts with an underscore, as `AGENTS.md` asks.
+
+`poe size-check`, in `poe check` and CI's static job, holds `src/solprop` to the ratchets in
+`tools/size_budget.toml`: the number of private docstrings with numpydoc sections, a
+4,000-line cap on a module, and the number of private names imported across packages. The
+modules already larger are listed, each capped at its size plus a headroom of 2 % (at least
+50 lines); the check also fails on an entry more than three headrooms above its module's
+size, or for a module that is gone or now under the cap, so a module that shrinks by more
+than twice its headroom tightens its entry in the same change. A cap is lowered
+when the code improves and never raised to let a change through.
+`.github/workflows/size.yml` adds a soft budget: a pull request whose net growth of
+`src/solprop` against its merge base exceeds 1,500 lines fails unless a maintainer gives it
+the `size-ok` label.
+
+Dead code is looked for by hand, not in the gate:
+`uvx vulture src/solprop --min-confidence 80`. Its findings need reading, since public
+names, protocol members and names used only from tests or the native package look unused
+to it.
 
 ## Environment variables the tools honour
 
@@ -213,7 +249,7 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
 `SOLPROP_TEST_TYPECHECK=0` (ADR-053).
 
 - **static** (Linux): `uv lock --check`, ruff (lint and format check), `poe types`,
-  `poe docstrings`, `poe spell`, `poe reuse`, `poe changelog-check`.
+  `poe docstrings`, `poe spell`, `poe reuse`, `poe changelog-check`, `poe size-check`.
 - **docs** (Linux): `poe docs`, with the wheel installed, so a lesson or tutorial on
   `backend="auto"` runs on `native`.
 - **native-wheel** (Linux x86-64, macOS arm64, Windows x64, Windows on Arm): this tree's `native/` built

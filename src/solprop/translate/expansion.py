@@ -370,7 +370,7 @@ class ParameterExpansion:
         return np.tensordot(self.weights(z2) - self.weights(z1), self.terms, axes=1)
 
 
-def build_expansion(  # noqa: PLR0913 - the build's knobs, as `build` has them
+def build_expansion(
     value_at: _ValueAt,
     paths: Mapping[str, ZProfile],
     z0: float,
@@ -999,7 +999,7 @@ def _sample_grid(
     return stacked.reshape(*shape, *stacked.shape[1:])
 
 
-def _weight_tables(  # noqa: PLR0913 - one call site; every argument is a distinct choice
+def _weight_tables(  # noqa: PLR0917 - called positionally
     paths: Mapping[str, ZProfile],
     names: tuple[str, ...],
     ranges: Float[np.ndarray, "n_params two"],

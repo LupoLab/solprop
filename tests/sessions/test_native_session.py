@@ -80,7 +80,7 @@ def _one_thread() -> bool:
     }
 
 
-def _case(  # noqa: PLR0913 - one choice per keyword
+def _case(
     *,
     integrator: Multistep | LowStorageRungeKutta | None = None,
     schedule: FixedSchedule | None = None,

@@ -38,7 +38,7 @@ from solprop.processing.fields import (
 __all__ = ["DEFAULT_GATE_POSITIONS", "spectrogram"]
 
 
-def spectrogram(  # noqa: PLR0913 - a plane, a mode, two axes and the colour scale
+def spectrogram(
     output: Output,
     z: float | None = None,
     axis: SpectralAxis = "wavelength",

@@ -235,7 +235,7 @@ class InputPort:
         text = json.dumps(record, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-    def accepts(self, other: "InputPort") -> str | None:  # noqa: UP037 - beartype evaluates the class body
+    def accepts(self, other: "InputPort") -> str | None:
         """Return why a launch bound to `other` cannot enter this port, or None.
 
         Parameters

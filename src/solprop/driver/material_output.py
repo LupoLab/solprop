@@ -816,7 +816,7 @@ def _canonical_entry(entry: Mapping[str, object]) -> str:
     return json.dumps(entry, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def material_manifest(  # noqa: PLR0913 - the run's objects and its band, one each
+def material_manifest(
     roots: Sequence[object],
     *,
     selection: MaterialSelection | None,

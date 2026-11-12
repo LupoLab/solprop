@@ -79,7 +79,7 @@ def evaluation_bound(name, grid, space):
     return bound
 
 
-def ladder_bound(name, grid, space, problem, run_request, steps, length):  # noqa: PLR0913, PLR0917 - the case, its run and the window
+def ladder_bound(name, grid, space, problem, run_request, steps, length):
     """Return the bound of ``steps`` replayed steps over ``length``."""
     evaluations = max(1.0, step_evaluations(run_request) * steps)
     operator = operator_bound(problem, length)

@@ -214,7 +214,7 @@ def _extent(
     return float(position[order][above[-1]]) if above.size else 0.0
 
 
-def _radial_return(
+def _radial_return(  # noqa: PLR0917 - called positionally
     space: RadialGrid,
     rate: Float[np.ndarray, " n_r"],
     launch: Complex[np.ndarray, " n_r"],
@@ -283,7 +283,7 @@ def _radial_return(
     return differences, energy
 
 
-def _periodic_return(  # noqa: PLR0913, PLR0917 - one frequency's comparison
+def _periodic_return(  # noqa: PLR0917 - one frequency's comparison
     axes: tuple[np.ndarray, ...],
     sizes: tuple[float, ...],
     rate: Float[np.ndarray, " n_nodes"],
@@ -375,7 +375,7 @@ def _periodic_return(  # noqa: PLR0913, PLR0917 - one frequency's comparison
     return differences, energy
 
 
-def _estimate(  # noqa: PLR0913, PLR0915 - one estimate at one resolution
+def _estimate(  # noqa: PLR0915, PLR0917 - one estimate at one resolution; called positionally
     space: RadialGrid | FreeGrid | PlanarGrid,
     rate: Float[np.ndarray, " n_nodes"],
     launch: Complex[np.ndarray, "n_columns n_pol n_omega"],
@@ -571,7 +571,7 @@ def _step(positions: np.ndarray, z_max: float) -> float:
     return z_max / positions.size
 
 
-def _half(  # noqa: PLR0913 - the bare grid's half-size along one axis
+def _half(  # noqa: PLR0917 - called positionally
     axis: np.ndarray,
     size: float,
     field: np.ndarray,
@@ -617,7 +617,7 @@ def _half(  # noqa: PLR0913 - the bare grid's half-size along one axis
     return min(half, _LARGEST * outer), half > _LARGEST * outer
 
 
-def design_check(
+def design_check(  # noqa: PLR0917 - called positionally
     space: RadialGrid | FreeGrid | PlanarGrid,
     rate: Float[np.ndarray, " n_nodes"],
     launch: Complex[np.ndarray, "n_batch n_columns n_pol n_omega"],

@@ -306,7 +306,7 @@ class TransverseUnits:
     fluence: str = "J/m^2"
 
     @classmethod
-    def of(cls, measure: TransverseMeasure) -> "TransverseUnits":  # noqa: UP037 - bound after the class body
+    def of(cls, measure: TransverseMeasure) -> "TransverseUnits":
         """Return the units of a measure.
 
         Parameters

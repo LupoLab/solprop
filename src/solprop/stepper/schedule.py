@@ -141,7 +141,7 @@ class FixedSchedule:  # numpydoc ignore=PR02
         *,
         save_planes: Sequence[float] | np.ndarray = (),
         hard_kinks: Sequence[float] | np.ndarray = (),
-    ) -> "FixedSchedule":  # noqa: UP037 - bound after the class body
+    ) -> "FixedSchedule":
         """Build a plain fixed-step schedule that lands on every plane and kink.
 
         A fixed-step run with no adaptivity at all. The run is cut into segments at
@@ -217,7 +217,7 @@ class FixedSchedule:  # numpydoc ignore=PR02
         z: Float[np.ndarray, " n_attempts"] | Sequence[float],
         h: Float[np.ndarray, " n_attempts"] | Sequence[float],
         accepted: Sequence[bool] | np.ndarray | None = None,
-    ) -> "FixedSchedule":  # noqa: UP037 - bound after the class body
+    ) -> "FixedSchedule":
         """Return the accepted steps of a run's step history, as a schedule to replay.
 
         A run's history records every attempt, rejected ones too: its start ``z``, its
@@ -396,7 +396,7 @@ class FixedSchedule:  # numpydoc ignore=PR02
         """
         return float(self.steps.min())
 
-    def refined(self, factor: int) -> "FixedSchedule":  # noqa: UP037 - bound after the class body
+    def refined(self, factor: int) -> "FixedSchedule":
         """Return the schedule with every step split into ``factor`` equal pieces.
 
         This is the refinement the three-level ladder uses. It preserves the shape of
@@ -435,7 +435,7 @@ class FixedSchedule:  # numpydoc ignore=PR02
             return self
         return FixedSchedule(np.repeat(self.steps / factor, factor), self.z_start)
 
-    def rescaled(self, factor: float) -> "FixedSchedule":  # noqa: UP037 - bound after the class body
+    def rescaled(self, factor: float) -> "FixedSchedule":
         """Return a schedule of the same shape and span with steps scaled.
 
         The step-size *profile* transfers while the endpoint stays put: the walk takes
@@ -691,7 +691,7 @@ class Calibration:
         return (target_error / self.achieved_error) ** (1.0 / self.observed_order)
 
 
-def calibrate(
+def calibrate(  # noqa: PLR0917 - called through a reference
     schedule: FixedSchedule,
     evaluate: Callable[[FixedSchedule], float],
     order: int,

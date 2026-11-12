@@ -85,7 +85,7 @@ LOW_STORAGE_STEPS = 200
 """The steps of a low-storage walker's uniform schedule."""
 
 
-def walker(  # noqa: PLR0913 - one choice per keyword
+def walker(
     drift: float,
     *,
     check: BoundaryCheck | None = None,

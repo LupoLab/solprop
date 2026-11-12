@@ -231,7 +231,7 @@ def _face_message(face: str, z: float, judged: float) -> str:
     )
 
 
-def _stop_message(  # noqa: PLR0913 - the numbers the message names
+def _stop_message(
     space: RadialGrid | FreeGrid | PlanarGrid,
     length: float,
     stop: float,
@@ -1307,7 +1307,7 @@ class TransverseEdge:
         """
         return self._resumed
 
-    def launch(  # noqa: PLR0912, PLR0913, PLR0915 - the launch and judgements, in order
+    def launch(  # noqa: PLR0912, PLR0915 - the launch and judgements, in order
         self,
         reading: _EdgeReading,
         z: float,

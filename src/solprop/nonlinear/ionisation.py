@@ -518,7 +518,7 @@ class RunningIntegral:
             raise GridError(msg)
 
     @classmethod
-    def trapezoid(cls) -> "RunningIntegral":  # noqa: UP037 - the runtime type hook resolves this while the class body runs
+    def trapezoid(cls) -> "RunningIntegral":
         """Return the legacy rule: the plain cumulative trapezoid.
 
         Returns

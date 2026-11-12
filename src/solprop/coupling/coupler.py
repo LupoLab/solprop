@@ -524,7 +524,7 @@ def _check_common(plane: FieldPlane, port: InputPort) -> None:
         raise CouplingError(msg)
 
 
-def _report(  # noqa: PLR0913 - the account's terms, each named at the call
+def _report(
     plane: FieldPlane,
     port: InputPort,
     model: CouplingModel,
@@ -1271,7 +1271,7 @@ def _kappa_star(
     return np.where((index > 0) & (omega > 0), index * omega / C * sine, 0.0)
 
 
-def _spatial_fit(
+def _spatial_fit(  # noqa: PLR0917 - called positionally
     plane: FieldPlane,
     profiles: ScalarModeBasis,
     jones: Float[np.ndarray, "n_channels 2"],
@@ -1422,7 +1422,7 @@ def _bin_like(plane: FieldPlane) -> Float[np.ndarray, " n_omega"]:
     return fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
 
 
-def _modal_fit(  # noqa: PLR0913 - the plane, both profile sets and the measure
+def _modal_fit(
     plane: FieldPlane,
     source: ScalarModeBasis,
     profiles: ScalarModeBasis,
@@ -1678,7 +1678,7 @@ def _target_metric(
     )
 
 
-def _target_angular_scalar(
+def _target_angular_scalar(  # noqa: PLR0917 - called positionally
     profiles: ScalarModeBasis,
     channels: tuple[np.ndarray, np.ndarray],
     index: Float[np.ndarray, " n_omega"],
@@ -1847,7 +1847,7 @@ def _uncovered_v_share(
     return _weighted(beyond.astype(float), incident)
 
 
-def _contrast_items(
+def _contrast_items(  # noqa: PLR0917 - called positionally
     profiles: ScalarModeBasis,
     plane: FieldPlane,
     index: Float[np.ndarray, " n_omega"],
@@ -2586,7 +2586,7 @@ def _modal_source(
     return _Source(transfer, coordinates, np.ones(coordinates.shape), norm, items)
 
 
-def _modal_angular(  # noqa: PLR0913 - the source set, its field and the measure
+def _modal_angular(
     source: ScalarModeBasis,
     *,
     jones: Float[np.ndarray, "n_channels 2"],
@@ -2778,7 +2778,7 @@ def _probe_bins(
     return np.array(sorted(picks))[: max(_TARGET_BINS, 3)]
 
 
-def _closure_item(
+def _closure_item(  # noqa: PLR0917 - called positionally
     electric: np.ndarray,
     magnetic: np.ndarray,
     weights: Float[np.ndarray, " n_nodes"],
@@ -2835,7 +2835,7 @@ def _closure_item(
     )
 
 
-def _target_angular_vector(
+def _target_angular_vector(  # noqa: PLR0917 - called positionally
     electric: np.ndarray,
     weights: Float[np.ndarray, " n_nodes"],
     port: InputPort,

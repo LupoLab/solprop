@@ -1742,7 +1742,7 @@ def _route_entries(route: str) -> tuple[Parameter, ...]:
     return tuple(entries.values())
 
 
-def surface(route: str) -> "Callable[..., Simulation]":  # noqa: UP037 - run time
+def surface(route: str) -> "Callable[..., Simulation]":
     """Return the constructor whose keywords a route's ``[build]`` table holds.
 
     Parameters

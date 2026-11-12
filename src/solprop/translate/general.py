@@ -698,7 +698,7 @@ class _Regional:
 
 
 @host_blas()
-def general_modal_route(  # noqa: PLR0913 - a guide, a grid, a launch and four policies
+def general_modal_route(
     guide: ModalGuide,
     grid: TimeGrid,
     *,

@@ -209,7 +209,7 @@ def get_spectrum(
     return grid.omega[keep], _squeeze(values[..., keep], mode_axis=kept)
 
 
-def get_spectral_density(  # noqa: PLR0913 - the abscissa and the smoothing on top
+def get_spectral_density(
     output: Output,
     axis: SpectralAxis = "wavelength",
     *,
@@ -304,7 +304,7 @@ def get_spectral_density(  # noqa: PLR0913 - the abscissa and the smoothing on t
     )
 
 
-def _spectral_density(  # noqa: PLR0913 - the keywords of get_spectral_density
+def _spectral_density(
     output: Output,
     axis: SpectralAxis = "wavelength",
     *,
@@ -430,7 +430,7 @@ def _check_spec_range(
     raise ProcessingError(msg)
 
 
-def get_field(  # noqa: PLR0913 - a plane, a mode set, a representation and a window
+def get_field(
     output: Output,
     *,
     kind: FieldKind = "analytic",
@@ -531,7 +531,7 @@ def get_field(  # noqa: PLR0913 - a plane, a mode set, a representation and a wi
     return t, _squeeze(amplitude, mode_axis=kept)
 
 
-def get_power(  # noqa: PLR0913 - a plane, a mode set, a window and an optical element
+def get_power(
     output: Output,
     *,
     plane: int | None = None,
@@ -609,7 +609,7 @@ def get_power(  # noqa: PLR0913 - a plane, a mode set, a window and an optical e
     )
 
 
-def _power(  # noqa: PLR0913 - the keywords of get_power
+def _power(
     output: Output,
     *,
     plane: int | None = None,
@@ -895,7 +895,7 @@ def _to_time(
     return time_axis(grid, oversampling), amplitude
 
 
-def _plane_amplitude(  # noqa: PLR0913 - the plane and everything done to its spectrum
+def _plane_amplitude(
     output: Output,
     *,
     plane: int | None,
@@ -952,7 +952,7 @@ def _plane_amplitude(  # noqa: PLR0913 - the plane and everything done to its sp
     return grid, t, amplitude
 
 
-def get_spectrogram(  # noqa: PLR0913 - a plane, a mode, the gate and a window
+def get_spectrogram(
     output: Output,
     axis: SpectralAxis = "f",
     *,
@@ -1186,7 +1186,7 @@ def field_spectrogram(
 
 def _gate_transform(
     dt: float, width: float, span: float, positions: int
-) -> "ShortTimeFFT":  # noqa: UP037 - the runtime type hook resolves this at import
+) -> "ShortTimeFFT":
     """Return the short-time transform of a Gaussian gate of the given width.
 
     Parameters

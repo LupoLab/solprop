@@ -247,7 +247,7 @@ class PlaneView:
         """
         return np.array(self._reader().fields("fft")[0])
 
-    def field_plane(self) -> "FieldPlane":  # noqa: UP037 - imported only to type
+    def field_plane(self) -> "FieldPlane":
         """Return the plane as :func:`solprop.processing.planes.field_plane` reads it.
 
         Its ``spectral_energy`` is a spatial plane's energy per frequency bin, where

@@ -118,10 +118,10 @@ class Pin:
     target: str
     keys: Mapping[str, object]
     search: tuple[float, float] | None
-    root: "RootChoice"  # noqa: UP037 - TYPE_CHECKING only
+    root: "RootChoice"
 
 
-def read_pins(recipe: "Recipe") -> tuple[Pin, ...]:  # noqa: UP037 - run time
+def read_pins(recipe: "Recipe") -> tuple[Pin, ...]:
     """Return a recipe's pins, checked, guide pin first.
 
     Parameters
@@ -161,7 +161,7 @@ def read_pins(recipe: "Recipe") -> tuple[Pin, ...]:  # noqa: UP037 - run time
     return (*guide, *(pin for pin in pins if pin.stage == "pulse"))
 
 
-def _read_pin(recipe: "Recipe", path: str, entry: object) -> Pin:  # noqa: UP037 - one check per rule
+def _read_pin(recipe: "Recipe", path: str, entry: object) -> Pin:
     """Return one ``[pins]`` entry, checked.
 
     Parameters
@@ -254,7 +254,7 @@ def _read_pin(recipe: "Recipe", path: str, entry: object) -> Pin:  # noqa: UP037
     )
 
 
-def _is_set(recipe: "Recipe", path: str) -> bool:  # noqa: UP037 - run time
+def _is_set(recipe: "Recipe", path: str) -> bool:
     """Return whether a path is also set in ``[build]``.
 
     Parameters
@@ -405,7 +405,7 @@ def _read_search(value: object, unit: str | None, path: str) -> tuple[float, flo
     return low, high
 
 
-def _read_root(value: object, path: str) -> "RootChoice":  # noqa: UP037 - run time
+def _read_root(value: object, path: str) -> "RootChoice":
     """Return a root choice.
 
     Parameters
@@ -436,7 +436,7 @@ def _read_root(value: object, path: str) -> "RootChoice":  # noqa: UP037 - run t
 # ---------------------------------------------------------------------- solving
 
 
-def design_target(pin: Pin, keywords: Mapping[str, object]) -> "DesignTarget":  # noqa: UP037 - run time
+def design_target(pin: Pin, keywords: Mapping[str, object]) -> "DesignTarget":
     """Return the solver's target for a guide pin.
 
     Parameters
@@ -472,9 +472,9 @@ def solve_pin(
     route: str,
     keywords: Mapping[str, object],
     path: str,
-    target: "DesignTarget",  # noqa: UP037 - run time
+    target: "DesignTarget",
     search: tuple[float, float],
-) -> "DesignRoots":  # noqa: UP037 - run time
+) -> "DesignRoots":
     """Solve a parameter of a route's guide or fill for a design target.
 
     The route is built once from `keywords`, with the parameter at the middle of
@@ -530,7 +530,7 @@ def solve_pin(
     wavelength = cast("float", keywords["wavelength"])
     nonlinear = _needs_gamma(target)
 
-    def build(value: float) -> "Mode | tuple[Mode, float]":  # noqa: UP037
+    def build(value: float) -> "Mode | tuple[Mode, float]":
         """Return the launch mode at a trial value, with its Kerr coefficient.
 
         Parameters
@@ -555,7 +555,7 @@ def solve_pulse(
     path: str,
     order: float,
     search: tuple[float, float] | None = None,
-) -> "DesignRoots":  # noqa: UP037 - run time
+) -> "DesignRoots":
     """Return the energy or peak power that gives a pulse a soliton order.
 
     Closed form on the launch mode at the launch position, with the fill's Kerr
@@ -699,7 +699,7 @@ def _route_pulse(keywords: Mapping[str, object]) -> object:
     )
 
 
-def _build(route: str, keywords: Mapping[str, object], path: str) -> "Simulation":  # noqa: UP037 - run time
+def _build(route: str, keywords: Mapping[str, object], path: str) -> "Simulation":
     """Build a route for its mode, a refusal named on the pinned path.
 
     Parameters
@@ -736,7 +736,7 @@ def _build(route: str, keywords: Mapping[str, object], path: str) -> "Simulation
         raise RecipeError(msg, path=path) from error
 
 
-def _launch_mode(simulation: "Simulation") -> "Mode":  # noqa: UP037 - run time
+def _launch_mode(simulation: "Simulation") -> "Mode":
     """Return the mode a pin solves on: the launch mode, the first of the set.
 
     Parameters
@@ -752,7 +752,7 @@ def _launch_mode(simulation: "Simulation") -> "Mode":  # noqa: UP037 - run time
     return simulation.modes[0]
 
 
-def _at(mode: "Mode", parameter: str, value: float) -> "Mode":  # noqa: UP037
+def _at(mode: "Mode", parameter: str, value: float) -> "Mode":
     """Return the launch mode at a trial value of the pinned parameter.
 
     Parameters
@@ -776,7 +776,7 @@ def _at(mode: "Mode", parameter: str, value: float) -> "Mode":  # noqa: UP037
     return mode.at_parameters({parameter: value})  # type: ignore[attr-defined]
 
 
-def _gamma(mode: "Mode", wavelength: float) -> float:  # noqa: UP037 - run time
+def _gamma(mode: "Mode", wavelength: float) -> float:
     """Return the fill's nonlinear coefficient on a mode at the launch position.
 
     Parameters
@@ -799,7 +799,7 @@ def _gamma(mode: "Mode", wavelength: float) -> float:  # noqa: UP037 - run time
 
 
 def _route_gamma(
-    mode: "Mode",  # noqa: UP037 - run time
+    mode: "Mode",
     wavelength: float,
     keywords: Mapping[str, object],
     path: str,
@@ -844,7 +844,7 @@ def _route_gamma(
     return nonlinear_coefficient(mode, cast("float", n2), wavelength)
 
 
-def _needs_gamma(target: "DesignTarget") -> bool:  # noqa: UP037 - run time
+def _needs_gamma(target: "DesignTarget") -> bool:
     """Return whether a target needs the fill's Kerr coefficient.
 
     Parameters

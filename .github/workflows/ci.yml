@@ -140,6 +140,7 @@ jobs:
       - run: uv run poe spell
       - run: uv run poe reuse
       - run: uv run poe changelog-check
+      - run: uv run poe size-check
 
   docs:
     needs: [changes, native-wheel]

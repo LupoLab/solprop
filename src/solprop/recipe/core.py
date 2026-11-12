@@ -195,7 +195,7 @@ class Recipe:
     @classmethod
     def loads(
         cls, text: str, *, base: Path | None = None, allow_outside: bool = False
-    ) -> "Recipe":  # noqa: UP037 - the class, checked at run time
+    ) -> "Recipe":
         """Read a recipe from TOML text.
 
         Parameters
@@ -215,7 +215,7 @@ class Recipe:
         return cls(parse_text(text), text=text, base=base, allow_outside=allow_outside)
 
     @classmethod
-    def load(cls, path: str | Path, *, allow_outside: bool = False) -> "Recipe":  # noqa: UP037 - the class, checked at run time
+    def load(cls, path: str | Path, *, allow_outside: bool = False) -> "Recipe":
         """Read a recipe file.
 
         Parameters
@@ -237,7 +237,7 @@ class Recipe:
     @classmethod
     def from_dict(
         cls, document: Mapping[str, object], *, base: Path | None = None
-    ) -> "Recipe":  # noqa: UP037 - the class, checked at run time
+    ) -> "Recipe":
         """Build a recipe from its tables.
 
         Parameters
@@ -257,7 +257,7 @@ class Recipe:
     @classmethod
     def from_keywords(
         cls, route: str, *, title: str | None = None, **keywords: object
-    ) -> "Recipe":  # noqa: UP037 - the class, checked at run time
+    ) -> "Recipe":
         """Write a route's keyword call as a recipe, from plain values only.
 
         Parameters
@@ -322,7 +322,7 @@ class Recipe:
         )
 
     @classmethod
-    def example(cls, name: str) -> "Recipe":  # noqa: UP037 - checked at run time
+    def example(cls, name: str) -> "Recipe":
         """Load one of the example recipes solprop ships, each a gallery example's.
 
         Parameters
@@ -347,7 +347,7 @@ class Recipe:
             return cls.load(path)
 
     @classmethod
-    def from_output(cls, path: str | Path, *, resolved: bool = False) -> "Recipe":  # noqa: UP037 - the class, checked at run time
+    def from_output(cls, path: str | Path, *, resolved: bool = False) -> "Recipe":
         """Read back the recipe a run's output records (SEP 41, S2).
 
         Parameters
@@ -623,7 +623,7 @@ class Recipe:
     def keywords(
         self,
         *,
-        grid: "TimeGrid | None" = None,  # noqa: UP037 - checked at run time
+        grid: "TimeGrid | None" = None,
     ) -> dict[str, object]:
         """Return the route's build keywords as the constructor takes them.
 
@@ -716,7 +716,7 @@ class Recipe:
             msg = f"the required keywords {', '.join(missing)} are missing"
             raise RecipeError(msg, path=missing[0])
 
-    def build(self) -> "Simulation":  # noqa: UP037 - checked at run time
+    def build(self) -> "Simulation":
         """Build the simulation the recipe describes, without running it.
 
         Pins are solved first (:meth:`resolve`).
@@ -750,7 +750,7 @@ class Recipe:
 
     # ------------------------------------------------------------------ pins
 
-    def resolve(self) -> "Recipe":  # noqa: UP037 - the class, checked at run time
+    def resolve(self) -> "Recipe":
         """Return the recipe with each pin replaced by its solved value.
 
         The pin on the guide or fill is solved first, on the launch mode at the
@@ -803,7 +803,7 @@ class Recipe:
         working._authored = self if pins else None
         return working
 
-    def pin_roots(self, path: str) -> "DesignRoots":  # noqa: UP037 - TYPE_CHECKING
+    def pin_roots(self, path: str) -> "DesignRoots":
         """Return every root of one pin's target, for a front end to choose among.
 
         A pin on a pulse reads the guide as its own pin (if any) settles it.
@@ -853,7 +853,7 @@ class Recipe:
 
     # ------------------------------------------------------------------ previews
 
-    def modes(self, z: float | None = None) -> "ModeSetPreview":  # noqa: UP037 - TYPE_CHECKING
+    def modes(self, z: float | None = None) -> "ModeSetPreview":
         """Return the mode set a guided route would build, before the run (S18).
 
         Labels, the effective index, ``beta`` to ``beta3``, loss, effective area and
@@ -882,7 +882,7 @@ class Recipe:
 
         return modes(self, z)
 
-    def preview_input(self) -> "InputPreview":  # noqa: UP037 - TYPE_CHECKING
+    def preview_input(self) -> "InputPreview":
         """Return the input pulse on the run's grid, as launched, without noise (S18).
 
         Pins are solved first; the cost is a translation
@@ -904,7 +904,7 @@ class Recipe:
 
         return preview_input(self)
 
-    def _copy(self, drop: tuple[str, ...]) -> "Recipe":  # noqa: UP037 - checked at run time
+    def _copy(self, drop: tuple[str, ...]) -> "Recipe":
         """Return a copy without some top-level tables, its data files kept.
 
         Parameters
@@ -925,7 +925,7 @@ class Recipe:
         recipe._filed = self._filed
         return recipe
 
-    def _solve(self, pin: "Pin") -> "DesignRoots":  # noqa: UP037 - TYPE_CHECKING
+    def _solve(self, pin: "Pin") -> "DesignRoots":
         """Solve one pin on this (unpinned) recipe's keywords.
 
         Parameters
@@ -973,7 +973,7 @@ class Recipe:
 
     def record(
         self,
-        simulation: "Simulation",  # noqa: UP037 - checked at run time
+        simulation: "Simulation",
     ) -> RecipeRecord:
         """Return the record a run built from this recipe keeps in its output.
 
@@ -1019,9 +1019,9 @@ class Recipe:
 
     def run(
         self,
-        output: "str | Path | Output | None" = None,  # noqa: UP037 - run time
+        output: "str | Path | Output | None" = None,
         **run_keywords: object,
-    ) -> "Output":  # noqa: UP037 - checked at run time
+    ) -> "Output":
         """Build the simulation and run it, with ``[execution]`` applied.
 
         Parameters
@@ -1042,7 +1042,7 @@ class Recipe:
 
     # ------------------------------------------------------------------ scanning
 
-    def scan(self) -> "RecipeScan":  # noqa: UP037 - the class, checked at run time
+    def scan(self) -> "RecipeScan":
         """Return the scan the ``[scan]`` table declares, ready for ``run_scan``.
 
         ``[scan]`` requires ``name``, which names the durable files and derives the
@@ -1209,7 +1209,7 @@ class Recipe:
             return self._text
         return dump_text(self._canonical_document())
 
-    def _context(self, grid: "TimeGrid | None" = None) -> BuildContext:  # noqa: UP037
+    def _context(self, grid: "TimeGrid | None" = None) -> BuildContext:
         """Return the context the recipe's values are decoded in.
 
         Parameters
@@ -1487,7 +1487,7 @@ def _placeholder(path: str) -> float:
     return placeholder(path)
 
 
-def _pick(pin: "Pin", roots: "DesignRoots") -> float:  # noqa: UP037 - TYPE_CHECKING
+def _pick(pin: "Pin", roots: "DesignRoots") -> float:
     """Return a pin's chosen root, an unmet target refused on its path.
 
     Parameters
@@ -1518,9 +1518,9 @@ def resume_file(
     mode: bool | Literal["interpolated"] = True,
     *,
     node_budget: int | None = None,
-    progress: "ProgressReporter | ProgressChoice | None" = None,  # noqa: UP037
-    stop: "StopFlag | None" = None,  # noqa: UP037 - checked at run time
-) -> "Output":  # noqa: UP037 - checked at run time
+    progress: "ProgressReporter | ProgressChoice | None" = None,
+    stop: "StopFlag | None" = None,
+) -> "Output":
     """Continue a run from its output file alone, rebuilding it from its recipe.
 
     The simulation is rebuilt from the resolved recipe the file records (SEP 41, S2)
@@ -1616,7 +1616,7 @@ class RecipeBuilder:
     base: str | None
     allow_outside: bool
 
-    def __call__(self, point: "ScanPoint") -> "Simulation":  # noqa: UP037
+    def __call__(self, point: "ScanPoint") -> "Simulation":
         """Set the point's values, pass its seed, and build.
 
         Parameters
@@ -1662,6 +1662,6 @@ class RecipeScan:
     ``run_scan(scan.scan, scan.build, output="scan.h5", **scan.keywords)`` runs it.
     """
 
-    scan: "Scan"  # noqa: UP037 - TYPE_CHECKING only
+    scan: "Scan"
     build: RecipeBuilder
     keywords: dict[str, object]

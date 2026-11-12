@@ -929,7 +929,7 @@ class DenseModalTable(Displayed):
         return self._interpolate("generator", omega, z, 1)
 
 
-def sample_modal_table(  # noqa: PLR0913 - a provider, two grids, a rule and three declarations
+def sample_modal_table(
     provider: ModalProvider,
     omega: Float[np.ndarray, " n_omega"],
     z: Float[np.ndarray, " n_z"],

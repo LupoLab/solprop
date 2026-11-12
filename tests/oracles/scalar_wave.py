@@ -107,7 +107,7 @@ def _cross_jump(a, b, theta, q_before, q_after):
     return plus * a + minus * b / phase, minus * a * phase + plus * b
 
 
-def _segment(profile, lower, upper, a, b, theta, rtol):  # noqa: PLR0913, PLR0917 - piece and state
+def _segment(profile, lower, upper, a, b, theta, rtol):
     """Integrate one smooth piece backwards from ``upper`` to ``lower``."""
     # Relative variables: a = a_s (1 + alpha), b = a_s beta, theta = theta_s + phi.
     beta0 = b / a

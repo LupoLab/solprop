@@ -17,15 +17,15 @@ contract and its conventions; where both apply, follow the stricter rule.
 - Both distributions take one version from the repository's git tags, and solprop
   requires this package at that same version: it is a required dependency, with no
   extra.
-- The public names are `NativeBackend`, the frozen `BuildInfo`,
-  `build_info`, `check_build`, `__version__`, and the contract tuples
-  `LINEAR_OPERATOR_FIELDS`, `TRANSFORM_FIELDS`, `RESPONSE_FIELDS`,
-  `SEPARABLE_OPERATOR_FIELDS`, `STAGE_TERMS_FIELDS`, `STAGE_SCALARS_FIELDS`,
-  `MODAL_TABLES_FIELDS`, `REGIONAL_RESPONSE_FIELDS`, `COUPLED_FLOW_FIELDS`,
-  `DISPERSIVE_KERR_FIELDS`, `MARCH_POLICY_FIELDS`, `PROBLEM_FIELDS`, `REQUEST_FIELDS`,
-  `REQUEST_SECTION_FIELDS`, `ROUTE_FIELDS`, `WATCH_POLICY_FIELDS` and
-  `WATCH_STATE_FIELDS`. The
-  compiled `_core` module and the C++ API are private.
+- The public names are those in `solprop_native.__all__` (the backend, the build record
+  and its checks, and the contract tuples `*_FIELDS`). The compiled `_core` module and
+  the C++ API are private.
+- solprop has two backends, this one and its NumPy reference, and settles on IEEE
+  binary64 (solprop's ADR-077). This backend computes in double precision only and
+  refuses single precision, which runs on the reference alone until it is removed. It
+  runs every feature except the TDSE response and the reference-only methods ADR-077
+  retires (CF4 sections, `ComparisonMultistep`, `PIController` overrides), on CPUs and
+  GPUs.
 - The layers are solprop -> Python backend adapter -> nanobind seam -> a Python-free
   C++20 core. Native code never imports Python or solprop concepts and never owns
   user-facing policy: it may execute an algorithm the kernel contract specifies in
@@ -53,10 +53,10 @@ solprop's ADR-059), nanobind
 and scikit-build-core; GoogleTest is test-only. Adding any other dependency needs approval.
 
 Major changes follow solprop's enhancement proposal process (SEPs,
-[`docs/dev/seps/`](../docs/dev/seps/), SEP 0). A SEP is implemented here and on `numpy_ref`
-in either order (solprop's ADR-068). A phase that touches both halves is one branch named
-for the SEP (`feature/sep-NNNN-…`) and one pull request, whose commits cite the SEP
-number; its phase report — deviations, decisions, verification, open questions — is
+[`docs/dev/seps/`](../docs/dev/seps/), SEP 0). A SEP is implemented here and on
+`numpy_ref` in either order (solprop's ADR-068 and ADR-077). A phase that touches both
+halves is one branch named for the SEP (`feature/sep-NNNN-…`) and one pull request, whose
+commits cite the SEP number; its phase report — deviations, decisions, verification, open questions — is
 appended to the SEP. Until a backend has its phase, that backend refuses the new problem
 by name.
 

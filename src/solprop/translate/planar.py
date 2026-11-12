@@ -174,7 +174,7 @@ def planar_transform(
     )
 
 
-def planar_operators(  # noqa: PLR0913 - material and the shared translation controls
+def planar_operators(
     space: PlanarGrid,
     dispersion: SpatialDispersion,
     *,

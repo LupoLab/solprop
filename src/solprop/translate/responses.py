@@ -1607,7 +1607,7 @@ def instantaneous_model_id(form: KerrForm, *, delayed: bool) -> str:
     return MODEL_ID_SEPARATOR.join(tags)
 
 
-def regional_responses(  # noqa: PLR0913 - a medium, a region, a grid and two policies
+def regional_responses(
     chi3: Sequence[float] | np.ndarray,
     regions: Sequence[int] | np.ndarray,
     *,
@@ -2206,7 +2206,7 @@ def prefactor_at(
     return cast("PiecewiseChebyshev", responses.prefactor)(z, helpers=helpers)
 
 
-def _prefactor_at(
+def _prefactor_at(  # noqa: PLR0917 - called positionally
     modes: Sequence[Mode],
     grid: TimeGrid,
     n_pol: int,
@@ -2275,7 +2275,7 @@ def _prefactor_at(
     return prefactor_at
 
 
-def _prefactor_expansion(  # noqa: PLR0913 - the same knobs the table build takes
+def _prefactor_expansion(  # noqa: PLR0917 - called positionally
     modes: Sequence[Mode],
     grid: TimeGrid,
     n_pol: int,
@@ -2370,7 +2370,7 @@ def _prefactor_expansion(  # noqa: PLR0913 - the same knobs the table build take
     )
 
 
-def _prefactor_table(  # noqa: PLR0913 - the build's knobs, as `build_phi` has them
+def _prefactor_table(
     prefactor_at: Callable[[float], Complex[np.ndarray, "n_modes n_pol n_omega"]],
     modes: Sequence[Mode],
     *,
@@ -2462,7 +2462,7 @@ def _prefactor_table(  # noqa: PLR0913 - the build's knobs, as `build_phi` has t
     return _held_table(table)
 
 
-def _log_prefactor(compiled: "CompiledResponses", z_max: float) -> None:  # noqa: UP037
+def _log_prefactor(compiled: "CompiledResponses", z_max: float) -> None:
     """Report what the prefactor cost and how much of z it carries.
 
     The swing is measured from the representation rather than from the physics, so the
@@ -3020,7 +3020,7 @@ def _raman_density(
     return summed, profile_table(summed, 0.0, build.span, tol=build.tol)
 
 
-def _compile_raman_components(
+def _compile_raman_components(  # noqa: PLR0917 - called positionally
     responses: tuple[RamanResponse, ...],
     kerr: KerrResponse | DispersiveKerrResponse | None,
     material: _MaterialProfiles,
@@ -3075,7 +3075,7 @@ def _compile_raman_components(
     return tuple(sorted(compiled, key=lambda term: material.labels.index(term.label)))
 
 
-def compile_responses(  # noqa: PLR0913 - the contract's section 5 has this many inputs
+def compile_responses(
     responses: Sequence[object],
     grid: TimeGrid,
     mode: Mode | Sequence[Mode] | None,
@@ -3655,7 +3655,7 @@ def _response_order(
     return tuple(stages)
 
 
-def raman_coefficients(  # noqa: PLR0913 - the leaf needs the grid, the path and the build
+def raman_coefficients(
     raman: RamanResponse | None,
     kerr: KerrResponse | DispersiveKerrResponse | None,
     grid: TimeGrid,

@@ -293,7 +293,7 @@ class StepStats:
         object.__setattr__(self, "values", adopted)
 
     @classmethod
-    def empty(cls) -> "StepStats":  # noqa: UP037 - bound after the class body
+    def empty(cls) -> "StepStats":
         """Return the channel a run without a periodic subset carries.
 
         Returns
@@ -696,7 +696,7 @@ class Backend(Protocol):
     reads_transverse_edge: bool
 
     @property
-    def request(self) -> "RunRequest":  # noqa: UP037 - the request module imports this one's
+    def request(self) -> "RunRequest":
         """Return the run request the backend was built for.
 
         Its method, error control, itinerary, planes and statistics; a run adapts it
@@ -706,9 +706,9 @@ class Backend(Protocol):
 
     def prepare(
         self,
-        problem: "PropagationProblem",  # noqa: UP037 - the translation imports this one
-        request: "RunRequest",  # noqa: UP037
-    ) -> "PreparedExecution":  # noqa: UP037 - the session module imports this one
+        problem: "PropagationProblem",
+        request: "RunRequest",
+    ) -> "PreparedExecution":
         """Prepare a run for one problem and request (SEP 47 section 5.2).
 
         Parameters
@@ -728,10 +728,10 @@ class Backend(Protocol):
 
     def prepare_group(
         self,
-        members: "Sequence[Backend]",  # noqa: UP037 - bound after the class body
-        problems: "Sequence[PropagationProblem]",  # noqa: UP037
-        requests: "Sequence[RunRequest]",  # noqa: UP037
-    ) -> "PreparedGroup":  # noqa: UP037 - the session module imports this one
+        members: "Sequence[Backend]",
+        problems: "Sequence[PropagationProblem]",
+        requests: "Sequence[RunRequest]",
+    ) -> "PreparedGroup":
         """Prepare a group of compatible members of this backend (SEP 47 section 6.7).
 
         Called on the group's first member, ``members[0]``, so that the backend, not
@@ -802,7 +802,7 @@ class Backend(Protocol):
 
     def timing_probe(
         self,
-        start: "Start",  # noqa: UP037 - the session module imports this one
+        start: "Start",
     ) -> TimingProbe:
         """Load a start and return single trials of this run's march from it.
 

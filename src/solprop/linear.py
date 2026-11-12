@@ -338,7 +338,7 @@ class Frame:
         thg: bool = False,
         # Quoted because beartype resolves the annotation while the class body is
         # still executing, when the bare class name is not yet bound.
-    ) -> "Frame":  # noqa: UP037
+    ) -> "Frame":
         """Build the frame a grid asks for, with both quantities taken from the mode.
 
         Parameters

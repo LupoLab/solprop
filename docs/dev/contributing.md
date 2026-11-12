@@ -25,6 +25,10 @@ that touches `native/` runs both and follows `native/AGENTS.md`.
 covers its builds; the [architecture](architecture.md) and
 [kernel contract](kernel-contract.md) describe the boundary between the two packages.
 
+`uv sync --extra gui --group gui-test` adds the desktop front end from `gui/` with its test
+plugin. A sync removes every extra and hand-installed package it does not name, Pyroraptor
+included; `uv sync --inexact`, or `uv run --no-sync`, keeps them.
+
 A checkout has three states, and only the first satisfies the exact requirement a release
 carries:
 
@@ -100,9 +104,20 @@ reads but is not resumed (ADR-066). Whether the output schema is bumped follows
 
 ## Work on the documentation
 
-Build the manual with `uv run poe docs`. It executes no gallery script: the
-introductory lessons, the focused tutorials and the worked examples all have committed
-output, which it reuses. After changing a gallery script, including its prose,
-regenerate its output with `uv run poe docs-examples <name>` (or with no name, every
-stale script) and include the generated files in the change.
-Never edit generated gallery or API pages by hand.
+Build the manual with `uv run poe docs`. It executes no gallery script: every gallery has
+committed output, which it reuses, and it fails naming any script whose source differs from
+its committed output. There are three galleries:
+
+- **Introductory lessons**, `docs/introduction/tutorials/plot_*.py`, rendered into
+  `docs/introduction/lessons/`, and **focused tutorials**, `docs/tutorials/**/plot_*.py`,
+  rendered into `docs/auto_tutorials/`. Both are deterministic and large enough to show the
+  physics, and may run their real problem at full length when that is what they
+  demonstrate. CI's docs job runs every one again on each change
+  (`SOLPROP_RUN_EXAMPLES=tutorials`).
+- **Worked examples**, `docs/examples/**/plot_*.py`: full-size problems of minutes to half
+  an hour, rendered into `docs/auto_examples/` and run only by hand.
+
+After changing a gallery script, including its prose, regenerate its output with
+`uv run poe docs-examples <name>` (or with no name, every stale script) on an idle machine
+and commit the generated files with the source, stating a worked example's run time in the
+commit message. Never edit generated gallery or API pages by hand.

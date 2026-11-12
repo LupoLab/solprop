@@ -374,7 +374,7 @@ class Beam:
         return envelope * np.exp(1j * self.tilt * kappa_unit * x)
 
 
-def mode_shares(  # noqa: PLR0913 - the fibre, the beam and the discretisation
+def mode_shares(
     beam: Beam,
     radius: float,
     indices: tuple[float, float, float],

@@ -60,7 +60,7 @@ def operator_bound(problem, length):
     return 2 * EPS * math.sqrt(float(np.max(np.abs(square)))) * length
 
 
-def ladder_bound(name, grid, space, problem, run_request, steps, length):  # noqa: PLR0913, PLR0917 - the case, its run and the window
+def ladder_bound(name, grid, space, problem, run_request, steps, length):
     """Return the retired ladder's bound of ``steps`` replayed steps over ``length``.
 
     The operator's ``2 eps k_max L``, and per evaluation ``32 eps`` per FFT level with

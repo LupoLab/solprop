@@ -544,7 +544,7 @@ def _plane_reference(
     return _PlaneReference(electric, magnetic, rule.weights)
 
 
-def _spectra(
+def _spectra(  # noqa: PLR0917 - called positionally
     output: Output,
     tables: ModalTransformTables,
     plane: int | None,
@@ -661,7 +661,7 @@ def channel_labels(output: Output) -> tuple[ChannelLabel, ...]:
     )
 
 
-def electric_field(  # noqa: PLR0913 - a plane, a representation, a convention, a guide
+def electric_field(
     output: Output,
     tables: ModalTransformTables,
     *,
@@ -721,7 +721,7 @@ def electric_field(  # noqa: PLR0913 - a plane, a representation, a convention, 
     return _in_convention(signal, convention) if analytic else np.real(signal)
 
 
-def magnetic_field(  # noqa: PLR0913 - a plane, a representation, a convention, a guide
+def magnetic_field(
     output: Output,
     tables: ModalTransformTables,
     *,

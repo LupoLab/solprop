@@ -389,7 +389,7 @@ def example_general_run() -> tuple[MemoryOutput, ModalTransformTables, ModalGuid
     return output, tables, guide
 
 
-def _example_rows(
+def _example_rows(  # noqa: PLR0917 - called positionally
     grid: TimeGrid,
     spec: StatsSpec,
     seed: Complex[np.ndarray, "n_modes n_pol n_omega"],

@@ -74,7 +74,7 @@ WAVELENGTHS = [
 ]
 
 
-def index_case(  # noqa: PLR0913 - one row of a case table, kept flat on purpose
+def index_case(
     key,
     gas,
     pressure,

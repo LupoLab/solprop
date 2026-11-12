@@ -112,7 +112,7 @@ def _require(backend: str) -> None:
         pytest.skip(f"{backend} is not installed")
 
 
-def packet_run(  # noqa: PLR0913 - the settings these runs vary, each independent
+def packet_run(
     packet: Packet,
     *,
     integrator: Multistep | RungeKutta | None = None,

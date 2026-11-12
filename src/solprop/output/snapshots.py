@@ -266,7 +266,7 @@ class SnapshotController:
             self._pending = True
         return self._pending and (explicit or now >= self._retry_at)
 
-    def _service(  # noqa: PLR0913 - the snapshot transaction's context
+    def _service(
         self,
         output: HDF5Output,
         archive: TDSEArchiveWriter | None,

@@ -231,7 +231,7 @@ class IndexTable(Displayed):
         *,
         area: ArrayLike | None = None,
         loss_interpolation: Literal["log", "linear"] = "log",
-    ) -> "IndexTable":  # noqa: UP037 - runtime type hook resolves the class during construction
+    ) -> "IndexTable":
         """Build a table from wavelengths and complex indices in either order.
 
         Parameters
@@ -267,7 +267,7 @@ class IndexTable(Displayed):
         *,
         area: ArrayLike | None = None,
         loss_interpolation: Literal["log", "linear"] = "log",
-    ) -> "IndexTable":  # noqa: UP037 - runtime type hook resolves the class during construction
+    ) -> "IndexTable":
         """Build a table from wavelengths, real indices and power loss in dB/m.
 
         Parameters

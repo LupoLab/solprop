@@ -42,7 +42,7 @@ class _Writer:
         The recipe being written.
     """
 
-    def __init__(self, recipe: "Recipe") -> None:  # noqa: UP037 - run time
+    def __init__(self, recipe: "Recipe") -> None:
         """Start with no imports."""
         self.recipe = recipe
         self.imports: dict[str, set[str]] = {}
@@ -183,7 +183,7 @@ def _comment(value: object, unit: UnitSpec) -> str:
 
 
 def script(
-    recipe: "Recipe",  # noqa: UP037 - checked at run time
+    recipe: "Recipe",
     output: str | None,
 ) -> str:
     """Write a recipe as a plain Python script.
@@ -289,7 +289,7 @@ class _Pinned:
 
 
 def _pins(
-    recipe: "Recipe",  # noqa: UP037 - checked at run time
+    recipe: "Recipe",
     writer: _Writer,
 ) -> _Pinned:
     """Write a recipe's pins as solver calls on the bound keywords.
@@ -357,7 +357,7 @@ def _pins(
 
 
 def _array_pins(
-    recipe: "Recipe",  # noqa: UP037 - checked at run time
+    recipe: "Recipe",
     build: dict[str, object],
 ) -> dict[str, object]:
     """Return ``[build]`` with each pin on one of ``pulses`` set to its solved value.

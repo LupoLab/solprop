@@ -387,7 +387,7 @@ class TubeLattice(Displayed):
         wall_thickness: float,
         inner_diameter_ratio: float,
         n_tubes: int,
-    ) -> "TubeLattice":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "TubeLattice":
         """Construct a lattice from the inner tube to core diameter ratio.
 
         Parameters
@@ -424,7 +424,7 @@ class TubeLattice(Displayed):
     @classmethod
     def from_gap(
         cls, core_radius: float, gap: float, n_tubes: int, wall_thickness: float
-    ) -> "TubeLattice":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "TubeLattice":
         """Construct a lattice from a core radius and gap.
 
         Parameters
@@ -483,8 +483,8 @@ class _Spectral:
 
     def __add__(
         self,
-        other: "_Spectral | complex | Inexact[np.ndarray, '...']",  # noqa: UP037 - beartype evaluates before class binding
-    ) -> "_Spectral":  # noqa: UP037 - beartype evaluates before class binding
+        other: "_Spectral | complex | Inexact[np.ndarray, '...']",
+    ) -> "_Spectral":
         """Apply the sum rule.
 
         Parameters
@@ -504,7 +504,7 @@ class _Spectral:
 
     __radd__ = __add__
 
-    def __neg__(self) -> "_Spectral":  # noqa: UP037 - beartype evaluates before class binding
+    def __neg__(self) -> "_Spectral":
         """Negate value and slope.
 
         Returns
@@ -516,8 +516,8 @@ class _Spectral:
 
     def __sub__(
         self,
-        other: "_Spectral | complex | Inexact[np.ndarray, '...']",  # noqa: UP037 - beartype evaluates before class binding
-    ) -> "_Spectral":  # noqa: UP037 - beartype evaluates before class binding
+        other: "_Spectral | complex | Inexact[np.ndarray, '...']",
+    ) -> "_Spectral":
         """Subtract a spectral quantity.
 
         Parameters
@@ -533,7 +533,7 @@ class _Spectral:
         """
         return self + (-other)
 
-    def __rsub__(self, other: "complex | Inexact[np.ndarray, '...']") -> "_Spectral":  # noqa: UP037 - beartype evaluates before class binding
+    def __rsub__(self, other: "complex | Inexact[np.ndarray, '...']") -> "_Spectral":
         """Subtract from a constant.
 
         Parameters
@@ -551,8 +551,8 @@ class _Spectral:
 
     def __mul__(
         self,
-        other: "_Spectral | complex | Inexact[np.ndarray, '...']",  # noqa: UP037 - beartype evaluates before class binding
-    ) -> "_Spectral":  # noqa: UP037 - beartype evaluates before class binding
+        other: "_Spectral | complex | Inexact[np.ndarray, '...']",
+    ) -> "_Spectral":
         """Apply the product rule.
 
         Parameters
@@ -577,8 +577,8 @@ class _Spectral:
 
     def __truediv__(
         self,
-        other: "_Spectral | complex | Inexact[np.ndarray, '...']",  # noqa: UP037 - beartype evaluates before class binding
-    ) -> "_Spectral":  # noqa: UP037 - beartype evaluates before class binding
+        other: "_Spectral | complex | Inexact[np.ndarray, '...']",
+    ) -> "_Spectral":
         """Apply the quotient rule.
 
         Parameters
@@ -599,8 +599,8 @@ class _Spectral:
 
     def __rtruediv__(
         self,
-        other: "complex | Inexact[np.ndarray, '...']",  # noqa: UP037 - beartype evaluates before class binding
-    ) -> "_Spectral":  # noqa: UP037 - beartype evaluates before class binding
+        other: "complex | Inexact[np.ndarray, '...']",
+    ) -> "_Spectral":
         """Divide a constant by a spectral quantity.
 
         Parameters
@@ -616,7 +616,7 @@ class _Spectral:
         """
         return (self**-1) * other
 
-    def __pow__(self, power: float) -> "_Spectral":  # noqa: UP037 - beartype evaluates before class binding
+    def __pow__(self, power: float) -> "_Spectral":
         """Apply the constant-exponent power rule.
 
         Parameters
@@ -633,7 +633,7 @@ class _Spectral:
             self.value**power, power * self.value ** (power - 1) * self.slope
         )
 
-    def __rpow__(self, base: float) -> "_Spectral":  # noqa: UP037 - beartype evaluates before class binding
+    def __rpow__(self, base: float) -> "_Spectral":
         """Differentiate a frequency-dependent exponent.
 
         Parameters
@@ -649,7 +649,7 @@ class _Spectral:
         value = base**self.value
         return _Spectral(value, value * math.log(base) * self.slope)
 
-    def exp(self) -> "_Spectral":  # noqa: UP037 - beartype evaluates before class binding
+    def exp(self) -> "_Spectral":
         """Apply the exponential chain rule.
 
         Returns

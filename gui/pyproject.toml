@@ -87,7 +87,7 @@ known-first-party = ["solprop_gui"]
 known-third-party = ["solprop"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["D", "ANN", "PLR2004", "ARG"]
+"tests/**" = ["D", "ANN", "PLR2004", "ARG", "PLR0917"]
 
 # -------------------------------------------------------------------------- type check
 [tool.basedpyright]
@@ -112,7 +112,10 @@ xfail_strict = true
 # solprop's checks.
 [tool.numpydoc_validation]
 checks = ["all", "ES01", "SA01", "EX01", "GL01", "GL02"]
-exclude = ['\.__init__$', '^test_']
+# Private names are left out: a dotted name with a single-underscore component (a private
+# module, class or function, or anything inside one) carries a short docstring, not the
+# public API's numpydoc sections (AGENTS.md, "Docstrings and comments").
+exclude = ['\.__init__$', '^test_', '(^|\.)_[^_]']
 
 # ---------------------------------------------------------------------------- coverage
 # The quality bar is split by layer (docs/dev/gui/design.md, decision D11): the layers

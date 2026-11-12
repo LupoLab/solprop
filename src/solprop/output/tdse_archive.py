@@ -205,7 +205,7 @@ class RecordField:
     axes: str = ""
     optional: bool = False
     # Quoted: RecordSchema is defined below and refers back to this class.
-    record: "RecordSchema | None" = None  # noqa: UP037 - forward reference
+    record: "RecordSchema | None" = None
 
 
 @dataclass(frozen=True)
@@ -739,7 +739,7 @@ class TDSEArchiveWriter:
         The file's size before this session, bytes.
     """
 
-    def __init__(  # noqa: PLR0913 - the open file and its session
+    def __init__(
         self,
         file: h5py.File,
         archive: TDSEArchive,
@@ -780,7 +780,7 @@ class TDSEArchiveWriter:
         optical: Path | None,
         context: Mapping[str, object],
         resume: bool = False,
-    ) -> "TDSEArchiveWriter":  # noqa: UP037 - the runtime type hook resolves the class
+    ) -> "TDSEArchiveWriter":
         """Open or create the archive and append a new session group.
 
         Parameters
@@ -1878,7 +1878,7 @@ class TDSEArchiveReader:
             msg = f"{self._path} is not a {TDSE_ARCHIVE_SCHEMA} archive ({schema!r})"
             raise TDSEArchiveError(msg)
 
-    def __enter__(self) -> "TDSEArchiveReader":  # noqa: UP037 - runtime type hook
+    def __enter__(self) -> "TDSEArchiveReader":
         """Return the reader.
 
         Returns
