@@ -2059,13 +2059,13 @@ def in_band_distance(ours, theirs, band):
     return float(np.linalg.norm(a - b) / np.linalg.norm(b))
 
 
-# The records behind the two witness-comparison tables of `docs/dev/accuracy.md`
-# sections 5 and 6. These stay tables rather than figures -- they are scalars, not
-# ladders -- but each number now comes from a file the suite maintains, together with
-# the band its own test asserts, so a bound quietly widened to fit a measurement is a
-# failure. The tolerance is a fiftieth: an adaptive run on another platform may put its
-# steps in slightly different places, and what that is worth is the controller's own
-# tolerance of 1e-6, four orders inside this.
+# The record behind the witness-comparison table of `docs/dev/accuracy.md` section 5
+# (section 6's numbers are M4_REDUCED_MEASURED below). It stays a table rather than a
+# figure -- scalars, not a ladder -- but each number comes from a file the suite
+# maintains, together with the band its own test asserts, so a bound quietly widened
+# to fit a measurement is a failure. The tolerance is a fiftieth: an adaptive run on
+# another platform may put its steps in slightly different places, and what that is
+# worth is the controller's own tolerance of 1e-6, four orders inside this.
 WITNESS_COLUMNS = (
     Column(
         name="value",
@@ -2104,17 +2104,17 @@ M2_WITNESS_METRICS = Study(
     columns=WITNESS_COLUMNS,
 )
 
-M4_WITNESS_METRICS = Study(
-    name="m4_witness_metrics",
-    title="Milestone M4 against its Luna witness, metric by metric",
-    case={
-        "witness": "tests/data/luna_ctc_reduced.h5",
-        "media": "the package fit unchanged; Luna's cladding table",
-        "reduced case": "1 mode, a 2 ps window, 0.1 m",
-    },
-    axis={"name": "metric", "unit": "1", "label": "metric"},
-    columns=WITNESS_COLUMNS,
-)
+M4_REDUCED_MEASURED = {
+    "fundamental, shape": 0.03833276438933937,
+    "fundamental, content": 1.0000061488827905,
+    "exit energy, ours over Luna's": 1.0000061488826115,
+}
+"""What milestone M4's reduced case measured against its Luna witness, metric by metric.
+
+Each is asserted to a fiftieth: an adaptive run's step sequence is not bitwise across
+platforms, and what that costs the answer is the controller's 1e-6, four orders inside
+this. ``docs/dev/accuracy.md`` section 6 quotes them.
+"""
 
 # The record behind the two "what an alarm costs" rows of section 2: the same run at
 # three radial orders, with the observable the case is about beside the alarm that is
@@ -3235,7 +3235,7 @@ def test_the_two_codes_start_from_the_same_state(ctc_reduced, luna_ctc_reduced):
 
 @pytest.mark.slow
 def test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4(
-    luna_ctc_reduced, request, test_backend_name
+    luna_ctc_reduced, test_backend_name
 ):
     """Bound the solver against Luna under an explicitly matched Raman model.
 
@@ -3282,24 +3282,13 @@ def test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4(
     assert 0.0345 < fundamental < 0.0422
     assert abs(content - 1.0) < 1e-4
     assert abs(surviving / luna_surviving - 1.0) < 1e-4
-    record(
-        M4_WITNESS_METRICS,
-        request=request,
-        backend="numpy_ref",
-        rows=metric_rows(
-            "reduced case",
-            [
-                ("fundamental, shape", fundamental, 0.0345, 0.0422),
-                ("fundamental, content", content, 1.0 - 1e-4, 1.0 + 1e-4),
-                (
-                    "exit energy, ours over Luna's",
-                    surviving / luna_surviving,
-                    1.0 - 1e-4,
-                    1.0 + 1e-4,
-                ),
-            ],
-        ),
-    )
+    measured = {
+        "fundamental, shape": fundamental,
+        "fundamental, content": content,
+        "exit energy, ours over Luna's": surviving / luna_surviving,
+    }
+    for name, value in measured.items():
+        assert value == pytest.approx(M4_REDUCED_MEASURED[name], rel=0.02), name
 
 
 # ====================================== the statistics channel between planes

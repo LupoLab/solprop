@@ -540,7 +540,8 @@ get.
 **The quoted numbers.** The tables and the prose on this page quote numbers by hand, and
 a regenerated record does not rewrite them. `tests/test_accuracy_page.py` lists every
 number the page quotes from a record — the passage it stands in, the number as printed,
-and the record and row it is read from — and fails when the passage is no longer on the
+and the record and row it is read from, or the constant a test asserts the measurement
+against — and fails when the passage is no longer on the
 page or the number differs from the record by more than half a unit in its last printed
 digit. When you edit a quoted passage, edit its entry there; when you quote a new number
 from a record, add one. The list lives in a test rather than in markup on the page, so

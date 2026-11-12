@@ -53,41 +53,20 @@ def realised_phase(final, start):
     return float(np.angle(final[peak] / start[peak]))
 
 
-# The two records of `docs/dev/accuracy.md` section 4. Both ladders run on a fixed
+# What the two ladders of `docs/dev/accuracy.md` section 4 measured: the N = 3 one as
+# constants, the N = 6 one as the record its figure is drawn from. Both run on a fixed
 # schedule, so the trajectory is deterministic and only round-off separates one machine
 # from another -- but both end at a floor where round-off is the whole of what is left,
 # and that is what `atol` carries. `rtol` is the width of each test's own claim.
-SOLITON_N3 = Study(
-    name="soliton_n3",
-    title="The N = 3 soliton's recurrence against the step count",
-    case={
-        "problem": "N = 3 soliton of the GNLSE fixture, one soliton period",
-        "grid": "the narrow soliton grid, 4096 bins over 4 ps",
-        "metric": "phase-resolved recurrence error, ||final - e^{i phi} start|| / "
-        "||start||, with phi = -pi/4 (the internal convention)",
-        "schedule": "uniform fixed steps",
-    },
-    axis={"name": "n_steps", "unit": "steps", "label": "uniform steps per period"},
-    columns=(
-        Column(
-            name="error",
-            unit="1 (relative to the input norm)",
-            why="a fixed schedule is a deterministic trajectory, so above the floor "
-            "only round-off separates two machines; atol is a hundred times the "
-            "round-off of the recurrence itself, which no rung of this ladder reaches",
-            rtol=1e-3,
-            atol=1e-12,
-        ),
-        Column(
-            name="order",
-            unit="1",
-            why="a log2 of two errors each known to 1e-3, so far tighter than the "
-            "4.5 to 8.0 the test asserts; null on the coarsest rung, which has no pair",
-            rtol=0.0,
-            atol=0.05,
-        ),
-    ),
+SOLITON_N3_ERRORS = (
+    0.037179767493445655,
+    0.0010862286070304024,
+    1.9196328794647318e-05,
 )
+"""The N = 3 recurrence errors measured at 200, 400 and 800 uniform steps."""
+
+SOLITON_N3_ORDERS = (5.097118079325008, 5.822353524763962)
+"""The orders between them."""
 
 SOLITON_N6 = Study(
     name="soliton_n6",
@@ -167,7 +146,7 @@ def n6_rows(series, counts, errors):
 
 @pytest.mark.slow
 def test_the_third_order_soliton_recurs_at_the_scheme_s_order(
-    soliton_problem, soliton_grid, scales, request, selected_backend_class
+    soliton_problem, soliton_grid, scales, selected_backend_class
 ):
     """Three levels and an order gate, because a two-level extrapolant cannot fire."""
     errors = []
@@ -194,22 +173,14 @@ def test_the_third_order_soliton_recurs_at_the_scheme_s_order(
     # rejects anything above p + 3 = 8.
     assert errors[-1] < 1e-4
     assert all(4.5 < order < 8.0 for order in orders), orders
-    record(
-        SOLITON_N3,
-        request=request,
-        backend=selected_backend_class.name,
-        rows=[
-            {
-                "series": "N = 3, fixed schedule",
-                "axis": count,
-                "error": float(error),
-                "order": None if index == 0 else float(orders[index - 1]),
-            }
-            for index, (count, error) in enumerate(
-                zip((200, 400, 800), errors, strict=True)
-            )
-        ],
-    )
+    # The measured ladder. A fixed schedule is a deterministic trajectory, so above the
+    # floor only round-off separates two machines: a thousandth relative, with 1e-12
+    # absolute a hundred times the recurrence's own round-off, which no rung reaches;
+    # the orders, log2 ratios of errors known to a thousandth, to 0.05.
+    for error, measured in zip(errors, SOLITON_N3_ERRORS, strict=True):
+        assert error == pytest.approx(measured, rel=1e-3, abs=1e-12)
+    for order, measured in zip(orders, SOLITON_N3_ORDERS, strict=True):
+        assert order == pytest.approx(measured, rel=0.0, abs=0.05)
 
 
 @pytest.mark.slow

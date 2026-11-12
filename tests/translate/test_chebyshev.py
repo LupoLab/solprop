@@ -13,7 +13,6 @@ from numpy.polynomial import chebyshev as chebyshev_basis
 from scipy.integrate import quad_vec
 
 from bounds import EPS, assert_within
-from convergence_records import Column, Study, record
 from solprop.exceptions import TranslationError
 from solprop.translate import chebyshev
 from solprop.translate.chebyshev import (
@@ -201,49 +200,23 @@ def test_derivative_matches_an_analytic_derivative():
 # --------------------------------------------------------------------- convergence
 
 
-# The record of the ladder below, the "Chebyshev builds" row of
-# `docs/dev/accuracy.md` section 1. Nothing here is near a round-off floor -- the
-# finest rung is 5.2e-10 on a function of order unity -- so the tolerance is tight and
-# `atol` only keeps a hypothetical zero from being compared relatively.
-CHEBYSHEV_WIDTH = Study(
-    name="chebyshev_width",
-    title="Order of a fixed-degree Chebyshev interpolant in the interval width",
-    case={
-        "function": "the smooth test function of tests/translate/test_chebyshev.py",
-        "degree": 8,
-        "probe": "401 points, uniform on the interval",
-    },
-    axis={"name": "width", "unit": "1", "label": "interval width"},
-    columns=(
-        Column(
-            name="width",
-            unit="1",
-            why="the ladder's input rather than a measurement, so it is compared "
-            "exactly; it is here to give the figure a numeric axis",
-            rtol=0.0,
-        ),
-        Column(
-            name="error",
-            unit="1 (absolute, on a function of order unity)",
-            why="pure interpolation arithmetic three orders above any round-off "
-            "floor, so the tolerance is the one a platform difference cannot reach",
-            rtol=1e-9,
-            atol=1e-15,
-        ),
-        Column(
-            name="order",
-            unit="1",
-            why="a log2 of two errors each known to 1e-9, so the order is known far "
-            "better than this; null on the coarsest rung, which has no pair",
-            rtol=0.0,
-            atol=1e-6,
-        ),
-    ),
+# What the ladder below measured, the "Chebyshev builds" row of `docs/dev/accuracy.md`
+# section 1. Nothing here is near a round-off floor -- the finest rung is 5.2e-10 on a
+# function of order unity -- so the tolerance is tight and `atol` only keeps a
+# hypothetical zero from being compared relatively.
+CHEBYSHEV_WIDTH_ERRORS = (
+    2.2248765840027218e-4,
+    3.2271478511702867e-7,
+    5.209612741197134e-10,
 )
+"""The degree-8 interpolant's measured errors at widths 0.8, 0.4 and 0.2."""
+
+CHEBYSHEV_WIDTH_ORDERS = (9.42924991916917, 9.274867827668897)
+"""The orders between them."""
 
 
-def test_the_interpolant_converges_at_the_expected_order_in_the_interval_width(request):
-    """The ladder of `docs/dev/accuracy.md` section 1, and the record it is drawn from.
+def test_the_interpolant_converges_at_the_expected_order_in_the_interval_width():
+    """The ladder of `docs/dev/accuracy.md` section 1.
 
     Measured: 2.225e-4, 3.227e-7 and 5.210e-10 at widths 0.8, 0.4 and 0.2, so 9.43 and
     9.27 against the degree-plus-one order of 9.
@@ -269,20 +242,13 @@ def test_the_interpolant_converges_at_the_expected_order_in_the_interval_width(r
     # above the expected one means the reference, not the method, is what is being
     # measured.
     assert all(order < expected + 3.0 for order in orders), orders
-    record(
-        CHEBYSHEV_WIDTH,
-        request=request,
-        rows=[
-            {
-                "series": f"degree {degree}",
-                "axis": f"{width:g}",
-                "width": width,
-                "error": error,
-                "order": None if index == 0 else orders[index - 1],
-            }
-            for index, (width, error) in enumerate(zip(widths, errors, strict=True))
-        ],
-    )
+    # The measured ladder: pure interpolation arithmetic three orders above any
+    # round-off floor, so 1e-9 relative (1e-15 absolute) is a tolerance no platform
+    # difference reaches; the orders, log2 ratios of errors known that well, to 1e-6.
+    for error, measured in zip(errors, CHEBYSHEV_WIDTH_ERRORS, strict=True):
+        assert error == pytest.approx(measured, rel=1e-9, abs=1e-15)
+    for order, measured in zip(orders, CHEBYSHEV_WIDTH_ORDERS, strict=True):
+        assert order == pytest.approx(measured, rel=0.0, abs=1e-6)
 
 
 # --------------------------------------------------------------------- splitting

@@ -8,7 +8,9 @@ The page's figures are drawn from the records (`tests/test_accuracy_figures.py`)
 its tables and prose quote numbers by hand, and a regenerated record does not rewrite
 them.
 `QUOTES` lists every number the page quotes from a record: the passage of the page it
-stands in, the number as printed, and how it is read from `tests/data/convergence/`.
+stands in, the number as printed, and how it is read from `tests/data/convergence/` --
+or, for a measurement a test holds as a constant rather than a record (milestone M4's),
+from that constant.
 Each passage must be on the page, and each number must equal the record's value to the
 precision printed -- within half a unit of its last printed digit. So a record that
 moves a quoted number fails here, and so does an edit that changes a quoted passage
@@ -29,6 +31,7 @@ from pathlib import Path
 import pytest
 
 import convergence_records as cr
+from driver.test_prop_capillary import M4_REDUCED_MEASURED
 
 PAGE = Path(__file__).resolve().parents[1] / "docs" / "dev" / "accuracy.md"
 
@@ -85,7 +88,6 @@ NATIVE = "native against numpy_ref"
 CUDA = "native_cuda against numpy_ref"
 M2 = "m2_witness_metrics"
 M2_REDUCED = "reduced case"
-M4 = "m4_witness_metrics"
 
 _ALARMS = (
     "**2.365e-1, 3.316e-2, 1.451e-4, 1.777e-8, 4.224e-15** at n_r = 8, 16, 24, 32, 48"
@@ -204,21 +206,21 @@ QUOTES = (
         "1.107",
         lambda: at(M2, M2_REDUCED, "second mode, content", "value"),
     ),
-    # Section 6: milestone M4.
+    # Section 6: milestone M4, from the constants its slow test asserts against.
     Quote(
         "| exit energy, ours over Luna's | 1.00001 |",
         "1.00001",
-        lambda: at(M4, "reduced case", "exit energy, ours over Luna's", "value"),
+        lambda: M4_REDUCED_MEASURED["exit energy, ours over Luna's"],
     ),
     Quote(
         "| fundamental, content | 1.00001 |",
         "1.00001",
-        lambda: at(M4, "reduced case", "fundamental, content", "value"),
+        lambda: M4_REDUCED_MEASURED["fundamental, content"],
     ),
     Quote(
         "| fundamental, shape | 0.03833 |",
         "0.03833",
-        lambda: at(M4, "reduced case", "fundamental, shape", "value"),
+        lambda: M4_REDUCED_MEASURED["fundamental, shape"],
     ),
     # Section 7: backend equivalence, `numba_cpu` and Kokkos against the reference.
     *(
