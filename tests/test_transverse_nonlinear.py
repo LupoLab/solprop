@@ -26,7 +26,7 @@ from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.grid import FieldGrid, RadialGrid
 from solprop.nonlinear.responses import KerrResponse
-from solprop.output.schema import PlaneStore
+from solprop.output.store import PlaneStore
 from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium, critical_power

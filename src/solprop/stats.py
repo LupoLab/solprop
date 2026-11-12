@@ -62,7 +62,7 @@ from solprop.grid import TimeGrid
 from solprop.modes import base as modes_base
 from solprop.modes.protocol import Mode
 from solprop.modes.slab import PlanarGrid
-from solprop.output.schema import SavedPlane, SimulationKind
+from solprop.output.records import SavedPlane, SimulationKind
 from solprop.profiles import ZProfile
 from solprop.spatial import (
     FAR_FIELD_STATISTICS,
@@ -2606,7 +2606,7 @@ def collect(
         Which statistics to evaluate, and the windows they need.
     grid : solprop.grid.TimeGrid
         The grid the plane's field lives on.
-    plane : solprop.output.schema.SavedPlane
+    plane : solprop.output.records.SavedPlane
         The plane, whose field is in the internal FFT convention.
     modes : collections.abc.Sequence, optional
         The propagated modes, in state order. Needed by ``zdw``.
@@ -2652,7 +2652,7 @@ def collect(
     --------
     >>> import numpy as np
     >>> from solprop.grid import EnvelopeGrid
-    >>> from solprop.output.schema import SavedPlane
+    >>> from solprop.output.records import SavedPlane
     >>> from solprop.pulses import GaussianPulse
     >>> from solprop.stats import collect, default_spec
     >>> grid = EnvelopeGrid.from_limits(1.0, 800e-9, (400e-9, 2e-6), 1e-12)

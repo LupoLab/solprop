@@ -35,15 +35,10 @@ from solprop.driver.simulation import check_derived_problem
 from solprop.exceptions import DriverError, TranslationError
 from solprop.log import NullReporter
 from solprop.noise import NoiseRealisation, spatial_noise
-from solprop.output import MemoryOutput, open_file
-from solprop.output import schema as output_schema
-from solprop.output.schema import (
-    PEAK_FIELDS_ANNOTATION,
-    ArrayDigest,
-    Output,
-    PlaneStore,
-    RunMetadata,
-)
+from solprop.output import MemoryOutput, open_file, serialisation
+from solprop.output.metadata import PEAK_FIELDS_ANNOTATION, RunMetadata
+from solprop.output.serialisation import ArrayDigest
+from solprop.output.store import Output, PlaneStore
 from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialFlux
 from solprop.stats import StatsSpec
@@ -494,7 +489,7 @@ def test_with_input_validates_the_replaced_input_alone():
 def test_a_large_array_input_is_recorded_by_its_digest(monkeypatch):
     simulation = capillary("numpy_ref")
     field = inputs(simulation)[0]
-    monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", field.size - 1)
+    monkeypatch.setattr(serialisation, "INLINE_ARRAY_LIMIT", field.size - 1)
     one = simulation.with_input(field).metadata()
     recorded = one.configuration["initial"]
     assert isinstance(recorded, ArrayDigest)
@@ -505,7 +500,7 @@ def test_a_large_array_input_is_recorded_by_its_digest(monkeypatch):
     assert two.configuration["initial"] != recorded
     assert two.configuration_hash() != one.configuration_hash()
     # Below the limit an array is recorded inline, as before.
-    monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", field.size)
+    monkeypatch.setattr(serialisation, "INLINE_ARRAY_LIMIT", field.size)
     inline = simulation.with_input(field).metadata().configuration["initial"]
     assert isinstance(inline, np.ndarray)
 
@@ -569,7 +564,7 @@ def test_a_runner_holds_no_input_through_the_march(
     """
     simulation = capillary(backend) if route == "modal" else cartesian(backend)
     limit = 0 if digested else simulation._field0.size
-    monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", limit)
+    monkeypatch.setattr(serialisation, "INLINE_ARRAY_LIMIT", limit)
     run = unchecked(SimulationRunner.run)
     with simulation.runner() as runner:
         loads = _spied_load(runner.backend, monkeypatch)
@@ -593,7 +588,7 @@ def test_a_runner_holds_no_input_through_the_march(
 def test_a_runner_reads_a_digested_input_without_a_copy(backend, monkeypatch):
     """The derived simulation views the caller's array, which it leaves as it was."""
     simulation = cartesian(backend)
-    monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", 0)
+    monkeypatch.setattr(serialisation, "INLINE_ARRAY_LIMIT", 0)
     field = 0.9 * simulation._field0
     before = field.copy()
     with simulation.runner() as runner:

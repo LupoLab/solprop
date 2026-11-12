@@ -76,13 +76,9 @@ from solprop.log import (
     SummarisingReporter,
 )
 from solprop.output.hdf5 import HDF5Output
-from solprop.output.schema import (
-    CheckpointOutput,
-    FieldRetention,
-    Output,
-    PlaneStore,
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import (
     RecipeRecord,
-    RunMetadata,
     SavedPlane,
     StepHistory,
     StepStats,
@@ -91,6 +87,7 @@ from solprop.output.schema import (
     _adopted,
 )
 from solprop.output.snapshots import SnapshotController
+from solprop.output.store import CheckpointOutput, FieldRetention, Output, PlaneStore
 from solprop.output.tdse_archive import TDSEArchiveWriter
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import PropagationProblem
@@ -120,11 +117,11 @@ class ServiceContext:
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The run's record.
     reporter : solprop.log.ProgressReporter
         Where progress goes.
-    retention : solprop.output.schema.FieldRetention
+    retention : solprop.output.store.FieldRetention
         Which planes keep their field.
     resume_history : bool or None
         The public method-history retention choice.
@@ -134,7 +131,7 @@ class ServiceContext:
         A live atomic runtime.
     tdse_archive : solprop.output.tdse_archive.TDSEArchiveWriter or None
         A live archive to suspend beside the optical writer.
-    recipe : solprop.output.schema.RecipeRecord or None
+    recipe : solprop.output.records.RecipeRecord or None
         The recipe the run was built from.
     start_plane : int
         The first save plane beyond the starting state.
@@ -371,7 +368,7 @@ def _prepare_plane(
 ) -> tuple[SavedPlane, StoredField | None]:
     """Build an observation's plane, its kept field exported once for the output.
 
-    A plane store that :attr:`~solprop.output.schema.PlaneStore.takes_exports` is
+    A plane store that :attr:`~solprop.output.store.PlaneStore.takes_exports` is
     given the field exported straight into its stored form, into its own room where it
     has one (SEP 47 section 5.4), and the plane carries none; any other output is
     given the consumer field on the plane (:func:`_save_plane`).
@@ -421,7 +418,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
     ----------
     session : solprop.backends.session.RunSession
         The started session.
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         Where the planes go; closed when the loop ends, whether or not it succeeded.
     context : ServiceContext
         Everything else the service needs.

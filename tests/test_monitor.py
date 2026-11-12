@@ -45,16 +45,11 @@ from solprop.monitor import (
     BoundaryMonitor,
 )
 from solprop.nonlinear.responses import KerrResponse
-from solprop.output import MemoryOutput, open_file, schema
+from solprop.output import MemoryOutput, open_file, records
 from solprop.output.hdf5 import resume
+from solprop.output.records import RunOutcome, TerminalCheckpoint
 from solprop.output.scan import read_point
-from solprop.output.schema import (
-    CheckpointOutput,
-    Output,
-    PlaneStore,
-    RunOutcome,
-    TerminalCheckpoint,
-)
+from solprop.output.store import CheckpointOutput, Output, PlaneStore
 from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -447,14 +442,14 @@ def test_a_saved_plane_validates_its_record_once(
     # The driver builds the record once a plane, and the store amends it with what it
     # has already validated -- its earlier executions -- rather than checking the whole
     # record again: one JSON round trip a plane, not nine.
-    validate = schema._outcome_record
+    validate = records._outcome_record
     validated: list[Mapping[str, object]] = []
 
     def counted(record: Mapping[str, object]) -> dict[str, object]:
         validated.append(record)
         return validate(record)
 
-    monkeypatch.setattr(schema, "_outcome_record", counted)
+    monkeypatch.setattr(records, "_outcome_record", counted)
     output = _Recording()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)

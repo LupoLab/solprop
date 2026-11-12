@@ -220,7 +220,7 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `stepper/`, `log.py`, `stats.py` | Tableaux, controllers, schedules, progress reporters and statistics specifications | D |
 | `driver/`, `driver/executors/`, `scan.py` | Simulation and convenience interfaces, scan/batch orchestration, Local/Pool/Queue/Slurm execution and scan CLI | D |
 | `calibration/` | The native backend's machine calibration ([SEP 46](seps/archive/sep-0046-machine-calibration.md)): reading, showing, exporting, importing and clearing profiles in the per-user store, through solprop-native's standard-library modules loaded by path so that the native runtime never starts (`calibration/_native.py`), the measuring controller, its child processes, the synthetic problems they time, the operation-grain candidates and the selection rule (`calibration/controller.py`, `child.py`, `problems.py`, `grain.py`, `selection.py`), the refinement of one simulation (`calibration/refine.py`, stage 2, which `Simulation.calibrate` runs), and the `solprop calibrate` command (`calibration/command.py`) | D |
-| `output/` | Memory and HDF5 outputs, provenance/resume, scan storage and artifacts | D |
+| `output/` | Memory and HDF5 outputs, provenance/resume, scan storage and artifacts; the run record in five modules: serialising configuration objects (`serialisation.py`), what executed a run (`provenance.py`), the record types of a saved run and its planes (`records.py`), `RunMetadata` and the resume key (`metadata.py`), and the save protocol, `PlaneStore` and field retention (`store.py`) | D |
 | `processing/`, `plotting/`, `sol.py` | Field, spectrum, time, coherence, compression, mixture and scan analysis; a saved plane read back as a field plane or a fluence map (`processing/planes.py`), and a field plane's file form (`processing/plane_file.py`); propagation/statistics plots and spectrograms; the interactive session namespace, the one module whose import has side effects | X |
 | `service/` | Front-end support, above every other layer: the messages between a front end and solprop, the kernel process that answers a front end's checks, previews and readings of a results file as plain data, each run as a job that keeps its record in its folder, and the helper and connection that reach a machine's runs over SSH ([the front end's design](gui/design.md), sections 13.3 and 13.4). Not part of the user API and outside the stability promise; nothing else in solprop imports it | X |
 
@@ -606,7 +606,7 @@ qualified, and §11 its current limits.
 
 `MemoryOutput` (everything in RAM: fast, small problems, batch scans) and `HDF5Output`
 (streaming to disk, chunked per saved plane, optional compression, cache/resume) implement one
-save protocol and one metadata schema (`output/schema.py`): grid, modes, simulation type,
+save protocol (`output/store.py`) and one metadata schema (`output/metadata.py`, its record types in `output/records.py`): grid, modes, simulation type,
 the full configuration that built the `Simulation` (serialised physics objects), package and
 dependency versions, git provenance of the running code when available, the noise seed and
 realisation, the stepper settings and the step schedule actually taken (z, h, error norm,

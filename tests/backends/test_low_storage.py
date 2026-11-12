@@ -61,7 +61,7 @@ from solprop.grid import EnvelopeGrid, FreeGrid
 from solprop.noise import spatial_noise
 from solprop.nonlinear.responses import KerrResponse
 from solprop.output import MemoryOutput
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium, beam_radius
 from solprop.stats import StatsSpec

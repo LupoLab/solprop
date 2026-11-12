@@ -39,7 +39,7 @@ from solprop.output import (
     resume,
 )
 from solprop.output import snapshots as module
-from solprop.output.schema import PlaneStore
+from solprop.output.store import PlaneStore
 from solprop.stepper import Multistep, PIController, RungeKutta
 
 pytestmark = [

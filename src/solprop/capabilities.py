@@ -48,7 +48,7 @@ from solprop.output.capability import (
 )
 from solprop.output.hdf5 import open_file
 from solprop.output.resumable import Resumability, resumability
-from solprop.output.schema import Output
+from solprop.output.store import Output
 from solprop.physdata.gases import Gas, as_gas, is_molecule
 from solprop.physdata.selection import MaterialRecord
 
@@ -197,7 +197,7 @@ def output(source: str | Path | Output) -> OutputCapabilities:
 
     Parameters
     ----------
-    source : str, pathlib.Path or solprop.output.schema.Output
+    source : str, pathlib.Path or solprop.output.store.Output
         The file, or an opened handler (then nothing is said of resuming it).
 
     Returns
@@ -213,7 +213,7 @@ def output(source: str | Path | Output) -> OutputCapabilities:
     Examples
     --------
     >>> from solprop.capabilities import output
-    >>> from solprop.output.schema import _example_metadata
+    >>> from solprop.output.metadata import _example_metadata
     >>> from solprop.output import MemoryOutput
     >>> handler = MemoryOutput()
     >>> handler.open(_example_metadata())

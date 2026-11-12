@@ -7,16 +7,16 @@
 Everything in RAM: the handler for fast, small problems and for the members of a scan,
 where a file per run would cost more than the run. It stores exactly what
 :class:`solprop.output.hdf5.HDF5Output` stores, in the same layout and the same sign
-convention -- both go through :class:`solprop.output.schema.PlaneStore` -- so a test can
+convention -- both go through :class:`solprop.output.store.PlaneStore` -- so a test can
 compare the two bitwise and :meth:`MemoryOutput.to_file` writes the file the other
 handler would have written.
 
 The plane-indexed arrays are allocated once, for the planes the run reserved
-(:meth:`~solprop.output.schema.PlaneStore.reserve`; the run loop reserves the entrance
+(:meth:`~solprop.output.store.PlaneStore.reserve`; the run loop reserves the entrance
 and every save plane), or for a block of :data:`INITIAL_BLOCK` planes when nothing was
 reserved, and grow by doubling past that rather than by concatenating on every save,
 which would be quadratic in the number of planes. The field block follows the run's
-field retention (:meth:`~solprop.output.schema.PlaneStore.retain`): every plane,
+field retention (:meth:`~solprop.output.store.PlaneStore.retain`): every plane,
 exactly the named planes, or none at all, in which case no field block is allocated.
 The step history is variable in length per plane, so it is kept as a
 list of pieces, concatenated when read, with a per-plane count beside it.
@@ -33,16 +33,15 @@ from jaxtyping import Complex
 
 from solprop.exceptions import OutputError
 from solprop.fourier import GridKind, spectrum_to_internal
-from solprop.output.schema import (
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import (
     HISTORY_FIELDS,
     STEP_STATS_INDEX,
-    PlaneStore,
-    RunMetadata,
     SavedPlane,
     StepHistory,
     StepStats,
-    stored_spectrum,
 )
+from solprop.output.store import PlaneStore, stored_spectrum
 
 __all__ = ["INITIAL_BLOCK", "MemoryOutput"]
 
@@ -113,7 +112,7 @@ def _step_stats_slice(
 class MemoryOutput(PlaneStore):
     """Hold a whole run in memory, in the layout an HDF5 file would use.
 
-    Reading stays available after :meth:`~solprop.output.schema.PlaneStore.close`,
+    Reading stays available after :meth:`~solprop.output.store.PlaneStore.close`,
     unlike the file handler: nothing is
     released, so a driver may close in a ``finally`` and a caller keep reading.
 
@@ -121,7 +120,7 @@ class MemoryOutput(PlaneStore):
     ----------
     block : int, optional
         Planes to preallocate when the run reserved none
-        (:meth:`~solprop.output.schema.PlaneStore.reserve`); a reserved count takes its
+        (:meth:`~solprop.output.store.PlaneStore.reserve`); a reserved count takes its
         place. The store doubles whenever it is full.
 
     Raises
@@ -134,9 +133,8 @@ class MemoryOutput(PlaneStore):
     >>> import numpy as np
     >>> from solprop.grid import EnvelopeGrid
     >>> from solprop.output import MemoryOutput
-    >>> from solprop.output.schema import (
-    ...     GridRecord, RunMetadata, SavedPlane, StepperRecord
-    ... )
+    >>> from solprop.output.metadata import RunMetadata
+    >>> from solprop.output.records import GridRecord, SavedPlane, StepperRecord
     >>> from solprop.stepper import DOPRI5, PIController
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)
     >>> metadata = RunMetadata(
@@ -298,8 +296,12 @@ class MemoryOutput(PlaneStore):
         --------
         >>> from solprop.grid import EnvelopeGrid
         >>> from solprop.output import MemoryOutput
-        >>> from solprop.output.schema import (
-        ...     GridRecord, RunMetadata, SavedPlane, StepperRecord, StoredField
+        >>> from solprop.output.metadata import RunMetadata
+        >>> from solprop.output.records import (
+        ...     GridRecord,
+        ...     SavedPlane,
+        ...     StepperRecord,
+        ...     StoredField,
         ... )
         >>> from solprop.stepper import DOPRI5, PIController
         >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)
@@ -357,7 +359,7 @@ class MemoryOutput(PlaneStore):
 
         - ``plane``: the plane: its field in the internal convention, or ``None`` where
           the field was exported straight into the stored form
-          (:meth:`~solprop.output.schema.PlaneStore.save_exported`) and `stored` alone
+          (:meth:`~solprop.output.store.PlaneStore.save_exported`) and `stored` alone
           holds it. A subclass whose own ``_append`` reads the plane's field does not
           take exports (``PlaneStore.takes_exports``).
         - ``stored``: that field converted to the optics convention, in its row of the
@@ -504,7 +506,7 @@ class MemoryOutput(PlaneStore):
         Returns
         -------
         list
-            One :class:`solprop.output.schema.SavedPlane` per saved plane, in order.
+            One :class:`solprop.output.records.SavedPlane` per saved plane, in order.
 
         Examples
         --------
@@ -578,9 +580,8 @@ class MemoryOutput(PlaneStore):
         >>> from solprop.grid import EnvelopeGrid
         >>> from solprop.output import HDF5Output, MemoryOutput
         >>> from solprop.output.hdf5 import resume
-        >>> from solprop.output.schema import (
-        ...     GridRecord, RunMetadata, SavedPlane, StepperRecord
-        ... )
+        >>> from solprop.output.metadata import RunMetadata
+        >>> from solprop.output.records import GridRecord, SavedPlane, StepperRecord
         >>> from solprop.stepper import DOPRI5, PIController
         >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)
         >>> metadata = RunMetadata(

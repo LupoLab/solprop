@@ -79,7 +79,7 @@ from solprop.backends.protocol import BackendHistory, StepStats
 from solprop.exceptions import BackendError
 from solprop.log import StopFlag
 from solprop.noise import NoiseRealisation
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.stats import CATALOGUE, PLASMA_INTEGRATION_STATISTICS
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
@@ -491,7 +491,7 @@ class Start:
         The run's noise realisation, when a noise model is active.
     plane_index : int
         The first save plane strictly beyond `z`.
-    march : solprop.output.schema.MarchSnapshot or None
+    march : solprop.output.records.MarchSnapshot or None
         A method history to restore, when resuming one that was retained.
     ledgers : collections.abc.Mapping or None
         Persisted call ledgers to restore (TDSE and budgeted sources).

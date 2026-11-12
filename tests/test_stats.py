@@ -18,7 +18,7 @@ from solprop.constants import C
 from solprop.exceptions import ModeError, OutputError, SolpropWarning
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import MarcatiliMode
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.profiles import Constant, PressureGradient
 from solprop.pulses import GaussianPulse
 from solprop.stats import (

@@ -17,7 +17,7 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.spatial import collect_spatial
 from solprop.exceptions import BackendError
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.profiles import Constant
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium, spatial_fluence

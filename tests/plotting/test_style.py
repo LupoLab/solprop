@@ -11,7 +11,8 @@ import pytest
 from solprop.constants import C
 from solprop.exceptions import ProcessingError
 from solprop.output import MemoryOutput
-from solprop.output.schema import GridRecord, ModeRecord, RunMetadata, StepperRecord
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import GridRecord, ModeRecord, StepperRecord
 from solprop.plotting import style
 from solprop.processing._examples import example_grid, example_output
 from solprop.processing.axes import _check_choice

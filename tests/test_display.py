@@ -54,7 +54,7 @@ from solprop.modes.protocol import ChannelLabel
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.optics import Chain, ChirpedMirror, Material, TaylorPhase
 from solprop.output.hdf5 import open_file, resume
-from solprop.output.schema import StepHistory
+from solprop.output.records import StepHistory
 from solprop.physdata import Mixture, calcium_fluoride, species
 from solprop.physdata.mixtures import Component
 from solprop.processing import compression

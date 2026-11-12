@@ -27,20 +27,16 @@ from solprop.exceptions import ProcessingError
 from solprop.output._scan_lock import read_scan
 from solprop.output.capability import capability_of
 from solprop.output.hdf5 import _dataset, _group, read_recipe
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import GridRecord, RecipeRecord
 from solprop.output.scan import (
     _expand,
     _refuse_other_schemas,
     grid_values,
     read_point,
 )
-from solprop.output.schema import (
-    GridRecord,
-    JsonValue,
-    Output,
-    RecipeRecord,
-    RunMetadata,
-    _rebuild,
-)
+from solprop.output.serialisation import JsonValue, _rebuild
+from solprop.output.store import Output
 from solprop.processing.axes import band_mask, grid_from_record, spectral_axis
 from solprop.processing.fields import get_power, get_spectral_density
 from solprop.processing.time import energy

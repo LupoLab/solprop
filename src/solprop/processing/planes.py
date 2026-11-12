@@ -46,7 +46,8 @@ from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
 from solprop.modes.guide import ModalGuide
 from solprop.modes.protocol import Mode
 from solprop.modes.slab import PlanarGrid
-from solprop.output.schema import Output, RunMetadata
+from solprop.output.metadata import RunMetadata
+from solprop.output.store import Output
 from solprop.processing.axes import _plane_field, grid_of, spatial_grid_of
 from solprop.processing.modal import _checked_tables, _plane_rule, _spectra
 from solprop.spatial import (
@@ -186,7 +187,7 @@ def fluence_map(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened memory or HDF5 output of a spatial run.
     plane : int, optional
         Index of the saved plane, negative from the end; default the last.
@@ -456,7 +457,7 @@ def field_plane(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened memory or HDF5 output whose record carries its plane reference.
     plane : int, optional
         Index of the saved plane, negative from the end; default the last.

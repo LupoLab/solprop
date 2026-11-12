@@ -24,8 +24,9 @@ from solprop.exceptions import OutputError
 from solprop.grid import FieldGrid
 from solprop.output import HDF5Output, MemoryOutput, open_file
 from solprop.output.hdf5 import check_cache, resume
+from solprop.output.metadata import SCHEMA_VERSION, RunMetadata
+from solprop.output.records import SavedPlane
 from solprop.output.scan import PointResult, ScanWriter
-from solprop.output.schema import SCHEMA_VERSION, RunMetadata, SavedPlane
 from solprop.physdata import _optmat
 from solprop.physdata.selection import MaterialSelection
 

@@ -18,7 +18,7 @@ from solprop.driver import Simulation, _scan_run
 from solprop.driver._scan_run import _Capture, _checked, _Job, _Options, _Work
 from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import DriverError, OutputError
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.processing import scans
 
 

@@ -431,7 +431,7 @@ def preview_input(recipe: "Recipe") -> InputPreview:
         free-space route its fluence.
     """
     from solprop.driver.plane_view import PlaneView  # noqa: PLC0415 - layer D
-    from solprop.output.schema import SavedPlane  # noqa: PLC0415
+    from solprop.output.records import SavedPlane  # noqa: PLC0415
     from solprop.recipe.metadata import OBJECT_ROUTES, parameters  # noqa: PLC0415
 
     quiet = recipe.resolve()

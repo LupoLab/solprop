@@ -24,13 +24,9 @@ from solprop.driver._scan_model import Scan
 from solprop.exceptions import OutputError, ProcessingError
 from solprop.output._scan_lock import read_scan, write_scan
 from solprop.output.hdf5 import _dataset, _group, write_recipe
-from solprop.output.schema import (
-    RecipeRecord,
-    RunMetadata,
-    _inlined,
-    _refuse_schema,
-    serialise,
-)
+from solprop.output.metadata import RunMetadata, _refuse_schema
+from solprop.output.records import RecipeRecord
+from solprop.output.serialisation import _inlined, serialise
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +89,7 @@ class PointResult:
         Complete run metadata, empty if construction failed.
     metadata_arrays : dict
         The arrays the metadata names
-        (:meth:`solprop.output.schema.RunMetadata.record_arrays`).
+        (:meth:`solprop.output.metadata.RunMetadata.record_arrays`).
     arrays : dict
         Named retained fields, statistics and reduction arrays.
     reductions : dict
@@ -254,7 +250,7 @@ class ScanWriter:
 
         Parameters
         ----------
-        record : solprop.output.schema.RecipeRecord or None
+        record : solprop.output.records.RecipeRecord or None
             The recipe; ``None``, a scan from a script, records none.
         """
         if record is not None and "recipe" not in self.file:

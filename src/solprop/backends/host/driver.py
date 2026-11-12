@@ -59,7 +59,7 @@ from solprop.modes.protocol import Mode
 from solprop.modes.quadrature import mode_matrix, on_axis_rule
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
 from solprop.noise import NoiseRealisation
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.profiles import ZProfile
 from solprop.stats import StatsSpec
 from solprop.stepper.controller import ControlRecord
@@ -841,7 +841,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         Returns
         -------
-        solprop.output.schema.MarchSnapshot or None
+        solprop.output.records.MarchSnapshot or None
             The snapshot, or ``None`` for the Runge-Kutta and low-storage marches and
             wherever the Adams march has nothing a resume could continue
             (:meth:`solprop.backends.host.adams.HostAdamsMarch.snapshot`).
@@ -899,7 +899,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         Parameters
         ----------
-        snapshot : solprop.output.schema.MarchSnapshot
+        snapshot : solprop.output.records.MarchSnapshot
             The snapshot a file holds.
 
         Returns

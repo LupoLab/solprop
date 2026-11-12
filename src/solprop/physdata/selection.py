@@ -655,7 +655,7 @@ class MaterialManifest:
 
     Built once per run from its mixtures, modes and solids
     (:func:`solprop.driver.material_output.material_manifest`) and stored in its
-    :class:`~solprop.output.schema.RunMetadata`. A run with no optmat-backed object
+    :class:`~solprop.output.metadata.RunMetadata`. A run with no optmat-backed object
     and no selection has the empty manifest, ``MaterialManifest()``.
 
     Two parts are distinguished. The **identities and policies** -- the optmat

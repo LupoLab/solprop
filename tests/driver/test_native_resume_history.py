@@ -46,7 +46,7 @@ from solprop.driver import Simulation
 from solprop.grid import EnvelopeGrid
 from solprop.output import open_file
 from solprop.output.hdf5 import resume
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep, RungeKutta
 
 pytestmark = [

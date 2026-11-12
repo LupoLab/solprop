@@ -48,7 +48,9 @@ from solprop.output import (
     resume,
 )
 from solprop.output.hdf5 import ResumeState
-from solprop.output.schema import Convention, RunMetadata, serialise
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import Convention
+from solprop.output.serialisation import serialise
 from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium

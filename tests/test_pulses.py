@@ -19,7 +19,7 @@ from solprop import _process, fourier
 from solprop.constants import C
 from solprop.exceptions import PulseError
 from solprop.grid import EnvelopeGrid, FieldGrid, TimeGrid
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.pulses import (
     CustomPulse,
     CWPulse,

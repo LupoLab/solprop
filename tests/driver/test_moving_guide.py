@@ -66,7 +66,7 @@ from solprop.nonlinear.gnlse import GnlseProblem, SpecifiedMode, _warn_surrogate
 from solprop.nonlinear.normalisation import modal_kerr_coefficient
 from solprop.output.hdf5 import check_cache, resume
 from solprop.output.memory import MemoryOutput
-from solprop.output.schema import ModeRecord
+from solprop.output.records import ModeRecord
 from solprop.processing.modal import (
     _plane_reference,
     _plane_rule,

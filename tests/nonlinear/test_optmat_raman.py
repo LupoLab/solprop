@@ -47,7 +47,7 @@ from solprop.nonlinear.optmat_raman import (
     mixture_raman,
 )
 from solprop.nonlinear.raman import RamanResponse, RamanTensorTerm, response_for
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.physdata import Component, Gas, Mixture, Species, gamma, species
 from solprop.physdata import _optmat as bridge
 from solprop.physdata.raman_types import Dephasing, Linewidth, MolecularOptions

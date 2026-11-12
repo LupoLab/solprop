@@ -24,7 +24,7 @@ from solprop.boundaries import absorber
 from solprop.driver.run import run_problem
 from solprop.exceptions import TranslationError
 from solprop.output import MemoryOutput
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 
 
 def spectral_only(backend: str, scheme: str, **changes):

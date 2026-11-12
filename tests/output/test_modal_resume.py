@@ -36,13 +36,8 @@ from solprop.modes.protocol import ChannelLabel
 from solprop.output import HDF5Output
 from solprop.output.hdf5 import check_cache, open_file, resume
 from solprop.output.memory import MemoryOutput
-from solprop.output.schema import (
-    SCHEMA_VERSION,
-    ModeRecord,
-    RunMetadata,
-    SavedPlane,
-    _example_metadata,
-)
+from solprop.output.metadata import SCHEMA_VERSION, RunMetadata, _example_metadata
+from solprop.output.records import ModeRecord, SavedPlane
 from solprop.processing import scans
 from solprop.processing.modal import channel_labels, physical_energy
 from solprop.stats import GENERAL_MODAL_ACCESSORS

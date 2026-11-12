@@ -41,7 +41,7 @@ from solprop.exceptions import DriverError, OutputError
 from solprop.output.hdf5 import _dataset, _group
 from solprop.output.scan import PointResult, ScanWriter, _hash, _json
 from solprop.output.scan_artifacts import artifact_digest, read_artifact, write_artifact
-from solprop.output.schema import _decode
+from solprop.output.serialisation import _decode
 from solprop.processing.scans import ScanOutput
 
 __all__ = ["Queue", "collect"]

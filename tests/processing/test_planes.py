@@ -26,7 +26,7 @@ from solprop.modes import (
 )
 from solprop.output.hdf5 import open_file
 from solprop.output.memory import MemoryOutput
-from solprop.output.schema import SavedPlane, StepHistory
+from solprop.output.records import SavedPlane, StepHistory
 from solprop.processing import (
     electric_field,
     field_plane,

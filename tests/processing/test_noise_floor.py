@@ -20,7 +20,7 @@ import pytest
 
 from solprop.driver import Simulation
 from solprop.exceptions import ProcessingError
-from solprop.output.schema import Output
+from solprop.output.store import Output
 from solprop.plotting.propagation import prop_2d, spec_1d
 from solprop.processing import get_spectral_density, get_spectrum
 from solprop.processing.axes import _check_choice, grid_of

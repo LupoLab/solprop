@@ -89,7 +89,7 @@ output = prop_gnlse(
 That builds an envelope grid, maps `gamma` onto a third-order susceptibility, wraps the
 Taylor coefficients in a dispersion-specified mode
 ({py:class}`~solprop.nonlinear.gnlse.SpecifiedMode`), builds the input pulse, selects the backend, propagates the pulse and stores 201 planes. It
-returns the {py:class}`~solprop.output.schema.Output` it wrote — here a
+returns the {py:class}`~solprop.output.store.Output` it wrote — here a
 {py:class}`~solprop.output.memory.MemoryOutput`, because no `output` was given.
 
 Units are SI throughout ([conventions.md §1](../../dev/conventions.md)), with one exception
@@ -522,7 +522,7 @@ hashing per input rather than gigabytes of JSON.
 
 A caller that already knows what its input is need not pay even that. Both `with_input`
 and `SimulationRunner.run` take `input_identity=`, a string the record then holds with the
-array's dtype and shape ({py:class}`~solprop.output.schema.StatedInput`) in place of the
+array's dtype and shape ({py:class}`~solprop.output.serialisation.StatedInput`) in place of the
 array's own record, without reading its bytes, so the run's hash follows the string:
 
 ```{code-block} python
@@ -560,7 +560,7 @@ no setting keeps one without the other, so settle the window on one input with t
 
 A scan whose result is a few numbers per input has no use for a store.
 {py:class}`~solprop.output.callback.CallbackOutput` is a handler built from a callable: it
-gives each {py:class}`~solprop.output.schema.SavedPlane` to the callable, the entrance
+gives each {py:class}`~solprop.output.records.SavedPlane` to the callable, the entrance
 first, and keeps nothing, so the body of a hand loop over the backend moves into a few
 lines. Most reductions want statistics and no field, which is a run with `fields="none"`
 and the statistics it names:

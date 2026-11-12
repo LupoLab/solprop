@@ -22,7 +22,6 @@ max_lines = 4000
 # Remove an entry once its module is split below max_lines.
 "src/solprop/driver/simulation.py" = 10550
 "src/solprop/translate/problem.py" = 5444
-"src/solprop/output/schema.py" = 5073
 
 [private_imports]
 # Private names imported from another package (the root's shared private modules, such

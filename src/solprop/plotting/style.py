@@ -26,7 +26,7 @@ from matplotlib.figure import Figure
 
 from solprop.constants import C
 from solprop.exceptions import ProcessingError
-from solprop.output.schema import Output, PlaneStore
+from solprop.output.store import Output, PlaneStore
 from solprop.processing.axes import (
     SPECTRAL_AXES,
     SpectralAxis,
@@ -220,7 +220,7 @@ def per_width(output: Output) -> str:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
 
     Returns
@@ -493,7 +493,7 @@ def field_modes(output: Output) -> int:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding at least one plane.
 
     Returns
@@ -524,7 +524,7 @@ def mode_labels(output: Output, n_modes: int) -> list[str]:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     n_modes : int
         How many modes the saved field carries.

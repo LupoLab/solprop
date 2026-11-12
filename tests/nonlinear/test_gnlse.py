@@ -24,7 +24,7 @@ from solprop.nonlinear.gnlse import (
     problem_from,
     raman_susceptibility,
 )
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.physdata.glasses import SilicaBundle
 from solprop.profiles import Linear
 
