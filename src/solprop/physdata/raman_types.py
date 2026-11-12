@@ -294,13 +294,10 @@ class IntermediateBroadeningRaman:
             raise MaterialError("a Raman line set must have at least one line")
 
     @property
-    def n_lines(self) -> int:
-        """Return the number of lines.
+    def n_lines(self) -> int:  # numpydoc ignore=RT01
+        """Number of lines.
 
-        Returns
-        -------
-        int
-            The common length of the four sequences.
+        The common length of the four sequences.
         """
         return len(self.frequencies)
 

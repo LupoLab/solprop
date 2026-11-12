@@ -386,19 +386,11 @@ class HostLowStorage:
     def _flows(self, z: float, dz: float) -> tuple[_State | None, _State | None]:
         """Read the step's bundles and return the flows held for it, ``P`` and ``Q``.
 
-        Parameters
-        ----------
-        z : float
-            Where the step starts, m.
-        dz : float
-            The step, m, positive.
-
-        Returns
-        -------
-        tuple
-            ``P`` and ``Q`` when they are held for the step -- the table on a constant
-            operator, the pair on a varying one -- or ``None`` each when recomputed in
-            the finishes that apply them.
+        - ``z``: where the step starts, m.
+        - ``dz``: the step, m, positive.
+        - Returns: ``P`` and ``Q`` when they are held for the step -- the table on a
+          constant operator, the pair on a varying one -- or ``None`` each when
+          recomputed in the finishes that apply them.
         """
         backend = self._backend
         midpoint, end = z + 0.5 * dz, z + dz
@@ -435,15 +427,8 @@ class HostLowStorage:
     def _registers(self, state: _State) -> tuple[_State, _State]:
         """Return ``B`` and ``C``, allocated like the state at the first step.
 
-        Parameters
-        ----------
-        state : numpy.ndarray
-            The state, whose shape and type the registers take.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            The accumulator and the stage register.
+        - ``state``: the state, whose shape and type the registers take.
+        - Returns: the accumulator and the stage register.
         """
         if self._accumulator is None or self._stage is None:
             self._accumulator = np.empty_like(state)
@@ -452,34 +437,14 @@ class HostLowStorage:
 
 
 def _bytes(values: np.ndarray | None) -> int:
-    """Return an optional array's bytes, zero for ``None``.
-
-    Parameters
-    ----------
-    values : numpy.ndarray or None
-        The array.
-
-    Returns
-    -------
-    int
-        Its ``nbytes``, or 0.
-    """
+    """Return an optional array's bytes, zero for ``None``."""
     return 0 if values is None else int(values.nbytes)
 
 
 def _masked_norm(values: _State, mask: np.ndarray) -> float:
     """Return the 2-norm of an array over the norm mask's bins.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        An array of the state's layout.
-    mask : numpy.ndarray
-        The norm mask, boolean of shape ``(n_omega,)``.
-
-    Returns
-    -------
-    float
-        The norm, in the array's units.
+    - ``values``: an array of the state's layout.
+    - ``mask``: the norm mask, boolean of shape ``(n_omega,)``.
     """
     return float(np.linalg.norm(values[..., mask]))

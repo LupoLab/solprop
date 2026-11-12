@@ -64,23 +64,7 @@ def child_environment(base: Mapping[str, str]) -> dict[str, str]:
     Adds :data:`BLAS_IDLE_DEFAULTS` where `base` sets none of them, so a user's own
     value wins.
 
-    Parameters
-    ----------
-    base : collections.abc.Mapping
-        The environment the process would otherwise take.
-
-    Returns
-    -------
-    dict
-        A new environment.
-
-    Examples
-    --------
-    >>> from solprop._process import child_environment
-    >>> child_environment({})["OPENBLAS_THREAD_TIMEOUT"]
-    '20'
-    >>> child_environment({"OPENBLAS_THREAD_TIMEOUT": "28"})["OPENBLAS_THREAD_TIMEOUT"]
-    '28'
+    - ``base``: the environment the process would otherwise take.
     """
     return {**BLAS_IDLE_DEFAULTS, **base}
 
@@ -100,17 +84,7 @@ def spawn_environment(
     `removed` unset, and the parent's own values come back on exit. One lock serves
     every caller, so two starts never see each other's variables.
 
-    Parameters
-    ----------
-    overrides : collections.abc.Mapping or None, optional
-        Variables the child takes, whatever this process has.
-    removed : collections.abc.Sequence of str, optional
-        Variables the child must not have.
-
-    Yields
-    ------
-    None
-        While the environment is the child's.
+    - ``removed``: variables the child must not have.
     """
     with _ENVIRONMENT_LOCK:
         target = child_environment({**os.environ, **(overrides or {})})
@@ -135,13 +109,7 @@ def spawn_environment(
 
 
 def sizes_blas_after_load() -> bool:
-    """Say whether BLAS must be sized after it loads, not by the environment.
-
-    Returns
-    -------
-    bool
-        True on native Windows on Arm.
-    """
+    """Say whether BLAS must be sized after it loads, not by the environment."""
     return sys.platform == "win32" and platform.machine() == "ARM64"
 
 
@@ -185,13 +153,7 @@ class _BlasLease(contextlib.AbstractContextManager[None]):
     paths: tuple[str, ...]
 
     def __exit__(self, *_exception: object) -> None:
-        """Release the owner without suppressing a context's exception.
-
-        Parameters
-        ----------
-        *_exception : object
-            Exception details supplied by the context protocol.
-        """
+        """Release the owner without suppressing a context's exception."""
         self.restore_original_limits()
 
     def restore_original_limits(self) -> None:
@@ -223,20 +185,6 @@ def acquire_host_blas(libraries: Sequence[Any], threads: int) -> _BlasLease:
     them too early; this process-owned lease saves the original width once.
     Native's adapter supplies this hook explicitly, keeping standalone native
     imports independent of solprop.
-
-    Parameters
-    ----------
-    libraries : sequence
-        Threadpoolctl library controllers, already selected by the caller. Their
-        untyped library API is confined here and to the private pool record.
-    threads : int
-        Positive requested width, already resolved against the caller's budget.
-
-    Returns
-    -------
-    _BlasLease
-        Eagerly applied, idempotently released by a context exit or by
-        ``restore_original_limits``, as the backend adapters expect.
     """
     owner = object()
     paths = tuple(os.path.realpath(library.filepath) for library in libraries)
@@ -269,17 +217,6 @@ def host_blas() -> Iterator[None]:
     scope's limit. The last scope restores it: threadpoolctl changes process-wide
     pools, so one Python thread must not restore them while another is using
     them. Importing this module starts no library walk or numerical runtime.
-
-    Yields
-    ------
-    None
-        While the controllable host BLAS pools are limited. A BLAS with no
-        runtime thread control, such as Accelerate, is left as it was.
-
-    Raises
-    ------
-    ValueError
-        If a thread-count environment variable is invalid.
     """
     with _BLAS_LOCK:
         if not _BLAS_USERS:
@@ -321,13 +258,7 @@ def host_blas() -> Iterator[None]:
 
 
 def _query() -> tuple[int, ...]:
-    """Return the calling thread's CPUs: its affinity, or the usable count's range.
-
-    Returns
-    -------
-    tuple of int
-        The CPU indices, sorted.
-    """
+    """Return the calling thread's CPUs: its affinity, or the usable count's range."""
     if hasattr(os, "sched_getaffinity"):
         return tuple(sorted(os.sched_getaffinity(0)))
     return tuple(range(os.process_cpu_count() or 1))
@@ -339,11 +270,6 @@ def _at_import() -> tuple[int, ...]:
     ``solprop_native``, when imported before ``solprop``, starts its OpenMP runtime
     first; it records the process's CPUs just before (``PROCESS_CPUS``), and that wider
     set is the grant when this thread's answer is one of its CPUs.
-
-    Returns
-    -------
-    tuple of int
-        Sorted CPU indices.
     """
     own = _query()
     earlier = getattr(sys.modules.get("solprop_native"), "PROCESS_CPUS", ())
@@ -365,16 +291,7 @@ def allowed_cpus() -> tuple[int, ...]:
     grant, so the import-time set is returned. A deliberate narrowing to several cores,
     or any narrowing without ``OMP_PROC_BIND``, is believed.
 
-    Returns
-    -------
-    tuple of int
-        Sorted CPU indices, at least one.
-
-    Examples
-    --------
-    >>> from solprop._process import allowed_cpus
-    >>> len(allowed_cpus()) >= 1
-    True
+    - Returns: sorted CPU indices, at least one.
     """
     current = _query()
     binding = os.environ.get("OMP_PROC_BIND", "").strip().lower()
@@ -444,16 +361,7 @@ class ThreadBudget:
 def _quota(directory: Path) -> int | None:
     """Return one control group's CPU quota in whole CPUs, or ``None`` for none.
 
-    Parameters
-    ----------
-    directory : pathlib.Path
-        The group's directory: ``cpu.max`` (version 2) or ``cpu.cfs_quota_us`` and
-        ``cpu.cfs_period_us`` (version 1).
-
-    Returns
-    -------
-    int or None
-        The quota divided by its period, rounded down and at least one.
+    - Returns: the quota divided by its period, rounded down and at least one.
     """
     try:
         limit = directory / "cpu.max"
@@ -483,51 +391,20 @@ def cgroup_cpus(root: Path | None = None) -> int | None:
     build and every scan admission asks, and a running process's groups do not
     change under it.
 
-    Parameters
-    ----------
-    root : pathlib.Path, optional
-        A filesystem root to read under instead, for tests; never kept.
-
-    Returns
-    -------
-    int or None
-        Whole CPUs, at least one, or ``None`` where no quota is set or none can be
-        read (not Linux, or no control groups).
-
-    Examples
-    --------
-    >>> from solprop._process import cgroup_cpus
-    >>> cgroup_cpus() is None or cgroup_cpus() >= 1
-    True
+    - Returns: whole CPUs, at least one, or ``None`` where no quota is set or none can
+      be read (not Linux, or no control groups).
     """
     return _own_cgroup_cpus() if root is None else _read_cgroup_cpus(root)
 
 
 @functools.cache
 def _own_cgroup_cpus() -> int | None:
-    """Return this process's CPU quota, read once.
-
-    Returns
-    -------
-    int or None
-        As :func:`cgroup_cpus`.
-    """
+    """Return this process's CPU quota, read once."""
     return _read_cgroup_cpus(Path("/"))
 
 
 def _read_cgroup_cpus(root: Path) -> int | None:
-    """Read the tightest CPU quota on this process's path under a filesystem root.
-
-    Parameters
-    ----------
-    root : pathlib.Path
-        The filesystem root.
-
-    Returns
-    -------
-    int or None
-        As :func:`cgroup_cpus`.
-    """
+    """Read the tightest CPU quota on this process's path under a filesystem root."""
     try:
         lines = (root / "proc/self/cgroup").read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -558,18 +435,9 @@ def _read_cgroup_cpus(root: Path) -> int | None:
 def cores_in_masks(masks: Sequence[int], cpus: Sequence[int]) -> int:
     """Count the cores, given as CPU bitmasks, that hold any of ``cpus``.
 
-    Parameters
-    ----------
-    masks : sequence of int
-        One bitmask per physical core: bit ``n`` set when CPU ``n`` is one of its
-        hardware threads.
-    cpus : sequence of int
-        The CPU indices the process may run on.
-
-    Returns
-    -------
-    int
-        The number of cores holding at least one of ``cpus``.
+    - ``masks``: one bitmask per physical core: bit ``n`` set when CPU ``n`` is one of
+      its hardware threads.
+    - Returns: the number of cores holding at least one of ``cpus``.
     """
     wanted = sum(1 << cpu for cpu in cpus)
     return sum(1 for mask in masks if mask & wanted)
@@ -578,17 +446,8 @@ def cores_in_masks(masks: Sequence[int], cpus: Sequence[int]) -> int:
 def _linux_cores(cpus: Sequence[int], root: Path) -> int | None:
     """Count the distinct (package, core) pairs of ``cpus`` in a sysfs CPU tree.
 
-    Parameters
-    ----------
-    cpus : sequence of int
-        The CPU indices the process may run on.
-    root : Path
-        The sysfs CPU directory, ``/sys/devices/system/cpu`` on a running system.
-
-    Returns
-    -------
-    int or None
-        The number of physical cores, or ``None`` if any CPU's topology is unreadable.
+    - Returns: the number of physical cores, or ``None`` if any CPU's topology is
+      unreadable.
     """
     pairs: set[tuple[str, str]] = set()
     for cpu in cpus:
@@ -608,15 +467,7 @@ def _linux_cores(cpus: Sequence[int], root: Path) -> int | None:
 def _windows_cores(cpus: Sequence[int]) -> int | None:  # pragma: no cover - Windows
     """Count the physical cores holding ``cpus`` from Windows' processor table.
 
-    Parameters
-    ----------
-    cpus : sequence of int
-        The CPU indices the process may run on (processor group 0).
-
-    Returns
-    -------
-    int or None
-        The number of physical cores, or ``None`` if the table cannot be read.
+    - Returns: the number of physical cores, or ``None`` if the table cannot be read.
     """
     import ctypes  # noqa: PLC0415
 
@@ -658,18 +509,8 @@ def physical_cores(
     reads each CPU's package and core from ``root``; Windows asks the kernel. macOS on
     Apple silicon has one thread per core, so the CPUs are the cores.
 
-    Parameters
-    ----------
-    cpus : sequence of int
-        The CPU indices the process may run on.
-    root : Path, optional
-        The sysfs CPU directory, read on Linux.
-
-    Returns
-    -------
-    int or None
-        The number of physical cores, or ``None`` on other platforms or when the
-        topology cannot be read.
+    - Returns: the number of physical cores, or ``None`` on other platforms or when the
+      topology cannot be read.
     """
     if sys.platform.startswith("linux"):
         return _linux_cores(cpus, root)
@@ -681,15 +522,7 @@ def physical_cores(
 def _sysctl_int(name: str) -> int | None:  # pragma: no cover - macOS
     """Read an integer ``sysctl`` value by name on macOS, or ``None``.
 
-    Parameters
-    ----------
-    name : str
-        The variable, for example ``"hw.nperflevels"``.
-
-    Returns
-    -------
-    int or None
-        Its value, or ``None`` if the kernel does not have it.
+    - Returns: its value, or ``None`` if the kernel does not have it.
     """
     import ctypes  # noqa: PLC0415
 
@@ -714,11 +547,8 @@ def top_tier_cores() -> int | None:
     long at 18 threads as at 6 (solprop issue #333). macOS reports the kinds as
     performance levels, level 0 the fastest. Other platforms are not read here.
 
-    Returns
-    -------
-    int or None
-        The cores of performance level 0 on a macOS chip with several levels, else
-        ``None``.
+    - Returns: the cores of performance level 0 on a macOS chip with several levels,
+      else ``None``.
     """
     if sys.platform != "darwin":
         return None
@@ -732,20 +562,7 @@ def top_tier_cores() -> int | None:
 def thread_count(name: str) -> int | None:
     """Read a positive thread count from the environment.
 
-    Parameters
-    ----------
-    name : str
-        The variable, for example ``"SOLPROP_THREADS"``.
-
-    Returns
-    -------
-    int or None
-        The count, or ``None`` when the variable is unset or blank.
-
-    Raises
-    ------
-    ValueError
-        If the variable is set to something that is not a positive integer.
+    - Returns: the count, or ``None`` when the variable is unset or blank.
     """
     value = os.environ.get(name, "").strip()
     if not value:
@@ -771,19 +588,10 @@ def parallel_rows[T](n_rows: int, nbytes: int, work: Callable[[slice], T]) -> li
     For a NumPy pass over a state too large for one thread's page faults and memory
     bandwidth: ufuncs release the GIL, and a state's rows are independent.
 
-    Parameters
-    ----------
-    n_rows : int
-        The rows to cover; positive.
-    nbytes : int
-        The bytes the pass reads. Below :data:`PARALLEL_BYTES` one call takes every row.
-    work : callable
-        Called with each slice of rows; it must touch nothing the others do.
-
-    Returns
-    -------
-    list
-        Each call's result, in row order.
+    - ``n_rows``: the rows to cover; positive.
+    - ``nbytes``: the bytes the pass reads. Below :data:`PARALLEL_BYTES` one call takes
+      every row.
+    - ``work``: called with each slice of rows; it must touch nothing the others do.
     """
     # A small pass never threads, so it reads no budget: the topology walk behind it
     # cost 60 ms of a 0.36 s window in host statistics (solprop issue #556).
@@ -850,18 +658,7 @@ def thread_budget() -> ThreadBudget:
 
 
 def oversubscribing() -> bool:
-    """Return whether ``SOLPROP_OVERSUBSCRIBE`` lets explicit counts pass the CPUs.
-
-    Returns
-    -------
-    bool
-        ``True`` for ``1``, ``False`` for ``0`` or unset.
-
-    Raises
-    ------
-    ValueError
-        For any other value.
-    """
+    """Return whether ``SOLPROP_OVERSUBSCRIBE`` lets explicit counts pass the CPUs."""
     value = os.environ.get("SOLPROP_OVERSUBSCRIBE", "").strip()
     if value not in {"", "0", "1"}:
         msg = f"SOLPROP_OVERSUBSCRIBE must be 0 or 1, and is {value!r}"
@@ -875,16 +672,8 @@ def process_stamp(pid: int) -> str | None:
     A process number is reused once its process has gone; the start time tells a
     run's own process from a later one with its number.
 
-    Parameters
-    ----------
-    pid : int
-        The process.
-
-    Returns
-    -------
-    str or None
-        Its start, in the system's own terms; ``None`` where the system does not say
-        or the process does not exist.
+    - Returns: its start, in the system's own terms; ``None`` where the system does not
+      say or the process does not exist.
     """
     if sys.platform == "linux":
         return _proc_stamp(pid)
@@ -896,16 +685,8 @@ def process_stamp(pid: int) -> str | None:
 def _proc_stamp(pid: int) -> str | None:
     """Return a process's start as Linux's ``/proc`` gives it, in clock ticks.
 
-    Parameters
-    ----------
-    pid : int
-        The process.
-
-    Returns
-    -------
-    str or None
-        Field 22 of ``/proc/<pid>/stat``; ``None`` when the process does not exist,
-        including when it exits while the file is read.
+    - Returns: field 22 of ``/proc/<pid>/stat``; ``None`` when the process does not
+      exist, including when it exits while the file is read.
     """
     try:
         stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
@@ -919,15 +700,7 @@ def _proc_stamp(pid: int) -> str | None:
 def _ps_stamp(pid: int) -> str | None:  # pragma: no cover - not Linux, see above
     """Return a process's start as ``ps`` gives it, off Linux.
 
-    Parameters
-    ----------
-    pid : int
-        The process.
-
-    Returns
-    -------
-    str or None
-        Its start; ``None`` when it does not exist.
+    - Returns: its start; ``None`` when it does not exist.
     """
     import subprocess  # noqa: PLC0415 - only off Linux
 
@@ -943,15 +716,7 @@ def _ps_stamp(pid: int) -> str | None:  # pragma: no cover - not Linux, see abov
 def _windows_stamp(pid: int) -> str | None:  # pragma: no cover - Windows only
     """Return a Windows process's creation time, or ``None`` when it has gone.
 
-    Parameters
-    ----------
-    pid : int
-        The process.
-
-    Returns
-    -------
-    str or None
-        Its creation time in 100 ns units, as text.
+    - Returns: its creation time in 100 ns units, as text.
     """
     import ctypes  # noqa: PLC0415 - Windows only
     from ctypes import wintypes  # noqa: PLC0415 - Windows only

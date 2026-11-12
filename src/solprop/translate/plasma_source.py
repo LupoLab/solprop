@@ -40,23 +40,7 @@ _CERTIFICATES: WeakKeyDictionary[Grids, _Certificate] = WeakKeyDictionary()
 
 
 def _certificate(grids: Grids) -> _Certificate:
-    """Compute one immutable grid's certificate once.
-
-    Parameters
-    ----------
-    grids : Grids
-        Fine collar and derivative, active angular frequencies and crop indices.
-
-    Returns
-    -------
-    _Certificate
-        Dimensionless full-transform residual and each taper's sample count.
-
-    Raises
-    ------
-    TranslationError
-        If an active frequency is nonpositive or the collar is identically zero.
-    """
+    """Compute one immutable grid's certificate once."""
     cached = _CERTIFICATES.get(grids)
     if cached is not None:
         return cached

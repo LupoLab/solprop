@@ -282,22 +282,8 @@ def _output_limits(
 ) -> tuple[float, float]:
     """Return the limits of the smoothed axis, clipped to the data.
 
-    Parameters
-    ----------
-    x : numpy.ndarray
-        Input abscissa, increasing.
-    spec_range : tuple of float or None
-        Requested limits, in either order, or ``None`` for the whole axis.
-
-    Returns
-    -------
-    tuple of float
-        The lower and upper limits.
-
-    Raises
-    ------
-    solprop.exceptions.ProcessingError
-        If the requested range does not overlap the data.
+    - ``spec_range``: requested limits, in either order, or ``None`` for the whole axis.
+    - Returns: the lower and upper limits.
     """
     if spec_range is None:
         return float(x[0]), float(x[-1])
@@ -319,15 +305,7 @@ _LIMIT_UNITS = {"wavelength": "m", "f": "Hz", "omega": "rad/s"}
 def _check_width(width: float) -> None:
     """Refuse a taper width that is not positive.
 
-    Parameters
-    ----------
-    width : float
-        Width of each taper edge, rad/s.
-
-    Raises
-    ------
-    solprop.exceptions.ProcessingError
-        If the width is not positive.
+    - ``width``: width of each taper edge, rad/s.
     """
     if width <= 0.0:
         msg = f"the taper width must be positive, in rad/s, got {width!r}"
@@ -337,19 +315,11 @@ def _check_width(width: float) -> None:
 def _check_limits(limits: tuple[float, ...], axis: SpectralAxis) -> None:
     """Refuse limits that name no light on their axis.
 
-    Parameters
-    ----------
-    limits : tuple of float
-        The pass band, in m, Hz or rad/s as ``axis`` says.
-    axis : {'wavelength', 'f', 'omega'}
-        The axis of ``spec_range``.
+    A wavelength limit must be positive; a frequency limit may be zero, as the lower
+    edge of a low-pass band.
 
-    Raises
-    ------
-    solprop.exceptions.ProcessingError
-        If ``limits`` does not hold two values, a wavelength limit is not positive, or
-        a frequency limit is negative; zero frequency is allowed, as the lower edge of
-        a low-pass band.
+    - ``limits``: the pass band, in m, Hz or rad/s as ``axis`` says.
+    - ``axis``: the axis of ``spec_range``.
     """
     if len(limits) != 2:
         unit = _LIMIT_UNITS[axis]
@@ -370,23 +340,9 @@ def _as_window(grid: TimeGrid, spec: Bandpass) -> Float[np.ndarray, " n_omega"]:
     taper; an array is taken as it stands, which is how a caller uses a different
     profile, or a window it built once and reuses.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        The grid whose ``omega`` axis the window lives on.
-    spec : tuple of float, Passband or numpy.ndarray
-        The pass band in wavelength, m, the pass band on any axis, or the window
-        itself, shape ``(n_omega,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The window, shape ``(n_omega,)``, in storage order.
-
-    Raises
-    ------
-    solprop.exceptions.ProcessingError
-        If an array is offered whose length is not the grid's.
+    - ``grid``: the grid whose ``omega`` axis the window lives on.
+    - ``spec``: the pass band in wavelength, m, the pass band on any axis, or the window
+      itself, shape ``(n_omega,)``.
     """
     if isinstance(spec, np.ndarray):
         if spec.shape != (grid.n_omega,):

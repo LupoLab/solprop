@@ -235,31 +235,14 @@ def run_setup(
 def _ssh_shell(machine: Machine, askpass: str) -> tuple[list[str], dict[str, str]]:
     """Return the command that runs a shell reading its script from its input.
 
-    Parameters
-    ----------
-    machine : solprop.service.machines.Machine
-        The machine.
-    askpass : str
-        A program ``ssh`` asks a password or code of; empty for none.
-
-    Returns
-    -------
-    tuple
-        The command and its environment.
+    - ``askpass``: a program ``ssh`` asks a password or code of; empty for none.
+    - Returns: the command and its environment.
     """
     return ssh_command(machine, "sh -s", askpass=askpass or None)
 
 
 def _feed(process: subprocess.Popen[str], script: str) -> None:
-    """Write a script to a process's input and close it.
-
-    Parameters
-    ----------
-    process : subprocess.Popen
-        The process: a shell reading its script.
-    script : str
-        The script.
-    """
+    """Write a script to a process's input and close it."""
     assert process.stdin is not None  # a pipe, as asked
     with contextlib.suppress(OSError):
         process.stdin.write(script)

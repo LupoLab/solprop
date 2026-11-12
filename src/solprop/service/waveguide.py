@@ -95,19 +95,8 @@ def _curve_of(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return one recipe's curve of a quantity against wavelength.
 
-    Parameters
-    ----------
-    recipe : solprop.recipe.Recipe
-        The recipe.
-    key : str
-        The quantity's key; of :data:`~solprop.service.explore.QUANTITIES`.
-    numbers : Mapping or None
-        The pulse's numbers, for a phase mismatch; ``None`` for none.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        The wavelengths, m, and the values in the quantity's unit.
+    - ``numbers``: the pulse's numbers, for a phase mismatch; ``None`` for none.
+    - Returns: the wavelengths, m, and the values in the quantity's unit.
     """
     mode = recipe.build().modes[0]
     pump = float(recipe.keywords()["wavelength"])  # pyright: ignore[reportArgumentType]
@@ -145,16 +134,9 @@ def _curve_of(
 def _varied(payload: Payload) -> list[tuple[str | None, Payload]]:
     """Return a design for each value of its sweep, or the design alone.
 
-    Parameters
-    ----------
-    payload : Mapping
-        The design, with optionally ``sweep``: ``name`` (a parameter path) and
-        ``values``.
-
-    Returns
-    -------
-    list of tuple
-        The value (``None`` without a sweep) and its design.
+    - ``payload``: the design, with optionally ``sweep``: ``name`` (a parameter path)
+      and ``values``.
+    - Returns: the value (``None`` without a sweep) and its design.
     """
     sweep = payload.get("sweep")
     if not isinstance(sweep, Mapping) or not sweep.get("values"):

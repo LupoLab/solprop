@@ -173,10 +173,7 @@ class ChannelLabel(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return f"ChannelLabel: {self.display_label}", [
             ("family", self.family),
@@ -315,12 +312,12 @@ class Mode(Protocol):
     """
 
     @property
-    def z_constant(self) -> bool:
+    def z_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the mode is independent of ``z`` (no taper, no gradient)."""
         ...
 
     @property
-    def scale_invariant(self) -> bool:
+    def scale_invariant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the profile scales exactly with the core radius along ``z``.
 
         A Marcatili mode has ``e(r; a) = f(r / a)`` and ``N ∝ a²``, so the synthesis
@@ -330,8 +327,8 @@ class Mode(Protocol):
         ...
 
     @property
-    def channel_label(self) -> ChannelLabel:
-        """Name the physical channel this mode is, with its quantum numbers.
+    def channel_label(self) -> ChannelLabel:  # numpydoc ignore=RT01
+        """Physical channel this mode is, with its quantum numbers.
 
         The label is a property of the mode itself, not of its place in a set:
         :attr:`solprop.modes.collection.ModeCollection.channel_labels` is the ordered
@@ -341,7 +338,7 @@ class Mode(Protocol):
         ...
 
     @property
-    def azimuthal_order(self) -> int:
+    def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
         """Highest azimuthal order ``h`` of the profile, which sets the theta rule size.
 
         The periodic trapezoid rule is exact for trigonometric polynomials of degree
@@ -530,16 +527,13 @@ class ParameterisedMode(Mode, Protocol):
     """
 
     @property
-    def parameter_paths(self) -> Mapping[str, ZProfile]:
-        """Return the named scalar paths the effective index depends on.
+    def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
+        """Named scalar paths the effective index depends on.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Path name to :class:`~solprop.profiles.ZProfile`, for example
-            ``{"core_radius": ..., "density": ...}``. Every key is accepted by
-            :meth:`at_parameters`; constant paths are included, so that a caller sees
-            the whole dependence and decides for itself which of them vary.
+        Path name to :class:`~solprop.profiles.ZProfile`, for example
+        ``{"core_radius": ..., "density": ...}``. Every key is accepted by
+        :meth:`at_parameters`; constant paths are included, so that a caller sees
+        the whole dependence and decides for itself which of them vary.
         """
         ...
 

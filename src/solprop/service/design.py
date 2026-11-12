@@ -30,15 +30,8 @@ Payload = Mapping[str, object]
 def _base(payload: Payload) -> Path | None:
     """Return the directory a payload's recipe reads its data files from.
 
-    Parameters
-    ----------
-    payload : Mapping
-        Optionally ``base``.
-
-    Returns
-    -------
-    pathlib.Path or None
-        The directory, or ``None`` for none.
+    - ``payload``: optionally ``base``.
+    - Returns: the directory, or ``None`` for none.
     """
     base = payload.get("base")
     return Path(str(base)) if base else None
@@ -47,38 +40,13 @@ def _base(payload: Payload) -> Path | None:
 def _recipe(payload: Payload) -> Recipe:
     """Read the recipe a payload carries.
 
-    Parameters
-    ----------
-    payload : Mapping
-        ``text``, the recipe's TOML, and optionally ``base``.
-
-    Returns
-    -------
-    solprop.recipe.Recipe
-        The recipe.
+    - ``payload``: ``text``, the recipe's TOML, and optionally ``base``.
     """
     return Recipe.loads(str(payload["text"]), base=_base(payload))
 
 
 def _with(recipe: Recipe, name: str, value: object, base: Path | None) -> Recipe:
-    """Return a copy of a recipe with one keyword set, and any pin on it removed.
-
-    Parameters
-    ----------
-    recipe : solprop.recipe.Recipe
-        The recipe.
-    name : str
-        The keyword.
-    value : object
-        Its value, as a recipe writes it.
-    base : pathlib.Path or None
-        The directory its data files resolve against.
-
-    Returns
-    -------
-    solprop.recipe.Recipe
-        The copy.
-    """
+    """Return a copy of a recipe with one keyword set, and any pin on it removed."""
     document = recipe.to_dict()
     pins = dict(document.get("pins", {}))
     if name in pins:
@@ -95,20 +63,11 @@ def _with(recipe: Recipe, name: str, value: object, base: Path | None) -> Recipe
 def _mode_set(recipe: Recipe, z: float | None) -> dict[str, object]:
     """Return one recipe's mode set as plain data.
 
-    Parameters
-    ----------
-    recipe : solprop.recipe.Recipe
-        A recipe on a guided route.
-    z : float or None
-        The position, m; ``None`` for the launch.
-
-    Returns
-    -------
-    dict
-        ``z`` and ``omega``, and per mode its ``label``, ``neff_minus_one``,
-        ``beta1``, ``beta2``, ``beta3``, ``alpha``, ``gamma`` (or ``None``), ``aeff``,
-        ``zdw`` (or ``None``), ``phase_mismatch`` to the launch soliton (or
-        ``None``) and ``rdw``, its phase-matched wavelengths, in SI.
+    - ``z``: the position, m; ``None`` for the launch.
+    - Returns: ``z`` and ``omega``, and per mode its ``label``, ``neff_minus_one``,
+      ``beta1``, ``beta2``, ``beta3``, ``alpha``, ``gamma`` (or ``None``), ``aeff``,
+      ``zdw`` (or ``None``), ``phase_mismatch`` to the launch soliton (or ``None``) and
+      ``rdw``, its phase-matched wavelengths, in SI.
     """
     preview = recipe.modes(z)
     return {
@@ -140,16 +99,8 @@ def _mode_set(recipe: Recipe, z: float | None) -> dict[str, object]:
 def _pump(recipe: Recipe) -> float | None:
     """Return the recipe's pump wavelength, if it gives one.
 
-    Parameters
-    ----------
-    recipe : solprop.recipe.Recipe
-        The recipe.
-
-    Returns
-    -------
-    float or None
-        The ``wavelength`` keyword in m, or ``None`` where it is not a number (a
-        recipe of ``pulses``, or one that leaves it to a rule).
+    - Returns: the ``wavelength`` keyword in m, or ``None`` where it is not a number (a
+      recipe of ``pulses``, or one that leaves it to a rule).
     """
     value = recipe.keywords().get("wavelength")
     return float(value) if isinstance(value, int | float) else None

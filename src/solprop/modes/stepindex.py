@@ -80,17 +80,7 @@ def _k_ratio(
     solution of that recurrence in increasing order, so the forward quotient is
     stable: an error in ``q_v`` is multiplied by ``q_(v+1)**2 < 1``.
 
-    Parameters
-    ----------
-    n : int
-        Positive azimuthal order.
-    w : float or numpy.ndarray
-        Positive dimensionless cladding decay parameter.
-
-    Returns
-    -------
-    numpy.ndarray
-        The positive ratio, with the shape of `w`.
+    - Returns: the positive ratio, with the shape of `w`.
     """
     upper = kve(n, w)
     finite = np.isfinite(upper)
@@ -110,23 +100,11 @@ def _k_ratio(
 def _log_slope(
     n: int, w: Float[np.ndarray, "*shape"] | float
 ) -> Float[np.ndarray, "*shape"]:
-    """Return the logarithmic derivative K_n'(w)/K_n(w), finite at any w > 0.
+    """Return the logarithmic derivative K_n'(w)/K_n(w), negative and finite at w > 0.
 
     ``K_n' = -(K_(n-1) + K_(n+1))/2`` from scaled functions where ``kve(n + 1, w)``
     is finite, and ``K_n'/K_n = -K_(n-1)/K_n - n/w`` from :func:`_k_ratio` where
     it overflows.
-
-    Parameters
-    ----------
-    n : int
-        Non-negative azimuthal order.
-    w : float or numpy.ndarray
-        Positive dimensionless cladding decay parameter.
-
-    Returns
-    -------
-    numpy.ndarray
-        The logarithmic derivative, negative, with the shape of `w`.
     """
     upper = kve(n + 1, w)
     finite = np.isfinite(upper)
@@ -154,19 +132,9 @@ def _k_decay(
     ``(K_(v+1)/K_v)(w r)/(K_(v+1)/K_v)(w)``, at most one for r >= 1, so the
     product can only underflow, to the negligible field it describes.
 
-    Parameters
-    ----------
-    order : int
-        Non-negative Bessel order.
-    w : float
-        Positive dimensionless cladding decay parameter.
-    radius : numpy.ndarray
-        Dimensionless radii r/a, at least one.
-
-    Returns
-    -------
-    numpy.ndarray
-        The ratio, between zero and one for order >= 1, with the shape of `radius`.
+    - ``radius``: dimensionless radii r/a, at least one.
+    - Returns: the ratio, between zero and one for order >= 1, with the shape of
+      `radius`.
     """
     decay = np.exp(-w * (radius - 1))
     denominator = kve(order, w)
@@ -191,23 +159,8 @@ def _characteristic(
 ) -> Float[np.ndarray, "*shape"]:
     """Evaluate the pole-free product with positive Bessel and endpoint factors removed.
 
-    Parameters
-    ----------
-    u : float or numpy.ndarray
-        Dimensionless core transverse frequency, strictly between zero and V.
-    v : float or numpy.ndarray
-        Positive dimensionless fibre frequency V, matching u in shape.
-    ratio : float or numpy.ndarray
-        Squared real cladding/core index ratio, between zero and one.
-    n : int
-        Non-negative azimuthal order.
-    kind : str
-        HE, EH, TE or TM family.
-
-    Returns
-    -------
-    numpy.ndarray
-        Pole-free characteristic value, with the broadcast input shape.
+    - ``u``: dimensionless core transverse frequency, strictly between zero and V.
+    - ``ratio``: squared real cladding/core index ratio, between zero and one.
     """
     w = np.sqrt((v - u) * (v + u))
     bessel = jv(n, u)
@@ -233,23 +186,9 @@ def _partials(
 ) -> tuple[float, float, float]:
     """Differentiate with respect to u, w and the squared index ratio.
 
-    Parameters
-    ----------
-    u : float or numpy.ndarray
-        Dimensionless core transverse frequency, strictly between zero and V.
-    w : float
-        Positive dimensionless cladding decay parameter.
-    ratio : float or numpy.ndarray
-        Squared real cladding/core index ratio, between zero and one.
-    n : int
-        Non-negative azimuthal order.
-    kind : str
-        HE, EH, TE or TM family.
-
-    Returns
-    -------
-    tuple of float
-        Partial derivatives with respect to u, w and the squared index ratio.
+    - ``u``: dimensionless core transverse frequency, strictly between zero and V.
+    - ``ratio``: squared real cladding/core index ratio, between zero and one.
+    - Returns: partial derivatives with respect to u, w and the squared index ratio.
 
     Notes
     -----
@@ -299,21 +238,9 @@ def _partials(
 def _family(u: float, v: float, ratio: float, n: int) -> _Kind:
     """Identify the vanishing branch of the quadratic in J_n'/(u J_n).
 
-    Parameters
-    ----------
-    u : float or numpy.ndarray
-        Dimensionless core transverse frequency, strictly between zero and V.
-    v : float or numpy.ndarray
-        Positive dimensionless fibre frequency V, matching u in shape.
-    ratio : float or numpy.ndarray
-        Squared real cladding/core index ratio, between zero and one.
-    n : int
-        Non-negative azimuthal order.
-
-    Returns
-    -------
-    str
-        HE or EH according to the vanishing quadratic branch.
+    - ``u``: dimensionless core transverse frequency, strictly between zero and V.
+    - ``v``: positive dimensionless fibre frequency V, matching u in shape.
+    - ``ratio``: squared real cladding/core index ratio, between zero and one.
     """
     w = math.sqrt((v - u) * (v + u))
     a = float(jvp(n, u) / (u * jv(n, u)))
@@ -330,17 +257,8 @@ def _family(u: float, v: float, ratio: float, n: int) -> _Kind:
 def _zero_block(order: int, size: int) -> Float[np.ndarray, " n_zeros"]:
     """Cache one block of the first zeros of one Bessel order.
 
-    Parameters
-    ----------
-    order : int
-        Non-negative Bessel order.
-    size : int
-        Positive number of zeros, a power of two.
-
-    Returns
-    -------
-    numpy.ndarray
-        The first `size` zeros of J_order, dimensionless, read-only.
+    - ``size``: a power of two (:func:`_zeros` rounds up).
+    - Returns: the first `size` zeros of J_order, dimensionless, read-only.
     """
     block = jn_zeros(order, size)
     block.flags.writeable = False
@@ -355,37 +273,14 @@ def _zeros(order: int, count: int) -> Float[np.ndarray, " n_zeros"]:
     returns the same leading zeros, bit for bit, whatever count it is asked for,
     so a block rounded up to a power of two is computed once and sliced.
 
-    Parameters
-    ----------
-    order : int
-        Non-negative Bessel order.
-    count : int
-        Positive number of zeros.
-
-    Returns
-    -------
-    numpy.ndarray
-        The first `count` zeros of J_order, dimensionless, read-only.
+    - Returns: the first `count` zeros of J_order, dimensionless, read-only.
     """
     return _zero_block(order, max(64, 1 << (count - 1).bit_length()))[:count]
 
 
 @cache
 def _bessel_nodes(n: int, count: int) -> Float[np.ndarray, " n_zeros"]:
-    """Cache frequency-independent Bessel-zero scan nodes.
-
-    Parameters
-    ----------
-    n : int
-        Non-negative azimuthal order.
-    count : int
-        Positive number of zeros per Bessel order.
-
-    Returns
-    -------
-    numpy.ndarray
-        Bessel zeros for orders n-1, n and n+1, dimensionless.
-    """
+    """Cache the Bessel-zero scan nodes: the zeros of orders n-1, n and n+1."""
     return np.concatenate([_zeros(abs(order), count) for order in (n - 1, n, n + 1)])
 
 
@@ -398,23 +293,10 @@ def _cutoffs(
     lies between its m-th and (m+1)-th cutoff, so this list is both
     the expected root count and the interval each root must fall in.
 
-    Parameters
-    ----------
-    v : float
-        Positive dimensionless fibre frequency V.
-    ratio : float
-        Squared real cladding/core index ratio, between zero and one.
-    n : int
-        Non-negative azimuthal order.
-    kind : str
-        HE, EH, TE or TM family.
-    count : int, optional
-        Positive number of lowest cutoffs wanted; all of them below V when omitted.
-
-    Returns
-    -------
-    list of float
-        Cutoffs of that family strictly below V, at most `count`, dimensionless.
+    - ``ratio``: squared real cladding/core index ratio, between zero and one.
+    - ``count``: positive number of lowest cutoffs wanted; all of them below V when
+      omitted.
+    - Returns: cutoffs of that family strictly below V, at most `count`, dimensionless.
     """
     if kind in ("TE", "TM", "EH"):
         limit = max(1, math.ceil(v / math.pi) + 1) if count is None else count
@@ -432,18 +314,7 @@ def _cutoffs(
 
 
 def _check_frequency(v: float) -> None:
-    """Refuse a fibre frequency above the largest one the root scan is qualified at.
-
-    Parameters
-    ----------
-    v : float
-        Largest dimensionless fibre frequency V that will be solved.
-
-    Raises
-    ------
-    ModeError
-        If V exceeds :data:`_MAX_V`.
-    """
+    """Refuse a fibre frequency above the largest one the root scan is qualified at."""
     if v > _MAX_V:
         raise ModeError(
             f"V={v:.16g} exceeds {_MAX_V:g}, the largest V the step-index root "
@@ -462,40 +333,14 @@ def _refined_roots(  # noqa: PLR0917 - called positionally
 ) -> dict[str, list[float]]:
     """Refine every sign change on a node set and label each root by family.
 
-    Parameters
-    ----------
-    nodes : numpy.ndarray
-        Increasing scan nodes in (0, V), dimensionless.
-    values : numpy.ndarray
-        The characteristic at those nodes, evaluated once by the caller.
-    v : float
-        Positive dimensionless fibre frequency V.
-    ratio : float
-        Squared real cladding/core index ratio, between zero and one.
-    n : int
-        Non-negative azimuthal order.
-    kind : str
-        HE, EH, TE or TM family; the hybrid families share one product.
+    The hybrid families share one product, so one scan serves HE and EH.
 
-    Returns
-    -------
-    dict
-        Family name to its roots u in increasing order.
+    - ``ratio``: squared real cladding/core index ratio, between zero and one.
+    - Returns: family name to its roots u in increasing order.
     """
 
     def equation(one: float) -> float:
-        """Evaluate the characteristic at one trial root.
-
-        Parameters
-        ----------
-        one : float
-            Trial dimensionless transverse frequency u.
-
-        Returns
-        -------
-        float
-            Characteristic value for the scalar root search.
-        """
+        """Evaluate the characteristic at one trial root."""
         return float(_characteristic(one, v, ratio, n, kind))
 
     found: dict[str, list[float]] = {"HE": [], "EH": [], "TE": [], "TM": []}
@@ -528,24 +373,10 @@ def _branch(
     The HE factor is written with ``R - (1 + ratio) b/2`` rationalised, so that the
     terms in ``1/w**4`` that cancel near cutoff are cancelled symbolically.
 
-    Parameters
-    ----------
-    u : float or numpy.ndarray
-        Dimensionless core transverse frequencies, strictly between zero and V.
-    v : float
-        Positive dimensionless fibre frequency V.
-    ratio : float
-        Squared real cladding/core index ratio, between zero and one.
-    n : int
-        Positive azimuthal order.
-    kind : str
-        HE or EH family.
-
-    Returns
-    -------
-    numpy.ndarray
-        The family's factor at each u, with the shape of `u`; only its sign and
-        its roots are used.
+    - ``u``: dimensionless core transverse frequencies, strictly between zero and V.
+    - ``ratio``: squared real cladding/core index ratio, between zero and one.
+    - Returns: the family's factor at each u, with the shape of `u`; only its sign and
+      its roots are used.
     """
     w = np.sqrt((v - u) * (v + u))
     bessel = jv(n, u)
@@ -586,28 +417,11 @@ def _recovered(
     replaced and the alignment check that follows still sees every root's
     radial order.
 
-    Parameters
-    ----------
-    nodes : numpy.ndarray
-        Increasing scan nodes, dimensionless, spanning the cutoff intervals.
-    roots : list of float
-        The family's roots found by the product scan, in increasing order.
-    limits : list of float
-        The family's exact cutoffs, in increasing order, then the top of the scan.
-    scan : tuple
-        V, the squared index ratio, the azimuthal order n and the family (HE or EH).
-
-    Returns
-    -------
-    list of float
-        The roots with the recovered ones added, in increasing order.
-
-    Raises
-    ------
-    ModeError
-        If the factor changes sign more than once in an empty cutoff interval,
-        which one guided root per interval rules out: which candidate is the root
-        cannot be decided.
+    - ``scan``: V, the squared index ratio, the azimuthal order n and the family (HE or
+      EH).
+    - Raises :class:`ModeError` if the factor changes sign more than once in an empty
+      cutoff interval: one guided root per interval rules that out, so which candidate
+      is the root cannot be decided.
     """
     v, ratio, n, kind = scan
     bounds = np.asarray(limits)
@@ -668,21 +482,8 @@ def _scan_nodes(
     so a bracket, and the root refined from it, does not depend on how much of
     the grid is taken.
 
-    Parameters
-    ----------
-    v : float
-        Positive dimensionless fibre frequency V.
-    n : int
-        Non-negative azimuthal order.
-    low : float
-        Smallest u to cover, dimensionless, at least zero.
-    high : float
-        Largest u to cover, dimensionless, at most V.
-
-    Returns
-    -------
-    numpy.ndarray
-        Increasing nodes in (0, V), dimensionless.
+    - ``low``: smallest u to cover, dimensionless, at least zero.
+    - ``high``: largest u to cover, dimensionless, at most V.
     """
     # Endpoints exclude the trivial factors at u=0 and w=0, which are not
     # guided modes.
@@ -730,32 +531,12 @@ def _roots(
     roots above the last one found, whose ``u`` is within float64 rounding of V
     at its own cutoff; the caller reports that as an unresolvable mode.
 
-    Parameters
-    ----------
-    v : float
-        Positive dimensionless fibre frequency V, at most :data:`_MAX_V`.
-    ratio : float
-        Squared real cladding/core index ratio, between zero and one.
-    n : int
-        Non-negative azimuthal order.
-    kind : str
-        HE, EH, TE or TM family.
-    orders : int, optional
-        Positive number of lowest radial orders wanted; every guided root when
-        omitted. The cost grows with the orders scanned, not with V.
-
-    Returns
-    -------
-    list of float
-        Guided roots u in increasing order, hence descending effective index:
-        the lowest `orders` of them, or fewer where fewer are guided.
-
-    Raises
-    ------
-    ModeError
-        If V exceeds :data:`_MAX_V`; if the roots do not align one for one with
-        the family's cutoffs; or if a root below the top of the scan cannot be
-        resolved.
+    - ``v``: positive dimensionless fibre frequency V, at most :data:`_MAX_V`.
+    - ``ratio``: squared real cladding/core index ratio, between zero and one.
+    - ``orders``: positive number of lowest radial orders wanted; every guided root when
+      omitted. The cost grows with the orders scanned, not with V.
+    - Returns: guided roots u in increasing order, hence descending effective index: the
+      lowest `orders` of them, or fewer where fewer are guided.
     """
     _check_frequency(v)
     cutoffs = _cutoffs(v, ratio, n, kind, None if orders is None else orders + 1)
@@ -780,15 +561,7 @@ def _roots(
     def aligned(found: list[float]) -> bool:
         """Say whether every root lies between its own cutoff and the next.
 
-        Parameters
-        ----------
-        found : list of float
-            Roots in increasing order.
-
-        Returns
-        -------
-        bool
-            True when the i-th root is in the i-th cutoff interval for every i.
+        - Returns: True when the i-th root is in the i-th cutoff interval for every i.
         """
         return len(found) <= len(expected) and all(
             limits[order] < root <= limits[order + 1]
@@ -840,21 +613,8 @@ class _Profile:
 def _cutoff(kind: _Kind, n: int, m: int, ratio: float) -> float:
     """Return the exact cutoff at a fixed squared material-index ratio.
 
-    Parameters
-    ----------
-    kind : str
-        HE, EH, TE or TM family.
-    n : int
-        Non-negative azimuthal order.
-    m : int
-        Positive radial order, counted from highest effective index.
-    ratio : float or numpy.ndarray
-        Squared real cladding/core index ratio, between zero and one.
-
-    Returns
-    -------
-    float
-        Exact dimensionless cutoff for the fixed material-index ratio.
+    - ``m``: positive radial order, counted from the highest effective index.
+    - ``ratio``: squared real cladding/core index ratio, between zero and one.
     """
     if kind in ("TE", "TM"):
         return float(_zeros(0, m)[-1])
@@ -887,15 +647,8 @@ class _ApertureIndex(GlassIndex):
     ) -> tuple[Complex[np.ndarray, "*shape"], Complex[np.ndarray, "*shape"]]:
         """Return the index and its frequency derivative.
 
-        Parameters
-        ----------
-        omega : array_like or float
-            Positive angular frequencies in rad/s.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Complex refractive index and slope in s/rad, with the input shape.
+        - ``omega``: positive angular frequencies in rad/s.
+        - Returns: complex refractive index and slope in s/rad, with the input shape.
         """
         index, derivative = _material(self.cladding, omega)
         addition = self.numerical_aperture**2 / (2 * index)
@@ -914,17 +667,9 @@ def _material(
     drops and warns beyond its bound; any other glass's real part is taken as
     documented on :class:`StepIndexMode`.
 
-    Parameters
-    ----------
-    material : GlassIndex or float
-        Index model or positive constant refractive index.
-    omega : array_like or float
-        Positive angular frequencies in rad/s.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Real index and derivative in s/rad, with the input shape.
+    - ``material``: index model or positive constant refractive index.
+    - ``omega``: positive angular frequencies in rad/s.
+    - Returns: real index and derivative in s/rad, with the input shape.
     """
     if isinstance(material, GlassIndex):
         lossless = lossless_index(material)
@@ -937,15 +682,7 @@ def _material(
 def _checked_omega(omega: ArrayLike | float) -> Float[np.ndarray, " n_omega"]:
     """Require a nonempty vector of positive finite real angular frequencies.
 
-    Parameters
-    ----------
-    omega : array_like or float
-        Positive angular frequencies in rad/s.
-
-    Returns
-    -------
-    numpy.ndarray
-        Validated frequency vector, shape (n_omega,).
+    - ``omega``: positive angular frequencies in rad/s.
     """
     if np.iscomplexobj(omega):
         raise ModeError("omega must be real")
@@ -1176,15 +913,8 @@ class StepIndexMode(Displayed):
     def _radius(self, z: float) -> float:
         """Evaluate and validate the radius at every requested position.
 
-        Parameters
-        ----------
-        z : float
-            Position along the fibre in m.
-
-        Returns
-        -------
-        float
-            Positive core radius in m.
+        - ``z``: position along the fibre in m.
+        - Returns: positive core radius in m.
         """
         radius = float(self.core_radius(np.asarray([z]))[0])
         if not math.isfinite(radius) or radius <= 0:
@@ -1196,17 +926,9 @@ class StepIndexMode(Displayed):
     ) -> tuple[Float[np.ndarray, " n_omega"], Float[np.ndarray, " n_omega"]]:
         """Select the m-th root of the requested vector family at each frequency.
 
-        Parameters
-        ----------
-        omega : array_like or float
-            Positive angular frequencies in rad/s.
-        z : float
-            Position along the fibre in m.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Effective indices and their transverse roots u, shape (n_omega,).
+        - ``omega``: positive angular frequencies in rad/s.
+        - ``z``: position along the fibre in m.
+        - Returns: effective indices and their transverse roots u, shape (n_omega,).
         """
         core, _ = _material(self._core, omega)
         cladding, _ = _material(self._cladding, omega)
@@ -1257,20 +979,11 @@ class StepIndexMode(Displayed):
     def _missing_root(self, v: float, ratio: float) -> str:
         """Return the diagnostic for a radial root the scan did not find.
 
-        Parameters
-        ----------
-        v : float
-            Normalised frequency V at which the root is missing.
-        ratio : float
-            Squared real cladding/core index ratio, between zero and one.
-
-        Returns
-        -------
-        str
-            A below-cutoff message when V is at or below the exact cutoff; otherwise
-            the root exists but lies within float64 rounding of V (see
-            :func:`_roots`), and the message says so rather than calling the mode
-            below cutoff.
+        - ``ratio``: squared real cladding/core index ratio, between zero and one.
+        - Returns: a below-cutoff message when V is at or below the exact cutoff;
+          otherwise the root exists but lies within float64 rounding of V (see
+          :func:`_roots`), and the message says so rather than calling the mode below
+          cutoff.
         """
         cutoff = _cutoff(self.kind, self.n, self.m, ratio)
         name = f"{self.kind}{self.n}{self.m}"
@@ -1290,15 +1003,8 @@ class StepIndexMode(Displayed):
     ) -> tuple[Float[np.ndarray, " n_omega"], Float[np.ndarray, " n_omega"]]:
         """Return absolute power attenuation and its slope.
 
-        Parameters
-        ----------
-        omega : array_like or float
-            Positive angular frequencies in rad/s.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Attenuation in 1/m and its derivative in s/(rad m).
+        - ``omega``: positive angular frequencies in rad/s.
+        - Returns: attenuation in 1/m and its derivative in s/(rad m).
         """
         if not callable(self.loss):
             return np.full_like(omega, self.loss), np.zeros_like(omega)
@@ -1438,48 +1144,30 @@ class StepIndexMode(Displayed):
         return result
 
     @property
-    def z_constant(self) -> bool:
-        """Return whether the radius path is constant.
-
-        Returns
-        -------
-        bool
-            True if the radius path is constant.
-        """
+    def z_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the radius path is constant."""
         return self.core_radius.is_constant
 
     @property
-    def radius_is_constant(self) -> bool:
-        """Return whether the transverse geometry is constant along z.
-
-        Returns
-        -------
-        bool
-            True if the geometry is fixed along z.
-        """
+    def radius_is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the transverse geometry is constant along z."""
         return self.core_radius.is_constant
 
     @property
-    def scale_invariant(self) -> bool:
-        """Return False because changing the radius changes the normalised frequency.
+    def scale_invariant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the profile scales exactly with the core radius.
 
-        Returns
-        -------
-        bool
-            False, since V changes with core radius.
+        Always ``False``: changing the radius changes the normalised frequency V.
         """
         return False
 
     @property
-    def channel_label(self) -> ChannelLabel:
-        """Return the exact vector family, its indices and its parity.
+    def channel_label(self) -> ChannelLabel:  # numpydoc ignore=RT01
+        """Exact vector family, its indices and its parity.
 
-        Returns
-        -------
-        ChannelLabel
-            Family, azimuthal and radial order, and the hybrid parity. An axially
-            symmetric TE0m or TM0m channel has no parity partner, so its parity is
-            ``None`` rather than the orientation its constructor defaulted to.
+        Family, azimuthal and radial order, and the hybrid parity. An axially
+        symmetric TE0m or TM0m channel has no parity partner, so its parity is
+        ``None`` rather than the orientation its constructor defaulted to.
 
         Examples
         --------
@@ -1499,14 +1187,8 @@ class StepIndexMode(Displayed):
         )
 
     @property
-    def azimuthal_order(self) -> int:
-        """Return the azimuthal mode index n.
-
-        Returns
-        -------
-        int
-            The mode index n, dimensionless.
-        """
+    def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
+        """Azimuthal mode index n."""
         return self.n
 
     def principal_component(self, z: float = 0.0) -> None:
@@ -1525,27 +1207,15 @@ class StepIndexMode(Displayed):
         del z
 
     @property
-    def orthogonal_polarisation(self) -> "StepIndexMode | None":
-        """Return the other hybrid parity, or None for TE and TM.
-
-        Returns
-        -------
-        StepIndexMode or None
-            Opposite hybrid parity; None for TE and TM.
-        """
+    def orthogonal_polarisation(self) -> "StepIndexMode | None":  # numpydoc ignore=RT01
+        """Other hybrid parity, or None for TE and TM."""
         if self.n == 0:
             return None
         return replace(self, parity="odd" if self.parity == "even" else "even")
 
     @property
-    def parameter_paths(self) -> Mapping[str, ZProfile]:
-        """Return the core-radius path carrying the entire z dependence.
-
-        Returns
-        -------
-        collections.abc.Mapping
-            The core_radius path in m.
-        """
+    def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
+        """The core-radius path, m, carrying the entire z dependence."""
         return MappingProxyType({"core_radius": self.core_radius})
 
     def at_parameters(self, values: Mapping[str, float]) -> "StepIndexMode":
@@ -1573,15 +1243,7 @@ class StepIndexMode(Displayed):
     def _solve_profile(self, z: float) -> _Profile:
         """Evaluate the transverse-profile parameters at the declared wavelength.
 
-        Parameters
-        ----------
-        z : float
-            Position along the fibre in m.
-
-        Returns
-        -------
-        _Profile
-            Radius and dimensionless transverse eigenpair at profile_wavelength.
+        - ``z``: position along the fibre in m.
         """
         omega = np.asarray([2 * math.pi * C / self.profile_wavelength])
         _, transverse = self._eigenpairs(omega, z)
@@ -1606,27 +1268,13 @@ class StepIndexMode(Displayed):
 
     @cached_property
     def _entrance_profile(self) -> _Profile:
-        """Keep the required entrance profile on this immutable mode.
-
-        Returns
-        -------
-        _Profile
-            Entrance eigenpair at profile_wavelength.
-        """
+        """Keep the required entrance profile on this immutable mode."""
         return self._solve_profile(0.0)
 
     def _profile_at(self, z: float) -> _Profile:
         """Reuse a constant geometry's profile and recompute a tapered one.
 
-        Parameters
-        ----------
-        z : float
-            Position along the fibre in m.
-
-        Returns
-        -------
-        _Profile
-            Eigenpair at this geometry and the declared profile wavelength.
+        - ``z``: position along the fibre in m.
         """
         return (
             self._entrance_profile
@@ -1672,10 +1320,7 @@ class StepIndexMode(Displayed):
     def _materials(self) -> tuple[str, str]:
         """Return the resolved core and cladding as text, for printing.
 
-        Returns
-        -------
-        tuple of str
-            A glass by its name and source, anything else by its ``repr``.
+        - Returns: a glass by its name and source, anything else by its ``repr``.
         """
         names = []
         for model in (self._core, self._cladding):
@@ -1708,10 +1353,7 @@ class StepIndexMode(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         radius = float(self.core_radius(np.array([0.0]))[0])
         core, cladding = self._materials()
@@ -1748,17 +1390,9 @@ class StepIndexMode(Displayed):
     ) -> tuple[Float[np.ndarray, "*shape"], Float[np.ndarray, "*shape"]]:
         """Evaluate radial coefficients before the parity factors are applied.
 
-        Parameters
-        ----------
-        radius : numpy.ndarray
-            Dimensionless non-negative radii r/a.
-        profile : _Profile
-            Lossless eigenpair at the declared profile wavelength.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Unnormalised radial and tangential coefficients, with the radius shape.
+        - ``radius``: dimensionless non-negative radii r/a.
+        - Returns: unnormalised radial and tangential coefficients, with the radius
+          shape.
         """
         inside = radius <= 1.0
         radial, tangential = np.zeros_like(radius), np.zeros_like(radius)
@@ -1899,15 +1533,8 @@ class StepIndexMode(Displayed):
     def _integrals(self, z: float) -> tuple[float, float]:
         """Integrate intensity and its square after azimuthal integration.
 
-        Parameters
-        ----------
-        z : float
-            Position along the fibre in m.
-
-        Returns
-        -------
-        tuple of float
-            Squared-field and quartic-field area integrals in m².
+        - ``z``: position along the fibre in m.
+        - Returns: Squared-field and quartic-field area integrals in m².
         """
         profile = self._profile_at(z)
         outer = self.dimlimits(z)[2][0] / profile.radius
@@ -1915,17 +1542,7 @@ class StepIndexMode(Displayed):
         def integrand(radius: float, power: int) -> float:
             """Evaluate the radial intensity moment.
 
-            Parameters
-            ----------
-            radius : float
-                Dimensionless non-negative radius r/a.
-            power : int
-                Intensity moment, one or two.
-
-            Returns
-            -------
-            float
-                Radial moment including its Jacobian and exact azimuthal integral.
+            - ``radius``: dimensionless non-negative radius r/a.
             """
             radial, tangential = self._radial_fields(np.asarray(radius), profile)
             x, y = float(radial) ** 2, float(tangential) ** 2
@@ -1959,10 +1576,7 @@ class StepIndexMode(Displayed):
     def _entrance_integrals(self) -> tuple[float, float]:
         """Cache the two profile integrals of a constant geometry.
 
-        Returns
-        -------
-        tuple of float
-            Squared-field and quartic-field area integrals in m².
+        - Returns: Squared-field and quartic-field area integrals in m².
         """
         return self._integrals(0.0)
 

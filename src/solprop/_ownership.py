@@ -40,25 +40,7 @@ def hold(values: np.ndarray) -> np.ndarray:
     stands. A view is frozen but not held, since the memory beneath it could still be
     written: hold the array that owns the memory instead.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same array, read-only.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop._ownership import hold, is_held
-    >>> made = hold(np.arange(3.0))
-    >>> bool(made.flags.writeable), is_held(made)
-    (False, True)
-    >>> is_held(hold(np.arange(3.0)[1:]))
-    False
+    - Returns: the same array, read-only.
     """
     values.setflags(write=False)
     if values.base is None:
@@ -73,22 +55,8 @@ def hold_view(values: np.ndarray) -> np.ndarray:
     by indexing: :func:`hold` would freeze the view alone, and it would not be held.
     Only for a view whose memory no one else refers to.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The view, or an array that owns its memory.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same array, read-only, and held when the memory beneath it is an array's.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop._ownership import hold_view, is_held
-    >>> is_held(hold_view(np.arange(3.0)[np.newaxis]))
-    True
+    - Returns: the same array, read-only, and held when the memory beneath it is an
+      array's.
     """
     owner = values
     while isinstance(owner.base, np.ndarray):
@@ -107,24 +75,8 @@ def borrow(values: np.ndarray) -> np.ndarray:
     copies the view. Whoever borrows promises the memory is not written while the
     view lives.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        A view, created for the borrowing.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same view, read-only and held.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop._ownership import borrow, is_held
-    >>> mine = np.arange(3.0)
-    >>> view = borrow(mine.view())
-    >>> bool(mine.flags.writeable), is_held(view)
-    (True, True)
+    - `values`: a view, created for the borrowing.
+    - Returns: the same view, read-only and held.
     """
     values.setflags(write=False)
     _HELD[id(values)] = values
@@ -141,24 +93,8 @@ def is_held(values: object) -> bool:
     read-only array that is not held, however it was frozen, since whoever owns it
     can make it writeable again.
 
-    Parameters
-    ----------
-    values : object
-        Anything.
-
-    Returns
-    -------
-    bool
-        True for a held array, or a read-only view of one, while it is read-only.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop._ownership import is_held
-    >>> mine = np.arange(3.0)
-    >>> mine.setflags(write=False)
-    >>> is_held(mine)
-    False
+    - Returns: True for a held array, or a read-only view of one, while it is
+      read-only.
     """
     array = values
     while isinstance(array, np.ndarray) and not array.flags.writeable:
@@ -181,29 +117,9 @@ def frozen_copy(
     (:func:`is_held`) is returned as it stands. An array just built takes
     :func:`hold` instead, which copies nothing.
 
-    Parameters
-    ----------
-    values : array_like
-        The values to freeze, of any shape.
-    dtype : numpy.dtype or type or None, optional
-        The element type of the result; None keeps the input's.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same values and shape, C-contiguous, not writeable and held: `values`
-        itself when it is already all of that, with `dtype`; otherwise a new copy.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop._ownership import frozen_copy
-    >>> mine = np.arange(3.0)
-    >>> frozen = frozen_copy(mine)
-    >>> bool(mine.flags.writeable), bool(frozen.flags.writeable)
-    (True, False)
-    >>> frozen_copy(frozen) is frozen
-    True
+    - `dtype`: the element type of the result; None keeps the input's.
+    - Returns: the same values and shape, C-contiguous, not writeable and held: `values`
+      itself when it is already all of that, with `dtype`; otherwise a new copy.
     """
     if (
         isinstance(values, np.ndarray)

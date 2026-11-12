@@ -168,22 +168,10 @@ def _blockwise_fluence(
 ) -> Float[np.ndarray, " n_nodes"]:
     """Accumulate each node's fluence, up to a common factor, by block of frequency.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        A Cartesian or planar problem.
-    field : numpy.ndarray
-        One internal spatial spectrum.
-    dt : float
-        Coarse sample spacing, s.
-    node_chunk : int
-        The node chunk that bounds a block.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``sum over polarisation and frequency of w(omega) |E|^2`` at each node, the
-        quantity :func:`solprop.fourier.energy_omega` sums, shape ``(n_nodes,)``.
+    - ``field``: one internal spatial spectrum.
+    - ``dt``: coarse sample spacing, s.
+    - Returns: ``sum over polarisation and frequency of w(omega) |E|^2`` at each node,
+      the quantity :func:`solprop.fourier.energy_omega` sums.
     """
     transform = problem.transform
     n_omega = field.shape[-1]
@@ -684,34 +672,11 @@ def _local_statistics(
 ) -> dict[str, np.ndarray]:
     """Form the peak local axial flux and the fluence widths, node chunk by chunk.
 
-    Parameters
-    ----------
-    wanted : set of str
-        Requested catalogue names.
-    grid : solprop.grid.TimeGrid
-        Temporal transform and energy measure.
-    transform : solprop.translate.modal.Transform
-        The run's synthesis and geometry.
-    field : numpy.ndarray
-        One internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
-    closure : numpy.ndarray
-        Its magnetic closure ``G / (eps0 c)``, same shape.
-    physical : numpy.ndarray or None
-        A compiled backend's borrowed physical-space field, or None.
-    axis_fluence : float
-        The on-axis fluence in J/m^2, for the radial widths.
-    chunk : int
-        The backend's node chunk.
-
-    Returns
-    -------
-    dict
-        ``peak_intensity``, ``beam_radius`` and ``fwhm_r`` where requested.
-
-    Raises
-    ------
-    BackendError
-        If a width is asked of a fluence negative beyond its rounding budget.
+    - ``field``: one internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+    - ``closure``: its magnetic closure ``G / (eps0 c)``, same shape.
+    - ``physical``: a compiled backend's borrowed physical-space field, or None.
+    - ``axis_fluence``: the on-axis fluence in J/m^2, for the radial widths.
+    - Returns: ``peak_intensity``, ``beam_radius`` and ``fwhm_r`` where requested.
     """
     geometry = transform.geometry
     assert geometry is not None
@@ -919,17 +884,7 @@ def plane_fluence_widths(
 def _negative_fluence(value: float, node: int) -> BackendError:
     """Return the refusal of a fluence negative beyond its rounding budget.
 
-    Parameters
-    ----------
-    value : float
-        The fluence in J/m^2.
-    node : int
-        Its node.
-
-    Returns
-    -------
-    solprop.exceptions.BackendError
-        The refusal, to raise.
+    - ``value``: the fluence in J/m^2.
     """
     return BackendError(
         "beam_radius and fwhm_r need a nonnegative fluence profile, and the "
@@ -947,23 +902,10 @@ def _rows(
 ) -> np.ndarray:
     """Return one node chunk of a spectrum's physical field.
 
-    Parameters
-    ----------
-    transform : solprop.translate.modal.Transform
-        The run's synthesis.
-    grid : solprop.grid.TimeGrid
-        The temporal grid, whose pad scale the synthesis carries.
-    source : numpy.ndarray
-        Internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
-    whole : numpy.ndarray or None
-        Its already synthesised physical volume, or None to synthesise the rows.
-    rows : slice
-        The node chunk.
-
-    Returns
-    -------
-    numpy.ndarray
-        Physical spectra in V/m at the chunk's nodes.
+    - ``source``: internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+    - ``whole``: its already synthesised physical volume, or None to synthesise the
+      rows.
+    - Returns: physical spectra in V/m at the chunk's nodes.
     """
     if whole is not None:
         return whole[rows]
@@ -985,33 +927,8 @@ def _far_field(
 ) -> dict[str, np.ndarray]:
     """Form the requested far-field statistics in one chunked pass.
 
-    Parameters
-    ----------
-    names : set of str
-        The statistics asked for; those that are not far-field statistics are left
-        to the other passes.
-    grid : solprop.grid.TimeGrid
-        The temporal grid.
-    field : numpy.ndarray
-        One internal spectrum, shape ``(n_x*n_y, n_pol, n_omega)``.
-    tables : solprop.spatial.ApertureTables or None
-        The far-field tables.
-    plane : solprop.translate.spatial.SeparableOperator or None
-        The plane's coefficients, whose root weighs every statistic.
-    operator : solprop.translate.spatial.SeparableOperator or None
-        The run's separable operator, whose rates ``absorbed_power`` reads.
-    chunk : int
-        The backend's node chunk, which bounds the pass's chunks.
-
-    Returns
-    -------
-    dict
-        The requested far-field statistics, empty when none is asked for.
-
-    Raises
-    ------
-    BackendError
-        If the tables, or the operator an operator statistic needs, are missing.
+    - ``field``: one internal spectrum, shape ``(n_x*n_y, n_pol, n_omega)``.
+    - Returns: the requested far-field statistics, empty when none is asked for.
     """
     names = names & set(FAR_FIELD_STATISTICS)
     if not names:
@@ -1034,15 +951,7 @@ def _far_field(
     def axial(columns: slice) -> tuple[np.ndarray, np.ndarray]:
         """Return the plane's admittance and the operator's rates for a chunk.
 
-        Parameters
-        ----------
-        columns : slice
-            The transverse columns of the chunk.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            The complex admittance and the four absorption rates.
+        - Returns: the complex admittance and the four absorption rates.
         """
         _, rates = axial_factors(rated, grid.omega, columns)
         return axial_admittance(plane, grid.omega, columns), rates
@@ -1060,22 +969,10 @@ def _axis_statistics(
 ) -> tuple[dict[str, np.ndarray], float]:
     """Reduce the requested statistics of the on-axis spectrum.
 
-    Parameters
-    ----------
-    wanted : set of str
-        Requested catalogue names.
-    grid : solprop.grid.TimeGrid
-        Temporal transform and energy measure.
-    axis : numpy.ndarray
-        The on-axis amplitude, the on-axis weights contracted with the spectrum,
-        shape ``(n_pol, n_omega)``.
-    closure : numpy.ndarray
-        The on-axis magnetic closure ``G / (eps0 c)``, same shape.
-
-    Returns
-    -------
-    tuple of dict and float
-        Requested on-axis statistics and axial fluence in J/m^2.
+    - ``axis``: the on-axis amplitude, the on-axis weights contracted with the spectrum,
+      shape ``(n_pol, n_omega)``.
+    - ``closure``: the on-axis magnetic closure ``G / (eps0 c)``, same shape.
+    - Returns: requested on-axis statistics and axial fluence in J/m^2.
     """
     conversion = 0.5 * EPS0 * C
     factor = fourier.spectral_density(
@@ -1101,20 +998,10 @@ def _free_physical(
 ) -> np.ndarray | None:
     """Reconstruct one coarse spectral volume for Cartesian or planar statistics.
 
-    Parameters
-    ----------
-    transform : solprop.translate.modal.Transform
-        Plain Cartesian axes and FFT shape, the planar slab matrices and y axis, or
-        another transform kind.
-    field : numpy.ndarray
-        Internal spectrum, with flattened transverse columns first.
-    pad_scale : float
-        The temporal pad scale a slab synthesis carries, divided out here.
-
-    Returns
-    -------
-    numpy.ndarray or None
-        Physical coarse spectra in V/m at the nodes, or None for a dense transform.
+    - ``transform``: plain Cartesian axes and FFT shape, the planar slab matrices and y
+      axis, or another transform kind.
+    - Returns: physical coarse spectra in V/m at the nodes, or None for a dense
+      transform.
     """
     geometry = transform.geometry
     if geometry is None or geometry.kind not in ("free", "slab"):
@@ -1238,19 +1125,10 @@ def slab_projection(
 def _slab_widths(geometry: SpatialGeometry, fluence: np.ndarray) -> tuple[float, ...]:
     """Measure a planar beam's widths in y from its fluence integrated over x.
 
-    Parameters
-    ----------
-    geometry : solprop.translate.spatial.SpatialGeometry
-        ``"slab"`` geometry, whose node weights carry the x rule.
-    fluence : numpy.ndarray
-        Fluence in J/m^2 at the nodes ``ix + n_x*iy``.
-
-    Returns
-    -------
-    tuple of float
-        The line widths in y (:func:`solprop.spatial.cartesian_fluence_widths` on
-        one row): the moment half-width, the 1/e^2 half-width and the FWHM, in m,
-        of the fluence integrated across the gap.
+    - ``fluence``: fluence in J/m^2 at the nodes ``ix + n_x*iy``.
+    - Returns: the line widths in y (:func:`solprop.spatial.cartesian_fluence_widths` on
+      one row): the moment half-width, the 1/e^2 half-width and the FWHM, in m, of the
+      fluence integrated across the gap.
     """
     n_x, n_y = geometry.shape
     across = np.sum((geometry.spatial_weights * fluence).reshape(n_y, n_x), axis=1)

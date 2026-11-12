@@ -164,24 +164,18 @@ class AtomicWindowRecord:
     gate: tuple[float, float, float, float]
 
     @property
-    def samples(self) -> int:
-        """Return the number of retained samples ``last - first + 1``.
+    def samples(self) -> int:  # numpydoc ignore=RT01
+        """Number of retained samples ``last - first + 1``.
 
-        Returns
-        -------
-        int
-            Atomic samples passed to the provider.
+        Atomic samples passed to the provider.
         """
         return self.last - self.first + 1
 
     @property
-    def atomic_duration(self) -> float:
-        """Return the realised atomic duration ``t_e - t_s``.
+    def atomic_duration(self) -> float:  # numpydoc ignore=RT01
+        """Realised atomic duration ``t_e - t_s``, s.
 
-        Returns
-        -------
-        float
-            Duration in s, compared with a preset's tested window.
+        Compared with a preset's tested window.
         """
         return self.t_e - self.t_s
 
@@ -290,18 +284,7 @@ def resolve_atomic_window(
 
 
 def _basis_from_json(values: Mapping[str, object]) -> TDSEBasis | HaccBasis:
-    """Rebuild either basis type from its primitive record.
-
-    Parameters
-    ----------
-    values : mapping
-        A basis record; a haCC record carries ``kind="hacc_helium"``.
-
-    Returns
-    -------
-    TDSEBasis or HaccBasis
-        The revalidated record.
-    """
+    """Rebuild either basis type from its primitive record."""
     basis = dict(values)
     if basis.pop("kind", None) == "hacc_helium":
         for name in ("radial_edges", "radial_orders"):
@@ -313,19 +296,7 @@ def _basis_from_json(values: Mapping[str, object]) -> TDSEBasis | HaccBasis:
 
 
 def _response_from_json(encoded: str) -> TDSEGasResponse:
-    """Revalidate persisted primitive science at the single dynamic JSON boundary.
-
-    Parameters
-    ----------
-    encoded : str
-        Descriptor JSON containing a primitive response record in SI units.
-
-    Returns
-    -------
-    TDSEGasResponse
-        Reconstructed frozen specification with all scientific validation applied.
-        The consistency policy is never persisted, so it takes its default.
-    """
+    """Revalidate persisted primitive science at the single dynamic JSON boundary."""
     record = json.loads(encoded)["response"]
     calibration = dict(record["calibration"])
     for name in ("wavelength_range", "limitations"):
@@ -357,15 +328,7 @@ the edge-free gated one. Earlier versions are not read.
 def _response_record(response: TDSEGasResponse) -> dict[str, object]:
     """Return a response's primitive descriptor record.
 
-    Parameters
-    ----------
-    response : TDSEGasResponse
-        Validated scientific specification.
-
-    Returns
-    -------
-    dict
-        The response record; the consistency policy never enters it.
+    - Returns: the response record; the consistency policy never enters it.
     """
     record = asdict(response)
     del record["consistency"]
@@ -375,13 +338,7 @@ def _response_record(response: TDSEGasResponse) -> dict[str, object]:
 
 
 def _validate_schema(encoded: str) -> None:
-    """Require the one descriptor schema, its complete response record and lattice.
-
-    Parameters
-    ----------
-    encoded : str
-        Descriptor JSON with SI temporal-collar breakpoints.
-    """
+    """Require the one descriptor schema, its complete response record and lattice."""
     configuration = json.loads(encoded)
     response = configuration["response"]
     if configuration.get("schema") != DESCRIPTOR_SCHEMA:
@@ -398,15 +355,7 @@ def _validate_schema(encoded: str) -> None:
 def _validated_collar(configuration: Mapping[str, Any]) -> Collar:
     """Return a descriptor's recorded temporal collar after checking its order.
 
-    Parameters
-    ----------
-    configuration : mapping
-        Parsed descriptor JSON.
-
-    Returns
-    -------
-    Collar
-        The fine-lattice collar in s.
+    - Returns: the fine-lattice collar in s.
     """
     collar = Collar(**configuration["lattice"]["time_collar"])
     if not collar.zero_low < collar.one_low <= collar.one_high < collar.zero_high:
@@ -417,18 +366,9 @@ def _validated_collar(configuration: Mapping[str, Any]) -> Collar:
 def _setup(samples: int, spacing: float) -> dict[str, object]:
     """Return the admitted SAE provider ground-state setup for one atomic lattice.
 
-    Parameters
-    ----------
-    samples : int
-        Atomic samples: the full lattice, or the atomic window's.
-    spacing : float
-        Response spacing in s.
-
-    Returns
-    -------
-    dict
-        Setup policy. The growing-mode window is the atomic run duration in s,
-        so the provider checks mode growth over exactly the propagated time.
+    - ``spacing``: response spacing in s.
+    - Returns: setup policy. The growing-mode window is the atomic run duration in s, so
+      the provider checks mode growth over exactly the propagated time.
     """
     return {
         "initial_l": 0,
@@ -443,12 +383,9 @@ def _setup(samples: int, spacing: float) -> dict[str, object]:
 def _hacc_setup() -> dict[str, object]:
     """Return the pinned haCC provider setup record (SEP 20, 6.2).
 
-    Returns
-    -------
-    dict
-        Every row restarts from the field-free ground root at each evaluation; a
-        growing root below the cut is refused at preparation; the gross-failure
-        norm-growth limit is pinned.
+    - Returns: every row restarts from the field-free ground root at each evaluation; a
+      growing root below the cut is refused at preparation; the gross-failure
+      norm-growth limit is pinned.
     """
     return {
         "initial": "ground_root",
@@ -462,15 +399,7 @@ def _hacc_setup() -> dict[str, object]:
 def _window_from_json(encoded: str) -> AtomicWindowRecord | None:
     """Parse a descriptor's resolved atomic window once per configuration.
 
-    Parameters
-    ----------
-    encoded : str
-        Validated descriptor JSON.
-
-    Returns
-    -------
-    AtomicWindowRecord or None
-        The resolved window, or None for the full lattice.
+    - Returns: the resolved window, or None for the full lattice.
     """
     record = json.loads(encoded)["lattice"].get("atomic_window")
     if record is None:
@@ -631,49 +560,37 @@ class TDSEDescriptor:
             )
 
     @property
-    def gated(self) -> bool:
-        """Return whether the source is gated and edge-free (SEP 26).
+    def gated(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the source is gated and edge-free (SEP 26).
 
-        Returns
-        -------
-        bool
-            True for the native closure, whose remainder current is gated by the
-            window or grid collar with the edge term removed; False for the cubic
-            replacements, whose sources are never gated.
+        True for the native closure, whose remainder current is gated by the
+        window or grid collar with the edge term removed; False for the cubic
+        replacements, whose sources are never gated.
         """
         return self.kerr_model == "tdse_native"
 
     @property
-    def model(self) -> TDSEModel:
-        """Return the atomic model family recorded in the configuration.
+    def model(self) -> TDSEModel:  # numpydoc ignore=RT01
+        """Atomic model family recorded in the configuration.
 
-        Returns
-        -------
-        {'sae', 'hacc'}
-            The recorded ``response.model``.
+        The recorded ``response.model``.
         """
         return self.response.model
 
     @property
-    def response(self) -> TDSEGasResponse:
-        """Return the revalidated scientific response this descriptor carries.
+    def response(self) -> TDSEGasResponse:  # numpydoc ignore=RT01
+        """Revalidated scientific response this descriptor carries.
 
-        Returns
-        -------
-        TDSEGasResponse
-            Reconstructed record; its consistency policy is the default, because
-            policy never enters a descriptor.
+        Reconstructed record; its consistency policy is the default, because
+        policy never enters a descriptor.
         """
         return _cached_response(self.configuration_json)
 
     @property
-    def atomic_window(self) -> AtomicWindowRecord | None:
-        """Return the resolved atomic window, or None for the full lattice.
+    def atomic_window(self) -> AtomicWindowRecord | None:  # numpydoc ignore=RT01
+        """Resolved atomic window, or None for the full lattice.
 
-        Returns
-        -------
-        AtomicWindowRecord or None
-            Sample range, endpoint times and gate breakpoints in s.
+        Sample range, endpoint times and gate breakpoints in s.
         """
         return _window_from_json(self.configuration_json)
 
@@ -818,19 +735,8 @@ def _resolved_window(
 ) -> AtomicWindowRecord | None:
     """Resolve a response's declared window on its lattice, if it has one.
 
-    Parameters
-    ----------
-    response : TDSEGasResponse
-        Validated specification.
-    samples : int
-        Fine lattice samples.
-    spacing : float
-        Fine spacing in s.
-
-    Returns
-    -------
-    AtomicWindowRecord or None
-        The resolved window, or None for the full lattice.
+    - ``spacing``: fine spacing in s.
+    - Returns: the resolved window, or None for the full lattice.
     """
     window = response.atomic_window
     if window is None or isinstance(window, str):
@@ -867,18 +773,8 @@ class _SetupScalars:
 def _setup_fields(model: TDSEModel, setup: Mapping[str, object]) -> _SetupScalars:
     """Map a setup record onto the descriptor's scalar provider-setup fields.
 
-    Parameters
-    ----------
-    model : {'sae', 'hacc'}
-        Atomic model family.
-    setup : mapping
-        The configuration's setup record.
-
-    Returns
-    -------
-    _SetupScalars
-        The SAE record itself, or the haCC growing policy with the SAE-only fields
-        at their inert defaults (no growing-mode window).
+    - Returns: the SAE record itself, or the haCC growing policy with the SAE-only
+      fields at their inert defaults (no growing-mode window).
     """
     if model == "sae":
         return _SetupScalars(**cast("dict[str, Any]", setup))
@@ -887,33 +783,14 @@ def _setup_fields(model: TDSEModel, setup: Mapping[str, object]) -> _SetupScalar
 
 @functools.cache
 def _cached_response(encoded: str) -> TDSEGasResponse:
-    """Rebuild a descriptor's response once per configuration.
-
-    Parameters
-    ----------
-    encoded : str
-        Validated descriptor JSON.
-
-    Returns
-    -------
-    TDSEGasResponse
-        The immutable reconstructed response.
-    """
+    """Rebuild a descriptor's response once per configuration."""
     return _response_from_json(encoded)
 
 
 def _breakpoints_from_json(encoded: str) -> tuple[float, float, float, float]:
     """Return the breakpoints of a descriptor's source gate.
 
-    Parameters
-    ----------
-    encoded : str
-        Validated descriptor JSON.
-
-    Returns
-    -------
-    tuple of float
-        The window's gate when one is set, else the recorded fine collar, in s.
+    - Returns: the window's gate when one is set, else the recorded fine collar, in s.
     """
     window = _window_from_json(encoded)
     if window is not None:
@@ -928,18 +805,8 @@ def _gate_derivative_from_json(
 ) -> Float[np.ndarray, " n_to"]:
     """Evaluate a descriptor's source-gate derivative once per configuration.
 
-    Parameters
-    ----------
-    encoded : str
-        Validated descriptor JSON.
-    error : bool, optional
-        Return the derivative's rounding bound instead of the derivative.
-
-    Returns
-    -------
-    numpy.ndarray
-        Read-only ``g'``, or its bound, in 1/s on the full lattice: of the window
-        gate, else of the recorded collar.
+    - Returns: Read-only ``g'``, or its bound, in 1/s on the full lattice: of the window
+      gate, else of the recorded collar.
     """
     lattice = json.loads(encoded)["lattice"]
     times = lattice_times(lattice["samples"], lattice["spacing"])
@@ -952,15 +819,7 @@ def _gate_derivative_from_json(
 def _gate_from_json(encoded: str) -> Float[np.ndarray, " n_to"] | None:
     """Evaluate a descriptor's window gate once per configuration.
 
-    Parameters
-    ----------
-    encoded : str
-        Validated descriptor JSON.
-
-    Returns
-    -------
-    numpy.ndarray or None
-        Read-only gate on the full lattice, or None without a window.
+    - Returns: Read-only gate on the full lattice, or None without a window.
     """
     window = _window_from_json(encoded)
     if window is None:
@@ -1002,41 +861,14 @@ def waveform_identity(fields: Float[np.ndarray, "n_nodes n_to"]) -> str:
 
 
 def _metadata_json(value: str, name: str, expected: type) -> None:
-    """Require finite JSON containers for provider-neutral immutable diagnostics.
-
-    Parameters
-    ----------
-    value : str
-        Serialized candidate metadata.
-    name : str
-        Field name used in diagnostics.
-    expected : type
-        Required outer container type, either dict or list.
-    """
+    """Require finite JSON containers for provider-neutral immutable diagnostics."""
 
     def reject_constant(constant: str) -> None:
-        """Reject a nonstandard JSON constant.
-
-        Parameters
-        ----------
-        constant : str
-            Parsed nonfinite token.
-        """
+        """Reject a nonstandard JSON constant."""
         raise BackendError(f"{name} contains nonfinite JSON constant {constant}")
 
     def finite_float(number: str) -> float:
-        """Parse one finite JSON floating-point token.
-
-        Parameters
-        ----------
-        number : str
-            Decimal representation of a JSON number.
-
-        Returns
-        -------
-        float
-            Finite binary64 value.
-        """
+        """Parse one finite JSON floating-point token."""
         result = float(number)
         if not math.isfinite(result):
             raise BackendError(f"{name} contains a nonfinite number")
@@ -1300,15 +1132,7 @@ class AtomicCallBudget:
     def _per_evaluation(self, calls: int | None) -> int:
         """Return the provider calls of one evaluation.
 
-        Parameters
-        ----------
-        calls : int or None
-            Explicit positive count, or None for ``calls_per_evaluation``.
-
-        Returns
-        -------
-        int
-            Positive number of provider calls.
+        - ``calls``: explicit positive count, or None for ``calls_per_evaluation``.
         """
         if calls is None:
             return self.calls_per_evaluation
@@ -1463,13 +1287,10 @@ class TDSEBinding(Protocol):
     """Provide the driver's explicit, resource-owning host atomic service."""
 
     @property
-    def ledger(self) -> AtomicCallLedger:
-        """Return the current immutable atomic-call accounting snapshot.
+    def ledger(self) -> AtomicCallLedger:  # numpydoc ignore=RT01
+        """Current immutable atomic-call accounting snapshot.
 
-        Returns
-        -------
-        AtomicCallLedger
-            Binding-local budget and attempted-call counts.
+        Binding-local budget and attempted-call counts.
         """
         ...
 

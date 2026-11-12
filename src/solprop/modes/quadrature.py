@@ -226,16 +226,8 @@ def _legendre_recurrence(
 ) -> tuple[Float[np.ndarray, " n_coefficients"], Float[np.ndarray, " n_coefficients"]]:
     """Return the three-term recurrence coefficients of the Legendre polynomials.
 
-    Parameters
-    ----------
-    count : int
-        How many coefficients to return.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        ``alpha`` (all zero, the weight being symmetric) and ``beta``, with
-        ``beta[0]`` the measure of the interval.
+    - Returns: ``alpha`` (all zero, the weight being symmetric) and ``beta``, with
+      ``beta[0]`` the measure of the interval.
     """
     alpha = np.zeros(count)
     beta = np.zeros(count)
@@ -255,15 +247,8 @@ def _jacobi_kronrod(
     can be read against the source. It is validated against QuadGK's own nodes and
     weights, which use the same algorithm independently.
 
-    Parameters
-    ----------
-    n : int
-        Order of the underlying Gauss rule; the extension has ``2 n + 1`` points.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        The diagonal and off-diagonal recurrence coefficients, length ``2 n + 1``.
+    - Returns: the diagonal and off-diagonal recurrence coefficients, length ``2 n +
+      1``.
 
     References
     ----------
@@ -374,18 +359,9 @@ def _radial_rule(
 ]:
     """Return the radial nodes on ``(0, 1)`` with their fine and coarse weights.
 
-    Parameters
-    ----------
-    n_r : int
-        Requested node count; rounded up to ``2 n + 1`` for a Kronrod rule.
-    kronrod : bool
-        Whether to use the Kronrod extension and its embedded coarse rule.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        ``xi``, ``w`` and ``w_coarse`` on ``xi = r / a``. Without a Kronrod extension
-        there is no embedded rule and the coarse weights equal the fine ones.
+    - ``n_r``: requested node count, rounded up to ``2 n + 1`` for a Kronrod rule.
+    - Returns: ``xi``, ``w`` and ``w_coarse`` on ``xi = r / a``. Without a Kronrod
+      extension there is no embedded rule and the coarse weights equal the fine ones.
     """
     if kronrod:
         # The smallest n with 2n + 1 >= n_r.
@@ -406,15 +382,7 @@ def _field_scale_measure(
     field scales at a ``count``-point Gauss-Legendre rule in ``xi`` on ``(0, 1)`` and
     the weights carry ``xi eta`` and the Jacobian of the map.
 
-    Parameters
-    ----------
-    count : int
-        Gauss-Legendre points in ``xi``.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        ``eta`` and the discrete measure, both of length `count`.
+    - Returns: ``eta`` and the discrete measure, both of length `count`.
     """
     nodes, weights = roots_legendre(count)
     xi = 0.5 * (nodes + 1.0)
@@ -435,17 +403,9 @@ def _lanczos(
     discrete measure, and unlike the discretised Stieltjes procedure it does not lose
     orthogonality at high order. ``beta[0]`` is the total mass.
 
-    Parameters
-    ----------
-    points, measure : numpy.ndarray
-        The support and the positive masses of the measure.
-    n : int
-        Coefficients wanted, >= 1 and at most the number of points.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        ``alpha`` and ``beta``, each of length `n`.
+    - ``points``, ``measure``: the support and the positive masses of the measure.
+    - ``n``: coefficients wanted, >= 1 and at most the number of points.
+    - Returns: ``alpha`` and ``beta``, each of length `n`.
     """
     alpha = np.zeros(n)
     beta = np.zeros(n)
@@ -469,20 +429,9 @@ def _field_scale_recurrence(
 ) -> tuple[Float[np.ndarray, " n"], Float[np.ndarray, " n"], int]:
     """Return converged recurrence coefficients of the field-scale measure.
 
-    Parameters
-    ----------
-    n : int
-        Coefficients wanted, >= 1.
-
-    Returns
-    -------
-    tuple
-        ``alpha``, ``beta`` and the measure's point count at which they converged.
-
-    Raises
-    ------
-    ModeError
-        If no count in ``_MEASURE_COUNTS`` settles the coefficients.
+    - ``n``: coefficients wanted, >= 1.
+    - Returns: ``alpha``, ``beta`` and the measure's point count at which they
+      converged.
     """
     previous = None
     for count in _MEASURE_COUNTS:
@@ -615,23 +564,8 @@ def _certify(
 ) -> None:
     """Check a field-scale rule against a measure refined once more.
 
-    Parameters
-    ----------
-    n : int
-        The order, for the message.
-    eta, weights : numpy.ndarray
-        The rule.
-    degree : int or None
-        The polynomial degree it must integrate exactly; ``None`` for the one-node
-        special rule, which must match moments 1 and 3 only.
-    count : int
-        The measure point count the rule was built from.
-
-    Raises
-    ------
-    ModeError
-        If a weight is not finite and positive, a node is outside ``(0, 1]`` or
-        repeated, or a moment misses ``_MOMENT_TOLERANCE``.
+    - ``degree``: the polynomial degree it must integrate exactly; ``None`` for the
+      one-node special rule, which must match moments 1 and 3 only.
     """
     if (
         not np.all(np.isfinite(weights))
@@ -658,15 +592,8 @@ def _certify(
 def _xi_of_eta(eta: float) -> float:
     """Return the radius ``xi = r / a`` at which the HE_11 field scale equals `eta`.
 
-    Parameters
-    ----------
-    eta : float
-        A field scale in ``(0, 1]``.
-
-    Returns
-    -------
-    float
-        The root of ``J_0(u xi) = eta`` in ``[0, 1)``; exactly 0 on the axis.
+    - ``eta``: a field scale in ``(0, 1]``.
+    - Returns: the root of ``J_0(u xi) = eta`` in ``[0, 1)``; exactly 0 on the axis.
     """
     if eta >= 1.0:
         return 0.0
@@ -686,20 +613,11 @@ def _field_scale_radial(
 ) -> tuple[Float[np.ndarray, " n"], Float[np.ndarray, " n"]]:
     """Return a field-scale rule as radii and dimensionless radial area weights.
 
-    Parameters
-    ----------
-    n : int
-        Nodes.
-    radau : bool
-        Fix one node on the axis.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        ``xi`` in increasing order and ``q = lambda / eta``, the weights of
-        ``int f xi d xi``: the area form, finite at the axis, which the ``d xi`` form
-        would need to divide by ``xi`` (SEP 19 section 4.2). They are source-adapted
-        and do not integrate a constant area density exactly.
+    - ``radau``: fix one node on the axis.
+    - Returns: ``xi`` in increasing order and ``q = lambda / eta``, the weights of ``int
+      f xi d xi``: the area form, finite at the axis, which the ``d xi`` form would need
+      to divide by ``xi`` (SEP 19 section 4.2). They are source-adapted and do not
+      integrate a constant area density exactly.
     """
     eta, weights = field_scale_rule(n, radau=radau)
     xi = np.array([_xi_of_eta(float(value)) for value in eta])
@@ -747,18 +665,9 @@ def _azimuthal_rule(
 ]:
     """Return the azimuthal nodes with their fine and coarse weights.
 
-    Parameters
-    ----------
-    n_theta : int
-        Node count for the full rule; ignored when `full` is false.
-    full : bool
-        Whether the integrand varies with the azimuthal angle.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        ``theta``, ``w`` and ``w_coarse``. The azimuthally symmetric rule is one node
-        at ``theta = 0`` carrying the whole ``2 pi``.
+    - ``n_theta``: node count for the full rule; ignored when `full` is false.
+    - Returns: ``theta``, ``w`` and ``w_coarse``. The azimuthally symmetric rule is one
+      node at ``theta = 0`` carrying the whole ``2 pi``.
     """
     if not full:
         single = np.array([2.0 * math.pi])
@@ -881,25 +790,19 @@ class TransverseQuadrature:
             raise ModeError(msg)
 
     @property
-    def n_nodes(self) -> int:
-        """Return the number of quadrature nodes.
+    def n_nodes(self) -> int:  # numpydoc ignore=RT01
+        """Number of quadrature nodes.
 
-        Returns
-        -------
-        int
-            ``n_r * n_theta``.
+        ``n_r * n_theta``.
         """
         return self.n_r * self.n_theta
 
     @property
-    def has_embedded_rule(self) -> bool:
-        """Return whether the coarse weights differ from the fine ones.
+    def has_embedded_rule(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the coarse weights differ from the fine ones.
 
-        Returns
-        -------
-        bool
-            ``True`` when there is a genuine embedded rule, so that the difference of
-            the two projections is an error estimate rather than identically zero.
+        ``True`` when there is a genuine embedded rule, so that the difference of
+        the two projections is an error estimate rather than identically zero.
         """
         fine, coarse = (
             (self.w_r, self.w_r_coarse)
@@ -917,20 +820,7 @@ class TransverseQuadrature:
     ) -> tuple[tuple[float, ...], tuple[float, ...]]:
         """Check that a mode's geometry matches this rule and return its limits.
 
-        Parameters
-        ----------
-        dimlimits : tuple
-            As returned by :meth:`solprop.modes.protocol.Mode.dimlimits`.
-
-        Returns
-        -------
-        tuple
-            The lower and upper limits.
-
-        Raises
-        ------
-        ModeError
-            If the cross-section kind does not match the rule.
+        - Returns: the lower and upper limits.
         """
         kind, lower, upper = dimlimits
         if kind != self.kind:
@@ -1104,25 +994,7 @@ def _check_request(  # noqa: PLR0917 - called positionally
     Typed loosely on purpose: it is the guard behind :func:`quadrature_rule`'s own
     ``Literal`` annotations, so it must see and name a value those would reject.
 
-    Parameters
-    ----------
-    kind : str
-        The cross-section, as :func:`quadrature_rule`.
-    full : bool
-        Whether the second coordinate is resolved.
-    n_r : object
-        The first-coordinate count, checked to be an integer here.
-    n_theta : int
-        The second-coordinate count.
-    radial_rule : str
-        The first-coordinate family, checked against :data:`RadialRule` here.
-    breaks : tuple of float
-        Radial panel boundaries.
-
-    Raises
-    ------
-    ModeError
-        As :func:`quadrature_rule` describes.
+    - ``full``: whether the second coordinate is resolved.
     """
     if kind not in ("polar", "cartesian", "slab"):
         raise ModeError(f"kind must be 'polar', 'cartesian' or 'slab', got {kind!r}")
@@ -1652,22 +1524,9 @@ def _normalisation(mode: Mode, z: float) -> float:
     which would turn the orthonormality test into a tautology; the closed form is what
     makes that test say something.
 
-    Parameters
-    ----------
-    mode : Mode
-        The mode, which must provide ``normalisation(z)``.
-    z : float
-        Position along the waveguide, m.
-
-    Returns
-    -------
-    float
-        ``N`` in W.
-
-    Raises
-    ------
-    ModeError
-        If the mode has no closed-form normalisation.
+    - ``mode``: the mode, which must provide ``normalisation(z)``.
+    - ``z``: position along the waveguide, m.
+    - Returns: ``N`` in W.
     """
     closed_form: Callable[[float], float] | None = getattr(mode, "normalisation", None)
     if not callable(closed_form):

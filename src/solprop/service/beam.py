@@ -75,21 +75,7 @@ def across(space: object, values: np.ndarray) -> tuple[str, np.ndarray, np.ndarr
 def _flux(grid: TimeGrid, space: object, medium: object, z: float) -> SpatialFlux:
     """Return the plane's measure: the run's grids and medium at the position.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        The run's time grid.
-    space : object
-        Its transverse grid.
-    medium : object
-        Its medium.
-    z : float
-        The plane's position, m.
-
-    Returns
-    -------
-    solprop.spatial.SpatialFlux
-        The measure.
+    - ``z``: the plane's position, m.
     """
     return SpatialFlux.resolve(grid, space, medium, z=z)  # pyright: ignore[reportArgumentType]
 

@@ -543,13 +543,10 @@ class DispersiveKerrTerms:
             )
 
     @property
-    def n_channels(self) -> int:
-        """Return the number of species channels.
+    def n_channels(self) -> int:  # numpydoc ignore=RT01
+        """Number of species channels.
 
-        Returns
-        -------
-        int
-            One per labelled population with a dispersive response.
+        One per labelled population with a dispersive response.
         """
         return len(self.labels)
 
@@ -902,15 +899,8 @@ def _preionisation_profile(value: float | ZProfile) -> ZProfile:
     :class:`Constant`, so a constant path compiles to the number's table to the last
     bit whatever breakpoints it carries.
 
-    Parameters
-    ----------
-    value : float or ZProfile
-        The initial ionised fraction, dimensionless, or a path of it along z in m.
-
-    Returns
-    -------
-    ZProfile
-        The path to tabulate.
+    - ``value``: the initial ionised fraction, dimensionless, or a path of it along z in
+      m.
     """
     if isinstance(value, ZProfile) and value.is_constant:
         start = value.z_span[0]
@@ -1171,13 +1161,10 @@ class RamanCoefficients:
             raise TranslationError(msg)
 
     @property
-    def n_terms(self) -> int:
-        """Return the number of independently damped terms.
+    def n_terms(self) -> int:  # numpydoc ignore=RT01
+        """Number of independently damped terms.
 
-        Returns
-        -------
-        int
-            The number of kernel rows, which is also the number of decay-rate tables.
+        The number of kernel rows, which is also the number of decay-rate tables.
         """
         return int(self.undamped.shape[0])
 
@@ -1276,37 +1263,28 @@ class RegionalResponseTables(Displayed):
     policy_id: str
 
     @property
-    def n_responses(self) -> int:
-        """Return how many responses the record assigns.
+    def n_responses(self) -> int:  # numpydoc ignore=RT01
+        """How many responses the record assigns.
 
-        Returns
-        -------
-        int
-            The length of ``response_region``.
+        The length of ``response_region``.
         """
         return int(self.response_region.size)
 
     @property
-    def n_components(self) -> int:
-        """Return how many Cartesian components each tensor contracts over.
+    def n_components(self) -> int:  # numpydoc ignore=RT01
+        """How many Cartesian components each tensor contracts over.
 
-        Returns
-        -------
-        int
-            At least one and at most
-            :data:`solprop.translate.problem.MAX_N_COMPONENTS`.
+        At least one and at most
+        :data:`solprop.translate.problem.MAX_N_COMPONENTS`.
         """
         return int(self.instantaneous_tensor.shape[1])
 
     @property
-    def n_terms(self) -> int:
-        """Return how many delayed terms each response carries.
+    def n_terms(self) -> int:  # numpydoc ignore=RT01
+        """How many delayed terms each response carries.
 
-        Returns
-        -------
-        int
-            Zero for a purely instantaneous response, two for the silica tensor
-            Raman model's trace and rank-two channels.
+        Zero for a purely instantaneous response, two for the silica tensor
+        Raman model's trace and rank-two channels.
         """
         return int(self.delayed_tensor.shape[1])
 
@@ -1332,10 +1310,7 @@ class RegionalResponseTables(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         title = "RegionalResponseTables: the compiled response of each material region"
         return title, [
@@ -1372,13 +1347,7 @@ class RegionalResponseTables(Displayed):
         self._validate_tables()
 
     def _validate_tensors(self) -> None:
-        """Check the two tensors against the response and component counts.
-
-        Raises
-        ------
-        TranslationError
-            Naming the field that failed.
-        """
+        """Check the two tensors against the response and component counts."""
         # The contract's component ceiling lives beside the state's polarisation
         # ceiling, in translate.problem, which imports this module; the import is
         # deferred rather than the number copied, so there is one of it.
@@ -1421,13 +1390,7 @@ class RegionalResponseTables(Displayed):
         object.__setattr__(self, "delayed_tensor", delayed)
 
     def _validate_tables(self) -> None:
-        """Check the susceptibility, the kernels and the temporal weight.
-
-        Raises
-        ------
-        TranslationError
-            Naming the field that failed.
-        """
+        """Check the susceptibility, the kernels and the temporal weight."""
         responses = self.n_responses
         terms = int(self.delayed_tensor.shape[1])
         chi3 = frozen_copy(self.chi3, np.float64)
@@ -1734,13 +1697,7 @@ class _DelayedTerms:
 
     @property
     def n_terms(self) -> int:
-        """Return how many delayed channels each response carries.
-
-        Returns
-        -------
-        int
-            Zero, or the two channels of the silica tensor model.
-        """
+        """Return how many delayed channels each response carries."""
         return int(self.tensors.shape[1])
 
 
@@ -1753,21 +1710,12 @@ def _delayed_terms(
     **linear** convolution and the response's tail cannot wrap onto the head of the
     drive, exactly as :mod:`solprop.translate.raman` stores the scalar one.
 
-    Parameters
-    ----------
-    declared : sequence
-        One :class:`solprop.nonlinear.raman.SilicaTensorResponse` or ``None`` per
-        response, in the record's own order.
-    n_to : int
-        Fine time samples of the run's grid, positive.
-    dt_fine : float
-        Fine sample spacing in s, positive.
-
-    Returns
-    -------
-    _DelayedTerms
-        The tensors, the kernels and the support counts, with an empty term axis
-        when no region declares a delayed response.
+    - ``declared``: one :class:`solprop.nonlinear.raman.SilicaTensorResponse` or
+      ``None`` per response, in the record's own order.
+    - ``n_to``: fine time samples of the run's grid, positive.
+    - ``dt_fine``: fine sample spacing in s, positive.
+    - Returns: the tensors, the kernels and the support counts, with an empty term axis
+      when no region declares a delayed response.
     """
     responses = len(declared)
     present = [one for one in declared if one is not None]
@@ -1963,14 +1911,11 @@ class CompiledResponses:
             raise TranslationError(msg)
 
     @property
-    def harmonic_carrier(self) -> bool:
-        """Return whether the pass needs ``grids.carrier_2w0``.
+    def harmonic_carrier(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the pass needs ``grids.carrier_2w0``.
 
-        Returns
-        -------
-        bool
-            True when an envelope grid's constant Kerr term radiates the harmonic, or
-            its dispersive term keeps the full cubic.
+        True when an envelope grid's constant Kerr term radiates the harmonic, or
+        its dispersive term keeps the full cubic.
         """
         kerr = self.kerr_coefficients
         dispersive = self.dispersive_kerr
@@ -1979,15 +1924,12 @@ class CompiledResponses:
         )
 
     @property
-    def electronic_thg(self) -> bool | None:
-        """Return the field grid's harmonic form, read off the electronic term.
+    def electronic_thg(self) -> bool | None:  # numpydoc ignore=RT01
+        """Field grid's harmonic form, read off the electronic term.
 
-        Returns
-        -------
-        bool or None
-            Whether the electronic cubic keeps the third harmonic on a field grid --
-            the constant Kerr term's real cubic, or the dispersive term's full
-            sector -- or ``None`` with no electronic term.
+        Whether the electronic cubic keeps the third harmonic on a field grid --
+        the constant Kerr term's real cubic, or the dispersive term's full
+        sector -- or ``None`` with no electronic term.
         """
         if self.kerr_coefficients is not None:
             return not self.kerr_coefficients.analytic_signal
@@ -1996,25 +1938,21 @@ class CompiledResponses:
         return None
 
     @property
-    def n_species(self) -> int:
-        """Return the number of labelled populations.
+    def n_species(self) -> int:  # numpydoc ignore=RT01
+        """Number of labelled populations.
 
-        Returns
-        -------
-        int
-            Length of the species axis, including inactive populations.
+        Length of the species axis, including inactive populations.
         """
         return len(self.labels)
 
     @property
-    def population_channels(self) -> tuple[PlasmaChannel | EnvelopePlasmaChannel, ...]:
-        """Return labelled population channels in material order.
+    def population_channels(
+        self,
+    ) -> tuple[PlasmaChannel | EnvelopePlasmaChannel, ...]:  # numpydoc ignore=RT01
+        """Labelled population channels in material order.
 
-        Returns
-        -------
-        tuple
-            Field channels or envelope channels. Their stage density and initial
-            population paths share the same scalar packing order.
+        Field channels or envelope channels. Their stage density and initial
+        population paths share the same scalar packing order.
         """
         return (
             self.plasma_channels
@@ -2023,24 +1961,18 @@ class CompiledResponses:
         )
 
     @property
-    def plasma_coefficients(self) -> PlasmaChannel | None:
-        """Return the one-channel leaf for the original specialised execution path.
+    def plasma_coefficients(self) -> PlasmaChannel | None:  # numpydoc ignore=RT01
+        """One-channel leaf for the original specialised execution path.
 
-        Returns
-        -------
-        PlasmaChannel or None
-            The sole channel, or ``None`` when there are zero or multiple channels.
+        The sole channel, or ``None`` when there are zero or multiple channels.
         """
         return self.plasma_channels[0] if len(self.plasma_channels) == 1 else None
 
     @property
-    def raman_coefficients(self) -> RamanCoefficients | None:
-        """Return the one-component Raman leaf for its original arithmetic.
+    def raman_coefficients(self) -> RamanCoefficients | None:  # numpydoc ignore=RT01
+        """One-component Raman leaf for its original arithmetic.
 
-        Returns
-        -------
-        RamanCoefficients or None
-            The sole component, or ``None`` when there are zero or multiple terms.
+        The sole component, or ``None`` when there are zero or multiple terms.
         """
         return self.raman_terms[0] if len(self.raman_terms) == 1 else None
 
@@ -2050,11 +1982,6 @@ class CompiledResponses:
         A kind that is neither is caught by these two checks together and named by
         their message, so it needs no membership test of its own -- which could not be
         reached anyway from a constructor whose annotation is a literal.
-
-        Raises
-        ------
-        TranslationError
-            If the wrong member is present for the kind named.
         """
         if (self.separable is not None) != (
             self.prefactor_representation == "separable"
@@ -2091,13 +2018,10 @@ class CompiledResponses:
             raise TranslationError(msg)
 
     @property
-    def prefactor_value_shape(self) -> tuple[int, ...]:
-        """Return the shape of the prefactor at one position.
+    def prefactor_value_shape(self) -> tuple[int, ...]:  # numpydoc ignore=RT01
+        """Shape of the prefactor at one position.
 
-        Returns
-        -------
-        tuple of int
-            ``(n_modes, n_pol, n_omega)``, whichever representation carries it.
+        ``(n_modes, n_pol, n_omega)``, whichever representation carries it.
         """
         if self.separable is not None:
             return self.separable.value_shape[1:]
@@ -2108,13 +2032,10 @@ class CompiledResponses:
         return cast("PiecewiseChebyshev", self.prefactor).value_shape
 
     @property
-    def prefactor_span(self) -> tuple[float, float]:
-        """Return the range of z the prefactor covers.
+    def prefactor_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Range ``(first breakpoint, last breakpoint)`` the prefactor covers, m.
 
-        Returns
-        -------
-        tuple of float
-            ``(first breakpoint, last breakpoint)`` in m, the same as ``Phi``'s.
+        The same as ``Phi``'s.
         """
         if self.separable is not None:
             return self.separable.z_span
@@ -2126,17 +2047,7 @@ class CompiledResponses:
 def _prefactor_kind(constant: bool, expanded: bool) -> PhiRepresentation:
     """Return the representation kind the three prefactor members spell out.
 
-    Parameters
-    ----------
-    constant : bool
-        Whether every mode reports ``z_constant``, so the array itself is carried.
-    expanded : bool
-        Whether an expansion in the scalar parameters was built.
-
-    Returns
-    -------
-    str
-        ``"constant"``, ``"expansion"`` or ``"table"``.
+    - Returns: ``"constant"``, ``"expansion"`` or ``"table"``.
     """
     if constant:
         return "constant"
@@ -2228,41 +2139,17 @@ def _prefactor_at(  # noqa: PLR0917 - called positionally
     ``mode_average_prefactor(mode, grid, 0.0) * crop_scale``, which is what
     ``prefactor_constant`` and every backend's fast path expect.
 
-    Parameters
-    ----------
-    modes : sequence of Mode
-        The mode set, in order.
-    grid : solprop.grid.TimeGrid
-        The grid.
-    n_pol : int
-        Polarisation components; the prefactor is the same for both components of one
-        mode and is stored for each.
-    mode_averaged : bool
-        Whether the effective-area conversion is folded in (the one-node case).
-    shock : bool
-        Keep the ``omega`` dependence of the numerator.
-    index : float or None
-        Replace the effective index by this constant; the GNLSE passes 1.0.
-
-    Returns
-    -------
-    callable
-        ``z -> p`` of shape ``(n_modes, n_pol, n_omega)``.
+    - ``mode_averaged``: fold the effective-area conversion in (the one-node case).
+    - ``shock``: keep the ``omega`` dependence of the numerator.
+    - ``index``: replace the effective index by this constant; the GNLSE passes 1.0.
+    - Returns: ``z -> p`` of shape ``(n_modes, n_pol, n_omega)``.
     """
     areas = [sqrtw_to_vm(one.aeff(0.0)) if mode_averaged else 1.0 for one in modes]
 
     def prefactor_at(z: float) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Return the prefactor at one position, in the canonical layout.
 
-        Parameters
-        ----------
-        z : float
-            Position along the waveguide, m.
-
-        Returns
-        -------
-        numpy.ndarray
-            The prefactor, shape ``(n_modes, n_pol, n_omega)``.
+        - ``z``: position along the waveguide, m.
         """
         columns = [
             uppe_prefactor(one, grid, z, shock=shock, index=index)
@@ -2297,35 +2184,9 @@ def _prefactor_expansion(  # noqa: PLR0917 - called positionally
     representation, with plain products of the basis polynomials as its weights rather
     than their integrals: the prefactor is a value at ``z``, not a cumulative one.
 
-    Parameters
-    ----------
-    modes : sequence of Mode
-        The mode set; its declared paths are the dimensions.
-    grid : solprop.grid.TimeGrid
-        The grid.
-    n_pol : int
-        Polarisation components; the prefactor is stored for each.
-    mode_averaged : bool
-        Whether the effective-area conversion is folded in, at the reference position.
-    shock : bool
-        Keep the ``omega`` dependence of the numerator.
-    index : float or None
-        Replace the effective index by this constant; the GNLSE passes 1.0.
-    span : float
-        End of the tabulated range, m.
-    edges : array_like
-        Positions that must be interval edges of the scalar tables.
-    tol : float
-        Target bound on the uniform error relative to the value scale.
-    n_max : int
-        Highest Chebyshev degree tried on a parameter.
-    max_intervals : int
-        Interval budget for the scalar tables.
-
-    Returns
-    -------
-    solprop.translate.expansion.ParameterExpansion or None
-        The expansion, or ``None`` when the mode set does not allow one.
+    - ``span``: end of the tabulated range, m.
+    - ``edges``: positions that must be interval edges of the scalar tables.
+    - Returns: the expansion, or ``None`` when the mode set does not allow one.
     """
     varying = parameter_paths(modes, 0.0, span)
     if varying is None:
@@ -2336,18 +2197,7 @@ def _prefactor_expansion(  # noqa: PLR0917 - called positionally
     def prefactor_of(
         values: Mapping[str, float],
     ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
-        """Return the prefactor at one point of the parameter space.
-
-        Parameters
-        ----------
-        values : collections.abc.Mapping
-            One value per expanded path, by name.
-
-        Returns
-        -------
-        numpy.ndarray
-            Shape ``(n_modes, n_pol, n_omega)``.
-        """
+        """Return the prefactor at one point of the parameter space."""
         columns = [
             uppe_prefactor(
                 one.at_parameters(values), grid, 0.0, shock=shock, index=index
@@ -2396,28 +2246,13 @@ def _prefactor_table(
     round-off of 8e-16 against the operator's 1e-11, and the build converges at the
     tolerance it is asked for.
 
-    Parameters
-    ----------
-    prefactor_at : callable
-        ``z -> p`` in the canonical layout, from :func:`_prefactor_at`.
-    modes : sequence of Mode
-        The mode set; its ``core_radius`` and ``density`` paths carry the structure.
-    span : float
-        End of the tabulated range, m: the same ``z_max (1 + margin)`` as ``Phi``.
-    edges : array_like
-        Positions that must be interval edges. :func:`compile_responses` is given the
-        cumulative operator's hard kinks, so the two tables split on the same edges.
-    tol : float
-        Target bound on the uniform error relative to the value scale.
-    n_max : int
-        Highest Chebyshev degree tried on an interval before it is bisected.
-    max_intervals : int
-        Interval budget; exceeding it warns and leaves the table unresolved.
-
-    Returns
-    -------
-    solprop.translate.chebyshev.PiecewiseChebyshev
-        The prefactor over ``[0, span]``, with read-only arrays.
+    - ``prefactor_at``: ``z -> p`` in the canonical layout, from :func:`_prefactor_at`.
+    - ``span``: end of the tabulated range, m: the same ``z_max (1 + margin)`` as
+      ``Phi``.
+    - ``edges``: positions that must be interval edges. :func:`compile_responses` is
+      given the cumulative operator's hard kinks, so the two tables split on the same
+      edges.
+    - Returns: the prefactor over ``[0, span]``, with read-only arrays.
     """
 
     def sample(
@@ -2425,18 +2260,7 @@ def _prefactor_table(
     ) -> Complex[np.ndarray, "n_z n_modes n_pol n_omega"]:
         """Return the prefactor at every position of a Chebyshev node set.
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions along the waveguide, m, shape ``(n_z,)``.
-        *_ : object
-            The path values the builder resolved; the prefactor is evaluated from ``z``
-            directly, so they are not used.
-
-        Returns
-        -------
-        numpy.ndarray
-            Shape ``(n_z, n_modes, n_pol, n_omega)``.
+        - ``z``: positions along the waveguide, m, shape ``(n_z,)``.
         """
         return np.stack([prefactor_at(float(one)) for one in z])
 
@@ -2469,12 +2293,7 @@ def _log_prefactor(compiled: "CompiledResponses", z_max: float) -> None:
     report is free: it is the largest departure from the entrance value over the run,
     which is exactly what freezing the prefactor at ``z = 0`` used to discard.
 
-    Parameters
-    ----------
-    compiled : CompiledResponses
-        Section 5, already assembled.
-    z_max : float
-        Length the run covers, m.
+    - ``z_max``: length the run covers, m.
     """
     if compiled.separable is not None:
         logger.debug(
@@ -2527,16 +2346,9 @@ def _translated_prefactor(
 ) -> _PrefactorRepresentation | None:
     """Classify a caller's own normalisation without rebuilding it as a modal one.
 
-    Parameters
-    ----------
-    supplied : object or None
-        A translated table, parameter expansion or separable coefficient record.
-        None requests the ordinary modal normalisation.
-
-    Returns
-    -------
-    _PrefactorRepresentation or None
-        The supplied representation, or None for a modal problem.
+    - ``supplied``: a translated table, parameter expansion or separable coefficient
+      record. None requests the ordinary modal normalisation.
+    - Returns: the supplied representation, or None for a modal problem.
     """
     if supplied is None:
         return None
@@ -2582,19 +2394,8 @@ def _material_profiles(
 ) -> _MaterialProfiles:
     """Resolve component profiles while preserving the original single path.
 
-    Parameters
-    ----------
-    modes : Sequence of Mode or None
-        Mode set carrying the material declaration.
-    mixture : Mixture or None
-        Ordered component populations; None retains the legacy material path.
-    profile : ZProfile
-        Total density path in m^-3, or the legacy nonlinear scale.
-
-    Returns
-    -------
-    _MaterialProfiles
-        Species metadata with each component density and the total path.
+    - ``mixture``: ordered component populations; None retains the legacy material path.
+    - ``profile``: total density path in m^-3, or the legacy nonlinear scale.
     """
     if mixture is None and modes:
         declared = getattr(modes[0], "mixture", None)
@@ -2620,20 +2421,7 @@ def _response_label(
     | RamanResponse,
     material: _MaterialProfiles,
 ) -> str:
-    """Require an unambiguous population for every declared response.
-
-    Parameters
-    ----------
-    response : object
-        Declared response whose optional species field binds a component label.
-    material : _MaterialProfiles
-        Ordered labels, species names and density paths.
-
-    Returns
-    -------
-    str
-        Validated label in the material declaration.
-    """
+    """Require an unambiguous population for every declared response."""
     label = response.species
     if label is None:
         if len(material.labels) == 1:
@@ -2671,21 +2459,8 @@ def _compile_kerr_components(
 ) -> KerrCoefficients | None:
     """Fold species amplitudes once, retaining the one-component multiplication.
 
-    Parameters
-    ----------
-    responses : tuple
-        Declared responses of one kind in user order.
-    material : _MaterialProfiles
-        Ordered labels, species names and density paths.
-    densities : Mapping of str to PiecewiseChebyshev
-        Density tables in m^-3, keyed by component label.
-    build : _ResponseBuild
-        Grid, span in m, interpolation tolerance and ionisation field range.
-
-    Returns
-    -------
-    KerrCoefficients or None
-        One cubic form with its own composite density table.
+    - ``densities``: density tables in m^-3, keyed by component label.
+    - ``build``: grid, span in m, interpolation tolerance and ionisation field range.
     """
     if not responses:
         return None
@@ -2727,28 +2502,10 @@ def _compile_dispersive_components(
     general modal guide's gas regions arrive compiled, as `regional`, and are taken as
     they are.
 
-    Parameters
-    ----------
-    responses : tuple of DispersiveKerrResponse
-        Declared responses in user order.
-    material : _MaterialProfiles
-        Ordered labels, species names and density paths.
-    densities : Mapping of str to PiecewiseChebyshev
-        Density tables in m^-3, keyed by component label.
-    build : _ResponseBuild
-        Grid, span in m, interpolation tolerance and ionisation field range.
-    regional : DispersiveKerrTerms or None, optional
-        A general modal guide's compiled gas channels, or ``None``.
-
-    Returns
-    -------
-    DispersiveKerrTerms or None
-        The compiled leaf, channels in species order, or ``None`` with none declared.
-
-    Raises
-    ------
-    TranslationError
-        If a dispersive response is declared beside a guide's own channels.
+    - ``densities``: density tables in m^-3, keyed by component label.
+    - ``build``: grid, span in m, interpolation tolerance and ionisation field range.
+    - Returns: the compiled leaf, channels in species order, or ``None`` with none
+      declared.
     """
     if regional is not None:
         if responses:
@@ -2820,21 +2577,8 @@ def _compile_plasma_channels(
 ) -> tuple[PlasmaChannel, ...]:
     """Bind each exposure scan to its own density and response constants.
 
-    Parameters
-    ----------
-    responses : tuple
-        Declared responses of one kind in user order.
-    material : _MaterialProfiles
-        Ordered labels, species names and density paths.
-    densities : Mapping of str to PiecewiseChebyshev
-        Density tables in m^-3, keyed by component label.
-    build : _ResponseBuild
-        Grid, span in m, interpolation tolerance and ionisation field range.
-
-    Returns
-    -------
-    tuple of PlasmaChannel
-        Independent channels in mixture order.
+    - ``densities``: density tables in m^-3, keyed by component label.
+    - ``build``: grid, span in m, interpolation tolerance and ionisation field range.
     """
     channels = []
     for response in responses:
@@ -2867,23 +2611,6 @@ def _plasma_integral(
 
     The channels share the two current integrals, so they cannot honour different
     rules: every plasma response of one problem must ask for the same one.
-
-    Parameters
-    ----------
-    responses : tuple of PlasmaResponse
-        The field plasma responses, in user order.
-    grid : solprop.grid.TimeGrid
-        The field grid the band rule is designed for.
-
-    Returns
-    -------
-    RunningIntegral
-        The designed rule, or the trapezoid without plasma.
-
-    Raises
-    ------
-    TranslationError
-        If the responses ask for different rules, or no band design serves the grid.
     """
     if not responses:
         return RunningIntegral.trapezoid()
@@ -2910,23 +2637,8 @@ def _compile_envelope_channels(
 ) -> EnvelopePlasmaAssembly | None:
     """Compile labelled envelope populations and their separate spectral assembly.
 
-    Parameters
-    ----------
-    responses : tuple of EnvelopePlasmaResponse
-        Declared envelope responses.
-    material : _MaterialProfiles
-        Component identities and paths.
-    densities : Mapping
-        Compiled component number densities in m^-3.
-    build : _ResponseBuild
-        Grid, z span, profile tolerance and intended amplitude domain.
-    shock : bool
-        Frequency-dependent or frozen-carrier policy.
-
-    Returns
-    -------
-    EnvelopePlasmaAssembly or None
-        Numeric channels in material order, or None when not declared.
+    - ``densities``: compiled component number densities in m^-3.
+    - Returns: numeric channels in material order, or None when not declared.
     """
     if not responses:
         return None
@@ -2981,29 +2693,9 @@ def _raman_density(
     labels that form it both drives and damps it: still one decay-rate path per term
     and one amplitude table per leaf, as the kernel contract has them.
 
-    Parameters
-    ----------
-    response : RamanResponse
-        The declared response.
-    label : str
-        The leaf's label.
-    material : _MaterialProfiles
-        Ordered labels and their density paths.
-    densities : Mapping of str to PiecewiseChebyshev
-        Density tables in m^-3, keyed by label.
-    build : _ResponseBuild
-        Span and tolerance of the tables.
-
-    Returns
-    -------
-    tuple
-        The density path in m^-3 the decay rates are composed with, and the
-        amplitude density table in m^-3.
-
-    Raises
-    ------
-    TranslationError
-        If a composition names a label the material does not have.
+    - ``densities``: density tables in m^-3, keyed by label.
+    - Returns: the density path in m^-3 the decay rates are composed with, and the
+      amplitude density table in m^-3.
     """
     labels = response.labels if isinstance(response, OptmatRamanResponse) else ()
     if len(labels) < 2:
@@ -3030,25 +2722,9 @@ def _compile_raman_components(  # noqa: PLR0917 - called positionally
 ) -> tuple[RamanCoefficients, ...]:
     """Compile component amplitudes and linewidths under the total-density rule.
 
-    Parameters
-    ----------
-    responses : tuple
-        Declared responses of one kind in user order.
-    kerr : KerrResponse or DispersiveKerrResponse or None
-        Electronic response specifying the field-grid harmonic form.
-    material : _MaterialProfiles
-        Ordered labels, species names and density paths.
-    densities : Mapping of str to PiecewiseChebyshev
-        Density tables in m^-3, keyed by component label.
-    build : _ResponseBuild
-        Grid, span in m, interpolation tolerance and ionisation field range.
-    n_pol : int
-        Number of effective polarisation components, one or two.
-
-    Returns
-    -------
-    tuple of RamanCoefficients
-        Component kernels, amplitude densities and total-density decay tables.
+    - ``densities``: density tables in m^-3, keyed by component label.
+    - ``build``: grid, span in m, interpolation tolerance and ionisation field range.
+    - Returns: component kernels, amplitude densities and total-density decay tables.
     """
     compiled = []
     for response in responses:
@@ -3428,13 +3104,7 @@ def _check_population_declarations(
     envelope: tuple[EnvelopePlasmaResponse, ...],
     kerr: tuple[KerrResponse, ...],
 ) -> None:
-    """Reject contradictory source declarations before expensive compilation.
-
-    Parameters
-    ----------
-    envelope, kerr : tuple
-        Declared responses of each kind.
-    """
+    """Reject contradictory source declarations before expensive compilation."""
     if envelope and any(response.thg for response in kerr):
         raise TranslationError("envelope plasma cannot be combined with envelope THG")
 
@@ -3446,24 +3116,8 @@ def _population_tables(
 ) -> tuple[RateTable, ...]:
     """Retain the exact rate table owned by each active population channel.
 
-    Parameters
-    ----------
-    plasma : tuple of PlasmaChannel
-        Compiled field populations.
-    envelope : EnvelopePlasmaAssembly or None
-        Compiled envelope populations and source assembly.
-    field_range : tuple of float or None
-        Intended table amplitude domain in V/m.
-
-    Returns
-    -------
-    tuple of RateTable
-        Tables in channel order; empty without a plasma population.
-
-    Raises
-    ------
-    TranslationError
-        If a field range is given without a plasma population to use it.
+    - ``field_range``: intended table amplitude domain in V/m.
+    - Returns: tables in channel order; empty without a plasma population.
     """
     if envelope is not None:
         return tuple(channel.rate for channel in envelope.channels)
@@ -3493,24 +3147,9 @@ def _declared(
     that declares it is undefined on this grid is refused with that reason -- the
     plasma model is written for a resolved carrier and has no envelope form.
 
-    Parameters
-    ----------
-    responses : sequence
-        The declared responses.
-    grid : solprop.grid.TimeGrid
-        The grid, whose ``kind`` every response must support.
-
-    Returns
-    -------
-    tuple
-        The Kerr, plasma, Raman, envelope-plasma and dispersive Kerr responses, each
-        empty when not declared.
-
-    Raises
-    ------
-    TranslationError
-        Naming a response that cannot be compiled, one declared twice, two electronic
-        responses on one population, or one that is not defined on this grid.
+    - ``grid``: the grid, whose ``kind`` every response must support.
+    - Returns: the Kerr, plasma, Raman, envelope-plasma and dispersive Kerr responses,
+      each empty when not declared.
     """
     found: dict[tuple[type, str | None], object] = {}
     for response in responses:
@@ -3596,17 +3235,8 @@ def _declared(
 def _tabulate_rate(rate: IonisationRate, field_range: tuple[float, float]) -> RateTable:
     """Build a frozen spline table of an ionisation rate over a field range.
 
-    Parameters
-    ----------
-    rate : solprop.nonlinear.ionisation.IonisationRate
-        The rate to tabulate.
-    field_range : tuple of float
-        Lower and upper field amplitude in V/m the table must cover.
-
-    Returns
-    -------
-    solprop.translate.ionisation.RateTable
-        The converged table, with read-only arrays.
+    - ``field_range``: lower and upper field amplitude in V/m the table must cover.
+    - Returns: the converged table, with read-only arrays.
     """
     return _frozen_table(build_rate_table(rate, field_range))
 
@@ -3621,24 +3251,7 @@ def _response_order(
 ) -> tuple[ResponseStage, ...]:
     """Return the fused-pass sequence the declared content implies.
 
-    Parameters
-    ----------
-    has_kerr : bool
-        Whether a Kerr response was declared.
-    has_ionisation : bool
-        Whether an ionisation table was built.
-    has_plasma : bool
-        Whether a plasma response was compiled.
-    has_raman : bool
-        Whether a Raman response was compiled.
-    has_dispersive : bool, optional
-        Whether a dispersive Kerr response was compiled; its stage follows the
-        constant one's.
-
-    Returns
-    -------
-    tuple of ResponseStage
-        The stages in execution order, always ending in ``ACCUMULATE``.
+    - Returns: the stages in execution order, always ending in ``ACCUMULATE``.
     """
     stages: list[ResponseStage] = []
     if has_ionisation:

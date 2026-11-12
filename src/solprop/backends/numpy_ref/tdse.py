@@ -187,16 +187,8 @@ def atomic_edge_source(
 def _source_gate(problem: PropagationProblem) -> Float[np.ndarray, " n_to"]:
     """Return the temporal gate of a gated source.
 
-    Parameters
-    ----------
-    problem : PropagationProblem
-        Problem whose descriptor may carry an atomic window.
-
-    Returns
-    -------
-    numpy.ndarray
-        The atomic window's gate when one is set, else the fine temporal collar,
-        shape ``(n_to,)``.
+    - Returns: the atomic window's gate when one is set, else the fine temporal collar,
+      shape ``(n_to,)``.
     """
     descriptor = tdse_descriptor(problem.route)
     gate = None if descriptor is None else descriptor.source_gate()
@@ -211,21 +203,8 @@ def _project_spectrum(
 ) -> Complex[np.ndarray, "n_modes 1 n_omega"]:
     """Apply the same modal projection and unscaled crop to either source.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Nodal P or J source, shape ``(n_nodes, 1, n_to)``, in C/m² or A/m².
-    projection : numpy.ndarray
-        Modal weights, shape ``(n_modes, n_nodes)``.
-    problem : PropagationProblem
-        Crop indices of the field grid.
-    bundle : StageScalars
-        Stage taper scale.
-
-    Returns
-    -------
-    numpy.ndarray
-        Raw FFT source, shape ``(n_modes, 1, n_omega)`` before source factors.
+    - ``values``: nodal P or J source, shape ``(n_nodes, 1, n_to)``, in C/m² or A/m².
+    - Returns: raw FFT source, shape ``(n_modes, 1, n_omega)`` before source factors.
     """
     projected = passes.project(values, projection, bundle.taper_scale, 1)
     return passes.to_frequency(projected, problem.grids.crop_index, kind="field")
@@ -241,25 +220,12 @@ def _roundoff_floor(
 ) -> float:
     """Bound operand cancellation through absolute projection and Fourier sums.
 
-    Parameters
-    ----------
-    magnitudes : numpy.ndarray
-        Sum of absolute microscopic operands after density and calibration,
-        shape ``(n_nodes, 1, n_to)``, in C/m² or A/m².
-    projection : numpy.ndarray
-        Modal weights, shape ``(n_modes, n_nodes)``.
-    factor : numpy.ndarray
-        P or J spectral factor including crop scale, shape
-        ``(n_modes, 1, n_omega)``.
-    problem : PropagationProblem
-        Spectral collar and transform size.
-    bundle : StageScalars
-        Stage taper scale.
-
-    Returns
-    -------
-    float
-        Nonnegative absolute rounding floor in spectral derivative norm units.
+    - ``magnitudes``: the sum of absolute microscopic operands after density and
+      calibration, in C/m² or A/m².
+    - ``factor``: P or J spectral factor including crop scale, shape ``(n_modes, 1,
+      n_omega)``.
+    - Returns: the nonnegative absolute rounding floor, in spectral derivative norm
+      units.
     """
     scaled, accumulation = _roundoff_terms(
         magnitudes, projection, factor, problem, bundle
@@ -275,27 +241,9 @@ def _roundoff_terms(
     problem: PropagationProblem,
     bundle: StageScalars,
 ) -> tuple[Float[np.ndarray, "n_modes 1 n_omega"], float]:
-    """Return the per-bin operand bound and the accumulation of :func:`_roundoff_floor`.
+    """Return the per-bin absolute operand bound and the relative accumulation.
 
-    Parameters
-    ----------
-    magnitudes : numpy.ndarray
-        Absolute operands, shape ``(n_nodes, 1, n_to)``, as :func:`_roundoff_floor`.
-    projection : numpy.ndarray
-        Modal weights, shape ``(n_modes, n_nodes)``.
-    factor : numpy.ndarray
-        Spectral factor, shape ``(n_modes, 1, n_omega)``.
-    problem : PropagationProblem
-        Spectral collar and transform size.
-    bundle : StageScalars
-        Stage taper scale.
-
-    Returns
-    -------
-    scaled : numpy.ndarray
-        Per-bin absolute operand bound, shape ``(n_modes, 1, n_omega)``.
-    accumulation : float
-        Relative accumulation ``operations * eps``.
+    Both feed :func:`_roundoff_floor`; the accumulation is ``operations * eps``.
     """
     absolute_projected = passes.project(
         magnitudes, np.abs(projection), abs(bundle.taper_scale), 1
@@ -319,17 +267,10 @@ def _roundoff_terms(
 def _inverse_i_omega(problem: PropagationProblem) -> Complex[np.ndarray, " n_omega"]:
     """Return ``1 / (i omega)`` on the active bins and zero elsewhere.
 
-    Parameters
-    ----------
-    problem : PropagationProblem
-        Coarse frequencies in rad/s and the active mask; every active bin is above
-        ``omega_min / 2 > 0``, so no division by zero occurs.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``-i / omega`` in s on active bins, exactly zero elsewhere, shape
-        ``(n_omega,)``.
+    - ``problem``: coarse frequencies in rad/s and the active mask; every active bin is
+      above ``omega_min / 2 > 0``, so no division by zero occurs.
+    - Returns: ``-i / omega`` in s on active bins, exactly zero elsewhere, shape
+      ``(n_omega,)``.
     """
     grids = problem.grids
     inverse = np.zeros(grids.n_omega, dtype=np.complex128)
@@ -405,24 +346,7 @@ def _current_part(
     problem: PropagationProblem,
     bundle: StageScalars,
 ) -> _CurrentPart:
-    """Project, transform and crop the current, and its edge term, under one map.
-
-    Parameters
-    ----------
-    operands : _CurrentOperands
-        The evaluation's nodal arrays and factors.
-    projection : numpy.ndarray
-        Modal weights, shape ``(n_modes, n_nodes)``: the fine or the embedded map.
-    problem : PropagationProblem
-        Crop, masks, collar and transform size.
-    bundle : StageScalars
-        Stage taper scale.
-
-    Returns
-    -------
-    _CurrentPart
-        Spectra, source and floors.
-    """
+    """Project, transform and crop the current, and its edge term, under one map."""
     factor = operands.factor
     truncating = _project_spectrum(operands.current, projection, problem, bundle)
     scaled, accumulation = _roundoff_terms(
@@ -488,29 +412,12 @@ def _edge_rounding(  # noqa: PLR0917 - called positionally
     The truncating part keeps :func:`_roundoff_floor`, unchanged; aliasing is not a
     rounding error and is governed by the certificate (section 4.4).
 
-    Parameters
-    ----------
-    magnitudes : tuple of numpy.ndarray
-        ``|rho s| |g'| (|J| + |j_1|)`` and ``|rho s| delta g' (|J| + |j_1|)``, each
-        of shape ``(n_nodes, 1, n_to)``.
-    projection : numpy.ndarray
-        Modal weights, shape ``(n_modes, n_nodes)``.
-    factor : numpy.ndarray
-        Current factor, shape ``(n_modes, 1, n_omega)``.
-    spectra : tuple of numpy.ndarray
-        ``X``, the projected raw spectrum of the gated current, and ``E / (i
-        omega)``, of the edge array, each ``(n_modes, 1, n_omega)``.
-    problem : PropagationProblem
-        Coarse frequencies, masks, collar and transform size.
-    bundle : StageScalars
-        Stage taper scale.
-
-    Returns
-    -------
-    edge : numpy.ndarray
-        Bound of the edge transform and the derivative evaluation, per bin.
-    division : numpy.ndarray
-        Bound of the division, subtraction and factor, per bin.
+    - ``magnitudes``: ``|rho s| |g'| (|J| + |j_1|)`` and ``|rho s| delta g' (|J| +
+      |j_1|)``, each of shape ``(n_nodes, 1, n_to)``.
+    - ``spectra``: ``X``, the projected raw spectrum of the gated current, and ``E / (i
+      omega)``, of the edge array, each ``(n_modes, 1, n_omega)``.
+    - Returns: the bound of the edge transform and the derivative evaluation, and the
+      bound of the division, subtraction and factor.
     """
     grids = problem.grids
     edge_magnitude, derivative_magnitude = magnitudes
@@ -542,17 +449,7 @@ def _ratio(
 ) -> tuple[float | None, str | None]:
     """Return a ratio, or None with its reason when the denominator is noise.
 
-    Parameters
-    ----------
-    numerator, denominator : float
-        Nonnegative norms.
-    floor : float
-        Rounding floor of the denominator.
-
-    Returns
-    -------
-    tuple
-        The ratio and None, or None and ``"denominator below rounding floor"``.
+    - Returns: the ratio and None, or None and ``"denominator below rounding floor"``.
     """
     if denominator <= floor:
         return None, "denominator below rounding floor"
@@ -573,22 +470,12 @@ def _band_entry(
 ) -> dict[str, object]:
     """Describe the edge term over one band, with explicit denominators and floors.
 
-    Parameters
-    ----------
-    spectra : tuple of numpy.ndarray
-        ``c X`` and ``c E / (i omega)``, the truncating source and the edge term
-        after the current factor and the spectral collar.
-    bounds : tuple of numpy.ndarray
-        Per-bin rounding bounds of ``c X``, of the edge term and of the division and
-        subtraction.
-    band : numpy.ndarray
-        Coarse bins of the band.
-
-    Returns
-    -------
-    dict
-        Norms of the truncating, edge and corrected sources, their floors and the two
-        ratios, each None with a reason when its denominator is at or below its floor.
+    - ``spectra``: ``c X`` and ``c E / (i omega)``, the truncating source and the edge
+      term after the current factor and the spectral collar.
+    - ``bounds``: Per-bin rounding bounds of ``c X``, of the edge term and of the
+      division and subtraction.
+    - Returns: norms of the truncating, edge and corrected sources, their floors and the
+      two ratios, each None with a reason when its denominator is at or below its floor.
     """
     truncating, edge = spectra
     truncating_bins, edge_bins, division_bins = bounds
@@ -635,21 +522,9 @@ def _projection_comparison(
 ) -> dict[str, object]:
     """Describe one embedded comparison without dividing by cancellation noise.
 
-    Parameters
-    ----------
-    fine : numpy.ndarray
-        Fine modal source after the spectral collar, shape
-        ``(n_modes, 1, n_omega)``.
-    coarse : numpy.ndarray or None
-        Embedded source on the same coarse spectral bins, or None if absent.
-    fine_floor, coarse_floor : float
-        Nonnegative absolute rounding bounds in spectral derivative norm units.
-
-    Returns
-    -------
-    dict
-        Norms, differences, combined absolute floor and a relative difference
-        only when a distinct embedded source exists above the floor.
+    - ``coarse``: embedded source on the same coarse spectral bins, or None if absent.
+    - Returns: norms, differences, combined absolute floor and a relative difference
+      only when a distinct embedded source exists above the floor.
     """
     norm = float(np.linalg.norm(fine))
     floor = fine_floor + coarse_floor
@@ -686,23 +561,11 @@ def _leading_taper(
     above by the absolute projection of ``|rho s S|``: it bounds the leading edge's
     share of the edge term over the band.
 
-    Parameters
-    ----------
-    result : TDSEResult
-        Unscaled microscopic histories.
-    problem : PropagationProblem
-        Gate breakpoints, lattice and projection.
-    bundle : StageScalars
-        Density and taper scale.
-    band_weights : dict
-        ``c_k / omega_k`` on each band's bins, zero elsewhere, by band name.
-
-    Returns
-    -------
-    dict
-        ``ratio`` and its ``reason`` (``"zero remainder"`` when ``max |S| = 0``, or
-        ``"empty leading taper"``), the sampled weight ``W_- / dt`` and the bound per
-        band.
+    - ``band_weights``: ``c_k / omega_k`` on each band's bins, zero elsewhere, by band
+      name.
+    - Returns: ``ratio`` and its ``reason`` (``"zero remainder"`` when ``max |S| = 0``,
+      or ``"empty leading taper"``), the sampled weight ``W_- / dt`` and the bound per
+      band.
     """
     descriptor = tdse_descriptor(problem.route)
     assert descriptor is not None
@@ -757,27 +620,12 @@ def _edge_diagnostic(  # noqa: PLR0917 - called positionally
 ) -> dict[str, object]:
     """Describe the last evaluation's edge term on the active and in-band bins.
 
-    Parameters
-    ----------
-    spectra : tuple of numpy.ndarray
-        Projected raw spectra ``X`` of the gated current and ``E / (i omega)`` of the
-        edge array, before the current factor.
-    bounds : tuple of numpy.ndarray
-        Per-bin rounding bounds, after the factor and collar, of ``c X``, of the edge
-        term and of the division and subtraction.
-    factor : numpy.ndarray
-        Current factor ``current_numerator / Re n_eff``.
-    result : TDSEResult
-        Unscaled microscopic histories, for ``rho_-``.
-    problem : PropagationProblem
-        Masks, collar, lattice and descriptor.
-    bundle : StageScalars
-        Density and taper scale.
-
-    Returns
-    -------
-    dict
-        JSON-compatible record of SEP 26 section 5. A diagnostic, never a gate.
+    - ``spectra``: projected raw spectra ``X`` of the gated current and ``E / (i
+      omega)`` of the edge array, before the current factor.
+    - ``bounds``: Per-bin rounding bounds, after the factor and collar, of ``c X``, of
+      the edge term and of the division and subtraction.
+    - Returns: the JSON-compatible record of SEP 26 section 5; a diagnostic, never a
+      gate.
     """
     descriptor, grids = tdse_descriptor(problem.route), problem.grids
     assert descriptor is not None
@@ -805,16 +653,8 @@ def _edge_diagnostic(  # noqa: PLR0917 - called positionally
 def _smooth(samples: int) -> bool:
     """Return whether a transform size is 2-, 3- and 5-smooth.
 
-    Parameters
-    ----------
-    samples : int
-        Positive transform size.
-
-    Returns
-    -------
-    bool
-        True when ``samples`` has no prime factor above 5, the sizes for which
-        ``FFT_ERROR_CONSTANT`` is assumed.
+    - Returns: True when ``samples`` has no prime factor above 5, the sizes for which
+      ``FFT_ERROR_CONSTANT`` is assumed.
     """
     for prime in (2, 3, 5):
         while samples % prime == 0:
@@ -966,32 +806,7 @@ def _current_operands(
     problem: PropagationProblem,
     bundle: StageScalars,
 ) -> _CurrentOperands:
-    """Gather one evaluation's current operands and check the edge array.
-
-    Parameters
-    ----------
-    current : numpy.ndarray
-        Scaled (gated) remainder current, shape ``(n_nodes, 1, n_to)``.
-    edge : numpy.ndarray or None
-        Scaled ``g' S``: required for a gated source, refused for an ungated one.
-    result : TDSEResult
-        Unscaled microscopic operands.
-    problem : PropagationProblem
-        Descriptor, transform and current numerator.
-    bundle : StageScalars
-        Density, scale, position and taper scale.
-
-    Returns
-    -------
-    _CurrentOperands
-        The operands shared by the fine and embedded projections.
-
-    Raises
-    ------
-    BackendError
-        If the edge array's presence, shape or finiteness is wrong, or a cubic
-        replacement lacks its third-order operand.
-    """
+    """Gather one evaluation's current operands and check the edge array."""
     source = tdse_of(problem.route)
     assert source is not None
     descriptor = source.descriptor

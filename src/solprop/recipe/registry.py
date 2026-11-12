@@ -200,16 +200,6 @@ def _pressure_pair(index: int) -> Unit:
 
     The form is two rows, the positions and the pressures there, ``[[z...], [p...]]``,
     and every element of a row takes the row's unit.
-
-    Parameters
-    ----------
-    index : int
-        The row.
-
-    Returns
-    -------
-    Unit
-        ``m`` for the positions, ``bar`` for the pressures.
     """
     return Unit("m") if index == 0 else Unit("bar")
 
@@ -493,22 +483,8 @@ _ELEMENTS: Final[Mapping[str, Callable[[int], Unit]]] = {
 def _number(value: object, unit: UnitSpec, index: int, path: str) -> float | object:
     """Read one number in its unit, or return a non-numeric value as it stands.
 
-    Parameters
-    ----------
-    value : object
-        The recipe value.
-    unit : str, callable or None
-        The unit, or the rule giving it by element.
-    index : int
-        The element's position, for a rule.
-    path : str
-        The value's path, for errors.
-
-    Returns
-    -------
-    float or object
-        The number in the unit, or `value` unchanged when it has no unit or is not a
-        number or quantity string.
+    - Returns: the number in the unit, or `value` unchanged when it has no unit or is
+      not a number or quantity string.
     """
     if unit is None or isinstance(value, bool):
         return value
@@ -521,29 +497,7 @@ def _number(value: object, unit: UnitSpec, index: int, path: str) -> float | obj
 def _array(
     value: Sequence[object], unit: UnitSpec, context: BuildContext, path: str
 ) -> list[object]:
-    """Read a list: each element in its unit, a nested list as a row.
-
-    Parameters
-    ----------
-    value : collections.abc.Sequence
-        The list.
-    unit : str, callable or None
-        The unit of each element, or the rule by element index.
-    context : BuildContext
-        For tables inside the list.
-    path : str
-        The list's path.
-
-    Returns
-    -------
-    list
-        The decoded elements.
-
-    Raises
-    ------
-    RecipeError
-        If the list is longer than :data:`~solprop.recipe.document.MAX_ARRAY_LENGTH`.
-    """
+    """Read a list: each element in its unit, a nested list as a row."""
     if len(value) > MAX_ARRAY_LENGTH:
         msg = (
             f"a list of {len(value)} values is longer than the {MAX_ARRAY_LENGTH} a "
@@ -609,27 +563,7 @@ def decode(value: object, unit: UnitSpec, context: BuildContext, path: str) -> o
 
 
 def _data_bytes(reference: DataFile, context: BuildContext, path: str) -> bytes:
-    """Return the checked bytes of a data file, embedded or on disk.
-
-    Parameters
-    ----------
-    reference : DataFile
-        The reference.
-    context : BuildContext
-        The embedded files and the recipe's directory.
-    path : str
-        The value's path.
-
-    Returns
-    -------
-    bytes
-        The contents, whose digest is the one recorded.
-
-    Raises
-    ------
-    RecipeError
-        If the file is neither embedded nor reachable from a directory.
-    """
+    """Return the checked bytes of a data file, embedded or on disk."""
     if reference.file in context.embedded:
         return checked_bytes(context.embedded[reference.file], reference, path=path)
     if context.base is None:
@@ -645,19 +579,7 @@ def _data_array(
 ) -> np.ndarray:
     """Read an array from a data file a recipe refers to.
 
-    Parameters
-    ----------
-    value : collections.abc.Mapping
-        The ``{file, sha256}`` reference.
-    context : BuildContext
-        The recipe's directory and embedded files.
-    path : str
-        The value's path.
-
-    Returns
-    -------
-    numpy.ndarray
-        The array.
+    - ``value``: the ``{file, sha256}`` reference.
     """
     reference = decode_data_file(value, path=path)
     return array_from_bytes(_data_bytes(reference, context, path), reference, path=path)
@@ -762,18 +684,7 @@ def build_object(
 
 @functools.cache
 def _hints(target: Callable[..., object]) -> Mapping[str, object]:
-    """Return the annotations of a callable's parameters.
-
-    Parameters
-    ----------
-    target : callable
-        A function, class method or class.
-
-    Returns
-    -------
-    collections.abc.Mapping
-        The annotation of each parameter, read once.
-    """
+    """Return the annotations of a callable's parameters."""
     function = target.__init__ if isinstance(target, type) else target
     try:
         return typing.get_type_hints(function)
@@ -784,17 +695,7 @@ def _hints(target: Callable[..., object]) -> Mapping[str, object]:
 def _wants(annotation: object, kind: type) -> bool:
     """Return whether an annotation admits a container of a kind, and not a list.
 
-    Parameters
-    ----------
-    annotation : object
-        The parameter's annotation.
-    kind : type
-        ``tuple`` or :class:`numpy.ndarray`.
-
-    Returns
-    -------
-    bool
-        True when the annotation names `kind` and admits no list or sequence.
+    - Returns: True when the annotation names `kind` and admits no list or sequence.
     """
     text = str(annotation)
     if "Sequence" in text or "list[" in text:
@@ -842,19 +743,7 @@ def coerce(target: Callable[..., object], name: str, value: object) -> object:
 
 
 def _keywords(factory: Factory) -> frozenset[str]:
-    """Return the keywords a factory takes from a recipe.
-
-    Parameters
-    ----------
-    factory : Factory
-        The entry.
-
-    Returns
-    -------
-    frozenset of str
-        Its signature's names, less its context, its data-file keyword and what it
-        omits.
-    """
+    """Return the keywords a factory takes from a recipe."""
     import inspect  # noqa: PLC0415 - only here
 
     names = set(inspect.signature(factory.target).parameters)
@@ -961,20 +850,7 @@ def decode_keyword(entry: Parameter, value: object, context: BuildContext) -> ob
 
 
 def _python_type(entry: Parameter, value: object) -> bool:
-    """Return whether a value names a type of a keyword that only Python holds.
-
-    Parameters
-    ----------
-    entry : Parameter
-        The keyword.
-    value : object
-        The value as written.
-
-    Returns
-    -------
-    bool
-        True for a table whose ``type`` a form with ``recipe=False`` lists.
-    """
+    """Return whether a value names a type of a keyword that only Python holds."""
     return isinstance(value, Mapping) and any(
         not form.recipe and value.get("type") in form.types for form in entry.forms
     )
@@ -987,18 +863,8 @@ def _python_array(entry: Parameter, value: object) -> bool:
     form is marked as not a recipe's, so a list or a data file given there is refused
     rather than passed on.
 
-    Parameters
-    ----------
-    entry : Parameter
-        The keyword's metadata.
-    value : object
-        The value as TOML read it.
-
-    Returns
-    -------
-    bool
-        True when the value is a list or a data-file reference and every array form
-        of the keyword is one a recipe cannot hold.
+    - Returns: True when the value is a list or a data-file reference and every array
+      form of the keyword is one a recipe cannot hold.
     """
     arrays = [form for form in entry.forms if form.kind in ("pair", "array")]
     reference = isinstance(value, Mapping) and set(value) == {"file", "sha256"}
@@ -1012,18 +878,8 @@ def _python_array(entry: Parameter, value: object) -> bool:
 def _numeric_rows(entry: Parameter, value: object) -> bool:
     """Return whether a value is a list of rows for a keyword of numeric arrays.
 
-    Parameters
-    ----------
-    entry : Parameter
-        The keyword's metadata.
-    value : object
-        The value as TOML read it.
-
-    Returns
-    -------
-    bool
-        True when the value is a list of lists and the keyword has an array form
-        whose elements carry units; such a value matched none of its forms.
+    - Returns: True when the value is a list of lists and the keyword has an array form
+      whose elements carry units; such a value matched none of its forms.
     """
     rows = isinstance(value, list) and bool(value) and isinstance(value[0], list)
     return rows and any(

@@ -89,15 +89,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 def _value(value: object) -> str:
     """Format one setting for the description.
 
-    Parameters
-    ----------
-    value : object
-        A setting's value.
-
-    Returns
-    -------
-    str
-        ``yes`` or ``no`` for a flag, else the value as text.
+    - Returns: ``yes`` or ``no`` for a flag, else the value as text.
     """
     if isinstance(value, bool):
         return "yes" if value else "no"
@@ -105,18 +97,7 @@ def _value(value: object) -> str:
 
 
 def _summary(record: Mapping[str, object]) -> str:
-    """Describe an allocation class in a line.
-
-    Parameters
-    ----------
-    record : Mapping[str, object]
-        An allocation class's record.
-
-    Returns
-    -------
-    str
-        Its cores, kinds, spans, SMT and quota.
-    """
+    """Describe an allocation class in a line."""
     cores = record.get("cores")
     kinds = record.get("kinds")
     parts = [f"{cores} cores"]
@@ -137,18 +118,7 @@ def _summary(record: Mapping[str, object]) -> str:
 
 
 def _evidence(evidence: Mapping[str, object]) -> list[str]:
-    """Summarise a row's evidence: why, the noise, each verdict, the validation.
-
-    Parameters
-    ----------
-    evidence : Mapping[str, object]
-        A row's evidence.
-
-    Returns
-    -------
-    list of str
-        One line each.
-    """
+    """Summarise a row's evidence: why, the noise, each verdict, the validation."""
     lines: list[str] = []
     if "reason" in evidence:
         lines.append(f"decided:      {evidence['reason']}")

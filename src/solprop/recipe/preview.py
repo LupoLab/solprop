@@ -281,27 +281,16 @@ def _pump(  # noqa: PLR0911 - one return per case of the linear condition
 ) -> tuple[float | None, dict[str, object]]:
     """Return the pump wavelength and the soliton's nonlinear numbers, where given.
 
-    Parameters
-    ----------
-    keywords : collections.abc.Mapping
-        The resolved recipe's route keywords.
-    soliton : solprop.modes.base.Mode or None
-        The launch mode.
-    z : float, optional
-        The position, m: the fill's coefficient, the mode's area and its dispersion
-        are taken there, as the mismatch is.
-
-    Returns
-    -------
-    tuple
-        The pump wavelength in m (``None`` without a numeric ``wavelength``), and
-        the keywords :func:`solprop.tools.phase_mismatch` takes for the nonlinear
-        term (``peak_power``, ``gamma``, ``fwhm``, ``shape``), empty for the linear
-        condition. The nonlinear coefficient is the recipe's ``gamma`` where it
-        gives one (the GNLSE), else the launch mode's fill's at `z`. The condition
-        is linear for a chirped pulse (a ``phases`` term from second order on), a
-        pump in normal dispersion, and a pulse below the soliton threshold, which
-        has no largest constituent.
+    - ``z``: the position, m: the fill's coefficient, the mode's area and its dispersion
+      are taken there, as the mismatch is.
+    - Returns: the pump wavelength in m (``None`` without a numeric ``wavelength``), and
+      the keywords :func:`solprop.tools.phase_mismatch` takes for the nonlinear term
+      (``peak_power``, ``gamma``, ``fwhm``, ``shape``), empty for the linear condition.
+      The nonlinear coefficient is the recipe's ``gamma`` where it gives one (the
+      GNLSE), else the launch mode's fill's at `z`. The condition is linear for a
+      chirped pulse (a ``phases`` term from second order on), a pump in normal
+      dispersion, and a pulse below the soliton threshold, which has no largest
+      constituent.
     """
     from solprop.modes.base import beta2  # noqa: PLC0415 - layer above
     from solprop.physdata.mixtures import Mixture  # noqa: PLC0415
@@ -366,27 +355,13 @@ def _phase_matching(
 ) -> tuple[Float[np.ndarray, " n_omega"] | None, tuple[float, ...]]:
     """Return a mode's phase mismatch to the soliton, and its phase-matched waves.
 
-    Parameters
-    ----------
-    mode : solprop.modes.base.Mode
-        The mode the dispersive wave is in.
-    soliton : solprop.modes.base.Mode
-        The launch mode, the soliton's.
-    omega : numpy.ndarray
-        The band, rad/s.
-    z : float
-        The position, m.
-    pump : float or None
-        The pump wavelength, m.
-    pulse : collections.abc.Mapping
-        The nonlinear term's keywords (:func:`_pump`), empty for the linear one.
-    limits : tuple of float
-        The band's shortest and longest wavelengths, m.
-
-    Returns
-    -------
-    tuple
-        ``phase_mismatch`` and ``rdw``, the :class:`ModePreview` fields.
+    - ``omega``: the band, rad/s.
+    - ``z``: the position, m.
+    - ``pump``: the pump wavelength, m.
+    - ``pulse``: the nonlinear term's keywords (:func:`_pump`), empty for the linear
+      one.
+    - ``limits``: the band's shortest and longest wavelengths, m.
+    - Returns: ``phase_mismatch`` and ``rdw``, the :class:`ModePreview` fields.
     """
     from solprop.tools import lambda_rdw_all, phase_mismatch  # noqa: PLC0415
 
@@ -416,23 +391,11 @@ def _gamma(
 ) -> Float[np.ndarray, " n_omega"] | None:
     """Return a mode's nonlinear coefficient over the band, if its fill has one.
 
-    Parameters
-    ----------
-    mode : solprop.modes.base.Mode
-        The mode.
-    omega : numpy.ndarray
-        Angular frequencies, rad/s.
-    area : float
-        Its effective area, m^2.
-    carrier : float
-        The wavelength the fill's Kerr data are taken at, m.
-    z : float
-        The position, m.
-
-    Returns
-    -------
-    numpy.ndarray or None
-        ``gamma`` in rad/(W m); ``None`` without a fill or its Kerr data.
+    - ``omega``: angular frequencies, rad/s.
+    - ``area``: its effective area, m^2.
+    - ``carrier``: the wavelength the fill's Kerr data are taken at, m.
+    - ``z``: the position, m.
+    - Returns: ``gamma`` in rad/(W m); ``None`` without a fill or its Kerr data.
     """
     from solprop.physdata.mixtures import Mixture  # noqa: PLC0415
     from solprop.tools import _fill_n2  # noqa: PLC0415 - the tools' own n2
@@ -547,20 +510,8 @@ def _beam(
 ) -> _Beam:
     """Measure a free-space launch in its medium at the launch plane.
 
-    Parameters
-    ----------
-    simulation : solprop.driver.simulation.Simulation
-        The built simulation, whose medium and grids measure the plane.
-    field : numpy.ndarray
-        The launched spectrum, internal, shape ``(n_modes, n_pol, n_omega)``.
-    z : float
-        The launch position, m.
-
-    Returns
-    -------
-    _Beam
-        Its power, energy and fluence, through the functions that measure a run's
-        saved plane.
+    - ``field``: the launched spectrum, internal, shape ``(n_modes, n_pol, n_omega)``.
+    - ``z``: the launch position, m.
     """
     from solprop.grid import FreeGrid, LineGrid, RadialGrid  # noqa: PLC0415
     from solprop.spatial import (  # noqa: PLC0415 - the free-space routes only

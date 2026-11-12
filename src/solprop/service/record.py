@@ -136,18 +136,7 @@ def write_json(path: Path, value: Mapping[str, object]) -> None:
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
-    """Return a small JSON file's object, or ``None`` when it is missing or torn.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        The file.
-
-    Returns
-    -------
-    dict or None
-        Its content.
-    """
+    """Return a small JSON file's object, or ``None`` when it is missing or torn."""
     import json  # noqa: PLC0415 - light, and only here
 
     try:
@@ -439,15 +428,7 @@ def watch_stop(
 def _value(event: Event) -> dict[str, object]:
     """Return an event as a frame carries it.
 
-    Parameters
-    ----------
-    event : Event
-        The event.
-
-    Returns
-    -------
-    dict
-        Its run, kind and data.
+    - Returns: its run, kind and data.
     """
     return {"run_id": event.run_id, "kind": event.kind, "data": event.data}
 
@@ -559,18 +540,7 @@ class EventLog:
         self._queue.put(event)
 
     def _kept(self, event: Event) -> bool:
-        """Return whether an event goes into the record, or only into the summary.
-
-        Parameters
-        ----------
-        event : Event
-            The event.
-
-        Returns
-        -------
-        bool
-            False for progress within a period of the last kept.
-        """
+        """Return whether an event goes into the record, or only into the summary."""
         if event.kind != "progress":
             return True
         now = time.monotonic()
@@ -580,13 +550,7 @@ class EventLog:
         return True
 
     def _summarise(self, event: Event) -> None:
-        """Fold one event into the summary.
-
-        Parameters
-        ----------
-        event : Event
-            The event.
-        """
+        """Fold one event into the summary."""
         if event.kind == "progress":
             self._status["progress"] = dict(event.data)
         elif event.kind == "started":
@@ -603,13 +567,7 @@ class EventLog:
             self._status["ending"] = {"kind": event.kind, "data": data}
 
     def _rewrite(self, *, force: bool = False) -> None:
-        """Rewrite the summary, at most every period unless forced.
-
-        Parameters
-        ----------
-        force : bool, optional
-            Rewrite now.
-        """
+        """Rewrite the summary, at most every period unless forced."""
         now = time.monotonic()
         if not force and now - self._written < RECORD_PROGRESS_PERIOD:
             return

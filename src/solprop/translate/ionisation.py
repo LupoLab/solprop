@@ -224,35 +224,26 @@ class RateTable:
             raise TranslationError(msg)
 
     @property
-    def n_knots(self) -> int:
-        """Return the number of knots.
+    def n_knots(self) -> int:  # numpydoc ignore=RT01
+        """Number of knots.
 
-        Returns
-        -------
-        int
-            The knot count, one more than the number of intervals.
+        The knot count, one more than the number of intervals.
         """
         return int(self.log_rate.size)
 
     @property
-    def log_field(self) -> Float[np.ndarray, " n_table"]:
-        """Return the knot positions in ``log E``.
+    def log_field(self) -> Float[np.ndarray, " n_table"]:  # numpydoc ignore=RT01
+        """Knot positions in ``log E``.
 
-        Returns
-        -------
-        numpy.ndarray
-            Uniformly spaced logarithms of the field amplitude, shape ``(n_table,)``.
+        Uniformly spaced logarithms of the field amplitude, shape ``(n_table,)``.
         """
         return self.log_field_min + self.d_log_field * np.arange(self.n_knots)
 
     @property
-    def field(self) -> Float[np.ndarray, " n_table"]:
-        """Return the knot positions as field amplitudes.
+    def field(self) -> Float[np.ndarray, " n_table"]:  # numpydoc ignore=RT01
+        """Knot positions as field amplitudes, V/m.
 
-        Returns
-        -------
-        numpy.ndarray
-            Geometrically spaced field amplitudes in V/m, shape ``(n_table,)``.
+        Geometrically spaced, shape ``(n_table,)``.
         """
         return np.exp(self.log_field)
 
@@ -289,18 +280,15 @@ class RateTable:
         ]
 
     @property
-    def plasma_energy(self) -> float | None:
-        """Return the energy per ionisation event the source rate declared, in J.
+    def plasma_energy(self) -> float | None:  # numpydoc ignore=RT01
+        """Energy per ionisation event the source rate declared, in J.
 
         A table keeps the species and the energy of the rate it tabulates, so that a
         plasma response built on the table pays the same energy as one built on the
         rate (:func:`solprop.nonlinear.ionisation.bind_rate_energy`, SEP 3, D8).
 
-        Returns
-        -------
-        float or None
-            :attr:`ionisation_potential` when the source rate named its species and
-            energy; ``None`` otherwise.
+        :attr:`ionisation_potential` when the source rate named its species and
+        energy; ``None`` otherwise.
         """
         if self.species_identity is None:
             return None
@@ -405,17 +393,7 @@ def clear_rate_table_cache() -> None:
 def _validate_build(field_range: tuple[float, float], rtol: float) -> None:
     """Check the build arguments.
 
-    Parameters
-    ----------
-    field_range : tuple of float
-        Lower and upper field amplitude in V/m.
-    rtol : float
-        Requested relative tolerance.
-
-    Raises
-    ------
-    TranslationError
-        Naming the offending argument.
+    - ``field_range``: lower and upper field amplitude in V/m.
     """
     low, high = float(field_range[0]), float(field_range[1])
     if not (math.isfinite(low) and math.isfinite(high) and 0.0 < low < high):
@@ -442,23 +420,7 @@ def _usable_range(
     straddled it would spend its whole budget there. Above ``field_max`` the table
     returns its last value, which is the ceiling to within one sample.
 
-    Parameters
-    ----------
-    rate : IonisationRate
-        The rate to tabulate.
-    field_range : tuple of float
-        Lower and upper field amplitude in V/m, already validated.
-
-    Returns
-    -------
-    tuple of float
-        The field range to build over.
-
-    Raises
-    ------
-    TranslationError
-        If nothing is left of the range: the rate is zero throughout, it is held from
-        below the first field, or it is at its ceiling from the first field.
+    - ``field_range``: lower and upper field amplitude in V/m, already validated.
     """
     # The margin above the threshold is what makes the lowest knot survive the round
     # trip through log and exp: the rate is exactly zero below the threshold, and one
@@ -507,19 +469,8 @@ def _fit(
 ) -> tuple[Float[np.ndarray, " n_table"], Float[np.ndarray, " n_deg n_intervals"]]:
     """Fit the cubic spline of ``log W`` on ``n_intervals`` uniform intervals in log E.
 
-    Parameters
-    ----------
-    rate : IonisationRate
-        The rate to tabulate.
-    field_min, field_max : float
-        Ends of the range in V/m.
-    n_intervals : int
-        Number of knot intervals.
-
-    Returns
-    -------
-    tuple
-        The knot values of ``log W`` and the spline coefficients.
+    - ``field_min``, ``field_max``: ends of the range in V/m.
+    - Returns: the knot values of ``log W`` and the spline coefficients.
     """
     log_field = np.linspace(
         math.log(field_min), math.log(field_max), n_intervals + 1, dtype=np.float64
@@ -532,22 +483,7 @@ def _fit(
 def _probe_points(
     log_field_min: float, d_log_field: float, n_intervals: int
 ) -> Float[np.ndarray, " n_probe"]:
-    """Return the logarithmic field amplitudes at which the interpolant is checked.
-
-    Parameters
-    ----------
-    log_field_min : float
-        Natural logarithm of the lowest field amplitude.
-    d_log_field : float
-        Knot spacing in ``log E``.
-    n_intervals : int
-        Number of knot intervals.
-
-    Returns
-    -------
-    numpy.ndarray
-        Probe positions in ``log E``, three per interval, shape ``(n_probe,)``.
-    """
+    """Return the logarithmic field amplitudes at which the interpolant is checked."""
     left = log_field_min + d_log_field * np.arange(n_intervals, dtype=np.float64)
     return (left[:, None] + d_log_field * np.array(_PROBE_OFFSETS)[None, :]).ravel()
 
@@ -658,20 +594,7 @@ def build_rate_table(
 
 
 def _finalise(table: RateTable, error: float) -> RateTable:
-    """Return a copy of the table with the measured error recorded.
-
-    Parameters
-    ----------
-    table : RateTable
-        The table built at the winning knot count.
-    error : float
-        The largest deviation measured on the probe grid.
-
-    Returns
-    -------
-    RateTable
-        The same table, with :attr:`RateTable.error` set.
-    """
+    """Return a copy of the table with the measured error recorded."""
     return RateTable(
         log_rate=table.log_rate,
         coefficients=table.coefficients,
@@ -695,16 +618,6 @@ def _frozen_table(table: RateTable) -> RateTable:
     :func:`build_rate_table` freezes its tables once,
     before its memo hands them out, so a built table crosses as it stands; a table
     made any other way crosses as a frozen copy.
-
-    Parameters
-    ----------
-    table : RateTable
-        The table to freeze.
-
-    Returns
-    -------
-    RateTable
-        The same values, not writeable.
     """
     log_rate = frozen_copy(table.log_rate)
     coefficients = frozen_copy(table.coefficients)
@@ -718,16 +631,6 @@ def _digest(key: tuple[object, ...]) -> str:
 
     Through :mod:`hashlib` rather than :func:`hash`, whose value for a string is salted
     per process: the digest names a cache entry that may outlive this process.
-
-    Parameters
-    ----------
-    key : tuple
-        The output of :func:`rate_table_key`.
-
-    Returns
-    -------
-    str
-        Sixteen hexadecimal characters.
     """
     return hashlib.blake2b(repr(key).encode("utf-8"), digest_size=8).hexdigest()
 
@@ -735,14 +638,7 @@ def _digest(key: tuple[object, ...]) -> str:
 def _log_summary(table: RateTable, rate: IonisationRate, elapsed: float) -> None:
     """Record the table's size, span and accuracy at debug level.
 
-    Parameters
-    ----------
-    table : RateTable
-        The finished table.
-    rate : IonisationRate
-        The rate it came from.
-    elapsed : float
-        Wall time of the build in seconds.
+    - ``elapsed``: wall time of the build in seconds.
     """
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(

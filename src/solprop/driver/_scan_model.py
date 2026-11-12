@@ -56,22 +56,7 @@ def name_seed(name: str, index: int) -> int:
     ``SeedSequence([root, global_index]).generate_state(1, dtype=uint64)[0]``, the
     derivation ``base_seed`` uses.
 
-    Parameters
-    ----------
-    name : str
-        The scan's name.
-    index : int
-        The point's global index.
-
-    Returns
-    -------
-    int
-        A non-negative 64-bit seed.
-
-    Examples
-    --------
-    >>> name_seed("rdw", 3) == name_seed("rdw", 3) != name_seed("rdw", 4)
-    True
+    - Returns: a non-negative 64-bit seed.
     """
     root = int.from_bytes(hashlib.sha256(name.encode("utf-8")).digest()[:8], "little")
     sequence = np.random.SeedSequence([root, index])
@@ -141,10 +126,7 @@ class Scan(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         rows: list[tuple[str, object]] = [
             (name, f"{values.size} values, {values[0]:.6g} to {values[-1]:.6g}")
@@ -156,36 +138,24 @@ class Scan(Displayed):
         return f"Scan {self.name!r}: {self.size} points", rows
 
     @property
-    def variables(self) -> Mapping[str, np.ndarray]:
-        """Return copies of the named axes in declaration order.
+    def variables(self) -> Mapping[str, np.ndarray]:  # numpydoc ignore=RT01
+        """Copies of the named axes in declaration order.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            One-dimensional arrays; changing them cannot alter this scan.
+        One-dimensional arrays; changing them cannot alter this scan.
         """
         return {name: values.copy() for name, values in self._variables.items()}
 
     @property
-    def shape(self) -> tuple[int, ...]:
-        """Return the complete Cartesian shape, including for a subset.
+    def shape(self) -> tuple[int, ...]:  # numpydoc ignore=RT01
+        """Complete Cartesian shape, including for a subset.
 
-        Returns
-        -------
-        tuple of int
-            Axis lengths in declaration order; empty before any variable is added.
+        Axis lengths in declaration order; empty before any variable is added.
         """
         return tuple(values.size for values in self._variables.values())
 
     @property
-    def size(self) -> int:
-        """Return the number of points in the complete scan.
-
-        Returns
-        -------
-        int
-            Non-negative Cartesian product size; zero for no variables.
-        """
+    def size(self) -> int:  # numpydoc ignore=RT01
+        """Number of points in the complete scan; zero for no variables."""
         return prod(self.shape) if self.shape else 0
 
     def __len__(self) -> int:

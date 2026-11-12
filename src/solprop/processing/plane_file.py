@@ -56,15 +56,7 @@ _SCALARS_KEY = "scalars"
 def _record(plane: FieldPlane) -> dict[str, object]:
     """Return a plane as a tree of mappings, arrays and JSON-ready values.
 
-    Parameters
-    ----------
-    plane : solprop.coupling.plane.FieldPlane
-        The plane, holding no live object.
-
-    Returns
-    -------
-    dict
-        One entry per part; a part the plane does not have is None.
+    - Returns: one entry per part; a part the plane does not have is None.
     """
     metric = plane.metric
     basis = plane.basis
@@ -116,23 +108,7 @@ def _record(plane: FieldPlane) -> dict[str, object]:
 
 
 def _plain(value: object) -> object:
-    """Return a NumPy scalar or array as the Python value JSON writes.
-
-    Parameters
-    ----------
-    value : object
-        A value `json` has no form for.
-
-    Returns
-    -------
-    object
-        The value as a Python scalar or nested list.
-
-    Raises
-    ------
-    TypeError
-        If it is not a NumPy value, which is what `json` expects of this hook.
-    """
+    """Return a NumPy scalar or array as the Python value JSON writes."""
     if isinstance(value, np.generic | np.ndarray):
         return value.tolist()
     msg = f"{type(value).__name__} has no form in a field-plane file"
@@ -142,13 +118,8 @@ def _plain(value: object) -> object:
 def _write(group: h5py.Group, record: Mapping[str, object]) -> None:
     """Write a tree: arrays as datasets, mappings as groups, the rest as JSON.
 
-    Parameters
-    ----------
-    group : h5py.Group
-        Where to write.
-    record : collections.abc.Mapping
-        The tree. A None is recorded with the scalars, so a part left out of a damaged
-        file is told apart from a part the plane does not have.
+    - ``record``: the tree. A None is recorded with the scalars, so a part left out of a
+      damaged file is told apart from a part the plane does not have.
     """
     scalars: dict[str, object] = {}
     for name, value in record.items():
@@ -163,18 +134,7 @@ def _write(group: h5py.Group, record: Mapping[str, object]) -> None:
 
 
 def _read(group: h5py.Group) -> dict[str, object]:
-    """Read a tree :func:`_write` wrote.
-
-    Parameters
-    ----------
-    group : h5py.Group
-        Where to read.
-
-    Returns
-    -------
-    dict
-        The tree.
-    """
+    """Read a tree :func:`_write` wrote."""
     record = cast(
         "dict[str, object]", json.loads(cast("str", group.attrs[_SCALARS_KEY]))
     )
@@ -187,32 +147,10 @@ def _read(group: h5py.Group) -> dict[str, object]:
 
 
 def _plane(record: Mapping[str, object]) -> FieldPlane:
-    """Rebuild a plane from its tree.
-
-    Parameters
-    ----------
-    record : collections.abc.Mapping
-        As :func:`_record` returns it.
-
-    Returns
-    -------
-    solprop.coupling.plane.FieldPlane
-        The plane, validated by its constructor.
-    """
+    """Rebuild a plane from its tree."""
 
     def part(name: str) -> dict[str, object]:
-        """Return one mapping of the tree.
-
-        Parameters
-        ----------
-        name : str
-            Its name.
-
-        Returns
-        -------
-        dict
-            A copy, to take apart.
-        """
+        """Return one mapping of the tree."""
         return dict(cast("Mapping[str, object]", record[name]))
 
     basis = part("basis")

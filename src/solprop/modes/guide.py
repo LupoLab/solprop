@@ -280,10 +280,7 @@ class ChannelBasis(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "ChannelBasis: a declared unitary change of a guide's channel basis", [
             ("gauge", self.gauge_id),
@@ -340,18 +337,7 @@ class ChannelBasis(Displayed):
             )
 
     def _check_blocks(self, count: int) -> None:
-        """Require disjoint valid blocks and a matrix that is the identity outside.
-
-        Parameters
-        ----------
-        count : int
-            Validated channel count, dimensionless.
-
-        Raises
-        ------
-        solprop.exceptions.ModeError
-            Naming what is out of range.
-        """
+        """Require disjoint valid blocks and a matrix that is the identity outside."""
         seen: set[int] = set()
         membership = np.full(count, -1, dtype=int)
         for position, block in enumerate(self.blocks):
@@ -383,21 +369,15 @@ class ChannelBasis(Displayed):
             )
 
     @property
-    def unitary_defect(self) -> float:
-        """Return ``norm(U.H U - I, 2)``, how far the declaration is from unitary.
-
-        Returns
-        -------
-        float
-            Non-negative, dimensionless.
-        """
+    def unitary_defect(self) -> float:  # numpydoc ignore=RT01
+        """``norm(U.H U - I, 2)``, how far the declaration is from unitary."""
         matrix = self.transform
         product = matrix.conj().T @ matrix
         return float(np.linalg.norm(product - np.eye(len(matrix)), ord=2))
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return what a run records of this declaration, and a resume compares.
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """What a run records of this declaration, and a resume compares.
 
         The matrix enters **by value**: two different unitary transforms of the same
         block are two different bases, and the block list alone does not tell them
@@ -405,10 +385,7 @@ class ChannelBasis(Displayed):
         exactly, as a declared ``chi3`` or a knot does
         (:meth:`solprop.modes.guide.ModalSampling.identity`).
 
-        Returns
-        -------
-        collections.abc.Mapping
-            JSON-serialisable scalars and lists of scalars, stable across processes.
+        JSON-serialisable scalars and lists of scalars, stable across processes.
         """
         return {
             "gauge_id": self.gauge_id,
@@ -618,10 +595,7 @@ class StepIndexProvider(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         low, high = self.z_domain
         return "StepIndexProvider: exact bound E/H, unit full-domain power", [
@@ -648,15 +622,7 @@ class StepIndexProvider(Displayed):
         self._check_material_agreement()
 
     def _check_material_agreement(self) -> None:
-        """Require each region's law to be the index its channels were solved with.
-
-        Raises
-        ------
-        ModeError
-            If a region's law does not cover the channels' profile wavelength, or
-            its permittivity there departs from the channels' own index squared by
-            more than :data:`MATERIAL_AGREEMENT_RTOL`.
-        """
+        """Require each region's law to be the index its channels were solved with."""
         mode = self.modes[0]
         omega = float(2 * np.pi * C / mode.profile_wavelength)
         # The resolved laws, not the declared ones: `core=None` means fused silica
@@ -689,48 +655,30 @@ class StepIndexProvider(Displayed):
                 )
 
     @property
-    def z_breakpoints(self) -> tuple[float, ...]:
-        """Return radius-path breakpoints in m.
-
-        Returns
-        -------
-        tuple of float
-            Positions of physical path kinks in m.
-        """
+    def z_breakpoints(self) -> tuple[float, ...]:  # numpydoc ignore=RT01
+        """Radius-path breakpoints (physical path kinks), m."""
         return tuple(float(x) for x in self.modes[0].core_radius.breakpoints)
 
     @property
-    def z_domain(self) -> tuple[float, float]:
-        """Return the radius-path interval in m.
-
-        Returns
-        -------
-        tuple of float
-            Lower and upper position in m.
-        """
+    def z_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Radius-path interval ``(lower, upper)``, m."""
         return self.modes[0].core_radius.z_span
 
     @property
-    def omega_domain(self) -> tuple[float, float]:
-        """Return material frequency support; solve checks each mode cutoff.
+    def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Material frequency support ``(lower, upper)``, rad/s.
 
-        Returns
-        -------
-        tuple of float
-            Lower and upper angular frequency in rad/s.
+        :meth:`solve` checks each mode's cutoff.
         """
         return max(r.material.omega_domain[0] for r in self.regions), min(
             r.material.omega_domain[1] for r in self.regions
         )
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return internal convention, bound-model and channel identities.
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """Internal convention, bound-model and channel identities.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Serializable physical model and construction metadata.
+        Serializable physical model and construction metadata.
         """
         return {
             "spectral_convention": "internal",
@@ -1037,25 +985,18 @@ class ModalPath(Displayed):
                 )
 
     @property
-    def n_intervals(self) -> int:
-        """Return how many sections the path is cut into.
-
-        Returns
-        -------
-        int
-            The section count.
-        """
+    def n_intervals(self) -> int:  # numpydoc ignore=RT01
+        """How many sections the path is cut into."""
         return int(self.z_edges.size - 1)
 
     @property
-    def positions(self) -> Float[np.ndarray, "n_intervals_path n_deg_path"]:
-        """Return every sampled position, section by section.
+    def positions(
+        self,
+    ) -> Float[np.ndarray, "n_intervals_path n_deg_path"]:  # numpydoc ignore=RT01
+        """Every sampled position, section by section, m.
 
-        Returns
-        -------
-        numpy.ndarray
-            Positions in m, shape ``(n_intervals, degree + 1)``, increasing inside a
-            section, so a position on an interior edge appears twice.
+        Shape ``(n_intervals, degree + 1)``, increasing inside a section, so a position
+        on an interior edge appears twice.
         """
         # Imported here: solprop.translate imports solprop.modes. The positions are
         # the translation layer's own Chebyshev-Lobatto points, bit for bit, because
@@ -1145,17 +1086,14 @@ class ModalPath(Displayed):
         return np.asarray(np.tensordot(terms, section, axes=1) / float(np.sum(terms)))
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return what a run records of the path, and a resume compares.
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """What a run records of the path, and a resume compares.
 
         The declared edges, degree, subdivision and budget exactly; the two measured
         departures at :data:`~solprop.modes.material.MEASURED_DIGITS`, as every other
         measured entry of a guide's identity is.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            JSON-serialisable scalars and lists of scalars.
+        JSON-serialisable scalars and lists of scalars.
         """
         return {
             "z_edges": [float(one) for one in self.z_edges],
@@ -1191,10 +1129,7 @@ class ModalPath(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "ModalPath: how a moving guide was sampled along z", [
             ("sections", f"{self.n_intervals} ({self.sections} per kink interval)"),
@@ -1340,10 +1275,7 @@ class ProviderChannelMode(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         low, high = self.table.wavelength_range
         return f"ProviderChannelMode: {self.label.display_label}, from a provider", [
@@ -1377,14 +1309,11 @@ class ProviderChannelMode(Displayed):
             )
 
     @property
-    def z_constant(self) -> bool:
+    def z_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the channel is independent of position.
 
-        Returns
-        -------
-        bool
-            ``True`` for a snapshot at one declared position; ``False`` on a guide
-            whose geometry moves, whose channel carries a sampled path.
+        ``True`` for a snapshot at one declared position; ``False`` on a guide
+        whose geometry moves, whose channel carries a sampled path.
         """
         return self.path is None
 
@@ -1406,18 +1335,15 @@ class ProviderChannelMode(Displayed):
         )
 
     @property
-    def area_path(self) -> ZProfile | None:
-        """Return the surrogate area along a moving guide's path, or ``None``.
+    def area_path(self) -> ZProfile | None:  # numpydoc ignore=RT01
+        """Surrogate area along a moving guide's path, m².
 
         Declared under the cross-section name a moving mode declares its area by
         (:data:`solprop.modes.protocol.GEOMETRY_PATH_NAMES`), so that the tables of
         a run split on the path's section edges, where the interpolant's slope may
         jump.
 
-        Returns
-        -------
-        solprop.profiles.ZProfile or None
-            The area in m² along z, or ``None`` for a snapshot.
+        ``None`` for a snapshot.
         """
         path = self.path
         if path is None:
@@ -1432,53 +1358,31 @@ class ProviderChannelMode(Displayed):
     def _along(self, values: Sequence[np.ndarray], z: float) -> np.ndarray:
         """Interpolate per-position values of this channel's path at one position.
 
-        Parameters
-        ----------
-        values : sequence of numpy.ndarray
-            One value per path position.
-        z : float
-            Position in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            The value at `z`.
+        - ``z``: position in m.
         """
         path = self.path
         assert path is not None
         return path.interpolate(np.asarray(values), z)
 
     @property
-    def scale_invariant(self) -> bool:
+    def scale_invariant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the profile scales exactly with a core radius.
 
-        Returns
-        -------
-        bool
-            Always ``False``: a provider channel has no scaling law, and its
-            normalised frequency changes with the geometry.
+        Always ``False``: a provider channel has no scaling law, and its
+        normalised frequency changes with the geometry.
         """
         return False
 
     @property
-    def azimuthal_order(self) -> int:
-        """Return the label's azimuthal order, or zero where it has none.
-
-        Returns
-        -------
-        int
-            Azimuthal order, dimensionless.
-        """
+    def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
+        """The label's azimuthal order, or zero where it has none."""
         return self.label.azimuthal_order or 0
 
     @property
-    def channel_label(self) -> ChannelLabel:
-        """Return the provider's own label for this channel.
+    def channel_label(self) -> ChannelLabel:  # numpydoc ignore=RT01
+        """The provider's own label for this channel.
 
-        Returns
-        -------
-        ChannelLabel
-            The label the provider published in its identity.
+        The label the provider published in its identity.
         """
         return self.label
 
@@ -1760,15 +1664,7 @@ class _PathArea:
     def __call__(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Return the area at every position, m².
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Areas in m², same shape.
+        - ``z``: positions in m.
         """
         return np.array([self.channel.aeff(float(one)) for one in np.asarray(z)])
 
@@ -1783,15 +1679,7 @@ class _SolvedPathArea:
     def __call__(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Return the area at every position, m².
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Areas in m², same shape.
+        - ``z``: positions in m.
         """
         values = np.asarray(self.areas)
         return np.array(
@@ -1802,19 +1690,11 @@ class _SolvedPathArea:
 def _profile_defect(interpolated: ModalSample, solved: ModalSample) -> float:
     """Return the relative maximum-norm defect between two aligned samples' fields.
 
-    Parameters
-    ----------
-    interpolated : solprop.modes.vector.ModalSample
-        The table's frequency interpolation at one frequency.
-    solved : solprop.modes.vector.ModalSample
-        A fresh provider solve there, already rotated onto the interpolation by
-        :func:`solprop.translate.modal_tables.align_modal_sample`.
+    ``solved`` is a fresh provider solve, already rotated onto the table's frequency
+    interpolation by :func:`solprop.translate.modal_tables.align_modal_sample`.
 
-    Returns
-    -------
-    float
-        The larger of the electric and magnetic relative defects, dimensionless
-        and non-negative.
+    - Returns: the larger of the electric and magnetic relative defects, dimensionless
+      and non-negative.
     """
     # Neither scale can vanish: a validated sample's flux metric is positive
     # definite, which no identically zero E or H produces.
@@ -1918,19 +1798,13 @@ class ModalSampling(Displayed):
             )
 
     @property
-    def omega_span(self) -> tuple[float, float]:
-        """Return the band the guide was solved over.
-
-        Returns
-        -------
-        tuple of float
-            Lowest and highest knot in rad/s.
-        """
+    def omega_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Band the guide was solved over: lowest and highest knot, rad/s."""
         return float(self.omega[0]), float(self.omega[-1])
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return what a run records of this sampling, and a resume compares.
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """What a run records of this sampling, and a resume compares.
 
         Everything a reader needs to say **what resolution the reference was built
         at** -- the knots themselves, the snapshot position, the node rule's own
@@ -1948,11 +1822,8 @@ class ModalSampling(Displayed):
         not refuse a run that did not change. The knots, the position, the blocks
         and a declared basis are declared and enter exactly.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            JSON-serialisable scalars and lists of scalars, stable across
-            processes.
+        JSON-serialisable scalars and lists of scalars, stable across
+        processes.
 
         Examples
         --------
@@ -2018,10 +1889,7 @@ class ModalSampling(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         low, high = self.omega_span
         blocks = self.degenerate_blocks
@@ -2094,10 +1962,7 @@ class ModalGuide(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         labels = [label.display_label for label in self.mode_collection.channel_labels]
         sampling = self.sampling
@@ -2580,46 +2445,25 @@ class ModalGuide(Displayed):
         return self.field_provider.solve(omega, z, nodes=nodes)
 
     @property
-    def omega_domain(self) -> tuple[float, float]:
-        """Return the provider frequency interval in rad/s.
-
-        Returns
-        -------
-        tuple of float
-            Lower and upper angular frequency in rad/s.
-        """
+    def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Provider frequency interval ``(lower, upper)``, rad/s."""
         return self.field_provider.omega_domain
 
     @property
-    def z_domain(self) -> tuple[float, float]:
-        """Return the provider longitudinal interval in m.
-
-        Returns
-        -------
-        tuple of float
-            Lower and upper position in m.
-        """
+    def z_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Provider longitudinal interval ``(lower, upper)``, m."""
         return self.field_provider.z_domain
 
     @property
-    def z_breakpoints(self) -> tuple[float, ...]:
-        """Return the provider physical breakpoints in m.
-
-        Returns
-        -------
-        tuple of float
-            Positions of physical path kinks in m.
-        """
+    def z_breakpoints(self) -> tuple[float, ...]:  # numpydoc ignore=RT01
+        """Provider physical breakpoints (path kinks), m."""
         return self.field_provider.z_breakpoints
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return the provider physical identity.
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """Provider physical identity.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Serializable physical model and construction metadata.
+        Serializable physical model and construction metadata.
         """
         return self.field_provider.identity
 
@@ -2627,16 +2471,8 @@ class ModalGuide(Displayed):
 def _moving_geometry(provider: ModalProvider) -> list[str]:
     """Return what moves along z in a provider's declared geometry, by name.
 
-    Parameters
-    ----------
-    provider : ModalProvider
-        The guide.
-
-    Returns
-    -------
-    list of str
-        Each region radius whose path is not constant, and the interior kinks; empty
-        for a guide whose geometry does not move.
+    - Returns: each region radius whose path is not constant, and the interior kinks;
+      empty for a guide whose geometry does not move.
     """
     moving = [
         f"{region.name}.{name}"
@@ -2659,20 +2495,7 @@ def _check_entrance_rule(
 ) -> None:
     """Refuse an entrance rule the provider would not build again at every position.
 
-    Parameters
-    ----------
-    provider : ModalProvider
-        The moving guide.
-    nodes : ModalNodeRule
-        The declared entrance rule.
-    z : float
-        The entrance, m.
-
-    Raises
-    ------
-    ModeError
-        If the provider, asked for the rule the way `nodes` says it was asked for,
-        returns a different one at the entrance.
+    - ``z``: the entrance, m.
     """
     # Imported here: solprop.translate imports solprop.modes.
     from solprop.translate.modal_path import path_rule  # noqa: PLC0415
@@ -2700,23 +2523,7 @@ def _sampled_path(
 ) -> tuple[ModalPath, list[ProviderChannelMode]]:
     """Sample a moving guide's path and give each channel its index along it.
 
-    Parameters
-    ----------
-    provider : ModalProvider
-        The moving guide.
-    table : solprop.translate.modal_tables.DenseModalTable
-        The entrance snapshot, already solved and checked.
-    modes : sequence of ProviderChannelMode
-        The channels, built from the entrance snapshot.
-    sections : int
-        Sections per kink interval.
-    rtol : float
-        The held-out budget, before the floor.
-
-    Returns
-    -------
-    tuple
-        The path record and the channels carrying it.
+    - Returns: the path record and the channels carrying it.
     """
     # Imported here: solprop.translate imports solprop.modes.
     from solprop.translate.modal_path import (  # noqa: PLC0415
@@ -2799,35 +2606,12 @@ def _entrance_table(
 ) -> tuple[list[str], float, ModalNodeRule, object]:
     """Solve a guide's snapshot table, at its entrance when its geometry moves.
 
-    Parameters
-    ----------
-    provider : ModalProvider
-        The guide.
-    frequencies : numpy.ndarray
-        The knots in rad/s.
-    z : float
-        The declared snapshot position, m.
-    nodes : ModalNodeRule or None
-        The declared rule, or ``None`` for the provider's own at the lowest knot.
-    degenerate_blocks : sequence of sequence of int
-        The declared degenerate blocks.
-    basis : ChannelBasis or None
-        The declared change of basis.
-    path_declared : bool
-        Whether a path's sections or budget were declared.
-
-    Returns
-    -------
-    tuple
-        What moves (empty for a snapshot), the position the table is at, the rule
-        and the table.
-
-    Raises
-    ------
-    ModeError
-        If a path is declared for a snapshot, a moving guide is asked for a
-        snapshot position other than its entrance, or its rule is not the
-        provider's own.
+    - ``frequencies``: the knots in rad/s.
+    - ``z``: the declared snapshot position, m.
+    - ``nodes``: the declared rule, or ``None`` for the provider's own at the lowest
+      knot.
+    - Returns: what moves (empty for a snapshot), the position the table is at, the rule
+      and the table.
     """
     # Imported here: solprop.translate imports solprop.modes.
     from solprop.translate.modal_path import path_snapshot  # noqa: PLC0415

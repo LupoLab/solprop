@@ -99,18 +99,18 @@ class RadialPermittivity(Protocol):
         ...
 
     @property
-    def material(self) -> PermittivityLaw:
-        """Return the material owning core responses."""
+    def material(self) -> PermittivityLaw:  # numpydoc ignore=RT01
+        """Material owning the core responses."""
         ...
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return the law's physical and approximation identity."""
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """The law's physical and approximation identity."""
         ...
 
     @property
-    def omega_domain(self) -> tuple[float, float]:
-        """Return the material frequency interval in rad/s."""
+    def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Material frequency interval ``(lower, upper)``, rad/s."""
         ...
 
 
@@ -182,35 +182,20 @@ class PowerLawPermittivity:
         )
 
     @property
-    def omega_domain(self) -> tuple[float, float]:
-        """Return the centre material's frequency interval in rad/s.
-
-        Returns
-        -------
-        tuple of float
-            Lower and upper angular frequency in rad/s.
-        """
+    def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Centre material's frequency interval ``(lower, upper)``, rad/s."""
         return self.centre.omega_domain
 
     @property
-    def material(self) -> PermittivityLaw:
-        """Return the material owning core responses.
-
-        Returns
-        -------
-        PermittivityLaw
-            Material law owning the core response declarations.
-        """
+    def material(self) -> PermittivityLaw:  # numpydoc ignore=RT01
+        """Material owning core responses."""
         return self.centre
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return the declared centre, contrast and radial exponent.
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """Declared centre, contrast and radial exponent.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Serializable physical model and construction metadata.
+        Serializable physical model and construction metadata.
         """
         return {
             "centre": dict(self.centre.identity),
@@ -310,10 +295,7 @@ class GradedIndexProvider(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "GradedIndexProvider: radial P1 elements, exact Bessel exterior", [
             ("sector", f"{self.family}{self.azimuthal_order}"),
@@ -360,15 +342,8 @@ class GradedIndexProvider(Displayed):
     def _radius(self, z: float) -> float:
         """Evaluate and validate the declared radius path.
 
-        Parameters
-        ----------
-        z : float
-            Position in m within the declared path.
-
-        Returns
-        -------
-        float
-            Positive core radius in m.
+        - ``z``: position in m within the declared path.
+        - Returns: positive core radius in m.
         """
         path = as_profile(self.radius)
         value = float(path(np.array([z], dtype=float))[0])
@@ -384,15 +359,8 @@ class GradedIndexProvider(Displayed):
         return value
 
     @property
-    def parameter_paths(self) -> Mapping[str, ZProfile]:
-        """Return the declared core-radius path in m.
-
-        Returns
-        -------
-        collections.abc.Mapping
-            The core_radius path in m, named as every other
-            :class:`~solprop.modes.protocol.ParameterisedMode` names it.
-        """
+    def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
+        """Declared core-radius path in m."""
         return {"core_radius": as_profile(self.radius)}
 
     def at_parameters(self, values: Mapping[str, float]) -> "GradedIndexProvider":
@@ -420,14 +388,8 @@ class GradedIndexProvider(Displayed):
         return replace(self, radius=values.get("core_radius", self.radius))
 
     @property
-    def regions(self) -> tuple[MaterialRegion, ...]:
-        """Return radial-core ownership and the homogeneous exterior.
-
-        Returns
-        -------
-        tuple of MaterialRegion
-            Ordered core and unbounded exterior ownership.
-        """
+    def regions(self) -> tuple[MaterialRegion, ...]:  # numpydoc ignore=RT01
+        """Radial-core ownership and the homogeneous exterior."""
         # The radial law owns the core material values, not a fictitious bulk index.
         return (
             MaterialRegion(
@@ -441,51 +403,30 @@ class GradedIndexProvider(Displayed):
         )
 
     @property
-    def omega_domain(self) -> tuple[float, float]:
-        """Return the common material frequency interval in rad/s.
-
-        Returns
-        -------
-        tuple of float
-            Lower and upper angular frequency in rad/s.
-        """
+    def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Common material frequency interval ``(lower, upper)``, rad/s."""
         return max(
             self.permittivity.omega_domain[0], self.exterior.omega_domain[0]
         ), min(self.permittivity.omega_domain[1], self.exterior.omega_domain[1])
 
     @property
-    def z_domain(self) -> tuple[float, float]:
-        """Return the radius-path interval in m.
-
-        Returns
-        -------
-        tuple of float
-            Lower and upper position in m.
-        """
+    def z_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Radius-path interval ``(lower, upper)``, m."""
         return as_profile(self.radius).z_span
 
     @property
-    def z_breakpoints(self) -> tuple[float, ...]:
-        """Return physical radius-path breakpoints in m.
-
-        Returns
-        -------
-        tuple of float
-            Positions of physical path kinks in m.
-        """
+    def z_breakpoints(self) -> tuple[float, ...]:  # numpydoc ignore=RT01
+        """Physical radius-path breakpoints (path kinks), m."""
         return tuple(float(v) for v in as_profile(self.radius).breakpoints)
 
     @property
-    def channel_labels(self) -> tuple[ChannelLabel, ...]:
-        """Return one label per requested radial channel, in solve order.
+    def channel_labels(self) -> tuple[ChannelLabel, ...]:  # numpydoc ignore=RT01
+        """One label per requested radial channel, in solve order.
 
-        Returns
-        -------
-        tuple of ChannelLabel
-            The sector's family and azimuthal order with radial order ``1..count``,
-            in the order :meth:`solve` returns the channels, which is decreasing
-            propagation constant. A radial sector has no parity partner and no
-            handedness, so both are ``None``.
+        The sector's family and azimuthal order with radial order ``1..count``,
+        in the order :meth:`solve` returns the channels, which is decreasing
+        propagation constant. A radial sector has no parity partner and no
+        handedness, so both are ``None``.
 
         Examples
         --------
@@ -516,13 +457,10 @@ class GradedIndexProvider(Displayed):
         )
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return physical law, sector and explicit discretisation identity.
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """Physical law, sector and explicit discretisation identity.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Serializable physical model and construction metadata.
+        Serializable physical model and construction metadata.
         """
         return {
             "spectral_convention": "internal",
@@ -554,23 +492,7 @@ class GradedIndexProvider(Displayed):
     ) -> Float[np.ndarray, " n_points"]:
         """Evaluate the lossless radial permittivity on both materials.
 
-        Parameters
-        ----------
-        omega : float
-            Positive angular frequency in rad/s.
-        radial_fraction : numpy.ndarray
-            Dimensionless radii divided by the core radius, shape (n_points,);
-            anything above one takes the exterior value.
-
-        Returns
-        -------
-        numpy.ndarray
-            Relative permittivity, shape (n_points,).
-
-        Raises
-        ------
-        ModeError
-            If a permittivity is lossy, non-finite or not positive.
+        - ``omega``: positive angular frequency in rad/s.
         """
         core = self.permittivity.permittivity(omega, np.minimum(radial_fraction, 1.0))
         exterior = self.exterior.permittivity(np.array([omega], dtype=float))[0]
@@ -586,16 +508,8 @@ class GradedIndexProvider(Displayed):
     def _weak_guidance_contrast(self, omega: float) -> float:
         """Return the axis-to-exterior relative permittivity contrast.
 
-        Parameters
-        ----------
-        omega : float
-            Positive angular frequency in rad/s.
-
-        Returns
-        -------
-        float
-            Dimensionless ``eps_axis / eps_exterior - 1``, the quantity the LP
-            weak-guidance approximation is declared valid over.
+        ``eps_axis / eps_exterior - 1``: the quantity the LP weak-guidance approximation
+        is declared valid over.
         """
         axis = float(self._eps(omega, np.zeros(1))[0])
         exterior = float(self._eps(omega, np.full(1, 2.0))[0])
@@ -605,23 +519,9 @@ class GradedIndexProvider(Displayed):
     def _solution(self, omega: float, z: float) -> _RadialSolution:
         """Solve the variational eigenproblem with an exact exterior.
 
-        Parameters
-        ----------
-        omega : float
-            Positive angular frequency in rad/s.
-        z : float
-            Position in m within the declared path.
-
-        Returns
-        -------
-        _RadialSolution
-            Dimensionless radial mesh, profiles, beta and interface defects.
-
-        Raises
-        ------
-        ModeError
-            If the frequency, the LP contrast or a requested channel's binding
-            is outside the provider's declared validity.
+        - ``omega``: positive angular frequency in rad/s.
+        - ``z``: position in m within the declared path.
+        - Returns: dimensionless radial mesh, profiles, beta and interface defects.
         """
         radius = self._radius(z)
         if (
@@ -733,23 +633,7 @@ class GradedIndexProvider(Displayed):
     ) -> Float[np.ndarray, " n_modes"]:
         """Return the one-sided derivative-trace defect at the material interface.
 
-        Parameters
-        ----------
-        nodes : numpy.ndarray
-            Dimensionless radial mesh, shape (n_radial_nodes,).
-        profiles : numpy.ndarray
-            Nodal eigenfunctions, shape (n_radial_profiles, n_modes_profiles).
-        omega : float
-            Positive angular frequency in rad/s.
-        exterior : float
-            Exterior relative permittivity, dimensionless.
-
-        Returns
-        -------
-        numpy.ndarray
-            Scaled defect of the continuous quantity of the sector, shape
-            (n_modes,): the radial gradient for TE/TM and its inverse-permittivity
-            weighting for TM, the plain slope for LP.
+        - ``omega``: positive angular frequency in rad/s.
         """
         interface = int(np.searchsorted(nodes, 1.0))
         left = (profiles[interface] - profiles[interface - 1]) / (
@@ -771,20 +655,8 @@ class GradedIndexProvider(Displayed):
     ) -> None:
         """Refuse a channel the declared finite domain cannot carry.
 
-        Parameters
-        ----------
-        solution : _RadialSolution
-            Solved radial eigenfunctions and propagation constants.
-        omega : float
-            Positive angular frequency in rad/s.
-        radius : float
-            Core radius in m.
-
-        Raises
-        ------
-        ModeError
-            If a channel keeps more than :data:`MAX_EXTERIOR_TAIL_FRACTION` of its
-            power beyond the matching radius.
+        - ``omega``: positive angular frequency in rad/s.
+        - ``radius``: core radius in m.
         """
         # Above cutoff is not the same as bound on this domain: a channel whose
         # exterior decay is slow puts its power in the analytic continuation, not
@@ -812,20 +684,10 @@ class GradedIndexProvider(Displayed):
     ]:
         """Assemble the radial weak mass and Helmholtz operators.
 
-        Parameters
-        ----------
-        omega : float
-            Positive angular frequency in rad/s.
-        nodes : numpy.ndarray
-            Explicit dimensionless radial mesh, shape (n_radial_nodes,),
-            increasing from the axis to the matching radius.
-        wave_number : float
-            Vacuum wave number multiplied by core radius, dimensionless.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Dimensionless mass and operator matrices on the radial nodes.
+        - ``omega``: positive angular frequency in rad/s.
+        - ``nodes``: explicit dimensionless radial mesh, shape (n_radial_nodes,),
+          increasing from the axis to the matching radius.
+        - Returns: dimensionless mass and operator matrices on the radial nodes.
         """
         mass = np.zeros((nodes.size, nodes.size))
         operator = np.zeros_like(mass)
@@ -1104,19 +966,9 @@ class GradedIndexProvider(Displayed):
     ) -> Float[np.ndarray, " n_modes"]:
         """Integrate full-domain power independently of requested field nodes.
 
-        Parameters
-        ----------
-        solution : _RadialSolution
-            Solved radial eigenfunctions and propagation constants.
-        omega : float
-            Positive angular frequency in rad/s.
-        radius : float
-            Core radius in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Positive power norms in W, shape (n_modes,).
+        - ``omega``: positive angular frequency in rad/s.
+        - ``radius``: core radius in m.
+        - Returns: positive power norms in W, shape (n_modes,).
         """
         key = (omega, radius)
         if key in solution.norms:
@@ -1177,21 +1029,10 @@ class GradedIndexProvider(Displayed):
     ) -> Float[np.ndarray, " n_modes"]:
         """Integrate the squared decaying radial profile exactly.
 
-        Parameters
-        ----------
-        solution : _RadialSolution
-            Solved radial eigenfunctions and propagation constants.
-        omega : float
-            Positive angular frequency in rad/s.
-        radius : float
-            Core radius in m.
-        lower : float
-            Lower integration radius divided by core radius.
-
-        Returns
-        -------
-        numpy.ndarray
-            Dimensionless radial integrals, shape (n_modes,).
+        - ``omega``: positive angular frequency in rad/s.
+        - ``radius``: core radius in m.
+        - ``lower``: lower integration radius divided by the core radius.
+        - Returns: dimensionless radial integrals, shape (n_modes,).
         """
         exterior = float(
             np.real(self.exterior.permittivity(np.array([omega], dtype=float))[0])
@@ -1262,21 +1103,9 @@ class GradedIndexProvider(Displayed):
     ) -> Float[np.ndarray, " n_modes"]:
         """Return the exact power fraction of each channel beyond a radius.
 
-        Parameters
-        ----------
-        solution : _RadialSolution
-            Solved radial eigenfunctions and propagation constants.
-        omega : float
-            Positive angular frequency in rad/s.
-        radius : float
-            Core radius in m.
-        outer_radius : float
-            Radius in m at or beyond the Bessel matching radius.
-
-        Returns
-        -------
-        numpy.ndarray
-            Per-channel discarded power fractions, shape (n_modes,).
+        - ``omega``: positive angular frequency in rad/s.
+        - ``radius``: core radius in m.
+        - ``outer_radius``: radius in m at or beyond the Bessel matching radius.
         """
         exterior = float(
             np.real(self.exterior.permittivity(np.array([omega], dtype=float))[0])

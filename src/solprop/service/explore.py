@@ -354,18 +354,7 @@ def design_sweep(name: str, values: Sequence[str]) -> list[str]:
 
 
 def _number(word: str) -> bool:
-    """Return whether a word is a number.
-
-    Parameters
-    ----------
-    word : str
-        The word.
-
-    Returns
-    -------
-    bool
-        Whether ``float`` reads it.
-    """
+    """Return whether a word is a number."""
     try:
         float(word)
     except ValueError:

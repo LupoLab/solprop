@@ -386,14 +386,8 @@ class EventBatch:
     events: tuple[Event, ...] = field(default_factory=tuple)
 
     @property
-    def terminal(self) -> Terminal | None:
-        """Return the batch's terminal event, if it ended the session.
-
-        Returns
-        -------
-        Terminal or None
-            The last event when it is terminal; ``None`` otherwise.
-        """
+    def terminal(self) -> Terminal | None:  # numpydoc ignore=RT01
+        """The batch's terminal event, or ``None`` if it did not end the session."""
         if self.events and isinstance(self.events[-1], Terminal):
             return self.events[-1]
         return None
@@ -439,19 +433,7 @@ def _column(
     At module level rather than nested in :func:`join_attempts`, so that no function
     object is made per call (each one costs the coverage lane's import hook a compile).
 
-    Parameters
-    ----------
-    histories : list of BackendHistory
-        The histories, in delivery order.
-    name : str
-        The column's attribute on a history.
-    dtype : type, optional
-        The column's dtype, which an empty join keeps.
-
-    Returns
-    -------
-    numpy.ndarray
-        The column over every history.
+    - ``dtype``: the column's dtype, which an empty join keeps.
     """
     # A new array, held, so the joined record takes it without a copy.
     return hold(

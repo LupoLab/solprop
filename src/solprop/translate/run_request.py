@@ -114,17 +114,14 @@ class IntegrationSpec:
     propagator_mode: PropagatorMode
 
     @property
-    def reference_only(self) -> bool:
-        """Return whether only the NumPy reference runs this method.
+    def reference_only(self) -> bool:  # numpydoc ignore=RT01
+        """Whether only the NumPy reference runs this method.
 
-        Returns
-        -------
-        bool
-            True for the benchmark-only comparison family, ``ComparisonMultistep``
-            (SEP 47 section 6.3): PEC, PECE, explicit Adams-Bashforth and the matched
-            pairs, which native refuses;
-            :class:`~solprop.stepper.multistep.Multistep` is the selected method every
-            backend runs.
+        True for the benchmark-only comparison family, ``ComparisonMultistep``
+        (SEP 47 section 6.3): PEC, PECE, explicit Adams-Bashforth and the matched
+        pairs, which native refuses;
+        :class:`~solprop.stepper.multistep.Multistep` is the selected method every
+        backend runs.
         """
         return isinstance(self.method, ComparisonMultistep)
 
@@ -297,8 +294,8 @@ class RunRequest:
     snapshots: bool = False
 
     @functools.cached_property
-    def stepper(self) -> StepperSettings:
-        """Return the stepping policy as the one record translation resolved.
+    def stepper(self) -> StepperSettings:  # numpydoc ignore=RT01
+        """Stepping policy as the one record translation resolved.
 
         The method, the error control, the itinerary and the planes, gathered back
         into :class:`~solprop.translate.problem.StepperSettings` for the code that
@@ -306,10 +303,7 @@ class RunRequest:
         (:func:`solprop.translate.problem.validate_run`) and the run's configuration
         record, whose hash they enter exactly as before.
 
-        Returns
-        -------
-        solprop.translate.problem.StepperSettings
-            The record, built once per request.
+        The record, built once per request.
 
         Examples
         --------

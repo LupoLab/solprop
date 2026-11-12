@@ -330,70 +330,37 @@ class FixedSchedule:  # numpydoc ignore=PR02
         return cls(lengths, float(starts[0]))
 
     @property
-    def n_steps(self) -> int:
-        """Return the number of steps.
-
-        Returns
-        -------
-        int
-            Number of steps.
-        """
+    def n_steps(self) -> int:  # numpydoc ignore=RT01
+        """Number of steps."""
         return int(self.steps.size)
 
     @property
-    def edges(self) -> Float[np.ndarray, " n_edges"]:
-        """Return the positions the steps start and end at.
+    def edges(self) -> Float[np.ndarray, " n_edges"]:  # numpydoc ignore=RT01
+        """The positions the steps start and end at, m.
 
-        Returns
-        -------
-        numpy.ndarray
-            Positions of shape ``(n_steps + 1,)``, m, accumulated in step order so
-            that they match what a driver marching the schedule would reach.
+        Shape ``(n_steps + 1,)``, accumulated in step order so that they match what a
+        driver marching the schedule would reach.
         """
         return self.z_start + np.concatenate(([0.0], np.cumsum(self.steps)))
 
     @property
-    def z_end(self) -> float:
-        """Return the position the last step ends at.
-
-        Returns
-        -------
-        float
-            Final position, m.
-        """
+    def z_end(self) -> float:  # numpydoc ignore=RT01
+        """Position the last step ends at, m."""
         return float(self.edges[-1])
 
     @property
-    def total_length(self) -> float:
-        """Return the propagation length the schedule covers.
-
-        Returns
-        -------
-        float
-            Length, m.
-        """
+    def total_length(self) -> float:  # numpydoc ignore=RT01
+        """Propagation length the schedule covers, m."""
         return self.z_end - self.z_start
 
     @property
-    def max_step(self) -> float:
-        """Return the longest step.
-
-        Returns
-        -------
-        float
-            Length, m.
-        """
+    def max_step(self) -> float:  # numpydoc ignore=RT01
+        """Longest step, m."""
         return float(self.steps.max())
 
     @property
-    def min_step(self) -> float:
-        """Return the shortest step.
-
-        Returns
-        -------
-        float
-            Length, m.
-        """
+    def min_step(self) -> float:  # numpydoc ignore=RT01
+        """Shortest step, m."""
         return float(self.steps.min())
 
     def refined(self, factor: int) -> "FixedSchedule":
@@ -502,18 +469,10 @@ class FixedSchedule:  # numpydoc ignore=PR02
 def _interval_index(edges: Float[np.ndarray, " n_edges"], position: float) -> int:
     """Return the index of the interval of ``edges`` containing ``position``.
 
-    Parameters
-    ----------
-    edges : numpy.ndarray
-        Strictly increasing interval edges of shape ``(n + 1,)``, m.
-    position : float
-        Position to locate, m.
-
-    Returns
-    -------
-    int
-        Interval index, clamped to ``[0, n - 1]`` so that a position on either end of
-        the covered range belongs to the interval that touches it.
+    - ``edges``: strictly increasing interval edges of shape ``(n + 1,)``, m.
+    - ``position``: position to locate, m.
+    - Returns: interval index, clamped to ``[0, n - 1]`` so that a position on either
+      end of the covered range belongs to the interval that touches it.
     """
     index = int(np.searchsorted(edges, position, side="right")) - 1
     return min(max(index, 0), int(edges.size) - 2)
@@ -623,16 +582,13 @@ class Calibration:
     message: str
 
     @property
-    def ratio(self) -> float:
-        """Return the achieved global error as a multiple of the requested tolerance.
+    def ratio(self) -> float:  # numpydoc ignore=RT01
+        """Achieved global error as a multiple of the requested tolerance.
 
-        Returns
-        -------
-        float
-            ``achieved_error / requested``. It is not 1 and it is not constant: the map
-            from a local tolerance to the global error is problem dependent and misses
-            by one to three orders in either direction, which is the whole reason this
-            is measured rather than assumed.
+        ``achieved_error / requested``. It is not 1 and it is not constant: the map
+        from a local tolerance to the global error is problem dependent and misses
+        by one to three orders in either direction, which is the whole reason this
+        is measured rather than assumed.
         """
         return self.achieved_error / self.requested
 
@@ -994,15 +950,8 @@ def _bound_order(
 ) -> tuple[float, int]:
     """Order a cap or a landing: shortest first, then the highest priority.
 
-    Parameters
-    ----------
-    bound : tuple
-        The step it allows, m, and what it is, then its position for a landing.
-
-    Returns
-    -------
-    tuple
-        The step and the negated priority.
+    - ``bound``: the step it allows, m, and what it is, then its position for a landing.
+    - Returns: the step and the negated priority.
     """
     return bound[0], -_LANDING_PRIORITY[bound[1]]
 

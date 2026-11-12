@@ -243,20 +243,7 @@ def spatial_grid_of(output: Output) -> RadialGrid | FreeGrid | PlanarGrid:
 def _space_from_record(record: object) -> RadialGrid | FreeGrid:
     """Rebuild a transverse grid from the record ``coupling.space_record`` writes.
 
-    Parameters
-    ----------
-    record : object
-        ``{"__class__": "module.Name", <init fields>...}``.
-
-    Returns
-    -------
-    solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid.
-
-    Raises
-    ------
-    ProcessingError
-        If the record names no grid solprop rebuilds.
+    - ``record``: ``{"__class__": "module.Name", <init fields>...}``.
     """
     fields = dict(cast("Mapping[str, object]", record))
     name = cast("str", fields.pop("__class__", ""))
@@ -521,22 +508,7 @@ def layout(output: Output) -> tuple[int, int, int, int]:
 def _nearest_plane(output: Output, z: float) -> int:
     """Return the index of the saved plane nearest a position.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    z : float
-        Position along the propagation, m.
-
-    Returns
-    -------
-    int
-        Index into the saved planes.
-
-    Raises
-    ------
-    solprop.exceptions.OutputError
-        If no plane has been saved.
+    - ``z``: position along the propagation, m.
     """
     positions = output["z"]
     if positions.size == 0:
@@ -563,24 +535,6 @@ def _refuse_by_basis(output: Output, name: str) -> None:
     Nothing changes for a run on an ordinary modal basis, which is every gas-filled
     guided run. Each public reader calls this once, under its own name; what it reads
     through internally is the ungated private reading, so no call is gated twice.
-
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    name : str
-        The reader being asked for, which the refusal names.
-
-    Raises
-    ------
-    solprop.exceptions.OutputError
-        If the stored basis does not admit `name`
-        (:func:`~solprop.output.capability.reading_refusal`). It is an
-        :class:`~solprop.exceptions.OutputError` and not a
-        :class:`~solprop.exceptions.ProcessingError` because it is a statement about
-        the record, and because one gate raising two classes would make the refusal
-        harder to catch than to cause: :mod:`solprop.processing.modal` raises the
-        same class for the same text.
     """
     metadata = output.metadata
     if metadata is None:
@@ -595,29 +549,11 @@ def _plane_field(
 ) -> Complex[np.ndarray, "*planes n_modes n_pol n_omega"]:
     """Return the stored spectrum of the selected plane, or of every plane.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    plane : int or None
-        Plane index, negative from the end, or ``None``.
-    z : float or None
-        Plane position, m, or ``None``.
-    convention : {'optics', 'fft'}
-        Sign convention wanted.
-
-    Returns
-    -------
-    numpy.ndarray
-        Shape ``(n_z, n_modes, n_pol, n_omega)`` when no plane was selected, and
-        ``(n_modes, n_pol, n_omega)`` when one was.
-
-    Raises
-    ------
-    solprop.exceptions.OutputError
-        If both ``plane`` and ``z`` are given, if no plane has been saved, or if the
-        index is out of range; or if the selected plane, or for no selection any
-        plane, kept no field, naming the run's ``fields`` (SEP 22).
+    - ``plane``: plane index, negative from the end, or ``None``.
+    - ``z``: plane position, m, or ``None``.
+    - ``convention``: sign convention wanted.
+    - Returns: shape ``(n_z, n_modes, n_pol, n_omega)`` when no plane was selected, and
+      ``(n_modes, n_pol, n_omega)`` when one was.
     """
     if plane is not None and z is not None:
         msg = f"give a plane index or a position, not both: plane={plane}, z={z}"
@@ -646,17 +582,8 @@ def _plane_field(
 def _keep_index(grid: TimeGrid, band: Band) -> Int[np.ndarray, " n_x"]:
     """Return the indices of the bins to return, ascending in frequency.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        The grid the stored spectrum lives on.
-    band : {'active', 'all'}
-        Which part of the axis to keep.
-
-    Returns
-    -------
-    numpy.ndarray
-        Indices into the stored axis, in order of increasing frequency.
+    - ``band``: which part of the axis to keep.
+    - Returns: indices into the stored axis, in order of increasing frequency.
     """
     order = spectral_order(grid)
     return order[band_mask(grid, band)[order]]
@@ -670,27 +597,12 @@ def _apply_modes(
 ) -> tuple[Inexact[np.ndarray, "*selected"], bool]:
     """Select or reduce the mode axis, which is the third from the end.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Array whose axes end in ``(n_modes, n_pol, n_x)``.
-    modes : int, sequence of int, 'sum' or None
-        The selection.
-    allow_sum : bool
-        Whether ``'sum'`` is meaningful for this quantity, which it is only for the ones
-        that are quadratic in the field.
-
-    Returns
-    -------
-    values : numpy.ndarray
-        The selection, with the mode axis dropped for a single mode or a sum.
-    mode_axis : bool
-        Whether a mode axis is still present.
-
-    Raises
-    ------
-    solprop.exceptions.ModeError
-        If a sum is asked for where it is meaningless, or an index is out of range.
+    - ``values``: array whose axes end in ``(n_modes, n_pol, n_x)``.
+    - ``allow_sum``: whether ``'sum'`` is meaningful for this quantity, which it is only
+      for the ones that are quadratic in the field.
+    - Returns ``values``: the selection, with the mode axis dropped for a single mode or
+      a sum.
+    - Returns ``mode_axis``: whether a mode axis is still present.
     """
     _check_mode_selection(modes)
     n_modes = values.shape[-3]
@@ -714,20 +626,7 @@ def _apply_modes(
 
 
 def _check_mode_index(mode: int, n_modes: int) -> None:
-    """Reject a mode index the run does not have.
-
-    Parameters
-    ----------
-    mode : int
-        The index offered.
-    n_modes : int
-        Number of propagated modes.
-
-    Raises
-    ------
-    solprop.exceptions.ModeError
-        If the index is out of range.
-    """
+    """Reject a mode index the run does not have."""
     if not -n_modes <= mode < n_modes:
         msg = f"mode {mode} is out of range for a run of {n_modes} modes"
         raise ModeError(msg)
@@ -738,18 +637,10 @@ def _squeeze(
 ) -> Inexact[np.ndarray, "*squeezed"]:
     """Drop the polarisation axis, and the mode axis when present, if they are trivial.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Array whose axes end in ``(n_modes?, n_pol, n_x)``.
-    mode_axis : bool
-        Whether a mode axis is present.
-
-    Returns
-    -------
-    numpy.ndarray
-        The array with trivial axes removed. The plane axis is never removed: asking for
-        every plane of a one-plane run still gives a plane axis.
+    - ``values``: array whose axes end in ``(n_modes?, n_pol, n_x)``.
+    - ``mode_axis``: whether a mode axis is present.
+    - Returns: the array with trivial axes removed. The plane axis is never removed:
+      asking for every plane of a one-plane run still gives a plane axis.
     """
     if values.shape[-2] == 1:
         values = values[..., 0, :]
@@ -766,20 +657,6 @@ def _check_choice(value: str, allowed: tuple[str, ...], what: str) -> None:
     The parameter is a plain string rather than the enumeration itself, exactly as
     :func:`solprop.fourier._check_kind` is, so that the refusal stays reachable in
     production, where no runtime type checker stands in front of it.
-
-    Parameters
-    ----------
-    value : str
-        The name offered.
-    allowed : tuple of str
-        The names accepted.
-    what : str
-        Name of the keyword, for the message.
-
-    Raises
-    ------
-    solprop.exceptions.ProcessingError
-        If the name is not one of ``allowed``.
     """
     if value not in allowed:
         msg = f"{what} must be one of {allowed}, got {value!r}"
@@ -789,15 +666,8 @@ def _check_choice(value: str, allowed: tuple[str, ...], what: str) -> None:
 def _check_mode_selection(modes: object) -> None:
     """Reject a mode selection that is none of the four forms.
 
-    Parameters
-    ----------
-    modes : object
-        The selection offered: an index, a sequence of indices, ``'sum'`` or ``None``.
-
-    Raises
-    ------
-    solprop.exceptions.ModeError
-        If it is none of those.
+    - ``modes``: the selection offered: an index, a sequence of indices, ``'sum'`` or
+      ``None``.
     """
     if modes is None or isinstance(modes, int) or modes == "sum":
         return

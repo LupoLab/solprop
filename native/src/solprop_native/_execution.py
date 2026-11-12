@@ -172,13 +172,7 @@ class ExecutionRecord:
 
     @classmethod
     def from_native(cls, values: Mapping[str, object]) -> ExecutionRecord:
-        """Read a record written by :meth:`native` or read back from a state.
-
-        Raises
-        ------
-        ValueError
-            When a field is missing, unknown or out of range.
-        """
+        """Read a record written by :meth:`native` or read back from a state."""
         names = {field.name for field in dataclasses.fields(cls)}
         if set(values) != names:
             missing = sorted(names - set(values))
@@ -193,12 +187,6 @@ class ExecutionRecord:
         """Return the record with `values`' fields replaced, validated.
 
         A profile row holds only the settings it measured; the rest stay as they are.
-
-        Raises
-        ------
-        ValueError
-            When `values` names a field the record does not hold, or a value is out
-            of range.
         """
         names = {field.name for field in dataclasses.fields(self)}
         unknown = sorted(set(values) - names)
@@ -249,30 +237,9 @@ def builtin(
     ``SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES``, replaces the FFT start and is never
     divided.
 
-    Parameters
-    ----------
-    system : str
-        ``"Darwin"``, ``"Linux"``, ``"Windows"`` or another :func:`platform.system`
-        name.
-    spin_milliseconds : int
-        LLVM's block time inside native calls, zero when the runtime does not spin
-        there.
-    width : int
-        The runtime's thread count.
-    fft_threshold : int or None
-        The user's FFT start, or ``None``.
-
-    Returns
-    -------
-    ExecutionRecord
-        The record a workspace of this process takes without a profile.
-
-    Examples
-    --------
-    >>> builtin("Linux").stage_threshold
-    4096
-    >>> builtin("Darwin", spin_milliseconds=1, width=6).stage_threshold
-    512
+    - ``spin_milliseconds``: LLVM's block time inside native calls, zero when the
+      runtime does not spin there.
+    - ``fft_threshold``: the user's FFT start, or ``None``.
     """
     apple = system == "Darwin"
     # The stage boundary is platform-dependent. At 8192, just under the calibrated

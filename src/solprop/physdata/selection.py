@@ -106,58 +106,58 @@ class ModelIdentityLike(Protocol):
     """Read the fields of an optmat ``ModelIdentity`` that a record keeps."""
 
     @property
-    def name(self) -> str:
-        """Return the model's name."""
+    def name(self) -> str:  # numpydoc ignore=RT01
+        """The model's name."""
         ...
 
     @property
-    def kind(self) -> str:
-        """Return the quantity the model gives."""
+    def kind(self) -> str:  # numpydoc ignore=RT01
+        """Quantity the model gives."""
         ...
 
     @property
-    def material(self) -> str:
-        """Return the material it describes."""
+    def material(self) -> str:  # numpydoc ignore=RT01
+        """Material it describes."""
         ...
 
     @property
-    def digest(self) -> str:
-        """Return the SHA-256 of its canonical record."""
+    def digest(self) -> str:  # numpydoc ignore=RT01
+        """SHA-256 of its canonical record."""
         ...
 
     @property
-    def optmat_version(self) -> str:
-        """Return the optmat version that built it."""
+    def optmat_version(self) -> str:  # numpydoc ignore=RT01
+        """Version of optmat that built it."""
         ...
 
     @property
-    def status(self) -> str:
-        """Return its status."""
+    def status(self) -> str:  # numpydoc ignore=RT01
+        """The status, one of :data:`STATUSES`."""
         ...
 
     @property
-    def status_reason(self) -> str:
-        """Return why its status is what it is."""
+    def status_reason(self) -> str:  # numpydoc ignore=RT01
+        """Why its status is what it is."""
         ...
 
     @property
-    def modified(self) -> tuple[tuple[str, str], ...]:
-        """Return the overrides applied."""
+    def modified(self) -> tuple[tuple[str, str], ...]:  # numpydoc ignore=RT01
+        """The overrides applied, ``(name, value)`` sorted by name."""
         ...
 
     @property
-    def base(self) -> str:
-        """Return the digest of the curated model an override started from."""
+    def base(self) -> str:  # numpydoc ignore=RT01
+        """Digest of the curated model an override started from."""
         ...
 
     @property
-    def sources(self) -> tuple[str, ...]:
-        """Return the source records the model rests on."""
+    def sources(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """Source records the model rests on."""
         ...
 
     @property
-    def reference_temperature(self) -> float | None:
-        """Return the temperature in K a gas polarizability refers to, if declared."""
+    def reference_temperature(self) -> float | None:  # numpydoc ignore=RT01
+        """Temperature in K a gas polarizability refers to, if declared."""
         ...
 
 
@@ -166,8 +166,8 @@ class OptmatModel(Protocol):
     """Anything that carries an optmat identity: a model, a response or a bundle."""
 
     @property
-    def identity(self) -> ModelIdentityLike:
-        """Return the model's optmat ``ModelIdentity``."""
+    def identity(self) -> ModelIdentityLike:  # numpydoc ignore=RT01
+        """The model's optmat ``ModelIdentity``."""
         ...
 
 
@@ -181,25 +181,7 @@ type ModelChoice = str | object
 
 
 def _choice(value: object, field: str) -> ModelChoice:
-    """Validate one model choice: a non-empty name or an optmat model object.
-
-    Parameters
-    ----------
-    value : object
-        The choice as given.
-    field : str
-        The selection field, for the message.
-
-    Returns
-    -------
-    ModelChoice
-        The choice, a name stripped of surrounding space.
-
-    Raises
-    ------
-    MaterialError
-        If the choice is neither a non-empty string nor an object with an identity.
-    """
+    """Validate one model choice: a non-empty name or an optmat model object."""
     if isinstance(value, str):
         name = value.strip()
         if not name:
@@ -216,18 +198,7 @@ def _choice(value: object, field: str) -> ModelChoice:
 
 
 def _choice_record(value: ModelChoice) -> str | dict[str, object]:
-    """Return a choice as plain values: its name, or a model object's record.
-
-    Parameters
-    ----------
-    value : ModelChoice
-        A validated choice.
-
-    Returns
-    -------
-    str or dict
-        The name, or the canonical record of the model's identity.
-    """
+    """Return a choice as plain values: its name, or a model object's record."""
     if isinstance(value, str):
         return value
     return MaterialRecord.from_identity(cast("OptmatModel", value).identity).to_dict()
@@ -524,25 +495,19 @@ class DiluteScalingCheck:
     reason: str = ""
 
     @property
-    def measured(self) -> bool:
-        """Return whether the error was measured.
+    def measured(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the error was measured.
 
-        Returns
-        -------
-        bool
-            True unless optmat refused the evaluation (see `reason`).
+        True unless optmat refused the evaluation (see `reason`).
         """
         return not self.reason
 
     @property
-    def exceeded(self) -> bool:
-        """Return whether the error's magnitude is above the threshold.
+    def exceeded(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the error's magnitude is above the threshold.
 
-        Returns
-        -------
-        bool
-            ``abs(relative_error) > threshold`` for a measured check; False for one
-            that was not measured.
+        ``abs(relative_error) > threshold`` for a measured check; False for one
+        that was not measured.
         """
         return self.measured and abs(self.relative_error) > self.threshold
 
@@ -571,32 +536,13 @@ class DiluteScalingCheck:
 def _canonical(value: object) -> str:
     """Return plain values as canonical JSON, for ordering and deduplication.
 
-    Parameters
-    ----------
-    value : object
-        Plain values: mappings, sequences, strings, numbers, None.
-
-    Returns
-    -------
-    str
-        Sorted-key, compact JSON.
+    - ``value``: plain values: mappings, sequences, strings, numbers, None.
     """
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def _plain(value: object) -> object:
-    """Return a value with tuples as lists and mappings as dicts, recursively.
-
-    Parameters
-    ----------
-    value : object
-        Plain values, possibly nested in tuples and mappings.
-
-    Returns
-    -------
-    object
-        The same values in JSON's own containers.
-    """
+    """Return a value with tuples as lists and mappings as dicts, recursively."""
     if isinstance(value, Mapping):
         return {str(key): _plain(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -605,18 +551,7 @@ def _plain(value: object) -> object:
 
 
 def _entries(values: Iterable[Mapping[str, object]]) -> tuple[dict[str, object], ...]:
-    """Return entries as plain dicts, each once, in canonical order.
-
-    Parameters
-    ----------
-    values : iterable of collections.abc.Mapping
-        The entries, possibly repeated.
-
-    Returns
-    -------
-    tuple of dict
-        The distinct entries sorted by their canonical JSON.
-    """
+    """Return entries as plain dicts, each once, sorted by their canonical JSON."""
     distinct = {
         _canonical(_plain(entry)): cast("dict[str, object]", _plain(entry))
         for entry in values
@@ -629,18 +564,8 @@ def _keyed(
 ) -> dict[str, object]:
     """Key entries by the named fields, so a difference names the entry that moved.
 
-    Parameters
-    ----------
-    entries : sequence of collections.abc.Mapping
-        Distinct entries in canonical order.
-    fields : sequence of str
-        The fields whose values, joined by ``:``, make an entry's key. Entries
-        that share a key take a numbered suffix, ``#1``, ``#2``, in their order.
-
-    Returns
-    -------
-    dict
-        The entries by key.
+    The key is the fields' values joined by ``:``; entries that share a key take a
+    numbered suffix, ``#1``, ``#2``, in their order.
     """
     names = [
         ":".join(str(entry.get(name) or "-") for name in fields) for entry in entries
@@ -661,17 +586,7 @@ def _stored_entries(
 ) -> list[Mapping[str, object]]:
     """Return a stored manifest field's entries, keyed or listed.
 
-    Parameters
-    ----------
-    document : collections.abc.Mapping
-        A stored manifest.
-    name : str
-        The field.
-
-    Returns
-    -------
-    list of collections.abc.Mapping
-        Its entries; none when it is absent.
+    - Returns: its entries; none when it is absent.
     """
     stored = document.get(name) or {}
     items = stored.values() if isinstance(stored, Mapping) else stored
@@ -685,15 +600,7 @@ _SOLID_POLICY: Final = ("material", "axis", "model", "digest", "transparent")
 def _solid_identity(solid: Mapping[str, object]) -> dict[str, object]:
     """Return the hashed part of a solid's entry: identity and policy.
 
-    Parameters
-    ----------
-    solid : collections.abc.Mapping
-        One entry of :attr:`MaterialManifest.solids`.
-
-    Returns
-    -------
-    dict
-        Its identifying fields, and the absorption bound of a transparent one.
+    - Returns: its identifying fields, and the absorption bound of a transparent one.
     """
     identity = {name: solid.get(name) for name in _SOLID_POLICY}
     if solid.get("transparent"):
@@ -883,13 +790,10 @@ class MaterialManifest:
             )
 
     @property
-    def empty(self) -> bool:
-        """Return whether the run took nothing from optmat and selected nothing.
+    def empty(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the run took nothing from optmat and selected nothing.
 
-        Returns
-        -------
-        bool
-            True for a run of solprop's own materials only.
+        True for a run of solprop's own materials only.
         """
         return self.selection is None and not self.records
 

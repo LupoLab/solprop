@@ -90,13 +90,7 @@ def _ours(environ: MutableMapping[str, str]) -> bool:
 
 
 def requested_wait(environ: Mapping[str, str] = os.environ) -> str | None:
-    """Return :data:`REQUEST`'s ``spin`` or ``passive``, or ``None``.
-
-    Raises
-    ------
-    ValueError
-        For another value.
-    """
+    """Return :data:`REQUEST`'s ``spin`` or ``passive``, or ``None``."""
     value = environ.get(REQUEST, "").strip()
     if not value:
         return None

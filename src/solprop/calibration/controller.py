@@ -183,13 +183,10 @@ class Candidate:
     wait: str | None = None
 
     @property
-    def name(self) -> str:
-        """``"built-in"``, or the wait and width, such as ``"spin/6"``.
+    def name(self) -> str:  # numpydoc ignore=RT01
+        """Name in reports and scores.
 
-        Returns
-        -------
-        str
-            The candidate's name in reports and scores.
+        ``"built-in"``, or the wait and width, such as ``"spin/6"``.
         """
         if self.threads is None and self.wait is None:
             return "built-in"
@@ -298,46 +295,22 @@ class CalibrationReport:
 
 
 class _Deadline:
-    """One monotonic deadline for all of a level's work.
-
-    Parameters
-    ----------
-    seconds : float
-        The budget from now.
-    """
+    """One monotonic deadline for all of a level's work."""
 
     def __init__(self, seconds: float) -> None:
         self.start = time.monotonic()
         self.end = self.start + seconds
 
     def remaining(self) -> float:
-        """Return the seconds left, never negative.
-
-        Returns
-        -------
-        float
-            Seconds.
-        """
+        """Return the seconds left, never negative."""
         return max(0.0, self.end - time.monotonic())
 
     def elapsed(self) -> float:
-        """Return the seconds since the start.
-
-        Returns
-        -------
-        float
-            Seconds.
-        """
+        """Return the seconds since the start."""
         return time.monotonic() - self.start
 
     def epoch(self) -> float:
-        """Return the deadline in seconds since the epoch, for a claim file.
-
-        Returns
-        -------
-        float
-            Seconds since the epoch.
-        """
+        """Return the deadline in seconds since the epoch, for a claim file."""
         return time.time() + self.remaining()
 
 
@@ -348,14 +321,7 @@ class _ChildError(CalibrationError):
 class _Child:
     """A calibration child process and its reply queue.
 
-    Parameters
-    ----------
-    candidate : Candidate
-        Its process settings.
-    cpus : sequence of int
-        The CPUs it pins itself to; empty for none.
-    environ : Mapping[str, str]
-        The controller's environment, from which the child's is made.
+    - ``cpus``: the CPUs it pins itself to; empty for none.
     """
 
     def __init__(
@@ -401,18 +367,7 @@ class _Child:
             del self.errors[:-20]
 
     def send(self, request: Mapping[str, object]) -> None:
-        """Write one request.
-
-        Parameters
-        ----------
-        request : Mapping[str, object]
-            The request.
-
-        Raises
-        ------
-        _ChildError
-            When the child's input is closed or broken.
-        """
+        """Write one request."""
         assert self.process.stdin is not None
         try:
             self.process.stdin.write(json.dumps(request) + "\n")
@@ -423,20 +378,7 @@ class _Child:
     def receive(self, timeout: float) -> object:
         """Return one reply's value, waiting at most `timeout` seconds.
 
-        Parameters
-        ----------
-        timeout : float
-            Seconds to wait.
-
-        Returns
-        -------
-        object
-            The reply's value.
-
-        Raises
-        ------
-        _ChildError
-            When the child overran, exited or reported an error.
+        - ``timeout``: seconds to wait.
         """
         try:
             line = self.replies.get(timeout=max(timeout, 0.0))
@@ -453,17 +395,7 @@ class _Child:
     def request(self, request: Mapping[str, object], timeout: float) -> object:
         """Send one request and return its reply's value.
 
-        Parameters
-        ----------
-        request : Mapping[str, object]
-            The request.
-        timeout : float
-            Seconds to wait for its reply.
-
-        Returns
-        -------
-        object
-            The reply's value.
+        - ``timeout``: seconds to wait for its reply.
         """
         self.send(request)
         return self.receive(timeout)
@@ -554,27 +486,19 @@ def candidates(
     widths = sorted({width for width in narrower if 1 <= width < budget}, reverse=True)
     widths = widths[: level.widths]
 
-    def other(width: int) -> str:
+    def _other(width: int) -> str:
         """Return the wait the built-in rule does not choose at `width`.
 
-        Parameters
-        ----------
-        width : int
-            A pool's width.
-
-        Returns
-        -------
-        str
-            ``"spin"`` or ``"passive"``.
+        - Returns: ``"spin"`` or ``"passive"``.
         """
         return "spin" if builtin_wait(width, top_tier) == "passive" else "passive"
 
-    found = [Candidate(threads=budget, wait=other(budget))]
+    found = [Candidate(threads=budget, wait=_other(budget))]
     found += [
         Candidate(threads=width, wait=builtin_wait(width, top_tier)) for width in widths
     ]
     if widths:
-        found.append(Candidate(threads=widths[0], wait=other(widths[0])))
+        found.append(Candidate(threads=widths[0], wait=_other(widths[0])))
     return found[: selection.MAX_CANDIDATES]
 
 
@@ -610,18 +534,7 @@ def nested(topology: Topology, cpus: Sequence[int]) -> list[tuple[int, ...]]:
 
 
 def _geomean(values: Sequence[float]) -> float:
-    """Return the geometric mean of positive `values`.
-
-    Parameters
-    ----------
-    values : sequence of float
-        Positive values.
-
-    Returns
-    -------
-    float
-        Their geometric mean.
-    """
+    """Return the geometric mean of positive `values`."""
     return math.exp(sum(math.log(value) for value in values) / len(values))
 
 
@@ -631,17 +544,9 @@ def _telemetry(path: Path = Path("/proc/stat")) -> dict[str, float] | None:
     Linux only (``/proc/stat``); elsewhere load is unknown and only the A/A noise
     decides (SEP 46 section 6.5).
 
-    Parameters
-    ----------
-    path : pathlib.Path, optional
-        The kernel's statistics file.
-
-    Returns
-    -------
-    dict of str to float or None
-        ``total`` and ``steal`` ticks and ``running`` tasks, and each CPU's ticks
-        (``cpuN.total``) and busy ticks (``cpuN.busy``, neither idle nor waiting);
-        ``None`` where unknown.
+    - Returns: ``total`` and ``steal`` ticks and ``running`` tasks, and each CPU's ticks
+      (``cpuN.total``) and busy ticks (``cpuN.busy``, neither idle nor waiting);
+      ``None`` where unknown.
     """
     try:
         text = path.read_text(encoding="utf-8")
@@ -675,19 +580,8 @@ def _busy(
     SMT sibling of its cores more than half busy (another task sharing a core it
     times), or more than a tenth of the time stolen by a hypervisor.
 
-    Parameters
-    ----------
-    before, after : dict or None
-        :func:`_telemetry` before and after the measurements.
-    idle : int
-        The CPUs outside the allocation.
-    siblings : sequence of int, optional
-        The CPUs outside the allocation that share a core with it.
-
-    Returns
-    -------
-    str
-        The reason, empty when the host was quiet enough or its load is unknown.
+    - ``before``, ``after``: :func:`_telemetry` before and after the measurements.
+    - Returns: the reason, empty when the host was quiet enough or its load is unknown.
     """
     if before is None or after is None:
         return ""
@@ -732,20 +626,7 @@ class _Bench:
     repeats: Mapping[str, int]
 
     def time(self, plan: _Plan, child: _Child) -> list[float]:
-        """Return `child`'s seconds per step in each problem's window.
-
-        Parameters
-        ----------
-        plan : _Plan
-            The calibration's plan, for its problems and deadline.
-        child : _Child
-            The child to time.
-
-        Returns
-        -------
-        list of float
-            One value per problem.
-        """
+        """Return `child`'s seconds per step in each problem's window."""
         seconds: list[float] = []
         for problem in plan.level.problems:
             reply = child.request(
@@ -762,22 +643,6 @@ def _start(
     """Start and prepare the built-in child and the candidates; size the windows.
 
     Every child started is appended to `opened`, so that the caller reaps it.
-
-    Parameters
-    ----------
-    plan : _Plan
-        The calibration's plan.
-    cpus : sequence of int
-        The allocation's CPUs.
-    allocation : AllocationClass
-        Its class.
-    opened : list of _Child
-        Filled with the children started.
-
-    Returns
-    -------
-    _Bench
-        The prepared children and each window's repeats.
     """
     builtin = _Child(Candidate(), cpus, plan.environ)
     opened.append(builtin)
@@ -809,20 +674,9 @@ def _rounds(
     so that the ratio of two scores is the geometric mean of their windows' ratios.
     ``"again"`` is the built-in child timed a second time in the same round.
 
-    Parameters
-    ----------
-    plan : _Plan
-        The calibration's plan.
-    bench : _Bench
-        The prepared children.
-    until : float
-        The seconds of the deadline kept back; no round starts within them.
-
-    Returns
-    -------
-    tuple
-        Each slot's score per round, ``None`` for a failed one; and each slot's
-        seconds per step on each problem per round.
+    - ``until``: the seconds of the deadline kept back; no round starts within them.
+    - Returns: each slot's score per round, ``None`` for a failed one; and each slot's
+      seconds per step on each problem per round.
     """
     slots = [("built-in", bench.builtin), ("again", bench.builtin)]
     slots += [(child.candidate.name, child) for child in bench.rivals]
@@ -857,15 +711,9 @@ def _window_ratios(
 ) -> dict[str, list[float | None]]:
     """Return each problem's per-round ratio of a candidate's seconds to a base's.
 
-    Parameters
-    ----------
-    candidate, base : Mapping[str, sequence of float or None]
-        Seconds per round by problem, ``None`` for a failed round.
-
-    Returns
-    -------
-    dict of str to list
-        The ratios, ``None`` where either failed.
+    - ``candidate``, ``base``: seconds per round by problem, ``None`` for a failed
+      round.
+    - Returns: the ratios, ``None`` where either failed.
     """
     return {
         problem: [
@@ -879,24 +727,7 @@ def _window_ratios(
 def _validate(
     plan: _Plan, bench: _Bench, winner: _Child, noise: float
 ) -> selection.Validation:
-    """Validate the winner against the built-in child on fresh rounds, by window.
-
-    Parameters
-    ----------
-    plan : _Plan
-        The calibration's plan.
-    bench : _Bench
-        The prepared children.
-    winner : _Child
-        The admitted candidate.
-    noise : float
-        The session's A/A noise.
-
-    Returns
-    -------
-    solprop.calibration.selection.Validation
-        The verdict.
-    """
+    """Validate the winner against the built-in child on fresh rounds, by window."""
     names = plan.level.problems
     combined: dict[str, list[float | None]] = {name: [] for name in names}
     table: dict[str, list[float | None]] = {name: [] for name in names}
@@ -921,15 +752,7 @@ def _validate(
 def _settings(child: _Child) -> dict[str, object]:
     """Return a child's process settings as it reported them: width and wait.
 
-    Parameters
-    ----------
-    child : _Child
-        A prepared child.
-
-    Returns
-    -------
-    dict
-        ``threads`` and ``wait``.
+    - Returns: ``threads`` and ``wait``.
     """
     process = cast(dict[str, object], child.report["process"])
     return {"threads": process["threads"], "wait": process["wait"]}
@@ -944,25 +767,10 @@ def _decide(
 ) -> tuple[_Child, dict[str, object], str]:
     """Choose and validate a candidate; return its child, the evidence and why.
 
-    Parameters
-    ----------
-    plan : _Plan
-        The calibration's plan.
-    bench : _Bench
-        The prepared children.
-    scores : dict
-        Each slot's score per round.
-    noise : float
-        The session's A/A noise.
-    seconds : Mapping or None, optional
-        Each slot's seconds per problem per round (:func:`_rounds`), so that no
-        problem may be slower under the winner.
-
-    Returns
-    -------
-    tuple
-        The child whose process settings were chosen (the built-in one when none
-        replaced them), the evidence, and the reason.
+    - ``seconds``: each slot's seconds per problem per round (:func:`_rounds`), so that
+      no problem may be slower under the winner.
+    - Returns: the child whose process settings were chosen (the built-in one when none
+      replaced them), the evidence, and the reason.
     """
     windows = (
         {}
@@ -1034,25 +842,9 @@ def _compare_round(
 ) -> tuple[dict[str, float | None], dict[str, dict[str, float | None]]]:
     """Time one round of candidate setups against a base setup.
 
-    Parameters
-    ----------
-    plan : _Plan
-        The calibration's plan, with each window's repeats.
-    child : _Child
-        The child whose process settings were chosen.
-    base : _Setup
-        The base setup.
-    candidates : sequence of tuple
-        Each candidate's name, setup and the problems it changes.
-    generator : random.Random
-        Shuffles the round's order.
-
-    Returns
-    -------
-    tuple
-        ``again``, the base's A/A ratio over the problems, and each candidate's ratio
-        to it over its problems, ``None`` for a failed window; and each candidate's
-        ratio on each of its problems.
+    - Returns: ``again``, the base's A/A ratio over the problems, and each candidate's
+      ratio to it over its problems, ``None`` for a failed window; and each candidate's
+      ratio on each of its problems.
     """
     problems = tuple(sorted({name for _, _, names in candidates for name in names}))
     slots = [("base", base, problems), ("again", base, problems), *candidates]
@@ -1102,26 +894,9 @@ def _session_of(  # noqa: PLR0917 - called positionally
 ) -> tuple[float | None, dict[str, selection.Verdict]]:
     """Time interleaved rounds of candidate setups; return the noise and verdicts.
 
-    Parameters
-    ----------
-    plan : _Plan
-        The calibration's plan.
-    child : _Child
-        The child whose process settings were chosen.
-    base : _Setup
-        The base setup.
-    candidates : sequence of tuple
-        Each candidate's name, setup and the problems it changes.
-    until : float
-        The seconds of the deadline kept back; no round starts within them.
-    seed : int
-        Seeds the rounds' order.
-
-    Returns
-    -------
-    tuple
-        The session's A/A noise (``None`` with too few rounds), and each
-        candidate's verdict, empty when the noise is too high to decide.
+    - ``until``: the seconds of the deadline kept back; no round starts within them.
+    - Returns: the session's A/A noise (``None`` with too few rounds), and each
+      candidate's verdict, empty when the noise is too high to decide.
     """
     generator = random.Random(seed)
     ratios: dict[str, list[float | None]] = {"again": []}
@@ -1158,20 +933,9 @@ def _grain_candidates(
 ) -> list[tuple[grain.Candidate, tuple[str, ...]]]:
     """Return the grain candidates and the problems each changes.
 
-    Parameters
-    ----------
-    plan : _Plan
-        The calibration's plan, for its level's limits.
-    child : _Child
-        The child whose process settings were chosen.
-    sizing : Mapping[str, Mapping[str, object]]
-        Each problem's ``execution_sizing`` under the child's own record.
-
-    Returns
-    -------
-    list of tuple
-        Each candidate, with the problems whose operations (or compact team) it
-        changes; a candidate that changes none is left out.
+    - ``sizing``: each problem's ``execution_sizing`` under the child's own record.
+    - Returns: each candidate, with the problems whose operations (or compact team) it
+      changes; a candidate that changes none is left out.
     """
     base = cast(dict[str, int | bool], child.report["execution"])
     capacity = int(cast(int, _settings(child)["threads"]))
@@ -1206,19 +970,8 @@ def _grain(
     §6.5's rule; the best of each setting are combined and validated together on
     fresh rounds of every problem. A failed validation drops the grain.
 
-    Parameters
-    ----------
-    plan : _Plan
-        The calibration's plan, with each window's repeats.
-    child : _Child
-        The child whose process settings were chosen.
-    until : float
-        The seconds of the deadline kept back for publication.
-
-    Returns
-    -------
-    tuple
-        The workspace settings admitted (empty when none), and the evidence.
+    - ``until``: the seconds of the deadline kept back for publication.
+    - Returns: the workspace settings admitted (empty when none), and the evidence.
     """
     try:
         sizing = cast(
@@ -1267,26 +1020,7 @@ def _grain(
 def _validate_setups(
     plan: _Plan, child: _Child, combined: _Setup, table: _Setup, noise: float
 ) -> selection.Validation:
-    """Validate a combined setup against the base on fresh rounds of every window.
-
-    Parameters
-    ----------
-    plan : _Plan
-        The calibration's plan, with each window's repeats.
-    child : _Child
-        The child.
-    combined : _Setup
-        The admitted settings together.
-    table : _Setup
-        The base they replace.
-    noise : float
-        The session's A/A noise.
-
-    Returns
-    -------
-    solprop.calibration.selection.Validation
-        The verdict.
-    """
+    """Validate a combined setup against the base on fresh rounds of every window."""
     names = plan.level.problems
     times: dict[str, dict[str, list[float | None]]] = {
         "combined": {name: [] for name in names},
@@ -1337,16 +1071,9 @@ def _planning_candidates(
     share of the stage, so it was never timed and only took the time the timing in
     the step needed (solprop issue #595).
 
-    Parameters
-    ----------
-    measured : Mapping[str, object]
-        The capture at measure: ``wisdom`` and ``groups`` by plan key.
-
-    Returns
-    -------
-    list of tuple
-        Each candidate's name, group and planning: the policy's efforts with one
-        group's changed, and the wisdom of every group it plans beyond estimate.
+    - ``measured``: the capture at measure: ``wisdom`` and ``groups`` by plan key.
+    - Returns: each candidate's name, group and planning: the policy's efforts with one
+      group's changed, and the wisdom of every group it plans beyond estimate.
     """
     groups = cast(dict[str, str], measured["groups"])
     wisdom = cast(dict[str, str], measured["wisdom"])
@@ -1356,17 +1083,7 @@ def _planning_candidates(
     ) -> dict[str, object]:
         """Return a profile planning with `efforts` and the wisdom of `keys` they use.
 
-        Parameters
-        ----------
-        efforts : Mapping[str, str]
-            Each group's effort.
-        keys : Mapping[str, str]
-            Wisdom by plan key; that of a group planned at estimate is left out.
-
-        Returns
-        -------
-        dict
-            The planning.
+        - ``keys``: wisdom by plan key; that of a group planned at estimate is left out.
         """
         return {
             "mode": "profile",
@@ -1410,40 +1127,20 @@ def _alone_ratios(
 ) -> dict[str, dict[str, float]]:
     """Return each candidate's plans' execution alone over the policy's (issue #595).
 
-    Parameters
-    ----------
-    candidates : sequence of tuple
-        Each candidate's name, group and planning (:func:`_planning_candidates`).
-    groups : Mapping[str, str]
-        Each plan key's group.
-    measured : Mapping[str, object]
-        The capture at measure, whose ``alone`` holds each plan's seconds as
-        captured (``plan``) and at estimate (``estimate``).
-
-    Returns
-    -------
-    dict
-        By candidate, by plan key of its group: the candidate effort's seconds alone
-        over the policy effort's; a key timed at neither is left out. Set beside the
-        candidate's verdict in the step, it tells a plan slower alone from one that
-        loses only in the step.
+    - ``measured``: the capture at measure, whose ``alone`` holds each plan's seconds as
+      captured (``plan``) and at estimate (``estimate``).
+    - Returns: by candidate, by plan key of its group: the candidate effort's seconds
+      alone over the policy effort's; a key timed at neither is left out. Set beside the
+      candidate's verdict in the step, it tells a plan slower alone from one that loses
+      only in the step.
     """
     timed = cast(dict[str, dict[str, float]], measured.get("alone", {}))
 
     def seconds(key: str, effort: str) -> float | None:
         """Return a plan's seconds alone at `effort`, or ``None``.
 
-        Parameters
-        ----------
-        key : str
-            The plan key.
-        effort : str
-            ``"estimate"`` or ``"measure"``.
-
-        Returns
-        -------
-        float or None
-            The seconds, when timed and finite.
+        - ``effort``: ``"estimate"`` or ``"measure"``.
+        - Returns: the seconds, when timed and finite.
         """
         value = timed.get(key, {}).get("estimate" if effort == "estimate" else "plan")
         return value if value is not None and math.isfinite(value) else None
@@ -1485,21 +1182,9 @@ def _planning(
     step on the problems holding that group's transforms and admitted by §6.5's rule;
     the winners are validated together. Quick leaves the plan policy.
 
-    Parameters
-    ----------
-    plan : _Plan
-        The calibration's plan, with each window's repeats.
-    child : _Child
-        The child whose process settings were chosen.
-    record : Mapping[str, int or bool]
-        The workspace record chosen, under which the transforms' threads are set.
-    until : float
-        The seconds of the deadline kept back for publication.
-
-    Returns
-    -------
-    tuple
-        The row's planning (``efforts``), the wisdom by plan key, and the evidence.
+    - ``until``: the seconds of the deadline kept back for publication.
+    - Returns: the row's planning (``efforts``), the wisdom by plan key, and the
+      evidence.
     """
     if plan.level.name == "quick":
         return {}, {}, {"reason": "the plan policy (quick)"}
@@ -1512,17 +1197,7 @@ def _planning(
         Each capture takes its share of the stage's time, so that the timing in the
         step still has the rest (SEP 46 section 6.7).
 
-        Parameters
-        ----------
-        effort : str
-            ``"measure"`` or ``"patient"``.
-        share : float
-            The share of the stage's time left that the capture may take.
-
-        Returns
-        -------
-        dict
-            The child's capture (:meth:`solprop.calibration.child._Session.capture`).
+        - ``effort``: ``"measure"`` or ``"patient"``.
         """
         budget = max(0.0, plan.deadline.remaining() - until) * share
         return cast(
@@ -1649,24 +1324,6 @@ def _publish(
     """Publish `row` in a new generation, keeping the other classes' rows.
 
     A row of the same class from a higher level is kept instead.
-
-    Parameters
-    ----------
-    store : solprop_native._store.Store
-        The user's store.
-    fingerprint : str
-        The machine and build's key.
-    row : solprop_native._store.Row
-        The new row.
-    allocation : AllocationClass
-        Its class.
-    wisdom : Mapping[str, str] or None, optional
-        Its plans' wisdom by plan key, added to the generation's.
-
-    Returns
-    -------
-    pathlib.Path
-        The generation file published.
     """
     previous: Generation | None = store.current(fingerprint)
     rows: list[Row] = []
@@ -1699,21 +1356,7 @@ def _calibrate_allocation(
 ) -> CalibrationReport:
     """Calibrate one allocation class; publish its row unless inconclusive.
 
-    Parameters
-    ----------
-    plan : _Plan
-        The calibration's plan.
-    cpus : sequence of int
-        The allocation's CPUs.
-    allocation : AllocationClass
-        Its class.
-    until : float
-        The seconds of the deadline kept back for validation and publication.
-
-    Returns
-    -------
-    CalibrationReport
-        The class's report.
+    - ``until``: the seconds of the deadline kept back for validation and publication.
     """
     base = CalibrationReport(
         level=plan.level.name,
@@ -1925,18 +1568,7 @@ def calibrate(
 
 
 def _siblings(cpus: Sequence[int]) -> list[int]:
-    """Return the CPUs outside `cpus` that share a physical core with one of them.
-
-    Parameters
-    ----------
-    cpus : sequence of int
-        The allocation's CPUs.
-
-    Returns
-    -------
-    list of int
-        Their SMT siblings, ascending.
-    """
+    """Return the CPUs outside `cpus` that share a physical core with one of them."""
     machine = _native.topology.read_topology()
     cores = {machine.core[cpu] for cpu in cpus if cpu in machine.core}
     held = set(cpus)
@@ -1951,15 +1583,7 @@ def _native_budget(cpus: Sequence[int]) -> int:
     The smallest of the CPUs, their physical cores, the fastest kind's cores and the
     control groups' quota (``thread_budget`` without ``SOLPROP_THREADS``).
 
-    Parameters
-    ----------
-    cpus : sequence of int
-        The allocation's CPUs; empty for the whole machine.
-
-    Returns
-    -------
-    int
-        Threads.
+    - ``cpus``: the allocation's CPUs; empty for the whole machine.
     """
     limits = [len(cpus) or (os.cpu_count() or 1)]
     for limit in (

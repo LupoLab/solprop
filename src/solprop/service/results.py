@@ -63,33 +63,14 @@ C = 299_792_458.0
 def _modes(payload: Payload) -> ModeSelection:
     """Return the mode selection a payload asks for.
 
-    Parameters
-    ----------
-    payload : Mapping
-        Optionally ``modes``: ``"sum"`` or a mode's index.
-
-    Returns
-    -------
-    int or str
-        The selection, ``"sum"`` by default.
+    - ``payload``: optionally ``modes``: ``"sum"`` or a mode's index.
     """
     modes = payload.get("modes", "sum")
     return "sum" if modes == "sum" else int(modes)  # pyright: ignore[reportArgumentType]
 
 
 def _labels(handler: Output) -> list[str]:
-    """Return a file's mode labels, or none for a file without modes.
-
-    Parameters
-    ----------
-    handler : solprop.output.Output
-        The open file.
-
-    Returns
-    -------
-    list of str
-        Each channel's display label.
-    """
+    """Return a file's mode labels, or none for a file without modes."""
     try:
         return [label.display_label for label in channel_labels(handler)]
     except SolpropError:
@@ -98,37 +79,13 @@ def _labels(handler: Output) -> list[str]:
 
 @functools.lru_cache(maxsize=4)
 def _simulation(path: str, stamp: float) -> Simulation:
-    """Return a run rebuilt from the recipe it records, for its grids and medium.
-
-    Parameters
-    ----------
-    path : str
-        The results file.
-    stamp : float
-        Its modification time, so that a rewritten file is rebuilt.
-
-    Returns
-    -------
-    solprop.driver.Simulation
-        The run's simulation, built and not run.
-    """
+    """Return a run rebuilt from the recipe it records, for its grids and medium."""
     del stamp  # the cache's key only
     return Recipe.from_output(path, resolved=True).build()
 
 
 def _space(path: str) -> object:
-    """Return a spatial run's transverse grid (:func:`_simulation`'s).
-
-    Parameters
-    ----------
-    path : str
-        The results file.
-
-    Returns
-    -------
-    object
-        The ``spatial_grid``.
-    """
+    """Return a spatial run's transverse grid (:func:`_simulation`'s)."""
     return _simulation(path, Path(path).stat().st_mtime).spatial_grid
 
 
@@ -270,21 +227,9 @@ def beam(payload: Payload) -> dict[str, object]:
 def _fluence(path: str, handler: Output, index: int) -> dict[str, object]:
     """Return a spatial plane's fluence on its transverse axes.
 
-    Parameters
-    ----------
-    path : str
-        The results file.
-    handler : solprop.output.Output
-        It, open.
-    index : int
-        The plane.
-
-    Returns
-    -------
-    dict
-        ``axes`` (their names and values, m: ``r``, ``x``, or ``y`` and ``x``),
-        ``values`` (``node_fluence`` on them) and ``unit``; ``error`` instead
-        where the run's grid cannot be rebuilt or laid out.
+    - Returns: ``axes`` (their names and values, m: ``r``, ``x``, or ``y`` and ``x``),
+      ``values`` (``node_fluence`` on them) and ``unit``; ``error`` instead where the
+      run's grid cannot be rebuilt or laid out.
     """
     try:
         space = _space(path)
@@ -448,25 +393,9 @@ def statistics(payload: Payload) -> dict[str, object]:
 def _drawn(handler: Output, payload: Payload) -> list[Figure]:
     """Draw one of solprop's plots of a file.
 
-    Parameters
-    ----------
-    handler : solprop.output.Output
-        The open file.
-    payload : Mapping
-        ``plot``: ``"prop_2d"``, ``"spec_1d"``, ``"time_1d"``, ``"spectrogram"``
-        or ``"plot_stats"``; ``z`` (a plane's position, for the slices and the
-        spectrogram); and optionally ``modes``.
-
-    Returns
-    -------
-    list of matplotlib.figure.Figure
-        The figures: one for a slice or a spectrogram, one per map or statistic
-        for the others.
-
-    Raises
-    ------
-    ValueError
-        If the plot is not one of these.
+    - ``payload``: ``plot``: ``"prop_2d"``, ``"spec_1d"``, ``"time_1d"``,
+      ``"spectrogram"`` or ``"plot_stats"``; ``z`` (a plane's position, for the slices
+      and the spectrogram); and optionally ``modes``.
     """
     kind = str(payload["plot"])
     modes = _modes(payload)
@@ -505,17 +434,10 @@ SPECTROGRAM_ROWS = 400
 def _health_facts(execution: Mapping[str, object]) -> dict[str, object]:
     """Return what a run's record says about how it ran.
 
-    Parameters
-    ----------
-    execution : Mapping
-        The run's ``execution`` record.
-
-    Returns
-    -------
-    dict
-        ``backend``, ``precision``, ``threads``, ``wall_time`` (s), ``peak_memory``
-        (bytes) and ``plasma_source`` (its check and limit), each ``None`` where the
-        record has none.
+    - ``execution``: the run's ``execution`` record.
+    - Returns: ``backend``, ``precision``, ``threads``, ``wall_time`` (s),
+      ``peak_memory`` (bytes) and ``plasma_source`` (its check and limit), each ``None``
+      where the record has none.
     """
     resources = execution.get("resources")
     plasma = execution.get("plasma_source")
@@ -538,16 +460,9 @@ def _health_facts(execution: Mapping[str, object]) -> dict[str, object]:
 def _boundary_of(execution: Mapping[str, object]) -> dict[str, object] | None:
     """Return what the boundary monitor recorded along z.
 
-    Parameters
-    ----------
-    execution : Mapping
-        The run's ``execution`` record.
-
-    Returns
-    -------
-    dict or None
-        ``z``, ``removed`` (the share of the light the absorber took, by position)
-        and ``budget``; ``None`` where no monitor ran.
+    - ``execution``: the run's ``execution`` record.
+    - Returns: ``z``, ``removed`` (the share of the light the absorber took, by
+      position) and ``budget``; ``None`` where no monitor ran.
     """
     monitor = execution.get("boundary_monitor")
     planes = monitor.get("planes") if isinstance(monitor, Mapping) else None
@@ -668,23 +583,10 @@ def _window(
 ) -> tuple[float, float]:
     """Return the spectral window of a spectrogram's image.
 
-    Parameters
-    ----------
-    path : str
-        The results file.
-    axis : str
-        The map's axis.
-    x : numpy.ndarray
-        Its rows' abscissae, ascending.
-    values : numpy.ndarray
-        The map.
-
-    Returns
-    -------
-    tuple of float
-        The run's wavelength window on the axis, where its recipe gives one (on
-        frequency from the map's lowest row, as a field grid reaches zero); else
-        the rows that hold light (above a millionth of the peak).
+    - ``axis``: the map's axis.
+    - Returns: the run's wavelength window on the axis, where its recipe gives one (on
+      frequency from the map's lowest row, as a field grid reaches zero); else the rows
+      that hold light (above a millionth of the peak).
     """
     limits = None
     if capabilities.output(path).recipe:
@@ -703,19 +605,8 @@ def _window(
 def _energy_of(handler: Output, index: int, modes: ModeSelection) -> float:
     """Return a plane's energy, through the metric where the modes' basis needs it.
 
-    Parameters
-    ----------
-    handler : solprop.output.Output
-        The open file.
-    index : int
-        The plane.
-    modes : ModeSelection
-        The modes.
-
-    Returns
-    -------
-    float
-        The energy, J: a general modal guide's is its physical energy, of every mode.
+    - Returns: the energy, J: a general modal guide's is its physical energy, of every
+      mode.
     """
     try:
         return float(energy(handler, plane=index, modes=modes))
@@ -812,23 +703,7 @@ def scan_overview(payload: Payload) -> dict[str, object]:
 
 
 def _scan_recipe(path: str) -> Recipe:
-    """Return the recipe a scan's file records, as it was written.
-
-    Parameters
-    ----------
-    path : str
-        The scan's results file.
-
-    Returns
-    -------
-    solprop.recipe.Recipe
-        The recipe, with its ``[scan]`` table.
-
-    Raises
-    ------
-    solprop.exceptions.SolpropError
-        If the file records no recipe.
-    """
+    """Return the recipe a scan's file records, as it was written."""
     record = ScanOutput(path).recipe
     if record is None:
         msg = "the scan records no recipe, so its variables are not known"
@@ -865,24 +740,7 @@ def _scan_axis(name: str, values: object) -> dict[str, object]:
     A keyword's values are read in SI; a nested path's (``pressure[0]``) are the
     quantities as the recipe writes them.
 
-    Parameters
-    ----------
-    name : str
-        The variable's path.
-    values : object
-        Its values.
-
-    Returns
-    -------
-    dict
-        ``name``, ``values`` and ``unit`` (``""`` where they are SI numbers).
-
-    Examples
-    --------
-    >>> _scan_axis("pressure[0]", np.array(["0.8 bar", "1.2 bar"]))["values"].tolist()
-    [0.8, 1.2]
-    >>> _scan_axis("energy", np.array([1e-4]))["unit"]
-    ''
+    - Returns: ``name``, ``values`` and ``unit`` (``""`` where they are SI numbers).
     """
     held = np.asarray(values).ravel()
     if held.dtype.kind in "fiu":
@@ -900,23 +758,12 @@ def _scan_result(
 ) -> dict[str, object]:
     """Return one recorded result over a scan's points.
 
-    Parameters
-    ----------
-    found : solprop.processing.scans.ScanOutput
-        The scan.
-    name : str
-        The result: a statistic (read at the last plane, summed over its other axes)
-        or a reduction (a value, or a spectrum or pulse on its fixed axis).
-    shape : tuple of int
-        The scan's shape.
-    recipe : solprop.recipe.Recipe
-        The scan's recipe, whose axes a spectrum or a pulse is held on.
-
-    Returns
-    -------
-    dict
-        ``summary``, ``units`` and ``values``; a spectrum or a pulse also its ``x``
-        (m or s).
+    - ``name``: the result: a statistic (read at the last plane, summed over its other
+      axes) or a reduction (a value, or a spectrum or pulse on its fixed axis).
+    - ``shape``: the scan's shape.
+    - ``recipe``: the scan's recipe, whose axes a spectrum or a pulse is held on.
+    - Returns: ``summary``, ``units`` and ``values``; a spectrum or a pulse also its
+      ``x`` (m or s).
     """
     grid = found.as_grid(name)
     short = name.split("/", 1)[1]

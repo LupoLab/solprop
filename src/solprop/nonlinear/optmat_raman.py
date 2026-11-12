@@ -490,13 +490,10 @@ class OptmatRamanResponse(RamanResponse):
         object.__setattr__(self, "source", source)
 
     @property
-    def material_records(self) -> tuple[MaterialRecord, ...]:
-        """Return the record of optmat's response, for the run's manifest.
+    def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
+        """Record of optmat's response, for the run's manifest.
 
-        Returns
-        -------
-        tuple of MaterialRecord
-            The response's identity, or none for a response without its source.
+        The response's identity, or none for a response without its source.
         """
         return () if self.source is None else (_optmat.record(self.source),)
 
@@ -547,15 +544,7 @@ class _Request:
 def _gas_kind(name: str) -> Literal["atom", "molecule"] | None:
     """Return whether optmat knows a species as an atom or a molecule.
 
-    Parameters
-    ----------
-    name : str
-        A species name.
-
-    Returns
-    -------
-    {'atom', 'molecule'} or None
-        The kind, or ``None`` for a name optmat's gas registry does not curate.
+    - Returns: the kind, or ``None`` for a name optmat's gas registry does not curate.
     """
     from optmat.exceptions import OptmatError  # noqa: PLC0415 - optmat is lazy
     from optmat.gas.gases import as_gas, info  # noqa: PLC0415 - as above
@@ -611,21 +600,7 @@ def raman_status(gas: str) -> str:
 def _build(request: _Request) -> tuple[_optmat.Untyped, list[warnings.WarningMessage]]:
     """Return optmat's response for a request, with the warnings its build raised.
 
-    Parameters
-    ----------
-    request : _Request
-        The composition, state and selection.
-
-    Returns
-    -------
-    tuple
-        The response optmat built, and the warnings it raised while being built.
-
-    Raises
-    ------
-    MaterialError
-        If optmat refuses the composition: naming each Raman-active constituent and
-        partner whose broadening it has not curated, or with optmat's reason.
+    - Returns: the response optmat built, and the warnings it raised while being built.
     """
     from optmat.exceptions import OptmatError  # noqa: PLC0415 - optmat is lazy
     from optmat.gas.raman_response import raman_response  # noqa: PLC0415 - as above
@@ -662,18 +637,6 @@ def _refuse_partners(request: _Request, error: Exception) -> NoReturn:
 
     Each Raman-active constituent is tried against each partner on its own, so that
     the message names the pair optmat has no broadening for (SEP 3, D16).
-
-    Parameters
-    ----------
-    request : _Request
-        The refused composition.
-    error : Exception
-        The refusal of the whole composition by optmat.
-
-    Raises
-    ------
-    MaterialError
-        Always.
     """
     from optmat.exceptions import OptmatError  # noqa: PLC0415 - optmat is lazy
     from optmat.gas.raman_response import raman_response  # noqa: PLC0415 - as above
@@ -711,24 +674,6 @@ def _supplied(response: object, request: _Request) -> _optmat.Untyped:
 
     A response fixes its composition, temperature and pump wavelength; one built for
     another state is refused rather than used where it does not apply.
-
-    Parameters
-    ----------
-    response : object
-        ``MaterialSelection.raman``: an optmat object with an identity.
-    request : _Request
-        The run's composition and state.
-
-    Returns
-    -------
-    optmat.gas.raman_response.GasRamanResponse
-        The response, as it is.
-
-    Raises
-    ------
-    MaterialError
-        If it is not a gas Raman response, or its composition, temperature or pump
-        wavelength is not the run's.
     """
     model = _optmat.untyped(response)
     if _optmat.record(response).kind != "raman_response":
@@ -767,23 +712,6 @@ def _with_dephasing(response: _optmat.Untyped, request: _Request) -> _optmat.Unt
     ``c + beta n`` of every band of its species (optmat's ``width_law``), so that the
     response's identity records the change (status ``user``). A law with a Dicke term
     is refused: optmat caps that term at a Doppler width the legacy law does not have.
-
-    Parameters
-    ----------
-    response : optmat.gas.raman_response.GasRamanResponse
-        The response.
-    request : _Request
-        The supplied laws by species.
-
-    Returns
-    -------
-    optmat.gas.raman_response.GasRamanResponse
-        The response with the laws applied, or as it was without any.
-
-    Raises
-    ------
-    MaterialError
-        If a supplied law has a Dicke term.
     """
     laws: dict[str, tuple[float, float, float, float]] = {}
     for name, dephasing in request.dephasing.items():
@@ -820,18 +748,8 @@ def _reemit(
 ) -> None:
     """Raise optmat's range warnings once per run, and record them.
 
-    Parameters
-    ----------
-    caught : sequence of warnings.WarningMessage
-        What optmat raised.
-    response : optmat.gas.raman_response.GasRamanResponse
-        The response the warnings are about.
-    kind : str
-        ``"temperature"`` or ``"density"``: one warning of each per response and run.
-    where : str
-        What the response is for.
-    part : str
-        The state declared, for the record.
+    - ``kind``: ``"temperature"`` or ``"density"``: one warning of each per response and
+      run.
     """
     from optmat.exceptions import ModelRangeWarning  # noqa: PLC0415 - optmat is lazy
 
@@ -866,18 +784,8 @@ def _check_range(
     the smallest positive double is declared for that interval too, and the record's
     lower bound is zero: "to vacuum".
 
-    Parameters
-    ----------
-    response : optmat.gas.raman_response.GasRamanResponse
-        The response.
-    request : _Request
-        The run's densities, at its probes in z order.
-
-    Returns
-    -------
-    tuple of float or None
-        The smallest and largest declared densities in m^-3, the smallest 0.0 for a
-        path that reaches vacuum, or ``None`` when none is known.
+    - Returns: the smallest and largest declared densities in m^-3, the smallest 0.0 for
+      a path that reaches vacuum, or ``None`` when none is known.
     """
     if request.densities is None:
         return None
@@ -906,25 +814,7 @@ def _check_range(
 
 
 def _kept_groups(response: _optmat.Untyped, request: _Request) -> list[_optmat.Untyped]:
-    """Return the damping groups the requested species and term flags keep.
-
-    Parameters
-    ----------
-    response : optmat.gas.raman_response.GasRamanResponse
-        The response.
-    request : _Request
-        The species to keep and their flags.
-
-    Returns
-    -------
-    list of optmat.gas.raman_response.RamanGroup
-        The kept groups in optmat's order.
-
-    Raises
-    ------
-    MaterialError
-        If a term required by ``True`` is absent, or nothing is left.
-    """
+    """Return the damping groups the requested species and term flags keep."""
     kept = []
     for name, options in request.keep.items():
         bands = {
@@ -963,24 +853,8 @@ def _kept_groups(response: _optmat.Untyped, request: _Request) -> list[_optmat.U
 def _shift(groups: Sequence[_optmat.Untyped], request: _Request) -> RamanShift | None:
     """Decide the density at which the shifted groups' rows are built.
 
-    Parameters
-    ----------
-    groups : sequence of optmat.gas.raman_response.RamanGroup
-        The kept groups.
-    request : _Request
-        The run's density path and selection.
-
-    Returns
-    -------
-    RamanShift or None
-        ``None`` when no kept group shifts; the constant density; or, under
-        ``raman_shift="reference-density"``, the reference density and its bound.
-
-    Raises
-    ------
-    MaterialError
-        If a group shifts on a varying density without the named approximation, or
-        on a density the run does not state.
+    - Returns: ``None`` when no kept group shifts; the constant density; or, under
+      ``raman_shift="reference-density"``, the reference density and its bound.
     """
     shifted = [group for group in groups if group.shifted]
     if not shifted:
@@ -1029,19 +903,8 @@ def _terms(
     second, so the isotropic amplitudes go to the isotropic term and the
     anisotropic ones to the rank-two term unchanged. An all-zero row is dropped.
 
-    Parameters
-    ----------
-    groups : sequence of optmat.gas.raman_response.RamanGroup
-        The kept groups.
-    response : optmat.gas.raman_response.GasRamanResponse
-        Their response, for the width laws in Hz.
-    shift : RamanShift or None
-        The density a shifted group's rows are built at.
-
-    Returns
-    -------
-    tuple of RamanTensorTerm
-        In group order, isotropic before rank-two within a group.
+    - ``response``: their response, for the width laws in Hz.
+    - Returns: the terms in group order, isotropic before rank-two within a group.
     """
     terms = []
     for group in groups:
@@ -1069,35 +932,9 @@ def _assemble(
 ) -> OptmatRamanResponse:
     """Build, check and map one optmat response onto solprop's terms.
 
-    Parameters
-    ----------
-    request : _Request
-        The composition, state and what to keep.
-    thg : bool
-        Whether a field grid keeps the third harmonic of the drive.
-    labels : tuple of str
-        The labels whose summed density drives the response.
-    leaf : str or None
-        The label the compiled leaf carries.
-
-    Returns
-    -------
-    OptmatRamanResponse
-        The response.
-
-    Raises
-    ------
-    MaterialError
-        If optmat refuses the composition, a provisional response is not admitted,
-        or a shift or a term flag cannot be honoured.
-
-    Warns
-    -----
-    MaterialRangeWarning
-        Once per run each, if the temperature or a declared density is outside the
-        response's validated range.
-    MaterialStatusWarning
-        Once per run, for an admitted provisional response.
+    - ``labels``: the labels whose summed density drives the response.
+    - Warns once per run each if the temperature or a declared density is outside the
+      response's validated range, and once per run for an admitted provisional response.
     """
     built, caught = _build(request)
     response = _with_dephasing(built, request)
@@ -1156,24 +993,8 @@ def _carrier(
 ) -> float:
     """Return the pump wavelength the vibrational strengths are dispersed at.
 
-    Parameters
-    ----------
-    selection : MaterialSelection
-        The run's selection; an explicit carrier is its deliberate choice.
-    wavelength : float or None
-        The run's grid reference wavelength in m.
-    where : str
-        What the response is for.
-
-    Returns
-    -------
-    float
-        ``selection.carrier_wavelength``, else `wavelength`, in m.
-
-    Raises
-    ------
-    MaterialError
-        If neither is given.
+    - ``wavelength``: the run's grid reference wavelength in m.
+    - Returns: ``selection.carrier_wavelength``, else `wavelength`, in m.
     """
     carrier = selection.carrier_wavelength
     if carrier is None:
@@ -1268,20 +1089,7 @@ def gas_raman(
 
 
 def _check_levels(options: MolecularOptions, where: str) -> None:
-    """Refuse a level truncation, which optmat's response does not take.
-
-    Parameters
-    ----------
-    options : MolecularOptions
-        The options.
-    where : str
-        What they are for.
-
-    Raises
-    ------
-    MaterialError
-        If ``min_j`` or ``max_j`` differs from its default.
-    """
+    """Refuse a level truncation, which optmat's response does not take."""
     defaults = MolecularOptions()
     if (options.min_j, options.max_j) != (defaults.min_j, defaults.max_j):
         msg = (
@@ -1317,17 +1125,7 @@ class _Path:
 def _sampled(mixture: Mixture, length: float | None) -> _Path:
     """Sample every population's density over the run.
 
-    Parameters
-    ----------
-    mixture : Mixture
-        The fill.
-    length : float or None
-        The run's length in m, or ``None`` for the densities' own span.
-
-    Returns
-    -------
-    _Path
-        The probes, the densities and the summed path.
+    - ``length``: the run's length in m, or ``None`` for the densities' own span.
     """
     paths = tuple(component.density for component in mixture.components)
     total = paths[0] if len(paths) == 1 else Sum(paths)
@@ -1355,24 +1153,7 @@ def _composition(
     Duplicate labels of one species are merged; a label whose density is zero over
     the whole run takes no part.
 
-    Parameters
-    ----------
-    mixture : Mixture
-        The fill.
-    path : _Path
-        Its sampled densities.
-    where : str
-        What the response is for.
-
-    Returns
-    -------
-    tuple
-        Species to mole fraction, and the largest relative spread of a fraction.
-
-    Raises
-    ------
-    MaterialError
-        If the fractions vary along the run beyond :data:`COMPOSITION_TOLERANCE`.
+    - Returns: species to mole fraction, and the largest relative spread of a fraction.
     """
     names = [component.species.name for component in mixture.components]
     by_species: dict[str, Float[np.ndarray, " n_probes"]] = {}
@@ -1405,20 +1186,7 @@ def _choices(
     mixture: Mixture,
     raman: bool | Sequence[str] | Mapping[str, bool | MolecularOptions],
 ) -> dict[str, MolecularOptions]:
-    """Return each selected label's term flags.
-
-    Parameters
-    ----------
-    mixture : Mixture
-        The fill.
-    raman : bool, sequence of str or Mapping
-        :func:`solprop.nonlinear.mixtures.responses_for`'s selection.
-
-    Returns
-    -------
-    dict
-        Label to options, for the labels selected.
-    """
+    """Return each selected label's term flags."""
     chosen: dict[str, MolecularOptions] = {}
     for component in mixture.components:
         label = component.label
@@ -1441,25 +1209,8 @@ def _keep(
 ) -> tuple[dict[str, MolecularOptions], dict[str, Dephasing]]:
     """Return the species whose lines are kept, their flags and supplied laws.
 
-    Parameters
-    ----------
-    mixture : Mixture
-        The fill.
-    chosen : Mapping of str to MolecularOptions
-        The selected labels' options.
-    explicit : bool
-        Whether the labels were named, so that one without a response is refused.
-
-    Returns
-    -------
-    tuple
-        Species to options, and species to a supplied dephasing.
-
-    Raises
-    ------
-    MaterialError
-        If a named label has no molecular response, or two labels of one species
-        disagree about their options or linewidths.
+    - ``explicit``: the labels were named, so one without a response is refused.
+    - Returns: species to options, and species to a supplied dephasing.
     """
     keep: dict[str, MolecularOptions] = {}
     laws: dict[str, Dephasing] = {}
@@ -1494,20 +1245,7 @@ def _keep(
 def _requested_temperature(options: Sequence[MolecularOptions]) -> float | None:
     """Return the one explicit reference temperature the options name, if any.
 
-    Parameters
-    ----------
-    options : sequence of MolecularOptions
-        The kept species' options.
-
-    Returns
-    -------
-    float or None
-        The temperature in K, or ``None`` when none names one.
-
-    Raises
-    ------
-    MaterialError
-        If two name different temperatures: a response has one.
+    - Returns: the temperature in K, or ``None`` when none names one.
     """
     named = {float(o.temperature) for o in options if o.temperature is not None}
     if len(named) > 1:
@@ -1668,15 +1406,7 @@ def _reference_density(path: _Path) -> float | None:
     :math:`N_\mathrm{ref} = \int N^2\,dz / \int N\,dz`, by quadrature across the
     path's breakpoints.
 
-    Parameters
-    ----------
-    path : _Path
-        The run's summed density.
-
-    Returns
-    -------
-    float or None
-        The reference density in m^-3, or ``None`` over an unbounded run.
+    - Returns: the reference density in m^-3, or ``None`` over an unbounded run.
     """
     from solprop.nonlinear.mixtures import _mean_temperature  # noqa: PLC0415 - a cycle
 

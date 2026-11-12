@@ -136,25 +136,15 @@ def _clenshaw_points(  # noqa: PLR0912, PLR0917 - one loop, its cases inline; ca
     the values of one call per position bit for bit. The NumPy reference backend runs it
     as written and the native backend its C++ transcription (``solprop._helpers``).
 
-    Parameters
-    ----------
-    z : numpy.ndarray
-        Positions, m, float64, shape ``(n_points,)``.
-    edges : numpy.ndarray
-        The breakpoints, float64, shape ``(n_intervals + 1,)``, increasing.
-    lower, upper : float
-        The span widened by its edge slack, m; a position outside is refused.
-    c : numpy.ndarray
-        Coefficients, shape ``(n_intervals, degree + 1, n_values)``, float64 or
-        complex128.
-    out : numpy.ndarray
-        The values, shape ``(n_points, n_values)``, of `c`'s dtype; overwritten.
-
-    Returns
-    -------
-    int
-        The first position outside ``[lower, upper]``, or ``-1`` when none is (the
-        rows from it on are then not written).
+    - ``z``: positions, m, float64, shape ``(n_points,)``.
+    - ``edges``: the breakpoints, float64, shape ``(n_intervals + 1,)``, increasing.
+    - ``lower``, ``upper``: the span widened by its edge slack, m; a position outside is
+      refused.
+    - ``c``: coefficients, shape ``(n_intervals, degree + 1, n_values)``, float64 or
+      complex128.
+    - ``out``: the values, shape ``(n_points, n_values)``, of `c`'s dtype; overwritten.
+    - Returns: the first position outside ``[lower, upper]``, or ``-1`` when none is
+      (the rows from it on are then not written).
     """
     n, m = c.shape[1], c.shape[2]
     last = edges.shape[0] - 2
@@ -315,25 +305,13 @@ class PiecewiseChebyshev:
         object.__setattr__(self, "_recent", {})
 
     @property
-    def value_shape(self) -> tuple[int, ...]:
-        """Return the shape of one value.
-
-        Returns
-        -------
-        tuple of int
-            Shape of one value; ``()`` for a scalar-valued function.
-        """
+    def value_shape(self) -> tuple[int, ...]:  # numpydoc ignore=RT01
+        """Shape of one value; ``()`` for a scalar-valued function."""
         return self.coefficients.shape[2:]
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the ends of the represented span.
-
-        Returns
-        -------
-        tuple of float
-            First and last breakpoint, m.
-        """
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """The ends of the represented span: first and last breakpoint, m."""
         return float(self.breakpoints[0]), float(self.breakpoints[-1])
 
     def __call__(
@@ -879,19 +857,7 @@ def _along_paths(
 ) -> Inexact[np.ndarray, " n_z *value"]:
     """Evaluate the paths at ``z`` and hand ``z`` and their values to ``f_of_params``.
 
-    Parameters
-    ----------
-    paths : sequence of callable
-        Scalar paths of z.
-    f_of_params : callable
-        Called as ``f_of_params(z, *values)``, one array per path.
-    z : numpy.ndarray
-        Positions, m, shape ``(n_z,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Samples of shape ``(n_z, *value_shape)``.
+    - ``z``: positions, m, shape ``(n_z,)``.
     """
     return f_of_params(z, *(path(z) for path in paths))
 
@@ -906,28 +872,10 @@ def _validate(  # noqa: PLR0917 - called positionally
 ) -> float:
     """Check the build arguments and return the absolute width floor.
 
-    Parameters
-    ----------
-    z0, z1 : float
-        Ends of the domain, m.
-    tol : float
-        Target bound on the uniform relative error.
-    n_max : int
-        Highest degree tried before bisecting.
-    min_width : float or None
-        Narrowest interval allowed, m, or None for the default fraction of the span.
-    max_intervals : int
-        Interval budget.
-
-    Returns
-    -------
-    float
-        The width floor, m, absolute and derived once from the whole span.
-
-    Raises
-    ------
-    TranslationError
-        Naming the offending argument.
+    - ``z0``, ``z1``: ends of the domain, m.
+    - ``min_width``: narrowest interval allowed, m, or None for the default fraction of
+      the span.
+    - Returns: the width floor, m, absolute and derived once from the whole span.
     """
     if not z1 > z0:
         msg = f"need z1 > z0, got z0 = {z0!r}, z1 = {z1!r}"
@@ -960,22 +908,9 @@ def _mandatory_edges(
 ) -> Float[np.ndarray, " n_edges"]:
     """Return the sorted, deduplicated mandatory edges including both domain ends.
 
-    Parameters
-    ----------
-    z0, z1 : float
-        Ends of the domain, m.
-    mandatory_breakpoints : array_like
-        Declared breakpoints, m.
-
-    Returns
-    -------
-    numpy.ndarray
-        Edges in increasing order, m, starting at ``z0`` and ending at ``z1``.
-
-    Raises
-    ------
-    TranslationError
-        If a declared breakpoint is not finite or lies outside ``[z0, z1]``.
+    - ``z0``, ``z1``: ends of the domain, m.
+    - ``mandatory_breakpoints``: declared breakpoints, m.
+    - Returns: edges in increasing order, m, starting at ``z0`` and ending at ``z1``.
     """
     declared = np.asarray(mandatory_breakpoints, dtype=np.float64).reshape(-1)
     if declared.size > 0 and not np.all(np.isfinite(declared)):
@@ -1001,27 +936,10 @@ def _split_segments(
 ) -> tuple[list[_Piece], bool]:
     """Resolve ``f`` on every segment between consecutive edges.
 
-    Parameters
-    ----------
-    f : callable
-        The vectorised sampler.
-    edges : numpy.ndarray
-        Mandatory edges in increasing order, m.
-    tol : float
-        Target bound on the uniform relative error.
-    n_max : int
-        Highest degree tried before bisecting.
-    min_width : float
-        Narrowest interval allowed, m.
-    max_intervals : int
-        Interval budget, shared across the segments.
-
-    Returns
-    -------
-    list of _Piece
-        The resolved intervals, in increasing z.
-    bool
-        True when the budget was exceeded.
+    - ``edges``: mandatory edges in increasing order, m.
+    - ``min_width``: narrowest interval allowed, m.
+    - Returns: the resolved intervals, in increasing z, and True when the budget was
+      exceeded.
     """
     pieces: list[_Piece] = []
     exceeded = False
@@ -1046,11 +964,6 @@ class _BatchedSampler:
     The first call of a walk samples its first group alone, which fixes the size of one
     sample; after that groups are concatenated into calls of at most
     :data:`_BATCH_BYTES` of samples each, and the samples split back per group.
-
-    Parameters
-    ----------
-    f : callable
-        The vectorised sampler.
     """
 
     def __init__(self, f: _SampleFunction) -> None:
@@ -1062,15 +975,8 @@ class _BatchedSampler:
     ) -> list[Inexact[np.ndarray, " n_z *value"]]:
         """Return the samples of each group, as :func:`_sample` returns them.
 
-        Parameters
-        ----------
-        groups : sequence of numpy.ndarray
-            Positions, m, one array per interval.
-
-        Returns
-        -------
-        list of numpy.ndarray
-            The samples of each group, each C-contiguous.
+        - ``groups``: positions, m, one array per interval.
+        - Returns: the samples of each group, each C-contiguous.
         """
         sampled: list[Inexact[np.ndarray, " n_z *value"]] = []
         remaining = list(groups)
@@ -1091,18 +997,7 @@ class _BatchedSampler:
         return sampled
 
     def capacity(self, n_max: int) -> int:
-        """Return how many intervals' samples at degree `n_max` fit in one batch.
-
-        Parameters
-        ----------
-        n_max : int
-            Highest degree tried.
-
-        Returns
-        -------
-        int
-            At least one; one until the first sample fixes the size of a sample.
-        """
+        """Return how many intervals' samples at degree `n_max` fit in one batch."""
         if self.per_position == 0:
             return 1
         return max(_BATCH_BYTES // ((n_max + 1) * self.per_position), 1)
@@ -1112,15 +1007,8 @@ class _BatchedSampler:
     ) -> list[Inexact[np.ndarray, " n_z *value"]]:
         """Sample the concatenated groups in one call and split the samples back.
 
-        Parameters
-        ----------
-        groups : sequence of numpy.ndarray
-            Positions, m, one array per interval.
-
-        Returns
-        -------
-        list of numpy.ndarray
-            The samples of each group, each a contiguous copy.
+        - ``groups``: positions, m, one array per interval.
+        - Returns: the samples of each group, each a contiguous copy.
         """
         if len(groups) == 1:
             return [_sample(self.f, groups[0])]
@@ -1150,27 +1038,10 @@ def _split(
     in z. If a batched call raises, the walk falls back to one interval at a time and
     raises at the interval it always did.
 
-    Parameters
-    ----------
-    f : callable
-        The vectorised sampler.
-    lo, hi : float
-        Ends of the segment, m.
-    tol : float
-        Target bound on the uniform relative error.
-    n_max : int
-        Highest degree tried before bisecting.
-    min_width : float
-        Narrowest interval allowed, m.
-    budget : int
-        Intervals this segment may produce; the split stops before exceeding it.
-
-    Returns
-    -------
-    list of _Piece
-        The resolved intervals, in increasing z.
-    bool
-        True when the budget was exceeded.
+    - ``lo``, ``hi``: ends of the segment, m.
+    - ``min_width``: narrowest interval allowed, m.
+    - Returns: the resolved intervals, in increasing z, and True when the budget was
+      exceeded.
     """
     # An explicit stack, never recursion: a square-root entrance refines geometrically
     # and would otherwise risk the recursion limit. Pushing the right half first and
@@ -1245,24 +1116,11 @@ def _look_ahead(
     where the budget runs out inside the levels it looked into. It holds at most
     :meth:`_BatchedSampler.capacity` intervals ahead of the walk.
 
-    Parameters
-    ----------
-    sample : _BatchedSampler
-        The batched sampler.
-    frontier : sequence of tuple of float
-        ``(lo, hi)`` in m, of intervals the walk will visit, the one it needs now
-        first.
-    ahead : dict
-        Outcomes of :func:`_resolve` by interval ``(lo, hi)``, already resolved ahead
-        of the walk; the new ones are added to it.
-    tol : float
-        Target bound on the uniform relative error.
-    n_max : int
-        Highest degree tried before bisecting.
-    min_width : float
-        Narrowest interval allowed, m.
-    splits : int
-        How many more splits the budget allows.
+    - ``frontier``: ``(lo, hi)`` in m, of intervals the walk will visit, the one it
+      needs now first.
+    - ``ahead``: outcomes of :func:`_resolve` by interval ``(lo, hi)``, already resolved
+      ahead of the walk; the new ones are added to it.
+    - ``min_width``: narrowest interval allowed, m.
     """
     level = list(frontier)
     found = 0
@@ -1306,22 +1164,9 @@ def _resolve_many(
     ``f`` are shared: each round's positions of every interval still being refined are
     sampled together by `sample`.
 
-    Parameters
-    ----------
-    sample : _BatchedSampler
-        The batched sampler.
-    intervals : sequence of tuple of float
-        ``(lo, hi)`` in m.
-    tol : float
-        Target bound on the uniform relative error.
-    n_max : int
-        Highest degree tried.
-
-    Returns
-    -------
-    list of tuple
-        Per interval, the coefficients and whether the interval is resolved, as
-        :func:`_resolve` returns them.
+    - ``intervals``: ``(lo, hi)`` in m.
+    - Returns: per interval, the coefficients and whether the interval is resolved, as
+      :func:`_resolve` returns them.
     """
     degree = min(INITIAL_DEGREE, n_max)
     values = sample([_sample_positions(degree, lo, hi) for lo, hi in intervals])
@@ -1360,19 +1205,8 @@ def _accept_many(
 ) -> list[_Outcome]:
     """Transform each interval's samples and apply :func:`_resolve`'s acceptance test.
 
-    Parameters
-    ----------
-    values : sequence of numpy.ndarray
-        Samples per interval, all of shape ``(n_deg, *value_shape)``.
-    intervals : sequence of tuple of float
-        ``(lo, hi)`` in m, per interval.
-    tol : float
-        Target bound on the uniform relative error.
-
-    Returns
-    -------
-    list of tuple
-        Per interval, the coefficients and whether the tail passes the test.
+    - ``intervals``: ``(lo, hi)`` in m, per interval.
+    - Returns: per interval, the coefficients and whether the tail passes the test.
     """
     coefficients, ratios, noises = _tails_many(values, intervals)
     floors = SAMPLING_NOISE_FACTOR * noises
@@ -1402,21 +1236,8 @@ def _tails_many(
     sum NumPy takes pairwise; such intervals, and a lone interval, are taken one at a
     time.
 
-    Parameters
-    ----------
-    values : sequence of numpy.ndarray
-        Samples per interval, all of shape ``(n_deg, *value_shape)``.
-    intervals : sequence of tuple of float
-        ``(lo, hi)`` in m, per interval.
-
-    Returns
-    -------
-    list of numpy.ndarray
-        The coefficients of each interval, C-contiguous.
-    numpy.ndarray
-        The relative coefficient tail of each.
-    numpy.ndarray
-        The relative sampling noise of each.
+    - ``intervals``: ``(lo, hi)`` in m, per interval.
+    - Returns: the coefficients of each interval, C-contiguous.
     """
     if len(values) < 2 or values[0][0].size < 2:
         coefficients = [lobatto_coefficients(samples) for samples in values]
@@ -1455,23 +1276,9 @@ def _resolve(
 ) -> tuple[Inexact[np.ndarray, " n_deg *value"], bool]:
     """Raise the degree on ``[lo, hi]`` until the coefficient tail is negligible.
 
-    Parameters
-    ----------
-    f : callable
-        The vectorised sampler.
-    lo, hi : float
-        Ends of the interval, m.
-    tol : float
-        Target bound on the uniform relative error.
-    n_max : int
-        Highest degree tried.
-
-    Returns
-    -------
-    numpy.ndarray
-        Chebyshev coefficients on ``[lo, hi]``, shape ``(n_deg, *value_shape)``.
-    bool
-        True when the interval is resolved to ``tol``.
+    - ``lo``, ``hi``: ends of the interval, m.
+    - Returns: Chebyshev coefficients on ``[lo, hi]``, shape ``(n_deg, *value_shape)``.
+    - Returns: True when the interval is resolved to ``tol``.
     """
     degree = min(INITIAL_DEGREE, n_max)
     values = _sample(f, _sample_positions(degree, lo, hi))
@@ -1503,17 +1310,8 @@ def _sampling_noise(
     |a_k|`` on an interval of width ``w``; a noisy tail contributes to it only at the
     level of the noise times the spacing, which is negligible.
 
-    Parameters
-    ----------
-    coefficients : numpy.ndarray
-        Coefficients on the interval, shape ``(n_deg, *value_shape)``.
-    lo, hi : float
-        Ends of the interval, m.
-
-    Returns
-    -------
-    float
-        The worst relative floor over the value shape; zero for a zero series.
+    - ``lo``, ``hi``: ends of the interval, m.
+    - Returns: the worst relative floor over the value shape; zero for a zero series.
     """
     magnitude = np.abs(coefficients)
     envelope = magnitude.max(axis=0)
@@ -1533,23 +1331,7 @@ def _sample(
 ) -> Inexact[np.ndarray, " n_z *value"]:
     """Evaluate ``f`` at ``positions`` and check the result.
 
-    Parameters
-    ----------
-    f : callable
-        The vectorised sampler.
-    positions : numpy.ndarray
-        Sample positions, m, shape ``(n_z,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Samples of shape ``(n_z, *value_shape)``, float64 or complex128.
-
-    Raises
-    ------
-    TranslationError
-        If the leading length is wrong, the value shape is empty, or a sample is not
-        finite.
+    - ``positions``: sample positions, m, shape ``(n_z,)``.
     """
     raw = np.asarray(f(positions))
     values = raw.astype(np.complex128 if np.iscomplexobj(raw) else np.float64)
@@ -1577,15 +1359,7 @@ def _nodes(degree: int) -> Float[np.ndarray, " n_deg"]:
     fix needs, and because they nest: the degree ``2 d`` set contains the degree ``d``
     set at even indices, bitwise, so a degree doubling costs ``d`` new evaluations.
 
-    Parameters
-    ----------
-    degree : int
-        Polynomial degree, ``>= 1``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The ``degree + 1`` points, increasing from ``-1`` to ``+1``.
+    - ``degree``: polynomial degree, ``>= 1``.
     """
     return -np.cos(np.pi * np.arange(degree + 1) / degree)
 
@@ -1600,17 +1374,10 @@ def _sample_positions(degree: int, lo: float, hi: float) -> Float[np.ndarray, " 
     is one ulp of the interval's own scale rather than of an endpoint, so it stays a
     real perturbation when an end sits at zero.
 
-    Parameters
-    ----------
-    degree : int
-        Polynomial degree, ``>= 1``.
-    lo, hi : float
-        Ends of the interval, m.
-
-    Returns
-    -------
-    numpy.ndarray
-        Sample positions, m, increasing, strictly inside ``[lo, hi]`` at the ends.
+    - ``degree``: polynomial degree, ``>= 1``.
+    - ``lo``, ``hi``: ends of the interval, m.
+    - Returns: sample positions, m, increasing, strictly inside ``[lo, hi]`` at the
+      ends.
     """
     positions = 0.5 * (lo + hi) + 0.5 * (hi - lo) * _nodes(degree)
     inset = float(np.spacing(max(abs(lo), abs(hi), hi - lo)))
@@ -1624,18 +1391,9 @@ def _refinement_positions(
 ) -> Float[np.ndarray, " n_z"]:
     """Return the positions the degree doubling adds, all interior.
 
-    Parameters
-    ----------
-    degree : int
-        Current degree; the result completes the grid of degree ``2 * degree``.
-    lo, hi : float
-        Ends of the interval, m.
-
-    Returns
-    -------
-    numpy.ndarray
-        The ``degree`` new positions, m, increasing. They are interior, so they need no
-        endpoint inset.
+    - ``lo``, ``hi``: ends of the interval, m.
+    - Returns: the ``degree`` new positions, m, increasing. They are interior, so they
+      need no endpoint inset.
     """
     odd = -np.cos(np.pi * np.arange(1, 2 * degree, 2) / (2 * degree))
     return 0.5 * (lo + hi) + 0.5 * (hi - lo) * odd
@@ -1645,21 +1403,7 @@ def _interleave(
     coarse: Inexact[np.ndarray, " n_z *value"],
     fine: Inexact[np.ndarray, " n_odd *value"],
 ) -> Inexact[np.ndarray, " n_fine *value"]:
-    """Interleave a nested grid's samples with the ones the doubling added.
-
-    Parameters
-    ----------
-    coarse : numpy.ndarray
-        Samples on the degree ``d`` grid, shape ``(d + 1, *value_shape)``.
-    fine : numpy.ndarray
-        Samples at the odd points of the degree ``2 d`` grid, shape ``(d,
-        *value_shape)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Samples on the degree ``2 d`` grid, shape ``(2 d + 1, *value_shape)``.
-    """
+    """Interleave a nested grid's samples with the ones the doubling added."""
     merged = np.empty(
         (2 * coarse.shape[0] - 1, *coarse.shape[1:]),
         dtype=np.result_type(coarse.dtype, fine.dtype),
@@ -1722,16 +1466,6 @@ def _tail_ratio(coefficients: Inexact[np.ndarray, " n_deg *value"]) -> float:
     operator is not swamped by one with a large operator, with the comparison scale
     floored at a fixed fraction of the global envelope so that masked-out or negligible
     elements do not drive the refinement.
-
-    Parameters
-    ----------
-    coefficients : numpy.ndarray
-        Coefficients, shape ``(n_deg, *value_shape)``.
-
-    Returns
-    -------
-    float
-        The tail relative to the value scale; zero for an identically zero series.
     """
     magnitude = np.abs(coefficients)
     envelope = magnitude.max(axis=0)
@@ -1754,15 +1488,7 @@ def _trim(
     constant operator to a single coefficient and a linear one to two — the exact,
     cheapest fast path of the cumulative operator.
 
-    Parameters
-    ----------
-    coefficients : numpy.ndarray
-        Coefficients, shape ``(n_deg, *value_shape)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The leading coefficients that are not noise, at least one.
+    - Returns: the leading coefficients that are not noise, at least one.
     """
     magnitude = np.abs(coefficients)
     envelope = magnitude.max(axis=0)
@@ -1789,19 +1515,8 @@ def _assemble(
 ) -> PiecewiseChebyshev:
     """Pack the resolved intervals into one rectangular representation.
 
-    Parameters
-    ----------
-    pieces : list of _Piece
-        The resolved intervals, in increasing z.
-    hard_kinks : numpy.ndarray
-        Interior positions, m, where the represented function itself jumps or kinks.
-    exceeded : bool
-        Whether the split ran out of its interval budget.
-
-    Returns
-    -------
-    PiecewiseChebyshev
-        The representation, with the low-degree intervals zero-padded.
+    - ``hard_kinks``: interior positions, m, where the represented function itself jumps
+      or kinks.
     """
     n_deg = max(piece.coefficients.shape[0] for piece in pieces)
     dtype = np.result_type(*(piece.coefficients.dtype for piece in pieces))
@@ -1826,13 +1541,7 @@ def _assemble(
 
 
 def _log_summary(representation: PiecewiseChebyshev) -> None:
-    """Log the split's interval count, degrees and widths at DEBUG level.
-
-    Parameters
-    ----------
-    representation : PiecewiseChebyshev
-        The assembled representation.
-    """
+    """Log the split's interval count, degrees and widths at DEBUG level."""
     if not logger.isEnabledFor(logging.DEBUG):
         return
     widths = np.diff(representation.breakpoints)
@@ -2023,16 +1732,8 @@ def trim_axis(
 def _held_table(table: PiecewiseChebyshev) -> PiecewiseChebyshev:
     """Hold the arrays of a table solprop has just built, in place, and return it.
 
-    Parameters
-    ----------
-    table : PiecewiseChebyshev
-        A table no one else refers to, such as what :func:`build` or
-        :meth:`PiecewiseChebyshev.integral` just returned.
-
-    Returns
-    -------
-    PiecewiseChebyshev
-        The same table, its arrays read-only and held.
+    Only for a table no one else refers to, such as what :func:`build` or
+    :meth:`PiecewiseChebyshev.integral` just returned.
     """
     for values in (
         table.coefficients,

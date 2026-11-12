@@ -49,15 +49,8 @@ _PLAIN: Final = (bool, int, float, str)
 def _stats_table(stats: "StatsSpec") -> dict[str, object] | None:
     """Return a statistics selection as its registered table, if it has one.
 
-    Parameters
-    ----------
-    stats : solprop.stats.StatsSpec
-        The selection.
-
-    Returns
-    -------
-    dict or None
-        The table, or ``None`` for a selection with apertures, which have no table.
+    - Returns: the table, or ``None`` for a selection with apertures, which have no
+      table.
     """
     if stats.apertures is not None:
         return None
@@ -78,20 +71,7 @@ def _used(
     recipe: "Recipe",
     simulation: "Simulation",
 ) -> dict[str, object]:
-    """Return the value the build used for each resolvable keyword it can name.
-
-    Parameters
-    ----------
-    recipe : Recipe
-        The recipe.
-    simulation : Simulation
-        What it built, with its settings at run start.
-
-    Returns
-    -------
-    dict
-        Values by keyword, as a recipe writes them.
-    """
+    """Return the value the build used for each resolvable keyword it can name."""
     settings = simulation.settings
     values: dict[str, object] = {}
     controller = settings.controller
@@ -189,15 +169,7 @@ def resolved_document(
 def _references(value: object) -> Iterator[Mapping[str, object]]:
     """Yield every data-file reference inside a recipe value.
 
-    Parameters
-    ----------
-    value : object
-        A value as the recipe writes it.
-
-    Yields
-    ------
-    collections.abc.Mapping
-        Each table holding ``file`` and ``sha256``.
+    - Yields: each table holding ``file`` and ``sha256``.
     """
     if isinstance(value, Mapping):
         if "file" in value and "sha256" in value:
@@ -215,22 +187,7 @@ def _files(
     *,
     allow_outside: bool,
 ) -> dict[str, RecipeFile]:
-    """Return the data files a recipe refers to, embedded up to :data:`EMBED_LIMIT`.
-
-    Parameters
-    ----------
-    recipe : Recipe
-        The recipe.
-    base : pathlib.Path or None
-        Its directory.
-    allow_outside : bool
-        Whether a file may lie outside it.
-
-    Returns
-    -------
-    dict
-        Each file by a generated name, with its contents while they fit.
-    """
+    """Return the data files a recipe refers to, embedded up to :data:`EMBED_LIMIT`."""
     files: dict[str, RecipeFile] = {}
     total = 0
     for index, reference in enumerate(_references(recipe.to_dict()["build"])):

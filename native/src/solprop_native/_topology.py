@@ -98,15 +98,7 @@ def _kind_counts(topology: Topology, cpus: Sequence[int]) -> list[int]:
 
 
 def parse_cpu_list(text: str) -> tuple[int, ...]:
-    """Parse a kernel CPU list such as ``"0-3,8,10-11"``.
-
-    Examples
-    --------
-    >>> parse_cpu_list("0-3,8,10-11")
-    (0, 1, 2, 3, 8, 10, 11)
-    >>> parse_cpu_list("")
-    ()
-    """
+    """Parse a kernel CPU list such as ``"0-3,8,10-11"``."""
     cpus: list[int] = []
     for part in text.strip().split(","):
         if not part:

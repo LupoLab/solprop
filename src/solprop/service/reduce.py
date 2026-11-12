@@ -261,19 +261,7 @@ class Reducer:
     def _window(self, axis: str, x: np.ndarray) -> tuple[float, float]:
         """Return the spectral window on an axis.
 
-        Parameters
-        ----------
-        axis : {'wavelength', 'f'}
-            The axis.
-        x : numpy.ndarray
-            The first plane's positive values on it, m or Hz.
-
-        Returns
-        -------
-        tuple of float
-            The window, ascending: the display's wavelength range (on frequency,
-            from the plane's lowest frequency to the range's highest), or the
-            plane's whole band.
+        - ``x``: the first plane's positive values on it, m or Hz.
         """
         limits = self.display.wavelength_range
         if limits is None:
@@ -287,19 +275,7 @@ class Reducer:
     def _bins(self, axis: str, x: np.ndarray, count: int) -> np.ndarray:
         """Return an axis's bin edges, made from the first plane's values.
 
-        Parameters
-        ----------
-        axis : str
-            ``"wavelength"``, ``"f"`` or ``"time"``.
-        x : numpy.ndarray
-            The plane's values on it.
-        count : int
-            The bins.
-
-        Returns
-        -------
-        numpy.ndarray
-            The edges.
+        - ``axis``: ``"wavelength"``, ``"f"`` or ``"time"``.
         """
         if axis not in self._edges:
             if axis == "time":
