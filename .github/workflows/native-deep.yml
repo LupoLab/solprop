@@ -54,8 +54,11 @@ jobs:
       - name: Build the instrumented extension and native tests
         # FFTW's pthreads library: Ubuntu's OpenMP FFTW links GNU OpenMP, and Clang's
         # build runs LLVM's. No vendor BLAS (the reference profile).
+        # Report-only: a warning from this job's compiler, which no pull-request lane
+        # builds with, does not stop the report.
         env:
           CMAKE_ARGS: >-
+            -DSOLPROP_NATIVE_WARNINGS_AS_ERRORS=OFF
             -DSOLPROP_NATIVE_ENABLE_COVERAGE=ON
             -DSOLPROP_NATIVE_PROFILE=REFERENCE
             -DSOLPROP_NATIVE_FFTW_THREADING=PTHREADS
@@ -118,6 +121,7 @@ jobs:
       - name: Build the extension with ASan, UBSan and Kokkos bounds checks
         env:
           CMAKE_ARGS: >-
+            -DSOLPROP_NATIVE_WARNINGS_AS_ERRORS=OFF
             -DSOLPROP_NATIVE_ENABLE_SANITIZERS=ON
             -DSOLPROP_NATIVE_PROFILE=REFERENCE
             -DKokkos_ENABLE_DEBUG_BOUNDS_CHECK=ON
