@@ -26,7 +26,7 @@ headroom_lines = 50
 # The modules already larger. Remove an entry once its module is split below max_lines.
 "src/solprop/driver/simulation.py" = 13376
 "src/solprop/translate/problem.py" = 7049
-"src/solprop/output/schema.py" = 5972
+"src/solprop/output/schema.py" = 5971
 "src/solprop/tools.py" = 4286
 "src/solprop/spatial.py" = 4112
 
