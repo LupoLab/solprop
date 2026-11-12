@@ -815,6 +815,11 @@ milestone pull request per phase as for SEP 47 (Q9).
 - 2026-11-12: AI review by GPT-6 of all of Part I, with particular attention to the
   verification and development capabilities retained after removing the reference
   executor; R1–R11 below. Only review metadata and this record changed.
+- 2026-11-12: Following extensive discussion with the AI reviewer and a code-size and
+  responsibility audit against PR #767, John Travers decided to keep `numpy_ref` as
+  a backend for now. The review follow-up below records that decision, the revised
+  recommendation to consider the native TDSE work separately, and the remaining
+  relevant questions. This records a review decision; it does not rewrite Part I.
 
 ### AI review — 2026-11-12
 
@@ -822,10 +827,11 @@ Reviewer: **GPT-6 (AI)**. Reviewed PR #765 at `63201dca4ab69d21b6d4ae0cd4611c420
 including the worker-process revisions, against the current design, SEP 0, SEP 25,
 the reference and native marches, their decision corpora, numerical parity tests,
 session tests and contributor tooling. These findings belong to
-[#764](https://github.com/LupoLab/solprop/issues/764). Part I is unchanged. No point
-below records a maintainer decision or a response from the drafting agent.
+[#764](https://github.com/LupoLab/solprop/issues/764). Part I is unchanged. The initial
+findings R1–R11 precede the maintainer decision recorded in the review follow-up
+below; that follow-up supersedes the initial recommendation on reference removal.
 
-**Assessment.** The production sessions, groups and registry selection are separable
+**Initial assessment.** The production sessions, groups and registry selection are separable
 from the reference's scientific value. Removing those mechanisms can be a good change,
 and native can still have strong independent numerical verification without a second
 production backend. The current proposal does not yet establish that equivalence:
@@ -1098,3 +1104,143 @@ no physical constant or TDSE model was requalified by this review.
     behaviour when solprop's process-wide pool is already initialised. Qualify these
     contracts with manufactured workers on supported platforms; keep the real-provider
     checks as the separate, explicitly scoped evidence already proposed.
+
+### AI review follow-up — 2026-11-12
+
+**R12 — Revised recommendation and maintainer decision: keep `numpy_ref` for now;
+consider TDSE on native separately (§§2, 3.1, 6.4–6.5, 9–12).**
+
+This analysis follows extensive discussion between John Travers and GPT-6 (AI),
+including the value of independent complete runs, retaining DOPRI5, Adams and RK4IP,
+the actual removable execution machinery, and what native already shares or PR #767
+moves into shared code. It revises the initial assessment above; the small-runner
+alternative in R3 was considered, not selected.
+
+**Maintainer decision.** John Travers has decided to **keep `numpy_ref` as a
+selectable backend for now**, preserving independent runs for development,
+debugging and numerical verification. He considers that capability valuable
+relative to the modest demonstrated code saving and will continue to consider the
+longer-term design. This is not a permanent rejection of every future reduction in
+reference scope, nor a decision to remove its sessions, groups or batch support.
+
+**Revised AI recommendation.** Retain the existing reference backend and consider
+the native TDSE work on its own merits, separately from removing or replacing the
+reference executor. Phase 2's removal should not be a prerequisite for delivering
+TDSE on native. The TDSE design still needs the execution and qualification
+questions below answered; keeping the reference does not approve those details.
+
+#### What the size audit actually establishes
+
+The baseline is [PR #767](https://github.com/LupoLab/solprop/pull/767) at
+`1acdffc4f93e8780f9b6aa4f7fae3eca74cfbb2a`, after its binary64 cleanup and
+native/reference decoupling. Counting uses that commit's
+[`tools/size_report.py`](https://github.com/LupoLab/solprop/blob/1acdffc4f93e8780f9b6aa4f7fae3eca74cfbb2a/tools/size_report.py)
+line classification: code excludes docstrings, comment-only lines and blank lines.
+These are source counts and inspection, not measured implementation savings or
+runtime benchmarks.
+
+The following covers `src/solprop/backends/host/` and
+`src/solprop/backends/numpy_ref/`, excluding the TDSE source assembly that would
+move to a shared production location. Shared modules elsewhere are not included.
+
+| Remaining responsibility | Code lines | What retention means |
+|---|---:|---|
+| `host/session.py`, including the preparation wrapper | 419 | Connects independent single-problem execution to the ordinary run interface, observations, output and failure handling; already composes shared session helpers. |
+| `host/group.py`, `host/group_session.py`, `numpy_ref/batch.py` | 798 | Additional group and batch execution; a possible narrower future simplification, not required for independent single-problem runs. |
+| `host/driver.py`, `host/adams.py`, `host/low_storage.py` | 1,826 | Mixed numerical integration and production orchestration; keeping an independent runner requires much of the behaviour. |
+| The other NumPy reference modules, excluding `batch.py` and `tdse.py` | 4,431 | Numerical passes, the Adams engine, backend assembly and helpers; much remains necessary for verification. |
+| **Total** | **7,474** | Approximately 14.8k physical lines, not a deletion budget. |
+
+The four session/group/batch modules therefore offer **1,217 code lines of gross
+removal** only if their responsibilities are dropped. The single-run session is
+part of what makes a reference comparison convenient; removing it would require a
+replacement entry point. Further production plumbing could be removed elsewhere,
+but a new runner and trace verification add code back. The discussion's estimate of
+net savings in the low thousands of code lines is provisional, not a measured
+result. It does not substantiate the proposal's 11.5k source-line saving for a design
+that retains independent integration.
+
+Single precision, CF4, comparison steppers and registry simplification are already
+handled by the preceding cleanup. Admission checks, modal derivations and coupled
+flow factor construction move into shared code in #767. Native still needs the
+common session/event contracts, preparation machinery and numerical helpers;
+deleting the reference cannot count those as savings. The TDSE source assembly is
+also a move, not a deletion. Conversely, native already owns its compiled marches
+and sessions, so the reference's production orchestration is a real additional
+responsibility; it is simply much smaller than the entire reference implementation.
+
+#### Why retention currently has the stronger case
+
+- **Independent complete runs are useful evidence and a practical debugging tool.**
+  Running the same problem through the usual interface with `backend="numpy_ref"`
+  exercises history accumulation, rejection, restart, observation placement and
+  feature interactions. It permits development before native implements a response
+  and diagnosis when a native build is broken. Replay and individual trial checks
+  remain valuable, but do not by themselves replace that workflow.
+- **Keeping the steppers keeps substantial integration logic.** DOPRI5 and both
+  Adams formulations need independent defects, norms, acceptance, step selection,
+  history and observation arithmetic; Adams also needs order selection. RK4IP keeps
+  its current prescribed-step execution and convergence checks. Adding adaptive
+  RK4IP would be a separate numerical change. Rebuilding these capabilities in a
+  small runner is partly reorganisation, not elimination of maintenance work.
+- **The single-run session is useful; group acceleration is more optional.** The
+  reference batch class implements another Runge–Kutta stage path across a member
+  axis, whereas native groups compose member sessions. A future narrower change
+  could compare native group members with independent single-problem reference
+  runs, keeping native lifecycle and failure-contract tests. It would still need
+  explicit scope and test migration; no such removal is decided here.
+- **The CI saving is not an entire second matrix.** At the audited baseline the main
+  lanes run native with reference parity checks, and the dedicated native-free lane
+  runs a small selection of modules. Most numerical qualification should remain in
+  either design. Fewer test lines are not evidence of equivalent verification.
+- **Maintenance cost matters more than the project-wide percentage.** A small,
+  stateful module can impose substantial recurring work. The strongest case for
+  removal would be concrete costly changes caused by maintaining a second execution
+  contract. This review has not established a burden that outweighs the existing
+  debugging and verification capability, or a replacement that repays its migration
+  and qualification costs.
+
+The independence is execution independence over the prepared problem, not a second
+derivation of all physics: both backends share translation, tables and some
+helpers. Analytic and manufactured checks remain necessary for those shared parts
+(R9). Retention therefore preserves the existing complementary checks; it does not
+turn backend agreement alone into proof of physical correctness.
+
+#### Consequences for the proposal and the remaining questions
+
+**Drafting follow-up requested:** when revising the proposal, separate the useful
+native TDSE work from reference removal, retain the current reference execution and
+native-free development support, and revise the motivation, phases and size claims
+accordingly. Reconcile ADR-077's promised slim-reference end state with this
+maintainer decision without undoing its binary64 or decoupling changes. Those are
+requests to the proposal's author; this review update leaves Part I and Part II
+unchanged.
+
+- **Q2 remains decided:** TDSE uses native CPU execution; the provider runs in its
+  own worker and gets the device or CPU resources under the recorded policy.
+- **Q4–Q8 are deferred with reference removal.** Losing reference execution, a new
+  slim API, its replay contract, renaming the module and replacing SEP 0's parity
+  rules do not need decisions for the retained-backend TDSE scope. Replay or trace
+  improvements may still be assessed on their own merits.
+- **Q1 and R10 remain:** the hook entry points, reservation lifetime, and the precise
+  distinction between failure before an accepted commit and failure while recording
+  an already committed step. The recommendation remains three hooks, with explicit
+  commit and cleanup semantics rather than a promise to roll back every exception.
+- **Q3 and R9 remain:** a shared production home for the host TDSE source, called by
+  both backends, with independent manufactured expectations for its arithmetic and
+  separately tested native wiring. Recommended home: `solprop.backends.tdse_source`.
+- **Q9 remains in a narrower form:** delivery of TDSE alone. Recommendation: one
+  implementation pull request for that scope under the normal SEP process; no
+  reference-removal milestone is needed for it to be useful.
+- **Q10 remains:** the real-provider CI and manual qualification contract, including
+  the evidence available while Pyroraptor is unpublished. This is separate from
+  manufactured worker tests.
+- **Q11 and R11 remain:** worker transport, fresh interpreter startup, cancellation
+  and timeout policy, process/resource ownership, cleanup and the one-thread-budget
+  case. The separate worker and no-shared-device decisions are not reopened.
+
+R1–R8 remain recorded as analysis of the proposed replacement and as possible
+verification improvements. They are not automatically prerequisites for a TDSE-only
+change that retains the existing reference; relevant numerical and lifecycle claims
+must still be preserved in TDSE qualification. Further questions should be brought
+to the maintainer individually, with context and a recommendation.
