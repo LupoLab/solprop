@@ -6,7 +6,7 @@
 | **Title** | The TDSE response on native |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-12) |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | GPT-6 (AI); John Travers (human) |
 | **Type** | Change |
@@ -15,7 +15,7 @@
 | **Requires** | [SEP 12](archive/sep-0012-tdse-nonlinear-response.md), [SEP 20](archive/sep-0020-hacc-helium-tdse.md) and [SEP 26](archive/sep-0026-edge-free-tdse-source.md) (the TDSE response and its source); [SEP 39](archive/sep-0039-native-adams-march.md) (the native Adams march); [SEP 47](archive/sep-0047-run-ownership.md) (backend-owned sessions); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); ADR-077 and the change it calls for (§3.4) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Not started |
+| **Implementation** | In progress: Opus 5.5 (AI), on `feature/sep-0049-tdse-on-native`; phases 0–2 |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -811,6 +811,141 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
 
 ## Part II — Implementation record
 
+### Phase 0 — Baseline
+
+- **Scope.** Phase 0, 2026-11-12, Opus 5.5 (AI), branch
+  `feature/sep-0049-tdse-on-native`, based on `feature/two-backends-binary64` at
+  `1dc64b5f` (ADR-077's change).
+- **Delivered.** This record; no code. Commit `d33e8f24`.
+- **Size baseline** (`uv run poe size --all` at `1dc64b5f`, lines):
+
+  | tree | files | total | code |
+  |---|---:|---:|---:|
+  | `src/solprop` | 269 | 225,295 | 113,232 |
+  | `native/src/solprop_native` (Python) | 24 | 13,859 | 8,855 |
+  | `tests/` (all `.py`, `wc -l`) | — | 271,204 | — |
+  | `native/tests/` (all `.py`, `wc -l`) | — | 13,602 | — |
+  | `native/src` C++ (`.cpp`, `.hpp`, `.h`, `wc -l`) | — | 34,575 | — |
+
+  `poe size-check` is within budget. `src/solprop/backends/numpy_ref/tdse.py` is 845
+  lines; `src/solprop/driver/tdse.py` 2,575.
+- **The host assembly's time per evaluation.** Measured by a one-off script, not
+  committed: the `march_problem` problem of `tests/backends/test_tdse_march.py`
+  (256 µm helium capillary, 800 nm, one mode), the interaction formulation, a
+  manufactured binding returning analytic histories (`J = 1e-30 E + 1e-40 E^3`,
+  `j_1 = 1e-30 E`, and a third-order current for the cubic replacement), and
+  `NumpyRefBackend._nonlinear(..., purpose="predictor")` timed 60 times, the first ten
+  discarded, the binding's own time subtracted. That is steps 1 and 3–5 of §3.2: the
+  synthesis to the nodes, the assembly, the projection with every diagnostic, and the
+  stage output.
+
+  | lattice | descriptor | `n_nodes` | `n_to` | `n_omega` | median | min |
+  |---|---|---:|---:|---:|---:|---:|
+  | the test window (`n_r = 4`, 60 fs, 0.4–1.6 µm) | `tdse_native`, gated | 5 | 384 | 97 | 0.26 ms | 0.25 ms |
+  | the test window | `optmat_cubic` | 5 | 384 | 97 | 0.13 ms | 0.12 ms |
+  | production-sized (`n_r = 16`, 400 fs, 0.1–4 µm) | `tdse_native`, gated | 17 | 9,216 | 2,305 | 1.9 ms | 1.9 ms |
+  | production-sized | `optmat_cubic` | 17 | 9,216 | 2,305 | 1.3 ms | 1.2 ms |
+
+  Apple M5 Max, Python 3.14, the machine shared (load average about 10), so the medians
+  are upper estimates. §6.8 expected 10–100 ms; the measured assembly is one to two
+  milliseconds at a production-sized lattice, below $10^{-5}$ of the fastest recorded
+  atomic call (93 s).
+- **Deviations.** None. The record was kept in a draft beside the SEP until the
+  proposal's pull request brought this file to the branch.
+- **Handoff.** Phase 1 moves the assembly; the same script then times it again.
+
+### Phase 1 — The shared source
+
+- **Scope.** Phase 1, 2026-11-12, Opus 5.5 (AI), commit `a0a2f7b1`.
+- **Delivered.**
+  - `src/solprop/backends/tdse_source.py`, moved from `backends/numpy_ref/tdse.py` with
+    `git mv`: `atomic_sources`, `atomic_edge_source`, `project_atomic_sources`,
+    `FFT_ERROR_CONSTANT` and their private projection, floor and diagnostic helpers,
+    unchanged, plus `node_fields` (step 1 of §3.2, moved from
+    `NumpyRefBackend._nonlinear_tdse`). The module imports nothing from either backend:
+    its four uses of `numpy_ref.passes` (`project`, `to_frequency`, and through
+    `node_fields` `to_time` and `synthesise`) are private one-line equivalents for the
+    route's one scalar mode on a field grid, and the cubic replacement's polarisation
+    is `_cubic_polarisation`, the compiled real Kerr term alone, in the arithmetic and
+    order of `passes.kerr_polarisation` and `nonlinear_sources`, and refused by name
+    for any other compiled stage.
+  - `NumpyRefBackend._nonlinear_tdse` calls `node_fields`, the binding, the two
+    assembly functions and the projection; the stage output stays its own.
+  - `tests/backends/test_tdse_source.py` (new, 10 tests) and an optional `responses`
+    argument of `tests/edge_source_cases.py::make_case`; the four existing modules'
+    imports re-pointed, their expectations unchanged.
+  - `docs/dev/architecture.md` (the responsibility and the module table) and the
+    layers figure (`docs/dev/figures/build.py`, `layers.svg`).
+- **Deviations.**
+  - The module's entry points keep their moved names (`atomic_sources` with
+    `atomic_edge_source`, and `project_atomic_sources`) rather than §5.2's sketched
+    `assemble` and `project`, so that the move is pure and the existing tests and their
+    expectations run unchanged; `node_fields` is new. Each takes the caller's stage
+    scalars (`StageScalars`: density, Kerr density, taper scale) and the projection the
+    caller's prefactor, as `numpy_ref` passed them; native's hook will take both from the
+    same translation helpers.
+  - `numpy_ref` now transforms the modal field to time twice per TDSE evaluation: once
+    in `node_fields`, once for its own in-stage absorber term. Re-timed with phase 0's
+    script: 0.26 ms (test window, gated), 1.97 ms (production-sized, gated), 1.22 ms
+    (production-sized, cubic), no measurable change.
+- **Decisions.** A problem whose cubic replacement has no compiled Kerr term (only the
+  accumulation stage) keeps a zero polarisation, as `passes.nonlinear_polarisation`
+  gave it; manufactured test problems are built that way.
+- **Verification** (§7.1). `tests/backends/test_tdse_source.py`,
+  `test_tdse_sources.py`, `test_tdse_projection.py`, `test_tdse_edge_free.py`,
+  `test_tdse_march.py`, `tests/test_structure_figures.py`,
+  `tests/driver/test_tdse_gated_derivative_run.py` and `test_tdse_input_noise.py`:
+  485 passed; ruff and basedpyright clean on the changed files; `poe size-check` within
+  budget. The new tests state their expectations with NumPy alone: the nodal field of
+  one coarse bin, `(2/N) Re(a e^{2 pi i c n / N})` times the synthesis and the taper,
+  within `(c_F log2 N + 4) eps` of its norm; the projection's division by the taper
+  (`tau = 2` is exact, so bit for bit); the edge array `rho s g' (J - j_1)` within
+  `gamma_3`; a source exactly zero off the active band; the complete and remainder
+  floors, and a gated source's truncating and edge floors, from the formulas of the
+  docstrings and SEP 26 §4.5, within `1e-12` relative (reassociated sums); and an
+  import of the module in a fresh interpreter loading neither backend.
+
+  Each named term was then broken, one at a time, in the module, and the five modules
+  above run (a one-off script, not committed):
+
+  | defect | first failing test |
+  |---|---|
+  | `S = J + j_1` | `test_tdse_sources.py::test_each_closure_has_its_own_cubic_and_remainder_definition` |
+  | cubic replacement added, not subtracted | the same |
+  | density dropped from the current | the same |
+  | density dropped from the shadow polarisation | `test_tdse_sources.py::test_cubic_and_remainder_calibrations_are_independent` |
+  | Kerr density dropped from the cubic polarisation | `test_tdse_sources.py::test_each_closure_has_its_own_cubic_and_remainder_definition` |
+  | temporal collar dropped from the cubic polarisation | the same |
+  | projection multiplied by the taper | `test_tdse_source.py::test_the_projection_divides_by_the_taper_scale` |
+  | taper dropped from the node synthesis | `test_tdse_source.py::test_node_fields_are_the_taper_times_the_synthesis_of_each_bin` |
+  | node synthesis crop off by one bin | the same |
+  | gate dropped | `test_tdse_sources.py::test_native_scale_preserves_complete_nonlinearity_after_linear_subtraction` |
+  | density dropped from the edge array | `test_tdse_source.py::test_the_edge_array_is_density_scale_and_gate_derivative_of_the_remainder` |
+  | `X + E/(i omega)` | `test_tdse_edge_free.py::test_t2a_a_globally_steady_current_cancels_to_the_budget_and_certificate` |
+  | `1/(i omega)` of the wrong sign | the same |
+  | `1/(i omega)` formed on every bin, DC included | `test_tdse_projection.py::test_periodic_dipole_and_its_current_give_the_same_source` |
+  | spectral crop off by one bin | the same |
+  | truncating floor halved | `test_tdse_source.py::test_the_complete_floor_is_the_documented_operand_bound` |
+  | cancelled operand dropped from the floor | `test_tdse_projection.py::test_cubic_roundoff_floor_counts_the_unscaled_third_order_operand` |
+  | third-order operand dropped from the floor | the same |
+  | edge transform's constant halved | `test_tdse_source.py::test_the_edge_floors_are_the_documented_section_4_5_bounds` |
+  | derivative-error term dropped | the same |
+  | division bound dropped | the same |
+  | ratio reported below its floor | `test_tdse_projection.py::test_periodic_dipole_and_its_current_give_the_same_source` |
+
+  One variant is invisible and was not made visible: forming `1/(i omega)` on every bin
+  but DC. The current factor and the prefactor are exactly zero off the active band by
+  construction (`translate.tdse_source.current_numerator`, the prefactor), so the mask
+  is defence in depth; `test_the_source_is_exactly_zero_off_the_active_band` holds the
+  consequence.
+- **Limitations.** Native does not call the module yet (phase 3).
+- **Cost.** `tdse_source.py` 937 lines against `numpy_ref/tdse.py`'s 845 (+92:
+  `node_fields` and the private transforms); `numpy_ref/backend.py` +3 net; tests
+  +308 (new module) and +6 elsewhere.
+- **Handoff.** Native's hook calls `node_fields`, the binding, `atomic_sources`,
+  `atomic_edge_source` and `project_atomic_sources` with its own stage scalars and
+  prefactor, and finishes the stage itself (§4).
+
 ## Part III — History
 
 - 2026-11-12: Drafted.
@@ -855,6 +990,8 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
   (human)); the status stays `Draft` until accepted.
 - 2026-11-12: Accepted by John Travers (#765); implementation to start once ADR-077's
   change (#767) is merged, in one implementation pull request (§11).
+- 2026-11-12: In progress: Opus 5.5 (AI) on `feature/sep-0049-tdse-on-native`, based on
+  #767's branch; phases 0 and 1 reported in Part II.
 
 ### AI review — 2026-11-12
 
