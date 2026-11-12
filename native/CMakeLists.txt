@@ -805,8 +805,9 @@ if(SOLPROP_NATIVE_ENABLE_COVERAGE)
   install(TARGETS solprop_native_labels LIBRARY DESTINATION solprop_native)
 endif()
 
-add_library(solprop_native_core STATIC src/core.cpp src/crossing.cpp src/general.cpp
-  src/general_modal.cpp src/coupled_flow.cpp src/dispersive.cpp src/far_field.cpp
+add_library(solprop_native_core STATIC src/core.cpp src/crossing.cpp
+  src/general/checks.cpp src/general/setup.cpp src/general/trial.cpp
+  src/general/statistics.cpp src/general/state.cpp src/general_modal.cpp src/coupled_flow.cpp src/dispersive.cpp src/far_field.cpp
   src/adams_march.cpp src/watch.cpp src/rk_march.cpp src/engines.cpp src/session.cpp
   src/session_statistics.cpp src/session_widths.cpp src/low_storage.cpp src/transverse.cpp
   src/session_edge.cpp src/dense.cpp)
@@ -817,10 +818,15 @@ add_library(solprop_native_core STATIC src/core.cpp src/crossing.cpp src/general
 # judgement round as solprop's Python does, so their
 # translation units take no contraction on any build (the flag follows the global one,
 # and the last wins). MSVC's /fp:precise does not contract by default.
+# SOLPROP_NATIVE_STRICT_TU marks them, so that the general workspace's contracting
+# headers (src/general/) refuse to be included there.
+set(SOLPROP_NATIVE_STRICT_SOURCES src/adams_march.cpp src/watch.cpp src/rk_march.cpp
+  src/session.cpp src/session_statistics.cpp src/session_widths.cpp src/low_storage.cpp
+  src/transverse.cpp src/session_edge.cpp src/dense.cpp)
+set_source_files_properties(${SOLPROP_NATIVE_STRICT_SOURCES}
+  PROPERTIES COMPILE_DEFINITIONS SOLPROP_NATIVE_STRICT_TU)
 if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang|AMDClang)$")
-  set_source_files_properties(src/adams_march.cpp src/watch.cpp src/rk_march.cpp
-    src/session.cpp src/session_statistics.cpp src/session_widths.cpp src/low_storage.cpp
-    src/transverse.cpp src/session_edge.cpp src/dense.cpp
+  set_source_files_properties(${SOLPROP_NATIVE_STRICT_SOURCES}
     PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 endif()
 target_include_directories(solprop_native_core PUBLIC

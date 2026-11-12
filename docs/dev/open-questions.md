@@ -19,7 +19,7 @@ comparison with a reference, a measurement — settles it.
 
 **The on-axis spectrum's end bins on the native backend.** The `on_axis_spectrum`
 statistic is computed natively on the native backend
-(`GeneralWorkspace::spatial_statistics` in `native/src/general.cpp`) and in
+(`GeneralWorkspace::spatial_statistics` in `native/src/general/statistics.cpp`) and in
 Python on the others (`solprop/backends/spatial.py`, through
 {func}`~solprop.fourier.spectral_density`). On a field grid the two agree at every
 interior bin and differ at the zero-frequency and Nyquist bins: the native kernel does
