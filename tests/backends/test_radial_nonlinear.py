@@ -16,6 +16,7 @@ from scipy.special import j0
 from backends.test_polarised_runs import QuadraticRate as EnergyRate
 from backends.test_polarised_runs import plasma_work_bound
 from bounds import gamma, ladder_bound
+from builders import launch_derivative
 from legacy_geometry import LEGACY_GRID
 from sessions.runs import native_trial, run
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -114,13 +115,7 @@ def derivative(spatial_backend_class, problem, run_request, grid, options=None):
     backend = spatial_backend_class(problem, run_request, grid=grid, options=options)
     try:
         if isinstance(backend, NumpyRefBackend):
-            backend.set_initial(problem.initial.field0, None)
-            backend._hoist(0.0)
-            return backend._nonlinear(
-                backend._require_state(),
-                backend._stage_scalars(0.0, 0.0),
-                np.ones((1, *problem.shape), complex),
-            )[0]
+            return launch_derivative(backend, problem)[0]
         return _native_first_stage(backend, problem)
     finally:
         backend.close()
