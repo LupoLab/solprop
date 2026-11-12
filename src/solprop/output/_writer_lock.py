@@ -13,26 +13,14 @@ from solprop.output._file_lock import lock, unlock
 
 
 class WriterLock:
-    """Own a persistent sidecar's advisory lock until explicitly released.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        File or store whose writers share this lock.
-    """
+    """Own a persistent sidecar's advisory lock until explicitly released."""
 
     def __init__(self, path: Path) -> None:
         self.path = path.resolve()
         self._descriptor: int | None = None
 
     def acquire(self) -> None:
-        """Acquire ownership without waiting for another writer.
-
-        Raises
-        ------
-        OutputError
-            If the destination belongs to a published snapshot or another writer.
-        """
+        """Acquire ownership without waiting for another writer."""
         if self._descriptor is not None:
             return
         for parent in self.path.parents:

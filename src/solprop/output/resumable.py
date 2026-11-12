@@ -90,15 +90,7 @@ class Resumability:
 def _writer_alive(path: Path) -> bool:
     """Return whether another writer holds a file.
 
-    Parameters
-    ----------
-    path : pathlib.Path
-        The file.
-
-    Returns
-    -------
-    bool
-        True when its writer lock cannot be taken.
+    - Returns: True when its writer lock cannot be taken.
     """
     lock = WriterLock(path)
     try:
@@ -110,18 +102,7 @@ def _writer_alive(path: Path) -> bool:
 
 
 def _recipe_format(path: Path) -> int | None:
-    """Return the format of the recipe a file records, or ``None``.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        The file.
-
-    Returns
-    -------
-    int or None
-        The ``recipe`` group's format attribute.
-    """
+    """Return the format of the recipe a file records, or ``None``."""
     with h5py.File(path, "r") as file:
         group = file.get("recipe")
         if not isinstance(group, h5py.Group):
@@ -132,15 +113,7 @@ def _recipe_format(path: Path) -> int | None:
 def _schema(path: Path) -> int | None:
     """Return the output schema a file declares.
 
-    Parameters
-    ----------
-    path : pathlib.Path
-        The file.
-
-    Returns
-    -------
-    int or None
-        Its ``schema_version`` attribute, or ``None`` when it has none.
+    - Returns: its ``schema_version`` attribute, or ``None`` when it has none.
     """
     with h5py.File(path, "r") as file:
         version = file.attrs.get("schema_version")
@@ -148,18 +121,7 @@ def _schema(path: Path) -> int | None:
 
 
 def _unusable_state(state: ResumeState) -> str | None:
-    """Return why a file's last state cannot be continued, or ``None`` if it can.
-
-    Parameters
-    ----------
-    state : solprop.output.hdf5.ResumeState
-        The file's resumable state.
-
-    Returns
-    -------
-    str or None
-        The reason.
-    """
+    """Return why a file's last state cannot be continued, or ``None`` if it can."""
     if state.plane.field is None:
         return "its last plane kept no field and no terminal checkpoint follows it"
     if state.outcome is not None and state.outcome.logical_calls:
@@ -210,32 +172,21 @@ def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumabili
         "none" if found is None else "newer" if found > FORMAT else "stored"
     )
 
-    def refused(reason: str) -> Resumability:
-        """Return the answer for a file that cannot continue.
-
-        Parameters
-        ----------
-        reason : str
-            Why.
-
-        Returns
-        -------
-        Resumability
-            The answer.
-        """
+    def _refused(reason: str) -> Resumability:
+        """Return the answer for a file that cannot continue."""
         return Resumability(path, False, None, None, reason, recipe, found)
 
     if schema != SCHEMA_VERSION:
-        return refused(
+        return _refused(
             f"the file is of output schema {schema}, and this solprop reads "
             f"{SCHEMA_VERSION} only"
         )
     if _writer_alive(path):
-        return refused("a writer still holds the file")
+        return _refused("a writer still holds the file")
     try:
         state = resume(path)
     except OutputError as error:
-        return refused(f"no state to continue from: {error}")
+        return _refused(f"no state to continue from: {error}")
     planes = np.asarray(
         _decode(state.metadata.configuration["save_planes"]),  # type: ignore[arg-type]
         dtype=float,
@@ -243,10 +194,10 @@ def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumabili
     position = float(state.plane.z)
     upcoming = int(np.searchsorted(planes, position, side="right"))
     if state.checkpoint is None and upcoming >= planes.size:
-        return refused("the run is complete: no work is left")
+        return _refused("the run is complete: no work is left")
     unusable = _unusable_state(state)
     if unusable is not None:
-        return refused(unusable)
+        return _refused(unusable)
     mode: ResumeMode = "interpolated" if state.interpolated else True
     differences = None
     gate_error = None
