@@ -2373,12 +2373,37 @@ adams_device_predict(const ExponentialWeights& weights, const std::size_t formed
                      const double dz, const Moments& moments, const Store& store,
                      const std::size_t column, const std::size_t index) {
   static_assert(adams_max_samples == 8, "one case per sample count");
-  const auto predict = [&]<std::size_t Formed> {
-    return adams_device_prediction<Formed>(weights, formed, x, propagate, accepted, dz,
-                                           moments, store, column, index);
-  };
-  return dispatch_width<1, adams_max_samples>(
-      formed, predict, [&] { return predict.template operator()<0>(); });
+  // A switch, not dispatch_width's template lambda: device-only code nvcc has not
+  // been shown to compile with one (its build of this file once failed internally).
+  switch (formed) {
+  case 1:
+    return adams_device_prediction<1>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  case 2:
+    return adams_device_prediction<2>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  case 3:
+    return adams_device_prediction<3>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  case 4:
+    return adams_device_prediction<4>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  case 5:
+    return adams_device_prediction<5>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  case 6:
+    return adams_device_prediction<6>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  case 7:
+    return adams_device_prediction<7>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  case 8:
+    return adams_device_prediction<8>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  default:
+    return adams_device_prediction<0>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  }
 }
 #endif
 
@@ -2686,7 +2711,11 @@ namespace {
 // runs its loops over the block, so that what one loop writes the next reads from
 // cache, and a strict loop is one call a block on a compiler that keeps strict
 // functions out of line; a device takes a thread an element.
-constexpr std::size_t adams_block = build::device ? 1 : adams_lane_width;
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+constexpr std::size_t adams_block = 1;
+#else
+constexpr std::size_t adams_block = adams_lane_width;
+#endif
 
 // The host blocks run as lanes where the vector maths forms their exponentials in
 // passes (`vmath::vectorised`); elsewhere (devices, the system libm on Arm) each
@@ -3455,13 +3484,27 @@ struct ExponentialCorrection {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     static_assert(adams_block == 1, "a device thread takes one element");
     if (first < last) {
-      const auto element = [&]<std::size_t Width> {
-        device_element<Width>(column, first, magnitude, update);
-        return true;
-      };
-      if (dispatch_width<1, adams_max_samples>(weights.width, element,
-                                               [] { return false; }))
-        return;
+      // A switch, as in `adams_device_predict`.
+      switch (weights.width) {
+      case 1:
+        return device_element<1>(column, first, magnitude, update);
+      case 2:
+        return device_element<2>(column, first, magnitude, update);
+      case 3:
+        return device_element<3>(column, first, magnitude, update);
+      case 4:
+        return device_element<4>(column, first, magnitude, update);
+      case 5:
+        return device_element<5>(column, first, magnitude, update);
+      case 6:
+        return device_element<6>(column, first, magnitude, update);
+      case 7:
+        return device_element<7>(column, first, magnitude, update);
+      case 8:
+        return device_element<8>(column, first, magnitude, update);
+      default:
+        break;
+      }
     }
 #endif
     double scale[adams_block]{};
