@@ -28,6 +28,8 @@ from matplotlib.axes import Axes
 from matplotlib.colors import Colormap
 from matplotlib.figure import Figure
 
+from solprop._validation import choice
+from solprop.exceptions import ProcessingError
 from solprop.optics import TransferFunction
 from solprop.output.schema import Output
 from solprop.plotting.style import (
@@ -48,7 +50,6 @@ from solprop.processing import spectra, time
 from solprop.processing.axes import (
     ModeSelection,
     SpectralAxis,
-    _check_choice,
     _refuse_by_basis,
 )
 from solprop.processing.fields import (
@@ -290,7 +291,7 @@ def time_1d(
     >>> plt.close(figure)
     """
     _refuse_by_basis(output, "time_1d")
-    _check_choice(quantity, SLICE_QUANTITIES, "quantity")
+    choice(quantity, "quantity", SLICE_QUANTITIES, ProcessingError)
     ax = _axis(ax, (8.5, 5.0))
     planes = _plane_indices(output, z)
     traces = []

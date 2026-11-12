@@ -430,7 +430,7 @@ REFUSALS = [
         lambda: _hollow(fwhm=-1.0),
         PulseError,
         "fwhm",
-        "finite positive number",
+        "finite and positive",
         id="capillary-pulse-duration",
     ),
     pytest.param(

@@ -43,7 +43,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import pairwise
-from typing import Literal, cast
+from typing import Literal, cast, get_args
 
 import numpy as np
 from jaxtyping import Float
@@ -53,6 +53,7 @@ from scipy.special import erfcinv
 
 from solprop import spatial
 from solprop._display import Displayed, line
+from solprop._validation import choice, positive
 from solprop.constants import EPS0, ROOM_TEMPERATURE, C
 from solprop.exceptions import (
     DiluteScalingWarning,
@@ -217,30 +218,13 @@ def _probing() -> Iterator[None]:
         yield
 
 
-def _positive(name: str, value: float) -> float:
-    """Return a finite positive number or refuse it by name."""
-    number = float(value)
-    if not math.isfinite(number) or number <= 0.0:
-        raise ToolsError(f"{name} must be finite and positive, got {value!r}")
-    return number
-
-
 def _omega(wavelength: float) -> float:
     """Return the angular frequency of a vacuum wavelength.
 
     - ``wavelength``: vacuum wavelength in m, > 0.
     - Returns: angular frequency in rad/s.
     """
-    return 2.0 * math.pi * C / _positive("wavelength", wavelength)
-
-
-def _check_shape(shape: str) -> None:
-    """Refuse a pulse shape the design numbers are not defined for.
-
-    - ``shape``: the shape keyword.
-    """
-    if shape not in ("sech", "gauss"):
-        raise ToolsError(f"shape must be 'sech' or 'gauss', got {shape!r}")
+    return 2.0 * math.pi * C / positive(wavelength, "wavelength", ToolsError)
 
 
 def pulse_width(fwhm: float, shape: PulseShape = "sech") -> float:
@@ -272,8 +256,10 @@ def pulse_width(fwhm: float, shape: PulseShape = "sech") -> float:
     >>> f"{pulse_width(10e-15, 'gauss') * 1e15:.4f}"
     '6.0056'
     """
-    _check_shape(shape)
-    return _positive("fwhm", fwhm) / (_SECH_WIDTH if shape == "sech" else _GAUSS_WIDTH)
+    choice(shape, "shape", get_args(PulseShape), ToolsError)
+    return positive(fwhm, "fwhm", ToolsError) / (
+        _SECH_WIDTH if shape == "sech" else _GAUSS_WIDTH
+    )
 
 
 def pulse_peak_power(energy: float, fwhm: float, shape: PulseShape = "sech") -> float:
@@ -309,7 +295,7 @@ def pulse_peak_power(energy: float, fwhm: float, shape: PulseShape = "sech") -> 
     """
     width = pulse_width(fwhm, shape)
     integral = 2.0 if shape == "sech" else math.sqrt(math.pi)
-    return _positive("energy", energy) / (integral * width)
+    return positive(energy, "energy", ToolsError) / (integral * width)
 
 
 def pulse_energy(peak_power: float, fwhm: float, shape: PulseShape = "sech") -> float:
@@ -343,7 +329,9 @@ def pulse_energy(peak_power: float, fwhm: float, shape: PulseShape = "sech") -> 
     '1.0000'
     """
     # The peak power is linear in the energy at a fixed width and shape.
-    return _positive("peak_power", peak_power) / pulse_peak_power(1.0, fwhm, shape)
+    return positive(peak_power, "peak_power", ToolsError) / pulse_peak_power(
+        1.0, fwhm, shape
+    )
 
 
 def dispersion_length(fwhm: float, beta2: float, shape: PulseShape = "sech") -> float:
@@ -405,7 +393,10 @@ def nonlinear_length(peak_power: float, gamma: float) -> float:
     >>> nonlinear_length(1e9, 1e-9)
     1.0
     """
-    return 1.0 / (_positive("gamma", gamma) * _positive("peak_power", peak_power))
+    return 1.0 / (
+        positive(gamma, "gamma", ToolsError)
+        * positive(peak_power, "peak_power", ToolsError)
+    )
 
 
 def soliton_order(
@@ -496,8 +487,8 @@ def soliton_peak_power(
     >>> f"{power / 1e9:.4f} {soliton_order(power, 10e-15, 1e-9, -8e-30):.4f}"
     '0.9943 2.0000'
     """
-    return _positive("order", order) ** 2 / (
-        _positive("gamma", gamma) * dispersion_length(fwhm, beta2, shape)
+    return positive(order, "order", ToolsError) ** 2 / (
+        positive(gamma, "gamma", ToolsError) * dispersion_length(fwhm, beta2, shape)
     )
 
 
@@ -747,10 +738,10 @@ def self_focusing_power(wavelength: float, index: float, n2: float) -> float:
     >>> f"{self_focusing_power(800e-9, 1.0, 3.55e-25) / 1e9:.2f}"
     '267.17'
     """
-    linear = _positive("index", index)
-    chi3 = chi3_from_n2(_positive("n2", n2), linear)
+    linear = positive(index, "index", ToolsError)
+    chi3 = chi3_from_n2(positive(n2, "n2", ToolsError), linear)
     return spatial.critical_power(
-        _positive("wavelength", wavelength), chi3, index=linear
+        positive(wavelength, "wavelength", ToolsError), chi3, index=linear
     )
 
 
@@ -864,8 +855,8 @@ def beam_params(
     power = spatial.critical_power(
         wavelength, chi3(gas, pressure=pressure, wavelength=wavelength), index=index
     )
-    rayleigh = np.pi * index * _positive("waist", waist) ** 2 / wavelength
-    ratio = _positive("peak_power", peak_power) / power
+    rayleigh = np.pi * index * positive(waist, "waist", ToolsError) ** 2 / wavelength
+    ratio = positive(peak_power, "peak_power", ToolsError) / power
     collapse = None
     if ratio > 1.0:
         # (sqrt(r) - 0.852)^2 - 0.0219 vanishes at r = 1, so it is positive above it.
@@ -920,9 +911,9 @@ def beam_through_lens(
     >>> f"{waist * 1e6:.1f} um at {distance:.4f} m"
     '50.9 um at 0.9999 m'
     """
-    focal = _positive("focal_length", focal_length)
-    beam = _positive("radius", radius)
-    light = _positive("wavelength", wavelength)
+    focal = positive(focal_length, "focal_length", ToolsError)
+    beam = positive(radius, "radius", ToolsError)
+    light = positive(wavelength, "wavelength", ToolsError)
     ratio = light * focal / (np.pi * beam**2)
     factor = 1.0 / (1.0 + ratio**2)
     return float(light * focal / (np.pi * beam) * np.sqrt(factor)), float(
@@ -1541,7 +1532,7 @@ def _capillary(
     - ``cladding``: cladding index; ``None`` is fused silica.
     """
     return MarcatiliMode(
-        _positive("radius", radius),
+        positive(radius, "radius", ToolsError),
         mixture=mixture,
         n=n,
         m=m,
@@ -1712,7 +1703,7 @@ def _target_order(
             f"got {', '.join(given) or 'none'}"
         )
     if order is not None:
-        return _positive("soliton_order", order)
+        return positive(order, "soliton_order", ToolsError)
     if count is not None:
         if count < 1:
             raise ToolsError(f"soliton_count must be at least 1, got {count}")
@@ -1721,7 +1712,7 @@ def _target_order(
         # middle, S = M: the pure M-soliton for sech, the farthest from either
         # threshold for a Gaussian.
         return count / _area_per_order(shape)
-    eta = _positive("largest_eigenvalue", cast("float", eigenvalue))
+    eta = positive(cast("float", eigenvalue), "largest_eigenvalue", ToolsError)
     return eta + 0.5 if shape == "sech" else _gaussian_order(eta)
 
 
@@ -1827,7 +1818,7 @@ def capillary_design(
     """
     materials = MaterialSelection() if materials is None else materials
     _check_carrier(materials, wavelength)
-    _check_shape(shape)
+    choice(shape, "shape", get_args(PulseShape), ToolsError)
     order = _target_order(soliton_order, soliton_count, largest_eigenvalue, shape)
     pressure = pressure_zdw(
         radius,
@@ -1924,7 +1915,7 @@ def gas_ratio(
     susceptibilities = []
     for gas in (gas_a, gas_b):
         fill = _resolve_fill(
-            gas, _positive("pressure", pressure), temperature, materials
+            gas, positive(pressure, "pressure", ToolsError), temperature, materials
         )
         dispersions.append(_bulk_beta2(_BulkGas(fill), omega))
         susceptibilities.append(_fill_chi3(fill, wavelength))
@@ -1989,15 +1980,6 @@ def _bulk_beta2(bulk: _BulkGas, omega: float) -> float:
 # -------------------------------------------------------------------- phase matching
 
 
-def _check_phase(nonlinear_phase: str) -> None:
-    """Refuse a nonlinear phase model the phase matching does not define."""
-    if nonlinear_phase not in ("largest", "supplied_power", "linear"):
-        raise ToolsError(
-            "nonlinear_phase must be 'largest', 'supplied_power' or 'linear', "
-            f"got {nonlinear_phase!r}"
-        )
-
-
 @dataclass(frozen=True)
 class _PhasePulse:
     """Validate the pulse declaration before a phase-matching search."""
@@ -2010,8 +1992,13 @@ class _PhasePulse:
 
     def __post_init__(self) -> None:
         """Refuse incomplete or contradictory phase declarations."""
-        _check_shape(self.shape)
-        _check_phase(self.nonlinear_phase)
+        choice(self.shape, "shape", get_args(PulseShape), ToolsError)
+        choice(
+            self.nonlinear_phase,
+            "nonlinear_phase",
+            get_args(NonlinearPhase),
+            ToolsError,
+        )
         if (self.peak_power is None) != (self.gamma is None):
             raise ToolsError(
                 "the nonlinear term needs both peak_power and gamma; "
@@ -2027,16 +2014,16 @@ class _PhasePulse:
             if self.fwhm is not None:
                 raise ToolsError("fwhm requires peak_power and gamma")
             return
-        _positive("peak_power", self.peak_power)
+        positive(self.peak_power, "peak_power", ToolsError)
         assert self.gamma is not None  # The paired declaration was validated above.
-        _positive("gamma", self.gamma)
+        positive(self.gamma, "gamma", ToolsError)
         if self.nonlinear_phase == "largest":
             if self.fwhm is None:
                 raise ToolsError(
                     "the largest constituent needs fwhm; supply it or select "
                     "nonlinear_phase='supplied_power'"
                 )
-            _positive("fwhm", self.fwhm)
+            positive(self.fwhm, "fwhm", ToolsError)
         elif self.fwhm is not None:
             raise ToolsError(
                 "nonlinear_phase='supplied_power' does not use fwhm; omit it"
@@ -2428,7 +2415,7 @@ def _pressure_root(
     - ``pressure_max``: upper end of the bracket in bar.
     - Returns: the root in bar.
     """
-    top = _positive("pressure_max", pressure_max)
+    top = positive(pressure_max, "pressure_max", ToolsError)
     if top <= _PRESSURE_FLOOR:
         raise ToolsError(f"pressure_max must exceed {_PRESSURE_FLOOR} bar, got {top}")
     with _probing():
@@ -2472,7 +2459,7 @@ def _design_capillary(
     - ``cladding``: cladding index; ``None`` is fused silica.
     - ``lattice``: tube geometry for a VincettiMode; None builds a Marcatili capillary.
     """
-    bore = _positive("radius", radius)
+    bore = positive(radius, "radius", ToolsError)
     wall = _default_cladding(cladding)
     # The fill is an optmat mixture, which carries its own pressure and temperature.
     mixture = _resolve_fill(gas, 1.0, temperature, materials)
@@ -2754,7 +2741,7 @@ def pressure_rdw(
         shape=shape,
         nonlinear_phase=nonlinear_phase,
     )
-    top = _positive("pressure_max", pressure_max)
+    top = positive(pressure_max, "pressure_max", ToolsError)
     if top <= _PRESSURE_FLOOR:
         raise ToolsError(f"pressure_max must exceed {_PRESSURE_FLOOR} bar, got {top}")
     limits = (_PRESSURE_FLOOR, top) if pressure_limits is None else pressure_limits
@@ -2912,7 +2899,7 @@ class ZDW:
         ToolsError
             If the wavelength is not finite and positive.
         """
-        _positive("wavelength", self.wavelength)
+        positive(self.wavelength, "wavelength", ToolsError)
 
 
 @dataclass(frozen=True)
@@ -2979,8 +2966,8 @@ class RDW:
             self.shape,
             self.nonlinear_phase,
         )
-        _positive("pump", self.pump)
-        _positive("rdw", self.rdw)
+        positive(self.pump, "pump", ToolsError)
+        positive(self.rdw, "rdw", ToolsError)
         if self.rdw == self.pump:
             # The linear mismatch and its slope vanish at the pump for every mode.
             raise ToolsError(
@@ -3037,7 +3024,7 @@ class SolitonOrder:
             If the order is not positive, the Gaussian is super-Gaussian, or the
             pulse is chirped.
         """
-        _positive("order", self.order)
+        positive(self.order, "order", ToolsError)
         if isinstance(self.pulse, GaussianPulse) and self.pulse.m != 1:
             raise ToolsError(
                 "the soliton order is defined for sech and Gaussian pulses, and this "
@@ -3395,7 +3382,7 @@ def _built(
                 "or (mode, gamma)"
             )
         mode, gamma = result
-        gamma = _positive("gamma", gamma)
+        gamma = positive(gamma, "gamma", ToolsError)
     else:
         mode, gamma = result, None
     if not isinstance(mode, Mode):
@@ -3603,7 +3590,7 @@ def radius_zdw(
             lattice=None,
             materials=materials,
         ),
-        _positive("pressure", pressure),
+        positive(pressure, "pressure", ToolsError),
     )
     roots = solve_parameter(
         lambda radius: capillary.at_parameters({"core_radius": radius}),

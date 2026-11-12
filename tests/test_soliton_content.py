@@ -7,6 +7,7 @@
 import math
 from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
+from typing import get_args
 
 import numpy as np
 import pytest
@@ -16,6 +17,7 @@ from scipy.optimize import brentq
 
 from runtime_types import TYPECHECKED
 from solprop import tools
+from solprop._validation import choice
 from solprop.constants import C
 from solprop.exceptions import ModeError, ToolsError
 from solprop.modes import MarcatiliMode, TubeLattice, VincettiMode
@@ -403,4 +405,4 @@ def test_pressure_search_rejects_invalid_pump_dispersion(
 def test_the_phase_keyword_is_checked_without_the_type_hook():
     # The type hook refuses a wrong literal at the public door; production has none.
     with pytest.raises(ToolsError, match="nonlinear_phase must"):
-        tools._check_phase("wrong")
+        choice("wrong", "nonlinear_phase", get_args(tools.NonlinearPhase), ToolsError)

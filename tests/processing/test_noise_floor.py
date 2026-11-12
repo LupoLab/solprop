@@ -18,12 +18,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
+from solprop._validation import choice
 from solprop.driver import Simulation
 from solprop.exceptions import ProcessingError
 from solprop.output.schema import Output
 from solprop.plotting.propagation import prop_2d, spec_1d
 from solprop.processing import get_spectral_density, get_spectrum
-from solprop.processing.axes import _check_choice, grid_of
+from solprop.processing.axes import grid_of
 from solprop.processing.fields import NOISE_FLOORS, _fft_norm
 from solprop.stepper import FixedSchedule, RungeKutta
 
@@ -160,8 +161,10 @@ def test_the_floor_is_refused_without_a_seed_in_the_saved_field(runs):
         get_spectral_density(runs["modified"], noise_floor="subtract")
     # An unknown name is refused by the same door in production, where no runtime
     # type checker stands in front of the keyword.
-    with pytest.raises(ProcessingError, match="noise_floor must be one of"):
-        _check_choice("remove", NOISE_FLOORS, "noise_floor")
+    with pytest.raises(
+        ProcessingError, match="noise_floor must be 'keep' or 'subtract', got 'remove'"
+    ):
+        choice("remove", "noise_floor", NOISE_FLOORS, ProcessingError)
 
 
 def test_a_spectrum_takes_no_noise_floor(runs):

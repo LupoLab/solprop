@@ -48,6 +48,7 @@ import numpy as np
 from jaxtyping import Complex, Float, Inexact
 
 from solprop import fourier
+from solprop._validation import choice
 from solprop.exceptions import ModeError, ProcessingError
 from solprop.grid import TimeGrid
 from solprop.optics import TransferFunction, stored_factor
@@ -59,7 +60,6 @@ from solprop.processing.axes import (
     ModeSelection,
     SpectralAxis,
     _apply_modes,
-    _check_choice,
     _keep_index,
     _nearest_plane,
     _plane_field,
@@ -329,7 +329,7 @@ def _spectral_density(
     - ``z``: position of the plane wanted, m.
     - ``band``: which part of the stored axis to use.
     """
-    _check_choice(noise_floor, NOISE_FLOORS, "noise_floor")
+    choice(noise_floor, "noise_floor", NOISE_FLOORS, ProcessingError)
     grid = grid_of(output)
     values = _plane_field(output, plane, z, convention="optics")
     density = np.abs(values * _fft_norm(grid)) ** 2
@@ -467,7 +467,7 @@ def get_field(
     >>> bool(np.isrealobj(field))
     True
     """
-    _check_choice(kind, FIELD_KINDS, "kind")
+    choice(kind, "kind", FIELD_KINDS, ProcessingError)
     grid, t, amplitude = _plane_amplitude(
         output,
         plane=plane,
@@ -914,7 +914,7 @@ def get_spectrogram(
     >>> values.shape == (f.size, t.size), bool(np.all(np.diff(f) > 0))
     (True, True)
     """
-    _check_choice(axis, SPECTRAL_AXES, "axis")
+    choice(axis, "axis", SPECTRAL_AXES, ProcessingError)
     if plane is None and z is None:
         plane = -1
     t, field = get_field(

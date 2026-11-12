@@ -9,6 +9,7 @@ import math
 import warnings
 from dataclasses import replace
 from pathlib import Path
+from typing import get_args
 
 import numpy as np
 import pytest
@@ -19,6 +20,7 @@ from scipy.optimize import brentq
 from scipy.special import jn_zeros, jv
 
 from solprop import tools
+from solprop._validation import choice
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.constants import EPS0, ROOM_TEMPERATURE, C
@@ -240,7 +242,7 @@ def test_the_critical_power_is_the_package_townes_power_times_the_index():
 @pytest.mark.parametrize(
     "call",
     [
-        lambda: tools._check_shape("lorentz"),
+        lambda: choice("lorentz", "shape", get_args(tools.PulseShape), ToolsError),
         lambda: tools.pulse_width(0.0),
         lambda: tools.pulse_peak_power(-1.0, 10e-15),
         lambda: tools.dispersion_length(10e-15, 0.0),

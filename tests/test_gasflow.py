@@ -14,6 +14,7 @@ import pytest
 from scipy.integrate import quad, solve_ivp
 from scipy.optimize import brentq
 
+from solprop._validation import choice
 from solprop.constants import BAR, K_B, N_A
 from solprop.exceptions import GasFlowWarning, MaterialError, TranslationError
 from solprop.gasflow import (
@@ -22,7 +23,6 @@ from solprop.gasflow import (
     REYNOLDS_LAMINAR_LIMIT,
     FlowReport,
     _check_regime,
-    _checked_choice,
     chamber_pressure,
     choked_pressure,
     flow_report,
@@ -122,8 +122,10 @@ def test_the_exit_end_of_a_taper_sets_the_sonic_throughput():
     assert at_end / at_start == pytest.approx((125.0 / 75.0) ** 2, rel=0.05)
     # The literal is enforced by the annotation under the test suite's type hook; the
     # check a caller without a type checker meets is the module's own.
-    with pytest.raises(TranslationError, match="exit_end must be one of"):
-        _checked_choice("middle", "exit_end", ("start", "end"))
+    with pytest.raises(
+        TranslationError, match="exit_end must be 'start' or 'end', got 'middle'"
+    ):
+        choice("middle", "exit_end", ("start", "end"), TranslationError)
 
 
 # --------------------------------------------------------- the independent witness
@@ -452,8 +454,10 @@ def test_independent_populations_are_not_one_flow():
 
 
 def test_the_builder_refuses_what_it_cannot_honour():
-    with pytest.raises(TranslationError, match="vacuum_end must be one of"):
-        _checked_choice("sealed", "vacuum_end", ("choked", "floor"))
+    with pytest.raises(
+        TranslationError, match="vacuum_end must be 'choked' or 'floor', got 'sealed'"
+    ):
+        choice("sealed", "vacuum_end", ("choked", "floor"), TranslationError)
     custom = Species("Mystery", gamma(Gas.He), IdealGas())
     with pytest.raises(MaterialError, match="vacuum_end='floor'"):
         steady_fill(custom, [0.0, 1.0], [1.0, 0.0], radius=1e-4)

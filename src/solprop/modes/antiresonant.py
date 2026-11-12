@@ -24,6 +24,7 @@ import numpy as np
 from jaxtyping import Float, Inexact
 
 from solprop._display import Displayed, engineering, line
+from solprop._validation import positive
 from solprop.constants import C
 from solprop.exceptions import ModeError
 from solprop.modes.capillary import MarcatiliMode, MarcatiliTerms
@@ -144,15 +145,6 @@ CONVENTIONS: Final = _Conventions(RADIUS_COEFFICIENT, True, True, True)
 LEGACY_CONVENTIONS: Final = _Conventions(20.0, False, False, False)
 
 
-def _positive(value: float, name: str) -> None:
-    """Check a positive finite dimension.
-
-    - ``value``: dimension in m.
-    """
-    if not math.isfinite(value) or value <= 0:
-        raise ModeError(f"{name} must be positive and finite, got {value}")
-
-
 def _tube_angle(n_tubes: int) -> float:
     """Return the sine of half the angular tube spacing.
 
@@ -185,8 +177,8 @@ def tube_gap(core_radius: float, tube_radius: float, n_tubes: int) -> float:
     ModeError
         If a radius is not positive and finite or the count is invalid.
     """
-    _positive(core_radius, "core_radius")
-    _positive(tube_radius, "tube_radius")
+    positive(core_radius, "core_radius", ModeError)
+    positive(tube_radius, "tube_radius", ModeError)
     return 2 * ((core_radius + tube_radius) * _tube_angle(n_tubes) - tube_radius)
 
 
@@ -212,7 +204,7 @@ def core_radius_from_gap(tube_radius: float, n_tubes: int, gap: float) -> float:
     ModeError
         If the geometry is invalid.
     """
-    _positive(tube_radius, "tube_radius")
+    positive(tube_radius, "tube_radius", ModeError)
     _check_gap(gap)
     return (tube_radius + gap / 2) / _tube_angle(n_tubes) - tube_radius
 
@@ -239,11 +231,11 @@ def tube_radius_from_gap(core_radius: float, n_tubes: int, gap: float) -> float:
     ModeError
         If the geometry is invalid.
     """
-    _positive(core_radius, "core_radius")
+    positive(core_radius, "core_radius", ModeError)
     _check_gap(gap)
     sine = _tube_angle(n_tubes)
     radius = (core_radius * sine - gap / 2) / (1 - sine)
-    _positive(radius, "tube_radius implied by gap")
+    positive(radius, "tube_radius implied by gap", ModeError)
     return radius
 
 
@@ -315,8 +307,8 @@ class TubeLattice(Displayed):
             If dimensions or counts cannot describe hollow tubes, or more fit terms
             are asked for than the cutoff fits support.
         """
-        _positive(self.wall_thickness, "wall_thickness")
-        _positive(self.tube_radius, "tube_radius")
+        positive(self.wall_thickness, "wall_thickness", ModeError)
+        positive(self.tube_radius, "tube_radius", ModeError)
         _tube_angle(self.n_tubes)
         if self.wall_thickness >= self.tube_radius:
             raise ModeError("wall_thickness must be smaller than tube_radius")
@@ -379,8 +371,8 @@ class TubeLattice(Displayed):
         ModeError
             If dimensions are invalid or neighbouring tubes overlap.
         """
-        _positive(core_radius, "core_radius")
-        _positive(inner_diameter_ratio, "inner_diameter_ratio")
+        positive(core_radius, "core_radius", ModeError)
+        positive(inner_diameter_ratio, "inner_diameter_ratio", ModeError)
         lattice = cls(
             wall_thickness, core_radius * inner_diameter_ratio + wall_thickness, n_tubes
         )

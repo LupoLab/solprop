@@ -242,7 +242,9 @@ directly, without a contract, a backend or an output handler, which is what make
 cross-check of the reference backend. `processing/windows.py` is a candidate
 module, drawn dashed in figure 1, to be written only for an agreed use case.
 `_display.py` is private: the formatter behind every class's printed block, imported by
-any layer and importing none.
+any layer and importing none. `_validation.py` is private too: the plain refusals
+(`positive`, `finite`, `choice`, `shape`) in one wording, each raising the caller's own
+exception class, imported by any layer and importing only `exceptions.py`.
 
 The layout does not mirror Luna's module tree: what `NonlinearRHS.jl` does spans
 response normalisation, translation and backend passes; `Maths.jl` mostly becomes SciPy

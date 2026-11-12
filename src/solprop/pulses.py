@@ -44,6 +44,7 @@ from scipy.interpolate import make_interp_spline
 from solprop import fourier
 from solprop._display import Displayed, engineering, line, phase_text, summarise
 from solprop._process import parallel_rows
+from solprop._validation import choice, positive
 from solprop.constants import EPS0, C
 from solprop.exceptions import PulseError, SolpropWarning
 from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
@@ -206,7 +207,7 @@ class SpatialPulse(Displayed):
 
     def __post_init__(self) -> None:
         """Validate the beam specification before sampling any grids."""
-        _check_positive("waist", self.waist)
+        positive(self.waist, "waist", PulseError, parameter="waist")
         if (
             isinstance(self.order, bool)
             or not isinstance(self.order, int)
@@ -942,7 +943,7 @@ class PlanarPulse(SpatialPulse):
     def __post_init__(self) -> None:
         """Validate the beam and refuse what the planar launch does not carry."""
         super().__post_init__()
-        _check_positive("waist_x", self.waist_x)
+        positive(self.waist_x, "waist_x", PulseError, parameter="waist_x")
         if not math.isfinite(self.offset_x):
             msg = "planar offset_x must be finite"
             raise PulseError(msg)
@@ -1145,13 +1146,6 @@ def _incident_admittance(  # noqa: PLR0917 - called positionally
 # --- shared validation and machinery --------------------------------------------------
 
 
-def _check_positive(name: str, value: float) -> None:
-    """Reject a quantity that is not finite and strictly positive."""
-    if not math.isfinite(value) or value <= 0.0:
-        msg = f"{name} must be a finite positive number, got {value!r}"
-        raise PulseError(msg, parameter=name)
-
-
 def _scaling(energy: float | None, peak_power: float | None) -> tuple[float, _Quantity]:
     """Return the target and which quantity it is, rejecting an ambiguous request.
 
@@ -1170,14 +1164,14 @@ def _scaling(energy: float | None, peak_power: float | None) -> tuple[float, _Qu
             raise PulseError(
                 msg, parameter=("energy", "peak_power"), rule="energy-or-peak-power"
             )
-        _check_positive("energy", energy)
+        positive(energy, "energy", PulseError, parameter="energy")
         return energy, "energy"
     if peak_power is None:
         msg = "one of energy or peak_power must be given, got neither"
         raise PulseError(
             msg, parameter=("energy", "peak_power"), rule="energy-or-peak-power"
         )
-    _check_positive("peak_power", peak_power)
+    positive(peak_power, "peak_power", PulseError, parameter="peak_power")
     return peak_power, "peak_power"
 
 
@@ -1555,7 +1549,7 @@ class ShapedPulse(Displayed):
             If the wavelength is not positive, the scaling request is ambiguous, or a
             phase coefficient is not finite.
         """
-        _check_positive("wavelength", self.wavelength)
+        positive(self.wavelength, "wavelength", PulseError, parameter="wavelength")
         _scaling(self.energy, self.peak_power)
         object.__setattr__(self, "phase", _frozen_phase(self.phase))
 
@@ -1865,7 +1859,7 @@ class GaussianPulse(ShapedPulse):
             If ``fwhm`` is not positive or ``m`` is less than one.
         """
         super().__post_init__()
-        _check_positive("fwhm", self.fwhm)
+        positive(self.fwhm, "fwhm", PulseError, parameter="fwhm")
         if self.m < 1:
             msg = f"m must be a super-Gaussian order of at least 1, got {self.m!r}"
             raise PulseError(msg)
@@ -2010,12 +2004,12 @@ def _sech_width(fwhm: float | None, width: float | None) -> float:
                 f"fwhm={fwhm!r} and width={width!r}"
             )
             raise PulseError(msg, parameter=("fwhm", "width"), rule="fwhm-or-width")
-        _check_positive("width", width)
+        positive(width, "width", PulseError, parameter="width")
         return width
     if fwhm is None:
         msg = "one of fwhm or width must be given, got neither"
         raise PulseError(msg, parameter=("fwhm", "width"), rule="fwhm-or-width")
-    _check_positive("fwhm", fwhm)
+    positive(fwhm, "fwhm", PulseError, parameter="fwhm")
     return fwhm * SECH_FWHM_TO_WIDTH
 
 
@@ -2233,9 +2227,9 @@ class DataPulse(Displayed):
         if omega[0] <= 0.0 or np.any(np.diff(omega) <= 0.0):
             msg = "omega must be strictly increasing and positive, in rad/s"
             raise PulseError(msg)
-        _check_positive("energy", self.energy)
+        positive(self.energy, "energy", PulseError, parameter="energy")
         if self.wavelength is not None:
-            _check_positive("wavelength", self.wavelength)
+            positive(self.wavelength, "wavelength", PulseError, parameter="wavelength")
         omega.setflags(write=False)
         spectrum.setflags(write=False)
         object.__setattr__(self, "omega", omega)
@@ -2593,9 +2587,9 @@ class TimeDataPulse(Displayed):
         if steps[0] <= 0.0 or not np.allclose(steps, steps[0], rtol=1e-9, atol=0.0):
             msg = "t must be uniformly spaced and increasing"
             raise PulseError(msg)
-        _check_positive("energy", self.energy)
+        positive(self.energy, "energy", PulseError, parameter="energy")
         if self.wavelength is not None:
-            _check_positive("wavelength", self.wavelength)
+            positive(self.wavelength, "wavelength", PulseError, parameter="wavelength")
         times.setflags(write=False)
         values.setflags(write=False)
         object.__setattr__(self, "t", times)
@@ -2912,7 +2906,7 @@ def _axis_factor(axis: str, axis_unit: str | None) -> float:
     - Returns: the angular frequency in rad/s of one unit of a frequency column, or the
       length in metres of one unit of a wavelength column.
     """
-    _check_choice("axis", axis, ("frequency", "wavelength"))
+    choice(axis, "axis", ("frequency", "wavelength"), PulseError)
     units, default = (
         (_FREQUENCY_UNITS, "Hz") if axis == "frequency" else (_WAVELENGTH_UNITS, "m")
     )
@@ -2923,14 +2917,6 @@ def _axis_factor(axis: str, axis_unit: str | None) -> float:
         )
         raise PulseError(msg)
     return units[unit]
-
-
-def _check_choice(name: str, value: str, choices: Sequence[str]) -> None:
-    """Reject a keyword that is not one of its documented values."""
-    if value not in choices:
-        allowed = " or ".join(repr(choice) for choice in choices)
-        msg = f"{name} must be {allowed}, got {value!r}"
-        raise PulseError(msg)
 
 
 def _undersampled_share(
@@ -3153,9 +3139,9 @@ def load_spectrum(
     >>> float(np.ptp(pulse.spectral_phase))
     0.0
     """
-    _check_positive("energy", energy)
-    _check_choice("phase_unit", phase_unit, ("rad", "deg"))
-    _check_choice("phase_convention", phase_convention, ("optics", "fft"))
+    positive(energy, "energy", PulseError, parameter="energy")
+    choice(phase_unit, "phase_unit", ("rad", "deg"), PulseError)
+    choice(phase_convention, "phase_convention", ("optics", "fft"), PulseError)
     if not (math.isfinite(floor) and 0.0 <= floor < 1.0):
         msg = f"floor must be a share of the peak power in [0, 1), got {floor!r}"
         raise PulseError(msg)
@@ -3277,8 +3263,10 @@ class CWPulse(Displayed):
             If the wavelength or power is not positive, or the bandwidth is negative or
             not finite.
         """
-        _check_positive("wavelength", self.wavelength)
-        _check_positive("average_power", self.average_power)
+        positive(self.wavelength, "wavelength", PulseError, parameter="wavelength")
+        positive(
+            self.average_power, "average_power", PulseError, parameter="average_power"
+        )
         if not math.isfinite(self.bandwidth) or self.bandwidth < 0.0:
             msg = (
                 "bandwidth must be a finite non-negative wavelength width in metres, "

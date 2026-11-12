@@ -26,6 +26,7 @@ import numpy as np
 from jaxtyping import Bool, Complex, Float, Inexact, Int
 
 from solprop import fourier
+from solprop._validation import choice
 from solprop.constants import C
 from solprop.exceptions import ModeError, OutputError, ProcessingError
 from solprop.grid import (
@@ -413,7 +414,7 @@ def band_mask(grid: TimeGrid, band: Band = "active") -> Bool[np.ndarray, " n_ome
     >>> int(band_mask(grid, "all").sum()) == grid.n_omega
     True
     """
-    _check_choice(band, BANDS, "band")
+    choice(band, "band", BANDS, ProcessingError)
     if band == "active":
         return grid.active_mask
     return np.ones(grid.n_omega, dtype=bool)
@@ -462,7 +463,7 @@ def spectral_axis(
     >>> float(x[0]) / 1e14, float(jacobian[0])
     (3.183098861837907, 6.283185307179586)
     """
-    _check_choice(axis, SPECTRAL_AXES, "axis")
+    choice(axis, "axis", SPECTRAL_AXES, ProcessingError)
     if axis == "omega":
         return omega, np.ones_like(omega)
     if axis == "f":
@@ -649,18 +650,6 @@ def _squeeze(
     elif mode_axis and values.shape[-3] == 1:
         values = values[..., 0, :, :]
     return values
-
-
-def _check_choice(value: str, allowed: tuple[str, ...], what: str) -> None:
-    """Reject a keyword that is not one of a fixed set of names.
-
-    The parameter is a plain string rather than the enumeration itself, exactly as
-    :func:`solprop.fourier._check_kind` is, so that the refusal stays reachable in
-    production, where no runtime type checker stands in front of it.
-    """
-    if value not in allowed:
-        msg = f"{what} must be one of {allowed}, got {value!r}"
-        raise ProcessingError(msg)
 
 
 def _check_mode_selection(modes: object) -> None:
