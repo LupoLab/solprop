@@ -62,6 +62,8 @@ mkdir -p build
 if stage lint; then
 uv run ruff format --check .
 uv run ruff check .
+# The bound problem's part of _core.pyi is stubgen's, from the build installed above.
+uv run python scripts/problem_stub.py --check
 uv run python - "$repo_root" "$workspace_root" <<'PY'
 import json
 import sys

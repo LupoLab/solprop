@@ -11,10 +11,7 @@ recovered. ``test_envelope_plasma.py`` holds the source; this is the other.
 
 from __future__ import annotations
 
-from typing import cast
-
 import numpy as np
-import numpy.typing as npt
 import pytest
 from session_runs import drain, run
 from solprop.backends.events import Outcome
@@ -24,9 +21,10 @@ from solprop.stats import StatsSpec
 from test_envelope_plasma import envelope_case, envelope_options, terms
 
 import solprop_native.backend as adapter
-from solprop_native import NativeBackend
+from solprop_native import NativeBackend, _core
 from solprop_native.backend import (
-    _native_problem,  # pyright: ignore[reportPrivateUsage]
+    _lower,  # pyright: ignore[reportPrivateUsage]
+    _LowerPlan,  # pyright: ignore[reportPrivateUsage]
 )
 
 SPEC = StatsSpec(names=("electron_density", "peak_ionisation_rate"))
@@ -40,23 +38,22 @@ def test_the_statistics_refuse_and_a_quiet_field_recovers(
     monkeypatch: pytest.MonkeyPatch, geometry: str
 ) -> None:
     problem, run_request, grid = envelope_case(geometry, 1, mixture=False)
-    payload = _native_problem(
+    payload = _lower(
         problem,
         run_request,
-        terms(problem),
-        node_chunk=envelope_options(geometry).chunk,
+        _LowerPlan(terms=terms(problem), node_chunk=envelope_options(geometry).chunk),
     )
-    nodes = cast(npt.NDArray[np.float64], payload["envelope_rule_nodes"]).copy()
+    nodes = payload.plasma.envelope_rule_nodes.reshape(-1, 4, 512)
     # As the source's test: alternating incompatible rules must fail refinement.
     for level in (1, 3):
         order = 64 << level
         nodes[:, level, :order] = 0.5 * (nodes[:, level, :order] + 1)
-    payload["envelope_rule_nodes"] = nodes
+    payload.plasma.envelope_rule_nodes = nodes
 
-    def corrupt_payload(*args: object, **keywords: object) -> dict[str, object]:
+    def corrupt_payload(*args: object, **keywords: object) -> _core.Problem:
         return payload
 
-    monkeypatch.setattr(adapter, "_native_problem", corrupt_payload)
+    monkeypatch.setattr(adapter, "_lower", corrupt_payload)
     # The launch plane's statistics meet the bad rule before any step.
     run_request = run_request.for_run(stats=SPEC)
     owner = NativeBackend(

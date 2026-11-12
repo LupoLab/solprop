@@ -5,6 +5,7 @@
 #pragma once
 
 #include "solprop_native/core.hpp"
+#include "solprop_native/dispatch.hpp"
 
 #include <Kokkos_Core.hpp>
 
@@ -41,10 +42,10 @@ namespace solprop_native {
  * column writes the same separate current and non-plasma polarisation streams.
  *
  * A CPU build runs it as a team column (`GeneralWorkspace::team_band_plasma_column`,
- * src/general.cpp): the field is a row over t, and each running integral is a band
- * filter over the row (`team_band_filter`, a parallel stencil with a K-sample halo,
- * reflected at the row's ends) followed by a chunked trapezoid scan of the filtered row
- * (`team_trapezoid_window`). These are solprop SEP 25 section 6.7.4
+ * src/general/trial.cpp): the field is a row over t, and each running integral is a
+ * band filter over the row (`team_band_filter`, a parallel stencil with a K-sample
+ * halo, reflected at the row's ends) followed by a chunked trapezoid scan of the
+ * filtered row (`team_trapezoid_window`). These are solprop SEP 25 section 6.7.4
  * whole-row passes, with the final polarisation integral removed by SEP 27:
  *
  *   1. per channel: rates (parallel over t; the raw rates are kept for the loss current
@@ -215,44 +216,12 @@ KOKKOS_INLINE_FUNCTION void band_filter_interior(const double* row, double* out,
 KOKKOS_INLINE_FUNCTION void band_filter_interior(const double* row, double* out,
                                                  const int low, const int high,
                                                  const double* taps, const int half) {
-  switch (half) {
-  case 0: {
-    band_filter_interior<0>(row, out, low, high, taps);
-    return;
-  }
-  case 1: {
-    band_filter_interior<1>(row, out, low, high, taps);
-    return;
-  }
-  case 2: {
-    band_filter_interior<2>(row, out, low, high, taps);
-    return;
-  }
-  case 3: {
-    band_filter_interior<3>(row, out, low, high, taps);
-    return;
-  }
-  case 4: {
-    band_filter_interior<4>(row, out, low, high, taps);
-    return;
-  }
-  case 5: {
-    band_filter_interior<5>(row, out, low, high, taps);
-    return;
-  }
-  case 6: {
-    band_filter_interior<6>(row, out, low, high, taps);
-    return;
-  }
-  case 7: {
-    band_filter_interior<7>(row, out, low, high, taps);
-    return;
-  }
-  default: {
+  const auto filter = [&]<std::size_t Width> {
+    band_filter_interior<static_cast<int>(Width)>(row, out, low, high, taps);
+  };
+  dispatch_width<0, band_max_half - 1>(static_cast<std::size_t>(half), filter, [&] {
     band_filter_interior<band_max_half>(row, out, low, high, taps);
-    return;
-  }
-  }
+  });
 }
 
 /** A staged band filter's tile in a team's scratch. */

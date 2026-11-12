@@ -45,7 +45,8 @@ from solprop.translate.stage import terms
 import solprop_native
 from solprop_native import NativeBackend, _core, build_info, check_build
 from solprop_native.backend import (
-    _native_problem,  # pyright: ignore[reportPrivateUsage]
+    _lower,  # pyright: ignore[reportPrivateUsage]
+    _LowerPlan,  # pyright: ignore[reportPrivateUsage]
     _ResidentLowStorage,  # pyright: ignore[reportPrivateUsage]
 )
 from solprop_native.session import NativeSession
@@ -106,7 +107,7 @@ def test_native_modal_payload_requires_both_fixed_coefficient_arrays(
             prefactor=None if missing == "prefactor" else terms.prefactor,
         )
         with pytest.raises(BackendError, match="device-ready fixed-term problem"):
-            _native_problem(problem, run_request, damaged)
+            _lower(problem, run_request, _LowerPlan(terms=damaged))
     finally:
         backend.close()
 
@@ -646,14 +647,14 @@ def test_raman_metadata_memoization_and_conditional_ledger(
     backend.close()
 
 
-def _raman_native_payload(raman_case: RamanCase) -> dict[str, object]:
+def _raman_native_payload(raman_case: RamanCase) -> _core.Problem:
     problem, run_request, grid = raman_case
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        return _native_problem(  # pyright: ignore[reportPrivateUsage]
+        return _lower(
             problem,
             run_request,
-            backend._terms,  # pyright: ignore[reportPrivateUsage]
+            _LowerPlan(terms=backend._terms),  # pyright: ignore[reportPrivateUsage]
         )
     finally:
         backend.close()
@@ -665,25 +666,77 @@ def test_native_raman_rows_refuse_hidden_array_conversions(
 ) -> None:
     """The private seam accepts exact arrays and never copies a near miss."""
     payload = _raman_native_payload(raman_case)
-    rows = cast(np.ndarray, payload["raman_undamped"])
-    if spoiling == "dtype":
-        payload["raman_undamped"] = rows.astype(np.float32)
-    elif spoiling == "rank":
-        payload["raman_undamped"] = rows.ravel()
-    else:
-        payload["raman_undamped"] = np.zeros(
-            (rows.shape[0], 2 * rows.shape[1]), dtype=np.float64
-        )[:, ::2]
+    raman = payload.raman
+    rows = raman.undamped.reshape(raman.n_terms, -1)
+
+    def _spoil() -> None:
+        if spoiling == "dtype":
+            raman.undamped = rows.astype(np.float32)  # pyright: ignore[reportAttributeAccessIssue]
+        elif spoiling == "rank":
+            raman.undamped = rows.ravel()
+        else:
+            raman.undamped = np.zeros(
+                (rows.shape[0], 2 * rows.shape[1]), dtype=np.float64
+            )[:, ::2]
+        _core.State(payload)
+
     with pytest.raises((TypeError, ValueError)):
+        _spoil()
+
+
+@pytest.mark.parametrize("spoiling", ["undamped", "tensor_weights"])
+def test_native_raman_tables_refuse_a_transposed_layout(
+    raman_case: RamanCase, spoiling: str
+) -> None:
+    """A table with the right element count but its axes swapped is refused by name."""
+    payload = _raman_native_payload(raman_case)
+    raman = payload.raman
+    if spoiling == "undamped":
+        raman.undamped = raman.undamped.reshape(-1, raman.n_terms)
+    else:
+        raman.tensor_weights = raman.tensor_weights.reshape(2, raman.n_terms)
+    with pytest.raises(ValueError, match=f"raman_{spoiling} must have shape"):
+        _core.State(payload)
+
+
+@pytest.mark.parametrize("spoiling", ["flat", "rank_four", "count"])
+def test_native_fixed_terms_refuse_a_wrong_layout(
+    phase_a_case: PhaseACase, spoiling: str
+) -> None:
+    """The fixed terms are (n_phi_terms, ...) arrays of rank two or three."""
+    problem, run_request, grid = phase_a_case
+    backend = NativeBackend(problem, run_request, grid=grid)
+    try:
+        terms = backend._terms  # pyright: ignore[reportPrivateUsage]
+        payload = _lower(problem, run_request, _LowerPlan(terms=terms))
+    finally:
+        backend.close()
+    assert terms.phi is not None
+    # As the adapter lays them out: (n_phi_terms, rows, n_omega).
+    phi = np.ascontiguousarray(terms.phi).reshape(
+        terms.phi.shape[0], -1, problem.shape[-1]
+    )
+    if spoiling == "flat":
+        payload.linear.phi_terms = phi.reshape(-1)
+        message = "rank-two or rank-three"
+    elif spoiling == "rank_four":
+        payload.linear.phi_terms = phi.reshape(1, *phi.shape)
+        message = "rank-two or rank-three"
+    else:
+        # The same elements, the leading axis no longer the term count.
+        assert phi.shape[::-1][0] != payload.linear.n_phi_terms
+        payload.linear.phi_terms = phi.reshape(phi.shape[::-1])
+        message = "phi_terms must hold n_phi_terms rows"
+    with pytest.raises(ValueError, match=message):
         _core.State(payload)
 
 
 def test_native_raman_rows_accept_read_only_input(raman_case: RamanCase) -> None:
     """Construction reads Raman rows but does not require write access to them."""
     payload = _raman_native_payload(raman_case)
-    rows = np.array(cast(np.ndarray, payload["raman_undamped"]), copy=True)
+    rows = payload.raman.undamped.reshape(payload.raman.n_terms, -1)
     rows.setflags(write=False)
-    payload["raman_undamped"] = rows
+    payload.raman.undamped = rows
     state = _core.State(payload)
     state.close()
 
@@ -928,12 +981,12 @@ def test_the_plasma_stash_is_off_under_modified_noise(
     )
     problem = simulation.translate()
     assert problem.responses.plasma_channels
-    payload = _native_problem(  # pyright: ignore[reportPrivateUsage]
+    payload = _lower(
         problem,
         simulation._run_request(),  # pyright: ignore[reportPrivateUsage]
-        terms(problem),
+        _LowerPlan(terms=terms(problem)),
     )
-    assert payload["stash_plasma"] is stashed
+    assert payload.plasma.stash is stashed
 
 
 def test_the_plasma_stash_is_off_under_the_split_step_absorber() -> None:
@@ -942,7 +995,7 @@ def test_the_plasma_stash_is_off_under_the_split_step_absorber() -> None:
     The last stage's input is then not the committed field, so the plasma statistics
     are scanned afresh (the stash needs a first-same-as-last step).
     """
-    payloads = {}
+    payloads: dict[str, _core.Problem] = {}
     for scheme in ("nonlinear", "split_step"):
         simulation = Simulation.from_capillary(
             125e-6,
@@ -968,11 +1021,11 @@ def test_the_plasma_stash_is_off_under_the_split_step_absorber() -> None:
             simulation.settings, absorber_scheme=scheme
         )
         problem = simulation.translate()
-        payloads[scheme] = _native_problem(  # pyright: ignore[reportPrivateUsage]
+        payloads[scheme] = _lower(
             problem,
             simulation._run_request(),  # pyright: ignore[reportPrivateUsage]
-            terms(problem),
+            _LowerPlan(terms=terms(problem)),
         )
-    assert payloads["nonlinear"]["stash_plasma"] is True
-    assert payloads["split_step"]["split_step_absorber"] is True
-    assert payloads["split_step"]["stash_plasma"] is False
+    assert payloads["nonlinear"].plasma.stash is True
+    assert payloads["split_step"].absorber.split_step is True
+    assert payloads["split_step"].plasma.stash is False

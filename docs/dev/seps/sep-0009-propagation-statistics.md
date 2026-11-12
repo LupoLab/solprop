@@ -137,7 +137,7 @@ product and must not reinterpret the existing statistic.
 `backends.numpy_ref.backend`, `backends.numba_cpu.backend`, `backends.spatial` and
 `backends.driver.StepDriver` own the reference, compiled and periodic evaluation.
 In `solprop-kokkos`, `src/solprop_kokkos/backend.py` packs/unpacks native statistics;
-`src/general.cpp` owns the modal statistics pass, and `src/general_modal.cpp` the
+`src/general/statistics.cpp` owns the modal statistics pass, and `src/general_modal.cpp` the
 general modal execution. The current Kokkos temporal FWHM path transfers a total
 power trace for host crossing interpolation; a new family of per-mode/time-resolved
 measurements must budget that transfer rather than assume all statistics are scalars.

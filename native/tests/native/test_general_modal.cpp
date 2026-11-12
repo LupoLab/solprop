@@ -61,68 +61,69 @@ native::Problem modal_problem(const bool real_form, const std::size_t chunk,
                               const std::size_t n_to = 8) {
   native::Problem problem;
   problem.cpu_execution = native::test::table();
-  problem.n_t = n_to / 2;
-  problem.n_to = n_to;
-  problem.n_omega = n_omega;
-  problem.n_stages = 1;
-  problem.n_phi_terms = 1;
-  problem.n_prefactor_terms = 1;
-  problem.n_modes = kModes;
-  problem.family = native::FieldFamily::field_real;
-  problem.crop_index.resize(n_omega);
-  std::iota(problem.crop_index.begin(), problem.crop_index.end(), offset);
-  problem.active_mask.assign(problem.n_omega, 1U);
-  problem.norm_mask.assign(problem.n_omega, 1U);
-  problem.omega_window.assign(problem.n_omega, 1.0);
+  problem.dims.n_t = n_to / 2;
+  problem.dims.n_to = n_to;
+  problem.dims.n_omega = n_omega;
+  problem.stepper.n_stages = 1;
+  problem.linear.n_phi_terms = 1;
+  problem.linear.n_prefactor_terms = 1;
+  problem.dims.n_modes = kModes;
+  problem.dims.family = native::FieldFamily::field_real;
+  problem.grid.crop_index.resize(n_omega);
+  std::iota(problem.grid.crop_index.begin(), problem.grid.crop_index.end(), offset);
+  problem.grid.active_mask.assign(problem.dims.n_omega, 1U);
+  problem.grid.norm_mask.assign(problem.dims.n_omega, 1U);
+  problem.grid.omega_window.assign(problem.dims.n_omega, 1.0);
   for (std::size_t w = 0; w < n_omega; ++w)
-    problem.omega.push_back(static_cast<double>(w + 1));
-  problem.dt = 0.25;
-  problem.time_window.assign(problem.n_to, 1.0);
-  problem.carrier.assign(problem.n_to, Complex(1.0, 0.0));
-  problem.phi_terms.assign(kModes * problem.n_omega, Complex{});
-  problem.prefactor_terms.assign(kModes * problem.n_omega, Complex(1.0, 0.0));
-  problem.tableau_matrix = {0.0};
-  problem.tableau_nodes = {0.0};
-  problem.solution_weights = {1.0};
-  problem.error_weights = {0.25};
-  problem.synthesis_matrix = {0.0, 0.0};
-  problem.projection_matrix = {0.0, 0.0};
-  problem.general_modal = true;
-  problem.general_real_form = real_form;
-  problem.general_components = kComponents;
-  problem.general_nodes = kNodes;
-  problem.general_node_chunk = chunk;
-  problem.general_pad_scale = 2.0;
-  problem.general_epsilon0 = 1.0;
-  const auto maps = kNodes * kComponents * kModes * problem.n_omega;
+    problem.grid.omega.push_back(static_cast<double>(w + 1));
+  problem.grid.dt = 0.25;
+  problem.grid.time_window.assign(problem.dims.n_to, 1.0);
+  problem.grid.carrier.assign(problem.dims.n_to, Complex(1.0, 0.0));
+  problem.linear.phi_terms.assign(kModes * problem.dims.n_omega, Complex{});
+  problem.linear.prefactor_terms.assign(kModes * problem.dims.n_omega,
+                                        Complex(1.0, 0.0));
+  problem.stepper.tableau_matrix = {0.0};
+  problem.stepper.tableau_nodes = {0.0};
+  problem.stepper.solution_weights = {1.0};
+  problem.stepper.error_weights = {0.25};
+  problem.transform.synthesis_matrix = {0.0, 0.0};
+  problem.transform.projection_matrix = {0.0, 0.0};
+  problem.general.enabled = true;
+  problem.general.real_form = real_form;
+  problem.general.components = kComponents;
+  problem.general.nodes = kNodes;
+  problem.general.node_chunk = chunk;
+  problem.general.pad_scale = 2.0;
+  problem.general.epsilon0 = 1.0;
+  const auto maps = kNodes * kComponents * kModes * problem.dims.n_omega;
   for (std::size_t index = 0; index < maps; ++index) {
-    problem.general_synthesis.emplace_back(fill(index, 1.0), fill(index + 97, 0.5));
-    problem.general_projection.emplace_back(fill(index + 13, 0.8),
+    problem.general.synthesis.emplace_back(fill(index, 1.0), fill(index + 97, 0.5));
+    problem.general.projection.emplace_back(fill(index + 13, 0.8),
                                             fill(index + 41, 0.6));
   }
   for (std::size_t index = 0; index < kNodes * fourth(kComponents); ++index)
-    problem.general_tensor.push_back(fill(index + 7, 1.0));
+    problem.general.tensor.push_back(fill(index + 7, 1.0));
   for (std::size_t w = 0; w < n_omega; ++w)
-    problem.general_frequency_factor.emplace_back(0.0, -static_cast<double>(w + 1));
+    problem.general.frequency_factor.emplace_back(0.0, -static_cast<double>(w + 1));
   if (delayed) {
-    problem.general_responses = kResponses;
-    problem.general_terms = kTerms;
+    problem.general.responses = kResponses;
+    problem.general.terms = kTerms;
     for (std::size_t index = 0; index < kResponses * kTerms * fourth(kComponents);
          ++index)
-      problem.general_delayed_tensor.push_back(fill(index + 3, 0.5));
-    for (std::size_t index = 0; index < kResponses * kTerms * (problem.n_to + 1);
+      problem.general.delayed_tensor.push_back(fill(index + 3, 0.5));
+    for (std::size_t index = 0; index < kResponses * kTerms * (problem.dims.n_to + 1);
          ++index)
-      problem.general_delayed_spectrum.emplace_back(fill(index + 5, 1.0),
+      problem.general.delayed_spectrum.emplace_back(fill(index + 5, 1.0),
                                                     fill(index + 11, 0.4));
-    problem.general_node_response = {1, 2, 0, 1, 2};
+    problem.general.node_response = {1, 2, 0, 1, 2};
   }
   return problem;
 }
 
 std::vector<Complex> scaled_state(const native::Problem& problem) {
   std::vector<Complex> state;
-  state.reserve(kModes * problem.n_omega);
-  for (std::size_t index = 0; index < kModes * problem.n_omega; ++index)
+  state.reserve(kModes * problem.dims.n_omega);
+  for (std::size_t index = 0; index < kModes * problem.dims.n_omega; ++index)
     state.emplace_back(fill(index + 17, 1.0), fill(index + 23, 1.0));
   return state;
 }
@@ -130,8 +131,8 @@ std::vector<Complex> scaled_state(const native::Problem& problem) {
 // solprop's `general_source`, written as sums over samples and bins.
 std::vector<Complex> reference_source(const native::Problem& problem,
                                       const std::vector<Complex>& scaled) {
-  const auto n_to = problem.n_to;
-  const auto n_omega = problem.n_omega;
+  const auto n_to = problem.dims.n_to;
+  const auto n_omega = problem.dims.n_omega;
   const auto components = kComponents;
   const auto two_pi = 2.0 * std::numbers::pi_v<double>;
   std::vector<Complex> source(kModes * n_omega);
@@ -141,19 +142,17 @@ std::vector<Complex> reference_source(const native::Problem& problem,
       for (std::size_t w = 0; w < n_omega; ++w) {
         Complex bin{};
         for (std::size_t m = 0; m < kModes; ++m)
-          bin +=
-              problem
-                  .general_synthesis[((node * components + c) * kModes + m) * n_omega +
-                                     w] *
-              scaled[m * n_omega + w];
-        const auto fine = problem.crop_index[w];
+          bin += problem.general
+                     .synthesis[((node * components + c) * kModes + m) * n_omega + w] *
+                 scaled[m * n_omega + w];
+        const auto fine = problem.grid.crop_index[w];
         for (std::size_t t = 0; t < n_to; ++t)
           field[c][t] +=
               bin *
               cis(two_pi * static_cast<double>(fine * t) / static_cast<double>(n_to)) /
               static_cast<double>(n_to);
       }
-    if (problem.general_real_form)
+    if (problem.general.real_form)
       for (auto& component : field)
         for (auto& value : component)
           value = Complex(value.real(), 0.0);
@@ -166,17 +165,18 @@ std::vector<Complex> reference_source(const native::Problem& problem,
         for (std::size_t j = 0; j < components; ++j)
           for (std::size_t k = 0; k < components; ++k)
             for (std::size_t l = 0; l < components; ++l)
-              value += problem.general_tensor[base +
-                                              ((i * components + j) * components + k) *
-                                                  components +
-                                              l] *
-                       field[k][t] * Kokkos::conj(field[l][t]) * field[j][t];
-        polarisation[i][t] = problem.general_epsilon0 * value.real();
+              value +=
+                  problem.general
+                      .tensor[base +
+                              ((i * components + j) * components + k) * components +
+                              l] *
+                  field[k][t] * Kokkos::conj(field[l][t]) * field[j][t];
+        polarisation[i][t] = problem.general.epsilon0 * value.real();
       }
-    if (problem.general_terms != 0 && problem.general_node_response[node] != 0) {
-      const auto owner = problem.general_node_response[node] - 1;
+    if (problem.general.terms != 0 && problem.general.node_response[node] != 0) {
+      const auto owner = problem.general.node_response[node] - 1;
       const auto doubled = 2 * n_to;
-      for (std::size_t term = 0; term < problem.general_terms; ++term) {
+      for (std::size_t term = 0; term < problem.general.terms; ++term) {
         std::vector<std::vector<std::vector<double>>> history(
             components,
             std::vector<std::vector<double>>(components, std::vector<double>(n_to)));
@@ -185,7 +185,7 @@ std::vector<Complex> reference_source(const native::Problem& problem,
             std::vector<double> drive(doubled);
             for (std::size_t t = 0; t < n_to; ++t) {
               const double pair = (field[k][t] * Kokkos::conj(field[l][t])).real();
-              drive[t] = problem.general_real_form ? pair : 0.5 * pair;
+              drive[t] = problem.general.real_form ? pair : 0.5 * pair;
             }
             std::vector<Complex> product(n_to + 1);
             for (std::size_t f = 0; f <= n_to; ++f) {
@@ -194,8 +194,8 @@ std::vector<Complex> reference_source(const native::Problem& problem,
                 bin += drive[t] * cis(-two_pi * static_cast<double>(f * t) /
                                       static_cast<double>(doubled));
               product[f] =
-                  problem.general_delayed_spectrum
-                      [(owner * problem.general_terms + term) * (n_to + 1) + f] *
+                  problem.general.delayed_spectrum
+                      [(owner * problem.general.terms + term) * (n_to + 1) + f] *
                   bin;
             }
             for (std::size_t t = 0; t < n_to; ++t) {
@@ -208,7 +208,7 @@ std::vector<Complex> reference_source(const native::Problem& problem,
               history[k][l][t] = value / static_cast<double>(doubled);
             }
           }
-        const auto tensor = (owner * problem.general_terms + term) * fourth(components);
+        const auto tensor = (owner * problem.general.terms + term) * fourth(components);
         for (std::size_t t = 0; t < n_to; ++t)
           for (std::size_t i = 0; i < components; ++i) {
             double value = 0.0;
@@ -216,32 +216,31 @@ std::vector<Complex> reference_source(const native::Problem& problem,
               for (std::size_t k = 0; k < components; ++k)
                 for (std::size_t l = 0; l < components; ++l)
                   value +=
-                      problem.general_delayed_tensor
+                      problem.general.delayed_tensor
                           [tensor +
                            ((i * components + j) * components + k) * components + l] *
                       history[k][l][t] * field[j][t].real();
-            polarisation[i][t] += problem.general_epsilon0 * value;
+            polarisation[i][t] += problem.general.epsilon0 * value;
           }
       }
     }
     for (std::size_t c = 0; c < components; ++c)
       for (std::size_t w = 0; w < n_omega; ++w) {
-        const auto fine = problem.crop_index[w];
+        const auto fine = problem.grid.crop_index[w];
         Complex bin{};
         for (std::size_t t = 0; t < n_to; ++t)
           bin += polarisation[c][t] * cis(-two_pi * static_cast<double>(fine * t) /
                                           static_cast<double>(n_to));
         for (std::size_t m = 0; m < kModes; ++m)
           source[m * n_omega + w] +=
-              problem
-                  .general_projection[((m * kNodes + node) * components + c) * n_omega +
-                                      w] *
+              problem.general
+                  .projection[((m * kNodes + node) * components + c) * n_omega + w] *
               bin;
       }
   }
   for (std::size_t m = 0; m < kModes; ++m)
     for (std::size_t w = 0; w < n_omega; ++w)
-      source[m * n_omega + w] *= problem.general_frequency_factor[w];
+      source[m * n_omega + w] *= problem.general.frequency_factor[w];
   return source;
 }
 
@@ -251,15 +250,15 @@ std::vector<Complex> evaluated(const native::Problem& problem,
   source.plan();
   auto input = Kokkos::create_mirror_view(source.scaled());
   for (std::size_t m = 0; m < kModes; ++m)
-    for (std::size_t w = 0; w < problem.n_omega; ++w)
-      input(m, w) = scaled[m * problem.n_omega + w];
+    for (std::size_t w = 0; w < problem.dims.n_omega; ++w)
+      input(m, w) = scaled[m * problem.dims.n_omega + w];
   Kokkos::deep_copy(source.scaled(), input);
   source.evaluate();
   const auto output =
       Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, source.source());
   std::vector<Complex> result;
   for (std::size_t m = 0; m < kModes; ++m)
-    for (std::size_t w = 0; w < problem.n_omega; ++w)
+    for (std::size_t w = 0; w < problem.dims.n_omega; ++w)
       result.push_back(output(m, w));
   return result;
 }
@@ -376,8 +375,8 @@ TEST(GeneralModal, RepeatedEvaluationAgreesToRounding) {
     auto input = Kokkos::create_mirror(source.scaled());
     for (int repeat = 0; repeat < 3; ++repeat) {
       for (std::size_t m = 0; m < kModes; ++m)
-        for (std::size_t w = 0; w < problem.n_omega; ++w)
-          input(m, w) = scaled[m * problem.n_omega + w];
+        for (std::size_t w = 0; w < problem.dims.n_omega; ++w)
+          input(m, w) = scaled[m * problem.dims.n_omega + w];
       Kokkos::deep_copy(source.scaled(), input);
       source.evaluate();
       const auto output =
@@ -392,38 +391,36 @@ TEST(GeneralModal, RepeatedEvaluationAgreesToRounding) {
         EXPECT_EQ(zero.data()[index], Complex{});
       EXPECT_EQ(source.memory_ledger(), ledger);
     }
-    source.close();
-    source.close();
   }
 }
 
 TEST(GeneralModal, MalformedDataIsRefusedBeforeAllocation) {
   auto short_map = modal_problem(true, 2, false);
-  short_map.general_synthesis.pop_back();
+  short_map.general.synthesis.pop_back();
   EXPECT_THROW(native::require_general_modal(short_map), std::invalid_argument);
   auto chunk = modal_problem(true, 2, false);
-  chunk.general_node_chunk = kNodes + 1;
+  chunk.general.node_chunk = kNodes + 1;
   EXPECT_THROW(native::require_general_modal(chunk), std::invalid_argument);
   auto owner = modal_problem(true, 2, true);
-  owner.general_node_response[0] = kResponses + 1;
+  owner.general.node_response[0] = kResponses + 1;
   EXPECT_THROW(native::require_general_modal(owner), std::invalid_argument);
   auto two = modal_problem(true, 2, true);
-  two.general_components = 2;
+  two.general.components = 2;
   EXPECT_THROW(native::require_general_modal(two), std::invalid_argument);
   auto legacy = modal_problem(true, 2, false);
-  legacy.nonlinear = true;
+  legacy.kerr.nonlinear = true;
   EXPECT_THROW(native::require_general_modal(legacy), std::invalid_argument);
   auto envelope = modal_problem(true, 2, false);
-  envelope.family = native::FieldFamily::envelope;
+  envelope.dims.family = native::FieldFamily::envelope;
   EXPECT_THROW(native::require_general_modal(envelope), std::invalid_argument);
   auto scattered = modal_problem(true, 2, false);
-  scattered.crop_index = {0, 2, 1};
+  scattered.grid.crop_index = {0, 2, 1};
   EXPECT_THROW(native::require_general_modal(scattered), std::invalid_argument);
   auto stray = modal_problem(true, 2, false);
-  stray.general_modal = false;
+  stray.general.enabled = false;
   EXPECT_THROW(native::require_general_modal(stray), std::invalid_argument);
   auto infinite = modal_problem(true, 2, false);
-  infinite.general_tensor[3] = std::numeric_limits<double>::infinity();
+  infinite.general.tensor[3] = std::numeric_limits<double>::infinity();
   EXPECT_THROW(native::GeneralState state(infinite), std::invalid_argument);
 }
 
@@ -433,8 +430,8 @@ TEST(GeneralModal, FullAndTailTransformsUseTheDedicatedPolicy) {
   auto problem = modal_problem(true, 3, false, 4096, 0, 16384);
   native::GeneralModalSource source(problem);
   const auto sizing = source.execution_sizing();
-  const auto full = 3 * kComponents * kModes * problem.n_omega;
-  const auto tail = 2 * kComponents * kModes * problem.n_omega;
+  const auto full = 3 * kComponents * kModes * problem.dims.n_omega;
+  const auto tail = 2 * kComponents * kModes * problem.dims.n_omega;
   const auto capacity =
       static_cast<std::size_t>(native::ExecutionSpace().concurrency());
   EXPECT_EQ(sizing.at("kernels.modal." + std::to_string(full)).at("threads"), capacity);
@@ -456,11 +453,11 @@ TEST(GeneralModal, LedgerRowsAreTheAllocatedViews) {
   const auto real = sizeof(double);
   const auto rows = 2 * kComponents;
   const auto pairs = 2 * native::general_pair_histories;
-  const auto n_to = problem.n_to;
-  EXPECT_EQ(ledger.at("general_synthesis"), problem.general_synthesis.size() * complex);
+  const auto n_to = problem.dims.n_to;
+  EXPECT_EQ(ledger.at("general_synthesis"), problem.general.synthesis.size() * complex);
   EXPECT_EQ(ledger.at("general_projection"),
-            problem.general_projection.size() * complex);
-  EXPECT_EQ(ledger.at("general_tensor"), problem.general_tensor.size() * real);
+            problem.general.projection.size() * complex);
+  EXPECT_EQ(ledger.at("general_tensor"), problem.general.tensor.size() * real);
   EXPECT_EQ(ledger.at("general_node_spectrum"), rows * n_to * complex);
   EXPECT_EQ(ledger.at("general_node_field"), rows * n_to * complex);
   EXPECT_EQ(ledger.at("general_node_polarisation"), rows * n_to * real);
@@ -471,7 +468,7 @@ TEST(GeneralModal, LedgerRowsAreTheAllocatedViews) {
   EXPECT_EQ(ledger.at("general_node_product"), pairs * (n_to + 1) * complex);
   EXPECT_EQ(ledger.at("general_node_delayed"), rows * n_to * real);
   EXPECT_EQ(ledger.at("general_delayed_spectrum"),
-            problem.general_delayed_spectrum.size() * complex);
+            problem.general.delayed_spectrum.size() * complex);
   EXPECT_EQ(ledger.at("general_node_response"), kNodes * sizeof(std::size_t));
 }
 
@@ -480,16 +477,16 @@ TEST(GeneralModal, TheStateCarriesTheSourceAndItsLedger) {
   native::GeneralState state(problem);
   const auto ledger = state.memory_ledger();
   EXPECT_EQ(ledger.at("general_synthesis"),
-            problem.general_synthesis.size() * sizeof(Complex));
+            problem.general.synthesis.size() * sizeof(Complex));
   // The host maps are released once uploaded; the retained problem is small.
   const auto host_maps =
-      (problem.general_synthesis.size() + problem.general_projection.size() +
-       problem.general_delayed_spectrum.size()) *
+      (problem.general.synthesis.size() + problem.general.projection.size() +
+       problem.general.delayed_spectrum.size()) *
           sizeof(Complex) +
-      (problem.general_tensor.size() + problem.general_delayed_tensor.size()) *
+      (problem.general.tensor.size() + problem.general.delayed_tensor.size()) *
           sizeof(double);
   EXPECT_LT(ledger.at("host_problem_arrays"), host_maps);
-  std::vector<Complex> field(kModes * problem.n_omega);
+  std::vector<Complex> field(kModes * problem.dims.n_omega);
   for (std::size_t index = 0; index < field.size(); ++index)
     field[index] = Complex(fill(index, 1.0), fill(index + 1, 1.0));
   state.set_initial(field, {});
@@ -526,7 +523,7 @@ TEST(GeneralModal, TheStateCarriesTheSourceAndItsLedger) {
 TEST(GeneralModal, AnEdgeLineReadsAPlainTransformAndASlope) {
   const auto problem = modal_problem(true, 2, false);
   native::GeneralState state(problem);
-  const auto n = problem.n_omega;
+  const auto n = problem.dims.n_omega;
   // Rows flowing both ways, so that rectifying a sum would read something else.
   std::vector<Complex> field(kModes * n);
   for (std::size_t row = 0; row < n; ++row) {
@@ -627,16 +624,16 @@ TEST(GeneralModal, AnEdgeLineThatDoesNotAccountForItsNodesIsRefused) {
 TEST(GeneralModal, TheAdamsRowsRoundTripExactly) {
   auto problem = modal_problem(true, 2, false);
   native::GeneralState state(problem);
-  std::vector<Complex> field(kModes * problem.n_omega, Complex(1.0, 0.5));
+  std::vector<Complex> field(kModes * problem.dims.n_omega, Complex(1.0, 0.5));
   state.set_initial(field, {});
   constexpr std::size_t kSlots = 4;
   state.adams_allocate(kSlots, true, false);
   EXPECT_EQ(state.adams_row_names(),
             (std::vector<std::string>{"store", "states", "rates"}));
-  const std::array<std::size_t, 3> extents{kSlots, kModes, problem.n_omega};
+  const std::array<std::size_t, 3> extents{kSlots, kModes, problem.dims.n_omega};
   for (const std::string name : {"store", "states", "rates"}) {
     EXPECT_EQ(state.adams_row_extents(name), extents);
-    std::vector<Complex> rows(kSlots * kModes * problem.n_omega);
+    std::vector<Complex> rows(kSlots * kModes * problem.dims.n_omega);
     for (std::size_t index = 0; index < rows.size(); ++index)
       rows[index] = Complex(fill(index, 1.0), fill(index + name.size(), 1e-300));
     state.adams_rows_from_host(name, rows);
@@ -669,7 +666,7 @@ TEST(GeneralModal, TheAdamsRowsRoundTripExactly) {
 TEST(GeneralModal, TheAdamsRowsNeedTheHistory) {
   auto problem = modal_problem(true, 2, false);
   native::GeneralState state(problem);
-  std::vector<Complex> field(kModes * problem.n_omega, Complex(1.0, 0.5));
+  std::vector<Complex> field(kModes * problem.dims.n_omega, Complex(1.0, 0.5));
   state.set_initial(field, {});
   EXPECT_THROW(static_cast<void>(state.adams_row_names()), std::logic_error);
   state.adams_allocate(3, false, false);
@@ -679,9 +676,9 @@ TEST(GeneralModal, TheAdamsRowsNeedTheHistory) {
 
 TEST(GeneralModal, ALinearGuideLeavesTheStageZero) {
   auto problem = modal_problem(true, 2, false);
-  std::ranges::fill(problem.general_tensor, 0.0);
+  std::ranges::fill(problem.general.tensor, 0.0);
   native::GeneralState state(problem);
-  std::vector<Complex> field(kModes * problem.n_omega, Complex(1.0, 0.5));
+  std::vector<Complex> field(kModes * problem.dims.n_omega, Complex(1.0, 0.5));
   state.set_initial(field, {});
   const native::TrialScalars scalars{.phi_delta = {0.0, 0.0},
                                      .phi_at = {0.0},
@@ -725,23 +722,23 @@ constexpr double kCombinationBound = 2 * kDegree * kEpsilon;
 // other terms fall off as a Chebyshev series' do.
 native::Problem moving_problem(const bool real_form, const std::size_t stages = 2) {
   auto problem = modal_problem(real_form, 2, false);
-  problem.n_stages = stages;
-  problem.general_map_intervals = kSections;
-  problem.general_map_n_deg = kDegree;
-  const auto synthesis = problem.general_synthesis;
-  const auto projection = problem.general_projection;
+  problem.stepper.n_stages = stages;
+  problem.general.map_intervals = kSections;
+  problem.general.map_n_deg = kDegree;
+  const auto synthesis = problem.general.synthesis;
+  const auto projection = problem.general.projection;
   const auto maps = synthesis.size();
-  problem.general_synthesis.clear();
-  problem.general_projection.clear();
+  problem.general.synthesis.clear();
+  problem.general.projection.clear();
   for (std::size_t term = 0; term < kMapTerms; ++term) {
     const double scale = 1.0 / static_cast<double>(1 + term % kDegree);
     for (std::size_t index = 0; index < maps; ++index) {
       const auto shift = 31 * term;
-      problem.general_synthesis.push_back(
+      problem.general.synthesis.push_back(
           term == 0
               ? synthesis[index]
               : Complex(fill(index + shift, scale), fill(index + shift + 5, scale)));
-      problem.general_projection.push_back(
+      problem.general.projection.push_back(
           term == 0 ? projection[index]
                     : Complex(fill(index + shift + 9, scale),
                               fill(index + shift + 2, scale)));
@@ -788,8 +785,8 @@ void load_scaled(native::GeneralModalSource& source, const native::Problem& prob
                  const std::vector<Complex>& scaled) {
   auto input = Kokkos::create_mirror_view(source.scaled());
   for (std::size_t m = 0; m < kModes; ++m)
-    for (std::size_t w = 0; w < problem.n_omega; ++w)
-      input(m, w) = scaled[m * problem.n_omega + w];
+    for (std::size_t w = 0; w < problem.dims.n_omega; ++w)
+      input(m, w) = scaled[m * problem.dims.n_omega + w];
   Kokkos::deep_copy(source.scaled(), input);
 }
 
@@ -803,7 +800,7 @@ TEST(GeneralModal, MovingMapsAreEachStageSWeightedSumOfItsSectionSTerms) {
     source.combine(stage);
     for (const bool synthesis : {true, false}) {
       const auto& terms =
-          synthesis ? problem.general_synthesis : problem.general_projection;
+          synthesis ? problem.general.synthesis : problem.general.projection;
       const auto actual = to_host(synthesis ? source.synthesis() : source.projection());
       const auto expected = host_map(terms, weights, stage, false);
       const auto magnitude = host_map(terms, weights, stage, true);
@@ -834,7 +831,7 @@ TEST(GeneralModal, OneSelectedTermIsTheConstantGuideOfThatTerm) {
     source.combine(0);
     for (const bool synthesis : {true, false}) {
       const auto& terms =
-          synthesis ? problem.general_synthesis : problem.general_projection;
+          synthesis ? problem.general.synthesis : problem.general.projection;
       const auto maps = to_host(synthesis ? source.synthesis() : source.projection());
       const auto selected = host_map(terms, weights, 0, false);
       ASSERT_EQ(maps.size(), selected.size());
@@ -858,10 +855,10 @@ TEST(GeneralModal, AMovingStageSSourceIsTheSourceOfItsCombinedMaps) {
   const auto weights = moving_weights();
   for (std::size_t stage = 0; stage < 2; ++stage) {
     auto combined = modal_problem(false, 2, false);
-    combined.general_synthesis =
-        host_map(problem.general_synthesis, weights, stage, false);
-    combined.general_projection =
-        host_map(problem.general_projection, weights, stage, false);
+    combined.general.synthesis =
+        host_map(problem.general.synthesis, weights, stage, false);
+    combined.general.projection =
+        host_map(problem.general.projection, weights, stage, false);
     const auto scaled = scaled_state(combined);
     native::GeneralModalSource source(problem);
     source.plan();
@@ -902,13 +899,13 @@ TEST(GeneralModal, MovingMapsRefuseMalformedWeightsAndAMissingTrial) {
   fixed.set_weights({});
   fixed.combine(0);
   auto short_terms = moving_problem(true);
-  short_terms.general_projection.resize(short_terms.general_projection.size() - 1);
+  short_terms.general.projection.resize(short_terms.general.projection.size() - 1);
   EXPECT_THROW(native::require_general_modal(short_terms), std::invalid_argument);
   auto no_sections = moving_problem(true);
-  no_sections.general_map_intervals = 0;
+  no_sections.general.map_intervals = 0;
   EXPECT_THROW(native::require_general_modal(no_sections), std::invalid_argument);
   auto no_stages = moving_problem(true);
-  no_stages.n_stages = 0;
+  no_stages.stepper.n_stages = 0;
   EXPECT_THROW(native::require_general_modal(no_stages), std::invalid_argument);
 }
 
@@ -917,7 +914,7 @@ TEST(GeneralModal, MovingLedgerRowsAreTheTermsTheStageMapsAndTheWeights) {
   native::GeneralModalSource source(problem);
   const auto ledger = source.memory_ledger();
   const auto complex = sizeof(Complex);
-  const auto one = problem.general_synthesis.size() / kMapTerms;
+  const auto one = problem.general.synthesis.size() / kMapTerms;
   EXPECT_EQ(ledger.at("general_synthesis"), kMapTerms * one * complex);
   EXPECT_EQ(ledger.at("general_projection"), kMapTerms * one * complex);
   EXPECT_EQ(ledger.at("general_stage_maps"), 2 * one * complex);
@@ -934,8 +931,8 @@ TEST(GeneralModal, TheStateCombinesAMovingGuideSMapsPerTrial) {
   const auto problem = moving_problem(true, 1);
   native::GeneralState state(problem);
   EXPECT_EQ(state.memory_ledger().at("general_stage_maps"),
-            2 * problem.general_synthesis.size() / kMapTerms * sizeof(Complex));
-  std::vector<Complex> field(kModes * problem.n_omega);
+            2 * problem.general.synthesis.size() / kMapTerms * sizeof(Complex));
+  std::vector<Complex> field(kModes * problem.dims.n_omega);
   for (std::size_t index = 0; index < field.size(); ++index)
     field[index] = Complex(fill(index, 1.0), fill(index + 1, 1.0));
   state.set_initial(field, {});

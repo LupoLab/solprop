@@ -4,6 +4,8 @@
 
 #include "solprop_native/crossing.hpp"
 
+#include "solprop_native/build.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
@@ -20,12 +22,6 @@
 
 namespace solprop_native::crossing {
 namespace {
-
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-constexpr bool device_build = true;
-#else
-constexpr bool device_build = false;
-#endif
 
 // Kokkos holds its copies to one thread at a time per instance, so the workers call the
 // vendor's synchronous copy, which is safe from many threads: it is what was measured.
@@ -91,7 +87,7 @@ std::size_t worker_count() {
 } // namespace
 
 bool takes_ring(const std::size_t bytes) noexcept {
-  return device_build && bytes >= ring_threshold;
+  return build::device && bytes >= ring_threshold;
 }
 
 void BufferDeleter::operator()(double* pointer) const noexcept { std::free(pointer); }
