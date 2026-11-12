@@ -80,6 +80,7 @@ Case make_case(const std::size_t n_x, const std::size_t n_y, const std::size_t n
   problem.spatial_k_x = fft_axis(n_x, n_y > 1 ? 1.5e6 : 1.0e5);
   problem.spatial_k_y = n_y > 1 ? fft_axis(n_y, 1.2e6) : std::vector<double>{0.0};
   const std::size_t columns = n_x * n_y;
+  // NOLINTNEXTLINE(bugprone-random-generator-seed): a fixed seed keeps the test reproducible
   std::mt19937_64 random(7);
   std::normal_distribution<double> normal;
   data.field.resize(columns * n_pol * n);

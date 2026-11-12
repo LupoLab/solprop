@@ -144,6 +144,7 @@ TEST(AdamsPhiLanes, EdgeArgumentsAreTheScalarFormsBits) {
 TEST(AdamsPhiLanes, EachLaneIsItsOwnWhateverItsNeighbours) {
   // Mixed blocks of every length: small, series, near-threshold and large arguments
   // side by side, so that lanes stop their series, square and branch apart.
+  // NOLINTNEXTLINE(bugprone-random-generator-seed): a fixed seed keeps the test reproducible
   std::mt19937_64 generator(20261029);
   std::uniform_real_distribution<double> phase(-3.2, 3.2);
   std::uniform_real_distribution<double> exponent(-12.0, 1.2);
