@@ -4,14 +4,13 @@
 
 """Recipes for solid-core fibres: a step-index GNLSE fibre and a graded-index guide."""
 
-import subprocess
-import sys
 import textwrap
 from typing import cast
 
 import numpy as np
 import pytest
 
+from builders import HASH_PROBE, run_python
 from solprop.driver import Simulation
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import (
@@ -159,25 +158,9 @@ def test_the_python_export_of_a_step_index_recipe_builds_the_same_run(tmp_path):
     recipe = recipe_of(fibre)
     script = recipe.to_python()
     assert "glass(name='BK7')" in script
-    probe = textwrap.dedent(
-        """\
-        from solprop.driver.simulation import Simulation
-
-        def run(self, *args, **kwargs):
-            print(self.metadata().configuration_hash())
-            raise SystemExit(0)
-
-        Simulation.run = run
-        """
-    )
     path = tmp_path / "export.py"
-    path.write_text(probe + script, encoding="utf-8")
-    result = subprocess.run(
-        [sys.executable, str(path)],
-        capture_output=True,
-        check=True,
-        encoding="utf-8",
-    )
+    path.write_text(HASH_PROBE + script, encoding="utf-8")
+    result = run_python(path)
     expected = recipe.build().metadata().configuration_hash()
     assert result.stdout.strip() == expected
 
@@ -433,23 +416,7 @@ def test_the_python_export_of_a_graded_index_recipe_builds_the_same_run(tmp_path
     recipe = grin_of()
     script = recipe.to_python()
     assert "ModalGuide.on_grid(grid, " in script
-    probe = textwrap.dedent(
-        """\
-        from solprop.driver.simulation import Simulation
-
-        def run(self, *args, **kwargs):
-            print(self.metadata().configuration_hash())
-            raise SystemExit(0)
-
-        Simulation.run = run
-        """
-    )
     path = tmp_path / "export.py"
-    path.write_text(probe + script, encoding="utf-8")
-    result = subprocess.run(
-        [sys.executable, str(path)],
-        capture_output=True,
-        check=True,
-        encoding="utf-8",
-    )
+    path.write_text(HASH_PROBE + script, encoding="utf-8")
+    result = run_python(path)
     assert result.stdout.strip() == recipe.build().metadata().configuration_hash()

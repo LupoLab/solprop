@@ -11,6 +11,7 @@ pinned, when it was migrated, by the configuration hash of what the old copies b
 
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,25 @@ from solprop.grid import TimeGrid
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
-__all__ = ["launch_derivative", "numpy_ref_launch_derivative", "run_python"]
+__all__ = [
+    "HASH_PROBE",
+    "launch_derivative",
+    "numpy_ref_launch_derivative",
+    "run_python",
+]
+
+HASH_PROBE = textwrap.dedent(
+    """\
+    from solprop.driver.simulation import Simulation
+
+    def run(self, *args, **kwargs):
+        print(self.metadata().configuration_hash())
+        raise SystemExit(0)
+
+    Simulation.run = run
+    """
+)
+"""A prefix for an exported script: its run prints the configuration hash and exits."""
 
 
 def launch_derivative(backend: NumpyRefBackend, problem: PropagationProblem) -> Any:
