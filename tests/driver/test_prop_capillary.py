@@ -405,12 +405,14 @@ def test_molecular_plasma_choices_remain_explicit(gas):
         assert not any(hasattr(one, "rate") for one in simulation.responses)
 
 
-@pytest.mark.parametrize("gas", ["H2", "D2", "N2", "O2"])
-def test_capillary_interface_default_matches_explicit_optmat_rate(gas):
+def test_capillary_interface_default_matches_explicit_optmat_rate():
     # A short plasma-only run exercises the selected rate through translation
     # and propagation. Identical explicit/automatic inputs make one problem, and on a
     # prescribed schedule at a fixed order one march, so the two runs agree within
-    # its rounding budget (SEP 25); a different rate would move them far more.
+    # its rounding budget (SEP 25); a different rate would move them far more. One
+    # molecule suffices: that every gas's default is optmat's rate for that gas is
+    # test_the_default_plasma_rate_is_optmats_for_atoms_and_molecules's claim.
+    gas = "N2"
     options = {
         "gas": gas,
         "radius": 30e-6,
