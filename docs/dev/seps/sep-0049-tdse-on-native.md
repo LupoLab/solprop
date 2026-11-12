@@ -946,6 +946,166 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
   `atomic_edge_source` and `project_atomic_sources` with its own stage scalars and
   prefactor, and finishes the stage itself (§4).
 
+### Phase 2 — The provider worker
+
+- **Scope.** Phase 2, 2026-11-12, Opus 5.5 (AI), commits `0f797abb` (`_interrupts`),
+  `ea431aa6` (the generic worker), `8f5b64bf` (Pyroraptor in the worker) and
+  `63f43686` (the trial's release), then `origin/main` merged (`7f985eb1`, with
+  ADR-077's change, #767).
+- **Delivered.**
+  - `src/solprop/driver/_source_worker.py` (new), the provider-agnostic layer of §6.5:
+    `Worker` starts `sys.executable -m solprop.driver._source_worker <adapter> <limit>`
+    with `subprocess`, in a session of its own (`CREATE_NEW_PROCESS_GROUP` on Windows),
+    with the parent's environment and import path; the worker moves the protocol off
+    descriptors 0 and 1, points standard output at standard error, ignores SIGINT and
+    SIGTERM, and its reader thread is the watchdog: end of file on the parent's pipe
+    exits the process at once (`os._exit`), during a call too. Frames are an 8-byte
+    length and a payload; a message is a JSON control frame and one raw frame per array,
+    named by dtype (byte order included) and shape; nothing is pickled; every declared
+    length is checked against the frame bound before anything is read. Values cross as
+    tagged JSON: tuples, mappings, non-finite floats, arrays, and records (a dataclass's
+    or a plain object's fields, received as `Record`, with values an adapter computes
+    beside them). The handshake carries the protocol version, the worker's process id and
+    the adapter's provider identity. Waiting is a reader thread and a queue polled every
+    `POLL_INTERVAL` (0.2 s): between polls signal handlers run, a signal a commit holds is
+    raised (`_interrupts.raise_held`, new) and the run's `StopFlag` is polled; any
+    interruption kills the worker's process group at once. `close` between calls asks
+    the worker to exit and kills it after 5 s; every path reaps it and closes both pipe
+    ends. `worker_environment` drops the OpenMP wait variables solprop-native set for
+    itself (its marker `SOLPROP_NATIVE_WAIT`), keeps a user's own, and adds explicit
+    settings.
+  - `src/solprop/driver/_pyroraptor.py` (new), Pyroraptor's adapter: `_load_provider`
+    (now only ever called in a worker), the build identity, the haCC surface, records
+    and objects, the SAE and haCC preparation, plan building and its checks, the preset
+    and basis queries, the atomic calls and the consistency diagnostic's temporary plan,
+    and the classification of provider exceptions. The manufactured provider of the
+    tests is passed to `PyroraptorAdapter(provider)`.
+  - `src/solprop/driver/tdse.py`: the binding, `basis_from_preset`, `hacc_preset`,
+    `hacc_basis` and `DiagnosticSession` talk to the adapter in a worker
+    (`_open_provider`); the queries use a short-lived one. The handshake's identity is
+    checked against `_PROVIDER_REVISION` and `TDSEExecution.device` before any request
+    (`_build_record`) and is the run's build record, unchanged in form. Budgets,
+    reservations, the archive, the validation and normalisation of every result, the
+    domain flags and the unqualified-model warning stay in solprop's process, on plain
+    records. `prepare_binding` and `DiagnosticSession` take the run's `stop`, which
+    `Simulation` passes. A stop, Ctrl-C or SIGTERM during a call leaves the call charged,
+    releases the reservation, records the evaluation in the archive as raised with
+    classification `interrupted`, and propagates; it is no provider failure. The memory
+    ledger gains `transport.solprop` and `transport.worker` (the largest chunk's drive
+    twice and its result once, in each process; `tdse_transport.*` in a run's memory
+    rows) and the estimate `estimate.transport`, admitted before the worker starts.
+  - `src/solprop/backends/host/adams.py`: a trial's reservation is released on every
+    exit (`_trial`), a failed release attached to the trial's own error as a note
+    (§6.3).
+  - Tests: `tests/driver/test_source_worker.py` (21, real workers),
+    `tests/driver/test_tdse_worker.py` (7, real workers),
+    `tests/source_adapters.py` (the manufactured adapters the worker imports),
+    `tests/source_channel.py` (the adapter served in this process through the same
+    codec, for the existing tests whose fake providers are built inside the test), two
+    failure-boundary tests in `tests/backends/test_tdse_march.py`, one in
+    `tests/driver/test_interrupts.py`; the existing binding tests re-pointed from
+    `tdse._load_provider` to the in-process channel, their claims unchanged.
+  - `docs/guide/media/tdse.md` (the worker, its threads, stopping during a call),
+    `docs/dev/architecture.md`, `changelog.d/tdse-provider-worker.changed.md`.
+- **Deviations.**
+  - A provider exception the adapter reports in a well-formed reply leaves the worker
+    serving; only a transport failure (an exit, a closed pipe, a malformed or oversized
+    frame) or a cancellation discards it. §6.5 says a worker is never reused "after a
+    failure"; read literally that would end every run's worker at its first provider
+    exception, which the binding's existing contract (a failed chunk is charged and a
+    fresh retry may follow) and Pyroraptor's own worker pool do not. The adapter's state
+    after a reported exception is defined: every call starts from the prepared state.
+  - Three checks that need the provider's own classes or methods run in the worker, on
+    the raw result, and their outcome crosses with it: the result's type is named there
+    (`sae.grid_response`, `hacc.total_current_response`, ...), a haCC result's atom,
+    basis and gauge are compared there with the model's (the provider's equality), and
+    the shadow's `component` is evaluated there for the components the binding reads.
+    Everything else of validation and normalisation is the binding's, as §6.5 says. The
+    plan checks of preparation and the two memory admissions between model and plans
+    (SEP 20, C7) run in the worker too, as part of preparation; a `DriverError` crosses
+    by name.
+  - `hacc_basis` takes the caller's provider objects, which cannot cross unchanged: they
+    travel as records of their dataclass fields, and the worker checks their types by
+    qualified name.
+  - The archive records an interrupted evaluation as raised with classification
+    `interrupted`, its outcome field unchanged (`returned` or `raised`), so the archive
+    format does not change. A worker that exits or breaks the protocol is classified
+    `worker`, a new value.
+  - A stopped TDSE run ends with status `failed` and the message `StopRequested: ...`,
+    as every stopped run does (§5.1 says "interrupted or stopped").
+- **Decisions.**
+  - The thread count is `PYRORAPTOR_THREADS`, the run's `thread_budget().threads`, in
+    the worker's environment: Pyroraptor reads it once at import. A device build needs
+    no setting.
+  - The worker selects its adapter as `module` or `module:factory`, so the tests'
+    manufactured adapters are named, not configured by environment.
+  - The worker ends with `os._exit` after the adapter has closed its plans and setup,
+    skipping interpreter finalisation.
+  - The worker runs as `-W ignore::RuntimeWarning:runpy`: `solprop.driver` imports
+    the module before `-m` runs it, which runpy warns of; `__main__` delegates to the
+    imported module, so the records an adapter receives are its classes.
+- **Pyroraptor.** No companion change was needed: its results, monitors, outcomes and
+  plan records are frozen dataclasses of arrays and plain values, which cross as
+  records; its CPU thread count is already explicit at import (`PYRORAPTOR_THREADS`);
+  its atomic calls release the GIL (`nb::gil_scoped_release`), so the watchdog runs
+  during a call; and the worker skips interpreter finalisation. No real Pyroraptor
+  build was installed here, so no real call was made (§7.4 stays for phase 4).
+- **Verification** (§7.2, manufactured providers in real workers unless noted):
+  1. evaluations through the worker equal the same manufactured haCC provider served in
+     this process, bit for bit: currents, validity, monitors and outcomes, the ledger
+     and the whole metadata (`test_evaluations_through_the_worker_equal_the_provider_
+     called_directly`); arrays of several dtypes and byte orders cross unchanged;
+  2. the handshake refuses a protocol mismatch, a stale revision and another execution
+     space by name, the worker reaped;
+  3. a provider exception (by type, message, classification and traceback), a worker
+     exit (its status and standard error's tail), a closed pipe, a malformed frame, an
+     oversized frame, a start-up failure and a preparation failure each end as their
+     named failure, the worker reaped and both pipe ends closed; the provider's printing
+     on standard output never corrupts a frame;
+  4. a hanging call is cancelled by the stop flag, SIGINT, SIGTERM and a SIGINT held by
+     `committing()`, each within the poll interval and the kill (a 10 s harness
+     deadline); on `numpy_ref` a binding stopped during a call keeps the call charged
+     with no failure recorded, and a run stopped during its thirteenth atomic call ends
+     with 13 calls attempted, none failed, and a terminal checkpoint at its last
+     accepted step (`z > 0`);
+  5. a Ctrl-C to the parent's whole process group interrupts the run and spares the
+     worker, which the parent then ends; a parent killed with SIGKILL during a hanging
+     call leaves no worker (the watchdog);
+  6. the worker loads neither `solprop_native` nor `numpy_ref` nor `pyroraptor`, and its
+     `__main__` is the worker module, started from a test, from a script that refuses
+     to be imported twice and from `python -c`; after a run through the worker neither
+     `pyroraptor` nor the manufactured provider's module is in solprop's `sys.modules`;
+  7. the transport rows are in the ledger and the estimate, and an admission over
+     `memory_limit` is refused before any worker starts;
+
+  and §6.3 on `numpy_ref`: an archive failure in `record_trial` after an accepted
+  commit leaves the new state, booked, with nothing reserved; a failed release is a
+  note on the trial's own error. Run on the Mac: the new modules, the existing TDSE
+  modules of `tests/driver/`, `tests/backends/` and `tests/output/test_tdse_archive.py`,
+  `tests/test_structure_figures.py`, `tests/test_seps.py`: 958 passed, 3 skipped, and
+  4 failed, all native-only (`test_tdse_march.py`'s native refusals and the shared-RK
+  refusal): the editable solprop-native here was built before the merge of `main` and
+  refuses to load ("built from other sources than this checkout's native/"); it was not
+  rebuilt (phases 0–2 change no native code), so CI decides them.
+  `tests/driver/test_interrupts.py`'s native case fails for the same reason. Ruff,
+  basedpyright and numpydoc clean on the changed files; `poe size-check` within budget.
+- **Limitations.** The isolation from a scan executor's worker process (§7.2 item 6)
+  is not tested; Windows paths (`CREATE_NEW_PROCESS_GROUP`, `TerminateProcess` instead
+  of a group kill) are written but run only in CI. The worker ignores SIGINT and SIGTERM
+  from the start of its `main`, after interpreter start-up; in its own session no
+  terminal or group signal reaches it before then. A provider that spawns processes of
+  its own outside the worker's process group is not ended by the kill.
+- **Cost.** `_source_worker.py` 765 lines, `_pyroraptor.py` 786 (most of it moved from
+  `driver/tdse.py`, which went from 2,575 to 2,478); across phase 2, `src/solprop`
+  +2,172 −682 and tests +900 −30 (physical lines, `git diff --numstat`). The driver
+  package's code lines (`poe size`) went from 15,296 to 16,278. §6.8 estimated +0.6k
+  source and +0.6k test lines for the worker.
+- **Handoff.** Phase 3 (the native hook) calls `tdse_source` and the same binding; its
+  waits are inside `committing()`, which `Worker` already handles through
+  `_interrupts.raise_held`; §7.2 item 4 on native and §7.3 follow with it. The worker's
+  `request` raises `StopRequested`, `KeyboardInterrupt` or `RunTerminated` unchanged,
+  which the hook stores and the session re-raises (§6.3).
+
 ## Part III — History
 
 - 2026-11-12: Drafted.
@@ -992,6 +1152,8 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
   change (#767) is merged, in one implementation pull request (§11).
 - 2026-11-12: In progress: Opus 5.5 (AI) on `feature/sep-0049-tdse-on-native`, based on
   #767's branch; phases 0 and 1 reported in Part II.
+- 2026-11-12: Phase 2 (the provider worker) reported in Part II; implementation pull
+  request opened as a draft.
 
 ### AI review — 2026-11-12
 
