@@ -91,15 +91,21 @@ and `tests/test_band_stress.py` with `SOLPROP_NATIVE_BAND_TILES=4`; on a GPU,
 ```sh
 uv run poe check-native   # at the repository root; runs native/scripts/check.sh
 uv run poe check-all      # solprop's gate, then this one
+uv run poe fmt-native     # format every tracked C++ file in place
+uv run poe tidy-native    # clang-tidy on the C++ files changed from main, or on those named
 ```
 
 `poe check-native` runs everything a change to `native/` must pass: Ruff formatting and
-lint, strict Pyright, the pinned `clang-format` from the `dev` group, clang-tidy with
-strict warnings, the native tests, the native tests under ASan and UBSan, an editable
+lint, strict Pyright, the pinned `clang-format` from the `dev` group over every tracked
+C++ file, the pinned clang-tidy (whole check families, `.clang-tidy`) with strict
+warnings, the native tests, the native tests under ASan and UBSan, an editable
 local build with the Python tests, a distribution wheel build, and an import smoke test
 of that wheel in a clean environment (on Linux it checks that the wheel's OpenBLAS loads
 from the package). It syncs the repository's environment without removing the native
-build, honours `CMAKE_ARGS`, and needs Node.js (`npx`) for Pyright.
+build, honours `CMAKE_ARGS`, and needs Node.js (`npx`) for Pyright. `SOLPROP_NATIVE_CHECK_STAGES`
+picks stages (`lint`, `tidy`, `sanitize`, `pytest`, `wheel`). The slower checks run
+weekly in `.github/workflows/native-deep.yml` and report without gating: source
+coverage, the extension under ASan and UBSan, and an include-cleaner report.
 `SOLPROP_NATIVE_QUALIFICATION_PYTHON=/path/to/python` installs the wheel into that
 environment and runs the Python tests there instead. A change to the backend also passes
 solprop's own suite with this package installed (`poe check-all`, or `uv run poe test`

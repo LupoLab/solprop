@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <Kokkos_Core.hpp>
-
 #include <gtest/gtest.h>
 
 #include <cstdio>

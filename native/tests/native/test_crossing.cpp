@@ -31,7 +31,8 @@ class RingSizes : public ::testing::TestWithParam<std::size_t> {};
 
 TEST_P(RingSizes, CrossesEveryByteBothWays) {
   const auto source = counting(GetParam());
-  std::vector<std::uint8_t> down(source.size(), 0), up(source.size(), 0);
+  std::vector<std::uint8_t> down(source.size(), 0);
+  std::vector<std::uint8_t> up(source.size(), 0);
   Ring ring;
   ring.to_host(down.data(), source.data(), source.size());
   ring.from_host(up.data(), down.data(), down.size());

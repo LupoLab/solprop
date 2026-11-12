@@ -723,21 +723,10 @@ def test_metadata_and_memory_ledger_are_self_consistent(
     ).endswith(("thread", "threads"))
     assert cast(float, metadata["planning_seconds"]) >= 0.0
     # A one-mode envelope at one node. A host build folds its one-element transforms
-    # into the response column (solprop SEP 25), whatever the GEMM policy. A device
-    # build's forced vendor policy multiplies its real transform matrices into the
-    # samples' interleaved real view; its hybrid policy keeps the custom kernel under
-    # its shape guard (one mode).
+    # into the response column (solprop SEP 25). A device build's hybrid policy keeps
+    # the custom kernel under its shape guard (one mode).
     build = solprop_native.build_info()
-    if build.device_backend == "none":
-        expected_provider = "folded"
-    elif build.gemm_provider == "KOKKOSBLAS_TPL":
-        expected_provider = (
-            str(metadata["synthesis_provider"]).removesuffix("-interleaved-real")
-            + "-interleaved-real"
-        )
-        assert str(metadata["synthesis_provider"]).endswith("-interleaved-real")
-    else:
-        expected_provider = "custom"
+    expected_provider = "folded" if build.device_backend == "none" else "custom"
     assert metadata["synthesis_provider"] == expected_provider
     assert metadata["projection_provider"] == expected_provider
     assert "every whole transform on the host" in cast(
@@ -848,12 +837,9 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
     try:
         state = load_native(backend, problem.initial.field0, clear_fsal=False)
         info = build_info()
-        # The native rule: a HYBRID or KOKKOSBLAS_TPL build on a host execution
-        # space, at this shape; the dev build is HYBRID without TPL BLAS and packs too.
-        eligible = (
-            info.gemm_provider in {"HYBRID", "KOKKOSBLAS_TPL"}
-            and info.device_backend == "none"
-        )
+        # The native rule: a host execution space, at this shape; the dev build
+        # without TPL BLAS packs too.
+        eligible = info.device_backend == "none"
         provider = str(backend.metadata()["synthesis_provider"])
         ledger = backend.memory_ledger()
         if eligible:

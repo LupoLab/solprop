@@ -8,11 +8,11 @@
 
 #include "solprop_native/rk_march.hpp"
 
+#include <gtest/gtest.h>
+
 #include <atomic>
 #include <cmath>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 namespace {
 namespace rk = solprop_native::rk;

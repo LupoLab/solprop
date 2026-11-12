@@ -119,6 +119,13 @@ drawsvg (the structure figures of `docs/dev/figures/build.py` and the geometry f
 `docs/guide/figures/geometries.py` only, run by hand with `poe figures`; the SVGs it
 writes are committed, so the documentation builds without it).
 
+The native gate's C++ tools are pinned exactly in the dev group, so that its checks do
+not depend on a machine's LLVM: **clang-format 23.1.0** (`poe fmt-native` and the lint
+stage) and **clang-tidy 23.1.4** (`poe tidy-native` and the tidy stage; its PyPI wheels
+start at 23.1.3, the nearest to the formatter's release). clang-tidy is installed on
+Linux and macOS only: the gate that runs it is bash, and it has no PyPI wheel for
+Windows on Arm, where a sync would build LLVM from source.
+
 ## Candidates (not approved; only evaluate for a selected use case)
 
 | package | for | status |

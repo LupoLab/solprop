@@ -91,10 +91,9 @@ void trial_tables(const Input<double, 1>& nodes, const std::size_t order,
                   const Output<double, 1>& endpoint, const Output<double, 2>& defects) {
   const std::size_t n = nodes.shape(0);
   const std::size_t n_orders = orders.size();
-  const std::size_t highest =
-      orders.empty() ? 0 : *std::max_element(orders.begin(), orders.end());
-  const bool scored = std::all_of(orders.begin(), orders.end(),
-                                  [](const std::size_t value) { return value > 0; });
+  const std::size_t highest = orders.empty() ? 0 : *std::ranges::max_element(orders);
+  const bool scored =
+      std::ranges::all_of(orders, [](const std::size_t value) { return value > 0; });
   if (n_orders == 0 || n_orders > 3 || !scored || order == 0 || order > highest ||
       highest > n || highest + 1 > lagrange::max_nodes)
     throw std::invalid_argument("trial_tables: order " + std::to_string(order) +

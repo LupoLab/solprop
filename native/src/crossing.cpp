@@ -13,7 +13,7 @@
 #include <string>
 #include <thread>
 
-#if defined(__linux__)
+#ifdef __linux__
 #include <sched.h>
 #include <sys/mman.h>
 #endif
@@ -30,7 +30,7 @@ constexpr bool device_build = false;
 // Kokkos holds its copies to one thread at a time per instance, so the workers call the
 // vendor's synchronous copy, which is safe from many threads: it is what was measured.
 void device_read(void* destination, const void* source, const std::size_t bytes) {
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
   if (cudaMemcpy(destination, source, bytes, cudaMemcpyDeviceToHost) != cudaSuccess)
     throw std::runtime_error("a state's copy to the host failed");
 #elif defined(KOKKOS_ENABLE_HIP)
@@ -43,7 +43,7 @@ void device_read(void* destination, const void* source, const std::size_t bytes)
 }
 
 void device_write(void* destination, const void* source, const std::size_t bytes) {
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
   if (cudaMemcpy(destination, source, bytes, cudaMemcpyHostToDevice) != cudaSuccess)
     throw std::runtime_error("a state's copy to the device failed");
 #elif defined(KOKKOS_ENABLE_HIP)
@@ -57,7 +57,7 @@ void device_write(void* destination, const void* source, const std::size_t bytes
 
 /** The device a new thread must select: the choice is per thread on both vendors. */
 int current_device() {
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
   return Kokkos::Cuda{}.cuda_device();
 #elif defined(KOKKOS_ENABLE_HIP)
   return Kokkos::HIP{}.hip_device();
@@ -67,7 +67,7 @@ int current_device() {
 }
 
 void select_device([[maybe_unused]] const int device) {
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
   if (cudaSetDevice(device) != cudaSuccess)
     throw std::runtime_error("a crossing's worker could not select its device");
 #elif defined(KOKKOS_ENABLE_HIP)
@@ -78,7 +78,7 @@ void select_device([[maybe_unused]] const int device) {
 
 /** The host threads this process may run on, at most `worker_limit`. */
 std::size_t worker_count() {
-#if defined(__linux__)
+#ifdef __linux__
   cpu_set_t allowed;
   CPU_ZERO(&allowed);
   if (sched_getaffinity(0, sizeof(allowed), &allowed) == 0)
@@ -98,7 +98,7 @@ void BufferDeleter::operator()(double* pointer) const noexcept { std::free(point
 
 HostBuffer host_buffer(const std::size_t count) {
   const std::size_t bytes = count * sizeof(double);
-#if defined(__linux__)
+#ifdef __linux__
   if (takes_ring(bytes)) {
     // The size huge pages come in, which a large buffer is aligned to.
     constexpr std::size_t huge_page = std::size_t{2} << 20;
