@@ -36,6 +36,9 @@
 #   that writes through one would be marked const although it changes the state.
 # - clang-analyzer-osx.*: Apple framework checks; the code calls no Objective-C or
 #   Core Foundation API.
+# - clang-analyzer-cplusplus.NewDeleteLeaks: it reports Kokkos's shared allocation
+#   records (freed through a reference count it cannot follow) as leaks; the code holds
+#   no raw ownership (native/AGENTS.md), and the ASan builds check for leaks.
 # - clang-analyzer-optin.performance.Padding: the cold configuration structs are
 #   ordered by concern, not by size.
 Checks: >
@@ -69,6 +72,7 @@ Checks: >
   clang-analyzer-*,
   -clang-analyzer-osx.*,
   -clang-analyzer-optin.performance.Padding,
+  -clang-analyzer-cplusplus.NewDeleteLeaks,
   portability-restrict-system-includes,
   portability-simd-intrinsics
 WarningsAsErrors: '*'
