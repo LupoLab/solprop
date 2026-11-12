@@ -879,6 +879,7 @@ native::stage::Tables stage_tables_from(const nb::dict values) {
       (tables.flow.present() && tables.flow.edges.size() < 2) ||
       (tables.transform.present() && tables.transform.edges.size() < 2))
     throw std::invalid_argument("the stage tables are inconsistent");
+  native::stage::require_scalar_tables(tables);
   return tables;
 }
 

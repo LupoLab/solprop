@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -60,11 +61,10 @@ struct Table {
                                   " is outside a stage table's span");
   }
 
-  /** The table's single value at `z`; a table of several values is refused. */
+  /** The table's single value at `z`. The scalar tables are checked to hold one value
+      each when they are loaded (`require_scalar_tables`). */
   [[nodiscard]] double value(const double z) const {
-    if (n_values > 1)
-      throw std::logic_error("a stage table of " + std::to_string(n_values) +
-                             " values was read as one value");
+    assert(n_values <= 1);
     double out = 0.0;
     at(z, &out);
     return out;
@@ -557,6 +557,35 @@ inline TrialScalars sample(const Tables& tables, Anchor& anchor,
  * real position forms the imaginary part by these operations, so the two agree but for
  * the sign of a zero (solprop issue #255).
  */
+/**
+ * Refuse, by name, a scalar stage table that holds other than one value: the density,
+ * taper, Kerr density, Raman rates and densities, plasma densities and preionisation,
+ * dispersive densities and the chord's table, each read with `Table::value`. An absent
+ * optional table (no values) is not checked.
+ */
+inline void require_scalar_tables(const Tables& tables) {
+  const auto scalar = [](const Table& table, const std::string& name) {
+    if (table.present() && table.n_values != 1)
+      throw std::invalid_argument("the stage table " + name + " holds " +
+                                  std::to_string(table.n_values) +
+                                  " values where one is read");
+  };
+  const auto scalars = [&scalar](const std::vector<Table>& list,
+                                 const std::string& name) {
+    for (std::size_t index = 0; index < list.size(); ++index)
+      scalar(list[index], name + "[" + std::to_string(index) + "]");
+  };
+  scalar(tables.density, "density");
+  scalar(tables.taper, "taper");
+  scalar(tables.kerr_density, "kerr_density");
+  scalar(tables.chord_table, "chord_table");
+  scalars(tables.raman_rates, "raman_rates");
+  scalars(tables.plasma_densities, "plasma_densities");
+  scalars(tables.plasma_preionisation, "plasma_preionisation");
+  scalars(tables.raman_densities, "raman_densities");
+  scalars(tables.dispersive_densities, "dispersive_densities");
+}
+
 inline double chord(const Tables& tables, const double z1, const double z2) {
   if (tables.chord == Chord::constant)
     return tables.chord_rate * (z2 - z1);

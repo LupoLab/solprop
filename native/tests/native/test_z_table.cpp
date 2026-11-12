@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace {
@@ -200,9 +201,9 @@ TEST(ZTable, BlockedEvaluationIsThePerValueRecursionExactly) {
   }
 }
 
-// A stage table's single value reads one column; a table of several is refused rather
-// than written past the one value it returns.
-TEST(StageTable, ValueReadsOneColumnAndRefusesSeveral) {
+// A scalar stage table holds one value: the loader refuses one of two by name, before
+// any read could write past the single value it returns.
+TEST(StageTable, LoaderRefusesAMultiValuedScalarTableByName) {
   native::stage::Table table;
   table.edges = {0.0, 1.0};
   table.lower = 0.0;
@@ -210,10 +211,21 @@ TEST(StageTable, ValueReadsOneColumnAndRefusesSeveral) {
   table.n_terms = 1;
   table.n_values = 1;
   table.coefficients = {2.5};
-  EXPECT_EQ(table.value(0.5), 2.5);
-  table.n_values = 2;
-  table.coefficients = {2.5, -1.0};
-  EXPECT_THROW(static_cast<void>(table.value(0.5)), std::logic_error);
+  native::stage::Tables tables;
+  tables.density = table;
+  EXPECT_NO_THROW(native::stage::require_scalar_tables(tables));
+  EXPECT_EQ(tables.density.value(0.5), 2.5);
+  auto wide = table;
+  wide.n_values = 2;
+  wide.coefficients = {2.5, -1.0};
+  tables.plasma_densities = {table, wide};
+  try {
+    native::stage::require_scalar_tables(tables);
+    FAIL() << "a two-value plasma density table was accepted";
+  } catch (const std::invalid_argument& error) {
+    EXPECT_NE(std::string(error.what()).find("plasma_densities[1]"), std::string::npos)
+        << error.what();
+  }
 }
 
 } // namespace
