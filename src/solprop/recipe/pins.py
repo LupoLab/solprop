@@ -419,23 +419,15 @@ def solve_pin(
     wavelength = cast("float", keywords["wavelength"])
     nonlinear = _needs_gamma(target)
 
-    def build(value: float) -> "Mode | tuple[Mode, float]":
+    def _trial(value: float) -> "Mode | tuple[Mode, float]":
         """Return the launch mode at a trial value, with its Kerr coefficient.
 
-        Parameters
-        ----------
-        value : float
-            The trial value of the pinned parameter.
-
-        Returns
-        -------
-        Mode or tuple
-            The mode, or the mode and ``gamma`` where the target needs it.
+        - Returns: the mode, or the mode and ``gamma`` where the target needs it.
         """
         trial = _at(mode, parameter, value)
         return (trial, _gamma(trial, wavelength)) if nonlinear else trial
 
-    return solve_parameter(build, search, target)
+    return solve_parameter(_trial, search, target)
 
 
 def solve_pulse(

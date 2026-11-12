@@ -461,19 +461,9 @@ def _pressure(values: Mapping[str, object]) -> Resolution:
 
 
 def _length_fraction(fraction: float, text: str) -> Resolver:
-    """Return the resolver of a step length that defaults to a fraction of the length.
+    """Return the resolver of a step length.
 
-    Parameters
-    ----------
-    fraction : float
-        The fraction of ``length``.
-    text : str
-        The rule.
-
-    Returns
-    -------
-    callable
-        The resolver.
+    The step defaults to `fraction` of ``length``; `text` is the rule.
     """
 
     def resolve(values: Mapping[str, object]) -> Resolution:
