@@ -23,9 +23,7 @@ launch the *true* energy of Luna's pulse — the nominal energy times the
 launch-spectrum-weighted mean of `Re n_eff(ω, 0)`, 1.0000357 for the reduced M2 case
 and 1.0049222 for the reduced CtC case. That mean agrees with the true energy of the
 archives' own plane zero to 2e-16 on both RDW cases and the full CtC one, and to 1.2e-11
-on the reduced CtC one. The three curves read from `luna_rdw_switches.json` carry scalar
-energies without spectra, so they keep the vacuum-norm diagnostic on both codes and are
-not physical Poynting energies.
+on the reduced CtC one.
 
 ## 1. The integrators and the tables
 
@@ -176,7 +174,6 @@ accuracy is measured, not adapted, and the alarm is a statistic.
 | alarm against radial order, three HE₁ₘ modes | **2.365e-1, 3.316e-2, 1.451e-4, 1.777e-8, 4.224e-15** at n_r = 8, 16, 24, 32, 48; the 1e-6 threshold separates 24 from 32 | `tests/backends/test_numpy_ref_multimode.py` |
 | what an alarm of 1.0e-1 costs | the M2 VUV band wrong by 6.6e-5 (`m2_alarm_cost.json`) | `tests/driver/test_prop_capillary.py` |
 | the Kerr overlap tensor | solprop's projected drive is the analytic quartic overlap of the Bessel profiles to 8.9e-16 (two modes) and 1.6e-13 (four): 0.4785422894, 0.0221346036, −0.0023723438 for modes 2–4 | `tests/driver/test_prop_capillary.py` |
-| the M2 quadrature ladder | n_r = 32, 64, 128 leave the second mode's exit energy unchanged to seven digits on **both** codes | `tests/driver/test_prop_capillary.py` |
 | the alarm on the milestone runs | ≤ 1.0e-6 over the M2 planes where it is defined, `nan` at a true vacuum end; 2.24e-11 on the CtC case at 48 nodes | `tests/backends/test_numpy_ref_multimode.py`, `tests/driver/test_prop_capillary.py` |
 | the default radial order | `max(32, 8 n_modes)`: 32 for four modes, 48 for six, both measured converged | `tests/driver/test_prop_capillary.py` |
 ```{eval-rst}
@@ -188,16 +185,6 @@ accuracy is measured, not adapted, and the alarm is a statistic.
    import accuracy_figures
 
    accuracy_figures.quadrature_alarm()
-```
-```{eval-rst}
-.. plot::
-   :filename-prefix: accuracy-m2-quadrature
-   :include-source: False
-   :caption: The second mode's exit energy of the full M2 case against the radial order, on both codes, from ``tests/data/convergence/m2_quadrature.json`` (``tests/driver/test_prop_capillary.py``). Neither code moves to seven digits, which is what excludes the transverse rule as a cause of the difference between them; Luna's rows are read from ``tests/data/luna_rdw_switches.json`` and no Luna is run.
-
-   import accuracy_figures
-
-   accuracy_figures.m2_quadrature()
 ```
 
 
@@ -235,15 +222,14 @@ hyperpolarisability.
 |---|---|---|
 | N = 3, adaptive, `rtol = 1e-10` | recurrence error 1.7e-10 over 2755 steps, the phase to nine decimals | `tests/backends/test_numpy_ref_soliton.py` |
 | N = 3, fixed-step ladder 200/400/800 | order gate met on three levels | same file |
-| N = 6, wide band (350 nm–3 µm, 4 ps), taper off | 9.2e-6, 6.1e-8, 8.9e-9, 4.7e-9 at 8000, 16000, 32000, 64000 steps: order 7.2 between the first two, then the band's own floor of about 5e-9 | same file |
-| N = 6 with the polarisation taper on | floors at 6e-8 on the wide band and 2.3e-6 on the scaffold's grid: the spectral collar removing the wings of the cubic, which is why the taper is off by default | same file |
+| N = 6, wide band (350 nm–3 µm, 4 ps), taper off | 9.2e-6 and 6.1e-8 at 8000 and 16000 steps: order 7.2 | same file |
 | the reference against an independent fixed-step RK4 | the gap equals the scaffold's own recurrence error, 4.922e-4 against 4.930e-4 at 400 steps | same file |
 | through the interface | `prop_gnlse` against the backend driven directly, within a rounding bound (one computation through two entry points) | `tests/driver/test_prop_gnlse.py` |
 ```{eval-rst}
 .. plot::
    :filename-prefix: accuracy-soliton-n6
    :include-source: False
-   :caption: Milestone M1: the N = 6 recurrence error against the step count on the wide band, with the polarisation taper off (the default) and on, from ``tests/data/convergence/soliton_n6.json`` (``tests/backends/test_numpy_ref_soliton.py``). Both ladders leave the scheme's order and reach a floor; the taper's is an order higher, because the spectral collar takes the wings off the cubic.
+   :caption: Milestone M1: the N = 6 recurrence error against the step count on the wide band, with the polarisation taper off (the default), from ``tests/data/convergence/soliton_n6.json`` (``tests/backends/test_numpy_ref_soliton.py``), the two rungs the slow lane runs.
 
    import accuracy_figures
 
@@ -276,10 +262,7 @@ once the steps are fine enough, and the vacuum end never is, so the diverging `d
 the plasma row is not yet asymptotic, attribute the gradient's cost to the plasma instead.
 
 The answer is converged regardless: two decades of tolerance move the reduced case's
-shape by 6.7e-6 under the default integrator and three decades move the full case's second-mode exit energy by 2.6e-6
-(`m2_witness_metrics.json`, `m2_tolerance.json`). Under the per-step split absorber, the
-alternative of ADR-025, both move by 2.3e-4: that is the split factor's own first-order
-drift with the step count, not the case's.
+shape by 6.7e-6 under the default integrator (`m2_witness_metrics.json`).
 ```{eval-rst}
 .. plot::
    :filename-prefix: accuracy-m2-order
@@ -314,30 +297,11 @@ shift and dipole factor kept — measures 2.0e-2 and a content of 0.995, and on 
 default helium rate also 2.0e-2. Taking the Stark shift and the dipole factor off as well
 raises the shape again to 5.2e-2, so they are not part of the gap.
 
-On the full case the second mode is Luna's to converge: Luna's second mode falls from
-3.341 to 2.543, 2.101 and 1.893 µJ over `rtol` 1e-6 to 1e-9 while solprop's moves by
-2.6e-6. With the barrier-suppression correction off the two codes' on-axis electron
-densities agree to 0.04 %, which is what excludes the rate as a cause.
-```{eval-rst}
-.. plot::
-   :filename-prefix: accuracy-m2-tolerance
-   :include-source: False
-   :caption: The second mode's exit energy of the full M2 case against the step tolerance, on both codes, from ``tests/data/convergence/m2_tolerance.json`` (``tests/driver/test_prop_capillary.py``). solprop's answer does not move across three decades while Luna's falls by a factor of 1.76 onto it.
-
-   import accuracy_figures
-
-   accuracy_figures.m2_tolerance()
-```
-```{eval-rst}
-.. plot::
-   :filename-prefix: accuracy-m2-mode2-z
-   :include-source: False
-   :caption: The second mode's energy along the fibre on both codes, with the plasma off and on, from ``tests/data/convergence/m2_mode2_along_z.json`` (``tests/driver/test_prop_capillary.py``). With the plasma off the two curves lie on each other at every one of 201 planes; with it on the difference is a beat whose envelope departs from about 0.65 m, which is why no z-averaged bound is asserted on it.
-
-   import accuracy_figures
-
-   accuracy_figures.m2_mode2_along_z()
-```
+On the full case the second mode is Luna's to converge: the `benchmark`-marked
+`test_the_full_m2_case_against_its_witness` holds solprop's second mode to between 0.97
+and 1.03 of Luna's own converged answer (`rtol = 1e-9`), where against production Luna
+it is between 0.45 and 0.7. With the barrier-suppression correction off the two codes'
+on-axis electron densities agree to 0.04 %, which is what excludes the rate as a cause.
 
 
 ## 6. Milestone M4: the comb-to-continuum case
@@ -523,8 +487,8 @@ field's contraction pragma removed
 
 ## 8. Where Luna is not converged, and where the two codes still differ
 
-- **Luna's weak modes on a stiff case**: a factor of 1.76 in the second mode of the M2
-  case between its default tolerance and a converged one (`rtol = 1e-9`); its global weak norm gives a
+- **Luna's weak modes on a stiff case**: the second mode of the full M2 case at Luna's
+  default tolerance is far from its converged one (`rtol = 1e-9`, above); its global weak norm gives a
   mode at a percent of the fundamental no relative error control, and the tolerance is
   unsettable through its interface. The quadrature-off control excludes its two
   first-order mechanisms, the right-endpoint operator and the per-step window, on that
@@ -544,7 +508,7 @@ field's contraction pragma removed
 
 **The witnesses.** Every Luna witness has a generator beside it under `tests/data/`
 (`generate_luna_rdw.py`, `generate_luna_ctc.py`,
-`generate_luna_rdw_switches.py`, `generate_luna_rdw_converged.py` and the others named
+`generate_luna_rdw_converged.py` and the others named
 `generate_luna_*.py`), each recording Luna's commit, the thread counts and the run time in
 its provenance; none is run by the suite, and nothing on this page needs a new Luna run.
 
@@ -605,12 +569,11 @@ SOLPROP_FFTW_PLAN=estimate SOLPROP_WRITE_RECORDS=1 \
     uv run pytest -m slow -p no:randomly
 ```
 
-then each `benchmark`-marked writer by hand, per its own docstring — the N = 6 wide-band
-ladder at every rung and with the taper on, the two middle switches of the M2 order
-study, the full case's tolerance and quadrature ladders, the second mode along z, and the
-two full-size witness comparisons. The environment matters: the thread pins are the slow
-lane's own (`poe test-slow`) and `estimate` is the plan flag CI uses, so a record taken
-without them is compared in CI against a run that had them.
+then each `benchmark`-marked writer by hand, per its own docstring — the two middle
+switches of the M2 order study and the full-size witness comparison. The environment
+matters: the thread pins are the slow lane's own (`poe test-slow`) and `estimate` is
+the plan flag CI uses, so a record taken without them is compared in CI against a run
+that had them.
 
 The spatial records (§10) are written the same way, with an installed native wheel built
 from the same committed tree:

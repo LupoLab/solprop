@@ -28,10 +28,7 @@ __all__ = [
     "backend_equivalence",
     "ionisation_knots",
     "load",
-    "m2_mode2_along_z",
     "m2_order",
-    "m2_quadrature",
-    "m2_tolerance",
     "phi_quadrature",
     "plasma_trapezoid",
     "quadrature_alarm",
@@ -42,10 +39,8 @@ __all__ = [
 
 RECORDS = Path(__file__).resolve().parents[2] / "tests" / "data" / "convergence"
 
-# Luna is one colour throughout the page and solprop another, so that a reader who has
-# seen one figure can read the next without the legend.
+# solprop's colour wherever a figure singles it out.
 SOLPROP = "C0"
-LUNA = "C3"
 
 SIZE = (6.4, 3.6)
 
@@ -237,25 +232,11 @@ def quadrature_alarm() -> None:
     _finish(ax, record, "embedded pair's disagreement")
 
 
-def m2_quadrature() -> None:
-    """Draw the second mode's exit energy against the radial order, on both codes."""
-    record = load("m2_quadrature")
-    _, ax = _axes()
-    for name in names(record):
-        order, energy = series(record, name, "mode2_energy")
-        colour = LUNA if name.startswith("Luna") else SOLPROP
-        ax.plot(order, 1e6 * energy, "o-", lw=1.6, ms=5, color=colour, label=name)
-    ax.set_xscale("log", base=2)
-    ax.set_ylim(0.0, None)
-    _ticks(ax, record, "mode2_energy")
-    _finish(ax, record, "second mode at the exit (µJ)")
-
-
 # ------------------------------------------------------------------- milestone M1
 
 
 def soliton_n6() -> None:
-    """Draw the N = 6 recurrence ladder, with the polarisation taper off and on."""
+    """Draw the N = 6 recurrence ladder with the polarisation taper off, the default."""
     record = load("soliton_n6")
     _, ax = _axes()
     for index, name in enumerate(names(record)):
@@ -285,42 +266,6 @@ def m2_order() -> None:
     ax.set_yscale("log")
     _ticks(ax, record, "difference")
     _finish(ax, record, "successive difference (relative)")
-
-
-def m2_tolerance() -> None:
-    """Draw the second mode's exit energy against the step tolerance, on both codes."""
-    record = load("m2_tolerance")
-    _, ax = _axes()
-    for name in names(record):
-        rtol, energy = series(record, name, "mode2_energy")
-        colour = LUNA if name.startswith("Luna") else SOLPROP
-        ax.plot(rtol, 1e6 * energy, "o-", lw=1.6, ms=5, color=colour, label=name)
-    converged = series(record, "Luna, full case", "mode2_energy")[1].min()
-    ax.axhline(
-        1e6 * converged, ls="--", lw=1.2, color="0.4", label="Luna at rtol = 1e-9"
-    )
-    ax.set_xscale("log")
-    ax.invert_xaxis()
-    ax.set_ylim(0.0, None)
-    _finish(ax, record, "second mode at the exit (µJ)")
-
-
-def m2_mode2_along_z() -> None:
-    """Draw the second mode's energy along the fibre, both codes, plasma on and off."""
-    record = load("m2_mode2_along_z")
-    _, axes = plt.subplots(1, 2, figsize=(6.8, 3.2), sharey=True, layout="constrained")
-    for ax, switch in zip(axes, ("off", "on"), strict=True):
-        for name in names(record):
-            if not name.endswith(switch):
-                continue
-            _, position = series(record, name, "z")
-            _, energy = series(record, name, "energy")
-            colour = LUNA if name.startswith("Luna") else SOLPROP
-            ax.plot(position, 1e6 * energy, lw=1.6, color=colour, label=name)
-        ax.set_xlabel("z (m)")
-        ax.set_title(f"plasma {switch}", fontsize=10)
-        ax.legend(frameon=False, fontsize=8)
-    axes[0].set_ylabel("second mode (µJ)")
 
 
 # ------------------------------------------------------------ backend equivalence

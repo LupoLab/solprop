@@ -86,19 +86,15 @@ CUDA = "native_cuda against numpy_ref"
 M2 = "m2_witness_metrics"
 M2_REDUCED = "reduced case"
 M4 = "m4_witness_metrics"
-TOLERANCE = "m2_tolerance"
-LUNA_FULL = "Luna, full case"
-SOLPROP_FULL = "solprop, full case"
 
 _ALARMS = (
     "**2.365e-1, 3.316e-2, 1.451e-4, 1.777e-8, 4.224e-15** at n_r = 8, 16, 24, 32, 48"
 )
-_N6 = "9.2e-6, 6.1e-8, 8.9e-9, 4.7e-9 at 8000, 16000, 32000, 64000 steps: order 7.2"
+_N6 = "9.2e-6 and 6.1e-8 at 8000 and 16000 steps: order 7.2"
 # The page's own multiplication sign and en dashes, which a passage must match.
 _VUV = (
     "1.43× in the fundamental, 1.30× over both modes; arrival 4.730 fs against 4.622 fs"  # noqa: RUF001
 )
-_LUNA_FALLS = "Luna's second mode falls from 3.341 to 2.543, 2.101 and 1.893 µJ"
 _CUDA_RUNGS = "9.56e-22, 7.62e-18, 5.42e-17, 6.10e-16, 9.31e-16 and 2.73e-17"
 _LADDER = (
     "one linear application",
@@ -110,26 +106,11 @@ _LADDER = (
 )
 
 
-def _move(series: str) -> float:
-    """Return the full M2 case's relative move in mode-2 energy over the rtol ladder."""
-    energies = column(TOLERANCE, series, "mode2_energy")
-    return (max(energies) - min(energies)) / at(
-        TOLERANCE, series, "1e-9", "mode2_energy"
-    )
-
-
 def _vuv_cost() -> float:
     """Return the reduced M2 VUV band's error at an alarm of 1.0e-1 (n_r = 8)."""
     coarse = at("m2_alarm_cost", "reduced M2 case", 8, "vuv_energy")
     converged = at("m2_alarm_cost", "reduced M2 case", 48, "vuv_energy")
     return (coarse - converged) / converged
-
-
-def _luna_fall() -> float:
-    """Return Luna's mode-2 energy at its default tolerance over that at 1e-9."""
-    return at(TOLERANCE, LUNA_FULL, "1e-6", "mode2_energy") / at(
-        TOLERANCE, LUNA_FULL, "1e-9", "mode2_energy"
-    )
 
 
 QUOTES = (
@@ -173,19 +154,8 @@ QUOTES = (
     Quote(
         _N6, "6.1e-8", lambda: at("soliton_n6", "wide band, taper off", 16000, "error")
     ),
-    Quote(
-        _N6, "8.9e-9", lambda: at("soliton_n6", "wide band, taper off", 32000, "error")
-    ),
-    Quote(
-        _N6, "4.7e-9", lambda: at("soliton_n6", "wide band, taper off", 64000, "error")
-    ),
     Quote(_N6, "7.2", lambda: at("soliton_n6", "wide band, taper off", 16000, "order")),
-    Quote(
-        "floors at 6e-8 on the wide band",
-        "6e-8",
-        lambda: at("soliton_n6", "wide band, taper on", 32000, "error"),
-    ),
-    # Section 5: milestone M2, the order study, the tolerance ladder and the witness.
+    # Section 5: milestone M2, the order study, the tolerance claim and the witness.
     Quote(
         "| constant | off | 6.21 |",
         "6.21",
@@ -212,12 +182,6 @@ QUOTES = (
         lambda: at(M2, M2_REDUCED, "two decades of tolerance, relative move", "value"),
     ),
     Quote(
-        "second-mode exit energy by 2.6e-6",
-        "2.6e-6",
-        lambda: _move(SOLPROP_FULL),
-    ),
-    Quote("while solprop's moves by 2.6e-6", "2.6e-6", lambda: _move(SOLPROP_FULL)),
-    Quote(
         "| fundamental, shape | 5.7e-2 |",
         "5.7e-2",
         lambda: at(M2, M2_REDUCED, "fundamental, shape", "value"),
@@ -240,27 +204,6 @@ QUOTES = (
         "1.107",
         lambda: at(M2, M2_REDUCED, "second mode, content", "value"),
     ),
-    Quote(
-        _LUNA_FALLS,
-        "3.341",
-        lambda: 1e6 * at(TOLERANCE, LUNA_FULL, "1e-6", "mode2_energy"),
-    ),
-    Quote(
-        _LUNA_FALLS,
-        "2.543",
-        lambda: 1e6 * at(TOLERANCE, LUNA_FULL, "1e-7", "mode2_energy"),
-    ),
-    Quote(
-        _LUNA_FALLS,
-        "2.101",
-        lambda: 1e6 * at(TOLERANCE, LUNA_FULL, "1e-8", "mode2_energy"),
-    ),
-    Quote(
-        _LUNA_FALLS,
-        "1.893",
-        lambda: 1e6 * at(TOLERANCE, LUNA_FULL, "1e-9", "mode2_energy"),
-    ),
-    Quote("Luna's falls by a factor of 1.76 onto it", "1.76", _luna_fall),
     # Section 6: milestone M4.
     Quote(
         "| exit energy, ours over Luna's | 1.00001 |",
