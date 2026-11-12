@@ -14,7 +14,7 @@ from gated_source import _gated_source
 from solprop.backends import registry
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver.simulation import _open_output, metadata_for
-from solprop.exceptions import BackendError, DriverError, OutputError, TranslationError
+from solprop.exceptions import DriverError, OutputError, TranslationError
 from solprop.output import HDF5Output, check_cache, resume
 from solprop.output.schema import SavedPlane
 from solprop.translate.plasma_source import _BENCHMARK_GATED, plasma_source_record
@@ -59,12 +59,18 @@ def test_benchmark_identity_and_both_resume_doors(
         _open_output(path, historical, resume=True)
 
 
-def test_gated_hook_refuses_compiled_execution_and_resets_after_exception(
-    ionising_capillary,
-):
+def test_gated_hook_runs_on_native_and_resets_after_exception(ionising_capillary):
+    pytest.importorskip("solprop_native")
     problem, run_request, _, _ = ionising_capillary()
-    with pytest.raises(BackendError, match="requires numpy_ref"), _gated_source():
-        registry.select("native", problem, run_request)
+    with pytest.raises(RuntimeError, match="leaves the context"), _gated_source():
+        backend = registry.select("native", problem, run_request)
+        try:
+            source = backend.metadata()["plasma_source"]
+            assert isinstance(source, dict)
+            assert source["form"] == "gated_benchmark"
+        finally:
+            backend.close()
+        raise RuntimeError("an error leaves the context")
     assert not _BENCHMARK_GATED.get()
 
 
@@ -119,7 +125,13 @@ def test_private_historical_collar_cannot_bypass_production_admission(
             "form": "gated_benchmark",
             "resumable": False,
         }
-        with pytest.raises(BackendError, match="requires numpy_ref"):
-            registry.select("native", historical, run_request)
+        if "native" in registry.available():
+            backend = registry.select("native", historical, run_request)
+            try:
+                source = backend.metadata()["plasma_source"]
+                assert isinstance(source, dict)
+                assert source["form"] == "gated_benchmark"
+            finally:
+                backend.close()
     with pytest.raises(TranslationError, match="collar certificate"):
         historical.validate()

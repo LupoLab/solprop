@@ -108,7 +108,7 @@ from solprop.translate.linop import (
     unitary_phase,
 )
 from solprop.translate.plasma_source import (
-    _BENCHMARK_GATED,  # pyright: ignore[reportPrivateUsage] - refuse the private NumPy benchmark hook
+    _BENCHMARK_GATED,  # pyright: ignore[reportPrivateUsage] - the private gated benchmark
     plasma_source_record,
 )
 from solprop.translate.problem import (
@@ -324,9 +324,10 @@ class NativeBackend:
         far_field: FarFieldTables | None = None,
         options: ExecutionOptions | None = None,
     ) -> None:
-        if _BENCHMARK_GATED.get():
-            raise BackendError("the gated plasma benchmark requires numpy_ref")
         check_build()
+        # The private gated benchmark is captured where the backend is built, as the
+        # reference captures it; the run's identity carries it from the driver.
+        self._gated_plasma = _BENCHMARK_GATED.get()
         stepper = request.stepper
         _refuse_unsupported(problem, stepper)
         validate_run(problem, request)
@@ -1406,7 +1407,10 @@ class NativeBackend:
             **self._chunk_plan.record(),
             "node_chunk": self.node_chunk,
         }
-        if self._problem.responses.plasma_channels:
+        if self._problem.responses.plasma_channels and self._gated_plasma:
+            work["_benchmark_plasma_source"] = "gated_nonresumable"
+            work["plasma_source"] = {"form": "gated_benchmark", "resumable": False}
+        elif self._problem.responses.plasma_channels:
             work["plasma_source"] = plasma_source_record(self._problem.grids)
         # The evaluations this backend made: the Adams ledger's logical calls, the
         # low-storage march's physical ones (SEP 24 section 5), or the native
@@ -3589,6 +3593,9 @@ def _native_problem(
         "harmonic_factor": 0.0 if kerr is None else kerr.harmonic_factor,
         "take_real": kerr is not None and kerr.take_real,
         "plasma": plasma is not None,
+        # The private gated benchmark (solprop's tests/gated_source.py), read where
+        # the backend is built, as the reference reads it.
+        "plasma_gated": plasma is not None and _BENCHMARK_GATED.get(),
         "raman": raman is not None,
         "raman_thg": raman is not None
         and bool(raman.thg)

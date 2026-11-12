@@ -587,6 +587,10 @@ struct Problem {
   bool take_real{};
   bool plasma{};
   bool envelope_plasma{};
+  // solprop's private, test-only gated plasma benchmark: the field plasma's current
+  // enters as w(t) times its running integral, added to the local polarisation,
+  // instead of the held current's two collared spectra. Never set by a user run.
+  bool plasma_gated{};
   // Channel-major 4 x 512 split angular rules and coarse-axis current factors.
   std::vector<double> envelope_rule_nodes, envelope_rule_weights, envelope_drude_factor;
   std::vector<Complex> envelope_loss_factor;
