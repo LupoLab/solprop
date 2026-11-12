@@ -1109,9 +1109,29 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
   lines. §6.8 estimated +0.6k source and +0.6k test lines for the worker; the excess is
   the adapter's request handlers and the parent's view of the haCC model beside the
   generic layer, as the binding's validation stayed in solprop's process.
+- **Review follow-up** (an independent review of the pull request, 2026-11-12). The
+  worker's reader queues a failure for any exception, so a reply it cannot decode (a
+  bad tag, nesting too deep, memory) ends the wait as a protocol error instead of
+  leaving it polling; the worker's watchdog and its `main` leave through `os._exit` on
+  every path, never through interpreter finalisation with the provider loaded; a write
+  to a worker that died between calls is the worker's exit, with its status and
+  standard error; `close` kills the worker even when a signal interrupts its grace; the
+  reader threads hold the queue and stream, not the worker, and a finaliser kills a
+  worker its owner drops; a reader still blocked in its pipe leaves the stream
+  unclosed rather than blocking `kill`; a stop already asked for owns a worker exit
+  seen after it; the worker starts with `-P` and with solprop's BLAS idle defaults
+  (`child_environment`); the diagnostic closes its plan only on a live worker.
+  `_interrupts.raise_held` acts only inside an `interruptible()` scope on the main
+  thread, which native's session will open around its `advance` in phase 3, so any
+  other commit, the terminal checkpoint's `committing(deliver=False)` among them,
+  keeps or drops a held signal as before. The manufactured hangs are bounded (30 s),
+  so a broken cancellation fails a test rather than hanging it; new tests cover the
+  undecodable message, the dead worker, the interrupted close, collection, the
+  interruptible scope and its absence, another thread, and solprop-native's own wait
+  settings (`_wait.py`, read by path).
 - **Handoff.** Phase 3 (the native hook) calls `tdse_source` and the same binding; its
-  waits are inside `committing()`, which `Worker` already handles through
-  `_interrupts.raise_held`; §7.2 item 4 on native and §7.3 follow with it. The worker's
+  waits are inside `committing()`: the session wraps `advance` in
+  `_interrupts.interruptible()` too, and `Worker` raises a held signal there; §7.2 item 4 on native and §7.3 follow with it. The worker's
   `request` raises `StopRequested`, `KeyboardInterrupt` or `RunTerminated` unchanged,
   which the hook stores and the session re-raises (§6.3).
 

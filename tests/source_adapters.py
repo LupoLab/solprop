@@ -21,6 +21,10 @@ import numpy as np
 
 from solprop.driver import _pyroraptor, _source_worker
 
+HANG_SECONDS = 30.0
+"""How long a manufactured hang lasts: bounded, so that a broken cancellation fails a
+test (the call returns) instead of hanging it, and far above any cancellation's time."""
+
 
 class _Manufactured:
     """An adapter with no provider: each request names its behaviour."""
@@ -40,7 +44,8 @@ class _Manufactured:
         if kind == "echo":
             return value
         if kind == "hang":
-            time.sleep(3600)
+            time.sleep(HANG_SECONDS)
+            return "woke"
         if kind == "raise":
             raise ValueError("manufactured provider failure")
         if kind == "exit":
@@ -60,10 +65,10 @@ class _Manufactured:
                 _source_worker.PROTOCOL_DESCRIPTORS[1],
                 _source_worker._HEADER.pack(len(payload)) + payload,
             )
-            time.sleep(3600)
+            time.sleep(HANG_SECONDS)
         if kind == "close_pipe":
             os.close(_source_worker.PROTOCOL_DESCRIPTORS[1])
-            time.sleep(3600)
+            time.sleep(HANG_SECONDS)
         if kind == "modules":
             spec = getattr(sys.modules["__main__"], "__spec__", None)
             return {
@@ -135,7 +140,7 @@ def _hang_after(provider, calls):
             if len(provider.calls) >= calls:
                 sys.stderr.write("MANUFACTURED CALL HANGS\n")
                 sys.stderr.flush()
-                time.sleep(3600)
+                time.sleep(HANG_SECONDS)
             return evaluate(fields)
 
         built.evaluate = slow

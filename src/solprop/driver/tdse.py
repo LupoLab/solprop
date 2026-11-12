@@ -2139,8 +2139,10 @@ def _diagnostic(
         finally:
             budget.release_reservation()
     finally:
-        with contextlib.suppress(RemoteError, WorkerError):
-            worker.request("diagnostic_close", {})
+        # A failed or cancelled call has ended the worker already; nothing to close.
+        if worker.alive:
+            with contextlib.suppress(RemoteError, WorkerError):
+                worker.request("diagnostic_close", {})
     return (
         np.array(total[0], dtype=np.float64, copy=True),
         np.array(first[0], dtype=np.float64, copy=True),

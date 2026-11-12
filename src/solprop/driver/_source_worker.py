@@ -45,6 +45,7 @@ import subprocess
 import sys
 import threading
 import traceback
+import weakref
 from collections import deque
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from types import SimpleNamespace
@@ -53,6 +54,7 @@ from typing import IO, Any, Protocol, cast, runtime_checkable
 import numpy as np
 
 from solprop._interrupts import poll, raise_held
+from solprop._process import child_environment
 from solprop.exceptions import BackendError
 from solprop.log import StopFlag
 
@@ -325,7 +327,9 @@ def read_message(
         return kind, decode(body, arrays), arrays
     except WorkerError:
         raise
-    except (ValueError, TypeError, KeyError, IndexError, UnicodeDecodeError) as error:
+    except Exception as error:
+        # Any message this side cannot read (bad JSON or tags, too deep, too large)
+        # is the worker's protocol error, never this process's.
         msg = f"a malformed worker message: {type(error).__name__}: {error}"
         raise WorkerError(msg) from error
 
@@ -370,7 +374,7 @@ def worker_environment(
     own settings pass through. The worker imports from this process's import path.
     ``explicit`` (the thread count, the device) wins.
     """
-    environment = dict(environ)
+    environment = child_environment(environ)
     environment["PYTHONPATH"] = os.pathsep.join(entry for entry in sys.path if entry)
     settings = _NATIVE_WAIT_SETTINGS.get(environment.get(_NATIVE_WAIT_MARKER, ""), {})
     if settings:
@@ -415,8 +419,9 @@ class Worker:
             queue.Queue()
         )
         self._tail: deque[str] = deque(maxlen=_TAIL_LINES)
-        self._threads: list[threading.Thread] = []
+        self._threads: dict[IO[bytes], threading.Thread] = {}
         self._usable = False
+        self._finalizer: weakref.finalize[Any, Any] | None = None
 
     # -- lifetime -------------------------------------------------------------------
 
@@ -432,6 +437,8 @@ class Worker:
         self._process = subprocess.Popen(
             [
                 sys.executable,
+                # The parent's working directory is not on the worker's path.
+                "-P",
                 # The package imports this module before ``-m`` runs it, which runpy
                 # warns of; ``main`` runs the imported copy, so nothing is duplicated.
                 "-W",
@@ -450,13 +457,17 @@ class Worker:
         )
         process = self._process
         assert process.stdout is not None and process.stderr is not None
-        for target, stream in (
-            (self._read, process.stdout),
-            (self._drain, process.stderr),
-        ):
-            thread = threading.Thread(target=target, args=(stream,), daemon=True)
+        # The threads hold the queue, the stream and the tail, never this object, so
+        # a worker its owner forgets is collected, and its finaliser kills it.
+        readers = (
+            (_reader, process.stdout, (self.limit, self._replies)),
+            (_drain, process.stderr, (self._tail,)),
+        )
+        for target, stream, extra in readers:
+            thread = threading.Thread(target=target, args=(stream, *extra), daemon=True)
             thread.start()
-            self._threads.append(thread)
+            self._threads[stream] = thread
+        self._finalizer = weakref.finalize(self, _end, process, self._threads)
         try:
             kind, body = self._wait()
             if kind != "hello":
@@ -495,8 +506,12 @@ class Worker:
         assert process.stdin is not None
         stdin = process.stdin
         try:
-            write_message(stdin.write, kind, value)
-            stdin.flush()
+            try:
+                write_message(stdin.write, kind, value)
+                stdin.flush()
+            except OSError as broken:
+                # A worker that died between calls: its status and stderr say why.
+                raise self._exited() from broken
             reply, body = self._wait()
         except BaseException:
             self.kill()
@@ -512,41 +527,23 @@ class Worker:
         process = self._process
         if process is None:
             return
-        if self._usable and process.poll() is None:
-            try:
+        try:
+            if self._usable and process.poll() is None:
                 assert process.stdin is not None
                 write_message(process.stdin.write, "close", None)
                 process.stdin.flush()
                 process.wait(timeout=CLOSE_GRACE)
-            except OSError, subprocess.TimeoutExpired, ValueError:
-                pass
-        self.kill()
+        except OSError, subprocess.TimeoutExpired, ValueError:
+            pass
+        finally:
+            # A signal during the grace still ends the worker before it propagates.
+            self.kill()
 
     def kill(self) -> None:
         """End the worker at once, reap it and close both pipe ends."""
         self._usable = False
-        process = self._process
-        if process is None:
-            return
-        if process.poll() is None:
-            with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
-                if sys.platform == "win32":  # pragma: no cover - Windows only
-                    process.kill()
-                else:
-                    # Its own session: the group holds anything the provider started.
-                    os.killpg(process.pid, signal.SIGKILL)
-        process.wait()
-        if process.stdin is not None:
-            with contextlib.suppress(OSError):
-                process.stdin.close()
-        # The worker's ends are closed now, so its readers see the end of their pipes.
-        for thread in self._threads:
-            thread.join(timeout=CLOSE_GRACE)
-        self._threads = []
-        for stream in (process.stdout, process.stderr):
-            if stream is not None:
-                with contextlib.suppress(OSError):
-                    stream.close()
+        if self._finalizer is not None:
+            self._finalizer()
 
     @property
     def alive(self) -> bool:
@@ -566,10 +563,11 @@ class Worker:
                 raise_held()
                 poll(self.stop)
                 continue
-            if isinstance(item, BaseException):
-                raise item
-            if item is None:
-                raise self._exited()
+            if isinstance(item, BaseException) or item is None:
+                # A stop already asked for owns a worker exit seen after it (6.7).
+                raise_held()
+                poll(self.stop)
+                raise self._exited() if item is None else item
             kind, body = item
             if kind == "error":
                 report = cast("Mapping[str, str]", body)
@@ -599,29 +597,67 @@ class Worker:
             error.add_note(f"its last standard error:\n{tail}")
         return error
 
-    def _read(self, stream: IO[bytes]) -> None:
-        """Move the worker's messages to the reply queue until its pipe ends."""
-        try:
-            while True:
-                message = read_message(stream.read, self.limit)
-                if message is None:
-                    self._replies.put(None)
-                    return
-                kind, body, _ = message
-                self._replies.put((kind, body))
-        except WorkerError as error:
-            self._replies.put(error)
-        except OSError, ValueError:
-            # The parent closed the pipe while killing the worker.
-            self._replies.put(None)
 
-    def _drain(self, stream: IO[bytes]) -> None:
-        """Pass the worker's standard error on, keeping its last lines for a failure."""
-        for line in iter(stream.readline, b""):
-            text = line.decode("utf-8", errors="replace").rstrip("\n")
-            self._tail.append(text)
-            with contextlib.suppress(OSError, ValueError):
-                sys.stderr.write(text + "\n")
+def _end(
+    process: subprocess.Popen[bytes], threads: dict[IO[bytes], threading.Thread]
+) -> None:
+    """Kill a worker's process group, reap it and close the pipes its readers left.
+
+    A stream whose reader is still inside a read (a grandchild holding the pipe open)
+    is left for collection: closing it would wait on the reader's buffer lock.
+    """
+    if process.poll() is None:
+        with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+            if sys.platform == "win32":  # pragma: no cover - Windows only
+                process.kill()
+            else:
+                # Its own session: the group holds anything the provider started.
+                os.killpg(process.pid, signal.SIGKILL)
+    process.wait()
+    if process.stdin is not None:
+        with contextlib.suppress(OSError):
+            process.stdin.close()
+    # The worker's ends are closed now, so its readers see the end of their pipes.
+    for stream, thread in threads.items():
+        thread.join(timeout=CLOSE_GRACE)
+        if not thread.is_alive():
+            with contextlib.suppress(OSError):
+                stream.close()
+
+
+def _reader(
+    stream: IO[bytes],
+    limit: int,
+    replies: queue.Queue[tuple[str, object] | BaseException | None],
+) -> None:
+    """Move the worker's messages to the reply queue until its pipe ends.
+
+    Every way out queues something, so the wait never outlives its reader.
+    """
+    try:
+        while True:
+            message = read_message(stream.read, limit)
+            if message is None:
+                replies.put(None)
+                return
+            kind, body, _ = message
+            replies.put((kind, body))
+    except WorkerError as error:
+        replies.put(error)
+    except OSError, ValueError:
+        # The parent closed the pipe while killing the worker.
+        replies.put(None)
+    except BaseException as error:
+        replies.put(WorkerError(f"the worker's reply could not be read: {error!r}"))
+
+
+def _drain(stream: IO[bytes], tail: deque[str]) -> None:
+    """Pass the worker's standard error on, keeping its last lines for a failure."""
+    for line in iter(stream.readline, b""):
+        text = line.decode("utf-8", errors="replace").rstrip("\n")
+        tail.append(text)
+        with contextlib.suppress(OSError, ValueError):
+            sys.stderr.write(text + "\n")
 
 
 # ----------------------------------------------------------------------- the worker
@@ -677,7 +713,7 @@ def _watch(inbound: int, limit: int, inbox: queue.Queue[tuple[str, object]]) -> 
                 break
             kind, body, _ = message
             inbox.put((kind, body))
-    except WorkerError, OSError:
+    except BaseException:
         pass
     # The parent is gone, or wrote garbage: nothing the worker computes can be used.
     os._exit(_ORPHANED)
@@ -735,11 +771,11 @@ def main(argv: Sequence[str]) -> int:
                 adapter.close()
                 return 0
             try:
-                reply = adapter.handle(kind, body)
+                # The reply is encoded whole before a byte is written, so a reply the
+                # codec refuses is reported as an error, not half sent.
+                _send("reply", adapter.handle(kind, body), adapter)
             except Exception as error:
                 _send("error", _error_report(error, adapter))
-                continue
-            _send("reply", reply, adapter)
 
 
 def _write_all(descriptor: int, data: bytes) -> None:
@@ -754,8 +790,14 @@ if __name__ == "__main__":
     # an adapter receives are the classes it imports.
     from solprop.driver._source_worker import main as _main
 
-    status = _main(sys.argv[1:])
-    # Skip interpreter finalisation: the provider's runtime is already closed by the
-    # adapter, and nothing else of the worker's needs flushing.
-    sys.stderr.flush()
-    os._exit(status)
+    status = 1
+    try:
+        status = _main(sys.argv[1:])
+    except BaseException:
+        traceback.print_exc()
+    finally:
+        # Every way out skips interpreter finalisation: the provider's runtime (Kokkos)
+        # is closed by the adapter or abandoned with the process, never finalised.
+        with contextlib.suppress(BaseException):
+            sys.stderr.flush()
+        os._exit(status)

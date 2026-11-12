@@ -11,6 +11,9 @@ harness's, to detect a broken cancellation; the production code has none.
 """
 
 import dataclasses
+import gc
+import importlib.util
+import io
 import json
 import os
 import signal
@@ -18,12 +21,14 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import numpy as np
+import psutil
 import pytest
 
-from solprop._interrupts import committing, handled
+from solprop._interrupts import committing, handled, interruptible
 from solprop.driver import _source_worker
 from solprop.driver._source_worker import (
     POLL_INTERVAL,
@@ -133,6 +138,28 @@ def test_the_worker_environment_drops_native_s_own_wait_settings_only():
     assert kept["GOMP_SPINCOUNT"] == "5" and "KMP_BLOCKTIME" not in kept
 
 
+def test_the_native_wait_settings_are_solprop_native_s_own(monkeypatch):
+    """The worker removes exactly what solprop-native sets (ADR-071)."""
+    spec = importlib.util.find_spec("solprop_native")
+    if spec is None or spec.origin is None:
+        pytest.skip("solprop-native is not installed")
+    # Loaded by path: importing the package would start the native runtime.
+    path = Path(spec.origin).parent / "_wait.py"
+    loader = importlib.util.spec_from_file_location("native_wait_probe", path)
+    assert loader is not None and loader.loader is not None
+    module = importlib.util.module_from_spec(loader)
+    # Its dataclasses look their module up by name.
+    monkeypatch.setitem(sys.modules, "native_wait_probe", module)
+    loader.loader.exec_module(module)
+    assert _source_worker._NATIVE_WAIT_MARKER == module.MARKER
+    assert _source_worker._NATIVE_WAIT_SETTINGS == module._SETTINGS
+
+
+def test_the_worker_environment_keeps_blas_idle():
+    environment = worker_environment({}, {})
+    assert "OPENBLAS_THREAD_TIMEOUT" in environment
+
+
 def test_values_cross_a_real_worker_bit_for_bit(worker):
     rng = np.random.default_rng(49)
     sent = {"field": rng.standard_normal((3, 257)), "labels": (1, 3), "z": 0.25}
@@ -208,6 +235,53 @@ def test_a_protocol_mismatch_is_refused_before_any_request(monkeypatch):
     _assert_ended(worker)
 
 
+@pytest.mark.parametrize(
+    "body",
+    ['{"$d": []}', "[" * 100_000 + "]" * 100_000],
+    ids=["bad tag", "too deep"],
+)
+def test_a_message_this_side_cannot_decode_is_a_protocol_error(body):
+    control = f'{{"kind": "reply", "body": {body}, "arrays": []}}'.encode()
+    stream = io.BytesIO(_source_worker._HEADER.pack(len(control)) + control)
+    with pytest.raises(WorkerError, match="malformed worker message"):
+        _source_worker.read_message(stream.read, len(control))
+
+
+@POSIX
+def test_a_worker_that_died_between_calls_is_a_named_failure(worker):
+    assert worker._process is not None
+    os.killpg(worker._process.pid, signal.SIGKILL)
+    worker._process.wait(timeout=DEADLINE)
+    with pytest.raises(WorkerError, match="exit status -9"):
+        worker.request("echo", 1)
+    _assert_ended(worker)
+
+
+def test_an_interruption_during_close_still_ends_the_worker(worker, monkeypatch):
+    process = worker._process
+    assert process is not None
+    wait = process.wait
+
+    def interrupted(timeout=None):
+        if timeout is not None:
+            raise KeyboardInterrupt
+        return wait()
+
+    monkeypatch.setattr(process, "wait", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        worker.close()
+    assert process.returncode is not None and not worker.alive
+
+
+def test_a_worker_its_owner_forgets_is_ended_when_collected():
+    worker = _worker()
+    process = worker._process
+    assert process is not None
+    del worker
+    gc.collect()
+    assert process.returncode is not None
+
+
 def test_close_between_calls_ends_the_worker_in_order(worker):
     worker.close()
     _assert_ended(worker)
@@ -236,22 +310,43 @@ def test_a_stop_flag_cancels_a_hanging_call_at_the_next_poll(worker):
     [(signal.SIGINT, KeyboardInterrupt), (signal.SIGTERM, RunTerminated)],
 )
 def test_a_signal_cancels_a_hanging_call(worker, number, expected):
-    if signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL:
-        pytest.skip("an application handler owns SIGTERM here")
+    defaults = {
+        signal.SIGTERM: signal.SIG_DFL,
+        signal.SIGINT: signal.default_int_handler,
+    }
+    if signal.getsignal(number) is not defaults[number]:
+        pytest.skip("an application handler owns the signal here")
     with handled():
         threading.Timer(0.3, os.kill, (os.getpid(), number)).start()
         assert _timed(worker, "hang", expected) < DEADLINE
 
 
 @POSIX
-def test_a_signal_held_by_a_commit_is_taken_by_the_wait(worker):
+def test_a_signal_held_by_a_commit_is_taken_by_an_interruptible_wait(worker):
     """Native's ``advance`` waits inside ``committing``: the loop raises the signal."""
+    if signal.getsignal(signal.SIGINT) is not signal.default_int_handler:
+        pytest.skip("an application handler owns SIGINT here")
     with handled():
         threading.Timer(0.3, os.kill, (os.getpid(), signal.SIGINT)).start()
         started = time.monotonic()
-        with pytest.raises(KeyboardInterrupt), committing():
+        with pytest.raises(KeyboardInterrupt), committing(), interruptible():
             worker.request("hang")
         assert time.monotonic() - started < DEADLINE
+    _assert_ended(worker)
+
+
+@POSIX
+def test_outside_an_interruptible_scope_the_commit_keeps_the_signal(worker):
+    """The stop flag ends the wait; the signal stays held, dropped with the stop."""
+    if signal.getsignal(signal.SIGINT) is not signal.default_int_handler:
+        pytest.skip("an application handler owns SIGINT here")
+    flag = threading.Event()
+    worker.stop = flag
+    with handled():
+        threading.Timer(0.3, os.kill, (os.getpid(), signal.SIGINT)).start()
+        threading.Timer(1.0, flag.set).start()
+        with pytest.raises(StopRequested), committing():
+            worker.request("hang")
     _assert_ended(worker)
 
 
@@ -321,12 +416,16 @@ except WorkerError as error:
 
 
 def _gone(pid):
-    """Wait, within the harness deadline, for a process to disappear."""
+    """Wait, within the harness deadline, for a process to end.
+
+    A zombie has ended: in a container nothing may reap an orphan.
+    """
     started = time.monotonic()
     while time.monotonic() - started < DEADLINE:
         try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
+            if psutil.Process(pid).status() == psutil.STATUS_ZOMBIE:
+                return True
+        except psutil.NoSuchProcess:
             return True
         time.sleep(0.05)
     return False
