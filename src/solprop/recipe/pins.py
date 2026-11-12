@@ -5,7 +5,7 @@
 """Pins: a recipe value set from a design target instead of a literal (SEP 41, S1).
 
 A recipe's ``[pins]`` table sets a whole value from a target of
-:func:`solprop.tools.solve_parameter`::
+:func:`solprop.tools.design.solve_parameter`::
 
     [pins]
     pressure = {target = "zdw", wavelength = "800 nm", search = ["0.1 bar", "10 bar"]}
@@ -368,7 +368,7 @@ def solve_pin(
 
     The route is built once from `keywords`, with the parameter at the middle of
     `search`, and its launch mode is re-evaluated at each trial value (no further
-    builds), as :func:`solprop.tools.pressure_zdw` does; a target that needs the
+    builds), as :func:`solprop.tools.design.pressure_zdw` does; a target that needs the
     fill's Kerr coefficient is given it at each trial value. This is the call the
     Python export of a pinned recipe writes before the route's call.
 
@@ -440,9 +440,9 @@ def solve_pulse(
     """Return the energy or peak power that gives a pulse a soliton order.
 
     Closed form on the launch mode at the launch position, with the fill's Kerr
-    coefficient (:func:`solprop.tools.soliton_peak_power`). The route is built once,
-    the pulse at a placeholder, for its mode. This is the call the Python export of a
-    recipe with a ``soliton_order`` pin writes before the route's call.
+    coefficient (:func:`solprop.tools.soliton.soliton_peak_power`). The route is built
+    once, the pulse at a placeholder, for its mode. This is the call the Python export
+    of a recipe with a ``soliton_order`` pin writes before the route's call.
 
     Parameters
     ----------
@@ -603,7 +603,7 @@ def _at(mode: "Mode", parameter: str, value: float) -> "Mode":
     - ``parameter``: ``"pressure"`` (bar) or a mode parameter such as ``"core_radius"``
       (m).
     """
-    from solprop.tools import _capillary_at  # noqa: PLC0415 - the tools' own re-fill
+    from solprop.tools.design import _capillary_at  # noqa: PLC0415 - the re-fill
 
     if parameter == "pressure":
         return _capillary_at(cast("object", mode), value)  # type: ignore[arg-type]
@@ -616,7 +616,8 @@ def _gamma(mode: "Mode", wavelength: float) -> float:
     - ``wavelength``: the pump wavelength, m.
     - Returns: ``gamma`` in rad/(W m).
     """
-    from solprop.tools import _fill_n2, nonlinear_coefficient  # noqa: PLC0415
+    from solprop.tools import nonlinear_coefficient  # noqa: PLC0415
+    from solprop.tools.waveguide import _fill_n2  # noqa: PLC0415
 
     # The capillary and waveguide routes bind every mode to their fill.
     mixture = cast("Mixture", getattr(mode, "mixture", None))

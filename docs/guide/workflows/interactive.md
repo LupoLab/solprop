@@ -190,7 +190,7 @@ ModeCollection: 2 modes
 ```
 
 An {py:class}`~solprop.output.hdf5.HDF5Output` says whether its file is open, closed,
-read-only or gone. A {py:class}`~solprop.tools.SolitonParams` prints the block shown in
+read-only or gone. A {py:class}`~solprop.tools.capillary.SolitonParams` prints the block shown in
 [design tools](design-tools.md), and a
 {py:class}`~solprop.processing.compression.Compression` says `NOT CLEAN` when its search did not
 converge inside its bounds.

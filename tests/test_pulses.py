@@ -1032,12 +1032,12 @@ def test_a_broadband_cw_field_is_wider_than_a_monochromatic_one(envelope_grid):
     [
         ({"energy": None}, "one of energy or peak_power must be given"),
         ({"peak_power": 1e9}, "only one of energy or peak_power"),
-        ({"energy": -1e-6}, "energy must be a finite positive number"),
-        ({"energy": 0.0}, "energy must be a finite positive number"),
-        ({"energy": math.nan}, "energy must be a finite positive number"),
-        ({"wavelength": 0.0}, "wavelength must be a finite positive number"),
-        ({"wavelength": -800e-9}, "wavelength must be a finite positive number"),
-        ({"fwhm": -30e-15}, "fwhm must be a finite positive number"),
+        ({"energy": -1e-6}, "energy must be finite and positive"),
+        ({"energy": 0.0}, "energy must be finite and positive"),
+        ({"energy": math.nan}, "energy must be finite and positive"),
+        ({"wavelength": 0.0}, "wavelength must be finite and positive"),
+        ({"wavelength": -800e-9}, "wavelength must be finite and positive"),
+        ({"fwhm": -30e-15}, "fwhm must be finite and positive"),
         ({"m": 0}, "m must be a super-Gaussian order"),
         ({"phase": (1.0, math.inf)}, "phase coefficient must be finite"),
     ],
@@ -1053,8 +1053,8 @@ def test_gaussian_pulse_validation_rejects_bad_settings(overrides, message):
     [
         ({}, "one of fwhm or width must be given"),
         ({"fwhm": FWHM, "width": FWHM}, "only one of fwhm or width"),
-        ({"width": -1e-15}, "width must be a finite positive number"),
-        ({"fwhm": math.inf}, "fwhm must be a finite positive number"),
+        ({"width": -1e-15}, "width must be finite and positive"),
+        ({"fwhm": math.inf}, "fwhm must be finite and positive"),
     ],
 )
 def test_sech_pulse_validation_rejects_bad_durations(overrides, message):
@@ -1129,7 +1129,7 @@ def test_an_envelope_too_small_to_scale_is_rejected(field_grid):
                 "spectrum": np.ones(8, complex),
                 "energy": -1.0,
             },
-            "energy must be a finite positive number",
+            "energy must be finite and positive",
         ),
         (
             {
@@ -1137,7 +1137,7 @@ def test_an_envelope_too_small_to_scale_is_rejected(field_grid):
                 "spectrum": np.ones(8, complex),
                 "wavelength": -1.0,
             },
-            "wavelength must be a finite positive number",
+            "wavelength must be finite and positive",
         ),
     ],
 )
@@ -1217,8 +1217,8 @@ def test_a_time_data_pulse_rejects_bad_parameters(kwargs, message):
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"wavelength": 0.0}, "wavelength must be a finite positive number"),
-        ({"average_power": -1.0}, "average_power must be a finite positive number"),
+        ({"wavelength": 0.0}, "wavelength must be finite and positive"),
+        ({"average_power": -1.0}, "average_power must be finite and positive"),
         ({"bandwidth": -1e-9}, "bandwidth must be a finite non-negative"),
         ({"bandwidth": math.inf}, "bandwidth must be a finite non-negative"),
     ],

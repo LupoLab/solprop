@@ -27,7 +27,7 @@ with a *Find any setting* box.
 As you type, the right side follows:
 
 - **What this gives** is computed by solprop from the setup as it stands
-  ({py:func}`solprop.tools.capillary_params` for a capillary): the soliton order, the
+  ({py:func}`solprop.tools.capillary.capillary_params` for a capillary): the soliton order, the
   zero-dispersion wavelength, the wavelength of the dispersive wave, the peak power and
   intensity, the fission length and the loss at the pump.
 - The plot is the **group-velocity dispersion at the entrance**, with the pump, the

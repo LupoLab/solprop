@@ -12,7 +12,7 @@ retain Marcatili's transverse field. See ``docs/guide/waveguides/tabulated-modes
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from typing import Literal
+from typing import ClassVar, Literal
 
 import numpy as np
 from jaxtyping import Complex, Float, Inexact
@@ -496,6 +496,7 @@ class _TableMode(MarcatiliMode):
 
     table: IndexTable
     reference_wavelength: float | None = None
+    _INDEX_IS_MARCATILI: ClassVar[bool] = False
 
     def _check_arguments(self) -> None:
         """Refuse geometry or area declarations incompatible with a fixed table."""

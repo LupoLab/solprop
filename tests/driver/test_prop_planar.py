@@ -385,7 +385,7 @@ def test_an_input_that_is_not_a_planar_launch_is_refused_by_name():
         ({"propz": 1e-3}, "propz must be 0"),
         ({"jones": (1.0, 1.0j)}, "jones takes one entry"),
         ({"offset_x": math.inf}, "offset_x must be finite"),
-        ({"waist_x": 0.0}, "waist_x must be a finite positive number"),
+        ({"waist_x": 0.0}, "waist_x must be finite and positive"),
     ],
 )
 def test_a_planar_pulse_refuses_what_it_does_not_carry(keywords, match):

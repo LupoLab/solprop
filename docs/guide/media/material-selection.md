@@ -93,7 +93,7 @@ $n_2 = 3\chi^{(3)}/(4\varepsilon_0 c n_0^2)$: optmat's own gas `n2` takes $n_0 =
 `n2(..., wavelength=)` give the selected values (or take the carrier from
 `selection=`'s `carrier_wavelength`); a
 {class}`~solprop.physdata.mixtures.Mixture` evaluates its populations at a carrier with
-`gamma3_path(wavelength)`, which {func}`solprop.tools.soliton_params` passes its
+`gamma3_path(wavelength)`, which {func}`solprop.tools.capillary.soliton_params` passes its
 `wavelength`.
 
 ```{code-block} python

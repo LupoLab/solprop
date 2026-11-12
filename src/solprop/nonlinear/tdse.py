@@ -20,6 +20,7 @@ from collections.abc import Sequence
 from dataclasses import KW_ONLY, asdict, dataclass, field
 from typing import Literal
 
+from solprop._validation import positive
 from solprop.constants import AU_TIME
 from solprop.exceptions import MaterialError
 from solprop.nonlinear.responses import ResponseTraits
@@ -55,12 +56,6 @@ _MAX_NEUTRAL_SQUARE = 7
 _PRESET_IDENTITY = re.compile(
     r"hacc-helium-([15])(?:-(fast))?-v([1-9][0-9]*)-([0-9a-f]{16})"
 )
-
-
-def _positive(value: float, name: str) -> None:
-    """Require a finite positive real scalar, excluding booleans."""
-    if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
-        raise MaterialError(f"{name} must be positive and finite")
 
 
 def _count(value: int, name: str, minimum: int = 1) -> None:
@@ -152,7 +147,7 @@ class TDSEBasis:
         _count(self.lmax, "lmax", 0)
         if self.lmax > _MAX_ANGULAR_ORDER or type(self.m) is not int or self.m != 0:
             raise MaterialError("TDSE helium requires m=0 and lmax <= 4096")
-        _positive(self.cut_energy, "cut_energy")
+        positive(self.cut_energy, "cut_energy", MaterialError, reject_bool=True)
         self._validate_radial()
         self._validate_scaling()
         boundary = (
@@ -164,7 +159,7 @@ class TDSEBasis:
             raise MaterialError("cuts must be a tuple")
         previous = 0.0
         for cut in self.cuts:
-            _positive(cut, "cut")
+            positive(cut, "cut", MaterialError, reject_bool=True)
             if cut not in self.radial_edges or not previous < cut < boundary:
                 raise MaterialError(
                     "cuts must be increasing radial edges inside the boundary"
@@ -196,9 +191,9 @@ class TDSEBasis:
             raise MaterialError("all four scaling fields must be given together")
         assert self.scaling_radius is not None and self.scaling_angle is not None
         assert self.infinite_order is not None and self.decay is not None
-        _positive(self.scaling_radius, "scaling_radius")
-        _positive(self.scaling_angle, "scaling_angle")
-        _positive(self.decay, "decay")
+        positive(self.scaling_radius, "scaling_radius", MaterialError, reject_bool=True)
+        positive(self.scaling_angle, "scaling_angle", MaterialError, reject_bool=True)
+        positive(self.decay, "decay", MaterialError, reject_bool=True)
         _count(self.infinite_order, "infinite_order")
         if self.scaling_radius not in self.radial_edges:
             raise MaterialError("scaling_radius must exactly equal a radial edge")
@@ -236,7 +231,7 @@ def _radial_axis(edges: Sequence[float], orders: Sequence[int]) -> None:
         raise MaterialError("the first radial edge must be zero")
     previous = 0.0
     for edge in edges[1:]:
-        _positive(edge, "radial edge")
+        positive(edge, "radial edge", MaterialError, reject_bool=True)
         if edge <= previous:
             raise MaterialError("radial_edges must be strictly increasing")
         previous = edge
@@ -347,7 +342,7 @@ class HaccBasis:
             raise MaterialError("angular_order must be <= 120")
         self._validate_scaling()
         if self.gauge_radius is not None:
-            _positive(self.gauge_radius, "gauge_radius")
+            positive(self.gauge_radius, "gauge_radius", MaterialError, reject_bool=True)
             if (
                 self.gauge_radius not in self.radial_edges
                 or not self.gauge_radius < self.scaling_radius
@@ -355,8 +350,8 @@ class HaccBasis:
                 raise MaterialError(
                     "gauge_radius must be a radial edge strictly inside scaling_radius"
                 )
-        _positive(self.cut_energy, "cut_energy")
-        _positive(self.max_step_au, "max_step_au")
+        positive(self.cut_energy, "cut_energy", MaterialError, reject_bool=True)
+        positive(self.max_step_au, "max_step_au", MaterialError, reject_bool=True)
         _text(self.source, "basis source")
         if self.preset is not None:
             match = (
@@ -395,9 +390,9 @@ class HaccBasis:
         )
         if any(value is None for value in values):
             raise MaterialError("all four irECS fields must be given")
-        _positive(self.scaling_radius, "scaling_radius")
-        _positive(self.scaling_angle, "scaling_angle")
-        _positive(self.decay, "decay")
+        positive(self.scaling_radius, "scaling_radius", MaterialError, reject_bool=True)
+        positive(self.scaling_angle, "scaling_angle", MaterialError, reject_bool=True)
+        positive(self.decay, "decay", MaterialError, reject_bool=True)
         _count(self.infinite_order, "infinite_order")
         if self.scaling_radius not in self.radial_edges[1:]:
             raise MaterialError("scaling_radius must exactly equal a radial edge")
@@ -495,10 +490,12 @@ class TDSEAtomicWindow:
 
     def __post_init__(self) -> None:
         """Validate the duration and taper before any grid is known."""
-        _positive(self.taper, "atomic window taper")
+        positive(self.taper, "atomic window taper", MaterialError, reject_bool=True)
         object.__setattr__(self, "taper", float(self.taper))
         if self.duration is not None:
-            _positive(self.duration, "atomic window duration")
+            positive(
+                self.duration, "atomic window duration", MaterialError, reject_bool=True
+            )
             object.__setattr__(self, "duration", float(self.duration))
             if not self.taper < self.duration / 2:
                 raise MaterialError(
@@ -538,8 +535,8 @@ class TDSEConsistency:
 
     def __post_init__(self) -> None:
         """Validate the bounds and the switch."""
-        _positive(self.warn, "consistency warn")
-        _positive(self.refuse, "consistency refuse")
+        positive(self.warn, "consistency warn", MaterialError, reject_bool=True)
+        positive(self.refuse, "consistency refuse", MaterialError, reject_bool=True)
         if self.warn > self.refuse:
             raise MaterialError("consistency warn must not exceed refuse")
         if type(self.enforce) is not bool:
@@ -589,7 +586,9 @@ class TDSECalibration:
         if type(self.wavelength_range) is not tuple or len(self.wavelength_range) != 2:
             raise MaterialError("wavelength_range must be a pair")
         for wavelength in self.wavelength_range:
-            _positive(wavelength, "calibration wavelength")
+            positive(
+                wavelength, "calibration wavelength", MaterialError, reject_bool=True
+            )
         if self.wavelength_range[0] >= self.wavelength_range[1]:
             raise MaterialError("wavelength_range must be increasing")
         _strings(self.limitations, "limitations")
@@ -737,8 +736,12 @@ class TDSEGasResponse:
     def __post_init__(self) -> None:
         """Admit the declared source closures without hidden rescaling."""
         self._validate_records()
-        _positive(self.max_atomic_step, "max_atomic_step")
-        _positive(self.remainder_scale, "remainder_scale")
+        positive(
+            self.max_atomic_step, "max_atomic_step", MaterialError, reject_bool=True
+        )
+        positive(
+            self.remainder_scale, "remainder_scale", MaterialError, reject_bool=True
+        )
         if self.kerr_model not in ("optmat_cubic", "tdse_shadow", "tdse_native"):
             raise MaterialError("unknown TDSE Kerr model")
         if isinstance(self.basis, HaccBasis):
@@ -748,7 +751,7 @@ class TDSEGasResponse:
         if self.kerr_model == "tdse_shadow":
             if self.cubic_scale is None:
                 raise MaterialError("tdse_shadow requires cubic_scale")
-            _positive(self.cubic_scale, "cubic_scale")
+            positive(self.cubic_scale, "cubic_scale", MaterialError, reject_bool=True)
         elif self.cubic_scale is not None:
             raise MaterialError("cubic_scale is available only for tdse_shadow")
         self._resolve_window()

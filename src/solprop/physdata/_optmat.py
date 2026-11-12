@@ -51,6 +51,7 @@ from typing import Any, Final
 
 import numpy as np
 from jaxtyping import Float
+from numpy.typing import ArrayLike
 
 from solprop.constants import BAR, C
 from solprop.exceptions import (
@@ -106,6 +107,30 @@ def omega_to_wavelength(
     values = np.asarray(omega, dtype=float)
     with np.errstate(divide="ignore"):
         return np.asarray(np.where(values > 0, 2 * math.pi * C / values, math.inf))
+
+
+def checked_omega(omega: ArrayLike | float | int) -> Float[np.ndarray, "*shape"]:
+    """Validate an angular-frequency argument and return it as a float array.
+
+    - ``omega``: angular frequency in rad/s, >= 0 and finite. A scalar, a sequence or an
+      array.
+    """
+    # numpy casts a complex argument to float with a warning rather than an error, so
+    # it is rejected here before the conversion.
+    if np.iscomplexobj(omega):
+        raise MaterialError("angular frequency must be real, got a complex value")
+    try:
+        values = np.asarray(omega, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise MaterialError(f"angular frequency must be real: {exc}") from exc
+    if not np.all(np.isfinite(values)):
+        raise MaterialError("angular frequency must be finite")
+    if np.any(values < 0.0):
+        raise MaterialError(
+            "angular frequency must not be negative; a refractive index is not defined "
+            "there. Evaluate on the physical band of the grid."
+        )
+    return values
 
 
 def wavelength_to_omega(

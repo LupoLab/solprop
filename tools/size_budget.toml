@@ -27,4 +27,4 @@ max_lines = 4000
 [private_imports]
 # Private names imported from another package (the root's shared private modules, such
 # as solprop._process, count only for their private names).
-max_cross_package = 87
+max_cross_package = 85
