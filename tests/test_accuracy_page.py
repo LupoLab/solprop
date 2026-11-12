@@ -348,14 +348,6 @@ QUOTES = (
             strict=True,
         )
     ),
-    # Section 10: free space.
-    Quote(
-        "fails at 256 nodes (3.06e-11 against",
-        "3.06e-11",
-        lambda: at(
-            "spatial_accuracy", "numpy_ref: raw QDHT Gram (1)", 256, "deviation"
-        ),
-    ),
 )
 """Every number the page quotes from a record."""
 

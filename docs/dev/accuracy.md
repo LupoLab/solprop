@@ -572,16 +572,24 @@ matters: the thread pins are the slow lane's own (`poe test-slow`) and `estimate
 the plan flag CI uses, so a record taken without them is compared in CI against a run
 that had them.
 
-The spatial records (§10) are written the same way, with an installed native wheel built
-from the same committed tree:
+The spatial record (§10) is written the same way, with an installed native wheel built
+from the same committed tree, by every module that calls
+`spatial_records.record_metric`, radial and Cartesian, in one session, so that each
+series' largest fraction is taken over all its cases:
 
 ```
 SOLPROP_WRITE_RECORDS=1 SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false \
-    SOLPROP_FFTW_PLAN=estimate uv run --no-sync pytest \
-    tests/test_hankel.py tests/test_critical_power.py \
+    SOLPROP_FFTW_PLAN=estimate uv run --no-sync pytest -p no:randomly \
+    tests/test_hankel.py tests/test_critical_power.py tests/test_cartesian_precision.py \
+    tests/test_free_grid.py tests/test_free_statistics.py \
     tests/backends/test_radial_diffraction.py tests/backends/test_radial_absorber.py \
     tests/backends/test_radial_media.py tests/backends/test_radial_nonlinear.py \
-    tests/backends/test_radial_statistics.py
+    tests/backends/test_radial_statistics.py tests/backends/test_free_diffraction.py \
+    tests/backends/test_free_absorber.py tests/backends/test_free_ladders.py \
+    tests/backends/test_free_memory.py tests/backends/test_free_noise.py \
+    tests/backends/test_free_nonlinear.py tests/backends/test_free_statistics.py \
+    tests/backends/test_spatial_execution.py \
+    tests/driver/test_prop_free.py tests/driver/test_prop_radial.py
 ```
 
 **A write run is not a green run**: it says at the end which files it wrote, and those
@@ -594,13 +602,14 @@ record's.
 ## 10. Free space, tabulated, step-index and rectangular modes
 
 **Free-space propagation.** The radial tests keep the raw quasi-discrete Hankel transform,
-whose exact-orthogonality claim fails at 256 nodes (3.06e-11 against
-`256 ε = 5.68e-14`). The [Hankel derivation](../guide/free-space/hankel.md) therefore bounds the
+whose exact-orthogonality claim fails at 256 nodes: its Gram defect exceeds
+`256 ε = 5.68e-14`, which the test asserts. The [Hankel derivation](../guide/free-space/hankel.md) therefore bounds the
 finite-series truncation independently and then adds the special-function construction
 and matrix-product rounding; the special-function assumptions and the numerical contour
-error estimate are estimates, not interval certificates. `spatial_accuracy.json` stores
-each derived bound beside its measurement and source revision, and every row is held to
-two limits: a fixed original limit and the independently derived local bound. The
+error estimate are estimates, not interval certificates. Each test holds its
+measurement to the bound it derives independently for its case, and
+`spatial_accuracy.json` keeps, per series and build, the largest fraction of that bound
+any case reached, which the figure below draws. The
 Gaussian diffraction tests cover the nonparaxial remainder of exact `k_z`, finite QDHT
 bandwidth and radius, the Gouy phase, physical-axis reconstruction and width
 interpolation; circular plasma uses an independent electron count and the radial area

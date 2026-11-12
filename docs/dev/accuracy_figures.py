@@ -325,9 +325,7 @@ def spatial_accuracy() -> None:
     grouped: dict[str, dict[str, float]] = {}
     for row in record["rows"]:
         backend, label = row["series"].split(": ", 1)
-        ratio = float(row["deviation"]) / float(row["bound"])
-        group = grouped.setdefault(label, {})
-        group[backend] = max(group.get(backend, 0.0), ratio)
+        grouped.setdefault(label, {})[backend] = float(row["fraction"])
     labels = sorted(grouped)
     backends = sorted({backend for group in grouped.values() for backend in group})
     positive = [
@@ -361,5 +359,5 @@ def spatial_accuracy() -> None:
     ax.set_yticks(np.arange(len(labels)), labels, fontsize=8)
     ax.set_xscale("log")
     ax.invert_yaxis()
-    ax.set_xlabel("Largest deviation / predeclared bound in each series")
+    ax.set_xlabel("Largest deviation / derived bound in each series")
     ax.legend(frameon=False, fontsize=8)
