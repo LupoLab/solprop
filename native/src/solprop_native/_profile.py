@@ -227,25 +227,8 @@ def descriptor(
     settings and the machine and build. Equal descriptors reuse; anything else falls
     back to the machine profile.
 
-    Parameters
-    ----------
-    shape : sequence of int
-        The state's shape.
-    grid_kind : str
-        ``"field"`` or ``"envelope"``.
-    integrator : str
-        The integrator's name.
-    sizing : Mapping[str, object]
-        The workspace's ``execution_sizing``; only its keys are read.
-    process : Process
-        The process settings.
-    fingerprint : str
-        The machine and build's store key.
-
-    Returns
-    -------
-    str
-        24 hexadecimal digits.
+    - ``grid_kind``: ``"field"`` or ``"envelope"``.
+    - ``sizing``: the workspace's ``execution_sizing``; only its keys are read.
     """
     text = json.dumps(
         {
@@ -276,28 +259,10 @@ def choose(
     Under ``SOLPROP_CALIBRATION=off`` nothing is read. An unreadable store or a
     malformed row leaves the built-in table, with one :class:`StoreWarning`.
 
-    Parameters
-    ----------
-    environ : Mapping[str, str]
-        The environment.
-    packages : Sequence[Path]
-        The ``solprop_native`` package's directories, for the build's identity.
-    stem : str
-        The chosen extension's stem.
-    cpus : Sequence[int]
-        The process's affinity mask; empty for the whole machine.
-    quota : int or None
-        Its CPU quota.
-    topology : Topology or None
-        The machine's, read when ``None``.
-    searched : Sequence[Store] or None
-        The stores to search, the user's and ``SOLPROP_CALIBRATION_PATH``'s when
-        ``None``.
-
-    Returns
-    -------
-    Choice
-        What was found.
+    - ``cpus``: the process's affinity mask; empty for the whole machine.
+    - ``topology``: the machine's, read when ``None``.
+    - ``searched``: the stores to search, the user's and ``SOLPROP_CALIBRATION_PATH``'s
+      when ``None``.
     """
     chosen = mode(environ)
     if chosen == "off":

@@ -106,19 +106,11 @@ def machine_key() -> str:
 def wisdom_file(environ: Mapping[str, str] = os.environ) -> Path | None:
     """Return this machine and build's plan file, or ``None`` without one.
 
-    Parameters
-    ----------
-    environ : Mapping[str, str]
-        The environment.
-
-    Returns
-    -------
-    pathlib.Path or None
-        ``<name>.native-<fingerprint>`` beside the file ``SOLPROP_FFTW_WISDOM`` names;
-        otherwise ``wisdom.json`` in the calibration store's directory of this machine
-        and build. ``None`` under ``SOLPROP_CALIBRATION=off`` without the variable, on
-        a build that keeps no FFTW wisdom (a device build, or a provider without it),
-        and, with a logged warning, when the name cannot be used.
+    - Returns: ``<name>.native-<fingerprint>`` beside the file ``SOLPROP_FFTW_WISDOM``
+      names; otherwise ``wisdom.json`` in the calibration store's directory of this
+      machine and build. ``None`` under ``SOLPROP_CALIBRATION=off`` without the
+      variable, on a build that keeps no FFTW wisdom (a device build, or a provider
+      without it), and, with a logged warning, when the name cannot be used.
     """
     named = environ.get(ENVIRONMENT, "").strip()
     try:
@@ -191,18 +183,8 @@ def _load(path: Path) -> dict[str, str]:
 def plans(path: Path | None) -> tuple[dict[str, str], bool]:
     """Return the plans a workspace is offered, and whether the file supplied any.
 
-    Parameters
-    ----------
-    path : pathlib.Path or None
-        This build's plan file (:func:`wisdom_file`); ``None`` offers this process's
-        own plans alone.
-
-    Returns
-    -------
-    dict
-        Each plan's wisdom by key: the file's, under those this process measured.
-    bool
-        Whether the file held any plan.
+    - ``path``: this build's plan file (:func:`wisdom_file`); ``None`` offers this
+      process's own plans alone.
     """
     with _LOCK:
         found = _load(path) if path is not None else {}
@@ -210,13 +192,7 @@ def plans(path: Path | None) -> tuple[dict[str, str], bool]:
 
 
 def remember(measured: Mapping[str, str]) -> None:
-    """Keep plans this process measured for its later workspaces.
-
-    Parameters
-    ----------
-    measured : Mapping[str, str]
-        Each plan's own wisdom by key.
-    """
+    """Keep plans this process measured for its later workspaces."""
     with _LOCK:
         _measured.update(measured)
 
@@ -247,19 +223,7 @@ def store(
 ) -> bool:
     """Merge plans a run measured into the file.
 
-    Parameters
-    ----------
-    path : pathlib.Path or None
-        This build's plan file (:func:`wisdom_file`); ``None`` does nothing.
-    measured : Mapping[str, str]
-        Each plan's own wisdom by key, as the workspace measured it.
-    profiled : Collection[str]
-        The keys a calibration profile holds, which are never stored here.
-
-    Returns
-    -------
-    bool
-        Whether the file was replaced.
+    - ``path``: this build's plan file (:func:`wisdom_file`); ``None`` does nothing.
     """
     new = {key: plan for key, plan in measured.items() if key not in profiled}
     if path is None or not new:
@@ -290,16 +254,8 @@ def store(
 def digest(applied: Mapping[str, str]) -> str | None:
     """Return a short digest of a workspace's plans, for its run's metadata.
 
-    Parameters
-    ----------
-    applied : Mapping[str, str]
-        The wisdom of each plan the workspace built from wisdom or measured, by key.
-
-    Returns
-    -------
-    str or None
-        The first sixteen hex characters of a BLAKE2b over the plans; ``None`` on a
-        build without FFTW wisdom.
+    - Returns: the first sixteen hex characters of a BLAKE2b over the plans; ``None`` on
+      a build without FFTW wisdom.
     """
     if not _keeps_wisdom():
         return None

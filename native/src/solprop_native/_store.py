@@ -81,13 +81,7 @@ class StoreWarning(UserWarning):
 
 
 def mode(environ: Mapping[str, str] = os.environ) -> Mode:
-    """Return ``SOLPROP_CALIBRATION``, ``"auto"`` when unset.
-
-    Raises
-    ------
-    ValueError
-        For a value other than ``auto``, ``use`` or ``off``.
-    """
+    """Return ``SOLPROP_CALIBRATION``, ``"auto"`` when unset."""
     value = environ.get("SOLPROP_CALIBRATION", "").strip().lower() or "auto"
     for known in MODES:
         if value == known:
@@ -176,13 +170,7 @@ class Row:
 
     @classmethod
     def read(cls, data: object) -> Row:
-        """Read a row written by :meth:`record`.
-
-        Raises
-        ------
-        ValueError
-            When `data` is not a row.
-        """
+        """Read a row written by :meth:`record`."""
         values = _mapping(data, "row")
         level = values.get("level")
         if not isinstance(level, str) or level not in LEVELS:
@@ -238,13 +226,7 @@ class Generation:
 
     @classmethod
     def read(cls, data: object, source: Path | None = None) -> Generation:
-        """Read a generation written by :meth:`record`.
-
-        Raises
-        ------
-        ValueError
-            When `data` is not a generation of this format.
-        """
+        """Read a generation written by :meth:`record`."""
         values = _mapping(data, "generation")
         if values.get("format") != FORMAT:
             raise ValueError(
@@ -316,10 +298,7 @@ class Claim:
 class Store:
     """A calibration store rooted at `root`; read-only unless writes are asked for.
 
-    Parameters
-    ----------
-    root : Path
-        The store's directory (:func:`cache_directory`, or a read-only one).
+    - ``root``: the store's directory (:func:`cache_directory`, or a read-only one).
     """
 
     def __init__(self, root: Path):
@@ -357,13 +336,7 @@ class Store:
         return generation
 
     def publish(self, generation: Generation) -> Path:
-        """Write `generation` completely, then make it current; return its file.
-
-        Raises
-        ------
-        OSError
-            When the store cannot be written; the previous generation stays current.
-        """
+        """Write `generation` completely, then make it current; return its file."""
         directory = self.directory(generation.fingerprint)
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"{generation.name}.json"
@@ -487,13 +460,7 @@ class Store:
     def publish_refinement(
         self, fingerprint: str, descriptor: str, record: Mapping[str, object]
     ) -> Path:
-        """Write one simulation's refinement whole; return its file.
-
-        Raises
-        ------
-        OSError
-            When the store cannot be written.
-        """
+        """Write one simulation's refinement whole; return its file."""
         directory = self.root / "problems" / fingerprint
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"{descriptor}.json"

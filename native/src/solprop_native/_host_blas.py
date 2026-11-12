@@ -82,24 +82,8 @@ def hold(
 ) -> str:
     """Take the host BLAS pools for one more backend; return what applies.
 
-    Parameters
-    ----------
-    own_library : str
-        This package's BLAS library, which keeps its own fitted width.
-    budget : int
-        The process's thread budget, which ``SOLPROP_BLAS_THREADS`` stays within.
-    controller : threadpoolctl.ThreadpoolController, optional
-        The library walk; a test passes its own.
-    acquire : callable or None, optional
-        An explicit host-lease hook supplied by solprop's backend adapter, so
-        construction and backend lifetimes share their pool ownership. Standalone
-        use keeps the local threadpoolctl limit and imports no solprop code.
-
-    Returns
-    -------
-    str
-        The libraries limited and their width, ``"none"`` when there is no other BLAS,
-        or ``"unavailable"`` without threadpoolctl.
+    - Returns: the libraries limited and their width, ``"none"`` when there is no other
+      BLAS, or ``"unavailable"`` without threadpoolctl.
     """
     global _holders, _limiter, _reached
     with _LOCK:

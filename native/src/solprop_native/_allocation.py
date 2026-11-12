@@ -74,13 +74,7 @@ class AllocationClass:
 
     @classmethod
     def read(cls, data: Mapping[str, object]) -> AllocationClass:
-        """Read a class written by :meth:`record`.
-
-        Raises
-        ------
-        ValueError
-            When `data` is not a class.
-        """
+        """Read a class written by :meth:`record`."""
         try:
             kinds = data["kinds"]
             quota = data.get("quota")
