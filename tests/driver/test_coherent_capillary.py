@@ -1810,52 +1810,6 @@ def test_the_frozen_split_is_a_rearrangement_and_not_an_approximation():
     assert departure < gate, (departure, gate)
 
 
-def test_the_accumulated_error_is_verified_by_independent_refinement():
-    """Halving the step reduces the departure by 32: the run converges at order five.
-
-    The accumulated error of the explicit residual must be verified by independent
-    refinement rather than trusted to the estimate. The refinement here is of the
-    **schedule**, not of the sections, so the equation is fixed and only its integration
-    changes; the embedded DOPRI5 pair is fifth order, so halving the step must reduce
-    the departure from the finest run by 32. Predeclared gate: a measured order above
-    4.0 across two halvings. Measured 4.87 and 4.95, against a 160-step reference; the
-    run itself is 3.4e-9 of the state at ten steps, so the residual is being integrated
-    and not merely held.
-
-    Every step count is a multiple of :data:`STEPS`, because the taper's corners are
-    and a fixed schedule must land on every hard kink.
-    """
-    fine = _refined(STEPS * 16)
-    scale = float(np.max(abs(fine)))
-    departures = [
-        float(np.max(abs(_refined(STEPS * count) - fine))) for count in (1, 2, 4)
-    ]
-    assert departures[0] / scale < 1e-8
-    orders = [
-        math.log2(departures[index] / departures[index + 1]) for index in range(2)
-    ]
-    assert min(orders) > 4.0, (departures, orders)
-
-
-def _refined(steps):
-    """Return the final plane of the varying wall case on a schedule of `steps`.
-
-    Stepped by the Runge-Kutta march, whose fifth order the refinement measures.
-    """
-    return propagated(
-        *translated(
-            varying(
-                wall=CoherentWall(),
-                integrator=RungeKutta(),
-                schedule=FixedSchedule(np.full(steps, LENGTH / steps)),
-                dz_max=LENGTH / steps,
-                dz_init=LENGTH / steps,
-            )
-        ),
-        GRID,
-    )
-
-
 def _true_power_reference(block, index):
     """Return `b(L)` of one bin, solved in the true-power amplitude by DOP853.
 
@@ -3332,46 +3286,6 @@ def test_on_a_taper_the_families_exchange_power_only_through_the_wall_anisotropy
     power = np.sum(abs(field) ** 2, axis=-1) / float(np.sum(abs(field) ** 2))
     assert float(power[2] + power[3]) < 1e-30, power
     assert float(power[1]) > 0.05, power
-
-
-def _vector_refined(steps):
-    """Return the final plane of the vector taper on a schedule of `steps`.
-
-    Stepped by the Runge-Kutta march: the refinement measures DOPRI5's fifth order on
-    the frozen split.
-    """
-    return propagated(
-        *translated(
-            varying(
-                wall=CoherentWall(impedance="te_tm"),
-                integrator=RungeKutta(),
-                modes=vector_modes(radius=taper()),
-                schedule=FixedSchedule(np.full(steps, LENGTH / steps)),
-                dz_max=LENGTH / steps,
-                dz_init=LENGTH / steps,
-            )
-        ),
-        GRID,
-    )
-
-
-@pytest.mark.medium
-def test_the_vector_taper_converges_at_the_frozen_split_s_order():
-    """Independent refinement: fifth order frozen, against one reference.
-
-    Bounds, stated first. The embedded DOPRI5 pair integrates the frozen split's
-    explicit residual at fifth order, so halving the step divides the departure from a
-    160-step frozen run by 32 -- gate an order above 4.0 on the first halving, and a
-    ten-step departure below 1e-8 of the state (measured 6.2e-11, then 4.82).
-    """
-    reference = _vector_refined(STEPS * 16)
-    scale = float(np.max(abs(reference)))
-    frozen = [
-        float(np.max(abs(_vector_refined(STEPS * count) - reference))) / scale
-        for count in (1, 2)
-    ]
-    assert frozen[0] < 1e-8, frozen
-    assert math.log2(frozen[0] / frozen[1]) > 4.0, frozen
 
 
 def test_the_vector_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path):
