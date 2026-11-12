@@ -183,19 +183,9 @@ class _Windows:
 def _accurate(
     found: list[np.ndarray], reference: list[np.ndarray], rtol: float
 ) -> bool:
-    """Return whether `found` is finite and within ``ACCURACY * rtol`` of `reference`.
+    """Return whether `found` is finite and close to `reference`, window by window.
 
-    Parameters
-    ----------
-    found, reference : list of numpy.ndarray
-        The windows' trial-step fields under a candidate and under the base.
-    rtol : float
-        The run's relative tolerance.
-
-    Returns
-    -------
-    bool
-        Whether every window agrees, in the relative L2 norm.
+    Close is within ``ACCURACY * rtol`` in the relative L2 norm.
     """
     for mine, theirs in zip(found, reference, strict=True):
         if not np.all(np.isfinite(mine)):
