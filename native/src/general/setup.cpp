@@ -126,71 +126,9 @@ void GeneralWorkspace::allocate() {
       problem_.separable_geometry() ? problem_.dims.node_chunk : problem_.dims.n_modes;
   // Spatial statistics reconstruct one chunk of physical nodes at a time.
   const auto statistics_rows = problem_.slab_geometry() ? chunk_rows : temporal_columns;
-  if (problem_.separable_geometry()) {
-    // Keeping transform axes trailing avoids Kokkos-FFT's per-execution
-    // transpose allocations. The canonical state retains omega-contiguous columns.
-    transverse_ = problem_.slab_geometry()
-                      ? ComplexView3("solprop_native.slab.transverse", n,
-                                     problem_.spatial.n_p, problem_.spatial.n_y)
-                      : ComplexView3("solprop_native.free.transverse",
-                                     problem_.dims.n_pol_state * n,
-                                     problem_.spatial.n_y, problem_.spatial.n_x);
-    spatial_.square = ComplexView("solprop_native.free.k_squared", n);
-    spatial_.square_low = ComplexView("solprop_native.free.k_squared_low", n);
-    spatial_.numerator = ComplexView("solprop_native.free.numerator", n);
-    spatial_.clamped = ComplexView("solprop_native.free.clamped", n);
-    spatial_.transverse =
-        RealView("solprop_native.free.kperp_sq", problem_.dims.n_modes);
-    spatial_.transverse_low =
-        RealView("solprop_native.free.kperp_sq_low", problem_.dims.n_modes);
-    spatial_.frame = RealView("solprop_native.free.frame", n);
-    spatial_.spectral_rate = RealView("solprop_native.free.spectral_rate", n);
-    spatial_.user_rate = RealView("solprop_native.free.user_rate", n);
-    spatial_.absorber = RealView("solprop_native.free.absorber", problem_.dims.n_modes);
-    spatial_.transverse_rate =
-        RealView("solprop_native.free.kperp_rate", problem_.dims.n_modes);
-    spatial_.evanescent = problem_.spatial.evanescent_rate;
-    if (problem_.slab_geometry()) {
-      spatial_.kappa =
-          ComplexView2("solprop_native.slab.kappa_sq", problem_.spatial.n_p, n);
-      spatial_.channels = problem_.spatial.n_p;
-    }
-    flux_ = spatial_;
-    if (problem_.flux.closure)
-      flux_transverse_ =
-          ComplexView3("solprop_native.flux.closure_transverse", transverse_.extent(0),
-                       transverse_.extent(1), transverse_.extent(2));
-  } else if (!problem_.flux.k_squared.empty()) {
-    flux_.square = ComplexView("solprop_native.flux.k_squared", n);
-    flux_.square_low = ComplexView("solprop_native.flux.k_squared_low", n);
-    flux_.transverse = RealView("solprop_native.flux.kperp_sq", problem_.dims.n_modes);
-    flux_.transverse_low =
-        RealView("solprop_native.flux.kperp_sq_low", problem_.dims.n_modes);
-  }
+  allocate_separable(n);
   current_ = ComplexView2("solprop_native.state.current", columns, n);
-  if (problem_.stepper.low_storage) {
-    // solprop SEP 24 section 6.7: the march holds its registers beside the state and
-    // none of the Runge-Kutta views; the stage's input is formed in the route's own
-    // scratch (`transverse_`, or the fine spectrum of the modal routes).
-    register_accumulator_ =
-        ComplexView2("solprop_native.low_storage.accumulator", columns, n);
-    if (problem_.stepper.low_storage_stage_register)
-      register_stage_ = ComplexView2("solprop_native.low_storage.stage", columns, n);
-    low_storage_flows_ = ComplexView3("solprop_native.low_storage.flows",
-                                      problem_.stepper.low_storage_flows, columns, n);
-  } else {
-    advanced_ = ComplexView2("solprop_native.state.advanced", columns, n);
-    stages_ = ComplexView3("solprop_native.step.stages", problem_.stepper.n_stages,
-                           columns, n);
-    solution_ = ComplexView2("solprop_native.step.solution", columns, n);
-    error_ = ComplexView2("solprop_native.step.error", columns, n);
-    residual_ = ComplexView2("solprop_native.step.residual", columns, n);
-    recycled_ = ComplexView2("solprop_native.step.recycled", columns, n);
-    whole_propagator_ =
-        ComplexView2("solprop_native.step.whole_propagator", columns, n);
-    if (!problem_.separable_geometry())
-      stage_inverse_ = ComplexView2("solprop_native.step.stage_inverse", columns, n);
-  }
+  allocate_low_storage(columns, n);
   if (problem_.stepper.modified_noise)
     noise_ = ComplexView2("solprop_native.noise", columns, n);
   if (!problem_.separable_geometry() && problem_.flow.enabled)
@@ -211,51 +149,7 @@ void GeneralWorkspace::allocate() {
     weighted_partials_ =
         RealView("solprop_native.step.weighted_partials", columns * reduction_slots_);
   }
-  if (!problem_.spatial.spectral_weights.empty()) {
-    spatial_spectral_weights_ =
-        RealView("solprop_native.spatial.spectral_weights", problem_.dims.n_modes);
-    spatial_on_axis_ =
-        ComplexView("solprop_native.spatial.on_axis", problem_.dims.n_modes);
-    // One row per column for the energy and per node for the peaks and fluence,
-    // which differ on the hybrid planar kind alone.
-    spatial_statistics_partials_ =
-        RealView2("solprop_native.spatial.statistics_partials",
-                  std::max(problem_.dims.n_modes, problem_.dims.n_nodes), 3);
-  }
-  statistics_spectrum_ = ComplexView2("solprop_native.statistics.spectrum",
-                                      statistics_rows, problem_.dims.n_t);
-  statistics_time_ = ComplexView2("solprop_native.statistics.time", statistics_rows,
-                                  problem_.dims.n_t);
-  statistics_power_weight_ =
-      RealView2("solprop_native.statistics.power_weight",
-                problem_.spatial.spectral_weights.empty() ? columns : 0, n);
-  graph::deep_copy(execution_space_, statistics_power_weight_, 1.0);
-  // A spatial run's rows hold the magnetic closure in time (solprop SEP 34) when a
-  // local flux statistic is asked for.
-  statistics_weighted_time_ =
-      ComplexView2("solprop_native.statistics.weighted_time",
-                   problem_.spatial.spectral_weights.empty() ? temporal_columns
-                   : problem_.flux.closure                   ? statistics_rows
-                                                             : 0,
-                   problem_.dims.n_t);
-  statistics_power_ =
-      RealView2("solprop_native.statistics.power", statistic_nodes, problem_.dims.n_t);
-  if (problem_.flux.closure && !problem_.separable_geometry())
-    statistics_magnitude_ = RealView2("solprop_native.statistics.flux_magnitude",
-                                      statistic_nodes, problem_.dims.n_t);
-  statistics_total_power_ =
-      RealView("solprop_native.statistics.total_power", problem_.dims.n_t);
-  statistics_on_axis_ =
-      RealView("solprop_native.statistics.on_axis", 2 * problem_.dims.n_modes);
-  const auto base_statistics = checked_sum(
-      checked_sum(problem_.dims.n_t,
-                  checked_product(2, problem_.n_columns(), "statistics columns"),
-                  "statistics packed output"),
-      checked_product(3, problem_.dims.n_modes, "statistics modes"),
-      "statistics packed output");
-  statistics_packed_ =
-      RealView("solprop_native.statistics.packed",
-               checked_sum(base_statistics, 5, "statistics packed output"));
+  allocate_statistics(columns, n, temporal_columns, statistic_nodes, statistics_rows);
   crop_index_ = IndexView("solprop_native.transform.crop_index", n);
   active_mask_ = ByteView("solprop_native.mask.active", n);
   norm_mask_ = ByteView("solprop_native.mask.norm", n);
@@ -317,6 +211,156 @@ void GeneralWorkspace::allocate() {
       stage_staging_.push_back(
           Kokkos::create_mirror_view(Kokkos::SharedHostPinnedSpace{}, stage_scalars_));
   }
+  allocate_raman();
+  allocate_transforms(columns, transform_rows, temporal_columns);
+  fine_spectrum_ = ComplexView2("solprop_native.fft.fine_spectrum", temporal_columns,
+                                fine_spectrum_size());
+  if (!problem_.separable_geometry() && problem_.dims.n_omega != fine_spectrum_size())
+    fine_gaps_ = IndexView("solprop_native.fft.fine_gaps", 3 * fine_gap_runs().size());
+  if (problem_.separable_geometry() && problem_.dims.n_omega != fine_spectrum_size()) {
+    std::vector<std::size_t> bins;
+    for (const auto& [bin, length] : fine_gap_runs())
+      for (std::size_t offset = 0; offset < length; ++offset)
+        bins.push_back(bin + offset);
+    separable_gaps_ = IndexView("solprop_native.free.fine_gaps", bins.size());
+    copy_vector(execution_space_, separable_gaps_, bins);
+  }
+  allocate_forward_rows(columns, chunk_rows, temporal_columns);
+  allocate_absorbers();
+  allocate_envelope_plasma(chunk_rows, temporal_columns);
+  allocate_plasma(chunk_rows);
+  allocate_split(n, temporal_columns);
+  allocate_parts();
+}
+
+// A separable geometry's transverse scratch, gaps and statistics geometry.
+void GeneralWorkspace::allocate_separable(const std::size_t n) {
+  if (problem_.separable_geometry()) {
+    // Keeping transform axes trailing avoids Kokkos-FFT's per-execution
+    // transpose allocations. The canonical state retains omega-contiguous columns.
+    transverse_ = problem_.slab_geometry()
+                      ? ComplexView3("solprop_native.slab.transverse", n,
+                                     problem_.spatial.n_p, problem_.spatial.n_y)
+                      : ComplexView3("solprop_native.free.transverse",
+                                     problem_.dims.n_pol_state * n,
+                                     problem_.spatial.n_y, problem_.spatial.n_x);
+    spatial_.square = ComplexView("solprop_native.free.k_squared", n);
+    spatial_.square_low = ComplexView("solprop_native.free.k_squared_low", n);
+    spatial_.numerator = ComplexView("solprop_native.free.numerator", n);
+    spatial_.clamped = ComplexView("solprop_native.free.clamped", n);
+    spatial_.transverse =
+        RealView("solprop_native.free.kperp_sq", problem_.dims.n_modes);
+    spatial_.transverse_low =
+        RealView("solprop_native.free.kperp_sq_low", problem_.dims.n_modes);
+    spatial_.frame = RealView("solprop_native.free.frame", n);
+    spatial_.spectral_rate = RealView("solprop_native.free.spectral_rate", n);
+    spatial_.user_rate = RealView("solprop_native.free.user_rate", n);
+    spatial_.absorber = RealView("solprop_native.free.absorber", problem_.dims.n_modes);
+    spatial_.transverse_rate =
+        RealView("solprop_native.free.kperp_rate", problem_.dims.n_modes);
+    spatial_.evanescent = problem_.spatial.evanescent_rate;
+    if (problem_.slab_geometry()) {
+      spatial_.kappa =
+          ComplexView2("solprop_native.slab.kappa_sq", problem_.spatial.n_p, n);
+      spatial_.channels = problem_.spatial.n_p;
+    }
+    flux_ = spatial_;
+    if (problem_.flux.closure)
+      flux_transverse_ =
+          ComplexView3("solprop_native.flux.closure_transverse", transverse_.extent(0),
+                       transverse_.extent(1), transverse_.extent(2));
+  } else if (!problem_.flux.k_squared.empty()) {
+    flux_.square = ComplexView("solprop_native.flux.k_squared", n);
+    flux_.square_low = ComplexView("solprop_native.flux.k_squared_low", n);
+    flux_.transverse = RealView("solprop_native.flux.kperp_sq", problem_.dims.n_modes);
+    flux_.transverse_low =
+        RealView("solprop_native.flux.kperp_sq_low", problem_.dims.n_modes);
+  }
+}
+
+// The low-storage march's registers and flows (solprop SEP 24).
+void GeneralWorkspace::allocate_low_storage(const std::size_t columns,
+                                            const std::size_t n) {
+  if (problem_.stepper.low_storage) {
+    // solprop SEP 24 section 6.7: the march holds its registers beside the state and
+    // none of the Runge-Kutta views; the stage's input is formed in the route's own
+    // scratch (`transverse_`, or the fine spectrum of the modal routes).
+    register_accumulator_ =
+        ComplexView2("solprop_native.low_storage.accumulator", columns, n);
+    if (problem_.stepper.low_storage_stage_register)
+      register_stage_ = ComplexView2("solprop_native.low_storage.stage", columns, n);
+    low_storage_flows_ = ComplexView3("solprop_native.low_storage.flows",
+                                      problem_.stepper.low_storage_flows, columns, n);
+  } else {
+    advanced_ = ComplexView2("solprop_native.state.advanced", columns, n);
+    stages_ = ComplexView3("solprop_native.step.stages", problem_.stepper.n_stages,
+                           columns, n);
+    solution_ = ComplexView2("solprop_native.step.solution", columns, n);
+    error_ = ComplexView2("solprop_native.step.error", columns, n);
+    residual_ = ComplexView2("solprop_native.step.residual", columns, n);
+    recycled_ = ComplexView2("solprop_native.step.recycled", columns, n);
+    whole_propagator_ =
+        ComplexView2("solprop_native.step.whole_propagator", columns, n);
+    if (!problem_.separable_geometry())
+      stage_inverse_ = ComplexView2("solprop_native.step.stage_inverse", columns, n);
+  }
+}
+
+// The statistics' spectra, time rows, weights and packed outputs.
+void GeneralWorkspace::allocate_statistics(const std::size_t columns,
+                                           const std::size_t n,
+                                           const std::size_t temporal_columns,
+                                           const std::size_t statistic_nodes,
+                                           const std::size_t statistics_rows) {
+  if (!problem_.spatial.spectral_weights.empty()) {
+    spatial_spectral_weights_ =
+        RealView("solprop_native.spatial.spectral_weights", problem_.dims.n_modes);
+    spatial_on_axis_ =
+        ComplexView("solprop_native.spatial.on_axis", problem_.dims.n_modes);
+    // One row per column for the energy and per node for the peaks and fluence,
+    // which differ on the hybrid planar kind alone.
+    spatial_statistics_partials_ =
+        RealView2("solprop_native.spatial.statistics_partials",
+                  std::max(problem_.dims.n_modes, problem_.dims.n_nodes), 3);
+  }
+  statistics_spectrum_ = ComplexView2("solprop_native.statistics.spectrum",
+                                      statistics_rows, problem_.dims.n_t);
+  statistics_time_ = ComplexView2("solprop_native.statistics.time", statistics_rows,
+                                  problem_.dims.n_t);
+  statistics_power_weight_ =
+      RealView2("solprop_native.statistics.power_weight",
+                problem_.spatial.spectral_weights.empty() ? columns : 0, n);
+  graph::deep_copy(execution_space_, statistics_power_weight_, 1.0);
+  // A spatial run's rows hold the magnetic closure in time (solprop SEP 34) when a
+  // local flux statistic is asked for.
+  statistics_weighted_time_ =
+      ComplexView2("solprop_native.statistics.weighted_time",
+                   problem_.spatial.spectral_weights.empty() ? temporal_columns
+                   : problem_.flux.closure                   ? statistics_rows
+                                                             : 0,
+                   problem_.dims.n_t);
+  statistics_power_ =
+      RealView2("solprop_native.statistics.power", statistic_nodes, problem_.dims.n_t);
+  if (problem_.flux.closure && !problem_.separable_geometry())
+    statistics_magnitude_ = RealView2("solprop_native.statistics.flux_magnitude",
+                                      statistic_nodes, problem_.dims.n_t);
+  statistics_total_power_ =
+      RealView("solprop_native.statistics.total_power", problem_.dims.n_t);
+  statistics_on_axis_ =
+      RealView("solprop_native.statistics.on_axis", 2 * problem_.dims.n_modes);
+  const auto base_statistics = checked_sum(
+      checked_sum(problem_.dims.n_t,
+                  checked_product(2, problem_.n_columns(), "statistics columns"),
+                  "statistics packed output"),
+      checked_product(3, problem_.dims.n_modes, "statistics modes"),
+      "statistics packed output");
+  statistics_packed_ =
+      RealView("solprop_native.statistics.packed",
+               checked_sum(base_statistics, 5, "statistics packed output"));
+}
+
+// The Raman convolution's drives, kernel and stage rates.
+void GeneralWorkspace::allocate_raman() {
   if (problem_.raman.enabled) {
     const auto doubled = 2 * problem_.dims.n_to;
     node_raman_drive_ =
@@ -346,6 +390,12 @@ void GeneralWorkspace::allocate() {
       cached_raman_densities_.resize(problem_.raman.n_components);
     }
   }
+}
+
+// The synthesis and projection matrices, scaled and chunked, and their time rows.
+void GeneralWorkspace::allocate_transforms(const std::size_t columns,
+                                           const std::size_t transform_rows,
+                                           const std::size_t temporal_columns) {
   if (use_packed_radial_blas()) {
     radial_blas_input_ = RealView2("solprop_native.radial.blas_input",
                                    problem_.dims.n_nodes, 2 * problem_.dims.n_to);
@@ -457,18 +507,13 @@ void GeneralWorkspace::allocate() {
                                      projection_rows, tail_transform_rows);
     }
   }
-  fine_spectrum_ = ComplexView2("solprop_native.fft.fine_spectrum", temporal_columns,
-                                fine_spectrum_size());
-  if (!problem_.separable_geometry() && problem_.dims.n_omega != fine_spectrum_size())
-    fine_gaps_ = IndexView("solprop_native.fft.fine_gaps", 3 * fine_gap_runs().size());
-  if (problem_.separable_geometry() && problem_.dims.n_omega != fine_spectrum_size()) {
-    std::vector<std::size_t> bins;
-    for (const auto& [bin, length] : fine_gap_runs())
-      for (std::size_t offset = 0; offset < length; ++offset)
-        bins.push_back(bin + offset);
-    separable_gaps_ = IndexView("solprop_native.free.fine_gaps", bins.size());
-    copy_vector(execution_space_, separable_gaps_, bins);
-  }
+}
+
+// The forward rows and spectra: the projection's, the absorber's, a device's pack and
+// the held and gated plasma currents'.
+void GeneralWorkspace::allocate_forward_rows(const std::size_t columns,
+                                             const std::size_t chunk_rows,
+                                             const std::size_t temporal_columns) {
   // A device's packed forward rows (`packs_forward`): the absorber's, the projection's,
   // the coarse projection's and the held pack's, in that order, carved from one buffer
   // and one spectrum.
@@ -720,6 +765,10 @@ void GeneralWorkspace::allocate() {
                     problem_.dims.node_chunk * problem_.dims.n_pol_transform);
     }
   }
+}
+
+// The temporal absorbers' rates and a radial run's spatial absorber.
+void GeneralWorkspace::allocate_absorbers() {
   absorber_fine_ =
       RealView("solprop_native.absorber.rate_fine", problem_.absorber.fine.size());
   absorber_coarse_ =
@@ -741,6 +790,11 @@ void GeneralWorkspace::allocate() {
                   problem_.spatial.absorber_matrix);
     }
   }
+}
+
+// The envelope plasma's quadrature rules, cycles and current streams.
+void GeneralWorkspace::allocate_envelope_plasma(const std::size_t chunk_rows,
+                                                const std::size_t temporal_columns) {
   if (problem_.plasma.envelope) {
     envelope_rule_nodes_ = RealView3("solprop_native.envelope.rule_nodes",
                                      problem_.plasma.n_channels, 4, 512);
@@ -781,6 +835,10 @@ void GeneralWorkspace::allocate() {
             ComplexView2(label + "stacked", 2 * temporal_columns, problem_.dims.n_to);
     }
   }
+}
+
+// The plasma column's tables, channels, scans and diagnostics.
+void GeneralWorkspace::allocate_plasma(const std::size_t chunk_rows) {
   if (problem_.plasma.enabled) {
     if (problem_.plasma.n_channels > 1 || problem_.plasma.envelope) {
       channel_parameters_ = RealView2("solprop_native.plasma.channel_parameters",
@@ -897,6 +955,11 @@ void GeneralWorkspace::allocate() {
                     1 + 2 * problem_.plasma.n_channels);
     }
   }
+}
+
+// The split-step absorber's factor and coarse rows.
+void GeneralWorkspace::allocate_split(const std::size_t n,
+                                      const std::size_t temporal_columns) {
   if (problem_.absorber.split_step) {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     split_factor_ = RealView("solprop_native.absorber.split_factor", problem_.dims.n_t);
@@ -924,6 +987,11 @@ void GeneralWorkspace::allocate() {
                                       temporal_columns, problem_.dims.n_t);
     }
   }
+}
+
+// The route's parts: the general modal source, the dispersive responses, the far-field
+// pass and the coupled flow.
+void GeneralWorkspace::allocate_parts() {
   if (problem_.general.enabled) {
     // solprop SEP 47: a general modal basis's statistics whiten the columns by the
     // metric's root (`whitened_statistics`), into scratch held from the start.
@@ -1253,77 +1321,7 @@ void GeneralWorkspace::plan() {
     dispersive_->plan(fft_pool_);
   if (separable_dispersive_)
     separable_dispersive_->plan(fft_pool_);
-  if (problem_.slab_geometry()) {
-    // The y transforms are many short ones; below the threaded-plan threshold they
-    // run on one FFTW thread, as every other small plan (`fft_space_for`).
-    constexpr int y_axis = -1;
-    const auto& space = fft_space_for_rows(transverse_);
-    slab_forward_ = std::make_unique<SlabPlan>(space, transverse_, transverse_,
-                                               KokkosFFT::Direction::forward, y_axis);
-    slab_inverse_ = std::make_unique<SlabPlan>(space, transverse_, transverse_,
-                                               KokkosFFT::Direction::backward, y_axis);
-  } else if (problem_.free_geometry()) {
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-    constexpr std::size_t axes = 2;
-#else
-    const KokkosFFT::axis_type<2> axes{-2, -1};
-#endif
-    transverse_forward_ = std::make_unique<TransversePlan>(
-        fft_space_for_rows(transverse_), transverse_, transverse_,
-        KokkosFFT::Direction::forward, axes);
-    transverse_inverse_ = std::make_unique<TransversePlan>(
-        fft_space_for_rows(transverse_), transverse_, transverse_,
-        KokkosFFT::Direction::backward, axes);
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-    bool identity_crop = problem_.grid.crop_index.size() == problem_.dims.n_omega;
-    for (std::size_t index = 0; identity_crop && index < problem_.dims.n_omega; ++index)
-      identity_crop = problem_.grid.crop_index[index] == index;
-    volume_kerr_ = identity_crop && problem_.dims.family == FieldFamily::envelope &&
-                   problem_.dims.n_pol_state == 1 &&
-                   problem_.effective_node_pol() == 1 &&
-                   problem_.dims.n_to == problem_.dims.n_omega &&
-                   problem_.dims.n_t == problem_.dims.n_to && separable_aliased_ &&
-                   problem_.kerr.nonlinear && !problem_.plasma.enabled &&
-                   !problem_.raman.enabled && !problem_.plasma.envelope &&
-                   !problem_.dispersive.enabled && separable_dispersive_ == nullptr &&
-                   problem_.kerr.harmonic_factor == 0.0 && separable_gaps_.empty();
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-    // At 768 x 768 x 600 on an NVIDIA H200, cuFFT's `{N,N,T}` takes 14.7 ms a transform
-    // against 17.6 ms for `{T,N,N}` (solprop #365). An in-stage absorber evaluates its
-    // term from the same input in the scratch's order, so it keeps that order.
-    volume_order_ = volume_kerr_ && !problem_.absorber.in_stage;
-#endif
-    if (volume_order_)
-      volume_scratch_ = ComplexView3(transverse_.data(), problem_.spatial.n_y,
-                                     problem_.spatial.n_x, problem_.dims.n_omega);
-    if (volume_kerr_) {
-      constexpr std::size_t volume_axes = 3;
-      const auto& volume = volume_order_ ? volume_scratch_ : transverse_;
-      volume_forward_ = std::make_unique<VolumePlan>(
-          execution_space_, volume, volume, KokkosFFT::Direction::forward, volume_axes);
-      volume_inverse_ =
-          std::make_unique<VolumePlan>(execution_space_, volume, volume,
-                                       KokkosFFT::Direction::backward, volume_axes);
-    }
-    std::size_t work = KokkosFFT::compute_required_workspace_size<Complex>(
-        *transverse_forward_, *transverse_inverse_);
-    if (volume_kerr_)
-      work = std::max(work, KokkosFFT::compute_required_workspace_size<Complex>(
-                                *volume_forward_, *volume_inverse_));
-    if (work != 0) {
-      transform_work_ =
-          ComplexView(Kokkos::view_alloc("solprop_native.free.transform_work",
-                                         Kokkos::WithoutInitializing),
-                      work);
-      transverse_forward_->set_work_area(transform_work_);
-      transverse_inverse_->set_work_area(transform_work_);
-      if (volume_kerr_) {
-        volume_forward_->set_work_area(transform_work_);
-        volume_inverse_->set_work_area(transform_work_);
-      }
-    }
-#endif
-  }
+  plan_transverse();
   constexpr int axis = -1;
   if (held_plasma()) {
     for (auto& stream : held_streams_) {
@@ -1469,51 +1467,136 @@ void GeneralWorkspace::plan() {
       }
     }
   }
-  if (problem_.raman.enabled) {
-    const auto started = std::chrono::steady_clock::now();
-    raman_drive_forward_plan_ = std::make_unique<RamanForwardPlan>(
-        raman_execution_space_, node_raman_drive_, node_raman_spectrum_,
-        KokkosFFT::Direction::forward, axis);
-    raman_convolution_inverse_plan_ = std::make_unique<RamanInversePlan>(
-        raman_execution_space_, node_raman_spectrum_, node_raman_convolved_,
-        KokkosFFT::Direction::backward, axis);
-    const auto tail = problem_.dims.n_nodes % problem_.dims.node_chunk;
-    if (tail != 0) {
-      // Reuse the leading rows of the full chunk buffers. A separate persistent
-      // plan avoids transforming stale rows in the final partial node chunk.
-      const auto rows = std::make_pair(std::size_t{0}, tail * problem_.raman_drives());
-      raman_tail_drive_ = Kokkos::subview(node_raman_drive_, rows, Kokkos::ALL());
-      raman_tail_spectrum_ = Kokkos::subview(node_raman_spectrum_, rows, Kokkos::ALL());
-      raman_tail_convolved_ =
-          Kokkos::subview(node_raman_convolved_, rows, Kokkos::ALL());
-      raman_tail_forward_plan_ = std::make_unique<RamanForwardPlan>(
-          raman_tail_execution_space_, raman_tail_drive_, raman_tail_spectrum_,
-          KokkosFFT::Direction::forward, axis);
-      raman_tail_inverse_plan_ = std::make_unique<RamanInversePlan>(
-          raman_tail_execution_space_, raman_tail_spectrum_, raman_tail_convolved_,
-          KokkosFFT::Direction::backward, axis);
+  if (problem_.raman.enabled)
+    plan_raman();
+  if (problem_.absorber.split_step)
+    plan_split();
+}
+
+// The transverse plans of a separable geometry: the slab's y transforms, or free
+// space's planes (and on a device its volume route).
+void GeneralWorkspace::plan_transverse() {
+  if (problem_.slab_geometry()) {
+    // The y transforms are many short ones; below the threaded-plan threshold they
+    // run on one FFTW thread, as every other small plan (`fft_space_for`).
+    constexpr int y_axis = -1;
+    const auto& space = fft_space_for_rows(transverse_);
+    slab_forward_ = std::make_unique<SlabPlan>(space, transverse_, transverse_,
+                                               KokkosFFT::Direction::forward, y_axis);
+    slab_inverse_ = std::make_unique<SlabPlan>(space, transverse_, transverse_,
+                                               KokkosFFT::Direction::backward, y_axis);
+  } else if (problem_.free_geometry()) {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+    constexpr std::size_t axes = 2;
+#else
+    const KokkosFFT::axis_type<2> axes{-2, -1};
+#endif
+    transverse_forward_ = std::make_unique<TransversePlan>(
+        fft_space_for_rows(transverse_), transverse_, transverse_,
+        KokkosFFT::Direction::forward, axes);
+    transverse_inverse_ = std::make_unique<TransversePlan>(
+        fft_space_for_rows(transverse_), transverse_, transverse_,
+        KokkosFFT::Direction::backward, axes);
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+    bool identity_crop = problem_.grid.crop_index.size() == problem_.dims.n_omega;
+    for (std::size_t index = 0; identity_crop && index < problem_.dims.n_omega; ++index)
+      identity_crop = problem_.grid.crop_index[index] == index;
+    volume_kerr_ = identity_crop && problem_.dims.family == FieldFamily::envelope &&
+                   problem_.dims.n_pol_state == 1 &&
+                   problem_.effective_node_pol() == 1 &&
+                   problem_.dims.n_to == problem_.dims.n_omega &&
+                   problem_.dims.n_t == problem_.dims.n_to && separable_aliased_ &&
+                   problem_.kerr.nonlinear && !problem_.plasma.enabled &&
+                   !problem_.raman.enabled && !problem_.plasma.envelope &&
+                   !problem_.dispersive.enabled && separable_dispersive_ == nullptr &&
+                   problem_.kerr.harmonic_factor == 0.0 && separable_gaps_.empty();
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+    // At 768 x 768 x 600 on an NVIDIA H200, cuFFT's `{N,N,T}` takes 14.7 ms a transform
+    // against 17.6 ms for `{T,N,N}` (solprop #365). An in-stage absorber evaluates its
+    // term from the same input in the scratch's order, so it keeps that order.
+    volume_order_ = volume_kerr_ && !problem_.absorber.in_stage;
+#endif
+    if (volume_order_)
+      volume_scratch_ = ComplexView3(transverse_.data(), problem_.spatial.n_y,
+                                     problem_.spatial.n_x, problem_.dims.n_omega);
+    if (volume_kerr_) {
+      constexpr std::size_t volume_axes = 3;
+      const auto& volume = volume_order_ ? volume_scratch_ : transverse_;
+      volume_forward_ = std::make_unique<VolumePlan>(
+          execution_space_, volume, volume, KokkosFFT::Direction::forward, volume_axes);
+      volume_inverse_ =
+          std::make_unique<VolumePlan>(execution_space_, volume, volume,
+                                       KokkosFFT::Direction::backward, volume_axes);
     }
-    if (raman_products_ != 0) {
-      const auto rows = std::make_pair(std::size_t{0}, raman_products_);
-      raman_product_drive_ = Kokkos::subview(node_raman_drive_, rows, Kokkos::ALL());
-      raman_product_spectrum_ =
-          Kokkos::subview(node_raman_spectrum_, rows, Kokkos::ALL());
-      raman_product_forward_plan_ = std::make_unique<RamanForwardPlan>(
-          raman_product_execution_space_, raman_product_drive_, raman_product_spectrum_,
-          KokkosFFT::Direction::forward, axis);
-      raman_product_inverse_plan_ = std::make_unique<RamanInversePlan>(
-          raman_product_execution_space_, raman_product_spectrum_, raman_product_drive_,
-          KokkosFFT::Direction::backward, axis);
+    std::size_t work = KokkosFFT::compute_required_workspace_size<Complex>(
+        *transverse_forward_, *transverse_inverse_);
+    if (volume_kerr_)
+      work = std::max(work, KokkosFFT::compute_required_workspace_size<Complex>(
+                                *volume_forward_, *volume_inverse_));
+    if (work != 0) {
+      transform_work_ =
+          ComplexView(Kokkos::view_alloc("solprop_native.free.transform_work",
+                                         Kokkos::WithoutInitializing),
+                      work);
+      transverse_forward_->set_work_area(transform_work_);
+      transverse_inverse_->set_work_area(transform_work_);
+      if (volume_kerr_) {
+        volume_forward_->set_work_area(transform_work_);
+        volume_inverse_->set_work_area(transform_work_);
+      }
     }
-    raman_kernel_forward_plan_ = std::make_unique<RamanForwardPlan>(
-        raman_kernel_execution_space_, raman_kernel_time_, raman_kernel_spectrum_,
-        KokkosFFT::Direction::forward, axis);
-    raman_planning_seconds_ =
-        std::chrono::duration<double>(std::chrono::steady_clock::now() - started)
-            .count();
+#endif
   }
-  if (!problem_.absorber.split_step)
-    return;
+}
+
+// The Raman convolution's plans: the chunk's, its tail's, the modal products' and the
+// kernel's, timed for the record.
+void GeneralWorkspace::plan_raman() {
+  constexpr int axis = -1;
+  const auto started = std::chrono::steady_clock::now();
+  raman_drive_forward_plan_ = std::make_unique<RamanForwardPlan>(
+      raman_execution_space_, node_raman_drive_, node_raman_spectrum_,
+      KokkosFFT::Direction::forward, axis);
+  raman_convolution_inverse_plan_ = std::make_unique<RamanInversePlan>(
+      raman_execution_space_, node_raman_spectrum_, node_raman_convolved_,
+      KokkosFFT::Direction::backward, axis);
+  const auto tail = problem_.dims.n_nodes % problem_.dims.node_chunk;
+  if (tail != 0) {
+    // Reuse the leading rows of the full chunk buffers. A separate persistent
+    // plan avoids transforming stale rows in the final partial node chunk.
+    const auto rows = std::make_pair(std::size_t{0}, tail * problem_.raman_drives());
+    raman_tail_drive_ = Kokkos::subview(node_raman_drive_, rows, Kokkos::ALL());
+    raman_tail_spectrum_ = Kokkos::subview(node_raman_spectrum_, rows, Kokkos::ALL());
+    raman_tail_convolved_ = Kokkos::subview(node_raman_convolved_, rows, Kokkos::ALL());
+    raman_tail_forward_plan_ = std::make_unique<RamanForwardPlan>(
+        raman_tail_execution_space_, raman_tail_drive_, raman_tail_spectrum_,
+        KokkosFFT::Direction::forward, axis);
+    raman_tail_inverse_plan_ = std::make_unique<RamanInversePlan>(
+        raman_tail_execution_space_, raman_tail_spectrum_, raman_tail_convolved_,
+        KokkosFFT::Direction::backward, axis);
+  }
+  if (raman_products_ != 0) {
+    const auto rows = std::make_pair(std::size_t{0}, raman_products_);
+    raman_product_drive_ = Kokkos::subview(node_raman_drive_, rows, Kokkos::ALL());
+    raman_product_spectrum_ =
+        Kokkos::subview(node_raman_spectrum_, rows, Kokkos::ALL());
+    raman_product_forward_plan_ = std::make_unique<RamanForwardPlan>(
+        raman_product_execution_space_, raman_product_drive_, raman_product_spectrum_,
+        KokkosFFT::Direction::forward, axis);
+    raman_product_inverse_plan_ = std::make_unique<RamanInversePlan>(
+        raman_product_execution_space_, raman_product_spectrum_, raman_product_drive_,
+        KokkosFFT::Direction::backward, axis);
+  }
+  raman_kernel_forward_plan_ = std::make_unique<RamanForwardPlan>(
+      raman_kernel_execution_space_, raman_kernel_time_, raman_kernel_spectrum_,
+      KokkosFFT::Direction::forward, axis);
+  raman_planning_seconds_ =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+}
+
+// The split-step absorber's plans: in place on the state's rows, or on the coarse grid.
+void GeneralWorkspace::plan_split() {
+  constexpr int axis = -1;
   if (split_rows_ != 0) {
     // In place on the state's rows; a later execution may name another row block or the
     // other of the state's two views, of the same extents.

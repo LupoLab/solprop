@@ -81,6 +81,17 @@ void GeneralWorkspace::form_statistics_total_power() {
       });
 }
 
+namespace {
+
+// The offset of a statistic not asked for.
+constexpr auto absent = std::numeric_limits<std::size_t>::max();
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+using StatisticsTeamPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
+using StatisticsTeamMember = StatisticsTeamPolicy::member_type;
+#endif
+
+} // namespace
+
 std::vector<double> GeneralWorkspace::statistics(
     const std::uint64_t flags, const std::vector<double>& windows,
     const std::vector<double>& on_axis, const double density, const double taper,
@@ -128,12 +139,7 @@ std::vector<double> GeneralWorkspace::statistics(
        requested(statistics_peak_power_total) || requested(statistics_fwhm)))
     throw std::invalid_argument(
         "temporal statistics are not spatial saved-field statistics");
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  using StatisticsTeamPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
-  using StatisticsTeamMember = StatisticsTeamPolicy::member_type;
-#endif
   const auto n_windows = windows.size() / 2;
-  constexpr auto absent = std::numeric_limits<std::size_t>::max();
   std::size_t packed_size = 0;
   const auto reserve = [&packed_size, requested](const StatisticsFlag flag,
                                                  const std::size_t count) {
@@ -190,147 +196,9 @@ std::vector<double> GeneralWorkspace::statistics(
     graph::deep_copy(execution_space_, packed,
                      Kokkos::Experimental::quiet_NaN_v<double>);
 
-  if (omega0_offset != absent || energy_offset != absent) {
-    if (omega_.empty() || !(problem_.grid.dt > 0.0))
-      throw std::logic_error("native statistics need the coarse frequency axis and dt");
-    const auto current = current_;
-    const auto omega = omega_;
-    const auto n = problem_.dims.n_omega;
-    const auto n_t = problem_.dims.n_t;
-    const auto dt = problem_.grid.dt;
-    const bool envelope = problem_.dims.family == FieldFamily::envelope;
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-    const StatisticsTeamPolicy policy(execution_space_,
-                                      static_cast<int>(problem_.n_columns()),
-                                      SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE);
-    launch::parallel_for(
-        "solprop_native.statistics.device_pack_spectral", policy,
-        KOKKOS_LAMBDA(const StatisticsTeamMember& team) {
-          const auto column = static_cast<std::size_t>(team.league_rank());
-          double density_sum = 0.0;
-          double weighted_sum = 0.0;
-          double energy_sum = 0.0;
-          Kokkos::parallel_reduce(
-              Kokkos::TeamThreadRange(team, static_cast<int>(n)),
-              [&](const int index_value, double& update) {
-                const auto index = static_cast<std::size_t>(index_value);
-                update += (squared_abs(current(column, index)) *
-                           power_weights(column, index));
-              },
-              density_sum);
-          Kokkos::parallel_reduce(
-              Kokkos::TeamThreadRange(team, static_cast<int>(n)),
-              [&](const int index_value, double& update) {
-                const auto index = static_cast<std::size_t>(index_value);
-                update += omega(index) * (squared_abs(current(column, index)) *
-                                          power_weights(column, index));
-              },
-              weighted_sum);
-          Kokkos::parallel_reduce(
-              Kokkos::TeamThreadRange(team, static_cast<int>(n)),
-              [&](const int index_value, double& update) {
-                const auto index = static_cast<std::size_t>(index_value);
-                const double weight =
-                    envelope || index == 0 || index + 1 == n ? 1.0 : 4.0;
-                update += weight * (squared_abs(current(column, index)) *
-                                    power_weights(column, index));
-              },
-              energy_sum);
-          Kokkos::single(Kokkos::PerTeam(team), [&]() {
-            if (omega0_offset != absent)
-              packed(omega0_offset + column) =
-                  density_sum > 0.0 ? weighted_sum / density_sum
-                                    : Kokkos::Experimental::quiet_NaN_v<double>;
-            if (energy_offset != absent)
-              packed(energy_offset + column) =
-                  dt / static_cast<double>(n_t) * energy_sum;
-          });
-        });
-#else
-    launch::parallel_for(
-        "solprop_native.statistics.pack_spectral",
-        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_columns()),
-        KOKKOS_LAMBDA(const std::size_t column) {
-          double density_sum = 0.0;
-          double weighted_sum = 0.0;
-          double energy_sum = 0.0;
-          for (std::size_t index = 0; index < n; ++index) {
-            const double power =
-                (squared_abs(current(column, index)) * power_weights(column, index));
-            density_sum += power;
-            weighted_sum += omega(index) * power;
-            const double weight = envelope || index == 0 || index + 1 == n ? 1.0 : 4.0;
-            energy_sum += weight * power;
-          }
-          if (omega0_offset != absent)
-            packed(omega0_offset + column) =
-                density_sum > 0.0 ? weighted_sum / density_sum
-                                  : Kokkos::Experimental::quiet_NaN_v<double>;
-          if (energy_offset != absent)
-            packed(energy_offset + column) = dt / static_cast<double>(n_t) * energy_sum;
-        });
-#endif
-  }
-
-  if (energy_window_offset != absent) {
-    if (omega_.empty() || !(problem_.grid.dt > 0.0))
-      throw std::logic_error("native statistics need the coarse frequency axis and dt");
-    const auto current = current_;
-    const auto omega = omega_;
-    const auto n = problem_.dims.n_omega;
-    const auto n_t = problem_.dims.n_t;
-    const auto dt = problem_.grid.dt;
-    const auto columns = problem_.n_columns();
-    const bool envelope = problem_.dims.family == FieldFamily::envelope;
-    for (std::size_t window = 0; window < n_windows; ++window) {
-      const double lower = windows[2 * window];
-      const double upper = windows[2 * window + 1];
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-      const StatisticsTeamPolicy policy(execution_space_, static_cast<int>(columns),
-                                        SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE);
-      launch::parallel_for(
-          "solprop_native.statistics.device_pack_energy_window", policy,
-          KOKKOS_LAMBDA(const StatisticsTeamMember& team) {
-            const auto column = static_cast<std::size_t>(team.league_rank());
-            double sum = 0.0;
-            Kokkos::parallel_reduce(
-                Kokkos::TeamThreadRange(team, static_cast<int>(n)),
-                [&](const int index_value, double& update) {
-                  const auto index = static_cast<std::size_t>(index_value);
-                  if (!(omega(index) >= lower && omega(index) < upper))
-                    return;
-                  const double weight =
-                      envelope || index == 0 || index + 1 == n ? 1.0 : 4.0;
-                  update += weight * (squared_abs(current(column, index)) *
-                                      power_weights(column, index));
-                },
-                sum);
-            Kokkos::single(Kokkos::PerTeam(team), [&]() {
-              packed(energy_window_offset + window * columns + column) =
-                  dt / static_cast<double>(n_t) * sum;
-            });
-          });
-#else
-      launch::parallel_for(
-          "solprop_native.statistics.pack_energy_window",
-          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns),
-          KOKKOS_LAMBDA(const std::size_t column) {
-            double sum = 0.0;
-            for (std::size_t index = 0; index < n; ++index) {
-              if (!(omega(index) >= lower && omega(index) < upper))
-                continue;
-              const double weight =
-                  envelope || index == 0 || index + 1 == n ? 1.0 : 4.0;
-              sum += weight * (squared_abs(current(column, index)) *
-                               power_weights(column, index));
-            }
-            packed(energy_window_offset + window * columns + column) =
-                dt / static_cast<double>(n_t) * sum;
-          });
-#endif
-    }
-  }
-
+  pack_energy(packed, power_weights, omega0_offset, energy_offset);
+  statistics_window_energy(packed, power_weights, n_windows, energy_window_offset,
+                           windows);
   const bool needs_base_power = peak_offset != absent || total_peak_offset != absent ||
                                 intensity_offset != absent || fwhm_offset != absent;
   if (needs_base_power) {
@@ -415,6 +283,230 @@ std::vector<double> GeneralWorkspace::statistics(
       graph::deep_copy(execution_space_, destination, statistics_total_power_);
     }
   }
+  statistics_intensity(packed, intensity_offset, on_axis, intensity_factor);
+  if (peak_window_offset != absent) {
+    for (std::size_t window = 0; window < n_windows; ++window) {
+      fill_statistics_pair(true, windows[2 * window], windows[2 * window + 1]);
+      form_statistics_power();
+      const auto power = statistics_power_;
+      const auto n_t = problem_.dims.n_t;
+      const auto modes = problem_.dims.n_modes;
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+      const StatisticsTeamPolicy policy(execution_space_, static_cast<int>(modes),
+                                        SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE);
+      launch::parallel_for(
+          "solprop_native.statistics.device_pack_peak_power_window", policy,
+          KOKKOS_LAMBDA(const StatisticsTeamMember& team) {
+            const auto mode = static_cast<std::size_t>(team.league_rank());
+            double peak = 0.0;
+            Kokkos::parallel_reduce(
+                Kokkos::TeamThreadRange(team, static_cast<int>(n_t)),
+                [&](const int time_value, double& update) {
+                  const auto time = static_cast<std::size_t>(time_value);
+                  if (power(mode, time) > update)
+                    update = power(mode, time);
+                },
+                Kokkos::Max<double>(peak));
+            Kokkos::single(Kokkos::PerTeam(team), [&]() {
+              packed(peak_window_offset + window * modes + mode) = peak;
+            });
+          });
+#else
+      launch::parallel_for(
+          "solprop_native.statistics.pack_peak_power_window",
+          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, modes),
+          KOKKOS_LAMBDA(const std::size_t mode) {
+            double peak = 0.0;
+            for (std::size_t time = 0; time < n_t; ++time)
+              if (power(mode, time) > peak)
+                peak = power(mode, time);
+            packed(peak_window_offset + window * modes + mode) = peak;
+          });
+#endif
+    }
+  }
+
+  statistics_plasma(packed, density_offset, rate_offset, populations_offset,
+                    diagnostics_offset, diagnose, density, taper, preionisation);
+  if (quadrature_offset != absent) {
+    const double value = quadrature_error();
+    launch::parallel_for(
+        "solprop_native.statistics.pack_quadrature",
+        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, 1),
+        KOKKOS_LAMBDA(const std::size_t) { packed(quadrature_offset) = value; });
+  }
+
+  if (packed_size == 0)
+    return {};
+  const auto active =
+      Kokkos::subview(packed, std::make_pair<std::size_t>(0, packed_size));
+  auto host = Kokkos::create_mirror_view(active);
+  graph::deep_copy(execution_space_, host, active);
+  execution_space_.fence("solprop_native statistics packed boundary");
+  std::vector<double> result(packed_size);
+  for (std::size_t index = 0; index < packed_size; ++index)
+    result[index] = host(index);
+  return result;
+}
+
+// The columns' centre frequency and energy (`omega0`, `energy`).
+void GeneralWorkspace::pack_energy(const RealView packed, const RealView2 power_weights,
+                                   const std::size_t omega0_offset,
+                                   const std::size_t energy_offset) {
+  if (omega0_offset != absent || energy_offset != absent) {
+    if (omega_.empty() || !(problem_.grid.dt > 0.0))
+      throw std::logic_error("native statistics need the coarse frequency axis and dt");
+    const auto current = current_;
+    const auto omega = omega_;
+    const auto n = problem_.dims.n_omega;
+    const auto n_t = problem_.dims.n_t;
+    const auto dt = problem_.grid.dt;
+    const bool envelope = problem_.dims.family == FieldFamily::envelope;
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+    const StatisticsTeamPolicy policy(execution_space_,
+                                      static_cast<int>(problem_.n_columns()),
+                                      SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE);
+    launch::parallel_for(
+        "solprop_native.statistics.device_pack_spectral", policy,
+        KOKKOS_LAMBDA(const StatisticsTeamMember& team) {
+          const auto column = static_cast<std::size_t>(team.league_rank());
+          double density_sum = 0.0;
+          double weighted_sum = 0.0;
+          double energy_sum = 0.0;
+          Kokkos::parallel_reduce(
+              Kokkos::TeamThreadRange(team, static_cast<int>(n)),
+              [&](const int index_value, double& update) {
+                const auto index = static_cast<std::size_t>(index_value);
+                update += (squared_abs(current(column, index)) *
+                           power_weights(column, index));
+              },
+              density_sum);
+          Kokkos::parallel_reduce(
+              Kokkos::TeamThreadRange(team, static_cast<int>(n)),
+              [&](const int index_value, double& update) {
+                const auto index = static_cast<std::size_t>(index_value);
+                update += omega(index) * (squared_abs(current(column, index)) *
+                                          power_weights(column, index));
+              },
+              weighted_sum);
+          Kokkos::parallel_reduce(
+              Kokkos::TeamThreadRange(team, static_cast<int>(n)),
+              [&](const int index_value, double& update) {
+                const auto index = static_cast<std::size_t>(index_value);
+                const double weight =
+                    envelope || index == 0 || index + 1 == n ? 1.0 : 4.0;
+                update += weight * (squared_abs(current(column, index)) *
+                                    power_weights(column, index));
+              },
+              energy_sum);
+          Kokkos::single(Kokkos::PerTeam(team), [&]() {
+            if (omega0_offset != absent)
+              packed(omega0_offset + column) =
+                  density_sum > 0.0 ? weighted_sum / density_sum
+                                    : Kokkos::Experimental::quiet_NaN_v<double>;
+            if (energy_offset != absent)
+              packed(energy_offset + column) =
+                  dt / static_cast<double>(n_t) * energy_sum;
+          });
+        });
+#else
+    launch::parallel_for(
+        "solprop_native.statistics.pack_spectral",
+        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_columns()),
+        KOKKOS_LAMBDA(const std::size_t column) {
+          double density_sum = 0.0;
+          double weighted_sum = 0.0;
+          double energy_sum = 0.0;
+          for (std::size_t index = 0; index < n; ++index) {
+            const double power =
+                (squared_abs(current(column, index)) * power_weights(column, index));
+            density_sum += power;
+            weighted_sum += omega(index) * power;
+            const double weight = envelope || index == 0 || index + 1 == n ? 1.0 : 4.0;
+            energy_sum += weight * power;
+          }
+          if (omega0_offset != absent)
+            packed(omega0_offset + column) =
+                density_sum > 0.0 ? weighted_sum / density_sum
+                                  : Kokkos::Experimental::quiet_NaN_v<double>;
+          if (energy_offset != absent)
+            packed(energy_offset + column) = dt / static_cast<double>(n_t) * energy_sum;
+        });
+#endif
+  }
+}
+
+// Each column's energy within each time window (`energy_window`).
+void GeneralWorkspace::statistics_window_energy(const RealView packed,
+                                                const RealView2 power_weights,
+                                                const std::size_t n_windows,
+                                                const std::size_t energy_window_offset,
+                                                const std::vector<double>& windows) {
+  if (energy_window_offset != absent) {
+    if (omega_.empty() || !(problem_.grid.dt > 0.0))
+      throw std::logic_error("native statistics need the coarse frequency axis and dt");
+    const auto current = current_;
+    const auto omega = omega_;
+    const auto n = problem_.dims.n_omega;
+    const auto n_t = problem_.dims.n_t;
+    const auto dt = problem_.grid.dt;
+    const auto columns = problem_.n_columns();
+    const bool envelope = problem_.dims.family == FieldFamily::envelope;
+    for (std::size_t window = 0; window < n_windows; ++window) {
+      const double lower = windows[2 * window];
+      const double upper = windows[2 * window + 1];
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+      const StatisticsTeamPolicy policy(execution_space_, static_cast<int>(columns),
+                                        SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE);
+      launch::parallel_for(
+          "solprop_native.statistics.device_pack_energy_window", policy,
+          KOKKOS_LAMBDA(const StatisticsTeamMember& team) {
+            const auto column = static_cast<std::size_t>(team.league_rank());
+            double sum = 0.0;
+            Kokkos::parallel_reduce(
+                Kokkos::TeamThreadRange(team, static_cast<int>(n)),
+                [&](const int index_value, double& update) {
+                  const auto index = static_cast<std::size_t>(index_value);
+                  if (!(omega(index) >= lower && omega(index) < upper))
+                    return;
+                  const double weight =
+                      envelope || index == 0 || index + 1 == n ? 1.0 : 4.0;
+                  update += weight * (squared_abs(current(column, index)) *
+                                      power_weights(column, index));
+                },
+                sum);
+            Kokkos::single(Kokkos::PerTeam(team), [&]() {
+              packed(energy_window_offset + window * columns + column) =
+                  dt / static_cast<double>(n_t) * sum;
+            });
+          });
+#else
+      launch::parallel_for(
+          "solprop_native.statistics.pack_energy_window",
+          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns),
+          KOKKOS_LAMBDA(const std::size_t column) {
+            double sum = 0.0;
+            for (std::size_t index = 0; index < n; ++index) {
+              if (!(omega(index) >= lower && omega(index) < upper))
+                continue;
+              const double weight =
+                  envelope || index == 0 || index + 1 == n ? 1.0 : 4.0;
+              sum += weight * (squared_abs(current(column, index)) *
+                               power_weights(column, index));
+            }
+            packed(energy_window_offset + window * columns + column) =
+                dt / static_cast<double>(n_t) * sum;
+          });
+#endif
+    }
+  }
+}
+
+// The peak on-axis intensity (`peak_intensity`).
+void GeneralWorkspace::statistics_intensity(const RealView packed,
+                                            const std::size_t intensity_offset,
+                                            const std::vector<double>& on_axis,
+                                            const double intensity_factor) {
   if (intensity_offset != absent) {
     if (on_axis.empty() || on_axis.size() % problem_.dims.n_modes != 0 ||
         on_axis.size() / problem_.dims.n_modes > 2)
@@ -495,49 +587,15 @@ std::vector<double> GeneralWorkspace::statistics(
         });
 #endif
   }
+}
 
-  if (peak_window_offset != absent) {
-    for (std::size_t window = 0; window < n_windows; ++window) {
-      fill_statistics_pair(true, windows[2 * window], windows[2 * window + 1]);
-      form_statistics_power();
-      const auto power = statistics_power_;
-      const auto n_t = problem_.dims.n_t;
-      const auto modes = problem_.dims.n_modes;
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-      const StatisticsTeamPolicy policy(execution_space_, static_cast<int>(modes),
-                                        SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE);
-      launch::parallel_for(
-          "solprop_native.statistics.device_pack_peak_power_window", policy,
-          KOKKOS_LAMBDA(const StatisticsTeamMember& team) {
-            const auto mode = static_cast<std::size_t>(team.league_rank());
-            double peak = 0.0;
-            Kokkos::parallel_reduce(
-                Kokkos::TeamThreadRange(team, static_cast<int>(n_t)),
-                [&](const int time_value, double& update) {
-                  const auto time = static_cast<std::size_t>(time_value);
-                  if (power(mode, time) > update)
-                    update = power(mode, time);
-                },
-                Kokkos::Max<double>(peak));
-            Kokkos::single(Kokkos::PerTeam(team), [&]() {
-              packed(peak_window_offset + window * modes + mode) = peak;
-            });
-          });
-#else
-      launch::parallel_for(
-          "solprop_native.statistics.pack_peak_power_window",
-          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, modes),
-          KOKKOS_LAMBDA(const std::size_t mode) {
-            double peak = 0.0;
-            for (std::size_t time = 0; time < n_t; ++time)
-              if (power(mode, time) > peak)
-                peak = power(mode, time);
-            packed(peak_window_offset + window * modes + mode) = peak;
-          });
-#endif
-    }
-  }
-
+// The plasma statistics: the electron density, the peak ionisation rate, the
+// populations and the run diagnostics.
+void GeneralWorkspace::statistics_plasma(
+    const RealView packed, const std::size_t density_offset,
+    const std::size_t rate_offset, const std::size_t populations_offset,
+    const std::size_t diagnostics_offset, const bool diagnose, const double density,
+    const double taper, const double preionisation) {
   if (density_offset != absent || rate_offset != absent ||
       populations_offset != absent || diagnose) {
     if (!problem_.plasma.enabled)
@@ -628,25 +686,6 @@ std::vector<double> GeneralWorkspace::statistics(
           });
     }
   }
-  if (quadrature_offset != absent) {
-    const double value = quadrature_error();
-    launch::parallel_for(
-        "solprop_native.statistics.pack_quadrature",
-        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, 1),
-        KOKKOS_LAMBDA(const std::size_t) { packed(quadrature_offset) = value; });
-  }
-
-  if (packed_size == 0)
-    return {};
-  const auto active =
-      Kokkos::subview(packed, std::make_pair<std::size_t>(0, packed_size));
-  auto host = Kokkos::create_mirror_view(active);
-  graph::deep_copy(execution_space_, host, active);
-  execution_space_.fence("solprop_native statistics packed boundary");
-  std::vector<double> result(packed_size);
-  for (std::size_t index = 0; index < packed_size; ++index)
-    result[index] = host(index);
-  return result;
 }
 
 std::vector<double> GeneralWorkspace::whitened_statistics(
@@ -810,7 +849,6 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
                                                  const std::size_t peak,
                                                  const bool fluence,
                                                  const double intensity_factor) {
-  constexpr auto absent = std::numeric_limits<std::size_t>::max();
   constexpr double lowest = std::numeric_limits<double>::lowest();
   const auto current = current_;
   const auto spectrum = statistics_spectrum_;
@@ -1513,7 +1551,6 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
   if ((flags & 32U) != 0 && (!problem_.free_geometry() || problem_.slab_geometry() ||
                              problem_.spatial.n_y < 2))
     throw std::invalid_argument("a plane's fluence moments need a Cartesian plane");
-  constexpr auto absent = std::numeric_limits<std::size_t>::max();
   constexpr double lowest = std::numeric_limits<double>::lowest();
   std::size_t packed_size = 0;
   const auto reserve = [flags, &packed_size](const std::uint64_t bit,

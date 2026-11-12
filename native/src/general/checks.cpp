@@ -6,12 +6,19 @@
 
 #include "workspace.hpp"
 
+#include <tuple>
+
 namespace solprop_native {
 
-void require_general_problem(const Problem& problem) {
-  require_general_modal(problem);
-  require_coupled_flow(problem);
-  require_dispersive(problem);
+namespace {
+
+// The extents that size the workspace's allocations.
+struct Extents {
+  std::size_t effective_node_pol{}, field{}, transform{};
+};
+
+// The extents are positive and every allocation's size fits a size_t.
+Extents require_extents(const Problem& problem) {
   if (problem.dims.n_omega == 0 || problem.dims.n_t == 0 || problem.dims.n_to == 0 ||
       problem.dims.n_modes == 0 || problem.dims.n_pol_state == 0 ||
       problem.dims.n_nodes == 0 || problem.dims.n_pol_transform == 0)
@@ -84,6 +91,12 @@ void require_general_problem(const Problem& problem) {
                  "omega_window");
   if (!problem.grid.omega.empty())
     require_extent(problem.grid.omega.size(), problem.dims.n_omega, "omega");
+  return {
+      .effective_node_pol = effective_node_pol, .field = field, .transform = transform};
+}
+
+// The spatial measure's and the separable and planar geometries' data.
+void require_spatial(const Problem& problem) {
   if (!problem.spatial.spectral_weights.empty()) {
     require_extent(problem.spatial.spectral_weights.size(), problem.dims.n_modes,
                    "spatial_spectral_weights");
@@ -142,72 +155,54 @@ void require_general_problem(const Problem& problem) {
         problem.spatial.evanescent_rate <= 0)
       throw std::invalid_argument(
           "Cartesian evanescent rate must be finite and positive");
-    require_extent(problem.spatial.k_squared.size(), problem.dims.n_omega,
-                   "spatial_k_squared");
-    require_extent(problem.spatial.k_squared_low.size(), problem.dims.n_omega,
-                   "spatial_k_squared_low");
-    require_extent(problem.spatial.numerator.size(), problem.dims.n_omega,
-                   "spatial_numerator");
-    require_extent(problem.spatial.clamped.size(), problem.dims.n_omega,
-                   "spatial_clamped");
-    require_extent(problem.spatial.frame.size(), problem.dims.n_omega, "spatial_frame");
-    require_extent(problem.spatial.spectral_rate.size(), problem.dims.n_omega,
-                   "spatial_spectral_rate");
-    require_extent(problem.spatial.user_rate.size(), problem.dims.n_omega,
-                   "spatial_user_rate");
-    require_extent(problem.spatial.kperp_sq.size(), problem.dims.n_modes,
-                   "spatial_kperp_sq");
-    require_extent(problem.spatial.kperp_sq_low.size(), problem.dims.n_modes,
-                   "spatial_kperp_sq_low");
-    require_extent(problem.spatial.absorber_rate.size(), problem.dims.n_modes,
-                   "spatial_absorber_rate");
-    require_extent(problem.spatial.kperp_rate.size(), problem.dims.n_modes,
-                   "spatial_kperp_rate");
-    for (const auto value : problem.spatial.k_squared)
-      if (!std::isfinite(value.real()) || !std::isfinite(value.imag()))
-        throw std::invalid_argument("spatial_k_squared must be finite");
-    for (const auto value : problem.spatial.k_squared_low)
-      if (!std::isfinite(value.real()) || !std::isfinite(value.imag()))
-        throw std::invalid_argument("spatial_k_squared_low must be finite");
-    for (const auto value : problem.spatial.numerator)
-      if (!std::isfinite(value.real()) || !std::isfinite(value.imag()))
-        throw std::invalid_argument("spatial_numerator must be finite");
-    for (const auto value : problem.spatial.clamped)
-      if (!std::isfinite(value.real()) || !std::isfinite(value.imag()))
-        throw std::invalid_argument("spatial_clamped must be finite");
-    for (const auto value : problem.spatial.frame)
-      if (!std::isfinite(value))
-        throw std::invalid_argument("spatial_frame is invalid");
-    for (const auto value : problem.spatial.spectral_rate)
-      if (!std::isfinite(value) || value < 0)
-        throw std::invalid_argument("spatial_spectral_rate is invalid");
+    const auto& spatial = problem.spatial;
+    const auto bins = problem.dims.n_omega;
+    const auto modes = problem.dims.n_modes;
+    for (const auto& [size, extent, name] :
+         {std::tuple{spatial.k_squared.size(), bins, "spatial_k_squared"},
+          std::tuple{spatial.k_squared_low.size(), bins, "spatial_k_squared_low"},
+          std::tuple{spatial.numerator.size(), bins, "spatial_numerator"},
+          std::tuple{spatial.clamped.size(), bins, "spatial_clamped"},
+          std::tuple{spatial.frame.size(), bins, "spatial_frame"},
+          std::tuple{spatial.spectral_rate.size(), bins, "spatial_spectral_rate"},
+          std::tuple{spatial.user_rate.size(), bins, "spatial_user_rate"},
+          std::tuple{spatial.kperp_sq.size(), modes, "spatial_kperp_sq"},
+          std::tuple{spatial.kperp_sq_low.size(), modes, "spatial_kperp_sq_low"},
+          std::tuple{spatial.absorber_rate.size(), modes, "spatial_absorber_rate"},
+          std::tuple{spatial.kperp_rate.size(), modes, "spatial_kperp_rate"}})
+      require_extent(size, extent, name);
+    for (const auto& [values, message] :
+         {std::pair{&spatial.k_squared, "spatial_k_squared must be finite"},
+          std::pair{&spatial.k_squared_low, "spatial_k_squared_low must be finite"},
+          std::pair{&spatial.numerator, "spatial_numerator must be finite"},
+          std::pair{&spatial.clamped, "spatial_clamped must be finite"}})
+      for (const auto value : *values)
+        if (!std::isfinite(value.real()) || !std::isfinite(value.imag()))
+          throw std::invalid_argument(message);
+    // Each real array: finite, and when `nonnegative` not below zero.
+    const auto require_real = [](const std::vector<double>& values,
+                                 const bool nonnegative, const char* message) {
+      for (const auto value : values)
+        if (!std::isfinite(value) || (nonnegative && value < 0))
+          throw std::invalid_argument(message);
+    };
+    require_real(spatial.frame, false, "spatial_frame is invalid");
+    require_real(spatial.spectral_rate, true, "spatial_spectral_rate is invalid");
     for (std::size_t bin = 0; bin < problem.dims.n_omega; ++bin)
       if (const double value = problem.spatial.user_rate[bin];
           !std::isfinite(value) || value < 0 ||
           value > problem.spatial.spectral_rate[bin])
         throw std::invalid_argument("spatial_user_rate is invalid");
-    for (const auto value : problem.spatial.kperp_sq)
-      if (!std::isfinite(value) || value < 0)
-        throw std::invalid_argument("spatial_kperp_sq is invalid");
-    for (const auto value : problem.spatial.kperp_sq_low)
-      if (!std::isfinite(value))
-        throw std::invalid_argument("spatial_kperp_sq_low must be finite");
-    for (const auto value : problem.spatial.absorber_rate)
-      if (!std::isfinite(value) || value < 0)
-        throw std::invalid_argument("spatial_absorber_rate is invalid");
-    for (const auto value : problem.spatial.kperp_rate)
-      if (!std::isfinite(value) || value < 0)
-        throw std::invalid_argument("spatial_kperp_rate is invalid");
+    require_real(spatial.kperp_sq, true, "spatial_kperp_sq is invalid");
+    require_real(spatial.kperp_sq_low, false, "spatial_kperp_sq_low must be finite");
+    require_real(spatial.absorber_rate, true, "spatial_absorber_rate is invalid");
+    require_real(spatial.kperp_rate, true, "spatial_kperp_rate is invalid");
     if (problem.free_geometry()) {
       // solprop SEP 23: the stored transverse axes the far-field statistics read.
       require_extent(problem.spatial.k_x.size(), problem.spatial.n_x, "spatial_k_x");
       require_extent(problem.spatial.k_y.size(), problem.spatial.n_y, "spatial_k_y");
-      for (const auto value : problem.spatial.k_x)
-        if (!std::isfinite(value))
-          throw std::invalid_argument("spatial_k_x must be finite");
-      for (const auto value : problem.spatial.k_y)
-        if (!std::isfinite(value))
-          throw std::invalid_argument("spatial_k_y must be finite");
+      require_real(spatial.k_x, false, "spatial_k_x must be finite");
+      require_real(spatial.k_y, false, "spatial_k_y must be finite");
     }
   } else if (problem.spatial.n_y != 0 || problem.spatial.n_p != 0) {
     throw std::invalid_argument("Cartesian axes must be supplied together");
@@ -216,6 +211,13 @@ void require_general_problem(const Problem& problem) {
       (!problem.spatial.k_x.empty() || !problem.spatial.k_y.empty() ||
        problem.spatial.far_field_slots != 0))
     throw std::invalid_argument("the far-field statistics belong to free space");
+}
+
+// The grid's windows, the transforms, the linear operator, the tableau and the
+// absorbers.
+void require_operator(const Problem& problem, const Extents& extents) {
+  const auto field = extents.field;
+  const auto transform = extents.transform;
   require_extent(problem.grid.time_window.size(), problem.dims.n_to, "time_window");
   if (problem.plasma.enabled && !problem.plasma.envelope) {
     require_extent(problem.grid.time_window_derivative.size(), problem.dims.n_to,
@@ -291,6 +293,10 @@ void require_general_problem(const Problem& problem) {
       throw std::invalid_argument("crop_index contains a duplicate fine-spectrum bin");
     seen[index] = true;
   }
+}
+
+// The plasma channels' and the Raman components' tables.
+void require_components(const Problem& problem) {
   if (problem.plasma.enabled && problem.plasma.n_channels == 0)
     throw std::invalid_argument("plasma requires at least one channel");
   if (problem.plasma.n_channels > 1 || problem.plasma.envelope) {
@@ -343,6 +349,10 @@ void require_general_problem(const Problem& problem) {
         throw std::invalid_argument(
             "Raman component fractions must be finite and positive");
   }
+}
+
+// The plasma column: its constants, integration rule and envelope currents.
+void require_plasma(const Problem& problem) {
   if (problem.plasma.enabled) {
     if (!(problem.grid.dt_fine > 0.0) || !(problem.plasma.d_log_field > 0.0) ||
         !(problem.plasma.field_min > 0.0) ||
@@ -431,6 +441,10 @@ void require_general_problem(const Problem& problem) {
                                     "factors and zero inactive bins");
     }
   }
+}
+
+// The Raman response's terms and kernel.
+void require_raman(const Problem& problem, const std::size_t effective_node_pol) {
   if (problem.raman.enabled) {
     if (effective_node_pol != 1 && !problem.raman.tensor_capable)
       throw std::invalid_argument(
@@ -468,6 +482,20 @@ void require_general_problem(const Problem& problem) {
              problem.raman.tensor_capable) {
     throw std::invalid_argument("Raman data were supplied while Raman is disabled");
   }
+}
+
+} // namespace
+
+void require_general_problem(const Problem& problem) {
+  require_general_modal(problem);
+  require_coupled_flow(problem);
+  require_dispersive(problem);
+  const auto extents = require_extents(problem);
+  require_spatial(problem);
+  require_operator(problem, extents);
+  require_components(problem);
+  require_plasma(problem);
+  require_raman(problem, extents.effective_node_pol);
 }
 
 void GeneralWorkspace::require_trial_scalars(const TrialScalars& scalars) const {

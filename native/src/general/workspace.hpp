@@ -288,6 +288,21 @@ public:
     return norms;
   }
   void allocate();
+  void allocate_separable(std::size_t n);
+  void allocate_low_storage(std::size_t columns, std::size_t n);
+  void allocate_statistics(std::size_t columns, std::size_t n,
+                           std::size_t temporal_columns, std::size_t statistic_nodes,
+                           std::size_t statistics_rows);
+  void allocate_raman();
+  void allocate_transforms(std::size_t columns, std::size_t transform_rows,
+                           std::size_t temporal_columns);
+  void allocate_forward_rows(std::size_t columns, std::size_t chunk_rows,
+                             std::size_t temporal_columns);
+  void allocate_absorbers();
+  void allocate_envelope_plasma(std::size_t chunk_rows, std::size_t temporal_columns);
+  void allocate_plasma(std::size_t chunk_rows);
+  void allocate_split(std::size_t n, std::size_t temporal_columns);
+  void allocate_parts();
   void upload();
   void upload_trial(const TrialScalars& scalars, const TrialScalars* sample = nullptr,
                     const std::vector<double>* rate = nullptr);
@@ -295,6 +310,9 @@ public:
   void bind_stage_scalars(std::size_t slot);
   void note_trial_scalars(const TrialScalars& scalars);
   void plan();
+  void plan_transverse();
+  void plan_raman();
+  void plan_split();
   void reuse_fsal();
   void evaluate_stage(std::size_t stage, double dz);
   // `accumulate` false: an Adams trial reads the stage row alone.
@@ -539,6 +557,18 @@ public:
   void fill_statistics_time(bool windowed, double lower, double upper,
                             bool weighted = false);
   void fill_statistics_pair(bool windowed, double lower, double upper);
+  void pack_energy(RealView packed, RealView2 power_weights, std::size_t omega0_offset,
+                   std::size_t energy_offset);
+  void statistics_window_energy(RealView packed, RealView2 power_weights,
+                                std::size_t n_windows, std::size_t energy_window_offset,
+                                const std::vector<double>& windows);
+  void statistics_intensity(RealView packed, std::size_t intensity_offset,
+                            const std::vector<double>& on_axis,
+                            double intensity_factor);
+  void statistics_plasma(RealView packed, std::size_t density_offset,
+                         std::size_t rate_offset, std::size_t populations_offset,
+                         std::size_t diagnostics_offset, bool diagnose, double density,
+                         double taper, double preionisation);
   void form_statistics_power();
   void form_statistics_total_power();
   void statistics_modal_time();
