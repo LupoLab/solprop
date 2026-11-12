@@ -30,11 +30,6 @@ def test_cmap_colours_returns_distinct_colours():
     assert len({tuple(one) for one in colours}) == 4
 
 
-def test_cmap_colours_needs_at_least_one():
-    with pytest.raises(ProcessingError, match="at least one colour"):
-        style.cmap_colours(0)
-
-
 @pytest.mark.parametrize(("count", "portrait"), [(1, True), (5, True), (5, False)])
 def test_subplot_grid_makes_exactly_the_axes_asked_for(count, portrait):
     figure, axes = style.subplot_grid(count, portrait=portrait)
@@ -51,11 +46,6 @@ def test_subplot_grid_has_more_rows_than_columns_in_portrait():
 
     assert geometry() == (3, 2)
     assert geometry(portrait=False) == (2, 3)
-
-
-def test_subplot_grid_needs_at_least_one_axis():
-    with pytest.raises(ProcessingError, match="at least one axis"):
-        style.subplot_grid(0)
 
 
 @pytest.mark.parametrize(
@@ -75,9 +65,17 @@ def test_power_unit_clamps_to_the_ends_of_the_scale(peak):
     assert factor > 0.0
 
 
-def test_power_unit_needs_a_value():
-    with pytest.raises(ProcessingError, match="empty array"):
-        style.power_unit(np.array([]))
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        (lambda: style.cmap_colours(0), "at least one colour"),
+        (lambda: style.subplot_grid(0), "at least one axis"),
+        (lambda: style.power_unit(np.array([])), "empty array"),
+    ],
+)
+def test_a_helper_refuses_an_empty_request(call, message):
+    with pytest.raises(ProcessingError, match=message):
+        call()
 
 
 @pytest.mark.parametrize(

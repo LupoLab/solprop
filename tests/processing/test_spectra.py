@@ -87,15 +87,18 @@ def test_an_empty_band_needs_an_explicit_width(grid):
     assert spectra.bandpass(grid, (800e-9, 800e-9), width=4 * grid.d_omega).max() > 0.0
 
 
-@pytest.mark.parametrize("limits", [(0.0, 900e-9), (-1e-6, 900e-9)])
-def test_bandpass_refuses_a_non_positive_wavelength(grid, limits):
-    with pytest.raises(ProcessingError, match="must be positive"):
-        spectra.bandpass(grid, limits)
-
-
-def test_bandpass_refuses_a_non_positive_width(grid):
-    with pytest.raises(ProcessingError, match="width must be positive"):
-        spectra.bandpass(grid, (700e-9, 900e-9), width=0.0)
+@pytest.mark.parametrize(
+    ("limits", "options", "message"),
+    [
+        ((0.0, 900e-9), {}, "must be positive"),
+        ((-1e-6, 900e-9), {}, "must be positive"),
+        ((700e-9, 900e-9), {"width": 0.0}, "width must be positive"),
+        ((-1e14, 1e15), {"axis": "f"}, "must not be negative"),
+    ],
+)
+def test_bandpass_refuses_a_band_or_width_out_of_range(grid, limits, options, message):
+    with pytest.raises(ProcessingError, match=message):
+        spectra.bandpass(grid, limits, **options)
 
 
 @pytest.mark.parametrize(("axis", "turn"), [("f", C), ("omega", 2 * np.pi * C)])
@@ -112,11 +115,6 @@ def test_a_frequency_band_may_start_at_zero(grid):
     assert np.any(red)
     assert np.all(window[red] == 1.0)
     assert np.all(window[blue] == 0.0)
-
-
-def test_bandpass_refuses_a_negative_frequency(grid):
-    with pytest.raises(ProcessingError, match="must not be negative"):
-        spectra.bandpass(grid, (-1e14, 1e15), axis="f")
 
 
 def test_a_passband_builds_the_window_of_its_axis_and_width(grid):
