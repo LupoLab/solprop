@@ -388,8 +388,7 @@ class Worker:
     Started by :meth:`start`, which waits for the handshake; ended by :meth:`close`
     between calls (a shutdown request, a short grace, then a kill) or :meth:`kill`
     (at once). Every path reaps the process and closes both pipe ends. A worker is
-    never used again after a transport failure or a cancellation; a provider exception
-    the adapter reports in a well-formed reply leaves it serving.
+    never used again after a failure of any kind or a cancellation.
 
     - ``adapter``: the adapter module's dotted name, imported in the worker.
     - ``environment``: the worker's whole environment (:func:`worker_environment`).
@@ -418,7 +417,6 @@ class Worker:
         self._tail: deque[str] = deque(maxlen=_TAIL_LINES)
         self._threads: list[threading.Thread] = []
         self._usable = False
-        self._cancelling = False
 
     # -- lifetime -------------------------------------------------------------------
 
@@ -485,9 +483,10 @@ class Worker:
         Waits in :data:`POLL_INTERVAL` steps; between them signal handlers run, a
         signal a commit holds is raised (:func:`solprop._interrupts.raise_held`) and the
         run's stop flag is polled. Any interruption kills the worker before it
-        propagates. An exception the adapter reported is a :class:`RemoteError`, and the
-        worker keeps serving; a worker that exits, closes its pipe or sends a malformed
-        message is a :class:`WorkerError`.
+        propagates. An exception the adapter reported is a :class:`RemoteError`; a
+        worker that exits, closes its pipe or sends a malformed message is a
+        :class:`WorkerError`. Either way the worker is ended: it is never used again
+        after a failure (section 6.5), and its owner starts a fresh one.
         """
         if not self._usable or self._process is None:
             msg = "the source worker is not running"
@@ -499,8 +498,6 @@ class Worker:
             write_message(stdin.write, kind, value)
             stdin.flush()
             reply, body = self._wait()
-        except RemoteError:
-            raise
         except BaseException:
             self.kill()
             raise
@@ -531,7 +528,6 @@ class Worker:
         process = self._process
         if process is None:
             return
-        self._cancelling = True
         if process.poll() is None:
             with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
                 if sys.platform == "win32":  # pragma: no cover - Windows only

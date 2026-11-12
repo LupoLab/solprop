@@ -8,7 +8,7 @@ The provider's whole-electron currents and shadow dipoles remain unscaled SI
 arrays. Source assembly applies the calibration and density separately. Resource
 admission, call accounting, the archive and the validation of every returned record
 live here; the provider itself runs in a worker process of its own
-(:mod:`solprop.driver._source_worker`, with :mod:`solprop.driver._pyroraptor` as its
+(``solprop.driver._source_worker``, with ``solprop.driver._pyroraptor`` as its
 adapter, SEP 49), and solprop's process never imports it.
 
 Two atomic models are bound (SEP 12, SEP 20): the single-active-electron (SAE)
@@ -36,7 +36,7 @@ from jaxtyping import Float
 from solprop import exceptions
 from solprop._process import thread_budget
 from solprop.constants import AU_TIME, EPS0, C
-from solprop.driver._pyroraptor import _admit_memory, check_info
+from solprop.driver._pyroraptor import _PRESET_FIELDS, _admit_memory, check_info
 from solprop.driver._source_worker import (
     CONTROL_LIMIT,
     Record,
@@ -111,18 +111,7 @@ _ARCHIVE_ROLES: dict[str, str] = {
 # run_short's grid occupy (SEP 20 section 5.1). Not an independent qualification.
 _PRESET_WAVELENGTH_RANGE = (62e-9, 1.6e-6)
 # The preset records a run's provenance carries (the provider's evidence apart).
-_PRESET_RECORD = (
-    "identity",
-    "variant",
-    "step_margin",
-    "accuracy",
-    "box_sensitivity",
-    "gauge_sensitivity",
-    "max_peak_intensity",
-    "wavelength",
-    "window",
-    "device_admissible",
-)
+_PRESET_RECORD = tuple(name for name in _PRESET_FIELDS if name != "source")
 
 
 @runtime_checkable
@@ -130,6 +119,11 @@ class _Channel(Protocol):
     """The worker the binding talks to, a ``_source_worker.Worker``."""
 
     identity: Mapping[str, object]
+
+    @property
+    def alive(self) -> bool:
+        """Whether the worker may take a request."""
+        ...
 
     def request(self, kind: str, value: object = None) -> object:
         """Send one request and return its reply."""
@@ -829,7 +823,8 @@ def prepare_binding(
         and closes it. Its buffers are admitted with the binding's memory.
     stop : solprop.log.StopFlag or None, optional
         The run's stop flag, polled while an atomic call is awaited; setting it ends
-        the call at once, the worker killed, with :class:`StopRequested`.
+        the call at once, the worker killed, with
+        :class:`~solprop.exceptions.StopRequested`.
 
     Returns
     -------
@@ -966,9 +961,7 @@ def _matches(raw: object) -> bool:
 
 def _fields_of(value: object) -> dict[str, Any]:
     """Return a returned record's fields."""
-    if isinstance(value, Record):
-        return dict(vars(value))
-    return asdict(cast("Any", value))
+    return dict(vars(value))
 
 
 def _component(shadow: _Native, quantity: str, order: int) -> np.ndarray:
@@ -1056,6 +1049,7 @@ class _ProviderBinding:
             )
         )
         # The worker is the binding's from here to close: its stack ends it.
+        self._stop = stop
         self._worker = _open_provider(
             stop=stop, limit=_frame_limit(descriptor, self._chunks)
         )
@@ -1140,6 +1134,34 @@ class _ProviderBinding:
             "defer_plans": self._defer_plans,
             "revision": _PROVIDER_REVISION,
         }
+
+    def _ensure_worker(self) -> None:
+        """Start and prepare a fresh worker when the last one failed (SEP 49, 6.5).
+
+        A worker is never used again after a failure; the binding's records, budget
+        and archive are its own and carry over. The new worker must report the same
+        provider build.
+        """
+        if self._worker.alive:
+            return
+        self._worker = _open_provider(
+            stop=self._stop, limit=_frame_limit(self._descriptor, self._chunks)
+        )
+        self._stack.callback(self._worker.close)
+        basis = self._descriptor.response.basis
+        try:
+            if _build_record(self._worker.identity, self._execution) != self._build:
+                raise BackendError(
+                    "the TDSE provider's build changed between its workers"
+                )
+            request = self._prepare_request(basis)
+            request["defer_plans"] = not self.plans_built
+            self._absorb(
+                cast("Mapping[str, Any]", self._worker.request("prepare", request))
+            )
+        except BaseException as error:
+            self._worker.kill()
+            raise _preparation_error(error) from error
 
     def _absorb(self, reply: Mapping[str, Any]) -> None:
         """Take the worker's measured memory and plan records."""
@@ -1394,6 +1416,7 @@ class _ProviderBinding:
         ):
             self._diagnostic_cache_hits += 1
             return self._cached
+        self._ensure_worker()
         archive = self._archive
         if archive is not None:
             archive.ensure_writable()
@@ -1458,6 +1481,9 @@ class _ProviderBinding:
                 self._archive_failure(evaluation, index, stopping, "interrupted")
                 raise
             except Exception as error:
+                # Whatever failed, this worker is not used again (SEP 49, 6.5): the
+                # next evaluation starts a fresh one.
+                self._worker.kill()
                 self._budget.record_failure()
                 classification = _classify(error)
                 name, detail = _described(error)
@@ -1958,6 +1984,7 @@ class _ProviderBinding:
         model = self._hacc
         if model is None:
             raise BackendError("the consistency diagnostic needs a haCC binding")
+        self._ensure_worker()
         context = _DiagnosticContext(
             model,
             self._budget,
@@ -2145,6 +2172,7 @@ def _diagnostic_call(
         )
         raise
     except Exception as error:
+        context.worker.kill()
         budget.record_failure()
         kind = _classify(error)
         name, detail = _described(error)

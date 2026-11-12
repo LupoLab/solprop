@@ -951,7 +951,8 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
 - **Scope.** Phase 2, 2026-11-12, Opus 5.5 (AI), commits `0f797abb` (`_interrupts`),
   `ea431aa6` (the generic worker), `8f5b64bf` (Pyroraptor in the worker) and
   `63f43686` (the trial's release), then `origin/main` merged (`7f985eb1`, with
-  ADR-077's change, #767).
+  ADR-077's change, #767), and a follow-up commit on the pull request (a fresh
+  worker after any failure, the documentation build, small simplifications).
 - **Delivered.**
   - `src/solprop/driver/_source_worker.py` (new), the provider-agnostic layer of §6.5:
     `Worker` starts `sys.executable -m solprop.driver._source_worker <adapter> <limit>`
@@ -998,7 +999,7 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
     exit (`_trial`), a failed release attached to the trial's own error as a note
     (§6.3).
   - Tests: `tests/driver/test_source_worker.py` (21, real workers),
-    `tests/driver/test_tdse_worker.py` (7, real workers),
+    `tests/driver/test_tdse_worker.py` (8, real workers),
     `tests/source_adapters.py` (the manufactured adapters the worker imports),
     `tests/source_channel.py` (the adapter served in this process through the same
     codec, for the existing tests whose fake providers are built inside the test), two
@@ -1008,13 +1009,6 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
   - `docs/guide/media/tdse.md` (the worker, its threads, stopping during a call),
     `docs/dev/architecture.md`, `changelog.d/tdse-provider-worker.changed.md`.
 - **Deviations.**
-  - A provider exception the adapter reports in a well-formed reply leaves the worker
-    serving; only a transport failure (an exit, a closed pipe, a malformed or oversized
-    frame) or a cancellation discards it. §6.5 says a worker is never reused "after a
-    failure"; read literally that would end every run's worker at its first provider
-    exception, which the binding's existing contract (a failed chunk is charged and a
-    fresh retry may follow) and Pyroraptor's own worker pool do not. The adapter's state
-    after a reported exception is defined: every call starts from the prepared state.
   - Three checks that need the provider's own classes or methods run in the worker, on
     the raw result, and their outcome crosses with it: the result's type is named there
     (`sae.grid_response`, `hacc.total_current_response`, ...), a haCC result's atom,
@@ -1034,6 +1028,15 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
   - A stopped TDSE run ends with status `failed` and the message `StopRequested: ...`,
     as every stopped run does (§5.1 says "interrupted or stopped").
 - **Decisions.**
+  - A worker is never used again after a failure of any kind, as §6.5 says: a
+    provider exception the worker reports, a result the binding refuses, a worker exit,
+    a protocol error or a cancellation each end it, and the binding's next evaluation
+    or diagnostic starts and prepares a fresh one, which must report the same build
+    (`_ProviderBinding._ensure_worker`). Decided by the maintainer on 2026-11-12, over
+    the implementer's first proposal to keep a worker serving after a reported provider
+    exception. A retry after a failed chunk therefore pays a worker start and the
+    model's and plans' preparation again; the budget, ledger, archive and records carry
+    over. `DiagnosticSession`, which makes one call, does not restart.
   - The thread count is `PYRORAPTOR_THREADS`, the run's `thread_budget().threads`, in
     the worker's environment: Pyroraptor reads it once at import. A device build needs
     no setting.
@@ -1060,8 +1063,10 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
   3. a provider exception (by type, message, classification and traceback), a worker
      exit (its status and standard error's tail), a closed pipe, a malformed frame, an
      oversized frame, a start-up failure and a preparation failure each end as their
-     named failure, the worker reaped and both pipe ends closed; the provider's printing
-     on standard output never corrupts a frame;
+     named failure, the worker reaped and both pipe ends closed; after a provider
+     exception the binding's retry runs on a fresh worker
+     (`test_after_a_provider_exception_the_retry_gets_a_fresh_worker`); the provider's
+     printing on standard output never corrupts a frame;
   4. a hanging call is cancelled by the stop flag, SIGINT, SIGTERM and a SIGINT held by
      `committing()`, each within the poll interval and the kill (a 10 s harness
      deadline); on `numpy_ref` a binding stopped during a call keeps the call charged
@@ -1095,11 +1100,15 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
   from the start of its `main`, after interpreter start-up; in its own session no
   terminal or group signal reaches it before then. A provider that spawns processes of
   its own outside the worker's process group is not ended by the kill.
-- **Cost.** `_source_worker.py` 765 lines, `_pyroraptor.py` 786 (most of it moved from
-  `driver/tdse.py`, which went from 2,575 to 2,478); across phase 2, `src/solprop`
-  +2,172 −682 and tests +900 −30 (physical lines, `git diff --numstat`). The driver
-  package's code lines (`poe size`) went from 15,296 to 16,278. §6.8 estimated +0.6k
-  source and +0.6k test lines for the worker.
+- **Cost.** `_source_worker.py` 761 lines, `_pyroraptor.py` 786 (part of it moved from
+  `driver/tdse.py`, which went from 2,575 to 2,506); across phase 2, `src/solprop`
+  +2,172 −682 and tests +900 −30 (physical lines, `git diff --numstat`, before the
+  follow-up commit). By `tools/size_report.py`'s split, the files phases 1 and 2
+  touched went from 11,071 to 12,107 code lines (+1,036), 5,613 to 5,950 docstring
+  lines and 447 to 493 comment lines; the driver package from 15,296 to 16,290 code
+  lines. §6.8 estimated +0.6k source and +0.6k test lines for the worker; the excess is
+  the adapter's request handlers and the parent's view of the haCC model beside the
+  generic layer, as the binding's validation stayed in solprop's process.
 - **Handoff.** Phase 3 (the native hook) calls `tdse_source` and the same binding; its
   waits are inside `committing()`, which `Worker` already handles through
   `_interrupts.raise_held`; §7.2 item 4 on native and §7.3 follow with it. The worker's

@@ -744,5 +744,8 @@ def test_second_chunk_failure_preserves_first_chunk_and_allows_fresh_retry(
     result = binding.evaluate(np.ones((3, _SAMPLES)), z=0.5, purpose="corrected")
     assert_array_equal(result.total_current, np.full((3, _SAMPLES), 6.0))
     assert binding.ledger.attempted == 4
-    assert len(provider.created) == 2
+    # The failed worker was ended with its plans; the retry's fresh worker prepared
+    # both chunk sizes' plans again (SEP 49 section 6.5).
+    assert len(provider.created) == 4
+    assert provider.closed.count("plan-2") == provider.closed.count("plan-1") == 1
     binding.close()

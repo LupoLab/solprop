@@ -161,6 +161,25 @@ def test_a_stop_during_an_atomic_call_kills_the_worker_and_keeps_the_charge(
     binding.close()
 
 
+def test_after_a_provider_exception_the_retry_gets_a_fresh_worker(
+    monkeypatch, workers, tmp_path
+):
+    """A worker is never used again after a failure (section 6.5)."""
+    monkeypatch.setenv("MANUFACTURED_FAIL_ONCE", str(tmp_path / "failed-once"))
+    binding = _bind(_descriptor(preset_basis(1)))
+    binding.reserve(1)
+    with pytest.raises(BackendError, match=r"manufactured provider failure \[native\]"):
+        binding.evaluate(_fields(3), z=0.1, purpose="startup")
+    assert not workers[0].alive
+    binding.reserve(1)
+    result = binding.evaluate(_fields(3), z=0.1, purpose="startup")
+    assert np.all(np.isfinite(result.total_current))
+    assert len(workers) == 2 and workers[1].alive
+    assert binding.ledger.attempted == 3 and binding.ledger.failed_calls == 1
+    binding.close()
+    assert not workers[1].alive
+
+
 class _Watch:
     """Pass standard error on; set a flag when the worker says its call hangs."""
 

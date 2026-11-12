@@ -14,6 +14,7 @@ worker imports in place of ``pyroraptor``.
 import os
 import sys
 import time
+from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
@@ -91,10 +92,35 @@ def _provider(**changes):
     provider = FakeHaccProvider(**changes)
     # The run tests' law: a 2% linear model error and a dyadic fifth-order remainder.
     provider.response = alpha_law(1.02, lambda5=2.0**-200)
+    marker = os.environ.get("MANUFACTURED_FAIL_ONCE")
+    if marker is not None:
+        _fail_once(provider, marker)
     hang = os.environ.get("MANUFACTURED_HANG_AFTER")
     if hang is not None:
         _hang_after(provider, int(hang))
     return provider
+
+
+def _fail_once(provider, marker):
+    """Make the first atomic call of all the workers sharing `marker` raise."""
+    from hacc_cases import FakeDrivenError  # noqa: PLC0415 - worker only
+
+    original = provider.hacc.ResponsePlan
+
+    def plan(model, **values):
+        built = original(model, **values)
+        evaluate = built.evaluate
+
+        def failing(fields):
+            if not Path(marker).exists():
+                Path(marker).touch()
+                raise FakeDrivenError("manufactured provider failure")
+            return evaluate(fields)
+
+        built.evaluate = failing
+        return built
+
+    provider.hacc.ResponsePlan = plan
 
 
 def _hang_after(provider, calls):

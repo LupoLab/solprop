@@ -54,6 +54,8 @@ class InProcessWorker:
         try:
             reply = self._adapter.handle(kind, sent)
         except Exception as error:
+            # As a real worker: never used again after a failure.
+            self.close()
             raise _remote(error, self._adapter) from error
         return _round_trip(reply, self._adapter.computed)
 
@@ -63,6 +65,10 @@ class InProcessWorker:
             self._adapter.close()
 
     kill = close
+
+    @property
+    def alive(self):
+        return not self.closed
 
 
 def in_process(monkeypatch):

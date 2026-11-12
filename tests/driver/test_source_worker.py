@@ -149,7 +149,7 @@ def test_the_provider_s_printing_never_corrupts_a_frame(worker):
     assert worker.request("echo", [1, 2]) == [1, 2]
 
 
-def test_a_provider_exception_is_reported_by_name_and_the_worker_serves_on(worker):
+def test_a_provider_exception_is_reported_by_name_and_ends_the_worker(worker):
     with pytest.raises(RemoteError) as raised:
         worker.request("raise")
     error = raised.value
@@ -157,7 +157,8 @@ def test_a_provider_exception_is_reported_by_name_and_the_worker_serves_on(worke
     assert error.detail == "manufactured provider failure"
     assert error.classification == "manufactured"
     assert "manufactured provider failure" in error.remote_traceback
-    assert worker.request("echo", 3) == 3
+    # Never used again after a failure (section 6.5): its owner starts a fresh one.
+    _assert_ended(worker)
 
 
 def test_a_worker_that_exits_is_a_named_failure_with_its_status_and_stderr(worker):
