@@ -21,6 +21,7 @@ import numpy as np
 from jaxtyping import Bool, Float
 
 from solprop._identity import canonical_json, text_digest
+from solprop._ownership import frozen_copy, hold
 from solprop.exceptions import (
     BackendError,
     ResponseBudgetError,
@@ -809,8 +810,7 @@ def _gate_derivative_from_json(
     times = lattice_times(lattice["samples"], lattice["spacing"])
     evaluate = planck_taper_derivative_error if error else planck_taper_derivative
     derivative = evaluate(times, *_breakpoints_from_json(encoded))
-    derivative.setflags(write=False)
-    return derivative
+    return hold(derivative)
 
 
 @functools.cache
@@ -824,8 +824,7 @@ def _gate_from_json(encoded: str) -> Float[np.ndarray, " n_to"] | None:
         return None
     lattice = json.loads(encoded)["lattice"]
     gate = window.gate_values(lattice_times(lattice["samples"], lattice["spacing"]))
-    gate.setflags(write=False)
-    return gate
+    return hold(gate)
 
 
 def waveform_identity(fields: Float[np.ndarray, "n_nodes n_to"]) -> str:
@@ -969,11 +968,9 @@ class TDSEResult:
                 raise BackendError(f"TDSE {name} must be float64 with shape {shape}")
             if not np.all(np.isfinite(values)):
                 raise BackendError(f"TDSE {name} contains nonfinite samples")
-            owned = np.array(values, dtype=np.float64, copy=True, order="C")
-            owned.setflags(write=False)
+            owned = frozen_copy(values, np.float64)
             object.__setattr__(self, name, owned)
-        valid = np.array(self.valid, dtype=bool, copy=True, order="C")
-        valid.setflags(write=False)
+        valid = frozen_copy(self.valid, np.bool_)
         object.__setattr__(self, "valid", valid)
         _metadata_json(self.monitors_json, "monitors_json", dict)
         _metadata_json(self.outcomes_json, "outcomes_json", list)

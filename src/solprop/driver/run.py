@@ -587,8 +587,6 @@ def _announce(  # noqa: PLR0917 - called positionally
       is shown the summary.
     - ``start``: the first save plane beyond the loaded state, and the position the run
       starts from, m.
-    - ``boundary_check``: the thresholds the window's edges are watched with, or
-      ``None``.
     """
     start_plane, z_start = start
     summary = run_summary(

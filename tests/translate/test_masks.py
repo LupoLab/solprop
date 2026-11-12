@@ -9,6 +9,7 @@ import pytest
 
 from legacy_geometry import LEGACY_GRID
 from solprop import fourier
+from solprop._ownership import is_held
 from solprop.boundaries import absorber
 from solprop.exceptions import TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid
@@ -77,6 +78,9 @@ def test_the_crop_index_selects_the_coarse_bins_of_the_fine_spectrum(grid):
 
 def test_the_arrays_are_frozen(grid):
     masks = build_masks(grid)
+    # The grid holds its axis and evaluates its masks afresh: none is copied again.
+    assert masks.omega is grid.omega
+    assert is_held(masks.active_mask) and is_held(masks.crop_index)
     for name in (
         "omega",
         "crop_index",
@@ -88,6 +92,22 @@ def test_the_arrays_are_frozen(grid):
         values = getattr(masks, name)
         assert not values.flags.writeable, name
         assert values.flags.c_contiguous, name
+
+
+def test_freezing_the_group_leaves_the_caller_s_arrays_writeable(grid):
+    # Each is already contiguous and of the field's dtype, the case that once froze the
+    # caller's own array in place.
+    mine = {
+        "omega": grid.omega.copy(),
+        "crop_index": np.array(grid.crop_index, dtype=np.intp),
+        "active_mask": np.array(grid.active_mask, dtype=np.bool_),
+        "omega_window": grid.omega_window.copy(),
+    }
+    masks = masks_with(grid, **mine)
+    for name, values in mine.items():
+        assert values.flags.writeable, name
+        assert not getattr(masks, name).flags.writeable, name
+        assert not np.shares_memory(getattr(masks, name), values), name
 
 
 def test_the_in_band_region_is_inside_the_active_band(grid):
@@ -111,6 +131,10 @@ def test_the_temporal_rates_are_the_boundary_module_s_own(grid):
     assert coarse.shape == (grid.n_t,)
     assert fine.shape == (grid.n_to,)
     assert not coarse.flags.writeable
+    assert not fine.flags.writeable
+    # Frozen copies: the absorber's own arrays are left as they were.
+    assert collar.temporal_rate.flags.writeable
+    assert collar.temporal_rate_fine.flags.writeable
 
 
 def test_no_absorber_means_no_rates():

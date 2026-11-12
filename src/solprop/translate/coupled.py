@@ -38,6 +38,7 @@ from numpy.polynomial import chebyshev as chebyshev_basis
 from scipy.linalg import schur
 
 from solprop._display import Displayed, engineering, line
+from solprop._ownership import frozen_copy
 from solprop.exceptions import TranslationError
 from solprop.modes.capillary import WallImpedance, WallLimits
 from solprop.modes.material import JsonValue, quantised_measurement
@@ -130,7 +131,7 @@ def _vector(values: object, name: str) -> Float[np.ndarray, " n_entries"]:
     - ``values``: the candidate axis.
     - Returns: a read-only C-contiguous copy.
     """
-    array = np.array(values, dtype=np.float64, order="C", copy=True)
+    array = frozen_copy(values, np.float64)
     if (
         array.ndim != 1
         or not array.size
@@ -139,7 +140,6 @@ def _vector(values: object, name: str) -> Float[np.ndarray, " n_entries"]:
     ):
         msg = f"{name} must be a finite, non-empty, increasing vector"
         raise TranslationError(msg)
-    array.setflags(write=False)
     return array
 
 
@@ -152,14 +152,13 @@ def _owned(
     - ``dtype``: ``numpy.float64`` or ``numpy.complex128``.
     - Returns: a read-only C-contiguous copy.
     """
-    array = np.array(values, dtype=dtype, order="C", copy=True)
+    array = frozen_copy(values, dtype)
     if array.shape != shape:
         msg = f"{name} must have shape {shape}, got {array.shape}"
         raise TranslationError(msg)
     if not np.all(np.isfinite(array)):
         msg = f"{name} must be finite"
         raise TranslationError(msg)
-    array.setflags(write=False)
     return array
 
 
@@ -187,7 +186,7 @@ def _square(values: object, name: str, rank: int) -> tuple[np.ndarray, int]:
     - ``rank``: number of axes the array must have.
     - Returns: the read-only array and its channel count.
     """
-    array = np.array(values, dtype=np.complex128, order="C", copy=True)
+    array = frozen_copy(values, np.complex128)
     if array.ndim != rank or array.shape[-3] != array.shape[-2] or not array.shape[-2]:
         msg = (
             f"{name} must have {rank} axes with equal and non-empty output and input "
@@ -197,7 +196,6 @@ def _square(values: object, name: str, rank: int) -> tuple[np.ndarray, int]:
     if not np.all(np.isfinite(array)):
         msg = f"{name} must be finite"
         raise TranslationError(msg)
-    array.setflags(write=False)
     return array, int(array.shape[-2])
 
 
@@ -423,7 +421,7 @@ class ModalMetricTables(Displayed):
             raise TranslationError(msg)
         intervals = interval_count(len(self.z_edges))
         if self.diagonal is not None:
-            weights = np.array(self.diagonal, dtype=np.float64, order="C", copy=True)
+            weights = frozen_copy(self.diagonal, np.float64)
             if weights.ndim != 4 or weights.shape[0] != intervals:
                 msg = (
                     "modal_metric.diagonal must have shape (n_intervals, n_deg, "
@@ -441,7 +439,6 @@ class ModalMetricTables(Displayed):
             if not np.all(np.isfinite(weights)) or np.any(weights <= 0):
                 msg = "modal_metric.diagonal must be finite and positive"
                 raise TranslationError(msg)
-            weights.setflags(write=False)
             object.__setattr__(self, "diagonal", weights)
         if self.dense is not None:
             self._validate_dense(intervals)
@@ -768,7 +765,7 @@ class CoupledFlowTables(Displayed):
                 f"frequencies, got {terms.shape}"
             )
             raise TranslationError(msg)
-        weights = np.array(self.term_weights, dtype=np.complex128, order="C", copy=True)
+        weights = frozen_copy(self.term_weights, np.complex128)
         if (
             weights.ndim != 3
             or weights.shape[0] != intervals
@@ -784,7 +781,6 @@ class CoupledFlowTables(Displayed):
         if not np.all(np.isfinite(weights)):
             msg = "coupled_flow.term_weights must be finite"
             raise TranslationError(msg)
-        weights.setflags(write=False)
         object.__setattr__(self, "fixed_terms", terms)
         object.__setattr__(self, "term_weights", weights)
 
@@ -805,9 +801,7 @@ class CoupledFlowTables(Displayed):
                 np.complex128,
             )
             object.__setattr__(self, "wall_vectors", vectors)
-            weights = np.array(
-                self.wall_weights, dtype=np.complex128, order="C", copy=True
-            )
+            weights = frozen_copy(self.wall_weights, np.complex128)
             if (
                 weights.ndim != 3
                 or weights.shape[0] != intervals
@@ -823,7 +817,6 @@ class CoupledFlowTables(Displayed):
             if not np.all(np.isfinite(weights)):
                 msg = "coupled_flow.wall_weights must be finite"
                 raise TranslationError(msg)
-            weights.setflags(write=False)
             object.__setattr__(self, "wall_weights", weights)
         if self.connection is not None:
             link, link_modes = _square(self.connection, "coupled_flow.connection", 5)
@@ -2291,7 +2284,6 @@ def _residual_enclosure(
     samples included, which a sampled maximum is not.
 
     - ``frozen``: the generator frozen at that section's midpoint, 1/m.
-    - ``connection``: the whole connection block, or ``None``.
     - Returns: the bound in 1/m per frequency, shape ``(n_omega,)``.
     """
     terms = coefficients.copy()

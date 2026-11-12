@@ -414,10 +414,7 @@ def nonlinear_coefficient(
 
 
 def _area_per_order(shape: PulseShape) -> float:
-    """Return the pulse area over pi per unit conventional soliton order.
-
-    - ``shape``: the pulse shape.
-    """
+    """Return the pulse area over pi per unit conventional soliton order."""
     return 1.0 if shape == "sech" else math.sqrt(2.0 / math.pi)
 
 

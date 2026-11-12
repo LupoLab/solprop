@@ -594,7 +594,8 @@ def test_a_stamp_without_proc_is_ps_s_start_time(monkeypatch, printed, stamp):
     assert calls == [["ps", "-p", "123", "-o", "lstart="]]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the stamp of a POSIX process")
-def test_this_process_has_a_stamp_and_a_missing_one_has_none():
+def test_this_process_has_a_stamp_and_one_that_has_exited_has_none():
     assert _process.process_stamp(os.getpid())
-    assert _process.process_stamp(2**22 + 7) is None
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    child.wait()
+    assert _process.process_stamp(child.pid) is None

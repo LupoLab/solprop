@@ -32,6 +32,7 @@ from typing import cast
 import numpy as np
 from jaxtyping import Complex, Float
 
+from solprop._ownership import hold
 from solprop.boundaries import Absorber
 from solprop.constants import EPS0, C
 from solprop.exceptions import GrazingIncidenceWarning, TranslationError
@@ -142,7 +143,9 @@ def planar_transform(
         inverse_scale=1 / space.n_y,
     )
     return Transform(
-        synthesis=space.synthesis * time.pad_scale,
+        # The product is this transform's own; the projections are the grid's, and
+        # the transform copies them.
+        synthesis=hold(space.synthesis * time.pad_scale),
         projection=space.projection,
         projection_coarse=space.projection_coarse,
         taper_scale=None,

@@ -192,6 +192,13 @@ def test_a_diagonal_metric_reports_its_channels_and_freezes_its_array():
     assert not metric.omega.flags.writeable
 
 
+def test_a_metric_takes_an_array_it_already_holds_without_a_copy():
+    metric = diagonal_metric(n_modes=4)
+    again = replace(metric)
+    assert again.diagonal is metric.diagonal
+    assert again.omega is metric.omega
+
+
 def test_a_metric_copies_rather_than_adopting_the_caller_s_array():
     weights = np.full((2, 2, 2, 3), 0.5)
     metric = diagonal_metric(diagonal=weights)

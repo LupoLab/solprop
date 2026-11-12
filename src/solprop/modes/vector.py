@@ -366,28 +366,28 @@ class ModalProvider(Protocol):
         ...
 
     @property
-    def regions(self) -> tuple[MaterialRegion, ...]:
-        """Return ordered material-region records."""
+    def regions(self) -> tuple[MaterialRegion, ...]:  # numpydoc ignore=RT01
+        """Ordered material-region records."""
         ...
 
     @property
-    def z_breakpoints(self) -> tuple[float, ...]:
-        """Return physical path breakpoints in m."""
+    def z_breakpoints(self) -> tuple[float, ...]:  # numpydoc ignore=RT01
+        """Physical path breakpoints, m."""
         ...
 
     @property
-    def omega_domain(self) -> tuple[float, float]:
-        """Return the declared angular-frequency interval in rad/s."""
+    def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Declared angular-frequency interval, rad/s."""
         ...
 
     @property
-    def z_domain(self) -> tuple[float, float]:
-        """Return the declared longitudinal interval in m."""
+    def z_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Declared longitudinal interval, m."""
         ...
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return physical identity including spectral_convention='internal'."""
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """Physical identity, including ``spectral_convention='internal'``."""
         ...
 
 

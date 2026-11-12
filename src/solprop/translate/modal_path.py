@@ -60,6 +60,7 @@ from numpy.typing import ArrayLike
 from scipy.interpolate import CubicSpline
 
 from solprop._display import Displayed, engineering, line
+from solprop._ownership import frozen_copy
 from solprop.exceptions import ModeError
 from solprop.modes.connection import ModalConnection, band_connection
 from solprop.modes.guide import ChannelBasis
@@ -411,7 +412,7 @@ class ModalPathTable(Displayed):
         solprop.exceptions.ModeError
             Naming what is inconsistent.
         """
-        edges = np.array(self.z_edges, dtype=np.float64, copy=True).reshape(-1)
+        edges = frozen_copy(np.reshape(self.z_edges, -1), np.float64)
         if (
             edges.size < 2
             or not np.all(np.isfinite(edges))
@@ -420,7 +421,6 @@ class ModalPathTable(Displayed):
             raise ModeError(
                 "a path's section edges are at least two finite increasing positions"
             )
-        edges.setflags(write=False)
         object.__setattr__(self, "z_edges", edges)
         if (
             isinstance(self.degree, bool)

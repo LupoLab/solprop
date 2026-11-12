@@ -358,10 +358,7 @@ def record_of(check: BoundaryCheck, native: Mapping[str, object]) -> dict[str, o
     """
 
     def finite(value: object) -> float | None:
-        """Return a number, or ``None`` when it was never measured (not finite).
-
-        - Returns: the value, or ``None``.
-        """
+        """Return a number, or ``None`` when it was never measured (not finite)."""
         number = float(cast("float", value))
         return number if math.isfinite(number) else None
 

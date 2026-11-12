@@ -553,7 +553,6 @@ def _target_order(
     - ``order``: a conventional soliton order, > 0.
     - ``count``: a number of solitons, >= 1.
     - ``eigenvalue``: the largest Zakharov-Shabat eigenvalue, > 0.
-    - ``shape``: the pulse shape.
     """
     given = [
         name

@@ -166,13 +166,13 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="317.0" y="590.5" font-size="12" class="dim">problem · routes · stage · linop</text>
 <text x="317.0" y="606.0" font-size="12" class="dim">expansion · chebyshev · modal</text>
 <text x="317.0" y="621.5" font-size="12" class="dim">modal_tables · modal_path · coupled</text>
-<text x="317.0" y="637.0" font-size="12" class="dim">general · radial · free · planar</text>
-<text x="317.0" y="652.5" font-size="12" class="dim">spatial · transverse · collar_check</text>
-<text x="317.0" y="668.0" font-size="12" class="dim">flux · coupling · responses</text>
-<text x="317.0" y="683.5" font-size="12" class="dim">ionisation · plasma_integration</text>
-<text x="317.0" y="699.0" font-size="12" class="dim">plasma_source · envelope_plasma</text>
-<text x="317.0" y="714.5" font-size="12" class="dim">raman · masks · tdse · tdse_source</text>
-<text x="317.0" y="730.0" font-size="12" class="dim">run_request</text>
+<text x="317.0" y="637.0" font-size="12" class="dim">general · admission · radial · free</text>
+<text x="317.0" y="652.5" font-size="12" class="dim">planar · spatial · transverse</text>
+<text x="317.0" y="668.0" font-size="12" class="dim">collar_check · flux · coupling</text>
+<text x="317.0" y="683.5" font-size="12" class="dim">responses · ionisation</text>
+<text x="317.0" y="699.0" font-size="12" class="dim">plasma_integration · plasma_source</text>
+<text x="317.0" y="714.5" font-size="12" class="dim">envelope_plasma · raman · masks</text>
+<text x="317.0" y="730.0" font-size="12" class="dim">tdse · tdse_source · run_request</text>
 <rect x="32" y="802.0" width="1010.0" height="154.0" rx="7" ry="7" class="plain" />
 <rect x="46" y="862.0" width="34" height="34" rx="7" ry="7" class="fill-b" />
 <text x="63" y="885.0" font-size="19" class="bold mid ink-b">B</text>
@@ -183,20 +183,20 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="317.0" y="837.0" font-size="15" class="bold ink-b">backends/</text>
 <text x="317.0" y="852.5" font-size="12" class="dim">protocol · registry · spatial</text>
 <text x="317.0" y="868.0" font-size="12" class="dim">populations · memory · node_chunk</text>
-<text x="317.0" y="883.5" font-size="12" class="dim">multistep · adams_core · rk_core</text>
+<text x="317.0" y="883.5" font-size="12" class="dim">ledger · adams_core · rk_core</text>
 <text x="317.0" y="899.0" font-size="12" class="dim">exponential · low_storage · session</text>
 <text x="317.0" y="914.5" font-size="12" class="dim">events · export · session_core</text>
 <text x="317.0" y="930.0" font-size="12" class="dim">sessions</text>
-<rect x="568.0" y="815.0" width="211.4" height="128.0" rx="7" ry="7" class="fill-b" />
+<rect x="568.0" y="815.0" width="224.60000000000002" height="128.0" rx="7" ry="7" class="fill-b" />
 <text x="578.0" y="837.0" font-size="15" class="bold ink-b">backends/host/</text>
-<text x="578.0" y="852.5" font-size="12" class="dim">driver · adams · general</text>
-<text x="578.0" y="868.0" font-size="12" class="dim">low_storage · group · session</text>
-<text x="578.0" y="883.5" font-size="12" class="dim">group_session</text>
-<rect x="789.4" y="815.0" width="198.20000000000002" height="128.0" rx="7" ry="7" class="fill-b" />
-<text x="799.4" y="837.0" font-size="15" class="bold ink-b">backends/numpy_ref/</text>
-<text x="799.4" y="852.5" font-size="12" class="dim">backend · batch · passes</text>
-<text x="799.4" y="868.0" font-size="12" class="dim">admission · envelope_plasma</text>
-<text x="799.4" y="883.5" font-size="12" class="dim">general_modal · tdse</text>
+<text x="578.0" y="852.5" font-size="12" class="dim">driver · adams · low_storage</text>
+<text x="578.0" y="868.0" font-size="12" class="dim">group · session · group_session</text>
+<rect x="802.6" y="815.0" width="224.60000000000002" height="128.0" rx="7" ry="7" class="fill-b" />
+<text x="812.6" y="837.0" font-size="15" class="bold ink-b">backends/numpy_ref/</text>
+<text x="812.6" y="852.5" font-size="12" class="dim">backend · batch · passes</text>
+<text x="812.6" y="868.0" font-size="12" class="dim">multistep · populations</text>
+<text x="812.6" y="883.5" font-size="12" class="dim">envelope_plasma · general_modal</text>
+<text x="812.6" y="899.0" font-size="12" class="dim">tdse</text>
 <rect x="32" y="1002.0" width="1010.0" height="368.0" rx="7" ry="7" class="plain" />
 <rect x="46" y="1169.0" width="34" height="34" rx="7" ry="7" class="fill-d" />
 <text x="63" y="1192.0" font-size="19" class="bold mid ink-d">D</text>

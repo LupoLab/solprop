@@ -120,13 +120,13 @@ class PermittivityLaw(Protocol):
         ...
 
     @property
-    def omega_domain(self) -> tuple[float, float]:
-        """Return the material validity interval in rad/s."""
+    def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Material validity interval ``(lower, upper)``, rad/s."""
         ...
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return the material state and source identity."""
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """Material state and source identity."""
         ...
 
 

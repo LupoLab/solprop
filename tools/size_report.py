@@ -10,9 +10,10 @@ book-keeping: private docstrings with numpydoc sections, docstrings longer than 
 body, ``noqa`` comments by rule, private names imported across packages, ``__all__``
 lines and an estimate of cloned code. ``--json`` prints the same as JSON; ``--check``
 compares ``src/solprop`` with the caps in ``tools/size_budget.toml`` and exits 1 when
-one is exceeded. A name is private by numpydoc's rule (a single-underscore component in
-``module.qualname``, the module named by its file stem) or when it is nested in a
-function. Only the standard library is used.
+one is exceeded. A name is private by exactly the rule that numpydoc's validation
+excludes: a single-underscore component in ``module.qualname``, the module named by its
+file stem, so that this report and ``poe docstrings`` agree. Only the standard library
+is used.
 """
 
 import argparse
@@ -79,6 +80,22 @@ class _Report:
     module_lines: dict[str, int] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class _Source:
+    """One file read, parsed and tokenised once."""
+
+    path: Path
+    text: str
+    tree: ast.Module
+    tokens: list[tokenize.TokenInfo]
+
+
+def _read(path: Path) -> _Source:
+    text = path.read_text(encoding="utf-8")
+    tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    return _Source(path, text, ast.parse(text), tokens)
+
+
 def _package_of(path: Path, root: Path) -> str:
     parts = path.relative_to(root).parts
     return parts[0] if len(parts) > 1 else "(top-level)"
@@ -94,30 +111,28 @@ def _docstring_node(node: ast.AST) -> ast.Constant | None:
 
 
 def _walk_definitions(tree: ast.Module, stem: str) -> list[tuple[ast.AST, str, bool]]:
-    # (node, dotted name as numpydoc forms it, private or nested), the module first.
+    # (node, dotted name as numpydoc forms it, private), the module first.
     found: list[tuple[ast.AST, str, bool]] = [(tree, stem, bool(_PRIVATE.search(stem)))]
 
-    def visit(node: ast.AST, prefix: str, in_function: bool) -> None:
+    def visit(node: ast.AST, prefix: str) -> None:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
                 name = f"{prefix}.{child.name}"
-                private = in_function or bool(_PRIVATE.search(name))
-                found.append((child, name, private))
-                is_function = not isinstance(child, ast.ClassDef)
-                visit(child, name, in_function or is_function)
+                found.append((child, name, bool(_PRIVATE.search(name))))
+                visit(child, name)
             else:
-                visit(child, prefix, in_function)
+                visit(child, prefix)
 
-    visit(tree, stem, in_function=False)
+    visit(tree, stem)
     return found
 
 
-def _line_kinds(text: str) -> tuple[set[int], set[int]]:
+def _line_kinds(tokens: list[tokenize.TokenInfo]) -> tuple[set[int], set[int]]:
     # The lines holding only a comment, and the lines holding any other token.
     comments: set[int] = set()
     code: set[int] = set()
     skip = {tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT}
-    for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+    for tok in tokens:
         if tok.type == tokenize.COMMENT:
             comments.add(tok.start[0])
         elif tok.type not in skip and tok.type != tokenize.ENDMARKER:
@@ -125,11 +140,11 @@ def _line_kinds(text: str) -> tuple[set[int], set[int]]:
     return comments - code, code
 
 
-def _tokens(text: str, *, names: bool) -> list[str]:
+def _tokens(tokens: list[tokenize.TokenInfo], *, names: bool) -> list[str]:
     # Normalised tokens: literals lose their spelling, and names too unless `names`.
     out: list[str] = []
     keep = {tokenize.OP, tokenize.NEWLINE}
-    for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+    for tok in tokens:
         if tok.type == tokenize.NAME:
             out.append(tok.string if names or tok.string in _KEYWORDS else "N")
         elif tok.type == tokenize.NUMBER:
@@ -141,13 +156,15 @@ def _tokens(text: str, *, names: bool) -> list[str]:
     return out
 
 
-def _measure_file(path: Path, package: _Package, report: _Report, label: str) -> None:
-    text = path.read_text(encoding="utf-8")
+def _measure_file(
+    source: _Source, package: _Package, report: _Report, label: str
+) -> None:
+    text, tree = source.text, source.tree
     lines = text.splitlines()
-    tree = ast.parse(text)
-    comment_lines, code_lines = _line_kinds(text)
+    comment_lines, code_lines = _line_kinds(source.tokens)
     doc_lines: dict[int, bool] = {}  # line -> private
-    for node, _, private in _walk_definitions(tree, path.stem):
+    definitions = _walk_definitions(tree, source.path.stem)
+    for node, _, private in definitions:
         doc = _docstring_node(node)
         if doc is None:
             continue
@@ -159,7 +176,7 @@ def _measure_file(path: Path, package: _Package, report: _Report, label: str) ->
             body = (node.end_lineno or node.lineno) - (doc.end_lineno or doc.lineno)
             if len(span) > body:
                 package.doc_over_body += 1
-    for node, name, _ in _walk_definitions(tree, path.stem):
+    for node, name, _ in definitions:
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             size = (node.end_lineno or node.lineno) - node.lineno + 1
             report.largest_functions.append((f"{label}:{name}", size))
@@ -185,30 +202,36 @@ def _measure_file(path: Path, package: _Package, report: _Report, label: str) ->
     report.module_lines[label] = len(lines)
 
 
-def _private_imports(path: Path, root: Path, label: str) -> list[str]:
-    # Private names, or any name from a private module of a subpackage, imported from
-    # another package. The root's private modules (`solprop._process`) are shared by
-    # design, so only their private names count.
+def _private_imports(source: _Source, root: Path, label: str) -> list[str]:
+    # Private names imported from another package: a private name, a name from a private
+    # module of a subpackage, or a private module itself (`import solprop.x._y`,
+    # `from solprop import _y`). Public names from the root's private modules
+    # (`from solprop._process import ...`) are shared by design and do not count.
     top = root.name
-    here = _package_of(path, root)
+    here = _package_of(source.path, root)
+
+    def package(name: str) -> str:
+        return name if (root / name).is_dir() else "(top-level)"
+
     found: list[str] = []
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        if not isinstance(node, ast.ImportFrom) or node.level or not node.module:
-            continue
-        parts = node.module.split(".")
-        if parts[0] != top or len(parts) < 2:
-            continue
-        there = (
-            parts[1]
-            if (len(parts) > 2 or (root / parts[1]).is_dir())
-            else "(top-level)"
-        )
-        if there == here:
-            continue
-        module_private = any(_PRIVATE.match(p) for p in parts[2:])
-        for alias in node.names:
-            if module_private or _PRIVATE.match(alias.name):
-                found.append(f"{label}:{node.lineno} {node.module}.{alias.name}")
+    for node in ast.walk(source.tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                parts = alias.name.split(".")
+                crosses = (
+                    len(parts) > 1 and parts[0] == top and package(parts[1]) != here
+                )
+                if crosses and any(_PRIVATE.match(p) for p in parts[1:]):
+                    found.append(f"{label}:{node.lineno} {alias.name}")
+        elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+            parts = node.module.split(".")
+            if parts[0] != top:
+                continue
+            module_private = any(_PRIVATE.match(p) for p in parts[2:])
+            for alias in node.names:
+                there = package(parts[1] if len(parts) > 1 else alias.name)
+                if there != here and (module_private or _PRIVATE.match(alias.name)):
+                    found.append(f"{label}:{node.lineno} {node.module}.{alias.name}")
     return found
 
 
@@ -272,7 +295,8 @@ def _complexity(paths: list[str]) -> dict[str, int]:
     return counts
 
 
-def _measure(roots: list[str]) -> _Report:
+def _measure(roots: list[str], *, full: bool = True) -> _Report:
+    # `full=False` (the check) leaves out the clone and complexity passes.
     report = _Report()
     token_lists: dict[str, list[str]] = {}
     exact_lists: dict[str, list[str]] = {}
@@ -283,16 +307,19 @@ def _measure(roots: list[str]) -> _Report:
             key = _package_of(path, root)
             key = key if root_name == _ROOTS[0] else f"{root.name}/{key}"
             package = report.packages.setdefault(key, _Package())
-            _measure_file(path, package, report, label)
-            report.private_imports += _private_imports(path, root, label)
-            text = path.read_text(encoding="utf-8")
-            token_lists[label] = _tokens(text, names=False)
-            exact_lists[label] = _tokens(text, names=True)
+            source = _read(path)
+            _measure_file(source, package, report, label)
+            report.private_imports += _private_imports(source, root, label)
+            if full:
+                token_lists[label] = _tokens(source.tokens, names=False)
+                exact_lists[label] = _tokens(source.tokens, names=True)
     report.largest_files = sorted(report.largest_files, key=lambda x: -x[1])[:_TOP]
     report.largest_functions = sorted(report.largest_functions, key=lambda x: -x[1])[
         :_TOP
     ]
     report.noqa = dict(sorted(report.noqa.items(), key=lambda x: -x[1]))
+    if not full:
+        return report
     report.clone_percent, report.clone_pairs = _clones(token_lists)
     report.exact_clone_percent = _clones(exact_lists)[0]
     report.complexity = _complexity(roots)
@@ -352,11 +379,29 @@ def _check(report: _Report, budget: dict[str, Any]) -> list[str]:  # TOML tables
         failures.append(
             f"{sectioned} private docstrings have numpydoc sections (cap {cap})"
         )
-    limit: int = budget["modules"]["max_lines"]
-    allowed: dict[str, int] = budget["modules"]["allow"]
+    modules = budget["modules"]
+    limit: int = modules["max_lines"]
+    allowed: dict[str, int] = modules["allow"]
+
+    def headroom(n: int) -> int:
+        return max(
+            modules["headroom_lines"], -(-n * modules["headroom_percent"] // 100)
+        )
+
     for label, n in report.module_lines.items():
         if label.startswith(_ROOTS[0]) and n > allowed.get(label, limit):
             failures.append(f"{label} has {n} lines (cap {allowed.get(label, limit)})")
+    for label, cap in allowed.items():
+        n = report.module_lines.get(label)
+        if n is None:
+            failures.append(f"{label} is allowed {cap} lines but no longer exists")
+        elif n <= limit:
+            failures.append(f"{label} is under {limit} lines: remove its allow entry")
+        elif cap - n > 3 * headroom(n):
+            failures.append(
+                f"{label} has {n} lines, so its allow entry {cap} is stale: "
+                f"set it to {n + headroom(n)}"
+            )
     imports = [i for i in report.private_imports if i.startswith(_ROOTS[0])]
     cap = budget["private_imports"]["max_cross_package"]
     if len(imports) > cap:
@@ -391,7 +436,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     roots = [*_ROOTS, *(_EXTRA_ROOTS if args.all else ())]
-    report = _measure(roots)
+    report = _measure(roots, full=not args.check)
     if args.check:
         failures = _check(report, tomllib.loads(_BUDGET.read_text(encoding="utf-8")))
         sys.stdout.writelines(f"size-check: {f}\n" for f in failures)

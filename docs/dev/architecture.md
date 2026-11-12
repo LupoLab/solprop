@@ -244,11 +244,15 @@ module, drawn dashed in figure 1, to be written only for an agreed use case.
 `_display.py` is private: the formatter behind every class's printed block, imported by
 any layer and importing none. `_validation.py` is private too: the plain refusals
 (`positive`, `finite`, `choice`, `shape`) in one wording, each raising the caller's own
-exception class, imported by any layer and importing only `exceptions.py`. So is `_identity.py`: the canonical JSON text of a record
-and its SHA-256, which every stored identity is (a run's resume key, a scan's common
-record, a coupling plane's basis, a TDSE basis or descriptor, a material population),
-and `_durable.py`: a small file replaced whole, which the scan queue's state, the front
-end's run records and the TDSE consistency cache are written with.
+exception class, imported by any layer and importing only `exceptions.py`.
+`_ownership.py` is private in the same way: it records which arrays solprop holds,
+so that an array solprop has just made is frozen where it stands (`hold`) and anything
+a caller hands in is copied before it is frozen (`frozen_copy`), in every layer. So is
+`_identity.py`: the canonical JSON text of a record and its SHA-256, which every stored
+identity is (a run's resume key, a scan's common record, a coupling plane's basis, a
+TDSE basis or descriptor, a material population), and `_durable.py`: a small file
+replaced whole, which the scan queue's state, the front end's run records and the TDSE
+consistency cache are written with.
 
 The layout does not mirror Luna's module tree: what `NonlinearRHS.jl` does spans
 response normalisation, translation and backend passes; `Maths.jl` mostly becomes SciPy

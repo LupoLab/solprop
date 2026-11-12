@@ -33,6 +33,8 @@ from sessions.executors import (
     soliton,
     window,
 )
+from solprop._ownership import frozen_copy, is_held
+from solprop.backends import protocol
 from solprop.backends.events import ExportTicket, ObservationReady
 from solprop.backends.export import ExportRecipe, apply_recipe
 from solprop.backends.host.session import HostSession
@@ -184,6 +186,52 @@ def test_a_file_is_handed_one_new_array_per_kept_plane(backend, monkeypatch, tmp
         stored = np.asarray(reader["field"])
     for (_, _, _, result), row in zip(spy.calls, stored, strict=True):
         assert result.tobytes() == row.tobytes()
+
+
+class _ExportedFile(HDF5Output):
+    """Keep each exported field a file is handed, by reference."""
+
+    def __init__(self, path) -> None:
+        super().__init__(path)
+        self.exported: list[np.ndarray] = []
+
+    def save_exported(self, plane: SavedPlane, stored: StoredField) -> None:
+        self.exported.append(stored.values)
+        super().save_exported(plane, stored)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_file_is_handed_the_session_s_own_held_export_with_no_copy(
+    backend, monkeypatch, tmp_path
+):
+    # The session holds the array it exports, so nothing between it and the file
+    # copies it again: the file is handed that very array.
+    spy = _spied(monkeypatch)
+    output = _ExportedFile(tmp_path / "run.h5")
+    _run(backend, output)
+    assert len(output.exported) == len(spy.calls) == len(PLANES) + 1
+    for (_, _, _, result), values in zip(spy.calls, output.exported, strict=True):
+        assert values is result
+        assert is_held(result)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_run_s_records_take_what_the_backend_made_with_no_copy(
+    backend, monkeypatch, tmp_path
+):
+    # The step histories, statistic rows and observations a backend hands over are
+    # arrays it made and holds: the records adopt each as it stands.
+    copies: list[tuple[int, ...]] = []
+
+    def counted(values, dtype=None):
+        result = frozen_copy(values, dtype)
+        if result is not values:
+            copies.append(result.shape)
+        return result
+
+    monkeypatch.setattr(protocol, "frozen_copy", counted)
+    _run(backend, _ExportedFile(tmp_path / "run.h5"))
+    assert copies == []
 
 
 @pytest.mark.parametrize("output", ["memory", "file", "callback"])

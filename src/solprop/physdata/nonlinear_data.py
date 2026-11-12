@@ -1070,7 +1070,6 @@ def _edge(value: float | None) -> float | None:
     """Return a band edge as a float, keeping an undefined one undefined.
 
     - ``value``: the edge optmat's record derives, m^-1.
-    - Returns: the edge as a Python float, or ``None``.
     """
     return None if value is None else float(value)
 

@@ -42,6 +42,7 @@ from dataclasses import dataclass
 import numpy as np
 from jaxtyping import Float
 
+from solprop._ownership import frozen_copy
 from solprop.exceptions import TranslationError
 from solprop.monitor import BoundaryMonitor
 from solprop.output.store import FieldRetention
@@ -499,8 +500,7 @@ def describe_run(
     ('runge_kutta', [1.0])
     """
     settings = stepper
-    planes = np.array(settings.save_planes, dtype=np.float64)
-    planes.setflags(write=False)
+    planes = frozen_copy(settings.save_planes, np.float64)
     if not 0 <= start_plane <= planes.size:
         msg = f"start_plane {start_plane} is not a plane of a run with {planes.size}"
         raise TranslationError(msg)

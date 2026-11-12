@@ -379,8 +379,6 @@ def _array_name(digest: ArrayDigest) -> str:
     The layout is part of the name because the digest covers only the bytes: arrays of
     equal bytes and different dtypes or shapes are different arrays, and one must not
     take the other's place in the store.
-
-    - ``digest``: the array's digest, dtype and shape.
     """
     shape = "x".join(str(size) for size in digest.shape)
     return f"{digest.sha256}-{digest.dtype}-{shape}"
@@ -597,8 +595,5 @@ def _rebuild[T](
 
 
 def _optional_text(value: JsonValue) -> str | None:
-    """Return a stored optional string, ``None`` when null.
-
-    - Returns: the string, or ``None``.
-    """
+    """Return a stored optional string, ``None`` when null."""
     return None if value is None else str(value)

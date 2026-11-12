@@ -133,10 +133,7 @@ when a run starts, not when it closes, and outside the configuration hash.
 def _differences(
     left: JsonValue, right: JsonValue, path: str, found: list[str]
 ) -> None:
-    """Collect the dotted paths at which two serialised structures differ.
-
-    - ``right``: the second.
-    """
+    """Collect the dotted paths at which two serialised structures differ."""
     if isinstance(left, dict) and isinstance(right, dict):
         if _RECORD_ARRAY in left and _RECORD_ARRAY in right:
             # One entry, whatever changed in it: the array has no text to walk.

@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
 
+from solprop._ownership import frozen_copy, hold
 from solprop._process import parallel_rows
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.log import ProgressReporter, StopFlag
@@ -129,8 +130,9 @@ class BackendHistory:
             ("accepted", np.bool_),
             ("wall_time", np.float64),
         ):
-            values = np.ascontiguousarray(getattr(self, name), dtype=dtype)
-            values.setflags(write=False)
+            # At least one-dimensional, as numpy.ascontiguousarray made it: a scalar
+            # stands for one entry.
+            values = frozen_copy(np.atleast_1d(getattr(self, name)), dtype)
             object.__setattr__(self, name, values)
             # The rank is fixed by the annotations, which the test session enforces;
             # what a caller can still get wrong is the number of entries.
@@ -245,11 +247,12 @@ class StepStats:
         BackendError
             Naming the offending column or statistic.
         """
-        positions = np.ascontiguousarray(self.z, dtype=np.float64)
-        indices = np.ascontiguousarray(self.step, dtype=np.int64)
-        for name, values in (("z", positions), ("step", indices)):
-            values.setflags(write=False)
-            object.__setattr__(self, name, values)
+        # At least one-dimensional, as numpy.ascontiguousarray made them: a scalar
+        # position is one row.
+        positions = frozen_copy(np.atleast_1d(self.z), np.float64)
+        indices = frozen_copy(np.atleast_1d(self.step), np.int64)
+        object.__setattr__(self, "z", positions)
+        object.__setattr__(self, "step", indices)
         if indices.shape != positions.shape:
             msg = (
                 f"step has {indices.size} entries and z has {positions.size}: "
@@ -267,18 +270,15 @@ class StepStats:
                 raise BackendError(msg)
         adopted = {}
         for name, values in self.values.items():
-            # `asarray` before `ascontiguousarray`, because the latter promotes a
-            # zero-dimensional array to one dimension and a scalar would then pass
-            # as a single row.
-            row = np.asarray(values)
+            # A copy, unless solprop already holds the rows; it keeps a scalar
+            # zero-dimensional, so a scalar cannot pass as a single row.
+            row = frozen_copy(values)
             if row.ndim == 0 or row.shape[0] != positions.size:
                 msg = (
                     f"the {name!r} rows have leading axis {row.shape}, expected "
                     f"{positions.size} rows as z has"
                 )
                 raise BackendError(msg)
-            row = np.ascontiguousarray(row)
-            row.setflags(write=False)
             adopted[name] = row
         object.__setattr__(self, "values", adopted)
 
@@ -291,7 +291,7 @@ class StepStats:
         StepStats
             No rows and no statistics.
         """
-        return cls(np.empty(0), np.empty(0, dtype=np.int64), {})
+        return cls(hold(np.empty(0)), hold(np.empty(0, dtype=np.int64)), {})
 
     @property
     def n_rows(self) -> int:  # numpydoc ignore=RT01
@@ -405,7 +405,7 @@ class Observation:
     field_owned: bool = False
 
     def __post_init__(self) -> None:
-        """Freeze the arrays, as given when already contiguous, and check the plane.
+        """Freeze the arrays, copying any solprop does not already hold, and check.
 
         Raises
         ------
@@ -419,8 +419,9 @@ class Observation:
             object.__setattr__(self, "field_owned", False)
             self._check_counts()
             return
-        state = np.ascontiguousarray(self.field, dtype=np.complex128)
-        state.setflags(write=False)
+        # A backend holds what it hands over (solprop._ownership.hold), which is then
+        # taken as it stands; anything else, as from a caller, is copied.
+        state = frozen_copy(self.field, np.complex128)
         object.__setattr__(self, "field", state)
         if not _all_finite(state):
             bad = int(np.sum(~np.isfinite(state)))
@@ -430,8 +431,7 @@ class Observation:
             )
             raise BackendError(msg)
         if self.noise_phase is not None:
-            phase = np.ascontiguousarray(self.noise_phase, dtype=np.float64)
-            phase.setflags(write=False)
+            phase = frozen_copy(self.noise_phase, np.float64)
             object.__setattr__(self, "noise_phase", phase)
             if phase.shape != state.shape:
                 msg = (
@@ -653,8 +653,8 @@ class Backend(Protocol):
     reads_transverse_edge: bool
 
     @property
-    def request(self) -> "RunRequest":
-        """Return the run request the backend was built for.
+    def request(self) -> "RunRequest":  # numpydoc ignore=RT01
+        """Run request the backend was built for.
 
         Its method, error control, itinerary, planes and statistics; a run adapts it
         with :meth:`~solprop.translate.run_request.RunRequest.for_run`.
