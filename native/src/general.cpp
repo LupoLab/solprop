@@ -18,6 +18,7 @@
 #include "solprop_native/raman_fft.hpp"
 #include "solprop_native/slab.hpp"
 #include "solprop_native/vmath.hpp"
+#include "solprop_native/refuse.hpp"
 #include "solprop_native/z_table.hpp"
 
 #include <KokkosFFT.hpp>
@@ -5403,10 +5404,10 @@ void GeneralWorkspace::prepare_raman_stage(const std::size_t stage, const double
 void GeneralWorkspace::prepare_trial(const double dz, const TrialScalars& scalars) {
   require_open();
   if (problem_.low_storage)
-    throw std::logic_error(
-        "trial_step: a low-storage state of " + std::to_string(current_.extent(0)) +
-        " x " + std::to_string(current_.extent(1)) +
-        " holds no Runge-Kutta views; its steps are low_storage_step's");
+    refuse<std::logic_error>("trial_step: a low-storage state of ", current_.extent(0),
+                             " x ", current_.extent(1),
+                             " holds no Runge-Kutta views; its steps are "
+                             "low_storage_step's");
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
   require_trial_scalars(scalars);
@@ -6876,12 +6877,11 @@ void GeneralWorkspace::table_upload(const TableKind kind, std::vector<double> ed
     throw std::invalid_argument("a z table needs one more breakpoint than intervals "
                                 "and at least one coefficient");
   if (flux && n_values != problem_.n_omega)
-    throw std::invalid_argument("the plane measure's material table holds n_omega = " +
-                                std::to_string(problem_.n_omega) + " values");
+    refuse("the plane measure's material table holds n_omega = ", problem_.n_omega,
+           " values");
   if (!flux && n_values != problem_.n_columns() * problem_.n_omega)
-    throw std::invalid_argument("a z table's values must be the state's (" +
-                                std::to_string(problem_.n_columns()) + " x " +
-                                std::to_string(problem_.n_omega) + ")");
+    refuse("a z table's values must be the state's (", problem_.n_columns(), " x ",
+           problem_.n_omega, ")");
   for (std::size_t index = 0; index < edges.size(); ++index)
     if (!std::isfinite(edges[index]) ||
         (index > 0 && !(edges[index] > edges[index - 1])))
@@ -6922,8 +6922,8 @@ void GeneralWorkspace::table_evaluate(const std::vector<std::size_t>& slots,
   for (const auto slot : slots) {
     if ((phi_table_.present() && slot >= problem_.n_phi_terms) ||
         (prefactor_table_.present() && slot >= problem_.n_prefactor_terms))
-      throw std::out_of_range("z table slot " + std::to_string(slot) +
-                              " is not a term of this problem");
+      refuse<std::out_of_range>("z table slot ", slot,
+                                " is not a term of this problem");
   }
   if (phi_table_.present())
     z_table::evaluate("solprop_native.linear.phi_table_values", execution_space_,
@@ -6954,8 +6954,7 @@ void GeneralWorkspace::table_rate(const std::size_t slot, const double z,
   if (!rate_table_.present())
     throw std::logic_error("no rate table has been uploaded");
   if (slot >= problem_.n_phi_terms)
-    throw std::out_of_range("z table slot " + std::to_string(slot) +
-                            " is not a term of this problem");
+    refuse<std::out_of_range>("z table slot ", slot, " is not a term of this problem");
   z_table::evaluate("solprop_native.linear.rate_table_values", execution_space_,
                     rate_table_, z_table::locate(rate_table_, {slot}, {z}, before),
                     phi_terms_.data());
@@ -6967,8 +6966,7 @@ GeneralWorkspace::table_terms_to_host(const TableKind kind,
   require_open();
   const auto& terms = kind == TableKind::prefactor ? prefactor_terms_ : phi_terms_;
   if (slot >= terms.extent(0))
-    throw std::out_of_range("term slot " + std::to_string(slot) +
-                            " is not a term of this problem");
+    refuse<std::out_of_range>("term slot ", slot, " is not a term of this problem");
   execution_space_.fence("solprop_native z table terms_to_host");
   const auto host = Kokkos::create_mirror_view_and_copy(
       Kokkos::HostSpace{}, Kokkos::subview(terms, slot, Kokkos::ALL, Kokkos::ALL));
@@ -8586,14 +8584,14 @@ void GeneralWorkspace::adams_fallback_squarings(const std::size_t section,
     return;
   std::array<char, 32> length{};
   std::snprintf(length.data(), length.size(), "%.4g", dz);
-  const std::string limit = " would need more than " +
-                            std::to_string(flow_functions::max_squarings) +
-                            " squarings, the most this backend admits. Cap dz_max";
+  const std::string limit =
+      concat(" would need more than ", flow_functions::max_squarings,
+             " squarings, the most this backend admits. Cap dz_max");
   if (moments > flow_functions::max_squarings)
-    throw BackendRefusal(bin + " over a step of " + length.data() + " m: its exponent" +
-                         limit);
-  throw BackendRefusal(bin + " over a step of " + length.data() +
-                       " m: a history sample's carry to the step's end" + limit);
+    refuse<BackendRefusal>(bin, " over a step of ", length.data(), " m: its exponent",
+                           limit);
+  refuse<BackendRefusal>(bin, " over a step of ", length.data(),
+                         " m: a history sample's carry to the step's end", limit);
 }
 
 std::vector<double> GeneralWorkspace::adams_exponential_trial(
@@ -13148,9 +13146,8 @@ void GeneralWorkspace::envelope_cycle(const std::size_t channel,
                    envelope_status_);
   response_space_for(node_count).fence("solprop_native envelope refinement boundary");
   if (envelope_host_status_(0) != no_failure)
-    throw EnvelopeConvergenceError("envelope plasma channel " +
-                                   std::to_string(channel) +
-                                   " exceeded the angular refinement budget");
+    refuse<EnvelopeConvergenceError>("envelope plasma channel ", channel,
+                                     " exceeded the angular refinement budget");
   const auto rows = std::make_pair(std::size_t{0}, node_count);
   portable_team_trapezoid_scan<true>(
       response_space_for(node_count),

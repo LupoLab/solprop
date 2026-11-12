@@ -5,6 +5,7 @@
 #include "solprop_native/coupled_flow.hpp"
 
 #include "solprop_native/launch.hpp"
+#include "solprop_native/refuse.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -27,9 +28,7 @@ std::size_t product(const std::size_t left, const std::size_t right, const char*
 void require_size(const std::size_t actual, const std::size_t expected,
                   const char* name) {
   if (actual != expected)
-    throw std::invalid_argument(std::string("coupled flow ") + name + " has " +
-                                std::to_string(actual) + " values, expected " +
-                                std::to_string(expected));
+    refuse("coupled flow ", name, " has ", actual, " values, expected ", expected);
 }
 
 bool finite(const std::vector<Complex>& values) {

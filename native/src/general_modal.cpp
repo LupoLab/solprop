@@ -7,6 +7,7 @@
 #include "solprop_native/fft_plan.hpp"
 #include "solprop_native/launch.hpp"
 
+#include "solprop_native/refuse.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -66,9 +67,7 @@ std::size_t product(const std::size_t left, const std::size_t right, const char*
 void require_size(const std::size_t actual, const std::size_t expected,
                   const char* name) {
   if (actual != expected)
-    throw std::invalid_argument(std::string("general modal ") + name + " has " +
-                                std::to_string(actual) + " values, expected " +
-                                std::to_string(expected));
+    refuse("general modal ", name, " has ", actual, " values, expected ", expected);
 }
 
 template <class Value> bool finite(const std::vector<Value>& values) {

@@ -6,6 +6,7 @@
 
 #include "solprop_native/chebyshev.hpp"
 #include "solprop_native/core.hpp"
+#include "solprop_native/refuse.hpp"
 
 #include <cstddef>
 #include <stdexcept>
@@ -68,9 +69,8 @@ inline Points locate(const Table& table, const std::vector<std::size_t>& slots,
   if (slots.size() != positions.size())
     throw std::invalid_argument("z table: one slot per position");
   if (positions.size() > max_points)
-    throw std::invalid_argument("z table: at most " + std::to_string(max_points) +
-                                " positions per evaluation, got " +
-                                std::to_string(positions.size()));
+    refuse("z table: at most ", max_points, " positions per evaluation, got ",
+           positions.size());
   if (table.edges.size() < 2)
     throw std::logic_error("z table: no table has been uploaded");
   Points points;
@@ -78,10 +78,8 @@ inline Points locate(const Table& table, const std::vector<std::size_t>& slots,
   for (std::size_t p = 0; p < positions.size(); ++p) {
     const double z = positions[p];
     if (!(z >= table.lower && z <= table.upper))
-      throw std::out_of_range("z = " + std::to_string(z) +
-                              " m is outside the z table's span [" +
-                              std::to_string(table.edges.front()) + ", " +
-                              std::to_string(table.edges.back()) + "] m");
+      refuse<std::out_of_range>("z = ", z, " m is outside the z table's span [",
+                                table.edges.front(), ", ", table.edges.back(), "] m");
     std::size_t k =
         chebyshev::interval_index(z, table.edges.data(), table.edges.size());
     if (before && k > 0 && z <= table.edges[k])

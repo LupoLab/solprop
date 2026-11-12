@@ -12,6 +12,7 @@
 #include "solprop_native/fft_plan.hpp"
 #include "solprop_native/lagrange_basis.hpp"
 #include "solprop_native/low_storage.hpp"
+#include "solprop_native/refuse.hpp"
 #include "solprop_native/rk_march.hpp"
 #include "solprop_native/session.hpp"
 #include "solprop_native/stage_tables.hpp"
@@ -197,9 +198,8 @@ native::CpuExecution cpu_execution_from(const nb::dict& values) {
   const std::size_t expected =
       2 * native::cpu_operation_count + cpu_execution_scalars.size();
   if (values.size() != expected)
-    throw std::invalid_argument("a CPU execution record has " +
-                                std::to_string(expected) + " fields, got " +
-                                std::to_string(values.size()));
+    native::refuse("a CPU execution record has ", expected, " fields, got ",
+                   values.size());
   const auto field = [&values](const std::string& name) {
     if (!values.contains(name.c_str()))
       throw std::invalid_argument("a CPU execution record misses a field: " + name);
@@ -838,8 +838,8 @@ native::stage::Tables stage_tables_from(const nb::dict values) {
     const int chord = nb::cast<int>(values["chord"]);
     if (chord < static_cast<int>(native::stage::Chord::none) ||
         chord > static_cast<int>(native::stage::Chord::table))
-      throw std::invalid_argument("the stage tables are inconsistent: chord kind " +
-                                  std::to_string(chord) + " is unknown");
+      native::refuse("the stage tables are inconsistent: chord kind ", chord,
+                     " is unknown");
     tables.chord = static_cast<native::stage::Chord>(chord);
     tables.chord_rate = nb::cast<double>(values["chord_rate"]);
     tables.chord_terms = nb::cast<std::vector<double>>(values["chord_terms"]);
@@ -1720,12 +1720,11 @@ public:
         squarings =
             static_cast<int>(std::ceil(std::log2(largest / guard.taylor_scale)));
       if (squarings > guard.max_squarings)
-        throw native::BackendRefusal(
+        native::refuse<native::BackendRefusal>(
             "native cannot take a coupled flow action whose exponent has row-sum "
-            "norm " +
-            py_g(largest, 4) + ": it would need " + std::to_string(squarings) +
-            " squarings, above the " + std::to_string(guard.max_squarings) +
-            " this backend admits. Cap dz_max");
+            "norm ",
+            py_g(largest, 4), ": it would need ", squarings, " squarings, above the ",
+            guard.max_squarings, " this backend admits. Cap dz_max");
     }
     const auto measured = general_state_->form_flow_actions(section, dz, fractions);
     const std::size_t width = guard.condition_bound.size() / guard.row_sum.size();
@@ -1744,13 +1743,12 @@ public:
         }
       }
       if (largest > 1.0)
-        throw native::BackendRefusal(
-            "native measured a coupled flow conditioning of " +
-            py_g(measured[worst], 12) + " over a step of " + py_g(dz, 4) +
-            " m, above the " + py_g(declared[worst], 12) +
-            " the certificate declares at active bin " + std::to_string(worst) +
-            " of section " + std::to_string(section) + " -- exceeding it by a factor " +
-            py_g(largest, 12) +
+        native::refuse<native::BackendRefusal>(
+            "native measured a coupled flow conditioning of ",
+            py_g(measured[worst], 12), " over a step of ", py_g(dz, 4),
+            " m, above the ", py_g(declared[worst], 12),
+            " the certificate declares at active bin ", worst, " of section ", section,
+            " -- exceeding it by a factor ", py_g(largest, 12),
             " of the rounding allowance: the inverse action carries the nonlinear "
             "source back by the measured factor. Lower dz_max, which is what the "
             "bound was declared over");
@@ -2429,13 +2427,11 @@ public:
                nb::ndarray<std::complex<double>, nb::c_contig, nb::device::cpu> out) {
     const std::size_t n = session_->elements();
     if (out.size() != n)
-      throw std::invalid_argument("an export destination has " +
-                                  std::to_string(out.size()) + " elements, expected " +
-                                  std::to_string(n));
+      native::refuse("an export destination has ", out.size(), " elements, expected ",
+                     n);
     if (weight && weight->size() != n)
-      throw std::invalid_argument("an export's power weight has " +
-                                  std::to_string(weight->size()) +
-                                  " elements, expected " + std::to_string(n));
+      native::refuse("an export's power weight has ", weight->size(),
+                     " elements, expected ", n);
     const double* values = weight ? weight->data() : nullptr;
     auto* destination = reinterpret_cast<double*>(out.data());
     const nb::gil_scoped_release release;
@@ -3564,10 +3560,8 @@ NB_MODULE(_core, module_) {
             const auto extents = state.adams_row_extents(name);
             if (rows.ndim() != 3 || rows.shape(0) != extents[0] ||
                 rows.shape(1) != extents[1] || rows.shape(2) != extents[2])
-              throw std::invalid_argument(
-                  "the Adams history row '" + name + "' must have shape (" +
-                  std::to_string(extents[0]) + ", " + std::to_string(extents[1]) +
-                  ", " + std::to_string(extents[2]) + ")");
+              native::refuse("the Adams history row '", name, "' must have shape (",
+                             extents[0], ", ", extents[1], ", ", extents[2], ")");
             const auto values = complex_vector(rows);
             const nb::gil_scoped_release release;
             state.adams_rows_from_host(name, values);
