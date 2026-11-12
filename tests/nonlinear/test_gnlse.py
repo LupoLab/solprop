@@ -450,16 +450,6 @@ def test_the_raman_response_integrates_to_its_share(mode):
     assert integral == pytest.approx(expected, rel=1e-5)
 
 
-def test_raman_with_a_zero_fraction_is_refused():
-    # A declared response that carries none of the nonlinearity would pay for a
-    # convolution at every stage and change nothing; RamanResponse refuses the fraction
-    # in any case.
-    with pytest.raises(ModeError, match="carries none of the nonlinearity"):
-        problem_from(
-            BETAS, omega_ref=OMEGA_REF, gamma=0.1, raman=True, raman_fraction=0.0
-        )
-
-
 def test_the_default_fraction_is_silica_s_with_raman_on_and_none_with_it_off():
     on = problem_from(BETAS, omega_ref=OMEGA_REF, gamma=0.1, raman=True)
     off = problem_from(BETAS, omega_ref=OMEGA_REF, gamma=0.1, raman=False)
@@ -550,6 +540,13 @@ def test_the_mapping_records_what_it_was_given():
             r"raman_fraction must lie in \[0, 1\]",
         ),
         ({"gamma": 0.1, "aeff": 0.0}, "aeff must be positive"),
+        # A declared response that carries none of the nonlinearity would pay for a
+        # convolution at every stage and change nothing; RamanResponse refuses the
+        # fraction in any case.
+        (
+            {"gamma": 0.1, "raman": True, "raman_fraction": 0.0},
+            "carries none of the nonlinearity",
+        ),
     ],
 )
 def test_a_bad_mapping_request_is_rejected(kwargs, message):
