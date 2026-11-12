@@ -35,7 +35,7 @@ from tests.edge_source_cases import (
 from tests.hacc_cases import plain
 
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.tdse import (
+from solprop.backends.tdse_source import (
     FFT_ERROR_CONSTANT,
     atomic_edge_source,
     project_atomic_sources,
