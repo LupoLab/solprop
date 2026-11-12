@@ -256,44 +256,40 @@ def test_the_native_shapes_sum_each_half_plane_and_its_complement_to_the_beam():
         assert_within(np.sum(spectra, axis=0), beam, bound, elementwise=True)
 
 
-def test_the_native_pass_matches_the_reference_on_a_line_of_shapes():
-    grid = time_grid("envelope")
-    space = LineGrid(8e-3, 130, collar_fraction=0)  # three blocks of columns
-    apertures = ApertureSet(
-        centres=[[6e-5, 0.0], [6e-5, 0.0], [2e-5, 0.0], [-1e-4, 0.0]],
-        diameters=[0.0, 0.0, 0.0, 3e-4],
-        distances=[DISTANCE] * 4,
-        edges=[1e-5, 1e-5, 1e-5, 2e-5],
-        shapes=("half_plane_x_ge", "half_plane_x_lt", "rectangle", "circle"),
-        extents=[[0.0, 0.0], [0.0, 0.0], [1.6e-4, 1.6e-4], [0.0, 0.0]],
-        profile="rcos",
-        weighting="quadrature",
-    )
-    regions = np.array([[-np.inf, 0.0, -1.0, 1.0], [0.0, 2e4, -np.inf, np.inf]])
-    spec = spec_of(apertures, regions=regions)
-    field = random_field(space, 1, grid, seed=11)
-    problem, run_request = problem_of(grid, space, field, spec)
-    tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
-    values, field = native_stats(problem, run_request, grid, field, WITH_AXIS)
-    assert_matches(
-        values,
-        reference(WITH_AXIS, grid, problem, field, tables),
-        magnitudes(WITH_AXIS, grid, problem, field, tables),
-        problem,
-    )
+LINE_APERTURES = {
+    "shapes": (
+        8e-3,
+        ApertureSet(
+            centres=[[6e-5, 0.0], [6e-5, 0.0], [2e-5, 0.0], [-1e-4, 0.0]],
+            diameters=[0.0, 0.0, 0.0, 3e-4],
+            distances=[DISTANCE] * 4,
+            edges=[1e-5, 1e-5, 1e-5, 2e-5],
+            shapes=("half_plane_x_ge", "half_plane_x_lt", "rectangle", "circle"),
+            extents=[[0.0, 0.0], [0.0, 0.0], [1.6e-4, 1.6e-4], [0.0, 0.0]],
+            profile="rcos",
+            weighting="quadrature",
+        ),
+    ),
+    "circles": (
+        4e-4,
+        ApertureSet(
+            centres=[[0.0, 0.0], [1.2e-3, 0.0]],
+            diameters=[1e-3, 6e-4],
+            distances=[DISTANCE, 0.5],
+            edges=[5e-5, 5e-5],
+            profile="rcos",
+            weighting="quadrature",
+        ),
+    ),
+}
+"""A line's half-width and apertures: the shaped rows, and two circles' slits."""
 
 
-def test_the_native_pass_matches_the_reference_on_a_line():
+@pytest.mark.parametrize("name", list(LINE_APERTURES))
+def test_the_native_pass_matches_the_reference_on_a_line(name):
+    width, apertures = LINE_APERTURES[name]
     grid = time_grid("envelope")
-    space = LineGrid(4e-4, 130, collar_fraction=0)  # three blocks of columns
-    apertures = ApertureSet(
-        centres=[[0.0, 0.0], [1.2e-3, 0.0]],
-        diameters=[1e-3, 6e-4],
-        distances=[DISTANCE, 0.5],
-        edges=[5e-5, 5e-5],
-        profile="rcos",
-        weighting="quadrature",
-    )
+    space = LineGrid(width, 130, collar_fraction=0)  # three blocks of columns
     regions = np.array([[-np.inf, 0.0, -1.0, 1.0], [0.0, 2e4, -np.inf, np.inf]])
     spec = spec_of(apertures, regions=regions)
     field = random_field(space, 1, grid, seed=11)

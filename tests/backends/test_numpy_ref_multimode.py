@@ -149,38 +149,31 @@ def pulse(grid, count=1, energy=ENERGY):
 # --------------------------------------------------- one node is the mode-averaged case
 
 
-def test_a_one_mode_multimode_run_reproduces_the_mode_averaged_one(
-    backend_class, grid, capillary
+@pytest.mark.parametrize(
+    ("n_r", "bound"),
+    [
+        # Measured 1.1e-11 and 2.9e-18 at n_r = 8 and 16: the rule converges
+        # spectrally and is already at round-off by 16. The bound is the coarsest of
+        # them with a decade in hand.
+        (8, 1e-10),
+        (16, 1e-10),
+        # Measured 1.3e-16 at n_r = 24: by this order the rule is exact on the quartic
+        # and what is left is the round-off of two different orderings of the same sum
+        # -- the machine epsilon times a 257-bin reduction -- and not the quadrature.
+        (CONVERGED_N_R, 1e-14),
+    ],
+)
+def test_the_quadrature_converges_towards_the_mode_averaged_answer(
+    backend_class, grid, capillary, n_r, bound
 ):
     """The mode-averaged path is the n_nodes = 1 case of this pipeline.
 
     The mode-averaged run converts with ``1/sqrt(eps0 c A_eff/2)`` and projects with 1;
     the multimode run synthesises the Bessel profile at the nodes and integrates the
     quartic on the rule. They are the same number by the definition of ``A_eff``, so
-    what is left is the quadrature's own error.
+    what is left is the quadrature's own error: coarse rules are wrong by the rule's
+    error and by nothing systematic.
     """
-    start = pulse(grid)
-    averaged, _ = propagate(backend_class, *build(grid, capillary, start), grid)
-    rule = transverse_quadrature(
-        [capillary], n_r=CONVERGED_N_R, radial_rule="gauss_kronrod"
-    )
-    multimode, _ = propagate(
-        backend_class,
-        *build(grid, [capillary], start, quadrature=rule),
-        grid,
-    )
-    # Measured 1.3e-16 at n_r = 24, against 1.1e-11 at n_r = 8: by this order the rule
-    # is exact on the quartic and what is left is the round-off of two different
-    # orderings of the same sum -- the machine epsilon times a 257-bin reduction -- and
-    # not the quadrature at all.
-    assert peak_gap(multimode.field, averaged.field) < 1e-14
-
-
-@pytest.mark.parametrize("n_r", [8, 16, CONVERGED_N_R])
-def test_the_quadrature_converges_towards_the_mode_averaged_answer(
-    backend_class, grid, capillary, n_r
-):
-    """Coarse rules are wrong by the rule's error and by nothing systematic."""
     start = pulse(grid)
     averaged, _ = propagate(backend_class, *build(grid, capillary, start), grid)
     rule = transverse_quadrature([capillary], n_r=n_r, radial_rule="gauss_kronrod")
@@ -189,10 +182,7 @@ def test_the_quadrature_converges_towards_the_mode_averaged_answer(
         *build(grid, [capillary], start, quadrature=rule),
         grid,
     )
-    # Measured 1.1e-11, 2.9e-18 and 1.3e-16 at n_r = 8, 16 and 24: the rule converges
-    # spectrally and is already at round-off by 16. The bound is the coarsest of them
-    # with a decade in hand.
-    assert peak_gap(multimode.field, averaged.field) < 1e-10
+    assert peak_gap(multimode.field, averaged.field) < bound
 
 
 # ------------------------------------------------------------------- the linear flow
