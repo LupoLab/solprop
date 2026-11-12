@@ -31,6 +31,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Final, Protocol, cast, runtime_checkable
 
+import numpy as np
+
 from solprop._identity import canonical_json
 from solprop.exceptions import MaterialError
 
@@ -534,11 +536,18 @@ class DiluteScalingCheck:
 
 
 def _plain(value: object) -> object:
-    """Return a value with tuples as lists and mappings as dicts, recursively."""
+    """Return a value with tuples as lists and mappings as dicts, recursively.
+
+    A NumPy scalar becomes the Python value it holds, as in its canonical JSON
+    (:func:`solprop._identity.canonical_json`), so an entry compares and stores as it
+    is identified.
+    """
     if isinstance(value, Mapping):
         return {str(key): _plain(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_plain(item) for item in value]
+    if isinstance(value, np.bool_ | np.integer | np.floating):
+        return value.item()
     return value
 
 

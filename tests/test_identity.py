@@ -47,6 +47,15 @@ def test_an_identity_refuses_a_value_json_cannot_hold():
         canonical_digest({"values": np.zeros(3)})
 
 
+def test_a_numpy_scalar_is_written_as_the_number_it_holds():
+    # A comparison of arrays gives np.bool_, an index np.int64: records carry both.
+    record = {"zero": np.float64(0.0) == 0.0, "count": np.int64(3)}
+    assert canonical_json(record) == '{"count":3,"zero":true}'
+    assert canonical_json({"half": np.float32(0.5)}) == '{"half":0.5}'
+    with pytest.raises(TypeError, match="not JSON serializable"):
+        canonical_json({"value": np.complex128(1.0)})
+
+
 @pytest.mark.parametrize(
     ("name", "digest"),
     [
