@@ -2336,8 +2336,10 @@ def _canonical(
     numpy.ndarray
         Shape ``(1, n_modes, n_pol, n_omega)``.
     """
-    stacked = np.stack(columns)[:, np.newaxis, :]
-    return np.repeat(stacked, n_pol, axis=1)[np.newaxis]
+    # The repeat makes the array that owns the result's memory, so that a caller can
+    # hold it (solprop._ownership.hold), as it could not hold a view of it.
+    stacked = np.stack(columns)[np.newaxis, :, np.newaxis, :]
+    return np.repeat(stacked, n_pol, axis=2)
 
 
 def _shared_frame(reference: Mode, frame: Frame, z: float) -> Frame:

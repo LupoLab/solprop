@@ -46,7 +46,7 @@ from scipy.special import j0, jn_zeros
 
 import solprop.driver.tdse as tdse_runtime
 from solprop._display import Displayed, engineering, line, summarise
-from solprop._ownership import frozen_copy, hold
+from solprop._ownership import borrow, frozen_copy, hold
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
 from solprop.backends.protocol import Backend, _all_finite
@@ -7826,16 +7826,16 @@ def _borrowed_input(
     Returns
     -------
     Pulse, SpatialPulse or numpy.ndarray
-        A read-only view of a complex128 array the record does not hold, marked as held
-        so that nothing copies it; `initial` itself otherwise. The caller's own flags
-        are not touched.
+        A read-only view of a complex128 array the record does not hold, borrowed
+        (:func:`solprop._ownership.borrow`) so that nothing copies it; `initial`
+        itself otherwise. The caller's own flags are not touched.
     """
     if (
         isinstance(initial, np.ndarray)
         and initial.dtype == np.complex128
         and (stated or not _recorded_inline(initial))
     ):
-        return hold(np.asarray(initial).view())
+        return borrow(np.asarray(initial).view())
     return initial
 
 
@@ -7856,11 +7856,12 @@ def _without_input(problem: PropagationProblem) -> PropagationProblem:
     solprop.translate.problem.PropagationProblem
         The problem, sharing every leaf but ``initial.field0``.
     """
+    # A broadcast of a held zero is itself held, so Initial takes it uncopied.
     placeholder = np.broadcast_to(
-        np.zeros(1, dtype=np.complex128), problem.initial.field0.shape
+        hold(np.zeros(1, dtype=np.complex128)), problem.initial.field0.shape
     )
     return dataclasses.replace(
-        problem, initial=dataclasses.replace(problem.initial, field0=hold(placeholder))
+        problem, initial=dataclasses.replace(problem.initial, field0=placeholder)
     )
 
 

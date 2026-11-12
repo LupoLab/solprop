@@ -7,7 +7,7 @@
 import numpy as np
 import pytest
 
-from solprop._ownership import frozen_copy, hold
+from solprop._ownership import borrow, frozen_copy, hold, is_held
 
 
 def test_a_frozen_copy_leaves_the_caller_s_array_writeable():
@@ -83,3 +83,24 @@ def test_a_read_only_array_over_a_foreign_buffer_is_copied():
     frozen = frozen_copy(foreign)
     assert frozen is not foreign
     assert not frozen.flags.writeable
+
+
+def test_a_held_view_over_writeable_memory_is_not_held():
+    # Freezing the view leaves the memory beneath it writeable, so it could change.
+    made = np.arange(4.0)
+    view = hold(made[1:])
+    assert not view.flags.writeable
+    assert made.flags.writeable
+    assert not is_held(view)
+    frozen = frozen_copy(view)
+    assert frozen is not view
+    made[1] = -1.0
+    assert frozen[0] == 1.0
+
+
+def test_a_borrowed_view_is_held_and_leaves_its_owner_writeable():
+    mine = np.arange(4.0)
+    view = borrow(mine.view())
+    assert is_held(view)
+    assert frozen_copy(view) is view
+    assert mine.flags.writeable

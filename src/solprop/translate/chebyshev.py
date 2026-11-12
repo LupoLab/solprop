@@ -1816,7 +1816,9 @@ def _assemble(
         np.asarray(
             [piece.coefficients.shape[0] - 1 for piece in pieces], dtype=np.intp
         ),
-        np.asarray(hard_kinks, dtype=np.float64),
+        # A copy: the kinks are a slice of the edges, and a table's arrays own their
+        # memory so that they can be held.
+        np.array(hard_kinks, dtype=np.float64),
         exceeded,
     )
     _log_summary(representation)

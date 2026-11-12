@@ -772,6 +772,8 @@ def test_the_tables_translation_builds_are_held_and_not_copied_again():
     assert again.phi_constant is table.phi_constant
     tabulated = profile_table(Linear(1.0, 3.0, 2.0), 0.0, 2.1)
     assert is_held(tabulated.coefficients) and is_held(tabulated.breakpoints)
+    # Its kinks own their memory, rather than viewing the builder's edge array.
+    assert tabulated.hard_kinks.size and is_held(tabulated.hard_kinks)
 
 
 def test_the_group_refuses_a_breakpoint_count_that_does_not_match():

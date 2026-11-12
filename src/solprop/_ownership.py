@@ -20,14 +20,15 @@ import weakref
 
 import numpy as np
 
-__all__ = ["frozen_copy", "hold", "is_held"]
+__all__ = ["borrow", "frozen_copy", "hold", "is_held"]
 
 _HELD: weakref.WeakValueDictionary[int, np.ndarray] = weakref.WeakValueDictionary()
 """The arrays solprop froze as its own, by ``id``.
 
 An array is in it because solprop made it -- a copy :func:`frozen_copy` took, or one
 just built (:func:`hold`) -- never because of its flags, which the owner of an array,
-or a writeable buffer beneath it, can change. Entries leave with their arrays.
+or a writeable buffer beneath it, can change. Only arrays that own their memory are
+entered, and the views :func:`borrow` names. Entries leave with their arrays.
 """
 
 
@@ -36,7 +37,8 @@ def hold(values: np.ndarray) -> np.ndarray:
 
     Only for an array no one else refers to: a copy, a quotient or a fresh build. It
     costs no copy, and :func:`frozen_copy` takes the array, or a view of it, as it
-    stands.
+    stands. A view is frozen but not held, since the memory beneath it could still be
+    written: hold the array that owns the memory instead.
 
     Parameters
     ----------
@@ -55,6 +57,41 @@ def hold(values: np.ndarray) -> np.ndarray:
     >>> made = hold(np.arange(3.0))
     >>> bool(made.flags.writeable), is_held(made)
     (False, True)
+    >>> is_held(hold(np.arange(3.0)[1:]))
+    False
+    """
+    values.setflags(write=False)
+    if values.base is None:
+        _HELD[id(values)] = values
+    return values
+
+
+def borrow(values: np.ndarray) -> np.ndarray:
+    """Freeze a view of memory solprop does not own, and treat it as held.
+
+    The one exception to :func:`hold`'s rule, for a caller's array solprop reads
+    within a call and does not keep: the caller's memory stays writeable, and nothing
+    copies the view. Whoever borrows promises the memory is not written while the
+    view lives.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        A view, created for the borrowing.
+
+    Returns
+    -------
+    numpy.ndarray
+        The same view, read-only and held.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop._ownership import borrow, is_held
+    >>> mine = np.arange(3.0)
+    >>> view = borrow(mine.view())
+    >>> bool(mine.flags.writeable), is_held(view)
+    (True, True)
     """
     values.setflags(write=False)
     _HELD[id(values)] = values
@@ -62,10 +99,13 @@ def hold(values: np.ndarray) -> np.ndarray:
 
 
 def is_held(values: object) -> bool:
-    """Return whether an array is read-only down to an array :func:`hold` marked.
+    """Return whether an array is read-only down to memory solprop holds.
 
-    A read-only view of a held array cannot be made writeable, so it is held too. A
-    read-only array that is not held is not, however it was frozen: whoever owns it
+    The array, and every array beneath it, must be read-only, and the array that owns
+    the memory must be one :func:`hold` marked (or the chain must reach a view
+    :func:`borrow` named). A read-only view of a held array cannot be made writeable,
+    so it is held too; a read-only view of a writeable array is not, and nor is a
+    read-only array that is not held, however it was frozen, since whoever owns it
     can make it writeable again.
 
     Parameters

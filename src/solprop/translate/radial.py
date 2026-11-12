@@ -270,16 +270,16 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
 
     if not paths and reuse_linear is None and reuse_prefactor is None:
         operator, prefactor = sampled(dispersion)
-        coefficients = np.ascontiguousarray(prefactor[None, None])
+        # A copy that owns its memory, so that it can be held: the prefactor is a
+        # broadcast view of an array the sampling made.
+        coefficients = np.array(prefactor[None, None], order="C")
         edges = np.array([0.0, span])
         degrees = np.zeros(1, dtype=np.intp)
         kinks = np.empty(0)
         for values in (coefficients, edges, degrees, kinks):
             hold(values)
         return (
-            constant_phi(
-                hold(operator), z_max, margin=margin, beta0=beta0, beta1=beta1
-            ),
+            constant_phi(operator, z_max, margin=margin, beta0=beta0, beta1=beta1),
             PiecewiseChebyshev(coefficients, edges, degrees, kinks),
         )
 
