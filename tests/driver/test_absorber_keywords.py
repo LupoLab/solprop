@@ -21,7 +21,7 @@ import pytest
 
 from solprop.boundaries import absorber, custom_absorber, no_absorber
 from solprop.driver import Simulation, SimulationSettings
-from solprop.driver.simulation import _spatial_default, _with_boundary
+from solprop.driver.settings import _spatial_default, _with_boundary
 from solprop.exceptions import DriverError
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import PlanarGrid, SlabMode

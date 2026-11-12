@@ -21,8 +21,12 @@ from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings, run_problem
+from solprop.driver import inputs as inputs_module
+from solprop.driver import resume as resume_module
+from solprop.driver import runner as runner_module
 from solprop.driver import simulation as simulation_module
 from solprop.driver import tdse as runtime_module
+from solprop.driver import tdse_run as tdse_run_module
 from solprop.exceptions import (
     DriverError,
     ResponseBudgetError,
@@ -522,7 +526,7 @@ def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path
                 backend,
                 problem,
                 run_request,
-                simulation._start(backend, problem, state),
+                resume_module._start(simulation, backend, problem, state),
             )
             == 0
         )
@@ -532,7 +536,7 @@ def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path
             state, checkpoint=dataclasses.replace(state.checkpoint, next_save_index=1)
         )
         with pytest.raises(DriverError, match="next_save_index"):
-            simulation._start(backend, problem, invalid)
+            resume_module._start(simulation, backend, problem, invalid)
     finally:
         backend.close()
 
@@ -563,7 +567,7 @@ def test_ordinary_resume_without_outcome_restores_plane_and_starts_fresh_ledgers
                 backend,
                 problem,
                 run_request,
-                simulation._start(backend, problem, state),
+                resume_module._start(simulation, backend, problem, state),
             )
             == 1
         )
@@ -649,7 +653,8 @@ def test_backend_construction_failure_closes_owned_binding(
     def refuse(*args, **kwargs):
         raise DriverError("manufactured backend construction failure")
 
-    monkeypatch.setattr(simulation_module, "select", refuse)
+    for module in (simulation_module, runner_module):
+        monkeypatch.setattr(module, "select", refuse)
     with pytest.raises(DriverError, match="construction failure"):
         simulation.run(progress="none")
     assert closed == ["binding"]
@@ -782,7 +787,8 @@ def test_tdse_completed_resume_prepares_no_resources(
         raise AssertionError("completed output needs no new resources")
 
     monkeypatch.setattr(runtime_module, "prepare_binding", forbidden)
-    monkeypatch.setattr(simulation_module, "select", forbidden)
+    for module in (simulation_module, runner_module):
+        monkeypatch.setattr(module, "select", forbidden)
     output = atomic_simulation.run(path, resume=True, progress="none")
     assert output.n_saved == 2
 
@@ -868,7 +874,7 @@ def test_a_logical_ledger_continues_under_another_integrator():
     state = ResumeState(
         simulation.metadata(), saved, 1, StepHistory.empty(), outcome=outcome
     )
-    assert simulation_module._validate_resume(problem, run_request, state, None) == 0
+    assert resume_module._validate_resume(problem, run_request, state, None) == 0
 
 
 @pytest.mark.parametrize("case", ["outside", "field", "cap", "atomic"])
@@ -899,9 +905,7 @@ def test_resume_rejects_incompatible_state_before_backend_allocation(case):
         simulation.metadata(), saved, 1, StepHistory.empty(), outcome=outcome
     )
     with pytest.raises(DriverError, match=message):
-        simulation_module._validate_resume(
-            problem, simulation._run_request(), state, None
-        )
+        resume_module._validate_resume(problem, simulation._run_request(), state, None)
 
 
 @pytest.mark.parametrize("case", ["unused", "mixed", "missing"])
@@ -951,7 +955,7 @@ def test_tdse_settings_revalidation_refuses_unsupported_execution(
         simulation.wall = object()
         message = "uncoupled modal capillary"
     with pytest.raises(DriverError, match=message):
-        simulation_module._check_tdse_execution(simulation, settings)
+        tdse_run_module._check_tdse_execution(simulation, settings)
 
 
 class LegacyOutput:
@@ -1167,7 +1171,7 @@ def test_a_resume_without_an_outcome_loads_the_field_without_restoring_ledgers(
                 backend,
                 problem,
                 run_request,
-                simulation._start(backend, problem, state),
+                resume_module._start(simulation, backend, problem, state),
             )
             == 0
         )
@@ -1243,13 +1247,14 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
         def forbidden(*args, **kwargs):
             raise AssertionError("spatial physical fields have no modal power weight")
 
-        monkeypatch.setattr(simulation_module, "power_amplitude", forbidden)
+        for module in (inputs_module, resume_module):
+            monkeypatch.setattr(module, "power_amplitude", forbidden)
         assert (
             _loaded(
                 backend,
                 problem,
                 run_request,
-                simulation._start(backend, problem, state),
+                resume_module._start(simulation, backend, problem, state),
             )
             == 0
         )

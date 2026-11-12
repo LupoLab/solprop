@@ -151,7 +151,7 @@ def run_summary(
 
     Examples
     --------
-    >>> from solprop.driver.simulation import metadata_for
+    >>> from solprop.driver.metadata import metadata_for
     >>> from solprop.driver.summary import run_summary
     >>> from solprop.grid import EnvelopeGrid
     >>> from solprop.nonlinear.gnlse import problem_from

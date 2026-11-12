@@ -716,7 +716,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         ----------
         problem : solprop.translate.problem.PropagationProblem
             The translated problem: this backend's, or one derived from it with
-            another input (:func:`solprop.driver.simulation.check_derived_problem`).
+            another input (:func:`solprop.driver.runner.check_derived_problem`).
         request : solprop.translate.run_request.RunRequest
             The run's request.
 
@@ -1078,7 +1078,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         (``docs/dev/stepper.md`` section 3).
 
         Everything else a march reads is restored too, so that a backend loaded again
-        after a run -- a :class:`~solprop.driver.simulation.SimulationRunner`'s, or
+        after a run -- a :class:`~solprop.driver.runner.SimulationRunner`'s, or
         after a failed run -- repeats a fresh backend's run (SEP 22 section 4.7): a
         dense observation's look-ahead, an Adams march's call ledger and last-rejection
         flag, a low-storage march's source-evaluation count and the boundary monitor,

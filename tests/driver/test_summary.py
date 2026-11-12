@@ -16,8 +16,8 @@ import pytest
 
 from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings
+from solprop.driver.metadata import metadata_for
 from solprop.driver.run import run_problem
-from solprop.driver.simulation import metadata_for
 from solprop.driver.summary import (
     RunSummary,
     _code,

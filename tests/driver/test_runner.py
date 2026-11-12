@@ -31,7 +31,7 @@ from solprop.backends.protocol import stepping
 from solprop.backends.registry import available, select
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationRunner
-from solprop.driver.simulation import check_derived_problem
+from solprop.driver.runner import check_derived_problem
 from solprop.exceptions import DriverError, TranslationError
 from solprop.log import NullReporter
 from solprop.noise import NoiseRealisation, spatial_noise

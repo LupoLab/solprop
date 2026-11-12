@@ -13,7 +13,8 @@ from tests.backends import test_numpy_ref_plasma as plasma_fixtures
 from gated_source import _gated_source
 from solprop.backends import registry
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.driver.simulation import _open_output, metadata_for
+from solprop.driver.metadata import metadata_for
+from solprop.driver.resume import _open_output
 from solprop.exceptions import DriverError, OutputError, TranslationError
 from solprop.output import HDF5Output, check_cache, resume
 from solprop.output.schema import SavedPlane

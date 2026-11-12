@@ -46,7 +46,6 @@ from solprop.constants import EPS0, C
 from solprop.driver import Simulation, prop_capillary, prop_gnlse
 from solprop.driver.executors import Batch, Local
 from solprop.driver.scan import Scan, run_scan
-from solprop.driver.simulation import Pressure
 from solprop.exceptions import (
     AdiabaticTaperWarning,
     BackendError,
@@ -74,6 +73,7 @@ from solprop.output.capability import capability_of
 from solprop.output.hdf5 import open_file
 from solprop.output.memory import MemoryOutput
 from solprop.physdata.glasses import fused_silica
+from solprop.physdata.mixtures import Pressure
 from solprop.physdata.sellmeier import gamma as gas_law
 from solprop.profiles import FromCallable, Linear, PiecewiseLinear, ZProfile
 from solprop.pulses import GaussianPulse, SpatialPulse

@@ -12,7 +12,8 @@ import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.adiabatic import AdiabaticAccuracy
-from solprop.driver.simulation import Simulation, SimulationSettings
+from solprop.driver.settings import SimulationSettings
+from solprop.driver.simulation import Simulation
 from solprop.exceptions import MaterialError, TranslationError
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.output.schema import serialise

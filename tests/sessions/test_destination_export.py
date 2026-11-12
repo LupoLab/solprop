@@ -37,8 +37,8 @@ from solprop.backends.events import ExportTicket, ObservationReady
 from solprop.backends.export import ExportRecipe, apply_recipe
 from solprop.backends.host.session import HostSession
 from solprop.backends.registry import available, select
+from solprop.driver.metadata import metadata_for
 from solprop.driver.run import run_problem
-from solprop.driver.simulation import metadata_for
 from solprop.log import NullReporter
 from solprop.output import CallbackOutput, HDF5Output, MemoryOutput, open_file
 from solprop.output.schema import Output, SavedPlane, StoredField, stored_spectrum

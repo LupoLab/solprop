@@ -11,8 +11,7 @@ import numpy as np
 import pytest
 
 from solprop.driver import Simulation, SimulationSettings, prop_gnlse
-from solprop.driver.defaults import FREE_NOISE, resolve_noise
-from solprop.driver.simulation import INTERIOR_LAUNCH_NOISE
+from solprop.driver.defaults import FREE_NOISE, INTERIOR_LAUNCH_NOISE, resolve_noise
 from solprop.driver.summary import _noise
 from solprop.exceptions import DriverError
 from solprop.grid import EnvelopeGrid, RadialGrid

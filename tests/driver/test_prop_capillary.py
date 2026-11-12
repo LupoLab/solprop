@@ -69,12 +69,11 @@ from solprop.backends.sessions import start_session
 from solprop.boundaries import absorber
 from solprop.constants import AU_EFIELD, AU_ENERGY, EPS0, C
 from solprop.driver import Simulation, prop_capillary
+from solprop.driver.inputs import _in_lowest_mode, default_field_range
 from solprop.driver.mixtures import capillary_fill
-from solprop.driver.simulation import (
+from solprop.driver.routes.hollow import (
     BACKEND_STATISTICS,
     PLASMA_STATISTICS,
-    _in_lowest_mode,
-    default_field_range,
     default_radial_order,
 )
 from solprop.exceptions import (

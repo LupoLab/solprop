@@ -13,7 +13,7 @@ from benchmarks.builders import build, capillary, gnlse, spatial_grids
 from benchmarks.records import SuiteError
 from benchmarks.registry import CASES, SEED, STEPPERS, select
 
-from solprop.driver.simulation import CAPILLARY_RTOL, DEFAULT_RTOL
+from solprop.driver.defaults import CAPILLARY_RTOL, DEFAULT_RTOL
 from solprop.exceptions import MaterialRangeWarning, SolpropWarning
 from solprop.nonlinear.responses import PlasmaResponse
 from solprop.pulses import SechPulse

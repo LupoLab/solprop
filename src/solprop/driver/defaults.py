@@ -107,7 +107,7 @@ SPATIAL_RTOL = 1e-5
 
 Set by SEP 37's convergence protocol on the benchmark suite's ``radial_filament_256``
 and ``planar`` cases. It applies only where the caller's
-:class:`~solprop.driver.simulation.SimulationSettings` gives no controller.
+:class:`~solprop.driver.settings.SimulationSettings` gives no controller.
 """
 
 SPATIAL_ATOL = 0.0
@@ -120,7 +120,7 @@ With the default ``RungeKutta()`` (SEP 37): the Adams history's memory rules the
 multistep method out for a large transverse state. On a self-focusing Kerr beam the
 spectrum stays within 0.002 dB of a tight reference even at 1e-3; 1e-4 cuts the field
 error by 2.5 times for a sixth more steps. Applies only where the caller's
-:class:`~solprop.driver.simulation.SimulationSettings` gives no controller.
+:class:`~solprop.driver.settings.SimulationSettings` gives no controller.
 """
 
 FREE_ATOL = 0.0

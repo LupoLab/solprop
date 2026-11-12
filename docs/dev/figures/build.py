@@ -793,9 +793,19 @@ MODULES = {
         ),
         Module("driver/executors/", ("local", "pool", "queue", "slurm", "batch")),
         Module(
+            "driver/routes/",
+            ("gnlse", "hollow", "general", "spatial", "materials", "keywords"),
+        ),
+        Module(
             "driver/",
             (
                 "simulation",
+                "settings",
+                "inputs",
+                "metadata",
+                "resume",
+                "runner",
+                "tdse_run",
                 "run",
                 "summary",
                 "interface",

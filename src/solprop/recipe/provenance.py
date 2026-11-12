@@ -110,7 +110,7 @@ def _used(
     if build.get("provider") is not None:
         # A general guide takes its physics from the guide: the route refuses these
         # beside a provider, so the resolved text must not name them.
-        from solprop.driver.simulation import (  # noqa: PLC0415 - layer above
+        from solprop.driver.routes.general import (  # noqa: PLC0415 - layer above
             _GAS_KEYWORD_DEFAULTS,
         )
 

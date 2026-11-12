@@ -67,15 +67,16 @@ from solprop.driver.batch import (
     refuse_mixed_guides,
 )
 from solprop.driver.executors import Batch
-from solprop.driver.run import run_problem
-from solprop.driver.scan import Scan, run_scan
-from solprop.driver.simulation import (
+from solprop.driver.inputs import _shot_noise
+from solprop.driver.routes.general import (
     _GAS_KEYWORD_DEFAULTS,
     _core_index,
+    _from_general,
     _in_channel,
     _refuse_gas_keywords,
-    _shot_noise,
 )
+from solprop.driver.run import run_problem
+from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import (
     BackendError,
     DriverError,
@@ -250,7 +251,7 @@ def test_from_waveguide_refuses_or_names_every_keyword_it_takes():
     refuse a call that passed nothing.
     """
     taken = set(inspect.signature(Simulation.from_waveguide).parameters)
-    named = set(inspect.signature(Simulation._from_general).parameters) - {"refused"}
+    named = set(inspect.signature(_from_general).parameters) - {"cls", "refused"}
     assert set(GAS_KEYWORDS) == set(_GAS_KEYWORD_DEFAULTS)
     assert taken == named | set(_GAS_KEYWORD_DEFAULTS)
     signature = inspect.signature(Simulation.from_waveguide).parameters

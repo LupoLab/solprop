@@ -24,7 +24,8 @@ from solprop import fourier
 from solprop.backends.registry import select
 from solprop.constants import C
 from solprop.driver import Simulation, prop_gnlse
-from solprop.driver.simulation import _dispersion_table, _gnlse_mode, _shot_noise
+from solprop.driver.inputs import _shot_noise
+from solprop.driver.routes.gnlse import _dispersion_table, _gnlse_mode
 from solprop.exceptions import DriverError, ModeError
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import IndexTable, MarcatiliMode

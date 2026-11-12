@@ -18,26 +18,24 @@ from driver.test_tdse_entry import _capillary, _sae
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop.driver import Simulation, SimulationSettings, interface
 from solprop.driver.defaults import (
+    CAPILLARY_RTOL,
+    DEFAULT_RTOL,
+    FREE_ATOL,
+    FREE_NOISE,
+    FREE_RTOL,
     ROUTE_DEFAULTS,
+    SLAB_NOISE,
+    SPATIAL_ATOL,
+    SPATIAL_RTOL,
+    TDSE_NOISE,
+    WAVEGUIDE_RTOL,
     default_integrator,
     default_rtol,
     default_scheme,
     resolve_noise,
     route_defaults,
 )
-from solprop.driver.simulation import (
-    CAPILLARY_RTOL,
-    DEFAULT_RTOL,
-    FREE_ATOL,
-    FREE_NOISE,
-    FREE_RTOL,
-    SLAB_NOISE,
-    SPATIAL_ATOL,
-    SPATIAL_RTOL,
-    TDSE_NOISE,
-    WAVEGUIDE_RTOL,
-    _admit_tdse_execution,
-)
+from solprop.driver.settings import _admit_tdse_execution
 from solprop.exceptions import DriverError, SolpropWarning
 from solprop.grid import EnvelopeGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.modes import MarcatiliMode

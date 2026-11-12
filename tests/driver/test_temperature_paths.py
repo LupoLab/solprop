@@ -16,7 +16,7 @@ from march_bounds import FIXED_ORDER, STATISTIC_FACTOR, assert_matched, simulati
 from solprop.boundaries import absorber
 from solprop.constants import ROOM_TEMPERATURE
 from solprop.driver import Simulation
-from solprop.driver.simulation import _refuse_gas_keywords
+from solprop.driver.routes.general import _refuse_gas_keywords
 from solprop.exceptions import (
     DriverError,
     MaterialError,

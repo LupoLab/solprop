@@ -19,7 +19,7 @@ import pytest
 from rate_oracles import adk_oracle
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings
-from solprop.driver.simulation import (
+from solprop.driver.inputs import (
     _capillary_input_peak,
     _check_rate_inputs,
     default_field_range,

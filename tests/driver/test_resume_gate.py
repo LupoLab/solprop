@@ -22,7 +22,7 @@ import pytest
 import record_routes
 from solprop.cli import main
 from solprop.driver import Simulation
-from solprop.driver.simulation import _check_resume_choice
+from solprop.driver.resume import _check_resume_choice
 from solprop.exceptions import OutputError
 from solprop.log import NullReporter
 from solprop.output import check_cache, open_file, resumability

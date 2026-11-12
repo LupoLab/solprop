@@ -23,7 +23,7 @@ from solprop.driver.interface import (
     prop_radial,
     prop_waveguide,
 )
-from solprop.driver.simulation import SimulationSettings
+from solprop.driver.settings import SimulationSettings
 from solprop.exceptions import DriverError
 from solprop.modes import MarcatiliMode, ModeCollection
 from solprop.recipe import metadata

@@ -21,6 +21,7 @@ from tests.driver.test_tdse_natural_output import _simulation, assert_no_extra_c
 from tests.hacc_cases import alpha_law, install, plain
 
 import solprop.driver.run as run_module
+import solprop.driver.runner as runner_module
 import solprop.driver.simulation as simulation_module
 from march_bounds import TIGHTER, assert_in_envelope
 from solprop.backends.registry import available
@@ -134,7 +135,8 @@ def test_several_tdse_snapshots_keep_the_same_plans_and_all_calls(
         return publication
 
     monkeypatch.setattr(module, "_copy_generation", watched)
-    monkeypatch.setattr(simulation_module, "run_problem", run_with_live_resources)
+    for driver_module in (simulation_module, runner_module):
+        monkeypatch.setattr(driver_module, "run_problem", run_with_live_resources)
     simulation = _simulation()
     output = _run(
         simulation,

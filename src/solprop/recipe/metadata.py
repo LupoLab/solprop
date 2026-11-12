@@ -3166,7 +3166,7 @@ def parameters(route: str) -> Mapping[str, Parameter]:
     if route in _TYPES:
         return _type_parameters(route, _TYPES[route])
     if route == "execution":
-        from solprop.driver.simulation import (  # noqa: PLC0415 - layer D
+        from solprop.driver.settings import (  # noqa: PLC0415 - layer D
             SimulationSettings,
         )
 

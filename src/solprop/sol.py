@@ -51,7 +51,8 @@ from solprop.driver.interface import (
     prop_waveguide,
 )
 from solprop.driver.scan import Scan, ScanPoint, run_scan
-from solprop.driver.simulation import Simulation, SimulationSettings
+from solprop.driver.settings import SimulationSettings
+from solprop.driver.simulation import Simulation
 from solprop.driver.tdse import HaccPreset, hacc_basis, hacc_preset
 from solprop.driver.tdse_consistency import ConsistencyResult, check_consistency
 from solprop.exceptions import MaterialRangeWarning

@@ -32,8 +32,8 @@ from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings, prop_capillary
 from solprop.driver.executors import Local
 from solprop.driver.material_output import material_manifest
+from solprop.driver.routes.materials import _selected_guide
 from solprop.driver.scan import Scan, run_scan
-from solprop.driver.simulation import _selected_guide
 from solprop.exceptions import DiluteScalingWarning, MaterialRangeWarning, OutputError
 from solprop.grid import FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import PlanarGrid, SlabMode, StepIndexMode

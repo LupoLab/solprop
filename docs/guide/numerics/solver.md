@@ -44,7 +44,7 @@ or accuracy guarantee.
 Three integrators take the steps, and everything else on this page — the linear flow,
 the source definitions, caps and save-plane conventions — is used by all of them.
 `integrator=` on every entry point and on
-{py:class}`~solprop.driver.simulation.SimulationSettings` chooses between `Multistep()`,
+{py:class}`~solprop.driver.settings.SimulationSettings` chooses between `Multistep()`,
 the exponential Adams method ([the Adams integrator](adams.md)), `RungeKutta()`,
 the interaction-picture Dormand–Prince pair below, and `LowStorageRungeKutta()`, a
 fixed-schedule RK4; [choosing a stepper](choosing-a-stepper.md) describes each, gives

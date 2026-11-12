@@ -21,7 +21,8 @@ from legacy_geometry import LEGACY_GRID
 from sessions.runs import run as session_run
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.driver.simulation import Simulation, _interpolated
+from solprop.driver.resume import _interpolated
+from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError, OutputError, TranslationError
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter

@@ -18,8 +18,8 @@ from sessions.executors import PLANES, entrance, fibre, soliton, window
 from solprop.backends.host.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import StopToken
+from solprop.driver.metadata import metadata_for
 from solprop.driver.run import run_problem
-from solprop.driver.simulation import metadata_for
 from solprop.exceptions import StopRequested
 from solprop.log import NullReporter
 from solprop.output import CallbackOutput, MemoryOutput

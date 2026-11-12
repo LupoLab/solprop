@@ -14,7 +14,8 @@ from numpy.testing import assert_allclose, assert_array_equal
 
 from march_bounds import FIXED_ORDER, STATISTIC_FACTOR, assert_matched, simulation_bound
 from solprop.driver import Simulation, prop_waveguide
-from solprop.driver.simulation import WAVEGUIDE_RTOL
+from solprop.driver.defaults import WAVEGUIDE_RTOL
+from solprop.driver.routes.hollow import _from_hollow
 from solprop.exceptions import (
     DriverError,
     MaterialRangeWarning,
@@ -342,7 +343,8 @@ def test_waveguide_mixture_and_geometry_paths_are_rebound():
         problem = simulation.translate()
     assert problem.transform.n_modes == 1
     with pytest.raises(DriverError, match="requires supplied"):
-        Simulation._from_hollow(
+        _from_hollow(
+            Simulation,
             None,
             0.001,
             "Ar",

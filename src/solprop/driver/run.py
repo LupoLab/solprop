@@ -349,7 +349,7 @@ def run_problem(
         stores it twice. The session takes the start's field.
     metadata : solprop.output.schema.RunMetadata
         The record of the run, written when the handler opens.
-        :func:`solprop.driver.simulation.metadata_for` builds one.
+        :func:`solprop.driver.metadata.metadata_for` builds one.
     stats_spec : solprop.stats.StatsSpec, optional
         Which statistics to collect at each plane. Defaults to the backend's request's
         own (section 8 of ``docs/dev/kernel-contract.md``).
@@ -432,7 +432,7 @@ def run_problem(
     >>> from solprop.backends.registry import select
     >>> from solprop.backends.session import Start
     >>> from solprop.driver.run import run_problem
-    >>> from solprop.driver.simulation import metadata_for
+    >>> from solprop.driver.metadata import metadata_for
     >>> from solprop.grid import EnvelopeGrid
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.output import MemoryOutput
@@ -671,7 +671,7 @@ def field_retention(
     """Return a run's field retention, resolved against its saved planes.
 
     The driver's door to :func:`solprop.output.schema.field_retention_refusal`, the
-    validator :class:`~solprop.driver.simulation.SimulationSettings` and
+    validator :class:`~solprop.driver.settings.SimulationSettings` and
     :func:`~solprop.driver.scan.run_scan` share.
 
     Parameters

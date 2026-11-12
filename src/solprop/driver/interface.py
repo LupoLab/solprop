@@ -28,14 +28,10 @@ from jaxtyping import Float
 
 from solprop.boundaries import Absorber, SpatialAbsorber
 from solprop.coupling.models import CouplingModel
-from solprop.driver.simulation import (
-    DEFAULT_ATOL,
-    WAVEGUIDE_ATOL,
-    ModalLaunch,
-    NoiseSetting,
-    Simulation,
-    SimulationSettings,
-)
+from solprop.driver.defaults import DEFAULT_ATOL, WAVEGUIDE_ATOL
+from solprop.driver.inputs import ModalLaunch
+from solprop.driver.settings import NoiseSetting, SimulationSettings
+from solprop.driver.simulation import Simulation
 from solprop.gasflow import VacuumEnd
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
@@ -123,7 +119,7 @@ def prop_radial(
     initial : SpatialPulse, SpatialPulseSum or numpy.ndarray
         Beam specification or internal Hankel spectrum in V m, shape
         ``(n_r, n_pol, n_omega)``.
-    settings : solprop.driver.simulation.SimulationSettings
+    settings : solprop.driver.settings.SimulationSettings
         Step tolerances, save planes, statistics and backend.
     frame : solprop.linear.Frame or None, optional
         Moving frame; None uses the responses' THG choice.
@@ -246,7 +242,7 @@ def prop_free(
     initial : SpatialPulse, SpatialPulseSum or numpy.ndarray
         Beam specification or internal Cartesian DFT spectrum in V/m, shape
         ``(n_x*n_y, n_pol, n_omega)``.
-    settings : solprop.driver.simulation.SimulationSettings
+    settings : solprop.driver.settings.SimulationSettings
         Step tolerances, save planes, statistics and backend.
     frame : solprop.linear.Frame or None, optional
         Moving frame; None uses the responses' THG choice.
@@ -367,7 +363,7 @@ def prop_planar(
     initial : solprop.pulses.PlanarPulse or numpy.ndarray
         The astigmatic launch, or an internal ``(p, k_y)`` spectrum in sqrt(W/m),
         shape ``(n_p*n_y, 1, n_omega)``.
-    settings : solprop.driver.simulation.SimulationSettings
+    settings : solprop.driver.settings.SimulationSettings
         Step tolerances, save planes, statistics and backend.
     frame : solprop.linear.Frame or None, optional
         Moving frame; None uses the responses' THG choice and the first mode.
@@ -1066,7 +1062,7 @@ def prop_capillary(
         select components and terms, and a named unavailable model fails explicitly.
     n_r : int or None, optional
         Radial nodes of the fixed rule. ``None`` takes
-        :func:`solprop.driver.simulation.default_radial_order` of the mode count.
+        :func:`solprop.driver.routes.hollow.default_radial_order` of the mode count.
     n_theta : int or None, optional
         Azimuthal nodes. Refused for a set of purely radial modes, which need none.
     radial_rule : str, optional
@@ -1079,7 +1075,7 @@ def prop_capillary(
     ionisation_field_range : tuple of float or None, optional
         Field amplitudes in V/m the rate table must cover. ``None`` derives them
         from the input's peak field over the axis and the transverse nodes; see
-        :func:`solprop.driver.simulation.default_field_range`.
+        :func:`solprop.driver.inputs.default_field_range`.
     absorber : solprop.boundaries.Absorber, False or None, optional
         The collar rates; ``None`` builds the default collar of the grid, and
         ``False`` switches both soft collars, temporal and spectral, off and keeps
@@ -1571,7 +1567,7 @@ def prop_waveguide(
     n_r : int or None, optional
         Radial nodes of the fixed rule, or the x-axis nodes of a Cartesian product
         or slab rule. ``None`` takes
-        :func:`solprop.driver.simulation.default_radial_order` of the mode count,
+        :func:`solprop.driver.routes.hollow.default_radial_order` of the mode count,
         or :func:`~solprop.modes.quadrature.cartesian_nodes` of the set's highest
         transverse order where that is larger.
     n_theta : int or None, optional
@@ -1589,7 +1585,7 @@ def prop_waveguide(
     ionisation_field_range : tuple of float or None, optional
         Field amplitudes in V/m the rate table must cover. ``None`` derives them
         from the input's peak field over the axis and the transverse nodes; see
-        :func:`solprop.driver.simulation.default_field_range`.
+        :func:`solprop.driver.inputs.default_field_range`.
     absorber : solprop.boundaries.Absorber, False or None, optional
         The collar rates; ``None`` builds the default collar of the grid, and
         ``False`` switches both soft collars, temporal and spectral, off and keeps

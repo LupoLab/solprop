@@ -24,7 +24,7 @@ from solprop.boundaries import (
     temporal_collar_rate,
 )
 from solprop.driver import SimulationSettings
-from solprop.driver.simulation import _refined_tdse_collar
+from solprop.driver.tdse_run import _refined_tdse_collar
 from solprop.exceptions import DriverError, GridError
 from solprop.grid import FieldGrid
 from solprop.nonlinear.tdse import TDSESampling
@@ -302,7 +302,7 @@ def test_the_tdse_refinement_rebuilds_each_rate_from_its_own_length(grid, kind):
 
 
 def test_a_spectral_only_collar_has_no_walk_off_to_check():
-    from solprop.driver.simulation import _warn_capillary_walkoff  # noqa: PLC0415
+    from solprop.driver.routes.hollow import _warn_capillary_walkoff  # noqa: PLC0415
     from solprop.exceptions import SolpropWarning  # noqa: PLC0415
     from solprop.modes import MarcatiliMode  # noqa: PLC0415
 
