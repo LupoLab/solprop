@@ -347,6 +347,9 @@ def translated(
     - ``wavelength``: the vacuum wavelengths in m the body evaluates, for range
       messages.
     - ``state``: the state asked for, for error messages: ``"30 bar and 293.15 K"``.
+    - Warns :class:`MaterialRangeWarning` once per material and evaluation context if
+      the band leaves the model's qualified intervals or an absorbing model's real part
+      is asked for.
     """
     with _captured(model, quantity, material=material, state=state) as caught:
         yield
@@ -431,6 +434,9 @@ class EvaluationCache:
 
         - ``omega``: the validated angular frequencies in rad/s, the key's second part.
         - ``wavelength``: the vacuum wavelengths of `omega` in m, for range messages.
+        - Returns: fresh, writeable copies of the arrays `compute` returns; nothing is
+          stored if optmat refuses the evaluation. Range warnings are raised as
+          :func:`translated` raises them, at every use whether stored or not.
         """
         values = np.asarray(omega)
         key = (quantity, values.shape, values.dtype.str, values.tobytes())

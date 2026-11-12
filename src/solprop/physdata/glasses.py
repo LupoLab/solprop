@@ -799,6 +799,9 @@ class OptmatGlass(GlassIndex):
     ) -> None:
         """Record the loss a transparent index drops, and warn once beyond the bound.
 
+        The warning, when ``4 pi k / lambda`` exceeds the bound, is once per run inside
+        a run's evaluation context, and once per adapter outside every context.
+
         - ``wavelength``: the vacuum wavelengths in m it was dropped at.
         """
         kappa = np.ravel(np.asarray(extinction, dtype=float))
@@ -982,6 +985,8 @@ def _optmat_solid(
 ) -> OptmatGlass:
     """Resolve a built-in solid's optmat model from a name or an object.
 
+    - ``model``: ``"recommended"``, an optmat model name, or a model object, taken as it
+      is.
     - ``material``: the material's optmat id: ``"SiO2"``, ``"CaF2"``, ``"MgF2"``,
       ``"BaF2"``, ``"Al2O3"``, ``"N-BK7"``, ``"Ag"`` or ``"Al"``.
     - ``axis``: ``"o"`` or ``"e"`` for a uniaxial crystal; required with

@@ -67,6 +67,8 @@ _AIR_COMPOSITIONS: Final = {True: "dry air (N2, O2, Ar)", False: "dry air (N2, O
 def _resolved(key: Gas | str | Species, selection: MaterialSelection | None) -> Species:
     """Return a supplied species as it is, or resolve a name under a selection.
 
+    A supplied species is never matched to a built-in by its name.
+
     - ``selection``: the selection for names; ``None`` is ``MaterialSelection()``.
     """
     if isinstance(key, Species):

@@ -557,7 +557,7 @@ def _plain(value: object) -> object:
 
 
 def _entries(values: Iterable[Mapping[str, object]]) -> tuple[dict[str, object], ...]:
-    """Return entries as plain dicts, each once, in canonical order."""
+    """Return entries as plain dicts, each once, sorted by their canonical JSON."""
     distinct = {
         _canonical(_plain(entry)): cast("dict[str, object]", _plain(entry))
         for entry in values
@@ -568,7 +568,11 @@ def _entries(values: Iterable[Mapping[str, object]]) -> tuple[dict[str, object],
 def _keyed(
     entries: Sequence[Mapping[str, object]], fields: Sequence[str]
 ) -> dict[str, object]:
-    """Key entries by the named fields, so a difference names the entry that moved."""
+    """Key entries by the named fields, so a difference names the entry that moved.
+
+    The key is the fields' values joined by ``:``; entries that share a key take a
+    numbered suffix, ``#1``, ``#2``, in their order.
+    """
     names = [
         ":".join(str(entry.get(name) or "-") for name in fields) for entry in entries
     ]

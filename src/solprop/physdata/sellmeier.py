@@ -471,6 +471,8 @@ def _optmat_gas_model(gas: Gas, choice: ModelChoice) -> _optmat.Untyped:
     """Resolve an optmat dispersion model of a gas from a name or an object.
 
     - ``gas``: the species the model must describe.
+    - ``choice``: ``"recommended"``, an optmat model name (for air, a composition
+      name), or a model object.
     """
     from optmat.exceptions import OptmatError  # noqa: PLC0415 - optmat is lazy
     from optmat.gas.air import AIR_COMPOSITIONS, DEFAULT_AIR, air_model  # noqa: PLC0415
@@ -977,6 +979,8 @@ def _one_plus_chi(
     - ``omega``: angular frequency in rad/s.
     - ``pressure``: absolute pressure in bar.
     - ``temperature``: temperature in K.
+    - Raises :class:`MaterialError` at or below -1 for ``chi1``, which happens only
+      when a model is extrapolated onto a pole.
     """
     values = np.asarray(
         1.0 + chi1(gas, omega, pressure=pressure, temperature=temperature)

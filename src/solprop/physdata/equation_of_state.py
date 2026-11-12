@@ -66,7 +66,8 @@ def _check_temperature(temperature: object) -> None:
     """Reject a non-physical temperature at the boundary rather than inside CoolProp.
 
     - ``temperature``: temperature in K; typed ``object`` because refusing what is not a
-      number, a temperature path above all, is this check's job.
+      number, a temperature path above all, is this check's job: one state has one
+      temperature.
     """
     if isinstance(temperature, bool) or not isinstance(temperature, numbers.Real):
         raise MaterialError(

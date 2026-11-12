@@ -199,7 +199,10 @@ class OptmatGas:
 
     @functools.cached_property
     def _equation(self) -> _optmat.Untyped:
-        """Return optmat's equation of state of the gas, resolved once."""
+        """Return optmat's equation of state of the gas, resolved once.
+
+        For ``Gas.Air`` it is the pseudo-pure dry air's.
+        """
         from optmat.gas.eos import (  # noqa: PLC0415 - optmat is imported lazily
             air_equation_of_state,
             equation_of_state,
