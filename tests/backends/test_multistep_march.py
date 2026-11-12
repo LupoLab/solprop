@@ -20,7 +20,6 @@ from solprop.backends.registry import resolve_name
 from solprop.driver.simulation import Simulation, SimulationSettings
 from solprop.exceptions import (
     BackendError,
-    DriverError,
     ResponseBudgetError,
     SolpropWarning,
 )
@@ -131,21 +130,17 @@ def test_adams_call_ledger(narrow_grid, soliton_problem, method, per_step):
     assert max(ledger.orders) <= method.order
 
 
-def test_settings_refuse_an_integrator_elsewhere():
+def test_settings_refuse_a_backend_that_is_neither_whatever_the_integrator():
+    """Both backends step every integrator; the registry refuses any other name."""
     planes = [1.0]
     common = {"save_planes": planes, "dz_max": 0.1, "dz_init": 1e-3}
     control = PIController(rtol=1e-6, atol=1e-12)
-    with pytest.raises(DriverError, match="RungeKutta"):
-        SimulationSettings(control, backend="cuda", integrator=PEC45, **common)
-    with pytest.raises(DriverError, match="RungeKutta"):
-        SimulationSettings(control, backend="cuda", **common)
+    for integrator in (PEC45, None, RungeKutta(TSIT5)):
+        with pytest.raises(BackendError, match="'cuda' is not a backend"):
+            SimulationSettings(control, backend="cuda", integrator=integrator, **common)
     settings = SimulationSettings(control, integrator=PEC45, **common)
     # Resolved as for the Runge-Kutta march (SEP 16 phase 3).
     assert settings.backend == resolve_name("auto")
-    # Any backend steps the Runge-Kutta march.
-    assert SimulationSettings(
-        control, backend="cuda", integrator=RungeKutta(TSIT5), **common
-    ).integrator == RungeKutta(TSIT5)
 
 
 def test_the_default_integrator_is_exponential_adams():
