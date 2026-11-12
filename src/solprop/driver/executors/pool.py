@@ -192,18 +192,7 @@ class PlaneScalars:
 
 
 def _is_stop(message: object) -> bool:
-    """Return whether a message from the controller asks the worker to stop.
-
-    Parameters
-    ----------
-    message : object
-        What arrived on the pipe.
-
-    Returns
-    -------
-    bool
-        True for the stop message.
-    """
+    """Return whether a message from the controller asks the worker to stop."""
     return isinstance(message, str) and message == STOP
 
 
@@ -213,11 +202,6 @@ class _Channel:
     :meth:`is_set` is the stop flag the worker's run polls, as any run polls its flag.
     It reads what has arrived without waiting, remembers a stop, and keeps any other
     message for :meth:`command`, so polling never consumes a command.
-
-    Parameters
-    ----------
-    connection : Connection or PipeConnection
-        The worker's end of the pipe.
     """
 
     def __init__(self, connection: _Pipe) -> None:
@@ -227,13 +211,7 @@ class _Channel:
         self._stopped = False
 
     def is_set(self) -> bool:
-        """Return whether the controller has asked the worker to stop.
-
-        Returns
-        -------
-        bool
-            True once a stop message has arrived; it stays set.
-        """
+        """Return whether the controller has asked the worker to stop."""
         while not self._stopped and self.connection.poll():
             message = self.connection.recv()
             if _is_stop(message):
@@ -245,10 +223,7 @@ class _Channel:
     def command(self) -> object:
         """Return the next command, waiting for it; a stop message is remembered.
 
-        Returns
-        -------
-        object
-            ``("run" or "probe", point)``, or ``None`` to exit.
+        - Returns: ``("run" or "probe", point)``, or ``None`` to exit.
         """
         while not self._held:
             message = self.connection.recv()
@@ -259,15 +234,7 @@ class _Channel:
         return self._held.popleft()
 
     def send(self, call: str, args: tuple[object, ...]) -> None:
-        """Send one reporter call to the controller.
-
-        Parameters
-        ----------
-        call : str
-            The reporter method.
-        args : tuple
-            Its picklable arguments.
-        """
+        """Send one reporter call to the controller."""
         self.connection.send((PROGRESS, call, args))
 
 
@@ -278,11 +245,6 @@ class _WorkerReporter:
     :class:`PlaneScalars` of its summary. An interruption carries its position,
     whether the worker's stop flag caused it, and its text: the exception itself may
     not pickle, and the stop flag that stopped it is the worker's, not the caller's.
-
-    Parameters
-    ----------
-    channel : _Channel
-        The worker's pipe.
     """
 
     def __init__(self, channel: _Channel) -> None:
@@ -290,70 +252,26 @@ class _WorkerReporter:
         self.channel = channel
 
     def summary(self, text: str) -> None:
-        """Send the run's summary block.
-
-        Parameters
-        ----------
-        text : str
-            See :meth:`solprop.log.SummarisingReporter.summary`.
-        """
+        """Send the run's summary block."""
         self.channel.send("summary", (text,))
 
     def started(self, z_start: float, z_end: float, n_planes: int) -> None:
-        """Send the run's start.
-
-        Parameters
-        ----------
-        z_start, z_end : float
-            See :meth:`solprop.log.ProgressReporter.started`.
-        n_planes : int
-            See :meth:`solprop.log.ProgressReporter.started`.
-        """
+        """Send the run's start."""
         self.channel.send("started", (float(z_start), float(z_end), int(n_planes)))
 
     def step(self, z: float, dz: float, accepted: bool) -> None:
-        """Send nothing: a step is on the hot path.
-
-        Parameters
-        ----------
-        z, dz : float
-            See :meth:`solprop.log.ProgressReporter.step`.
-        accepted : bool
-            See :meth:`solprop.log.ProgressReporter.step`.
-        """
+        """Send nothing: a step is on the hot path."""
 
     def plane(self, z: float, summary: PlaneSummary) -> None:
-        """Send a plane's position and summary.
-
-        Parameters
-        ----------
-        z : float
-            See :meth:`solprop.log.ProgressReporter.plane`.
-        summary : solprop.log.PlaneSummary
-            See :meth:`solprop.log.ProgressReporter.plane`.
-        """
+        """Send a plane's position and summary."""
         self.channel.send("plane", (float(z), PlaneScalars.of(summary)))
 
     def finished(self, total: float) -> None:
-        """Send the run's end.
-
-        Parameters
-        ----------
-        total : float
-            See :meth:`solprop.log.ProgressReporter.finished`.
-        """
+        """Send the run's end."""
         self.channel.send("finished", (float(total),))
 
     def interrupted(self, z: float, error: BaseException) -> None:
-        """Send that the run stopped before its end.
-
-        Parameters
-        ----------
-        z : float
-            See :meth:`solprop.log.InterruptibleReporter.interrupted`.
-        error : BaseException
-            See :meth:`solprop.log.InterruptibleReporter.interrupted`.
-        """
+        """Send that the run stopped before its end."""
         self.channel.send(
             "interrupted",
             (
@@ -415,13 +333,7 @@ class _MemoryStatus(ctypes.Structure):
 
 
 def _kernel32() -> ctypes.CDLL:
-    """Load Windows' kernel32, which carries both memory queries, typed for them.
-
-    Returns
-    -------
-    ctypes.CDLL
-        The library handle.
-    """
+    """Load Windows' kernel32, which carries both memory queries, typed for them."""
     kernel32 = ctypes.WinDLL("kernel32")  # pyright: ignore[reportAttributeAccessIssue]
     # The process pseudo-handle is pointer-sized ((HANDLE)-1): ctypes' default int
     # return type truncates it to 32 bits, and Windows refuses the truncated handle.
@@ -439,15 +351,7 @@ def _kernel32() -> ctypes.CDLL:
 def _windows_peak_working_set() -> int:
     """Read this process's peak working set, Windows' counterpart of peak RSS.
 
-    Returns
-    -------
-    int
-        Peak working set, bytes.
-
-    Raises
-    ------
-    DriverError
-        If Windows refuses the query.
+    - Returns: peak working set, bytes.
     """
     kernel32 = _kernel32()
     counters = _ProcessMemoryCounters()
@@ -463,15 +367,7 @@ def _windows_peak_working_set() -> int:
 def _windows_physical_memory() -> int:
     """Read the installed physical memory on Windows.
 
-    Returns
-    -------
-    int
-        Total physical memory, bytes.
-
-    Raises
-    ------
-    DriverError
-        If Windows refuses the query.
+    - Returns: total physical memory, bytes.
     """
     status = _MemoryStatus()
     status.dwLength = ctypes.sizeof(status)
@@ -483,10 +379,7 @@ def _windows_physical_memory() -> int:
 def _memory_limit() -> int:
     """Read the smallest physical or scheduler memory allocation.
 
-    Returns
-    -------
-    int
-        Smallest available memory limit, bytes.
+    - Returns: smallest available memory limit, bytes.
     """
     limits: list[int] = []
     if sys.platform == "win32":
@@ -512,13 +405,7 @@ def _memory_limit() -> int:
 
 
 def _cpus() -> tuple[int, ...]:
-    """Restrict CPU choices to affinity, scheduler and cgroup allocations.
-
-    Returns
-    -------
-    tuple of int
-        CPUs available within the allocation.
-    """
+    """Restrict CPU choices to affinity, scheduler and cgroup allocations."""
     try:
         budget = thread_budget()
     except ValueError as error:
@@ -597,13 +484,7 @@ class MemoryBudget:
 
 
 def _limit_blas(threads: int) -> None:
-    """Hold this worker's NumPy and SciPy BLAS libraries to its thread allowance.
-
-    Parameters
-    ----------
-    threads : int
-        Positive threads per worker.
-    """
+    """Hold this worker's NumPy and SciPy BLAS libraries to its thread allowance."""
     # Delayed: only this platform's workers load these before their first command.
     import scipy.linalg  # noqa: F401, PLC0415 - loads SciPy's own BLAS, to be limited
     import threadpoolctl  # noqa: PLC0415
@@ -619,16 +500,9 @@ def _serve(
 ) -> None:
     """Process bounded commands inside one spawned interpreter.
 
-    Parameters
-    ----------
-    connection : Connection or PipeConnection
-        Worker command/result pipe.
-    work : Callable
-        Pickleable point operation and optional memory probe.
-    cpus : tuple[int, ...]
-        Allocated logical CPU identifiers; empty leaves affinity unchanged.
-    blas_threads : int, optional
-        Threads to hold BLAS to after loading it, where the environment can't.
+    - ``cpus``: allocated logical CPU identifiers; empty leaves affinity unchanged.
+    - ``blas_threads``: threads to hold BLAS to after loading it, where the environment
+      can't.
     """
     channel = _Channel(connection)
     try:
@@ -665,19 +539,8 @@ def _spawn(
 ) -> tuple[BaseProcess, _Pipe]:
     """Set the child environment before interpreter startup.
 
-    Parameters
-    ----------
-    work : Callable
-        Pickleable point operation and optional memory probe.
-    threads : int
-        Positive threads per worker, established before imports.
-    cpus : tuple[int, ...]
-        Allocated logical CPU identifiers; empty leaves affinity unchanged.
-
-    Returns
-    -------
-    tuple
-        Worker process and controller pipe.
+    - ``cpus``: allocated logical CPU identifiers; empty leaves affinity unchanged.
+    - Returns: worker process and controller pipe.
     """
     context = mp.get_context("spawn")
     parent, child = context.Pipe()
@@ -707,18 +570,7 @@ class _Progress:
 
 
 def _receive(connection: _Pipe) -> object:
-    """Read a completed result or report abnormal worker termination.
-
-    Parameters
-    ----------
-    connection : Connection or PipeConnection
-        Worker command/result pipe.
-
-    Returns
-    -------
-    object
-        Worker result, or a `_Progress` call of the run still in progress.
-    """
+    """Read a completed result or report abnormal worker termination."""
     try:
         message = connection.recv()
     except EOFError as error:
@@ -734,24 +586,7 @@ def _receive(connection: _Pipe) -> object:
 def _failed_work(work: Callable, point: object, error: _WorkerError) -> object:
     """Let a scan record a crashed point while generic executors still raise.
 
-    Parameters
-    ----------
-    work : callable
-        Worker operation with an optional failure-result constructor.
-    point : object
-        Description assigned to the failed worker.
-    error : _WorkerError
-        Child failure or unexpected pipe closure.
-
-    Returns
-    -------
-    object
-        Explicit failed result, if the work supports one.
-
-    Raises
-    ------
-    DriverError
-        If the worker operation has no failure-result contract.
+    - Returns: explicit failed result, if the work supports one.
     """
     failed = getattr(work, "failure", None)
     if not callable(failed):
@@ -760,15 +595,7 @@ def _failed_work(work: Callable, point: object, error: _WorkerError) -> object:
 
 
 def _stop(process: BaseProcess, connection: _Pipe) -> None:
-    """Close a worker and release its pipe even after a failure.
-
-    Parameters
-    ----------
-    process : BaseProcess
-        Spawned worker process.
-    connection : Connection or PipeConnection
-        Worker command/result pipe.
-    """
+    """Close a worker and release its pipe even after a failure."""
     try:
         if process.is_alive():
             connection.send(None)
@@ -889,17 +716,7 @@ class Pool:
     def _admit(self, work: Callable, first: object) -> tuple[tuple[int, ...], int]:
         """Probe the first point and calculate the worker allocation.
 
-        Parameters
-        ----------
-        work : Callable
-            Pickleable point operation and optional memory probe.
-        first : object
-            First pending point, used for memory admission.
-
-        Returns
-        -------
-        tuple
-            Allocated CPUs and admitted worker count.
+        - Returns: allocated CPUs and admitted worker count.
         """
         available = _cpus()
         # SEP 46: the workers' allocation is calibrated at the standard level before
@@ -932,15 +749,7 @@ class Pool:
 
 
 class _Session:
-    """The workers of one :meth:`Pool.run`, the points they run, and the stop.
-
-    Parameters
-    ----------
-    policy : Pool
-        The pool's resource controls.
-    work : callable
-        The point work, :class:`ControlledWork` or not.
-    """
+    """The workers of one :meth:`Pool.run`, the points they run, and the stop."""
 
     def __init__(self, policy: Pool, work: Callable) -> None:
         """Hold the work, with no worker started and no stop asked for."""
@@ -955,17 +764,7 @@ class _Session:
     def start(
         self, pending: Iterator[object], available: tuple[int, ...], count: int
     ) -> None:
-        """Start up to `count` workers, each with its first point.
-
-        Parameters
-        ----------
-        pending : iterator
-            The points, claimed lazily as workers become free.
-        available : tuple of int
-            The CPUs the workers are pinned to, `threads` each.
-        count : int
-            The admitted workers.
-        """
+        """Start up to `count` workers, each with its first point."""
         self.pending = pending
         threads = self.policy.threads
         for slot in range(count):
@@ -982,13 +781,7 @@ class _Session:
             self._dispatch(process, connection, cpus, point)
 
     def drain(self) -> Iterator[object]:
-        """Collect results as they finish, and keep the free workers busy.
-
-        Yields
-        ------
-        object
-            Results in completion order.
-        """
+        """Collect results as they finish, and keep the free workers busy."""
         # A short wait while a flag can stop the pool: it is read between messages.
         timeout = 0.5 if self.stop is None else 0.1
         while self.active:
@@ -1023,34 +816,14 @@ class _Session:
         cpus: tuple[int, ...],
         point: object,
     ) -> None:
-        """Send a point to a worker and record it.
-
-        Parameters
-        ----------
-        process : BaseProcess
-            The worker.
-        connection : Connection or PipeConnection
-            Its pipe.
-        cpus : tuple of int
-            Its CPUs.
-        point : object
-            The point it runs.
-        """
+        """Send a point to a worker and record it."""
         self.active[connection] = process, cpus, point
         connection.send(("run", point))
         if self.controlled is not None:
             self.controlled.dispatched(point)
 
     def _next(self, connection: _Pipe, *, crashed: bool) -> None:
-        """Give a worker that returned its result the next point, or shut it down.
-
-        Parameters
-        ----------
-        connection : Connection or PipeConnection
-            The worker's pipe.
-        crashed : bool
-            Whether the worker died, so that a fresh one replaces it.
-        """
+        """Give a worker that returned its result the next point, or shut it down."""
         process, cpus, _ = self.active[connection]
         point: object = None
         if not self._halt():
@@ -1066,13 +839,7 @@ class _Session:
         self._dispatch(process, connection, cpus, point)
 
     def _halt(self) -> bool:
-        """Ask every busy worker to stop once the caller's flag is set.
-
-        Returns
-        -------
-        bool
-            Whether the pool is stopping.
-        """
+        """Ask every busy worker to stop once the caller's flag is set."""
         if not self.stopping and self.stop is not None and self.stop.is_set():
             self.stopping = True
             for busy in self.active:

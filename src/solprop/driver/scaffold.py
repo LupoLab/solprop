@@ -101,20 +101,13 @@ def gnlse_source(
     to_field = sqrtw_to_vm(problem.aeff)
     n_t, n_to = grid.n_t, grid.n_to
 
-    def nonlinear(
+    def _nonlinear(
         state: Complex[np.ndarray, " n_omega"],
     ) -> Complex[np.ndarray, " n_omega"]:
         """Return the nonlinear term of the propagation equation for one spectrum.
 
-        Parameters
-        ----------
-        state : numpy.ndarray
-            Stored spectrum, shape ``(n_omega,)``, in the square root of watts.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``N[state]``, shape ``(n_omega,)``, in the square root of watts per metre.
+        - Returns: ``N[state]``, shape ``(n_omega,)``, in the square root of watts per
+          metre.
         """
         fine = fourier.oversample(state, n_to, kind="envelope")
         envelope = fourier.inverse(fine, kind="envelope") * to_field
@@ -122,7 +115,7 @@ def gnlse_source(
         transformed = fourier.forward(polarisation[0], kind="envelope")
         return prefactor * fourier.crop(transformed, n_t, kind="envelope")
 
-    return nonlinear
+    return _nonlinear
 
 
 def propagate_fixed_rk4(
