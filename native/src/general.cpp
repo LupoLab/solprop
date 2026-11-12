@@ -322,6 +322,7 @@ void cartesian_for(const char* label, const ExecutionSpace& execution,
       label, Kokkos::RangePolicy<ExecutionSpace>(execution, 0, rows),
       KOKKOS_LAMBDA(const std::size_t row) {
         for (std::size_t inner = 0; inner < width; ++inner)
+          // NOLINTNEXTLINE(readability-suspicious-call-argument): the names only coincide
           element(row, inner);
       });
 #endif
@@ -4560,6 +4561,7 @@ void GeneralWorkspace::upload() {
 // transform/propagation rounding budgets rather than bitwise agreement.
 const ExecutionSpace& GeneralWorkspace::fft_space_for(const std::size_t samples,
                                                       const std::size_t length) {
+  // NOLINTNEXTLINE(readability-suspicious-call-argument): the names only coincide
   return fft_pool_.get(CpuOperation::fft, samples, length);
 }
 
@@ -16358,6 +16360,7 @@ MonitorSums monitor_sums(const char* label, const ExecutionSpace& execution,
         double total = 0.0;
         double regions[4] = {0.0, 0.0, 0.0, 0.0};
         for (std::size_t index = first; index < last; ++index) {
+          // NOLINTNEXTLINE(readability-suspicious-call-argument): the names only coincide
           const double value = power(row, index);
           total += value;
           for (std::size_t region = 0; region < 4; ++region)
