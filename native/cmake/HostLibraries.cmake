@@ -492,28 +492,26 @@ endif()
 # single-precision libraries as well, though each of its fftwf_ calls sits behind an
 # `if constexpr` on float that this package never instantiates. Name the double
 # libraries for them, as the MKL branch above does, so that a build needs no
-# single-precision FFTW and links none (FindFFTW keeps cached results; its own search
-# is repeated here for the double libraries, which it would otherwise find later).
+# single-precision FFTW and links none. FindFFTW keeps these cached results; a
+# non-default FFTW is named with FFTW_ROOT (or FFTWDIR), as for FindFFTW.
 if(SOLPROP_NATIVE_FFT_PROVIDER STREQUAL "FFTW")
-  if(NOT FFTW_ROOT AND DEFINED ENV{FFTWDIR})
-    set(FFTW_ROOT "$ENV{FFTWDIR}")
+  set(_suffixes "${CMAKE_FIND_LIBRARY_SUFFIXES}")
+  if(FFTW_USE_STATIC_LIBS)
+    set(CMAKE_FIND_LIBRARY_SUFFIXES "${CMAKE_STATIC_LIBRARY_SUFFIX}")
   endif()
-  if(FFTW_ROOT)
-    set(_fftw_search PATHS "${FFTW_ROOT}"
-        PATH_SUFFIXES lib lib64 lib/x86_64-linux-gnu NO_DEFAULT_PATH)
-  else()
-    find_package(PkgConfig QUIET)
-    if(PKG_CONFIG_FOUND)
-      pkg_check_modules(PKG_FFTW QUIET fftw3)
-    endif()
-    set(_fftw_search PATHS ${PKG_FFTW_LIBRARY_DIRS})
-  endif()
-  find_library(FFTW_DOUBLE_LIB NAMES fftw3 libfftw3-3 ${_fftw_search} REQUIRED)
-  set(FFTW_FLOAT_LIB "${FFTW_DOUBLE_LIB}" CACHE FILEPATH
-      "The double-precision FFTW: the build makes no single-precision call" FORCE)
+  set(_components DOUBLE_LIB:fftw3)
   if(SOLPROP_NATIVE_ENABLE_OPENMP)
-    find_library(FFTW_DOUBLE_OPENMP_LIB NAMES fftw3_omp ${_fftw_search} REQUIRED)
-    set(FFTW_FLOAT_OPENMP_LIB "${FFTW_DOUBLE_OPENMP_LIB}" CACHE FILEPATH
-        "The double-precision FFTW: the build makes no single-precision call" FORCE)
+    list(APPEND _components DOUBLE_OPENMP_LIB:fftw3_omp)
   endif()
+  foreach(_component IN LISTS _components)
+    string(REPLACE ":" ";" _component "${_component}")
+    list(GET _component 0 _variable)
+    list(GET _component 1 _name)
+    find_library(FFTW_${_variable} NAMES ${_name} HINTS "${FFTW_ROOT}" "$ENV{FFTWDIR}"
+                 PATH_SUFFIXES lib lib64 REQUIRED)
+    string(REPLACE "DOUBLE" "FLOAT" _float "${_variable}")
+    set(FFTW_${_float} "${FFTW_${_variable}}" CACHE FILEPATH
+        "The double-precision FFTW: the build makes no single-precision call" FORCE)
+  endforeach()
+  set(CMAKE_FIND_LIBRARY_SUFFIXES "${_suffixes}")
 endif()
