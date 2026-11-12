@@ -39,14 +39,11 @@ from solprop.exceptions import DriverError, OutputError, StopRequested
 from solprop.fourier import spectrum_to_optics
 from solprop.log import (
     BarReporter,
-    InterruptibleReporter,
     NullScanReporter,
     ProgressChoice,
     ProgressReporter,
     ScanReporter,
     StopFlag,
-    SummarisingReporter,
-    WatchingScanReporter,
     is_interactive,
 )
 from solprop.output.hdf5 import HDF5Output, _dataset, open_file
@@ -368,13 +365,11 @@ class _ScanEvents:
     def begin(self, point: ScanPoint) -> ProgressReporter | None:
         """Report a point's start and return the reporter for its run, if any.
 
-        - Returns: the reporter :meth:`solprop.log.WatchingScanReporter.point_reporter`
+        - Returns: the reporter :meth:`solprop.log.ScanReporter.point_reporter`
           returned, or ``None``.
         """
         self.started.add(point.index)
         self.reporter.point_started(point.index, point)
-        if not isinstance(self.reporter, WatchingScanReporter):
-            return None
         watcher = self.reporter.point_reporter(point.index)
         if watcher is not None:
             self.watchers[point.index] = watcher
@@ -396,8 +391,7 @@ class _ScanEvents:
         if watcher is None:
             return
         if call == "summary":
-            if isinstance(watcher, SummarisingReporter):
-                watcher.summary(cast(str, args[0]))
+            watcher.summary(cast(str, args[0]))
         elif call == "started":
             z_start, z_end, n_planes = cast(tuple[float, float, int], args)
             watcher.started(z_start, z_end, n_planes)
@@ -406,7 +400,7 @@ class _ScanEvents:
             watcher.plane(z, summary)
         elif call == "finished":
             watcher.finished(cast(float, args[0]))
-        elif call == "interrupted" and isinstance(watcher, InterruptibleReporter):
+        elif call == "interrupted":
             z, stopped, text = cast(tuple[float, bool, str], args)
             error: BaseException = (
                 StopRequested(stop)
@@ -900,7 +894,7 @@ def execute_scan(
         build,
         options,
         scan.name,
-        watched=display is None and isinstance(progress, WatchingScanReporter),
+        watched=display is None,
         stop=stop,
         events=events,
         keeps_backend=isinstance(executor, Local),

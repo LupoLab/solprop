@@ -68,12 +68,7 @@ from solprop.exceptions import (
     StopRequested,
 )
 from solprop.fourier import GridKind, spectrum_to_internal
-from solprop.log import (
-    InterruptibleReporter,
-    ProgressReporter,
-    StopFlag,
-    SummarisingReporter,
-)
+from solprop.log import ProgressReporter, StopFlag
 from solprop.monitor import BoundaryCheck
 from solprop.output.hdf5 import HDF5Output
 from solprop.output.metadata import RUN_SUMMARY_ANNOTATION, RunMetadata
@@ -635,8 +630,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                         terminal_rows = chunks.joined()
                         raise event.error
         reporter.finished(time.perf_counter() - started)
-        if isinstance(reporter, SummarisingReporter):
-            reporter.summary(resources(usage(clock)))
+        reporter.summary(resources(usage(clock)))
     except BaseException as error:
         failure = error
         failed_z = _persist_failure(
@@ -670,8 +664,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                 if failed_z is not None
                 else "no state was written there",
             )
-        if isinstance(reporter, InterruptibleReporter):
-            reporter.interrupted(reached, error)
+        reporter.interrupted(reached, error)
         raise
     finally:
         try:
@@ -952,8 +945,7 @@ def _announce(  # noqa: PLR0917 - called positionally
 ) -> None:
     """Show the run's summary through the reporter and record it on a plane store.
 
-    - ``reporter``: where progress goes; only a :class:`solprop.log.SummarisingReporter`
-      is shown the summary.
+    - ``reporter``: where progress goes.
     - ``start``: the first save plane beyond the loaded state, and the position the run
       starts from, m.
     """
@@ -969,8 +961,7 @@ def _announce(  # noqa: PLR0917 - called positionally
         z_start=z_start,
         boundary_check=boundary_check,
     )
-    if isinstance(reporter, SummarisingReporter):
-        reporter.summary(summary.text())
+    reporter.summary(summary.text())
     if isinstance(output, PlaneStore):
         # An annotation stays outside the record and its hash, so a summary needs no
         # schema of its own; a resume adds its continuation's to the list.

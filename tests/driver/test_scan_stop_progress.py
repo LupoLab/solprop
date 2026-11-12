@@ -28,7 +28,7 @@ from solprop.driver.scan import Scan, run_scan
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError, StopRequested
 from solprop.grid import EnvelopeGrid
-from solprop.log import NullReporter, NullScanReporter, PlaneSummary
+from solprop.log import NullReporter, NullScanReporter, PlaneSummary, ScanReporter
 from solprop.stepper import FixedSchedule, Multistep
 
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
@@ -570,8 +570,8 @@ def test_the_worker_reporter_sends_scalars_never_a_field():
     assert type(received[1][2][0]) is float
 
 
-class PlainScanReporter:
-    """A scan reporter written to the four calls alone, which watches no point."""
+class PlainScanReporter(ScanReporter):
+    """A scan reporter that keeps the default point_reporter, so watches no point."""
 
     def __init__(self):
         self.calls = []
@@ -589,7 +589,7 @@ class PlainScanReporter:
         self.calls.append("scan_finished")
 
 
-def test_a_reporter_without_point_reporter_watches_no_point(tmp_path):
+def test_a_reporter_with_the_default_point_reporter_watches_no_point(tmp_path):
     reporter = PlainScanReporter()
     run_scan(
         Scan("plain", power=[1.0]),
@@ -611,8 +611,8 @@ def test_the_bar_choice_draws_one_outer_bar(tmp_path, capsys):
     assert "1/1" in capsys.readouterr().err
 
 
-class Plain:
-    """A reporter with the four basic calls only: no summary and no interruption."""
+class Plain(NullReporter):
+    """A reporter that overrides the four basic calls and inherits the other two."""
 
     def __init__(self):
         self.calls = []
@@ -630,7 +630,7 @@ class Plain:
         self.calls.append("finished")
 
 
-def test_relayed_calls_reach_only_what_a_point_reporter_implements():
+def test_relayed_calls_reach_the_point_reporter():
     flag = threading.Event()
     full, plain = PointRecorder(), Plain()
     reporters = {0: full, 1: plain, 2: None}

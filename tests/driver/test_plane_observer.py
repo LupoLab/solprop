@@ -15,7 +15,7 @@ from solprop.backends.host.driver import HostDriver
 from solprop.backends.registry import available
 from solprop.exceptions import DriverError, SolpropWarning
 from solprop.grid import EnvelopeGrid
-from solprop.log import NullReporter, PlaneObserver
+from solprop.log import NullReporter, ProgressReporter
 from solprop.output.hdf5 import open_file
 from solprop.processing import get_spectral_density, get_spectrum
 from solprop.stepper import FixedSchedule, RungeKutta
@@ -93,8 +93,8 @@ def _scheduled(build_simulation, backend, **keywords):
 
 
 def test_a_quiet_reporter_is_no_observer():
-    assert not isinstance(NullReporter(), PlaneObserver)
-    assert isinstance(Watcher(), PlaneObserver)
+    assert not hasattr(NullReporter(), "observe_plane")
+    assert isinstance(Watcher(), ProgressReporter)
 
 
 @pytest.mark.parametrize("backend", BACKENDS)

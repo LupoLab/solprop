@@ -268,18 +268,18 @@ can watch them.
 ## Watching and stopping a scan
 
 `progress=` of `run_scan` takes, beside `"auto"`, `"bar"`, `"log"` and `"none"`, a
-{py:class}`~solprop.log.ScanReporter`: an object with four methods, which replaces the
+{py:class}`~solprop.log.ScanReporter`: an object with five methods, which replaces the
 bar and the per-point lines. `scan_started(n_points)` is called once with the number of
 selected points, `point_started(index, point)` and `point_finished(index, status, wall)`
 once for each point dispatched or collected, and `scan_finished()` once when the scan
 returns. The status is `"done"`, `"failed"`, `"skipped"` (complete in the file),
 `"conflict"` (complete, with a stored record that agrees but for rounding, and kept) or
 `"stopped"` (below); `wall` is the point's build and run time in seconds as its worker
-measured it. A reporter that also has `point_reporter(index)`
-({py:class}`~solprop.log.WatchingScanReporter`) is asked, before each point runs, for a
+measured it. `point_reporter(index)` is asked, before each point runs, for a
 {py:class}`~solprop.log.ProgressReporter` that receives that point's own run
 ([writing your own](../performance/progress.md#writing-your-own)), or `None` for none.
-Subclass {py:class}`~solprop.log.NullScanReporter` and override what you need:
+Subclass {py:class}`~solprop.log.NullScanReporter` and override what you need; the rest
+are no-ops, and its `point_reporter` returns `None`:
 
 ```{code-block} python
 import threading
